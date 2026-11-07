@@ -2461,7 +2461,11 @@
         "crates/cellar/tests/support/cell_group_transition_capacity.rs",
         "crates/cellar/fleet/management/raft/partition_selection.rs",
         "crates/cellar/fleet/management/raft/partition_selection_tests.rs",
-        "crates/cellar/tests/support/cell_group_transition_selection.rs"
+        "crates/cellar/tests/support/cell_group_transition_selection.rs",
+        "crates/cellar/durability/raft/cell_groups/source_reclaim.rs",
+        "crates/cellar/durability/raft/cell_groups/source_reclaim_tests.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/source_reclaim.rs",
+        "crates/cellar/tests/support/cell_group_transition_reclamation.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [

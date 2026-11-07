@@ -70,26 +70,32 @@ RustFS cases prove before/after-CAS uncertainty, missing-plan refusal, cold samp
 recovery and node-owned split execution; both local children are discovered while
 the physically retained parent is excluded. See [progress](progress.md).
 
-Next implement safe physical source reclamation. The durable log mapping and the
-parked registration currently prevent history reuse and still consume slots.
-Select exact cleanup authority after child coverage and joined source retirement,
-then atomically sync an engine tombstone with removal of the old group log. Preserve
-permanent history refusal on every genesis/import/restart path. Drop registration
-and image/page owners only through their actual joined completion; pinned closures
-remain protected. Refund each resource only after its exact boot/history-bound
-physical completion proof; a synced logical tombstone does not prove segment
-bytes reclaimed. Retain byte charges until file cleanup/purge proves release.
-A smaller inventory sample alone cannot lower those floors. Qualify another
-movement cycle under the unchanged slot/disk budget and retained restart refusal
-of the old source. Keep permanent source-history retirement separate from cleanup
-of an obsolete member of a still-live history, which needs its own current join
-authorization before that node can receive a new member identity.
+At `1154e5f1`, explicit operator collection verifies selected retirement and
+released holds, atomically syncs permanent source refusal with engine Clean,
+and joins bounded page/image work before releasing the local registry slot.
+Metadata is quota-bounded and charged to the existing cache budget; physical work
+uses the existing preparation bank/semaphore. Retained startup and exact replay
+preserve refusal. Three storage faults/quota checks, all eight native transition
+cases, both scheduler cases, the full merge regression and the fixed real RustFS
+reclamation suite pass. Integrations cover both modes. See progress.md for hashes
+and the concurrent startup timeout retained as a development attempt.
 
-Then supply deployment placement and stable-operation identity policy to the
-sampler and qualify larger inventory profiles, whole-group movement, reserve and
-fanout. Late child attachment and destination failures retain their own gates.
+Keep work on CG-11 until every gap closes. Next persist a cleanup intent while
+holding the transition disruption, require all engine-bound node settlements
+before completion, and refund each capacity floor exactly once from actual
+physical proof. Current local collection leaves Fleet floors conservative.
+Logical Clean does not prove segment bytes reclaimed; retain byte/memory charges
+until their owning barriers prove release. Qualify another movement cycle under
+the unchanged slot/disk profile. Distinguish permanent source-history retirement
+from obsolete-member cleanup of a live group, which needs current join authority.
+
+Then supply deployment placement, stable operation identities and durable request
+ownership to the sampler. Qualify whole-group scale out/in, failure-domain
+repair/reserve and bounded fanout, plus late destination failures, larger
+inventory/quota profiles and actual physical peaks. The three exact required
+scheduler cases remain absent, so CG-11 is IN_PROGRESS with no full acceptance.
 Consent remains explicit and irreversible sealing requires the recorded authority.
-Continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
+After CG-11 closes, continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all
 voter disks erased. Keep CG-15/16's combined-source load/crash, public cutover and
 legacy audit gates open. Full public capability coverage and existing Fleet data

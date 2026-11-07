@@ -1724,3 +1724,31 @@ preserves selected entries and closes new admission until a reservation fits.
 This contract is being implemented and qualified. It does not by itself prove
 physical disk bounds, full-backend S3 outage authority, fenced fresh-quorum serving
 or the complete CG-06 gate. Those original requirements remain unchanged.
+
+### Permanently retired source collection
+
+`RaftFleetControl::reclaim_transition_source` uses the original managed operator
+plan and source identity. Fresh collection requires the directory-selected
+retirement set, released parent holds, exact local final member and a quiesced
+controller roster. It cannot collect an obsolete member of a still-live history.
+
+The engine sync atomically removes the source log and mapping and records a
+permanent refusal bound to node, disk, engine, history, plan and retirement cut.
+Old handles refuse, and the group ID cannot be recreated under another namespace
+or incarnation. Refusals have a persisted count and explicit engine quota. Each retains 16 KiB of
+the existing cache budget, including after reopen; quota
+exhaustion retains the existing source slot and refuses fresh collection.
+
+Only that sync permits current and checkpoint pins to detach. The joined node
+controller scans bounded private page and shared image inventories. Reader and
+sibling pins remain authoritative; uncertain deletes quarantine their owner.
+Physical work retains the existing preparation budget even if its caller leaves.
+A synced completion receipt precedes controller slot release. Retained startup
+can resume an incomplete receipt using only its private history path, and completed
+receipts replay without reopening the old log. Joined shutdown drops parked page
+owners before releasing host resources.
+
+The operation releases local log and private-page occupancy. Fleet resource floors
+remain conservative until a separate, rooted settlement proves the exact refund.
+Shared image collection releases only unpinned files through their store's existing
+barriers; source completion does not claim a durable-byte or memory refund.

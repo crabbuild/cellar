@@ -12,6 +12,78 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 retired-source reclamation checkpoint
+
+At `1154e5f1d0183b949f90138a801e47de71968051`, the public operator API
+`RaftFleetControl::reclaim_transition_source` collects a quiesced transition
+parent only after the selected retirement set and released parent holds verify.
+The local final member, birth, root, seal, retirement, node, disk and engine must
+match. Completed local receipts replay after retained restart. An incomplete
+receipt resumes only its private history path. This authority applies to
+permanently retired sources; an obsolete member of a live history needs separate
+membership and join authorization.
+
+The engine sync atomically replaces the complete source log and mapping with a
+permanent refusal. Every mapping insertion checks that refusal, including another
+namespace or incarnation with the same group ID. A per-engine persisted quota
+bounds permanent metadata: 4,096 records by default, each at most 4 KiB and charged
+16 KiB to the existing cache budget. Reopen reconstructs those charges; insufficient
+budget refuses admission. Exhaustion retains the source slot and refuses fresh
+cleanup. Existing receipts remain replayable.
+
+Physical collection follows the engine sync. Current/checkpoint pins detach only
+from the exact retired page owner, and each turn scans at most 256 private pages
+and 256 shared image files. Existing reader and sibling pins remain authoritative.
+The existing preparation byte bank and semaphore own work through actual
+completion, including caller loss. A synced completion receipt precedes local
+controller slot release. Stale metadata events consult the permanent refusal;
+joined shutdown drops parked page owners before releasing host resources.
+
+Three storage tests pass: exact slot reuse and permanent refusal with quota/reopen
+checks; cancellation while engine sync is held; and sync failure fencing followed
+by one valid atomic recovered state. All eight native transition cases pass, as
+do both scheduler cases and the complete merge regression, each integration case
+covering both image modes. The fixed `managed-source-reclamation` RustFS suite
+passes both modes on the same current source and native executable. It checks
+premature/foreign-principal refusal, collection of all source replicas, exact
+replay, unchanged local two-slot capacity, colocated child continuity, original
+receipts/versions, subsequent reads/S3 writes and retained restart.
+
+Busy catalog admission retries retain the exact request and original deadline;
+the final Conflict/Forbidden assertions remain exact. The first concurrent merge
+attempt timed out waiting for a current peer trust view at startup. An unchanged
+isolated rerun passes the original bounds. Strict all-target Clippy, formatting and
+layout of 2,085 Rust files, native dependency checks, 37 plan tests and original
+evidence/preflight checks pass. The fixed-runner tests pass (11 tests, one explicit
+Docker-configuration skip). No stack/compiler, capacity or deadline limit is raised.
+
+Retained local evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-reclamation-1154e5f1-01/record.json`,
+  SHA-256 `fee35bb8f97a8b2d77f4daa633aecd624fff3db1786481b79bdf0a97233c3d1c`. This CHECKPOINT pins
+  3,352 Git-blob inputs, commands, executable and development attempts; it does
+  not accept the complete CG-11 task.
+- `.cellar/cell-groups-evidence/CG-11-reclamation-1154e5f1-rustfs-01/record.json`,
+  SHA-256 `79805629b11462ce53f2ce04f7da5b75251be09b02279eebeba6f730396fade2`.
+- Shared native/RustFS executable SHA-256
+  `ea297af71a89f8c0e534517dd969e5c90aa3acefbd216f89d2b26e0befc8d292`.
+
+Voters are host-native RF3 TLS owners with fixture capacity. RustFS runs in an
+owned VM container with one CPU, 2 GiB and no extra swap. The container is stopped
+and objects retained. These are correctness checks on a shared machine, not
+benchmarks or constrained independent-voter qualification.
+
+CG-11 remains IN_PROGRESS. Local log/private-page and controller occupancy can now
+be released; Fleet resource floors remain conservative. Logical engine Clean does
+not prove segment bytes reclaimed, and shared image readers can retain files.
+Next add a rooted cleanup intent, keep transition ownership until all node
+settlements complete, and refund each resource exactly once from engine-bound
+physical proof. Qualify another movement cycle under unchanged slot/disk limits.
+Then deliver deployment placement/identity policy and durable request ownership,
+whole-group scale out/in, failure-domain repair/reserve and bounded control-plane
+fanout. Late destination faults, larger inventories, quota operating profiles and
+measured physical peaks remain open. Keep work on CG-11 until its full gates close.
+
 ## CG-11 automatic local sizing selection and admission recovery
 
 At `ee7d7b62a59f114ae00f903b4218d376d04b6ba2`, the public SDK sampler discovers
