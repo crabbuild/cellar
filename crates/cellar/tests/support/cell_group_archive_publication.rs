@@ -95,9 +95,16 @@ impl Scenario {
     }
 
     async fn with_owner_limits(rooted: bool, limits: CellGroupArchiveUploadLimits) -> Result<Self> {
+        Self::with_store(rooted, limits, archive_store::Store::new()).await
+    }
+
+    async fn with_store(
+        rooted: bool,
+        limits: CellGroupArchiveUploadLimits,
+        remote: Arc<archive_store::Store>,
+    ) -> Result<Self> {
         let (cluster, expected) =
             checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
-        let remote = archive_store::Store::new();
         let archive = CellGroupArchivePool::new(Default::default())?.for_group(
             remote.clone(),
             Path::from("protected-head"),
@@ -497,6 +504,72 @@ pub(super) async fn holds_and_pending_parents(rooted: bool) -> Result<()> {
         .open_upload(&s.archive_domain, &s.owners, &pending.ticket(), &s.tails)
         .await
         .is_err());
+    s.finish().await
+}
+
+pub(super) async fn competing_publication_cas(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let s = Scenario::with_store(
+        rooted,
+        Default::default(),
+        archive_store::Store::around(store),
+    )
+    .await?;
+    let checkpoint = s.checkpoint(&s.upload).await?;
+    let uploaded = s.tail(&s.upload, &checkpoint).await?;
+    let prepared = s
+        .upload
+        .prepare_publication(
+            &s.archive_domain,
+            &s.tails,
+            &uploaded,
+            receiver(&s.receivers, &s.destination, &s.cluster)?,
+        )
+        .await?;
+    let saved = persist_archive_intent(&s.cluster, prepared.intent()).await?;
+    let gate = s.remote.hold_publication();
+    let mut publishing = Box::pin(prepared.commit(&s.archive_domain));
+    let entered = Box::pin(tokio::time::timeout(
+        Duration::from_secs(5),
+        gate.entered.notified(),
+    ));
+    match futures_util::future::select(entered, publishing.as_mut()).await {
+        futures_util::future::Either::Left((result, _)) => result?,
+        futures_util::future::Either::Right(_) => anyhow::bail!("publication missed the CAS gate"),
+    }
+    // A second owner takes the version used by the already-entered CAS.
+    let competing = s.gc_registry.prepare_upload(&s.gc_domain).await?;
+    let competing = persist_archive_intent(&s.cluster, &competing).await?;
+    let ticket = s.gc_registry.reserve(&s.gc_domain, &competing).await?;
+    s.remote
+        .deny_generation_writes
+        .store(true, Ordering::Release);
+    // The first CAS loses. The successful retry also loses its provider reply.
+    s.remote.lose_put_response.store(true, Ordering::Release);
+    gate.release.notify_one();
+    let coverage = publishing
+        .await
+        .context("publish verified cut after competing reservation")?;
+    tail_fixture::check_images(&s.cluster, coverage.recovery().manifest(), &s.expected).await?;
+    let hold = coverage.hold().clone();
+    drop(coverage);
+    drop(uploaded);
+
+    s.gc_registry.abort(&s.gc_domain, &ticket).await?;
+    let recovered = s
+        .registry
+        .reconcile_publication(
+            &s.archive_domain,
+            &saved,
+            &s.tails,
+            receiver(&s.receivers, &s.destination, &s.cluster)?,
+        )
+        .await?;
+    assert_eq!(recovered.hold(), &hold);
+    drop(recovered);
+    s.registry.release(&s.archive_domain, &hold).await?;
     s.finish().await
 }
 

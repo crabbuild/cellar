@@ -785,12 +785,14 @@ serialized bytes does not restore initialization authority. These APIs do not
 make controller ownership durable or grant serving/disaster-recovery authority.
 
 Persist each allocation intent before CAS and retry only that exact intent after
-an uncertain outcome. Its registry, next revision, nonce and complete operation
-form its identity. Definite conflicts can expire it. Live exact results reconcile
-a lost reply even after unrelated registry changes; retired/aborted results never
-reappear. Revision exhaustion refuses. Registry records are bounded to 64 KiB,
-eight pending generations and 64 explicit holds. These are simultaneous bounds;
-retirement permits continued lifetime churn without growing tombstone lists.
+an uncertain outcome. Its registry, starting revision, nonce and complete
+operation form its identity. Reservations and read holds allocate at their
+exact next revision. A verified publication can use a later revision while its
+exact upload ticket protects the same generation. Live exact results reconcile
+a lost reply even after unrelated registry changes. Retired or aborted
+allocations stay expired. Revision exhaustion refuses. Registry records are
+bounded to 64 KiB, eight pending generations and 64 explicit holds. Retirement
+permits continued lifetime churn without growing tombstone lists.
 
 A reservation protects its never-reused upload generation and its exact selected
 parent, atomically at allocation. New object keys include both the registry ID
@@ -824,11 +826,14 @@ single-source checkpoint pool can serve upload and verification sequentially.
 and prepares one exact publication intent. Persist it before `commit`. One CAS
 consumes the reservation, selects the non-regressing complete root and allocates
 an explicit remote hold; independent readback confirms the exact result. Equal
-indices require the same complete marker, and terms cannot regress. A later peer
-mutation does not invalidate a still-live exact result. Lost readback/cancellation
-leaves its intent for explicit reconciliation; it never allocates another hold
-or silently substitutes a newer mutable head. Reconciliation only finds an
-already-published hold and independently recovers that exact immutable root.
+indices require the same complete marker, and terms cannot regress. After a
+definite CAS loss and observed registry advance, the live verified publisher
+can retry the same persisted intent up to the bounded attempt limit. Each
+attempt rechecks the pending ticket and the selected cut. Readback identifies
+the exact hold by the persisted intent digest, including after unrelated
+registry changes. Lost readback or cancellation leaves its intent for explicit
+reconciliation. Reconciliation only finds an already-published hold and
+independently recovers that exact immutable root.
 
 Readers acquire and persist their own independent hold before downloading a
 selected root. `verify_hold` reads that exact closure and rechecks its hold before

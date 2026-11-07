@@ -59,6 +59,13 @@ SUITES = {
         "Global physical disk bounds, process-kill restart, fencing/DR and sustained performance "
         "remain separate gates.",
     ),
+    "archive-publication-race": (
+        "native_cell_groups_archive",
+        ("rustfs_group_archive_publication_survives_competing_registry_cas",),
+        "verified publication keeps its exact upload through a competing registry CAS",
+        "The fixture gates the conditional write and drops the successful provider reply. "
+        "Managed process failover and sustained load remain separate gates.",
+    ),
     "effects": (
         "native_cell_groups_effects",
         ("rustfs_claim_receiver_and_completion_use_verified_coverage",),

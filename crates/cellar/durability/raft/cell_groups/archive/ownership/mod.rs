@@ -162,8 +162,9 @@ pub(super) enum Action {
     },
 }
 
-/// One exact allocation at one registry revision. Persist the entire intent
-/// before sending its mutation. A lost response never justifies a new intent.
+/// An exact allocation with a registry revision. Publication can use a later
+/// revision while its exact upload ticket remains pending. Persist the entire
+/// intent before sending its mutation and reconcile the same intent after loss.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CellGroupArchiveIntent {
@@ -588,37 +589,50 @@ impl CellGroupArchiveRegistry {
         if intent.registry != self.identity.id {
             return Err(CellGroupArchiveError::Conflict);
         }
-        let (mut state, version) = self.load().await?;
-        if let Some(result) = state.reconcile(intent)? {
-            return Ok(result);
+        let attempts = if matches!(intent.action, Action::Publish { .. }) {
+            8
+        } else {
+            1
+        };
+        for _ in 0..attempts {
+            let (mut state, version) = self.load().await?;
+            if let Some(result) = state.reconcile(intent)? {
+                return Ok(result);
+            }
+            let revision = state.revision;
+            state.allocate(intent)?;
+            state.check(&self.identity)?;
+            let outcome = self
+                .write(
+                    "registry",
+                    encode(&state, MAX_CONTROL_BYTES)?,
+                    PutMode::Update(version),
+                )
+                .await;
+            let observed = self
+                .load()
+                .await
+                .map_err(|_| CellGroupArchiveError::Unconfirmed)?
+                .0;
+            if let Some(result) = observed.reconcile(intent)? {
+                return Ok(result);
+            }
+            if !matches!(
+                outcome,
+                Err(CellGroupArchiveError::Storage(
+                    object_store::Error::Precondition { .. }
+                        | object_store::Error::AlreadyExists { .. }
+                ))
+            ) {
+                return Err(CellGroupArchiveError::Unconfirmed);
+            }
+            if observed.revision <= revision {
+                break;
+            }
+            // A confirmed CAS loss can retry the same live publication. The
+            // next attempt rechecks the exact pending ticket and selected cut.
         }
-        state.allocate(intent)?;
-        state.check(&self.identity)?;
-        let outcome = self
-            .write(
-                "registry",
-                encode(&state, MAX_CONTROL_BYTES)?,
-                PutMode::Update(version),
-            )
-            .await;
-        let observed = self
-            .load()
-            .await
-            .map_err(|_| CellGroupArchiveError::Unconfirmed)?
-            .0;
-        if let Some(result) = observed.reconcile(intent)? {
-            return Ok(result);
-        }
-        if matches!(
-            outcome,
-            Err(CellGroupArchiveError::Storage(
-                object_store::Error::Precondition { .. }
-                    | object_store::Error::AlreadyExists { .. }
-            ))
-        ) {
-            return Err(CellGroupArchiveError::Conflict);
-        }
-        Err(CellGroupArchiveError::Unconfirmed)
+        Err(CellGroupArchiveError::Conflict)
     }
 
     pub(super) async fn prepare_publish(

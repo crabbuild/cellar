@@ -157,11 +157,11 @@ impl State {
         {
             return Ok(Some(Allocation::Upload(p.ticket)));
         }
-        if let Some(h) = self
-            .holds
-            .iter()
-            .find(|h| h.id == intent.revision && h.allocation == allocation)
-        {
+        let publication = matches!(intent.action, Action::Publish { .. });
+        if let Some(h) = self.holds.iter().find(|h| {
+            h.allocation == allocation
+                && (h.id == intent.revision || publication && h.id > intent.revision)
+        }) {
             return Ok(Some(Allocation::Hold(Box::new(h.clone()))));
         }
         Ok(None)
@@ -171,11 +171,17 @@ impl State {
         if let Some(result) = self.reconcile(intent)? {
             return Ok(result);
         }
-        if intent.revision <= self.revision {
-            return Err(CellGroupArchiveError::Expired);
-        }
-        if self.revision.checked_add(1) != Some(intent.revision) {
+        let next = self
+            .revision
+            .checked_add(1)
+            .ok_or(CellGroupArchiveError::Limit)?;
+        if intent.revision > next {
             return Err(CellGroupArchiveError::Conflict);
+        }
+        // A publication can cross unrelated revisions while its exact ticket
+        // still protects the verified generation. Other intents own one slot.
+        if intent.revision < next && !matches!(intent.action, Action::Publish { .. }) {
+            return Err(CellGroupArchiveError::Expired);
         }
         let allocation = intent.digest()?;
         match &intent.action {
