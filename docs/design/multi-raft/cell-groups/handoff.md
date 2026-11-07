@@ -46,12 +46,27 @@ One child can run beside its parent within the unchanged two-history bound.
 Physical source storage remains charged; retirement does not reclaim disks.
 See [progress](progress.md) for the frozen-source qualification.
 
-Next implement safe physical source reclamation and peak parent-plus-child
-capacity admission before sealing. The failed three-history fixture is retained
-as development evidence; do not raise its two-slot limit or treat history
-reservation as proof of physical headroom. Audit late child attachment after
-publication and qualify destination failures. Then connect bounded automatic
-inventory/plan selection and qualify whole-group movement, reserve and fanout.
+At `cb3d0ca2`, fresh seal authorization requires a managed observer and verifies
+configured destination headroom before the irreversible directory decision. It
+retains physical parents, charges missing reserved/live members, uses settled
+membership and preserves resource floors. The node control budget owns at most
+six inventories. Refusal leaves parents writable and the prepared plan cancellable.
+Selected authorization replay needs no new health observation. Native and real
+RustFS cases cover all three refusal causes in both image modes; see progress.md.
+
+The shared test fixture now uses 32-MiB images and a 256-MiB generation pool
+within its unchanged two-slot, 1-GiB deployment budget. An explicit 64-MiB/
+512-MiB profile proves the original storage overcommit still refuses. Keep the
+original stack, capacity and deadline limits. The Fleet seal future is heap-owned
+at its API boundary: the full split/merge regression retains expected CAS-error
+backtrace capture and passes the default stack. Installed bounds/attestations are
+separate from measured RSS and temporary disk peaks.
+
+Next implement safe physical source reclamation. The engine histories and floors
+remain charged after live retirement; a second movement cycle must not invent
+free slots. Audit late child attachment after publication and qualify destination
+failures. Then connect bounded automatic inventory/plan selection and qualify
+whole-group movement, reserve and fanout.
 Consent remains explicit and irreversible sealing requires the recorded authority.
 Continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all

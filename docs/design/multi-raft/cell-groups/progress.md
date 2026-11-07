@@ -12,6 +12,89 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 configured capacity before irreversible sealing
+
+At `cb3d0ca2401ba504a74e209ddce9357c42cb3b77`, fresh seal authorization
+requires a configured node observer and current authenticated destination
+inventories. It checks the original catalog root, boot identities and sample ages
+before the directory decision. Already selected authorization remains replayable
+without a fresh health observation.
+
+Admission counts retained physical histories and missing members of rooted
+Reserved/Live births, using settled membership after moves. Historical resource
+floors remain charged. The existing control budget owns at most six inventories
+plus one history page, totaling 7,340,032 bytes. Engine, runtime and host-table
+slots, profile quotas, deployment durable bytes and installed memory bounds are
+checked independently. No new debit format or capacity bank is introduced.
+Configured bounds and deployment attestations do not establish actual RSS,
+temporary disk peaks or a future health lease.
+
+The new cases refuse parent-plus-child slot overlap, an unrelated unmaterialized
+birth consuming destination capacity, and a deployment storage budget that is
+smaller than its profile reservations. Refusal leaves the transition Prepared,
+keeps every parent writable through quorum SQL and preserves cancellation after
+coordinator replacement. Cancellation does not erase the unrelated reservation.
+Positive transition fixtures now declare 32-MiB images and a 256-MiB generation
+pool within the unchanged two-slot, 1-GiB deployment budget. The original 64-MiB/
+512-MiB profile has an explicit DurableBytes refusal case. Production defaults,
+platform capacity, operation deadlines and compiler/stack limits are unchanged.
+
+All six ordinary native transition-service cases pass in both image modes
+(252.84 seconds; six RustFS variants are explicitly ignored in this invocation).
+The exact full native split/merge regression also passes both modes (152.46
+seconds). The four fixed RustFS suites pass eight exact cases in both modes:
+three capacity refusals, two live retirement cases, retained restart, recovery
+barrier and split/merge. These retain original receipts, versions, cancellation,
+coordinator replacement, S3 writes, fault injection and joined-shutdown oracles.
+
+The first full native merge attempt exposed default-stack exhaustion during
+backtrace capture for an expected CAS failure. Allocating the new seal future at
+its owning Fleet API boundary reduces the containing caller poll frame from
+510,640 to 467,024 bytes. The original regression and real-backend merge now pass
+with the same backtrace, fault and shutdown checks. Failed development attempts,
+the sanitized OS crash frames and binary prologues are retained. A paused owned
+LLDB launch was stopped; no debugger backtrace is claimed.
+
+Strict all-target Clippy for cellar and cellar-logic, formatting and layout of
+2,078 Rust files, native dependency checks, 37 source-plan tests and all original
+evidence/preflight checks pass. The original checks use batched immutable Git
+reads; they are not bypassed. All prior baseline excerpts remain. Only the Fleet
+anchor adds the private capacity module; the heap-allocation successor leaves
+every anchor byte-identical. The CHECKPOINT pins 3,345 Git-blob source inputs and
+the native, merge and operator CLI executables.
+
+Retained local evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-capacity-cb3d0ca2-01/record.json`,
+  SHA-256 `ac40451cd17f835c5961aca79a2305ca285ef02eaf37e820dfcbec3244a3e27e`.
+- `.cellar/cell-groups-evidence/CG-11-capacity-cb3d0ca2-rustfs-01/record.json`,
+  SHA-256 `a0554102300069d48cd858ee3c2148e357f14c8a7e446a14962ba4ccd7d57ab2`.
+- `.cellar/cell-groups-evidence/CG-11-capacity-cb3d0ca2-live-rustfs-01/record.json`,
+  SHA-256 `93a0eed6312b95932eb13d738a985271b146765a1a62d3ee5a5a3501159d8601`.
+- `.cellar/cell-groups-evidence/CG-11-capacity-cb3d0ca2-retained-rustfs-01/record.json`,
+  SHA-256 `c3c402e338d1c65bbd7fe16d8dd5498c0028501284842147256633201f728efc`.
+- `.cellar/cell-groups-evidence/CG-11-capacity-cb3d0ca2-merge-rustfs-01/record.json`,
+  SHA-256 `12d616ebfcc2e5a21f1e0dd67032437dfbd463ec653bfad7c8c0640e90860908`.
+- native_cell_groups_transition_service executable SHA-256
+  `cd39f4363689379295dc3dab24ae1422961d7027a2f23349d0ddf56f9de53b3a`.
+- native_cell_groups_split_merge executable SHA-256
+  `ab01a562fb13392116c7cb5d645f3d5f7077a8c9307137b45ea2e5e6e17b112f`.
+- cellar executable SHA-256
+  `7c7c980075a1c2ae266ea31743ea33f902ed7dfc730c2db9e2facbc2d299a3a3`.
+
+Voters are host-native RF3 TLS owners with fixture capacity. RustFS runs with
+one CPU, 2 GiB and no extra swap; the owned backend is stopped and objects
+retained. Durations share the machine with other checks and are correctness
+observations, not benchmark results. Independent voter failures and permanent
+platform launch revocation remain separate qualification gates.
+
+CG-11 remains IN_PROGRESS. Next reclaim retained source histories and storage
+safely, qualify late child attachment and destination faults, then connect bounded
+automatic inventory/plan selection. Whole-group scale out/in, failure-domain
+repair/reserve and fleet-wide fanout still need their exact acceptance gates.
+CG-12/13 lifecycle/recovery, the unchanged CG-14 occupancy-128 matrix failure,
+CG-15/16 release qualification and full public primitive coverage remain open.
+
 ## CG-11 live source retirement and bounded ingress discovery
 
 At `e582f3806febae0903ceeb56cb18092c09a80e0e`, the node-owned transition

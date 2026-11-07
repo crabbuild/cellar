@@ -97,7 +97,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | The bounded scheduler at `d0ef46ec` and consented execution at `502198bd` have scoped native/RustFS evidence. At `e582f380`, live source drainage, colocated child execution and demand-driven ingress discovery are implemented. Current qualification is recorded in progress.md. | Reclaim retained source storage safely; account for peak parent-plus-child capacity before sealing; qualify late child startup/failures; connect bounded automatic inventory/plan selection; qualify whole-group scale out/in, failure-domain repair/reserve and control-plane fanout. The complete task gate remains open. |
+| CG-11 | The bounded scheduler, consented execution and live source drainage have scoped records. At `cb3d0ca2`, pre-seal capacity counts retained physical histories, missing reserved/live members, settled membership and resource floors. Native and real RustFS cases cover parent overlap, unmaterialized birth debt, storage-budget refusal and continued parent SQL. See progress.md. | Reclaim retained source storage safely; qualify late child startup/failures and actual resource peaks; connect bounded automatic inventory/plan selection; qualify whole-group scale out/in, failure-domain repair/reserve and control-plane fanout. The complete task gate remains open. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | The daemon harness retains scoped real-voter/RustFS evidence. The focused native occupancy-128 case passes; the original three-occupancy matrix still times out at 128. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
@@ -113,10 +113,10 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Finish CG-11 adaptive placement.** Sizing/admission, consented execution and
-   live per-group quiescence have source-pinned checkpoints. Reclaim retained source
-   storage safely and admit peak parent-plus-child capacity before sealing. Qualify
-   late child attachment and destination failures. Connect bounded automatic
+1. **Finish CG-11 adaptive placement.** Sizing/admission, consented execution,
+   live per-group quiescence and pre-seal configured capacity have source-pinned
+   checkpoints. Reclaim retained source storage safely and qualify late child
+   attachment and destination failures. Connect bounded automatic
    inventory/plan selection, then qualify whole-group scale out/in, failure-domain
    reserves and targeted controller fanout with exact identities through uncertainty.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
