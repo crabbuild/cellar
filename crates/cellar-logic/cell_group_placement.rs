@@ -62,6 +62,11 @@ pub struct PartitionLimits {
 pub struct PartitionPolicy(PartitionLimits);
 
 impl PartitionPolicy {
+    /// Explicit validated limits used by the bounded sampling owner.
+    pub fn limits(self) -> PartitionLimits {
+        self.0
+    }
+
     pub fn new(limits: PartitionLimits) -> Option<Self> {
         let split = limits.split_ceiling;
         let merge = limits.merge_ceiling;

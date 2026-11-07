@@ -431,3 +431,20 @@ handles and former-parent ingress must discover the selected successor groups.
 These suites use host-native RF3 TLS voters and fixture capacity. Independent
 process crashes, further movement cycles, hard RSS and sustained load remain
 release qualification work.
+
+
+## Adaptive partition scheduling
+
+Use `--suite managed-partition-scheduler` with an owned RustFS backend and a
+fresh output directory. Both cases run in materialized and extent image modes.
+Live RF3 observations select a whole-cell hot boundary, then canonical operator
+admission reserves children. The suite loses the first reservation confirmation,
+resumes the original request and checks terminal cancellation. A separate cluster
+joins and stops both followers before proving that the old sizing observation
+cannot reserve children or acknowledge a minority write. Trackers are explicitly
+bounded and advisory eviction cannot discard the pending request.
+
+These are scheduling/admission checks with host-native voters and fixture
+capacity. Physical split/merge execution has its separate movement suite.
+Autonomous inventory selection, whole-group balancing, independent voter process
+faults and sustained placement load remain separate gates.

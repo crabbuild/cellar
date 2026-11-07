@@ -97,6 +97,15 @@ pub struct CellGroupPartitionObservation {
 }
 
 impl CellGroupPartitionObservation {
+    pub(crate) fn same_workload_owner(&self, earlier: &Self) -> bool {
+        self.stable_leader
+            && earlier.stable_leader
+            && self.route == earlier.route
+            && self.membership == earlier.membership
+            && self.status.term == earlier.status.term
+            && self.workload.owner == earlier.workload.owner
+    }
+
     /// Convert two samples from the same stable local owner into a policy
     /// observation. The context's topology time uses this owner's monotonic
     /// clock. Sample and recommendation carry no authority to change routes.
@@ -105,13 +114,7 @@ impl CellGroupPartitionObservation {
         earlier: &Self,
         context: CellGroupPartitionContext,
     ) -> Option<PartitionSample> {
-        if !self.stable_leader
-            || !earlier.stable_leader
-            || self.route != earlier.route
-            || self.membership != earlier.membership
-            || self.status.term != earlier.status.term
-            || self.workload.owner != earlier.workload.owner
-        {
+        if !self.same_workload_owner(earlier) {
             return None;
         }
         let elapsed_ms = self

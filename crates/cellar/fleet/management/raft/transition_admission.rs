@@ -534,7 +534,7 @@ impl RaftFleetControl {
     }
 }
 
-fn directory_failure(error: CatalogError) -> FleetCatalogError {
+pub(super) fn directory_failure(error: CatalogError) -> FleetCatalogError {
     match error {
         CatalogError::Unconfirmed => FleetCatalogError::Unconfirmed,
         CatalogError::Conflict(_) | CatalogError::Fenced => FleetCatalogError::Conflict,

@@ -11,6 +11,10 @@ mod lifecycle;
 mod maintenance;
 pub use maintenance::*;
 mod nodes;
+mod partition;
+pub use partition::{
+    RaftFleetPartitionPressure, RaftFleetPartitionRecommendation, RaftFleetPartitionScheduler,
+};
 mod records;
 mod transition;
 mod transition_admission;

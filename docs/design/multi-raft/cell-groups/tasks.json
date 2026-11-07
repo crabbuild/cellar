@@ -2437,7 +2437,10 @@
         "crates/cellar-logic/",
         "crates/cellar/durability/raft/",
         "crates/cellar-admin/",
-        "crates/cellar/cli/"
+        "crates/cellar/cli/",
+        "crates/cellar/fleet/management/",
+        "crates/cellar/sdk.rs",
+        "tools/multi-raft/"
       ],
       "creates": [
         "crates/cellar-logic/cell_group_placement.rs",

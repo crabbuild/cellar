@@ -904,3 +904,38 @@ renew an earlier read proof or create a private replacement admission bank.
 Both image forms pass the focused routing cases and the complete execution
 suite; repeated deadline cases retain the original capacities and timeouts.
 Consumer ports and the combined public/managed/backend gates remain unfinished.
+
+
+## Adaptive partition admission
+
+The SDK's `fleet_operations::RaftFleetPartitionScheduler` connects bounded
+local group observations to the managed split/merge admission path. Its explicit
+policy supplies sampling, hysteresis, cooldown, load and operation limits. Each
+`observe` call reads one selected directory route and one local Raft owner;
+rate windows cannot cross a route, owner, term or membership change. Archive
+lag must be observed, and missing coverage blocks a sizing recommendation.
+Trusted deployment pressure affects priority; it grants no membership, capacity,
+failure-domain or serving authority.
+
+Configure a running node observer on `RaftFleetControl`, then construct a scheduler
+with an explicit tracker capacity (1–128). Poll `observe` at the policy interval;
+`recommend_split` and `recommend_merge` report owned advisory decisions. Supply
+the original operator request with stable operation, child, reservation and
+creation IDs to `admit`. It selects the decision from its own trackers and uses
+the normal live-quorum, directory, disruption-slot and resource admission checks.
+The caller then drives the existing managed preparation, seal, installation,
+publication, activation and retirement steps.
+
+The scheduling owner keeps at most one exact pending request. Cancellation,
+timeout, lost confirmation and advisory-cache eviction cannot replace its IDs or
+release that slot. An exact retry resumes rooted partial reservations; a changed
+request refuses. `settle` verifies the exact canonical operator plan, a terminal
+journal and release of the Fleet disruption slot before clearing local state.
+The caller must journal the request before dispatch and resume that operation
+after controller restart. Sampling remains ephemeral; durable transition and
+physical resource ownership remain in their existing journals and node workers.
+Dropping the scheduler starts no cleanup and claims no physical release.
+
+This is an explicitly driven node-local sizing adapter. Automatic inventory
+selection, whole-group replica balancing, failure-domain reserve qualification
+and the combined autonomous placement loop remain CG-11 work.

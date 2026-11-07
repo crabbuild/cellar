@@ -51,6 +51,16 @@ CASES = (
 )
 
 SUITES = {
+    "managed-partition-scheduler": (
+        "native_cell_groups_scheduler",
+        ("rustfs_scheduler_hysteresis_and_hot_isolation",
+         "rustfs_scheduler_cannot_grant_authority"),
+        "adaptive partition admission retains partial reservations and refuses missing quorum",
+        "Both image modes, host-native RF3 voters and fixture capacity. Sizing uses real "
+        "SQLite geometry and owner counters. Lost reservation confirmation and joined "
+        "shutdown of both followers are exercised. Physical split execution, whole-group "
+        "balancing, autonomous inventory selection and permanent fencing are separate gates.",
+    ),
     "archive": (
         TARGET, CASES,
         "shared-group RustFS archive/setup and local/remote command/enrollment/receipt S3 settlement",
