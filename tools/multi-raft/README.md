@@ -448,3 +448,21 @@ These are scheduling/admission checks with host-native voters and fixture
 capacity. Physical split/merge execution has its separate movement suite.
 Autonomous inventory selection, whole-group balancing, independent voter process
 faults and sustained placement load remain separate gates.
+
+
+## Consented node-owned transition execution
+
+Use `--suite managed-transition-service` with a fresh output directory and an
+owned RustFS backend. The fixed case starts a worker on each actual host-native
+RF3 voter. A manual plan cannot advance without execution consent. The test
+checks principal/payload refusal, duplicate-worker admission, controller
+replacement during a registry write refusal, and automatic preparation, sealing,
+installation, publication, activation and archive coverage. It reconciles original
+SQL results and floors through the selected children, then performs new writes.
+
+Physical parent quiescence remains a separate proof. The test joins and restarts
+only the owned parent voters, verifies that partial return retains the disruption
+slot, and lets the controller finish once all physical observations verify. It
+runs materialized and extent images with independent bounded catalog clients per
+simulated node. This does not qualify live group retirement without host restart,
+automatic plan selection, independent processes or sustained placement load.

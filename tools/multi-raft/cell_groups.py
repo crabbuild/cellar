@@ -51,6 +51,16 @@ CASES = (
 )
 
 SUITES = {
+    "managed-transition-service": (
+        "native_cell_groups_transition_service",
+        ("rustfs_consented_split_resumes_with_owned_workers",),
+        "consented node-owned split execution resumes after controller replacement and retained voter return",
+        "Both image modes, host-native RF3 voters and fixture capacity. A manual plan stays "
+        "cancellable until durable execution consent. The coordinator resumes preparation "
+        "after a registry write refusal. Retained parent restart supplies the existing physical "
+        "quiescence proof before holds release. Live per-group quiescence, automatic plan "
+        "selection, independent processes, permanent fencing and load are separate gates.",
+    ),
     "managed-partition-scheduler": (
         "native_cell_groups_scheduler",
         ("rustfs_scheduler_hysteresis_and_hot_isolation",
@@ -245,7 +255,7 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
+                     or (suite in ("managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
                                    "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()

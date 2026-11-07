@@ -36,10 +36,10 @@ const RECORD_LIMIT: usize = 4096;
 #[serde(deny_unknown_fields)]
 pub(super) struct Record {
     catalog: [u8; 32],
-    namespace_root: [u8; 32],
+    pub(super) namespace_root: [u8; 32],
     input_root: [u8; 32],
-    plan: [u8; 32],
-    request: FleetRequestIdentity,
+    pub(super) plan: [u8; 32],
+    pub(super) request: FleetRequestIdentity,
 }
 
 impl Record {

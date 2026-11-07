@@ -5,6 +5,32 @@ use super::*;
 use crate::raft::completion::RuntimeError;
 
 impl RaftGroupHandle {
+    /// Request the existing bounded publisher-discovery owner. A true result
+    /// means a local publisher is installed, not that any cut is archived.
+    /// Binding initialization and verified archive coverage remain separate.
+    pub(crate) async fn ensure_existing_archive(
+        &self,
+        timeout: Duration,
+    ) -> Result<bool, CellDispatchError> {
+        let observed = self
+            .observe_partition(timeout)
+            .await
+            .map_err(CellDispatchError::Runtime)?;
+        match self
+            .owner
+            .handle
+            .core
+            .controller
+            .s3_client(&self.owner.handle.domain)
+            .map_err(CellDispatchError::Runtime)?
+            .require_group(&observed.route)
+        {
+            Ok(()) => Ok(true),
+            Err(CellDispatchError::Runtime(RuntimeError::NotReady)) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Sample this local physical owner and its durable log cache. The deadline
     /// starts at invocation. This does not perform ReadIndex or open cell images.
     pub fn observe(

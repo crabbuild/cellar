@@ -939,3 +939,37 @@ Dropping the scheduler starts no cleanup and claims no physical release.
 This is an explicitly driven node-local sizing adapter. Automatic inventory
 selection, whole-group replica balancing, failure-domain reserve qualification
 and the combined autonomous placement loop remain CG-11 work.
+
+
+## Consented transition execution
+
+`RaftFleetControl::authorize_transition_execution` records explicit durable consent
+to finish one exact admitted split or merge, including irreversible sealing.
+Admitting a cancellable plan alone does not grant this consent. The request binds
+the catalog, namespace, operation, principal, plan, request ID and observed Fleet
+revision. Retain that request after uncertainty. Consent is immutable and confers
+no quorum, membership, physical-release or serving authority.
+
+Start `start_transition_service` on each assigned managed voter with a trusted
+archive verifier and recovery pool. At least one configured coordinator performs
+preparation and metadata/archive steps. Every voter installs, attaches and
+activates only its own authorized children through the existing boot, resource,
+quorum and directory owners. A round reads the exact active disruption slot and
+performs at most one local step and one coordination step under one original
+budget. No cell inventory is broadcast and no task is created per cell.
+Deterministic action identities bind the original consent and plan. Conditional
+Fleet attempts additionally bind their consumed input revision.
+
+The node registry admits one such service and charges its retained metadata.
+Dropping the public handle requests stop; `shutdown` joins the worker before
+advertising its registry slot available. Node drain/close signals and joins the
+same worker. Entered physical install/pre-copy jobs keep their separate owners.
+A service restart discovers the consented operation and resumes its journal;
+advisory local step hints grant no authority. Invalid consent/payload/configuration
+is surfaced as `needs_operator`, while transient refusals retain diagnostics and
+use bounded retry delay. Stopping execution does not cancel the durable plan.
+
+Parent holds still require the existing authenticated physical quiescence proof.
+Retained parent restart supplies that proof; the controller cannot substitute an
+applied tombstone or a sampled empty queue. Live per-group retirement quiescence,
+automatic plan selection and broader placement qualification remain open.

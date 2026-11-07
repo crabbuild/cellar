@@ -20,6 +20,7 @@ mod transition;
 mod transition_admission;
 mod transition_child;
 mod transition_seal;
+mod transition_service;
 mod transition_verify;
 use crate::application::consensus::RaftCells;
 use crate::asyncrt::{DomainToken, ExecutionDomain};
@@ -68,6 +69,10 @@ pub use transition::{
 pub use transition_admission::{
     RaftFleetTransitionAdmission, RaftFleetTransitionAdmissionRequest, RaftFleetTransitionBasis,
     RaftFleetTransitionChild, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
+};
+pub use transition_service::{
+    RaftFleetTransitionExecutionRequest, RaftFleetTransitionService,
+    RaftFleetTransitionServiceOptions, RaftFleetTransitionServiceStatus,
 };
 
 pub use transition_child::{

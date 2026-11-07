@@ -2440,12 +2440,18 @@
         "crates/cellar/cli/",
         "crates/cellar/fleet/management/",
         "crates/cellar/sdk.rs",
-        "tools/multi-raft/"
+        "tools/multi-raft/",
+        "crates/cellar/application/consensus/"
       ],
       "creates": [
         "crates/cellar-logic/cell_group_placement.rs",
         "crates/cellar-logic/cell_group_placement_tests.rs",
-        "crates/cellar/tests/native_cell_groups_scheduler.rs"
+        "crates/cellar/tests/native_cell_groups_scheduler.rs",
+        "crates/cellar/durability/raft/fleet_catalog/managed_transition_execution.rs",
+        "crates/cellar/fleet/management/raft/transition_service/mod.rs",
+        "crates/cellar/fleet/management/raft/transition_service/worker.rs",
+        "crates/cellar/fleet/management/raft/transition_service/actions.rs",
+        "crates/cellar/tests/native_cell_groups_transition_service.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [

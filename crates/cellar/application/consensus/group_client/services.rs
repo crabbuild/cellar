@@ -17,6 +17,7 @@ pub(crate) enum ControlServiceKind {
     Recovery,
     Reclamation,
     Transfer,
+    Transition,
 }
 
 impl ControlServiceKind {
@@ -28,6 +29,7 @@ impl ControlServiceKind {
             Self::Recovery => 3,
             Self::Reclamation => 4,
             Self::Transfer => 5,
+            Self::Transition => 6,
         }
     }
 }
@@ -41,7 +43,7 @@ struct Entry {
 struct State {
     closing: bool,
     next: u64,
-    slots: [Option<Entry>; 6],
+    slots: [Option<Entry>; 7],
 }
 
 pub(super) struct Services {
@@ -211,7 +213,7 @@ impl RaftCells {
         self.handle.core.services.register(kind, bytes)
     }
 
-    async fn installed_host(
+    pub(crate) async fn installed_host(
         &self,
         timeout: Duration,
     ) -> Result<crate::raft::fleet_catalog::FleetHostAuthorization, FleetCatalogError> {
