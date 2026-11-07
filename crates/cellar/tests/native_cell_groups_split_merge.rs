@@ -41,11 +41,8 @@ async fn split_equal_union_whole_cells() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn merge_requires_adjacent_compatible_ranges() -> Result<()> {
-    eprintln!("merge geometry start");
     Box::pin(partition::merge_requires_adjacent_compatible_ranges()).await?;
-    eprintln!("merge geometry complete");
     for rooted in [false, true] {
-        eprintln!("managed merge start, extents={rooted}");
         bootstrap::transition::qualify_split_merge(rooted).await?;
     }
     Ok(())

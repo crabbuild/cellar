@@ -2709,7 +2709,10 @@ async fn admit_merge(
             }),
         }],
     };
-    check_merge_recommendations(cluster, control, parents, &admission).await?;
+    Box::pin(check_merge_recommendations(
+        cluster, control, parents, &admission,
+    ))
+    .await?;
     let namespace = &admission.namespace_id;
     let id = &admission.operation_id;
     let stale = RaftFleetTransitionAdmissionRequest {
@@ -3524,17 +3527,16 @@ async fn check_merge_recommendations(
             "order" => invalid.reverse(),
             _ => unreachable!(),
         }
-        let rejected = control
-            .admit_recommended_partition(
-                &request(245, admission.expected_fleet_revision).principal,
-                admission,
-                PartitionDecision::Merge {
-                    left: &invalid[0],
-                    right: &invalid[1],
-                },
-                TIMEOUT,
-            )
-            .await;
+        let rejected = Box::pin(control.admit_recommended_partition(
+            &request(245, admission.expected_fleet_revision).principal,
+            admission,
+            PartitionDecision::Merge {
+                left: &invalid[0],
+                right: &invalid[1],
+            },
+            TIMEOUT,
+        ))
+        .await;
         ensure!(
             matches!(&rejected, Err(failure) if failure.code == RaftFleetFailureCode::InvalidInput),
             "{field} merge recommendation must refuse before allocation: {rejected:?}"

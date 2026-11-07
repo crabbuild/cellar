@@ -540,8 +540,10 @@ impl CellGroupArchive {
         reference: &CellGroupArchiveTailReference,
         receiver: CellGroupArchiveCheckpointReceiver,
     ) -> Result<VerifiedCellGroupArchiveRecovery> {
+        // Execution-domain wrappers carry their future by value. Keep the full
+        // verifier on the heap so nested transition replay fits default stacks.
         domain
-            .run(async {
+            .run(Box::pin(async {
                 let io = self.admit()?;
                 let retention = pool.admit()?;
                 let limits = pool.limits;
@@ -598,7 +600,7 @@ impl CellGroupArchive {
                     .map_err(|_| CellGroupArchiveError::Stopped)?
                     .await
                     .map_err(CellGroupArchiveError::Worker)?
-            })
+            }))
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?
     }
