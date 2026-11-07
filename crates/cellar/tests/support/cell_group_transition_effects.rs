@@ -302,8 +302,9 @@ async fn authorize(cluster: &ManagedCluster, members: std::ops::Range<usize>) ->
     Ok(())
 }
 
-// The SQL probe shares its cell with the pending delivery worker. Retry only
-// typed Busy or a short apply-readiness gap, retaining the exact identity and cap.
+// Foreground probes share cells with the delivery worker. Retry only typed
+// contention/readiness refusals with the exact identity, input and original cap.
+// Transport loss, archive/proof errors and definitive command failures stay hard.
 pub(super) async fn command_with_pending_effects(
     handle: &RaftCellHandle,
     contract: &OperationContract,
@@ -319,14 +320,7 @@ pub(super) async fn command_with_pending_effects(
             let mut attempt = options.clone();
             attempt.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
             match handle.command(contract, input.clone(), attempt).await {
-                Err(error)
-                    if matches!(
-                        error.cause.as_ref(),
-                        CellDispatchError::Execution(
-                            cellar::application::consensus::verification::ExecutionError::Busy
-                        ) | CellDispatchError::Runtime(RuntimeError::NotReady)
-                    ) =>
-                {
+                Err(error) if retryable_probe(&error.cause) => {
                     tokio::time::sleep(Duration::from_millis(10)).await
                 }
                 result => return Ok::<_, anyhow::Error>(result?),
@@ -334,6 +328,24 @@ pub(super) async fn command_with_pending_effects(
         }
     })
     .await?
+}
+
+fn retryable_probe(error: &CellDispatchError) -> bool {
+    matches!(
+        error,
+        CellDispatchError::Execution(
+            cellar::application::consensus::verification::ExecutionError::Busy
+        ) | CellDispatchError::Runtime(
+            RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded
+        )
+    ) || matches!(
+        error.refusal(),
+        Some(
+            CommandFailure::Unavailable
+                | CommandFailure::Overloaded
+                | CommandFailure::NotLeader { .. }
+        )
+    )
 }
 
 async fn lead_on_unrestarted_voter(cluster: &ManagedCluster, history: GroupHistory) -> Result<()> {
@@ -380,13 +392,13 @@ pub(super) async fn before_seal(cluster: &ManagedCluster, cells: &[CellHistory])
         preparation::retry_deadline()?,
     );
     options.durability = Durability::S3;
-    let emitted = handle
-        .command(
-            &handle.contract("Emit")?,
-            17i64.to_be_bytes().to_vec(),
-            options,
-        )
-        .await?;
+    let emitted = command_with_pending_effects(
+        &handle,
+        &handle.contract("Emit")?,
+        17i64.to_be_bytes().to_vec(),
+        options,
+    )
+    .await?;
     ensure!(emitted.durability == Durability::S3 && emitted.result == 1u64.to_be_bytes());
     tokio::time::timeout(TIMEOUT, state.committed.notified()).await.with_context(|| format!(
         "receiver never committed the first S3 delivery: arrivals={}, request_bytes={:?}, failure={:?}",
@@ -501,13 +513,13 @@ pub(super) async fn resume_children(
         preparation::retry_deadline()?,
     );
     options.durability = Durability::S3;
-    let fence = handle
-        .command(
-            &handle.contract("Add")?,
-            0i64.to_be_bytes().to_vec(),
-            options,
-        )
-        .await?;
+    let fence = command_with_pending_effects(
+        &handle,
+        &handle.contract("Add")?,
+        0i64.to_be_bytes().to_vec(),
+        options,
+    )
+    .await?;
     ensure!(fence.durability == Durability::S3 && fence.witness.group == a.history);
     SCENE.with(|scene| scene.borrow_mut().fence = Some(fence));
     Ok(())
@@ -527,13 +539,13 @@ pub(super) async fn after_cleanup(
     let handle = endpoint.hosts[0].cell(cell(0)?)?;
     let mut options = CommandOptions::new(original.id, preparation::retry_deadline()?);
     options.durability = Durability::S3;
-    let replay = handle
-        .command(
-            &handle.contract("Emit")?,
-            17i64.to_be_bytes().to_vec(),
-            options,
-        )
-        .await?;
+    let replay = command_with_pending_effects(
+        &handle,
+        &handle.contract("Emit")?,
+        17i64.to_be_bytes().to_vec(),
+        options,
+    )
+    .await?;
     ensure!(
         replay.id == original.id
             && replay.result == original.result
