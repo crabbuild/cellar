@@ -12,6 +12,38 @@ CG-07 and CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## Per-cell host cutover
+
+At `05c230539cc2ee2e48f4a8d56f692fa22f175de9`, the predecessor per-cell client,
+SQL dispatcher, and host-only membership, effects and recovery code are
+retired. Shared SQL retains the bounded worker queue, completion reservation
+and joined shutdown. Ten pure placement checks moved to `cellar-logic` and
+passed. The physical archive, snapshot and transport cases retain their
+independent targets.
+
+The locked all-target build passed for `cellar`, `cellar-logic` and
+`cellar-recovery-tests`. The last predecessor membership build stopped at 154
+errors. The independent process harness now compiles with its own admin and
+randomness dependencies and requires an explicit operator CLI if Cargo has
+not supplied one. The successor baseline anchors the shared SQL, membership,
+effects and process owners. All 37 plan unit tests pass.
+
+The shared read target passed all 18 cases. The real RustFS managed-ingress
+case passed both image modes with three host-native voters, covering native
+and Axum SQL, receipt replay and retained restart. The source-pinned run record
+SHA-256 is `99818fa591ddfde38225e288201c588a4e15303aad9ddd525951fb1cdbd266b7`.
+The public batch passed shared SDK serving, ingress isolation and feature-off
+Fleet behavior. Materialized managed lifecycle passed. Extent replacement
+stayed in Joint after repeated `Unconfirmed` responses. The voters reported
+`Archive(Expired)` while their archive coverage stayed at index 7 and their
+commit advanced to index 9. The initial occupancy-one test completed both
+serving phases but its executable hash changed during a concurrent build.
+
+Strict Clippy stopped at 167 library errors, down from 202 on the prior source.
+Most come from unused predecessor archive, snapshot and inspection adapters.
+CG-07 remains open for strict lint and managed lifecycle on the qualifying
+revision. The seven existing task acceptance records still validate.
+
 ## Named case audit and public read readiness
 
 The plan validator verified the source-pinned evidence records for CG-01–06
