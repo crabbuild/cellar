@@ -12,6 +12,43 @@ CG-07 and CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## Joint configuration apply and failed send feedback
+
+The extent maintenance failure retained an outgoing voter with the Joint-leave
+entry at index 9 durably committed and its applied configuration still at
+index 8. The controller had no pending apply. Its copied engine log report
+has SHA-256 `1bcc2fa9c1b4c095c36eac4e51f2657d001cbffb923a871a4ac9042cbd195989`.
+
+At `e5332304e2b1bc2b20d39bcfd58206bf447f8b83`, shared transport returns after
+bounded admission of an advisory unreachable hint. Previously the sender could
+wait for the group to process the hint while other send permits kept the
+configuration fence closed. The TLS regression closes a peer socket while
+configuration announcements retain their send permits. It timed out before
+the fix. Both delivery-fence tests passed afterward in both image modes, and
+three whole-group membership cases passed. The before and after log SHA-256
+digests are `f9ba1fd7ef165dc14f182ad69e8943334248db9ed79ee33bd3a5a50d15a54203`
+and `563b178475e64f00b618f1d1e853ba0328767e8e64af3c51297f31c464e48bb9`.
+
+On that revision the real RustFS public lifecycle passed in both image modes
+in 80.458 seconds, including replacement, the lost settlement reply, stop,
+return and resume. The run used host-native voters and fixture capacity.
+Its record SHA-256 is
+`70141864c40210b6904876d6f41fc7e22367ffadda37736ad7e5e0fe3ec1f212`.
+Both real RustFS Joint restart cases passed in both image modes. The replacement
+and an original seed owner each reopened their retained disk and settled the
+original reservation. The restart record SHA-256 is
+`012874b4d046749c9aef2d1cec469305046ed60544376c9949e017cbbb7b1ca1`.
+The locked all-target build passed for `cellar`, `cellar-logic` and
+`cellar-recovery-tests`.
+
+A separate fixture-store run passed materialized maintenance and settled the
+extent move. The next extent SQL command reached Raft commit at index 10,
+then returned an ambiguous S3 deadline while archive coverage stayed at 9.
+Two retained journals later reached coverage at 10. The failure log SHA-256
+is `21cb56139169dc30bcfcb06c95bfd7b4d3472b6c1b0948fd93db79888fdb25dc`.
+This leaves an archive publication liveness case and the combined public
+qualification open.
+
 ## Per-cell host cutover
 
 At `05c230539cc2ee2e48f4a8d56f692fa22f175de9`, the predecessor per-cell client,
