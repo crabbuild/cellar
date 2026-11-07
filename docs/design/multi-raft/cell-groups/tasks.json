@@ -2308,6 +2308,7 @@
       ],
       "scope": [
         "crates/cellar/durability/raft/",
+        "crates/cellar/application/consensus/",
         "crates/cellar-logic/",
         "crates/cellar-admin/",
         "crates/cellar/cli/",

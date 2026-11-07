@@ -152,7 +152,6 @@ struct Shared {
     // bindings contain weak archive clients back to this same shared owner.
     host_resources: Mutex<Option<HostResourceRelease>>,
     runtime: CellGroupRuntime,
-    transport: RaftTransport,
     sql: crate::raft::host_sql::cell_groups::WeakCellGroupSqlPool,
     groups: Arc<GroupRoster>,
     limits: CellGroupControllerLimits,
@@ -312,7 +311,6 @@ impl CellGroupController {
             public: OnceLock::new(),
             host_resources: Mutex::new(None),
             runtime: runtime.clone(),
-            transport: transport.clone(),
             sql: sql.downgrade(),
             groups: GroupRoster::new(roster.keys().copied(), limits.max_groups),
             limits,
@@ -486,6 +484,7 @@ impl CellGroupController {
         &self,
         invocation: super::CellReceiptInvocation,
         options: super::CellSqlOptions,
+        transport: Option<&RaftTransport>,
     ) -> Result<super::CellReceiptResponse, super::CellDispatchError> {
         let shared = &self.handle.0;
         let work = {
@@ -495,6 +494,9 @@ impl CellGroupController {
             registration.work.take()
         };
         let _work = work;
-        Box::pin(receipt_routes::execute(shared, invocation, options)).await
+        Box::pin(receipt_routes::execute(
+            shared, invocation, options, transport,
+        ))
+        .await
     }
 }

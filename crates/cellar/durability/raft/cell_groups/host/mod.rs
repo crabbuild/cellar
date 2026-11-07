@@ -380,11 +380,34 @@ impl CellGroupCellHandle {
         }
     }
 
+    /// Inspect a locally attached group. The canonical SDK supplies remote routing.
     /// Absence remains ambiguous and never releases an original producer.
     pub fn receipt(
         &self,
         request: CellReceiptRequest,
         limits: CellRoutingLimits,
+    ) -> impl std::future::Future<Output = Result<CellReceiptResponse, Arc<CellDispatchError>>>
+           + Send
+           + 'static {
+        self.receipt_with_transport(request, limits, None)
+    }
+
+    pub(crate) fn receipt_routed(
+        &self,
+        request: CellReceiptRequest,
+        limits: CellRoutingLimits,
+        transport: RaftTransport,
+    ) -> impl std::future::Future<Output = Result<CellReceiptResponse, Arc<CellDispatchError>>>
+           + Send
+           + 'static {
+        self.receipt_with_transport(request, limits, Some(transport))
+    }
+
+    fn receipt_with_transport(
+        &self,
+        request: CellReceiptRequest,
+        limits: CellRoutingLimits,
+        transport: Option<RaftTransport>,
     ) -> impl std::future::Future<Output = Result<CellReceiptResponse, Arc<CellDispatchError>>>
            + Send
            + 'static {
@@ -399,7 +422,7 @@ impl CellGroupCellHandle {
         async move {
             let options = binding.options(&history).map_err(Arc::new)?;
             host.controller
-                .lookup_receipt(invocation.map_err(Arc::new)?, options)
+                .lookup_receipt(invocation.map_err(Arc::new)?, options, transport.as_ref())
                 .await
                 .map_err(Arc::new)
         }

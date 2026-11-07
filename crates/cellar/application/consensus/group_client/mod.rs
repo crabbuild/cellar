@@ -550,12 +550,13 @@ impl RaftCellHandle {
         timeout: Duration,
     ) -> impl Future<Output = Result<CellReceiptResponse, Arc<CellDispatchError>>> + Send + 'static
     {
-        let response = self.cell.receipt(
+        let response = self.cell.receipt_routed(
             request,
             CellRoutingLimits {
                 timeout,
                 max_attempts: 4,
             },
+            self.owner.handle.core.transport.clone(),
         );
         let owner = self.owner.clone();
         async move {

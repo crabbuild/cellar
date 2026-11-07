@@ -10,8 +10,9 @@ pub(super) async fn execute(
     shared: &Shared,
     mut invocation: CellReceiptInvocation,
     options: CellSqlOptions,
+    transport: Option<&RaftTransport>,
 ) -> Result<CellReceiptResponse, CellDispatchError> {
-    let incoming = invocation.is_remote_destination();
+    let routed = !invocation.is_remote_destination() && transport.is_some();
     invocation.begin().await?;
     loop {
         let attempt = invocation
@@ -30,26 +31,25 @@ pub(super) async fn execute(
             invocation
                 .execute(&shared.runtime, &sql, options.clone())
                 .await
-        } else if incoming {
+        } else if !routed {
             // Received RPCs always execute locally; they never become routers.
             Err(CellDispatchError::Runtime(RuntimeError::NotFound))
-        } else {
-            match invocation
-                .remote_member(&shared.runtime, &shared.transport)
-                .await
-            {
+        } else if let Some(transport) = transport {
+            match invocation.remote_member(&shared.runtime, transport).await {
                 Ok(Some(member)) => invocation
-                    .execute_remote(&shared.transport, member)
+                    .execute_remote(transport, member)
                     .await
                     .map(CellReceiptResponse::remote),
                 Ok(None) => Err(CellDispatchError::Runtime(RuntimeError::NotFound)),
                 Err(error) => Err(error),
             }
+        } else {
+            Err(CellDispatchError::Runtime(RuntimeError::NotFound))
         };
         match result {
             Ok(response) => return Ok(response),
             Err(error)
-                if !incoming
+                if routed
                     && ordinal < invocation.maximum_attempts()
                     && super::query_routes::retryable(&error) =>
             {

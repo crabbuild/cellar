@@ -712,7 +712,7 @@ impl State {
                 .map_err(|_| CommandFailure::Unavailable)?;
             gateway
                 .controller
-                .lookup_receipt(invocation, options)
+                .lookup_receipt(invocation, options, None)
                 .await
                 .map_err(|e| command_failure(&e))
         }
