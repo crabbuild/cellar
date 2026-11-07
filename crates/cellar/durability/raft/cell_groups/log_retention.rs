@@ -210,6 +210,7 @@ fn retained<'a>(mut entries: impl Iterator<Item = &'a Entry>) -> Result<Charge, 
 
 #[derive(Default)]
 struct Group {
+    sealed: bool,
     durable: Charge,
     usage: Charge,
 }
@@ -283,6 +284,7 @@ impl NodeLogRetention {
         state.groups.insert(
             key,
             Group {
+                sealed: false,
                 durable,
                 usage: durable,
             },
@@ -313,6 +315,42 @@ fn usage(durable: Charge, all: Charge) -> Result<CellGroupLogRetentionUsage, Log
 }
 
 impl GroupLogRetention {
+    /// Freeze admission without refunding durable or reserved debt. A failed
+    /// engine deletion leaves this owner sealed until engine recovery.
+    pub(crate) fn freeze_reclamation(&self) -> Result<(), LogError> {
+        let mut state = self.node.lock()?;
+        if state.holds.values().any(|hold| hold.group == self.key) {
+            return Err(LogError::Overloaded);
+        }
+        state
+            .groups
+            .get_mut(&self.key)
+            .ok_or(LogError::WrongIdentity)?
+            .sealed = true;
+        Ok(())
+    }
+
+    /// Called only after the engine's group Clean and tombstone crossed fsync.
+    pub(crate) fn finish_reclamation(&self) -> Result<(), LogError> {
+        let mut state = self.node.lock()?;
+        if state.holds.values().any(|hold| hold.group == self.key)
+            || !state
+                .groups
+                .get(&self.key)
+                .ok_or(LogError::WrongIdentity)?
+                .sealed
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        let group = state
+            .groups
+            .remove(&self.key)
+            .ok_or(LogError::WrongIdentity)?;
+        state.durable = state.durable.sub(group.durable)?;
+        state.usage = state.usage.sub(group.usage)?;
+        Ok(())
+    }
+
     pub(crate) fn usage(&self) -> Result<CellGroupLogRetentionUsage, LogError> {
         let state = self.node.lock()?;
         let group = state.groups.get(&self.key).ok_or(LogError::WrongIdentity)?;
@@ -331,6 +369,9 @@ impl GroupLogRetention {
         let mut state = self.node.lock()?;
         let group = state.groups.get(&self.key).ok_or(LogError::WrongIdentity)?;
         let next_group = group.usage.add(charge)?;
+        if group.sealed {
+            return Err(LogError::WrongIdentity);
+        }
         let next_node = state.usage.add(charge)?;
         let limits = self.node.limits;
         if !next_group.fits(limits.group, limits.progress_group)?
@@ -426,6 +467,7 @@ impl GroupLogRetention {
         state.groups.insert(
             self.key,
             Group {
+                sealed: false,
                 durable: next,
                 usage: next_group,
             },

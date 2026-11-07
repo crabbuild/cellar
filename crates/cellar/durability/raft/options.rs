@@ -20,6 +20,9 @@ pub struct ReplicaLogOptions {
     pub process: ProcessGeneration,
     pub mode: LogOpenMode,
     pub max_groups: usize,
+    /// Permanent retired-source refusal records. Exhaustion refuses cleanup,
+    /// preserving the old physical group; each record is at most 4096 bytes.
+    pub max_source_tombstones: u32,
     pub queue_capacity: usize,
     pub max_pending_bytes: usize,
     pub max_batch_bytes: usize,
@@ -52,6 +55,7 @@ impl ReplicaLogOptions {
             process,
             mode,
             max_groups: 4096,
+            max_source_tombstones: 4096,
             queue_capacity: 32,
             max_pending_bytes: 64 * 1024 * 1024,
             max_batch_bytes: 32 * 1024 * 1024,
@@ -74,6 +78,7 @@ impl ReplicaLogOptions {
             || self.directory.to_str().is_none()
             || self.max_groups == 0
             || self.max_groups > 32_768
+            || !(1..=1_000_000).contains(&self.max_source_tombstones)
             || self.queue_capacity == 0
             || self.queue_capacity > 1024
             || self.max_batch_bytes == 0

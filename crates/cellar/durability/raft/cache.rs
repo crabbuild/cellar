@@ -209,6 +209,7 @@ impl<S: Clone> GroupWrite<S> {
 /// The engine rejects mixed application domains and never casts between them.
 #[derive(Clone)]
 pub struct GroupLog<S = GroupScope> {
+    pub(crate) reclaimed: Arc<AtomicBool>,
     pub(crate) archive_compaction: Arc<super::cell_groups::archive_compaction::ArchiveCompaction>,
     pub(crate) consensus_claimed: Arc<AtomicBool>,
     pub(crate) scratch_directory: std::path::PathBuf,
@@ -305,6 +306,9 @@ impl<S> GroupLog<S> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LogError::Closed);
         }
+        if self.reclaimed.load(Ordering::Acquire) {
+            return Err(LogError::NotFound);
+        }
         if self.cache.is_poisoned() {
             self.closed.store(true, Ordering::Release);
             return Err(LogError::Corrupt("Raft cache lock poisoned".into()));
@@ -315,6 +319,9 @@ impl<S> GroupLog<S> {
     pub(crate) fn read(&self) -> Result<RwLockReadGuard<'_, CachedGroup>, LogError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LogError::Closed);
+        }
+        if self.reclaimed.load(Ordering::Acquire) {
+            return Err(LogError::NotFound);
         }
         self.cache.read().map_err(|_| {
             self.closed.store(true, Ordering::Release);

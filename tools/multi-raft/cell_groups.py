@@ -51,6 +51,17 @@ CASES = (
 )
 
 SUITES = {
+    "managed-source-reclamation": (
+        "native_cell_groups_transition_service",
+        ("rustfs_consented_split_reclaims_retired_source",),
+        "selected retired sources release engine and private page owners before local slot reuse",
+        "Both image modes, host-native RF3 voters and unchanged fixture capacity. "
+        "An atomic engine tombstone permanently refuses the source group ID. "
+        "Collection preserves colocated child reads, receipt retries and S3 writes; "
+        "retained restart reopens the refusal and exact cleanup replay. Fleet resource "
+        "floor refunds, repeated placement cycles, crash injection, process RSS, disk peaks "
+        "and constrained independent voter processes remain separate gates.",
+    ),
     "managed-transition-capacity": (
         "native_cell_groups_transition_service",
         ("capacity::rustfs_split_capacity_keeps_parent_writable",

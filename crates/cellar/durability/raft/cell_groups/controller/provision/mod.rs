@@ -39,6 +39,26 @@ pub struct CellGroupProvisionCall {
     deadline: Option<(crate::asyncrt::DomainToken, u64)>,
 }
 
+impl Config {
+    pub(super) fn take_retired_applier(
+        &self,
+        history: cellar_logic::cell_group::GroupHistory,
+    ) -> Result<Option<CellGroupApplier>, CellGroupControllerError> {
+        let mut parked = self
+            .parked
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?;
+        if matches!(parked.get(&history), Some(PendingGroupOwner::Seeded(_))) {
+            return Err(RuntimeError::NotReady.into());
+        }
+        Ok(parked.remove(&history).map(|owner| match owner {
+            PendingGroupOwner::Recovered(owner) => owner.applier.clone(),
+            PendingGroupOwner::Synced(applier) => (*applier).clone(),
+            PendingGroupOwner::Seeded(_) => unreachable!("checked under the same lock"),
+        }))
+    }
+}
+
 impl CellGroupProvisionCall {
     pub async fn response(self) -> Result<(), Arc<CellGroupControllerError>> {
         let delivery = self

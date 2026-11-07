@@ -83,6 +83,7 @@ pub struct RaftFleetTransitionSourceRetirement {
 enum SourceAction {
     Seal,
     Retire,
+    Reclaim,
 }
 
 impl RaftFleetControl {
@@ -301,6 +302,40 @@ impl RaftFleetControl {
             .map_err(Into::into)
     }
 
+    /// Collect a quiesced local source only after the selected retirement and
+    /// released parent holds verify. False requests another bounded collection
+    /// turn. True releases its engine/controller slot; Fleet resource floors
+    /// remain conservative and shared image readers retain their physical pins.
+    /// Retry the same request after a lost response, including retained restart.
+    pub async fn reclaim_transition_source(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionSourceSealRequest,
+        timeout: Duration,
+    ) -> Result<bool> {
+        let turn = Turn::new(&self.domain, timeout)?;
+        let (_, history, transition) = self
+            .authorize_source_action(
+                principal,
+                namespace,
+                operation,
+                request,
+                &turn,
+                SourceAction::Reclaim,
+            )
+            .await?;
+        let observer = self
+            .node_observer
+            .as_ref()
+            .ok_or_else(RaftFleetFailure::unsupported)?;
+        observer
+            .reclaim_managed_source(&transition, history, turn.remaining()?)
+            .await
+            .map_err(source_failure)
+    }
+
     async fn authorize_source_action<'a>(
         &'a self,
         principal: &str,
@@ -333,24 +368,25 @@ impl RaftFleetControl {
             .transition_routes(&transition.plan)
             .map_err(FleetCatalogError::from)?;
         if !parents.iter().any(|route| route.history == history)
-            || !transition
-                .journal
-                .as_ref()
-                .is_some_and(|journal| match action {
-                    SourceAction::Seal => matches!(
-                        journal.phase(),
-                        TransitionPhase::SealAuthorized
-                            | TransitionPhase::Sealed
-                            | TransitionPhase::Installed
-                            | TransitionPhase::Archived
-                    ),
-                    SourceAction::Retire => {
-                        matches!(
+            || !(matches!(action, SourceAction::Reclaim) && transition.journal.is_none()
+                || transition
+                    .journal
+                    .as_ref()
+                    .is_some_and(|journal| match action {
+                        SourceAction::Seal => matches!(
                             journal.phase(),
-                            TransitionPhase::Active | TransitionPhase::Retired
-                        ) && journal.child_archives().is_some()
-                    }
-                })
+                            TransitionPhase::SealAuthorized
+                                | TransitionPhase::Sealed
+                                | TransitionPhase::Installed
+                                | TransitionPhase::Archived
+                        ),
+                        SourceAction::Retire | SourceAction::Reclaim => {
+                            matches!(
+                                journal.phase(),
+                                TransitionPhase::Active | TransitionPhase::Retired
+                            ) && journal.child_archives().is_some()
+                        }
+                    }))
         {
             return Err(FleetCatalogError::Conflict.into());
         }

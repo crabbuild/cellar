@@ -29,6 +29,7 @@ mod failure;
 mod provision;
 mod registration;
 mod retirement;
+mod source_reclaim;
 pub use provision::{
     CellGroupProvisionCall, CellGroupProvisionLimits, CellGroupProvisionNamespace,
     CellGroupProvisioning,
@@ -160,6 +161,7 @@ struct Shared {
     domain: crate::asyncrt::DomainToken,
     commands: Arc<crate::raft::budget::Budget>,
     provisioning: Mutex<Option<Arc<provision::Config>>>,
+    retired_sources: Mutex<BTreeMap<cellar_logic::cell_group::GroupHistory, CellGroupApplier>>,
     effects: Mutex<Option<Arc<effects::Config>>>,
     active_effects: AtomicUsize,
     effect_turns: AtomicU64,
@@ -319,6 +321,7 @@ impl CellGroupController {
             domain: domain.clone(),
             commands: commands::budget(limits),
             provisioning: Mutex::new(None),
+            retired_sources: Mutex::new(BTreeMap::new()),
             effects: Mutex::new(None),
             active_effects: AtomicUsize::new(0),
             effect_turns: AtomicU64::new(0),
@@ -378,6 +381,11 @@ impl CellGroupController {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .take();
+                shared
+                    .retired_sources
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
                 shared.active_effects.store(0, Ordering::Release);
                 shared.active_checkpoints.store(0, Ordering::Release);
                 shared.active_apply.store(0, Ordering::Release);

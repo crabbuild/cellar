@@ -166,7 +166,13 @@ impl Worker {
         self.routes.remove(&history);
         self._checkpoint_routes
             .retain(|route| route.history() != history);
-        self.roster.remove(&history);
+        if let Some(applier) = self.roster.remove(&history) {
+            self.shared
+                .retired_sources
+                .lock()
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .insert(history, applier);
+        }
         self.effects.remove(&history);
         self.shared.groups.finish_retirement(history)?;
         self.progress.send_replace(());
@@ -276,6 +282,12 @@ impl Worker {
                 },
                 Some(request) = self.requests.recv() => {
                     match request {
+                        requests::Request::Reclamation(request) => {
+                            let result = source_reclaim::drive(&self.shared, &request).await;
+                            let fatal = result.as_ref().err().filter(|error| failure::node_wide(error)).cloned();
+                            let _ = request.reply.send(super::calls::Delivery { result: result.map_err(Arc::new), _permit: request.memory });
+                            if let Some(error) = fatal { return Err(error); }
+                        }
                         requests::Request::Retirement(request) => {
                             let result = self.retire_source(&request.source).await.map_err(Arc::new);
                             let _ = request.reply.send(super::calls::Delivery { result, _permit: request.memory });
@@ -372,7 +384,8 @@ impl Worker {
                 event = self.events.recv() => {
                     let event = event.ok_or(CellGroupControllerError::Closed)?;
                     let group = event.group();
-                    if !self.roster.contains_key(&group) && self.shared.groups.retired(&group) {
+                    if !self.roster.contains_key(&group) && (self.shared.groups.retired(&group)
+                        || self.runtime.log().source_reclamation(group).await.map_err(RuntimeError::from)?.is_some()) {
                         // Metadata/messages can have been delivered before the
                         // runtime detached. Apply tickets prevent physical join.
                         if event.retain_apply().is_some() { return Err(CellGroupControllerError::Invalid("retired source apply event")); }

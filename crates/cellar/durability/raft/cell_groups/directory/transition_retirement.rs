@@ -131,6 +131,88 @@ impl CellGroupSourceRetirementPermit {
 }
 
 impl RangeDirectory {
+    pub(crate) async fn prepare_managed_source_reclamation(
+        &self,
+        plan: &DirectoryMutation,
+        history: GroupHistory,
+        log: &ReplicaLog,
+    ) -> Result<crate::raft::cell_groups::source_reclaim::Permit, CatalogError> {
+        use crate::raft::cell_groups::source_reclaim::{Permit, Source};
+        let local = log.limits();
+        if let Some(ack) = log
+            .source_reclamation(history)
+            .await
+            .map_err(CatalogError::Log)?
+        {
+            ack.check(log).map_err(CatalogError::Log)?;
+            let source = &ack.record().source;
+            if source.operation != plan.operation().bytes()
+                || source.plan != plan.digest()
+                || history.cluster != self.namespace_config().cluster
+                || history.namespace != self.namespace_config().namespace
+            {
+                return Err(CatalogError::Fenced);
+            }
+            return Permit::new(log, source.clone()).map_err(CatalogError::Log);
+        }
+        self.bounded(async {
+            let basis = self.retirement_basis(plan).await?;
+            if basis.journal.phase() != TransitionPhase::Retired
+                || !basis.journal.parent_holds_released()
+            {
+                return Err(CatalogError::Fenced);
+            }
+            let digest = basis
+                .journal
+                .retired_parents()
+                .ok_or(CatalogError::Fenced)?;
+            let set = self.require_retirement_set(plan, &basis, digest).await?;
+            let (hold, receipt) = basis
+                .parents
+                .iter()
+                .zip(&set.parents)
+                .find(|(hold, _)| hold.marker().route().history == history)
+                .ok_or(CatalogError::Fenced)?;
+            let member = receipt
+                .members
+                .iter()
+                .find(|m| {
+                    m.node == local.node.bytes()
+                        && m.disk.is_none_or(|disk| disk == local.disk.bytes())
+                })
+                .ok_or(CatalogError::Fenced)?;
+            let group = log.cell_group(&history).map_err(CatalogError::Log)?;
+            let marker = group
+                .group_manifest()
+                .map_err(CatalogError::Log)?
+                .ok_or(CatalogError::Fenced)?;
+            self.park_managed_retired_source(plan, &group, &marker)
+                .await?;
+            let source = Source {
+                history: [
+                    history.cluster.bytes(),
+                    history.namespace.bytes(),
+                    history.group.bytes(),
+                    history.incarnation.bytes(),
+                ],
+                birth: hold.marker().route().birth_digest,
+                root: hold.marker().root().digest(),
+                member: member.member,
+                operation: plan.operation().bytes(),
+                plan: plan.digest(),
+                retirement: digest,
+                publication: set.publication,
+                seal_index: receipt.seal_index,
+                seal_term: receipt.seal_term,
+                index: receipt.index,
+                term: receipt.term,
+            };
+            source.check_marker(&marker).map_err(CatalogError::Log)?;
+            Permit::new(log, source).map_err(CatalogError::Log)
+        })
+        .await
+    }
+
     /// Verify the exact synced local tombstone before preserving a retired
     /// source as physical occupancy without an attached Raft owner.
     pub(crate) async fn park_managed_retired_source(

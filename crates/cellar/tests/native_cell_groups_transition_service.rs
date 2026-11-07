@@ -13,6 +13,9 @@ pub mod rustfs;
 #[path = "support/cell_group_transition_selection.rs"]
 mod selection;
 
+#[path = "support/cell_group_transition_reclamation.rs"]
+mod reclamation;
+
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::cell_groups::{
     cell_routing_key, GroupHistory, TransitionPhase,
@@ -106,6 +109,38 @@ async fn rustfs_consented_split_keeps_colocated_children_running() -> Result<()>
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn consented_split_reclaims_retired_source() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify_with_reclamation(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+            true,
+            true,
+            false,
+            true,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_consented_split_reclaims_retired_source() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "source-reclamation",
+            rooted,
+        )?));
+        Box::pin(qualify_with_reclamation(
+            rooted, store, true, true, false, true,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
 fn options(coordinate: bool, live_retirement: bool) -> RaftFleetTransitionServiceOptions {
     RaftFleetTransitionServiceOptions {
         coordinate,
@@ -162,6 +197,25 @@ async fn qualify_with_selection(
     colocated: bool,
     automatic: bool,
 ) -> Result<()> {
+    Box::pin(qualify_with_reclamation(
+        rooted,
+        store,
+        live_retirement,
+        colocated,
+        automatic,
+        false,
+    ))
+    .await
+}
+
+async fn qualify_with_reclamation(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    live_retirement: bool,
+    colocated: bool,
+    automatic: bool,
+    reclaim: bool,
+) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("off,cellar::raft::transition_setup=debug")
         .with_test_writer()
@@ -181,9 +235,12 @@ async fn qualify_with_selection(
         rooted,
         &mut workers,
         &mut roots,
-        live_retirement,
-        colocated,
-        automatic,
+        Scenario {
+            live_retirement,
+            colocated,
+            automatic,
+            reclaim,
+        },
     ))
     .await;
     cluster.fixtures[0]
@@ -271,15 +328,26 @@ async fn split_request(
     Ok(request)
 }
 
+struct Scenario {
+    live_retirement: bool,
+    colocated: bool,
+    automatic: bool,
+    reclaim: bool,
+}
+
 async fn exercise(
     cluster: &mut ManagedCluster,
     rooted: bool,
     workers: &mut [Option<RaftFleetTransitionService>],
     roots: &mut Vec<tempfile::TempDir>,
-    live_retirement: bool,
-    colocated: bool,
-    automatic: bool,
+    scenario: Scenario,
 ) -> Result<()> {
+    let Scenario {
+        live_retirement,
+        colocated,
+        automatic,
+        reclaim,
+    } = scenario;
     // Retained source storage stays charged. Place only one child beside its
     // parent so each node stays within the unchanged two-history bound.
     let destinations = if colocated { [0, 3] } else { [3, 3] };
@@ -339,6 +407,28 @@ async fn exercise(
         plan_digest: admitted.plan_digest.clone(),
         source: group(cluster.history),
     };
+    if reclaim {
+        let refused = controls[first]
+            .reclaim_transition_source(
+                "automatic-test",
+                &namespace,
+                &request.operation_id,
+                &early,
+                TIMEOUT,
+            )
+            .await;
+        ensure!(matches!(refused, Err(error) if error.code == RaftFleetFailureCode::Conflict));
+        let forbidden = controls[first]
+            .reclaim_transition_source(
+                "another-principal",
+                &namespace,
+                &request.operation_id,
+                &early,
+                TIMEOUT,
+            )
+            .await;
+        ensure!(matches!(forbidden, Err(error) if error.code == RaftFleetFailureCode::Forbidden));
+    }
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     let refused = tokio::time::timeout(TIMEOUT, async {
         loop {
@@ -684,6 +774,17 @@ async fn exercise(
         ))
         .await?;
     }
+    if reclaim {
+        for worker in workers.iter_mut() {
+            if let Some(worker) = worker.take() {
+                worker.shutdown().await;
+            }
+        }
+        Box::pin(reclamation::collect(
+            cluster, rooted, roots, &request, &early, colocated,
+        ))
+        .await?;
+    }
     // Namespace discovery never grants application I/O. Reinstall the trusted
     // ingress grants for its new boot before forwarding application requests.
     for destination in destinations.into_iter().collect::<BTreeSet<_>>() {
@@ -755,6 +856,12 @@ async fn exercise(
             archived.result == ([9i64, 13][i]).to_be_bytes()
                 && archived.durability == Durability::S3
         );
+    }
+    if reclaim {
+        Box::pin(reclamation::retained_restart(
+            cluster, rooted, roots, &request, &early, colocated,
+        ))
+        .await?;
     }
     Ok(())
 }

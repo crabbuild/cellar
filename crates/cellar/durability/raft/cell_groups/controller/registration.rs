@@ -168,6 +168,30 @@ impl GroupRoster {
         }
     }
 
+    pub(super) fn require_reclaimable(
+        &self,
+        group: &GroupHistory,
+        tombstoned: bool,
+    ) -> Result<(), RuntimeError> {
+        let groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
+        match groups.get(group) {
+            Some(GroupState::ParkedRetired) => Ok(()),
+            None if tombstoned => Ok(()),
+            _ => Err(RuntimeError::NotReady),
+        }
+    }
+
+    pub(super) fn finish_reclamation(&self, group: &GroupHistory) -> Result<(), RuntimeError> {
+        let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
+        match groups.get(group) {
+            Some(GroupState::ParkedRetired) | None => {
+                groups.remove(group);
+                Ok(())
+            }
+            _ => Err(RuntimeError::NotReady),
+        }
+    }
+
     pub(super) fn retired(&self, group: &GroupHistory) -> bool {
         self.groups
             .lock()

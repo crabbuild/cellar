@@ -359,6 +359,60 @@ impl RootRetentions {
         Ok(())
     }
 
+    pub(super) fn prepare_source_reclamation(
+        &self,
+        group: &GroupLog<cellar_logic::cell_group::GroupHistory>,
+        source: &super::source_reclaim::Source,
+    ) -> Result<(), ManifestError> {
+        let marker = group
+            .group_manifest()
+            .map_err(|_| ManifestError::Conflict)?
+            .ok_or(ManifestError::Conflict)?;
+        source
+            .check_marker(&marker)
+            .map_err(|_| ManifestError::Conflict)?;
+        self.require_selected(group, &marker)?;
+        if !self.state()?.retained.is_empty() {
+            return Err(ManifestError::Conflict);
+        }
+        Ok(())
+    }
+
+    pub(super) fn detach_reclaimed_source(
+        &self,
+        group: &GroupLog<cellar_logic::cell_group::GroupHistory>,
+        source: &super::source_reclaim::Source,
+    ) -> Result<(), ManifestError> {
+        if !group.reclaimed.load(Ordering::Acquire) || group.closed.load(Ordering::Acquire) {
+            return Err(ManifestError::Conflict);
+        }
+        let mut state = self.state()?;
+        if !state.retained.is_empty() {
+            return Err(ManifestError::Conflict);
+        }
+        if let Some(selected) = state.groups.get(&source.history) {
+            if !Arc::ptr_eq(&selected.engine, &group.owner)
+                || selected.pending.is_some()
+                || selected.pending_checkpoint
+                || selected.checkpoint.as_ref().map(|r| &r.marker)
+                    != selected.expected_checkpoint.as_ref()
+            {
+                return Err(ManifestError::Conflict);
+            }
+            let marker = &selected
+                .current
+                .as_ref()
+                .ok_or(ManifestError::Conflict)?
+                .marker;
+            source
+                .check_marker(marker)
+                .map_err(|_| ManifestError::Conflict)?;
+            state.groups.remove(&source.history);
+        }
+        state.reconciled = true;
+        Ok(())
+    }
+
     pub(super) fn can_reclaim(&self) -> Result<(), ManifestError> {
         let state = self.state()?;
         if state

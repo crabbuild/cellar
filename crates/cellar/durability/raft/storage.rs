@@ -317,7 +317,37 @@ enum Work {
         MaintenanceLease,
         Reply<Result<CellGroupReclaimReport, CellGroupReclaimError>>,
     ),
+    ReclaimSource(
+        Box<super::cell_groups::source_reclaim::Permit>,
+        Reply<SourceReclaimAck>,
+    ),
+    SourceStatus(GroupHistory, Reply<Option<SourceReclaimAck>>),
+    FinishSource(Box<SourceReclaimAck>, Reply<SourceReclaimAck>),
     Purge(Reply<()>),
+}
+
+/// Opaque engine-bound acknowledgement. Only this engine worker creates it.
+#[derive(Clone)]
+pub(crate) struct SourceReclaimAck {
+    owner: Arc<()>,
+    record: super::cell_groups::source_reclaim::Record,
+}
+
+impl SourceReclaimAck {
+    pub(crate) fn record(&self) -> &super::cell_groups::source_reclaim::Record {
+        &self.record
+    }
+
+    pub(crate) fn check(&self, log: &ReplicaLog) -> Result<(), LogError> {
+        if !Arc::ptr_eq(&self.owner, &log.inner.owner) {
+            return Err(LogError::WrongIdentity);
+        }
+        self.record.validate(
+            log.storage_instance()?.bytes(),
+            log.limits().node,
+            log.limits().disk,
+        )
+    }
 }
 
 /// Exclusive consensus ownership; normal release follows a final storage fence.
@@ -914,6 +944,33 @@ impl ReplicaLog {
 
     /// Reclaim obsolete shared engine files, retaining every group's live log,
     /// votes and checkpoint. This does not authorize logical compaction.
+    pub(crate) async fn reclaim_source(
+        &self,
+        permit: super::cell_groups::source_reclaim::Permit,
+    ) -> Result<SourceReclaimAck, LogError> {
+        self.request(32 * 1024, |reply| {
+            Work::ReclaimSource(Box::new(permit), reply)
+        })
+        .await
+    }
+
+    pub(crate) async fn source_reclamation(
+        &self,
+        history: GroupHistory,
+    ) -> Result<Option<SourceReclaimAck>, LogError> {
+        self.request(4096, |reply| Work::SourceStatus(history, reply))
+            .await
+    }
+
+    pub(crate) async fn finish_source_reclamation(
+        &self,
+        ack: SourceReclaimAck,
+    ) -> Result<SourceReclaimAck, LogError> {
+        ack.check(self)?;
+        self.request(4096, |reply| Work::FinishSource(Box::new(ack), reply))
+            .await
+    }
+
     pub async fn purge(&self) -> Result<(), LogError> {
         self.request(1024, Work::Purge).await
     }
@@ -1163,6 +1220,13 @@ impl Worker {
     }
 
     fn recover(&mut self) -> Result<(), LogError> {
+        self.cache_bytes = usize::try_from(self.source_budget()?)
+            .map_err(|_| LogError::Overloaded)?
+            .checked_mul(super::cell_groups::source_reclaim::CACHE_BYTES)
+            .ok_or(LogError::Overloaded)?;
+        if self.cache_bytes > self.options.max_cache_bytes {
+            return Err(LogError::Overloaded);
+        }
         let mut mappings = Vec::new();
         let mut failure = None;
         self.engine
@@ -1194,6 +1258,18 @@ impl Worker {
         let mut known = BTreeSet::from([0]);
         let mut application = None;
         for mapping in mappings {
+            if self
+                .engine
+                .get(
+                    0,
+                    &super::cell_groups::source_reclaim::key(mapping.history()?.group),
+                )
+                .is_some()
+            {
+                return Err(LogError::Corrupt(
+                    "live mapping also has source tombstone".into(),
+                ));
+            }
             if application
                 .replace(mapping.is_cells())
                 .is_some_and(|kind| kind != mapping.is_cells())
@@ -1319,6 +1395,7 @@ impl Worker {
             None
         };
         Ok(GroupLog {
+            reclaimed: Arc::new(AtomicBool::new(false)),
             archive_compaction: Arc::new(
                 super::cell_groups::archive_compaction::ArchiveCompaction::new(
                     cache.archive_required,
@@ -1624,10 +1701,19 @@ impl Worker {
         mut cache: CachedGroup,
         imported: Option<&ImportedGenesis>,
     ) -> Result<StoredGroup, LogError> {
+        let history = mapping.history()?;
+        if self
+            .engine
+            .get(0, &super::cell_groups::source_reclaim::key(history.group))
+            .is_some()
+        {
+            // Validate the stored refusal as well as refusing identity reuse.
+            self.source_status(history)?;
+            return Err(LogError::WrongIdentity);
+        }
         if self.mappings.len() >= self.options.max_groups {
             return Err(LogError::Overloaded);
         }
-        let history = mapping.history()?;
         {
             let groups = self.groups.read().map_err(|_| LogError::Closed)?;
             if groups.keys().any(|h| h.group == history.group)
@@ -1911,6 +1997,212 @@ impl Worker {
         })
     }
 
+    fn source_budget(&self) -> Result<u32, LogError> {
+        let Some(bytes) = self
+            .engine
+            .get(0, super::cell_groups::source_reclaim::BUDGET_KEY)
+        else {
+            return Ok(0);
+        };
+        if bytes.len() > 128 {
+            return Err(records::corrupt("oversized retired-source budget"));
+        }
+        let budget: super::cell_groups::source_reclaim::Budget = records::decode(&bytes)?;
+        if budget.format != 1 || budget.count == 0 || u64::from(budget.count) >= self.root.next_key
+        {
+            return Err(records::corrupt("invalid retired-source budget"));
+        }
+        if budget.count > self.options.max_source_tombstones {
+            return Err(LogError::Overloaded);
+        }
+        Ok(budget.count)
+    }
+
+    fn source_status(&self, history: GroupHistory) -> Result<Option<SourceReclaimAck>, LogError> {
+        let Some(bytes) = self
+            .engine
+            .get(0, &super::cell_groups::source_reclaim::key(history.group))
+        else {
+            return Ok(None);
+        };
+        if bytes.len() > super::cell_groups::source_reclaim::MAX_RECORD_BYTES
+            || self.source_budget()? == 0
+        {
+            return Err(records::corrupt("source tombstone size or budget"));
+        }
+        let record: super::cell_groups::source_reclaim::Record = records::decode(&bytes)?;
+        record
+            .validate(
+                self.root.identity.storage_instance,
+                self.options.node,
+                self.options.disk,
+            )
+            .map_err(|_| records::corrupt("invalid source tombstone"))?;
+        if record.source.scope()? != history {
+            return Err(LogError::WrongIdentity);
+        }
+        if record.old_key >= self.root.next_key
+            || record.sequence > self.root.sequence
+            || self.engine.get(record.old_key, GROUP_KEY).is_some()
+            || self.engine.last_index(record.old_key).is_some()
+        {
+            return Err(records::corrupt("source tombstone disagrees with engine"));
+        }
+        Ok(Some(SourceReclaimAck {
+            owner: self.owner.clone(),
+            record,
+        }))
+    }
+
+    fn reclaim_source(
+        &mut self,
+        permit: super::cell_groups::source_reclaim::Permit,
+    ) -> Result<SourceReclaimAck, LogError> {
+        permit.check(
+            &self.owner,
+            self.root.identity.storage_instance,
+            self.options.node,
+            self.options.disk,
+        )?;
+        let history = permit.source.scope()?;
+        if let Some(previous) = self.source_status(history)? {
+            return if previous.record.source == permit.source {
+                Ok(previous)
+            } else {
+                Err(LogError::WrongIdentity)
+            };
+        }
+        let group = self
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .get(&history)
+            .ok_or(LogError::NotFound)?
+            .as_cells()?
+            .clone();
+        permit.check_group(&group)?;
+        let mapping = self
+            .mappings
+            .get(&group.key)
+            .ok_or(LogError::WrongIdentity)?
+            .clone();
+        let bytes = group.read()?.bytes();
+        let record = super::cell_groups::source_reclaim::Record {
+            format: 1,
+            source: permit.source,
+            engine: self.root.identity.storage_instance,
+            node: self.options.node.bytes(),
+            disk: self.options.disk.bytes(),
+            old_key: group.key,
+            sequence: self
+                .root
+                .sequence
+                .checked_add(1)
+                .ok_or(LogError::Overloaded)?,
+            complete: false,
+        };
+        let retention = group.log_retention().ok_or(LogError::WrongIdentity)?;
+        let count = self.source_budget()?;
+        if count >= self.options.max_source_tombstones {
+            return Err(LogError::Overloaded);
+        }
+        let cache_bytes = self
+            .cache_bytes
+            .checked_sub(bytes)
+            .and_then(|n| n.checked_add(super::cell_groups::source_reclaim::CACHE_BYTES))
+            .ok_or_else(|| records::corrupt("source cache accounting"))?;
+        if cache_bytes > self.options.max_cache_bytes {
+            return Err(LogError::Overloaded);
+        }
+        let encoded = records::encode(&record)?;
+        if encoded.len() > super::cell_groups::source_reclaim::MAX_RECORD_BYTES {
+            return Err(LogError::Overloaded);
+        }
+        let mut batch = LogBatch::default();
+        batch
+            .put(
+                0,
+                super::cell_groups::source_reclaim::BUDGET_KEY.to_vec(),
+                records::encode(&super::cell_groups::source_reclaim::Budget {
+                    format: 1,
+                    count: count + 1,
+                })?,
+            )
+            .map_err(engine_error)?;
+        batch.add_command(group.key, Command::Clean);
+        batch.delete(0, mapping.catalog_key()?);
+        batch
+            .put(
+                0,
+                super::cell_groups::source_reclaim::key(history.group),
+                encoded,
+            )
+            .map_err(engine_error)?;
+        retention.freeze_reclamation()?;
+        group.reclaimed.store(true, Ordering::Release);
+        self.fence(&mut batch)?;
+        // No capacity/pin refund precedes the atomic Clean plus refusal record.
+        retention
+            .finish_reclamation()
+            .map_err(|_| records::corrupt("reclaimed retention ledger"))?;
+        {
+            let mut cache = group
+                .cache
+                .write()
+                .map_err(|_| records::corrupt("reclaimed cache lock"))?;
+            cache.manifest_pins.take();
+            cache.group_manifest.take();
+            cache.checkpoint_manifest.take();
+            cache.recovery_genesis.take();
+            cache.entries.clear();
+            cache.snapshot = ::raft::prelude::Snapshot::default();
+            cache.conf_state = ConfState::default();
+            cache.membership = super::member_state::GroupMembership::initial(&cache.conf_state);
+            cache.local_park.take();
+            cache.applied.image.take();
+        }
+        self.groups
+            .write()
+            .map_err(|_| records::corrupt("reclaimed group catalog lock"))?
+            .remove(&history);
+        self.mappings.remove(&group.key);
+        self.cache_bytes = cache_bytes;
+        Ok(SourceReclaimAck {
+            owner: self.owner.clone(),
+            record,
+        })
+    }
+
+    fn finish_source(&mut self, ack: SourceReclaimAck) -> Result<SourceReclaimAck, LogError> {
+        if !Arc::ptr_eq(&ack.owner, &self.owner) {
+            return Err(LogError::WrongIdentity);
+        }
+        let mut current = self
+            .source_status(ack.record.source.scope()?)?
+            .ok_or(LogError::NotFound)?;
+        if current.record.source != ack.record.source {
+            return Err(LogError::WrongIdentity);
+        }
+        if !current.record.complete {
+            current.record.complete = true;
+            current.record.sequence = self
+                .root
+                .sequence
+                .checked_add(1)
+                .ok_or(LogError::Overloaded)?;
+            let mut batch = LogBatch::default();
+            batch
+                .put(
+                    0,
+                    super::cell_groups::source_reclaim::key(current.record.source.scope()?.group),
+                    records::encode(&current.record)?,
+                )
+                .map_err(engine_error)?;
+            self.fence(&mut batch)?;
+        }
+        Ok(current)
+    }
+
     fn purge(&mut self) -> Result<(), LogError> {
         let timer = self.performance.timer(Measured::EnginePurge);
         let result = (|| {
@@ -2048,6 +2340,33 @@ impl Worker {
                     let timer = self.performance.timer(Measured::EnginePersist);
                     let result = self.persist(operation, writes);
                     timer.finish(result.is_ok());
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::ReclaimSource(permit, reply) => {
+                    let result = self.reclaim_source(*permit);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::SourceStatus(history, reply) => {
+                    let result = self.source_status(history);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::FinishSource(ack, reply) => {
+                    let result = self.finish_source(*ack);
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

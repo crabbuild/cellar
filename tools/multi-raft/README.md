@@ -530,3 +530,32 @@ The existing control budget owns sample metadata and the frozen request. These
 host-native RF3 voters use fixture capacity; placement identities and execution
 consent remain explicit. Whole-group balancing/reserve/fanout, physical source
 reclamation, independent voter processes and load remain separate gates.
+
+
+## Retired source reclamation
+
+Use `--suite managed-source-reclamation` with an owned RustFS backend and a
+fresh output directory. `RaftFleetControl::reclaim_transition_source` accepts
+the original authorized source request only after its selected retirement and
+parent-hold release. The source must already be quiesced. Each turn scans at most
+256 private manifest pages and 256 shared image files; shared readers and child
+roots retain their pins. False requests another bounded turn. True confirms
+private page cleanup and engine/controller slot release. Fleet capacity floors
+remain conservative; this API does not refund durable-byte or memory budgets.
+
+The engine atomically replaces the mapping and complete log with a permanent
+refusal keyed by group ID. The same group cannot reappear under another namespace
+or incarnation. An incomplete local receipt survives loss of the caller and
+supports retained-startup cleanup; a completed receipt makes retries idempotent.
+Permanent metadata has an explicit engine limit (4,096 refusal records by default,
+at most 4 KiB each, with 16 KiB each charged to the existing cache budget). Exhaustion refuses fresh cleanup and retains the source
+slot; retries of existing receipts still resolve. This applies to permanently
+retired transition parents. Removing an obsolete
+member of a live history requires separate membership authorization.
+
+The exact case keeps one child beside its source within the original two-slot,
+1-GiB declared deployment profile, collects all three source replicas, then checks
+minimum-version reads and S3 writes through the original ingress. A retained
+restart must preserve the refusal and exact replay. Both image modes run.
+Fleet floor refunds and repeated movement cycles, process fault injection,
+independent voter containers, measured disk/RSS peaks and load remain open gates.
