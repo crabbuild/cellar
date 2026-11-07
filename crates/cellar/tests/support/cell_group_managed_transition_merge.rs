@@ -11,6 +11,9 @@ use cellar::application::consensus::verification::{
     FleetChange, FleetHistoryState, FleetMutation, FleetSnapshot, FleetTable,
 };
 use cellar::application::consensus::{DisasterFenceAuthority, FleetNodeSpec};
+
+#[path = "cell_group_transition_archive_fault.rs"]
+mod archive_fault;
 use cellar::sdk::fleet_operations::{
     FleetFencedTransitionRecovery, FleetRecoveryAttachRequest, FleetTransitionRecoveryFenceRequest,
     RaftFleetControl, RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
@@ -706,36 +709,16 @@ async fn run_inner(
             .await?;
         wait_archive(voters, parent.history, &seal).await?;
         if index == 0 {
-            let denied_before = fixture
-                .store
-                .denied_group_payload_reads
-                .load(Ordering::Acquire);
-            fixture
-                .store
-                .deny_group_payload_reads
-                .store(true, Ordering::Release);
-            let denied = controller
-                .0
-                .capture_managed_sealed_source(
+            archive_fault::refused(&fixture.store, |remaining| {
+                controller.0.capture_managed_sealed_source(
                     &controller.1,
                     operation,
                     parent.history,
                     &verifier,
-                    TIMEOUT,
+                    remaining,
                 )
-                .await;
-            fixture
-                .store
-                .deny_group_payload_reads
-                .store(false, Ordering::Release);
-            ensure!(
-                denied.is_err()
-                    && fixture
-                        .store
-                        .denied_group_payload_reads
-                        .load(Ordering::Acquire)
-                        > denied_before
-            );
+            })
+            .await?;
             let progress = controller
                 .0
                 .staged_managed_sealed_sources(&controller.1, operation, TIMEOUT)
@@ -988,19 +971,10 @@ async fn run_inner(
         Err(FleetCatalogError::Conflict)
     ));
     let store = &fixture.store;
-    let denied_before = store.denied_group_payload_reads.load(Ordering::Acquire);
-    store
-        .deny_group_payload_reads
-        .store(true, Ordering::Release);
-    let denied = resumed
-        .replay_managed_sealed_sources(&reopened, operation, &verifier, TIMEOUT)
-        .await;
-    store
-        .deny_group_payload_reads
-        .store(false, Ordering::Release);
-    ensure!(
-        denied.is_err() && store.denied_group_payload_reads.load(Ordering::Acquire) > denied_before
-    );
+    archive_fault::refused(store, |remaining| {
+        resumed.replay_managed_sealed_sources(&reopened, operation, &verifier, remaining)
+    })
+    .await?;
     let pending = resumed
         .reopen_managed_transition(&reopened, operation, TIMEOUT)
         .await?
