@@ -20,19 +20,24 @@ pass. The focused occupancy-128 case passes its full data checks, with
 60-second window after 66 cells. Retain both results; the process sample
 identifies blocking file synchronization as substantial preparation cost.
 
-The planned CG-09 target now passes three of seven required cases at
-`5331fc4a`: authorization/cancellation, source-seal admission, and child
-install/publication. The child case checks original source version floors after transfer and
-retained restart, and receipt replay against the transferred source cut in
-both image modes.
-Real RustFS cancellation and authorization also pass both modes.
+The planned CG-09 target now passes four of seven required cases at
+`384837eb`: authorization/cancellation, source-seal admission, child
+install/publication and retirement archive pins. The retirement reader now
+accepts exact Reserved or Live child identities without granting install or
+activation authority. Missing child bindings and storage outages both refuse
+parent cleanup and preserve independently recoverable source holds. After
+cleanup and collection, fresh child replay succeeds with the retired source
+archive inaccessible, preserving SQL and the original S3 receipt. Parked
+source slots remain physically accounted for. The exact retirement case also
+passes both image modes against real RustFS in 111.617 seconds; voters remain
+host-native and capacity is supplied by the fixture.
 
-Next deliver the four remaining CG-09 oracles: every-phase restart with one
-writer, full effect/receiver-dedupe continuity, retirement dependencies, and
-remote closure after erasing all local copies immediately after publication.
-Then finish CG-10 partial reservations and movement under writes. Keep the
-wide matrix and load profiles in CG-14; retain the accepted CG-07 boundary.
-Source and artifact digests are in [progress](progress.md).
+Next deliver the three remaining CG-09 oracles: every-phase restart with one
+writer, full effect/receiver-dedupe continuity, and remote closure after erasing
+all local copies immediately after publication. Then finish CG-10 partial
+reservations and movement under writes. Keep the wide matrix and load profiles
+in CG-14; retain the accepted CG-07 boundary. Source and artifact digests are in
+[progress](progress.md).
 
 The following checkpoints preserve earlier source and qualification history.
 

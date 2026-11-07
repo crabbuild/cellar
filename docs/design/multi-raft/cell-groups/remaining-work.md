@@ -90,7 +90,7 @@ specified by `plan.py show <task>`.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-09 | Three of seven exact required cases pass in `native_cell_groups_transitions` at `5331fc4a`: authorization/cancellation, sealed-source admission and child install/publication. The child case covers both image modes, source version floors after retained restart and receipt replay against the transferred source cut. Real RustFS cancellation and authorization also pass both modes. | Qualify every-phase restart with one writer, full effect/receiver-dedupe continuity, retirement dependency pins and remote closure after erasing every local copy immediately after publication. Complete the remaining four named cases and the full task acceptance batch. |
+| CG-09 | Four of seven exact required cases pass in `native_cell_groups_transitions` at `384837eb`: authorization/cancellation, sealed-source admission, child install/publication and retirement archive pins. The new case reopens Live child holds, preserves source pins on missing bindings and storage outages, and restores SQL and an original S3 receipt with the retired source archive inaccessible. The exact retirement case also passes both RustFS image modes. | Qualify every-phase restart with one writer, full effect/receiver-dedupe continuity and remote closure after erasing every local copy immediately after publication. Complete the remaining three named cases and the full task acceptance batch. |
 | CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
@@ -109,9 +109,9 @@ archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
 1. **Close CG-09 transition acceptance.** The planned target now passes
-   three of seven required cases. Finish every-phase restart with one writer,
-   full effect/receiver-dedupe continuity, retirement dependency pins and remote
-   closure after immediate local erasure. Retain the existing three oracles
+   four of seven required cases. Finish every-phase restart with one writer,
+   full effect/receiver-dedupe continuity and remote closure after immediate
+   local erasure. Retain the existing three oracles
    and complete the whole acceptance batch on one source.
 2. **Close CG-10 split and merge acceptance.** Qualify exact partition union,
    adjacency and policy checks, partial reservations, writes during movement

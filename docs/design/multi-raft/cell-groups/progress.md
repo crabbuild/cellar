@@ -12,6 +12,56 @@ CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-09 retirement pins and Live child reconciliation
+
+At `384837eb5bc62567c2f2eb57b40b44c6f1923b8b`, four of seven required
+CG-09 cases pass individually on the same frozen executable. The new
+`retirement_keeps_required_archive_pins` case passes materialized and extent
+images in 82.62 seconds. The three earlier authorization, sealing and child
+install/publication cases also pass on this source.
+
+The new case exposed a production reconciliation defect: the child-hold reader
+required Reserved installation authority even after the children had become
+Live. The reader now checks the exact active transition, child identities and
+unchanged Fleet revision for Reserved or Live children. Reading references
+grants no install or activation authority; those checks remain separate.
+
+For each child, a missing immutable archive binding returns the exact corruption
+failure and a storage outage returns a storage failure. Both refuse parent
+cleanup. Independently reopened metadata retains the original transition and
+unreleased parent pins, and physical replay verifies those parent holds. After
+all parent replicas are physically parked, cleanup and archive collection
+complete. Each child baseline then restores into a fresh physical inventory
+while the entire retired source archive prefix is inaccessible. Restored SQL,
+the original S3 receipt and its minimum durability survive. Parked source
+replicas still occupy their physical capacity slots.
+
+Real RustFS passes the exact `rustfs_retirement_keeps_required_archive_pins`
+case in 111.617 seconds across both image modes. The new fixed runner suite is
+`managed-retirement`. Voters are host-native TLS tasks with fixture capacity;
+RustFS runs in one owned, constrained local VM container. Only that backend
+was stopped after qualification, with its object data and frozen executable
+retained. This is not the all-local-copy-erasure or permanent platform fence
+gate.
+
+Strict all-target Clippy passes for `cellar`, `cellar-logic` and
+`cellar-recovery-tests`. Formatting, module layout, native dependency and
+documentation checks pass; all 37 plan unit tests pass. The source is based on
+latest fetched `origin/main` (`981a5417`). The two excluded MR progress files
+remain unchanged from main. Record digests are:
+
+- Native four-case checkpoint: `efaca67b7a74d4ac6cb2b6d58de68e20b723f8dd08ee63c9c6dd98f6735d235f`.
+- RustFS retirement: `7cec082c632dd70d7d4ae869b7e62138e2e0c8f21db42d6346da49a8f1ef6648`.
+
+CG-09 remains in progress for its three remaining named cases: every-phase
+restart with one writer, complete effect/receiver-dedupe continuity, and remote
+closure after erasing every local copy immediately after publication. Complete
+the full task batch before accepting CG-09, then finish CG-10 partial
+reservations and movement under writes. The accepted index remains eight tasks
+and 120 of 163 required cases; it counts only DONE tasks. The earlier 154-error
+predecessor membership checkpoint below is historical, before the per-cell host
+and transport retirement, not a current build result.
+
 ## CG-09 transition target and source token continuity
 
 At `5331fc4ada3334564fff3c2342c63faefe65da2d`, the planned
