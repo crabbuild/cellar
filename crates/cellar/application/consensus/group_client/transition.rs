@@ -428,3 +428,30 @@ impl RaftCells {
         }
     }
 }
+
+impl RaftCells {
+    pub(crate) async fn managed_source_reclamation_proof(
+        &self,
+        history: GroupHistory,
+        timeout: Duration,
+    ) -> Result<crate::raft::storage::SourceReclaimAck, CellGroupControllerError> {
+        let (deadline, _memory) = self
+            .metadata_admission(timeout, 4096)
+            .map_err(super::startup::admission_error)?;
+        let core = &self.handle.core;
+        let host = core
+            .managed
+            .as_ref()
+            .ok_or_else(|| super::startup::catalog_error(CatalogError::ManagedAdmissionRequired))?;
+        self.startup_live(host, deadline)?;
+        self.handle
+            .domain
+            .run(Box::pin(crate::asyncrt::timeout_at(
+                deadline,
+                core.controller.source_reclamation_proof(history),
+            )))
+            .await
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))?
+    }
+}

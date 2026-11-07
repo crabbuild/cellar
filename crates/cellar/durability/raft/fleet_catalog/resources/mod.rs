@@ -58,6 +58,7 @@ pub(super) enum Authority {
     ManagedTransition,
     ManagedTransferChildren,
     ManagedTransferCompletion,
+    SourceSettlement,
     ManagedRecoveryReservation,
     ManagedRecoveryRetirement,
     ManagedRecoverySettlement,

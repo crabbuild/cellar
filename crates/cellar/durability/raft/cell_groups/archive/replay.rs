@@ -17,10 +17,44 @@ pub struct VerifiedCellGroupArchiveRecovery {
     root: PreparedGroupManifest,
     configuration: ConfState,
     membership: GroupMembership,
-    _reservation: Arc<Permit>,
+    _reservation: Option<Arc<Permit>>,
+    _retained: Option<crate::raft::budget::RetainedBytes>,
 }
 
 impl VerifiedCellGroupArchiveRecovery {
+    /// Transition staging reads immutable verified roots. Release the joined
+    /// replay lane, retaining conservative charges for both roots, extent
+    /// manifests, membership and configuration in the same tail byte bank.
+    pub(super) fn retain_transition_source(&mut self) -> Result<()> {
+        let base = self.checkpoint.checkpoint().manifest();
+        let cells = base
+            .pinned_images()
+            .checked_add(self.root.pinned_images())
+            .ok_or(CellGroupArchiveError::Limit)?;
+        let bytes = cells
+            .checked_mul(1024 * 1024)
+            .and_then(|n| n.checked_add(base.images.reserved_bytes()))
+            .and_then(|n| n.checked_add(self.root.images.reserved_bytes()))
+            .and_then(|n| n.checked_add(1024 * 1024))
+            .ok_or(CellGroupArchiveError::Limit)?;
+        let Some(reservation) = self._reservation.take() else {
+            return Ok(());
+        };
+        let reservation = match Arc::try_unwrap(reservation) {
+            Ok(reservation) => reservation,
+            Err(reservation) => {
+                self._reservation = Some(reservation);
+                return Err(CellGroupArchiveError::Busy);
+            }
+        };
+        self._retained = Some(
+            reservation
+                .retain_bytes(bytes)
+                .ok_or(CellGroupArchiveError::Limit)?,
+        );
+        Ok(())
+    }
+
     pub fn reference(&self) -> &CellGroupArchiveTailReference {
         &self.reference
     }
@@ -222,6 +256,7 @@ pub(super) fn replay(
         root: verified,
         configuration: conf,
         membership,
-        _reservation: reservation,
+        _reservation: Some(reservation),
+        _retained: None,
     })
 }

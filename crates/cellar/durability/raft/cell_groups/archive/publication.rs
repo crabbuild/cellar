@@ -173,6 +173,14 @@ impl CoverageUse {
 pub struct CellGroupArchiveCoverage(Arc<Coverage>);
 
 impl CellGroupArchiveCoverage {
+    pub(in crate::raft) fn retain_transition_source(mut self) -> Result<Self> {
+        Arc::get_mut(&mut self.0)
+            .ok_or(CellGroupArchiveError::Busy)?
+            .verified
+            .retain_transition_source()?;
+        Ok(self)
+    }
+
     pub(in crate::raft::cell_groups) fn retain_use(&self) -> CoverageUse {
         CoverageUse {
             hold: self.0.hold.clone(),

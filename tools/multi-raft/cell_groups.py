@@ -51,6 +51,17 @@ CASES = (
 )
 
 SUITES = {
+    "managed-source-settlement": (
+        "native_cell_groups_transition_service",
+        ("rustfs_consented_split_settles_source_capacity",),
+        "rooted source occupancy is captured, collected and refunded once before transition completion",
+        "Both image modes with host-native RF3 voters and unchanged two-slot fixture capacity. "
+        "A pending participant blocks completion and generic intent mutation refuses. The last "
+        "settlement loses its actual root CAS confirmation; replaced services replay completion. "
+        "A split followed by merge reuses source capacity while preserving receipts and S3 writes. "
+        "Byte/memory refunds, independent voter processes, measured peaks, automatic placement "
+        "and the complete balancing/reserve/fanout matrix remain separate gates.",
+    ),
     "managed-source-reclamation": (
         "native_cell_groups_transition_service",
         ("rustfs_consented_split_reclaims_retired_source",),

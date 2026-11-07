@@ -192,6 +192,14 @@ impl GroupRoster {
         }
     }
 
+    pub(super) fn reclaimed(&self, group: &GroupHistory) -> Result<bool, RuntimeError> {
+        Ok(!self
+            .groups
+            .lock()
+            .map_err(|_| RuntimeError::Closed)?
+            .contains_key(group))
+    }
+
     pub(super) fn retired(&self, group: &GroupHistory) -> bool {
         self.groups
             .lock()

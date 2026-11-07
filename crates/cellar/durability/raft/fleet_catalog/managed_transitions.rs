@@ -1463,6 +1463,8 @@ impl FleetCatalog {
                     return Err(FleetCatalogError::Conflict);
                 }
             }
+            self.require_source_cleanup_complete(&current, transition, directory)
+                .await?;
             let disruption = current.head.disruption.ok_or(FleetCatalogError::Conflict)?;
             if release_holds {
                 // Claim the exact completion payload before releasing any
@@ -1786,6 +1788,16 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         authority: resources::Authority,
     ) -> Result<()> {
+        if authority != resources::Authority::SourceSettlement
+            && mutation.changes.iter().any(|change| {
+                change.table == FleetTable::Operations
+                    && change
+                        .key
+                        .starts_with(super::managed_source_settlement::PREFIX)
+            })
+        {
+            return Err(FleetCatalogError::Invalid("source settlement authority"));
+        }
         if authority != resources::Authority::ManagedRecoveryReservation
             && mutation.changes.iter().any(|change| {
                 change.table == FleetTable::Policy
@@ -1919,7 +1931,7 @@ impl FleetCatalog {
         Ok(history)
     }
 
-    async fn transfer_child_history(
+    pub(super) async fn transfer_child_history(
         &self,
         current: &FleetSnapshot,
         transition: &ReopenedManagedCellGroupTransition,

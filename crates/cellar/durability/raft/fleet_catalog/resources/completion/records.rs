@@ -290,6 +290,11 @@ impl FleetCatalog {
         }) {
             return Ok(false);
         }
+        if authority == Authority::SourceSettlement {
+            self.check_source_settlement_mutation(snapshot, mutation)
+                .await?;
+            return Ok(true);
+        }
         if authority != Authority::Completion || mutation.changes.len() != 3 {
             return Err(FleetCatalogError::Invalid("resource completion authority"));
         }
@@ -356,5 +361,70 @@ impl FleetCatalog {
             return Err(invalid());
         }
         Ok(true)
+    }
+}
+
+impl FleetCatalog {
+    pub(in crate::raft::fleet_catalog) async fn source_floor_capture_change(
+        &self,
+        snapshot: &FleetSnapshot,
+        attestation: &FleetResourceAttestation,
+        observed: FleetResourceBounds,
+    ) -> Result<FleetChange> {
+        let physical = self
+            .resource_floor(snapshot, attestation)
+            .await?
+            .high_water(attestation.used)
+            .high_water(observed);
+        Ok(FleetChange {
+            table: FleetTable::Operations,
+            key: floor_key(attestation.boot.node),
+            value: Some(
+                Floor {
+                    format: 1,
+                    boot: attestation.boot.clone(),
+                    physical,
+                }
+                .encode()?,
+            ),
+        })
+    }
+
+    pub(in crate::raft::fleet_catalog) async fn source_slot_floor_change(
+        &self,
+        snapshot: &FleetSnapshot,
+        attestation: &FleetResourceAttestation,
+        release: &crate::raft::fleet_catalog::managed_source_settlement::SlotRelease,
+    ) -> Result<FleetChange> {
+        let old = self.resource_floor(snapshot, attestation).await?;
+        if old.engine_slots != release.floor
+            || release.before < release.removed
+            || release.removed == 0
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        // Unknown pre-existing debt stays charged. Only a fully materialized
+        // captured floor can release this operation's exact source occupancy.
+        let reduced = if release.before >= old.engine_slots {
+            old.engine_slots.saturating_sub(release.removed)
+        } else {
+            old.engine_slots
+        };
+        let mut physical = old
+            .high_water(attestation.used)
+            .high_water(release.physical);
+        physical.engine_slots = reduced.max(release.physical.engine_slots);
+        Ok(FleetChange {
+            table: FleetTable::Operations,
+            key: floor_key(attestation.boot.node),
+            value: Some(
+                Floor {
+                    format: 1,
+                    boot: attestation.boot.clone(),
+                    physical,
+                }
+                .encode()?,
+            ),
+        })
     }
 }

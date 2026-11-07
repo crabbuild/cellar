@@ -209,7 +209,7 @@ async fn exercise(
         .await?;
     *worker = Some(
         coordinator
-            .start_transition_service(&cluster.hosts[3], options(true, true), TIMEOUT)
+            .start_transition_service(&cluster.hosts[3], options(true, true, false), TIMEOUT)
             .await?,
     );
     tokio::time::timeout(Duration::from_secs(60), async {

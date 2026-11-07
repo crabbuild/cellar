@@ -118,6 +118,22 @@ pub(super) async fn local(
         .as_ref()
         .ok_or_else(RaftFleetFailure::unsupported)?;
     let phase = cx.phase();
+    if phase == Some(TransitionPhase::Retired)
+        && state.options.reclaim_retired_sources
+        && cx
+            .control
+            .catalog
+            .source_cleanup_status(cx.transition, cx.directory, turn.remaining()?)
+            .await?
+            .is_some()
+    {
+        state.action("collect-and-settle-source");
+        cx.control
+            .catalog
+            .settle_local_source_cleanup(cx.transition, cx.directory, observer, turn.remaining()?)
+            .await?;
+        return Ok(());
+    }
     if phase == Some(TransitionPhase::Retired) && state.options.quiesce_retired_sources {
         let route = &cx.parents[index % cx.parents.len()];
         if observer.group(route.history).is_ok() {
@@ -421,6 +437,53 @@ pub(super) async fn coordinate(
                         .state(),
                     crate::raft::fleet_catalog::FleetHistoryState::Reserved
                 );
+            }
+            if !reserved && state.options.reclaim_retired_sources {
+                if !cx
+                    .transition
+                    .journal
+                    .as_ref()
+                    .is_some_and(|j| j.parent_holds_released())
+                {
+                    state.action("release-parent-holds");
+                    c.catalog
+                        .release_managed_transfer_parent_holds(
+                            cx.transition,
+                            cx.directory,
+                            &c.archive_pool,
+                            c.node_observer
+                                .as_ref()
+                                .ok_or_else(RaftFleetFailure::unsupported)?,
+                            turn.remaining()?,
+                        )
+                        .await?;
+                    return Ok(());
+                }
+                match c
+                    .catalog
+                    .source_cleanup_status(cx.transition, cx.directory, turn.remaining()?)
+                    .await?
+                {
+                    None => {
+                        state.action("select-source-cleanup");
+                        c.catalog
+                            .begin_source_cleanup(
+                                cx.transition,
+                                cx.directory,
+                                c.node_observer
+                                    .as_ref()
+                                    .ok_or_else(RaftFleetFailure::unsupported)?,
+                                turn.remaining()?,
+                            )
+                            .await?;
+                        return Ok(());
+                    }
+                    Some(false) => {
+                        state.action("await-source-settlements");
+                        return Ok(());
+                    }
+                    Some(true) => (),
+                }
             }
             let step = if reserved {
                 RaftFleetTransitionResumeStep::ConfirmChildren

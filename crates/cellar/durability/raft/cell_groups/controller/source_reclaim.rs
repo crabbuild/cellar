@@ -207,3 +207,32 @@ pub(super) async fn drive(
         .remove(&history);
     Ok(true)
 }
+
+impl CellGroupController {
+    pub(crate) async fn source_reclamation_proof(
+        &self,
+        history: GroupHistory,
+    ) -> Result<crate::raft::storage::SourceReclaimAck, CellGroupControllerError> {
+        let shared = &self.handle.0;
+        let ack = shared
+            .runtime
+            .log()
+            .source_reclamation(history)
+            .await
+            .map_err(RuntimeError::from)?
+            .ok_or(RuntimeError::NotReady)?;
+        if !ack.record().complete
+            || !shared.groups.reclaimed(&history)?
+            || shared
+                .retired_sources
+                .lock()
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .contains_key(&history)
+        {
+            return Err(RuntimeError::NotReady.into());
+        }
+        ack.check(shared.runtime.log())
+            .map_err(RuntimeError::from)?;
+        Ok(ack)
+    }
+}

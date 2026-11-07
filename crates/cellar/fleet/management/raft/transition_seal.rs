@@ -316,7 +316,7 @@ impl RaftFleetControl {
         timeout: Duration,
     ) -> Result<bool> {
         let turn = Turn::new(&self.domain, timeout)?;
-        let (_, history, transition) = self
+        let (directory, history, transition) = self
             .authorize_source_action(
                 principal,
                 namespace,
@@ -330,6 +330,9 @@ impl RaftFleetControl {
             .node_observer
             .as_ref()
             .ok_or_else(RaftFleetFailure::unsupported)?;
+        self.catalog
+            .require_source_cleanup_admission(&transition, directory, turn.remaining()?)
+            .await?;
         observer
             .reclaim_managed_source(&transition, history, turn.remaining()?)
             .await

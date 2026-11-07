@@ -34,6 +34,9 @@ pub struct RaftFleetTransitionServiceOptions {
     /// Drain retired local sources after all final members applied retirement.
     /// Disable only when an external owner is responsible for their shutdown.
     pub quiesce_retired_sources: bool,
+    /// Keep rooted transition ownership through local collection and proved
+    /// slot settlement. An external cleanup owner can disable this policy.
+    pub reclaim_retired_sources: bool,
     pub interval: Duration,
     pub retry_max_interval: Duration,
     pub turn_timeout: Duration,
@@ -44,6 +47,7 @@ impl Default for RaftFleetTransitionServiceOptions {
         Self {
             coordinate: true,
             quiesce_retired_sources: true,
+            reclaim_retired_sources: true,
             interval: Duration::from_millis(500),
             retry_max_interval: Duration::from_secs(10),
             turn_timeout: Duration::from_secs(5),
@@ -53,7 +57,8 @@ impl Default for RaftFleetTransitionServiceOptions {
 
 impl RaftFleetTransitionServiceOptions {
     fn validate(&self) -> Result<()> {
-        if !(Duration::from_millis(50)..=Duration::from_secs(60)).contains(&self.interval)
+        if self.reclaim_retired_sources && !self.quiesce_retired_sources
+            || !(Duration::from_millis(50)..=Duration::from_secs(60)).contains(&self.interval)
             || !(self.interval..=Duration::from_secs(60)).contains(&self.retry_max_interval)
             || !(Duration::from_millis(1)..=Duration::from_secs(60)).contains(&self.turn_timeout)
         {

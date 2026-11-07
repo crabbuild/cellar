@@ -24,6 +24,7 @@ pub(crate) use managed_park::{
 mod managed_transition_admission;
 pub(crate) use managed_transition_admission::TransitionOperatorStep;
 mod managed_source_quiescence;
+mod managed_source_settlement;
 mod managed_transition_capacity;
 mod managed_transition_execution;
 pub(crate) use managed_transition_execution::ManagedTransitionExecution;

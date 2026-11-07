@@ -15,6 +15,8 @@ mod selection;
 
 #[path = "support/cell_group_transition_reclamation.rs"]
 mod reclamation;
+#[path = "support/cell_group_transition_settlement.rs"]
+mod settlement;
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::cell_groups::{
@@ -141,10 +143,58 @@ async fn rustfs_consented_split_reclaims_retired_source() -> Result<()> {
     Ok(())
 }
 
-fn options(coordinate: bool, live_retirement: bool) -> RaftFleetTransitionServiceOptions {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn consented_split_settles_source_capacity() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify_scenario(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+            Scenario {
+                live_retirement: true,
+                colocated: true,
+                automatic: false,
+                reclaim: false,
+                settle: true,
+            },
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_consented_split_settles_source_capacity() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "source-settlement",
+            rooted,
+        )?));
+        Box::pin(qualify_scenario(
+            rooted,
+            store,
+            Scenario {
+                live_retirement: true,
+                colocated: true,
+                automatic: false,
+                reclaim: false,
+                settle: true,
+            },
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+fn options(
+    coordinate: bool,
+    live_retirement: bool,
+    settle: bool,
+) -> RaftFleetTransitionServiceOptions {
     RaftFleetTransitionServiceOptions {
         coordinate,
         quiesce_retired_sources: live_retirement,
+        reclaim_retired_sources: settle,
         interval: Duration::from_millis(50),
         retry_max_interval: Duration::from_millis(250),
         turn_timeout: TIMEOUT,
@@ -216,6 +266,25 @@ async fn qualify_with_reclamation(
     automatic: bool,
     reclaim: bool,
 ) -> Result<()> {
+    Box::pin(qualify_scenario(
+        rooted,
+        store,
+        Scenario {
+            live_retirement,
+            colocated,
+            automatic,
+            reclaim,
+            settle: false,
+        },
+    ))
+    .await
+}
+
+async fn qualify_scenario(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    scenario: Scenario,
+) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("off,cellar::raft::transition_setup=debug")
         .with_test_writer()
@@ -235,12 +304,7 @@ async fn qualify_with_reclamation(
         rooted,
         &mut workers,
         &mut roots,
-        Scenario {
-            live_retirement,
-            colocated,
-            automatic,
-            reclaim,
-        },
+        scenario,
     ))
     .await;
     cluster.fixtures[0]
@@ -333,6 +397,7 @@ struct Scenario {
     colocated: bool,
     automatic: bool,
     reclaim: bool,
+    settle: bool,
 }
 
 async fn exercise(
@@ -347,6 +412,7 @@ async fn exercise(
         colocated,
         automatic,
         reclaim,
+        settle,
     } = scenario;
     // Retained source storage stays charged. Place only one child beside its
     // parent so each node stays within the unchanged two-history bound.
@@ -366,7 +432,11 @@ async fn exercise(
         let endpoint = Box::pin(control(cluster, rooted, roots)).await?;
         workers[i] = Some(
             endpoint
-                .start_transition_service(host, options(i == 3, live_retirement), TIMEOUT)
+                .start_transition_service(
+                    host,
+                    options(i == 3, live_retirement, settle && i != 2),
+                    TIMEOUT,
+                )
                 .await
                 .with_context(|| format!("start transition worker {i}"))?,
         );
@@ -374,7 +444,11 @@ async fn exercise(
     }
     // A duplicate service cannot create another worker or private admission bank.
     let duplicate = controls[3]
-        .start_transition_service(&cluster.hosts[3], options(true, live_retirement), TIMEOUT)
+        .start_transition_service(
+            &cluster.hosts[3],
+            options(true, live_retirement, settle),
+            TIMEOUT,
+        )
         .await;
     ensure!(matches!(duplicate, Err(error) if error.code == RaftFleetFailureCode::Busy));
     tokio::time::timeout(TIMEOUT, async {
@@ -536,7 +610,11 @@ async fn exercise(
     let endpoint = Box::pin(control(cluster, rooted, roots)).await?;
     workers[3] = Some(
         endpoint
-            .start_transition_service(&cluster.hosts[3], options(true, live_retirement), TIMEOUT)
+            .start_transition_service(
+                &cluster.hosts[3],
+                options(true, live_retirement, settle),
+                TIMEOUT,
+            )
             .await?,
     );
     controls[3] = endpoint;
@@ -706,6 +784,16 @@ async fn exercise(
             }
         }
     }
+    if settle {
+        Box::pin(settlement::resume_final_participant(
+            cluster,
+            rooted,
+            roots,
+            workers,
+            &coordinator,
+        ))
+        .await?;
+    }
     movement::discover(cluster).await?;
     tokio::time::timeout(TIMEOUT, async {
         loop {
@@ -726,7 +814,7 @@ async fn exercise(
         Ok::<_, anyhow::Error>(())
     })
     .await??;
-    if live_retirement {
+    if live_retirement && !settle {
         // No Node.shutdown, host.close or replacement boot occurred. The source
         // engine slots remain physical debt after all active owners leave.
         ensure!(
@@ -800,6 +888,7 @@ async fn exercise(
             })?;
         }
     }
+    let mut archived_versions = Vec::new();
     for (i, (cell, receipt, destination)) in latest.iter().enumerate() {
         let ingress = cluster.hosts[0].cell(cell.clone())?;
         // Exercise read-first and write-first ingress after parent removal.
@@ -850,6 +939,19 @@ async fn exercise(
             archived.result == ([9i64, 13][i]).to_be_bytes()
                 && archived.durability == Durability::S3
         );
+        archived_versions.push(archived);
+    }
+    if settle {
+        settlement::assert_refunded(cluster, &coordinator, &children).await?;
+        Box::pin(settlement::repeat_merge(
+            cluster,
+            &coordinator,
+            &children,
+            workers,
+            &seed,
+            &archived_versions,
+        ))
+        .await?;
     }
     if reclaim {
         Box::pin(reclamation::retained_restart(

@@ -382,7 +382,10 @@ impl RaftFleetControl {
                         &self.archive_pool,
                         turn.remaining()?,
                     )
-                    .await?;
+                    .await
+                    .inspect_err(|error| {
+                        tracing::debug!(target: "cellar::raft::transition_setup", ?error, "preparation hold allocation refused");
+                    })?;
                 let prepared = self
                     .catalog
                     .resume_managed_preparation(
@@ -392,7 +395,10 @@ impl RaftFleetControl {
                         services.recovery.clone(),
                         turn.remaining()?,
                     )
-                    .await?;
+                    .await
+                    .inspect_err(|error| {
+                        tracing::debug!(target: "cellar::raft::transition_setup", ?error, "preparation replay refused");
+                    })?;
                 prepared.journal().clone()
             }
             TransitionPhase::Cancelled => return Err(FleetCatalogError::Conflict.into()),

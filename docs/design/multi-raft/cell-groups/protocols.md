@@ -1752,3 +1752,34 @@ The operation releases local log and private-page occupancy. Fleet resource floo
 remain conservative until a separate, rooted settlement proves the exact refund.
 Shared image collection releases only unpinned files through their store's existing
 barriers; source completion does not claim a durable-byte or memory refund.
+
+### Rooted source slot settlement
+
+The node-owned transition service selects a `source-cleanup/` intent after child
+histories are live, parent holds are released and every source is physically
+parked. The same Fleet CAS captures conservative node floors from complete,
+authenticated inventories. The intent records each source node's disk, engine,
+pre-cleanup slot count and exact source count. The transition disruption stays
+held; generic operations cannot create or replace the cleanup intent.
+
+Each participant collects only its selected local sources and presents process-local
+engine receipts proving complete private-page cleanup and registry removal. A fresh
+complete inventory supplies the remaining occupancy. One root CAS marks that node
+settled and refunds its exact captured source slots. Pre-existing debt above captured
+physical occupancy remains charged. Byte and memory floors retain their high-water
+values and current lower bounds; source collection does not prove those releases.
+
+A missing response retries the selected intent before new probes. An already settled
+node spends no second refund. Retained process replacement may continue on the same
+disk and engine with its current qualified boot; another disk or engine cannot spend
+the old receipt. Completion refuses while any participant is pending. Once all nodes
+settle, parent history retirement and disruption release remain one Fleet CAS.
+
+Transition source verification replays parents sequentially. After each actual
+worker joins, its private immutable coverage keeps both roots, image metadata,
+membership and configuration charged in the same tail byte bank, while returning
+the active replay slot. The next parent still needs its full replay workspace in
+that bank. This permits a two-parent merge with one active replay operation;
+neither byte capacity nor concurrency is increased. Shared coverage or an entered
+worker cannot release the slot. Ordinary archive publication and recovery retain
+their original admission policy.

@@ -69,6 +69,7 @@ impl Budget {
         Some(Permit {
             owner: self.clone(),
             bytes,
+            item: true,
         })
     }
 }
@@ -76,9 +77,29 @@ impl Budget {
 pub(crate) struct Permit {
     owner: Arc<Budget>,
     bytes: usize,
+    item: bool,
+}
+
+/// Immutable retained output keeps its bytes charged after active work joins.
+pub(crate) struct RetainedBytes {
+    _permit: Permit,
 }
 
 impl Permit {
+    /// Convert joined work to immutable output. This refunds only the active
+    /// operation slot and transient bytes; retained bytes stay in the same bank.
+    pub(crate) fn retain_bytes(mut self, bytes: usize) -> Option<RetainedBytes> {
+        if !self.shrink_to(bytes) {
+            return None;
+        }
+        let mut usage = self.owner.lock();
+        usage.items -= usize::from(self.item);
+        self.item = false;
+        drop(usage);
+        self.owner.released();
+        Some(RetainedBytes { _permit: self })
+    }
+
     /// Ensure an admitted read can retain its payload before allocating it.
     /// Repeated or smaller requests keep the same bytes and item slot.
     pub(crate) fn grow_at_least(&mut self, bytes: usize) -> bool {
@@ -126,7 +147,7 @@ impl Drop for Permit {
     fn drop(&mut self) {
         let mut usage = self.owner.lock();
         usage.bytes -= self.bytes;
-        usage.items -= 1;
+        usage.items -= usize::from(self.item);
         drop(usage);
         self.owner.released();
     }
@@ -136,6 +157,23 @@ impl Drop for Permit {
 mod tests {
     use super::*;
     use futures_util::FutureExt;
+
+    #[test]
+    fn joined_output_releases_operation_but_keeps_bytes() {
+        let budget = Budget::new(100, 1);
+        let output = budget.acquire(100).unwrap().retain_bytes(20).unwrap();
+        assert_eq!(budget.usage(), (20, 0));
+        assert!(budget.acquire(81).is_none());
+        let work = budget.acquire(80).unwrap();
+        assert_eq!(budget.usage(), (100, 1));
+        assert!(budget.acquire(0).is_none());
+        drop(output);
+        assert_eq!(budget.usage(), (80, 1));
+        drop(work);
+        assert_eq!(budget.usage(), (0, 0));
+        assert!(budget.acquire(20).unwrap().retain_bytes(21).is_none());
+        assert_eq!(budget.usage(), (0, 0));
+    }
 
     fn fitting_waiter_after_partial_release(shrink: bool) {
         let budget = Budget::new(100, 3);
