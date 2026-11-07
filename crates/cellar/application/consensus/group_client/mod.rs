@@ -19,8 +19,40 @@ use std::{
     time::Duration,
 };
 
-pub use super::client::CommandOptions;
 pub use crate::raft::cell_groups::CellQueryRouting as QueryRouting;
+
+#[derive(Clone, Debug)]
+pub struct CommandOptions {
+    /// Persist the pending request before calling and reuse this ID and input
+    /// after an ambiguous outcome. The dispatcher never invents a retry ID.
+    pub id: CommandId,
+    pub durability: Durability,
+    pub retry_until_ms: u64,
+    pub timeout: Duration,
+}
+
+impl CommandOptions {
+    pub fn new(id: CommandId, retry_until_ms: u64) -> Self {
+        Self {
+            id,
+            durability: Durability::Quorum,
+            retry_until_ms,
+            timeout: Duration::from_secs(5),
+        }
+    }
+}
+
+/// Initialize a registered standby at an already committed learner binding.
+/// These fields are hints: a fresh source quorum grant and durable claim are
+/// still required. Retrying preserves the target member identity.
+#[derive(Clone, Debug)]
+pub struct LearnerActivation {
+    pub member: MemberId,
+    pub source: MemberId,
+    pub source_node: cellar_logic::consensus::NodeId,
+    pub from_s3: bool,
+    pub timeout: Duration,
+}
 
 #[derive(Clone, Debug)]
 pub enum QueryConsistency {

@@ -3,7 +3,7 @@
 //! Managed learners keep one physical preparation through grant, install and
 //! attachment. Neither a reservation nor a staged mapping can create genesis.
 use super::*;
-use crate::application::consensus::client::LearnerActivation;
+use crate::application::consensus::LearnerActivation;
 use crate::raft::{
     cache::GroupLog,
     cell_groups::CellGroupBirth,

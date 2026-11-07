@@ -1,75 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Placement contracts; native controller repair is qualified separately.
-#[path = "support/raft_controller_native.rs"]
-mod automatic;
-#[path = "support/raft_cluster.rs"]
-#[allow(dead_code)]
-mod cluster;
-#[path = "support/raft_catalog_fault.rs"]
-#[allow(dead_code)]
-mod faults;
-#[path = "support/raft_ltx_fault.rs"]
-#[allow(dead_code)]
-mod image_fault;
-#[path = "support/raft_storage_fault.rs"]
-#[allow(dead_code)]
-mod log_fault;
-#[path = "support/raft_repair_native.rs"]
-mod native_repairs;
-#[path = "support/raft_node.rs"]
-#[allow(dead_code)]
-mod public_node;
-#[path = "support/raft_seed_fault.rs"]
-#[allow(dead_code)]
-mod seed_fault;
-
-use cellar_logic::{consensus::*, raft_placement::*};
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn registered_standby_peer_activation_retains_handles() -> anyhow::Result<()> {
-    native_repairs::registered_standby_peer_activation_retains_handles().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn registered_standby_activation_shutdown_joins() -> anyhow::Result<()> {
-    native_repairs::registered_standby_activation_shutdown_joins().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn automatic_no_traffic_repair() -> anyhow::Result<()> {
-    automatic::no_traffic_repair().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn node_shutdown_hands_off_to_published_voter() -> anyhow::Result<()> {
-    automatic::shutdown_handoff().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn node_shutdown_report_bounds_preserve_complete_lag_count() -> anyhow::Result<()> {
-    automatic::bounded_shutdown_report().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn automatic_empty_cell_repair_before_first_command() -> anyhow::Result<()> {
-    automatic::empty_cell_repair().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn leader_balance_with_lag() -> anyhow::Result<()> {
-    automatic::balance_with_lag().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn automatic_minority_does_not_seed_from_reachable_s3() -> anyhow::Result<()> {
-    automatic::minority_refused().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn automatic_plan_recovers_controller_and_leader_loss() -> anyhow::Result<()> {
-    automatic::plan_recovery().await
-}
+use super::*;
+use crate::consensus::{ClusterId, GroupId, IncarnationId, NamespaceId};
 
 fn fixture() -> (PlacementView, Vec<NodeCapacity>, PlacementPolicy) {
     let nodes: Vec<_> = (1..=6)
@@ -293,24 +225,4 @@ fn placement_balances_the_limiting_capacity() {
         .unwrap()
         .unwrap();
     assert_ne!(chosen.replacement.node, nodes[3].node);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn learner_before_promotion() -> anyhow::Result<()> {
-    native_repairs::learner_before_promotion().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn stale_plan_idempotence() -> anyhow::Result<()> {
-    native_repairs::stale_plan_idempotence().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn joint_configuration_restart() -> anyhow::Result<()> {
-    native_repairs::joint_configuration_restart().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn joint_plan_process_kill_resume() -> anyhow::Result<()> {
-    native_repairs::joint_plan_process_kill_resume().await
 }

@@ -7,7 +7,6 @@
 pub(super) mod marker;
 mod query;
 
-pub(crate) use query::query_registered_rooted_controlled;
 pub use query::{query_registered_rooted, RootQueryOptions};
 
 use super::{

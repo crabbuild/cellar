@@ -2,9 +2,8 @@
 
 # Native recovery qualification
 
-This private test package runs the public SDK's large-image recovery tests and
-the native root-image archive/installation tests with the shared fleet fixtures
-in `crates/cellar/tests/support`. Keeping its entry
+This private test package runs native root-image archive and installation tests
+and the shared-group daemon fixture. Keeping its entry
 point outside the host package avoids building unrelated example and CLI
 executables for each focused recovery campaign. It uses the workspace's ordinary
 release profile and preserves the same tests, assertions and deadlines.
@@ -12,7 +11,6 @@ release profile and preserves the same tests, assertions and deadlines.
 Run the ordinary cases with:
 
 ```sh
-cargo test --locked -p cellar-recovery-tests --test native_raft_large_images -- --test-threads=1
 cargo test --locked -p cellar-recovery-tests --test native_raft_rooted -- --test-threads=1
 cargo test --locked -p cellar-recovery-tests --test native_raft_daemon
 ```
@@ -38,7 +36,9 @@ RustFS campaigns, retained evidence and qualification requirements.
 
 ## Empty-process recovery after SIGKILL
 
-The large-image target also contains explicit `process_recovery` fixtures for
+The following instructions document the predecessor per-cell campaign. Run
+them in a separate checkout at `6b580171f3cfa55a3caad1310e6d5abfce5e0350`.
+The large-image target there contains explicit `process_recovery` fixtures for
 272 MiB and page-rounded decimal 10 GB. Three separate native worker processes
 start from the same independently verified baseline. After an acknowledged
 command, the controller kills the command-ready owner with SIGKILL, waits for

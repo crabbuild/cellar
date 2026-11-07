@@ -2,7 +2,7 @@
 
 //! The receiving process independently resolves its current canonical permit.
 use super::*;
-use crate::application::consensus::{client::LearnerActivation, CommandFailure};
+use crate::application::consensus::{CommandFailure, LearnerActivation};
 use crate::raft::member_state::RepairStep;
 use cellar_logic::consensus::{LogIndex, MemberId};
 

@@ -2,10 +2,7 @@
 
 //! Node-owned stop observations. These are not deployment-fencing certificates
 //! or permission to delete active replica disks, even with complete S3 coverage.
-use crate::application::consensus::{
-    CommandFailure, CommandId, EngineInstanceId, GroupScope, LogIndex, LogPosition, MemberId,
-    NodeIdentity, RaftCells,
-};
+use crate::application::consensus::{CommandFailure, RaftCells};
 use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Copy, Debug)]
@@ -32,43 +29,6 @@ impl RaftCloseReportLimits {
         );
         Ok(())
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnfinishedCommand {
-    pub scope: GroupScope,
-    pub id: CommandId,
-}
-
-/// Final synced local log observations. Archive coverage is the last verified
-/// coverage observed by this host; a remote publisher may have advanced farther.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RaftGroupCloseReport {
-    pub scope: GroupScope,
-    pub member: MemberId,
-    pub committed: LogIndex,
-    pub applied: LogPosition,
-    pub archived: LogIndex,
-    pub retired: bool,
-    pub failed: bool,
-}
-
-/// Successful return follows local runtime/transport/SQL/log joins. Submitted
-/// commands can remain ambiguous and durable intents can remain unsettled. The
-/// complete group counts include omitted details. No field grants disk deletion.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RaftCloseReport {
-    pub node: NodeIdentity,
-    pub storage_instance: EngineInstanceId,
-    pub groups: Vec<RaftGroupCloseReport>,
-    pub groups_total: usize,
-    pub omitted_groups: usize,
-    pub groups_with_archive_lag: usize,
-    /// Recovered durable histories parked without a host registration. Their
-    /// archive coverage is unknown, not zero lag. They count in groups_total
-    /// and omitted_groups; the shared engine still closes their owners.
-    pub groups_with_unknown_archive: usize,
-    pub unfinished: Vec<UnfinishedCommand>,
 }
 
 /// Requested Node shutdown records the actual cell-host close result before

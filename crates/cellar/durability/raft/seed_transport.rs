@@ -579,4 +579,3 @@ impl State {
 
 #[path = "seed_archive.rs"]
 mod archives;
-pub(crate) use archives::ReceivedArchiveSeed;

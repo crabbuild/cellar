@@ -258,7 +258,7 @@ impl CellGroupController {
         route: GroupRoute,
         host: crate::raft::fleet_catalog::FleetHostAuthorization,
         authorization: crate::raft::fleet_catalog::FleetPermitAuthorization,
-        activation: crate::application::consensus::client::LearnerActivation,
+        activation: crate::application::consensus::LearnerActivation,
         deadline: u64,
     ) -> Result<CellGroupProvisionCall, CellGroupControllerError> {
         if activation.from_s3 {

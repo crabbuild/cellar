@@ -118,7 +118,8 @@ impl OperatorCli {
         timeout: Duration,
     ) -> Result<CliReply> {
         let executable = std::env::var_os("CELLAR_RAFT_OPERATOR_CLI")
-            .unwrap_or_else(|| env!("CARGO_BIN_EXE_cellar").into());
+            .or_else(|| option_env!("CARGO_BIN_EXE_cellar").map(Into::into))
+            .context("set CELLAR_RAFT_OPERATOR_CLI to the Cellar binary")?;
         let mut command = tokio::process::Command::new(executable);
         command
             .args(["raft", "fleet"])

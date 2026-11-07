@@ -85,14 +85,15 @@ combines these paths with managed repair, drain and maintenance.
 
 The [implementation index](implementation-plan.md) counts accepted cases from
 completed task records. For example, CG-07 has recorded passes for all five
-required cases and its task acceptance is pending because the build and lint
-gates failed. Component and process checkpoints retain their recorded source
-revisions. Each open task still needs the exact target, case oracles and
-evidence specified by `plan.py show <task>`.
+required cases. Acceptance also requires a locked all-target build and strict
+lint on the qualifying revision. CG-07 blocks acceptance of its dependent
+tasks. Component and process checkpoints retain their recorded source revisions.
+Each open task still needs the exact target, case oracles and evidence specified
+by `plan.py show <task>`.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-07 | The isolated constrained RustFS daemon passed both image modes at `393bffe4`. All five named public cases passed in individual runs on that revision, with an ingress repeat after a standby timeout. Both shared-group shutdown ports passed in both image modes with a fixture store. Guarded leadership transfer passed with a partitioned voter. A rooted replacement refused to advance with a minority and reachable RustFS in both image modes. Direct standby activation after committed Seeding and a joined voter's solo retained restart also passed both RustFS modes. | Joined restart of the replacement and an original seed owner during Joint passed on real RustFS. Reproduce the intermittent final apply delay, qualify independent process crashes during Joint and finish peer activation cancellation. Port the remaining legacy operations and membership callers and clear the all-target build and strict lint gates. Investigate any repeated standby, joint-consensus or maintenance timeout. |
+| CG-07 | The isolated constrained RustFS daemon passed both image modes at `393bffe4`. All five named public cases passed in individual runs on that revision, with an ingress repeat after a standby timeout. Both shared-group shutdown ports passed in both image modes with a fixture store. Guarded leadership transfer passed with a partitioned voter. A rooted replacement refused to advance with a minority and reachable RustFS in both image modes. Direct standby activation after committed Seeding and a joined voter's solo retained restart also passed both RustFS modes. | Joined restart of the replacement and an original seed owner during Joint passed on real RustFS. Reproduce the intermittent final apply delay, qualify independent process crashes during Joint and finish peer activation cancellation. The predecessor client, SQL dispatcher, membership and operations targets are retired. Pass the all-target build and strict lint gates on the shared-only dispatcher. Investigate any repeated standby, joint-consensus or maintenance timeout. |
 | CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
 | CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
@@ -117,9 +118,10 @@ through the shared backend and preserve typed refusals for the rest.
    The extent lifecycle case exhausted its bounded turns at joint consensus.
    The isolated diagnostic then settled replacement within the same bound.
    The constrained daemon passed both modes at the pinned executable
-   revision, and the exact ingress repeat passed. Port the remaining
-   `native_raft_operations` callers that fail the all-target build. Remove
-   unused predecessor code after the replacement cases cover its contracts.
+   revision, and the exact ingress repeat passed. The cutover removes the
+   obsolete per-cell dispatcher and its incompatible integration targets.
+   Finish independent process crash coverage during joint replacement and
+   verify cancellation of peer activation on the shared path.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.

@@ -3,9 +3,6 @@
 //! Physical seeding for one fresh, live-authorized learner.
 
 use super::*;
-#[path = "snapshot_disaster.rs"]
-mod disaster;
-pub(crate) use disaster::DisasterSeed;
 
 /// A fresh learner's physical download. This cannot be constructed from an
 /// archive, a cached membership observation, or a caller-supplied snapshot.

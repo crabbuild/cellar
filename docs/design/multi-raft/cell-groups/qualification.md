@@ -184,10 +184,9 @@ Validate all required fields; missing values never fall back to the current Dock
 context or a default data directory. Credentials and unrestricted Docker inspect
 output stay out of reports. Unsupported resources fail before provisioning.
 
-Use existing `tools/perf/raft_fleet.py` for managed-node provisioning patterns and
-`tools/perf/process_recovery.py` for native process SIGKILL/erasure proof. Extend
-their shared owners; do not implement a competing fake object-store or voter
-fixture. Own resources by immutable IDs, run labels and exact paths. The destructive
+Use `tools/perf/raft_fleet.py` for managed-node provisioning patterns and the
+shared-group daemon fixture under `crates/cellar/tests/native_raft_daemon.rs`
+for native process kill and disk-erasure proof. Extend their existing owners. Own resources by immutable IDs, run labels and exact paths. The destructive
 profile must confirm ownership and join stopped processes before removing only
 the recorded voter roots. Keep RustFS data and retained evidence outside voter
 roots, build cleanup and global prune paths. `stop` retains data for inspection.

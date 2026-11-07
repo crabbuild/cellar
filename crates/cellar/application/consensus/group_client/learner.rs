@@ -3,7 +3,6 @@
 //! Managed learner startup belongs to the node's retained provisioning owner.
 use super::startup::{admission_error, catalog_error};
 use super::*;
-use crate::application::consensus::client::LearnerActivation;
 use crate::raft::{
     catalog::CatalogError,
     completion::RuntimeError,

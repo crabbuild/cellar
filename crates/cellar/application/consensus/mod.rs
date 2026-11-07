@@ -10,7 +10,6 @@ mod archive_status;
 pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
 pub(crate) use class::callback_active;
-pub(crate) mod client;
 pub(crate) mod group_client;
 mod group_contracts;
 pub(crate) use group_contracts::cell_routing_key;
@@ -154,9 +153,6 @@ pub use class::{
     command_request_digest, CommandContext, OperationContract, OperationKind, QueryContext,
     QueryVersion, RaftClass, RegistrationError,
 };
-pub use client::{
-    CellStatus, LearnerActivation, LearnerOptions, LearnerReceipt, UnfinishedCommand,
-};
 pub use group_protocol::GroupEntryLimits;
 
 pub use crate::raft::version::CellVersionToken;
@@ -164,9 +160,9 @@ pub use cellar_logic::cell_group::{CommitWitness, GroupHistory};
 pub use group_client::{
     CellGroupCollectionFailure, CellGroupCollectionUsage, CellGroupControlError,
     CellGroupImageUsage, CellGroupResourceUsage, CellGroupStartupError, CommandOptions,
-    CommandReceipt, MutationOutcomes, QueryConsistency, QueryOptions, QueryResult, QueryRouting,
-    RaftCellHandle, RaftCells, RaftCloseError, RaftCloseReport, RaftGroupCloseReport,
-    RaftGroupHandle, StaleReadPolicy,
+    CommandReceipt, LearnerActivation, MutationOutcomes, QueryConsistency, QueryOptions,
+    QueryResult, QueryRouting, RaftCellHandle, RaftCells, RaftCloseError, RaftCloseReport,
+    RaftGroupCloseReport, RaftGroupHandle, StaleReadPolicy,
 };
 
 pub use crate::raft::version::CellVersionObservation;

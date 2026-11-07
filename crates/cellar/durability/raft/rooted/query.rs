@@ -27,17 +27,6 @@ pub fn query_registered_rooted(
     input: &[u8],
     options: RootQueryOptions,
 ) -> Result<RegisteredQueryOutput, ExecutionError> {
-    query_registered_rooted_controlled(published, class, contract, input, options, None)
-}
-
-pub(crate) fn query_registered_rooted_controlled(
-    published: &RootPublishedImage,
-    class: &RaftClass,
-    contract: &OperationContract,
-    input: &[u8],
-    options: RootQueryOptions,
-    cancel: Option<std::sync::Arc<crate::application::consensus::client::AttemptControl>>,
-) -> Result<RegisteredQueryOutput, ExecutionError> {
     validate_registered_query(
         class,
         contract,
@@ -58,12 +47,6 @@ pub(crate) fn query_registered_rooted_controlled(
         },
     )
     .map_err(ExecutionError::Storage)?;
-    if let Some(cancel) = cancel {
-        database
-            .connection()
-            .progress_handler(1000, Some(cancel.interrupt_check()))
-            .map_err(|error| ExecutionError::Storage(error.into()))?;
-    }
     let version = CommittedVersion {
         scope: published.scope().clone(),
         position: published.position(),

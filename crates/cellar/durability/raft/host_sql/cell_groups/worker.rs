@@ -109,10 +109,6 @@ pub(in crate::raft::host_sql) struct Cells {
 }
 
 impl Cells {
-    pub fn len(&self) -> usize {
-        self.pending.len()
-    }
-
     pub fn execute(
         &mut self,
         request: Request,

@@ -31,7 +31,6 @@ use cellar_logic::consensus::{
 use cellar_ltx::apply::ImageState;
 use cellar_ltx::generation::{GenerationPin, GenerationStore, ImageId, ReadServices};
 use cellar_ltx::{HostFileLock, LtxHost};
-pub(crate) use images::Published as PublishedExecutionImage;
 pub use images::RootPrivateOptions;
 use images::{Images, Options, Preview, Published, State, WorkingImage};
 use sha2::{Digest, Sha256};
@@ -155,18 +154,6 @@ pub fn query_registered(
     services: ReadServices,
     limits: ExecutionLimits,
 ) -> Result<RegisteredQueryOutput, ExecutionError> {
-    query_registered_controlled(published, class, contract, input, services, limits, None)
-}
-
-pub(crate) fn query_registered_controlled(
-    published: &PublishedImage,
-    class: &RaftClass,
-    contract: &OperationContract,
-    input: &[u8],
-    services: ReadServices,
-    limits: ExecutionLimits,
-    cancel: Option<std::sync::Arc<crate::application::consensus::client::AttemptControl>>,
-) -> Result<RegisteredQueryOutput, ExecutionError> {
     validate_registered_query(
         class,
         contract,
@@ -182,12 +169,6 @@ pub(crate) fn query_registered_controlled(
         },
     )
     .map_err(storage)?;
-    if let Some(cancel) = cancel {
-        database
-            .connection()
-            .progress_handler(1000, Some(cancel.interrupt_check()))
-            .map_err(storage)?;
-    }
     let version = CommittedVersion {
         scope: published.scope().clone(),
         position: published.position(),

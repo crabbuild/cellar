@@ -11,7 +11,7 @@ pub(crate) use query::ReadRetention;
 mod worker;
 pub use query::{CellSqlEffectScan, CellSqlQueryResult, CellSqlReceiptLookup};
 
-use super::{Budget, Budgets, Envelope, Permit, Pool, ResourceObserver, Worker};
+use super::{Budget, Envelope, Permit, Pool, ResourceObserver, Worker};
 use crate::raft::cell_groups::{
     cell_image_history_digest, CellEnrollmentAuthority, CellEnrollmentState,
     CellExecutionAuthority, CellReconciliationAuthority, EnrollmentRecord,
@@ -438,11 +438,6 @@ impl CellGroupSqlPool {
             limits.workers,
             limits.queue_per_worker,
             limits.max_pending_cells,
-            Budgets {
-                business: Budget::new(limits.node_bytes, limits.max_pending_cells),
-                archive_capture: Budget::new(1, 1),
-                query_pins: Budget::new(1, 1),
-            },
             log.performance(),
         )?;
         let workers = (0..limits.workers)

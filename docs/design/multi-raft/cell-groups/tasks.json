@@ -2671,7 +2671,7 @@
       "scope": [
         "crates/cellar/durability/raft/",
         "tools/cellar-recovery-tests/",
-        "crates/cellar/tests/support/raft_process_recovery/"
+        "crates/cellar/tests/support/raft_daemon_recovery.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/disaster.rs",

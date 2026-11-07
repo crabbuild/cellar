@@ -383,7 +383,6 @@ struct State {
         Mutex<BTreeMap<(ClusterId, NamespaceId), std::sync::Weak<cell_commands::Gateway>>>,
     cell_query_gateways:
         Mutex<BTreeMap<(ClusterId, NamespaceId), std::sync::Weak<cell_queries::Gateway>>>,
-    query_gateway: Mutex<Option<std::sync::Weak<crate::application::consensus::client::Handle>>>,
     fleet_gateway:
         Mutex<Option<std::sync::Weak<crate::application::consensus::group_client::Handle>>>,
     registry: Mutex<Registry>,
@@ -543,7 +542,6 @@ impl RaftTransport {
             local_control,
             local_data,
             local_query,
-            query_gateway: Mutex::new(None),
             fleet_gateway: Mutex::new(None),
             cell_command_gateways: Mutex::new(BTreeMap::new()),
             cell_query_gateways: Mutex::new(BTreeMap::new()),
@@ -1085,9 +1083,6 @@ impl State {
             registry.tasks == 0
         };
         self.stop.send_replace(true);
-        if let Ok(mut gateway) = self.query_gateway.lock() {
-            gateway.take();
-        }
         if let Ok(mut gateway) = self.fleet_gateway.lock() {
             gateway.take();
         }

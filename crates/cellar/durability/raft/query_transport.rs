@@ -4,7 +4,6 @@
 //! occupy the control or LTX connection required to establish its barrier.
 
 use super::*;
-use crate::application::consensus::client;
 use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire as wire;
 use cellar_logic::consensus::NodeIdentity;
@@ -204,27 +203,6 @@ impl RaftTransport {
         registry.prune_pools();
         drop(registry);
         state.start_pools(starts)
-    }
-
-    pub(crate) fn install_query_gateway(
-        &self,
-        handle: Arc<client::Handle>,
-    ) -> Result<(), TransportError> {
-        let state = &self.handle.0;
-        let mut gateway = state
-            .query_gateway
-            .lock()
-            .map_err(|_| TransportError::Closed)?;
-        if gateway.is_some()
-            || handle.closed.load(Ordering::Acquire)
-            || !handle.domain.same_owner(&state.domain)
-        {
-            return Err(TransportError::Refused);
-        }
-        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
-        state.admit(&registry)?;
-        *gateway = Some(Arc::downgrade(&handle));
-        Ok(())
     }
 }
 

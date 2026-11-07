@@ -7,7 +7,7 @@ use super::{catalog::*, completion::*, execution::*};
 use crate::application::consensus::RaftClass;
 use cellar_logic::consensus::*;
 use cellar_ltx::generation::GenerationLimits;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[path = "host_extents.rs"]
 mod extents;
@@ -26,7 +26,6 @@ pub(crate) use enrollment::NamespaceRegistration;
 pub use enrollment::{RaftManagedHostOptions, RaftNamespaceRegistration};
 #[path = "host_leader_load.rs"]
 mod load;
-pub(crate) use load::GroupResourceObserver;
 pub use load::RaftInspectionScanOptions;
 #[path = "host_fleet_observation.rs"]
 mod fleet_observation;
@@ -49,7 +48,11 @@ pub use node::{
 // These storage-observation regressions remain enabled while their owning
 // generic cache/archive primitives are retained. No predecessor dispatcher runs.
 #[cfg(test)]
-use super::host_sql::ImageView;
+#[derive(Clone)]
+struct ImageView {
+    position: LogPosition,
+    image: super::cache::CommittedImage,
+}
 #[cfg(test)]
 use super::storage_fault;
 #[cfg(test)]
