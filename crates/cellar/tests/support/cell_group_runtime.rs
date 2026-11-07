@@ -871,7 +871,6 @@ pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
 
 #[path = "cell_group_sql.rs"]
 mod sql;
-pub(crate) use sql::{FaultFileSystem, Faults};
 #[allow(unused_imports)]
 pub(super) use sql::unproved_s3_responses;
 pub(super) use sql::{
@@ -901,6 +900,7 @@ pub(super) use sql::{
 pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
+pub(crate) use sql::{FaultFileSystem, Faults};
 
 pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     sql::cell_receipts(rooted).await
