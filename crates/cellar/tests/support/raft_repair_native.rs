@@ -102,8 +102,6 @@ mod standby;
 pub(super) use standby::{
     registered_standby_activation_shutdown_joins,
     registered_standby_peer_activation_retains_handles,
-    registered_standby_refuses_quorumless_s3_activation,
-    registered_standby_s3_activation_and_restart,
 };
 
 impl Fixture {

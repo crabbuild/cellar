@@ -104,6 +104,14 @@ SUITES = {
         "Fixture capacity and joined closure of two voter services. "
         "Separate process faults and sustained load remain separate gates.",
     ),
+    "managed-standby": (
+        "native_cell_groups_managed",
+        ("bootstrap::lifecycle::s3::rustfs_registered_standby_refuses_quorumless_s3_activation",
+         "bootstrap::lifecycle::rustfs_managed_s3_group_replacement_and_joined_restart"),
+        "S3 standby admission requires fresh quorum and a retained joined voter recovers its exact disk",
+        "Fixture capacity and joined voter shutdown. Active joint-reservation recovery, "
+        "independent voter processes and sustained load remain separate gates.",
+    ),
     "managed-liveness": (
         "native_cell_groups_managed",
         ("bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover",

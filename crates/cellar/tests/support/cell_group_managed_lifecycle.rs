@@ -3,6 +3,7 @@
 //! Resource-backed whole-group replacement through the public managed APIs.
 use super::*;
 use crate::managed_fixture::movement::*;
+use std::sync::atomic::AtomicUsize;
 
 #[path = "cell_group_managed_discovery.rs"]
 mod discovery;
@@ -72,11 +73,19 @@ async fn replacement_with_store(
     from_s3: bool,
     store: Arc<fault::Store>,
 ) -> Result<()> {
-    let mut cluster = Box::pin(ManagedCluster::start_with_store(
-        rooted,
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let class = managed_fixture::counter_class_with_callback(move || {
+        counter.fetch_add(1, Ordering::AcqRel);
+    })?;
+    let first = Box::pin(Fixture::with_store(rooted, class, store)).await?;
+    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+        first,
         &[7],
         ArchiveSetup::Initialized,
-        store,
+        false,
+        None,
+        FirstGroupSetup::Normal,
     ))
     .await?;
     if from_s3 {
@@ -118,13 +127,22 @@ async fn replacement_with_store(
     }
     let work = async {
         let (seed, obsolete) = replace_with_source(&cluster, from_s3).await?;
+        let joined_boot = cluster.hosts[3]
+            .observe_node(TIMEOUT)
+            .await?
+            .fleet_boot
+            .context("installed learner's boot")?;
         drain_leader(&mut cluster, &seed, obsolete).await?;
-        Ok((seed, obsolete))
+        ensure!(
+            calls.load(Ordering::Acquire) == 6,
+            "seed replay ran SQL again"
+        );
+        Ok((seed, obsolete, joined_boot))
     }
     .await;
     // Even failed entered work must have a joined owner before this test exits.
     let stopped = close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await;
-    let (seed, obsolete) = match work {
+    let (seed, obsolete, joined_boot) = match work {
         Ok(value) => {
             stopped?;
             value
@@ -139,10 +157,8 @@ async fn replacement_with_store(
     // The replacement's retained disk is opened through the canonical joined
     // member path, together with the two surviving initial members.
     let mut members = Vec::new();
-    for (i, fixture) in cluster.fixtures.iter().enumerate() {
-        if i == obsolete {
-            continue;
-        }
+    for i in std::iter::once(3).chain((0..3).filter(|i| *i != obsolete)) {
+        let fixture = &cluster.fixtures[i];
         let node = start_node(
             cluster.roots[i].path(),
             fixture.application.clone(),
@@ -158,10 +174,25 @@ async fn replacement_with_store(
             .push(node.start_raft_cells(config, services).await?);
         cluster.nodes.push(node);
         members.push(i as u64 + 1);
+        if i == 3 {
+            let spare = &cluster.hosts[0];
+            let cold = verify_cold_joined_voter(spare, cluster.history, &seed, &joined_boot).await;
+            if let Err(error) = cold {
+                let stopped = close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await;
+                fixture.domain.shutdown().await;
+                return Err(
+                    error.context(format!("joined-voter cold restart; shutdown={stopped:?}"))
+                );
+            }
+        }
     }
     let resumed = async {
         let index = current_leader(&cluster.hosts, &members, cluster.history).await?;
         verify_cells(&cluster.hosts[index], &seed, 4).await?;
+        ensure!(
+            calls.load(Ordering::Acquire) == 8,
+            "retained restart ran SQL again"
+        );
         let catalog = &cluster.fixtures[0].catalog;
         let cut = catalog.read(TIMEOUT).await?;
         let group = catalog
@@ -174,6 +205,26 @@ async fn replacement_with_store(
             .iter()
             .position(|member| *member == 4)
             .context("joined target")?;
+        for (i, history) in seed.cells.iter().enumerate() {
+            let cell = cluster.hosts[target].cell(history.clone())?;
+            let value = cell
+                .query(
+                    ProposalId::new([234 + i as u8; 16])?,
+                    &cell.contract("Get")?,
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::Linearizable,
+                        routing: QueryRouting::Local,
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            ensure!(
+                value.served_by == MemberId::new(4)?
+                    && value.served_by_node == cluster.hosts[target].identity()
+                    && value.result == [10_i64, 14][i].to_be_bytes()
+            );
+        }
         let source = if index == target {
             (target + 1) % members.len()
         } else {
@@ -218,6 +269,84 @@ async fn replacement_with_store(
     close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await?;
     cluster.fixtures[0].domain.shutdown().await;
     resumed
+}
+
+async fn verify_cold_joined_voter(
+    host: &RaftCells,
+    history: GroupHistory,
+    seed: &SeededCells,
+    prior: &FleetBootBinding,
+) -> Result<()> {
+    let boot = host
+        .observe_node(TIMEOUT)
+        .await?
+        .fleet_boot
+        .context("retained voter boot")?;
+    ensure!(
+        boot.node == prior.node
+            && boot.disk == prior.disk
+            && boot.engine == prior.engine
+            && boot.process != prior.process
+            && boot.epoch > prior.epoch
+    );
+    let group = host.group(history)?;
+    let before = group.observe(TIMEOUT).await?;
+    let member = MemberId::new(4)?;
+    ensure!(before.cells == 2 && before.replica.member == member && !before.status.ready);
+    for (index, original) in seed.receipts.iter().enumerate() {
+        let cell = host.cell(seed.cells[index].clone())?;
+        let get = cell.contract("Get")?;
+        let stored = cell
+            .query(
+                ProposalId::new([230 + index as u8; 16])?,
+                &get,
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::AtLeast(original.version_token.clone()),
+                    routing: QueryRouting::Local,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        ensure!(
+            stored.served_by == member
+                && stored.served_by_node == host.identity()
+                && stored.result == [9_i64, 13][index].to_be_bytes()
+                && stored
+                    .version
+                    .covers(&original.version)
+                    .is_ok_and(|covers| covers)
+        );
+        let strong = cell
+            .query(
+                ProposalId::new([232 + index as u8; 16])?,
+                &get,
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::Linearizable,
+                    routing: QueryRouting::Local,
+                    timeout: Duration::from_millis(200),
+                    ..Default::default()
+                },
+            )
+            .await;
+        let refusal = strong.expect_err("retained voter served a strong read without quorum");
+        ensure!(
+            refusal.refusal() == Some(&CommandFailure::VersionUnavailable)
+                || matches!(
+                    refusal.as_ref(),
+                    CellDispatchError::Runtime(
+                        RuntimeError::NotReady
+                            | RuntimeError::NotLeader
+                            | RuntimeError::DeadlineExceeded
+                    )
+                ),
+            "unexpected cold-start read failure: {refusal:?}"
+        );
+    }
+    let after = group.observe(TIMEOUT).await?;
+    ensure!(!after.status.ready && after.status.committed == before.status.committed);
+    Ok(())
 }
 
 #[path = "cell_group_managed_maintenance.rs"]
