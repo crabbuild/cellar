@@ -73,13 +73,12 @@ The managed cold-recovery case now erases every owned source voter disk and
 reopens from RustFS in both image modes. It verifies restored SQL and receipts
 through a fresh quorum, resumes interrupted archive setup, and retires the old
 histories. Independent voter processes and permanent Docker launch revocation
-remain separate gates. In the public lifecycle work, the latest RustFS follow-up
-passed source-service failover and hit an S3 receipt replay deadline after the
-joined voter resumed as a ready leader. See [progress](progress.md) for both
-source boundaries. The constrained Linux public SQL gate passed at
-`9d6cf6e9` in both image modes, including leader SIGKILL, retained restart,
-quorum refusal and archive-write outage. The remaining CG-07 process gate
-combines these paths with managed repair, drain and maintenance.
+remain separate gates. The combined constrained Linux campaign at `27fde17e`
+passed native and Axum SQL, leader loss, quorum refusal, archive outage,
+retained maintenance and failed-voter repair in both image modes. The voters
+had separate cgroups and disks in one VM. Independent process crashes during
+Joint, peer activation cancellation and multi-namespace routing still need
+their own qualification.
 
 ## Open case audit
 
@@ -93,7 +92,7 @@ by `plan.py show <task>`.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-07 | At `27fde17e`, all five named public cases and the locked all-target build passed. Native and RustFS lifecycle passed in both image modes after the archive CAS fix. The constrained Linux campaign passed both modes with operator provisioning, native and Axum SQL, leader SIGKILL, quorum refusal, archive outage and exact S3 replay, retained maintenance and failed-voter repair. | Clear strict lint and record the exact task acceptance commands and evidence on the qualifying revision. Finish independent process crashes during Joint, peer activation cancellation and multi-namespace ingress qualification. |
+| CG-07 | At `27fde17e`, all five named public cases and the locked all-target build passed. Native and RustFS lifecycle passed in both image modes after the archive CAS fix. The constrained Linux campaign passed both modes with operator provisioning, native and Axum SQL, leader SIGKILL, quorum refusal, archive outage and exact S3 replay, retained maintenance and failed-voter repair. The public managed lifecycle passed both RustFS image modes again after the transport retirement at `607d17eb`. | Strict library Clippy is clear after the per-cell adapter removal. Fix the example, benchmark and test-fixture diagnostics for all-target Clippy, then record the exact acceptance commands on one qualifying revision. Finish independent process crashes during Joint, peer activation cancellation and multi-namespace ingress qualification. |
 | CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
 | CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
@@ -101,7 +100,7 @@ by `plan.py show <task>`.
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | The daemon harness retains scoped evidence from real voters and RustFS. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
-| CG-16 | Public shared-group SQL has scoped coverage. The predecessor per-cell host path is retired. | Finish removing unused predecessor wire and storage adapters, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
+| CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 
 ## First delivery of quorum SQL through public ingress
 
@@ -112,10 +111,10 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close the CG-07 acceptance gate.** Remove the unused predecessor
-   adapters flagged by strict lint and rerun the exact acceptance commands
-   on one qualifying revision. All five named public cases and the
-   constrained RustFS daemon campaign passed at `27fde17e`.
+1. **Close the CG-07 acceptance gate.** Resolve the all-target Clippy
+   diagnostics in the examples, benchmark and test fixtures. Record the
+   five exact public cases and all required commands on the qualifying
+   revision. The constrained RustFS daemon campaign passed at `27fde17e`.
 2. **Finish public cutover qualification.** Exercise independent process
    crashes during Joint, peer activation cancellation and multi-namespace
    ingress routing. Bind the public CI result to the qualifying source

@@ -12,6 +12,40 @@ CG-07 and CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## Per-cell transport and archive retirement
+
+At `607d17eb9463b9b304b4dc603d3b004f455cd77c`, checkpoint and seed
+traffic use the shared-group transport. The former per-cell
+snapshot worker, seed receiver, archive publisher and inspection wire
+handlers are removed with their callers. The retained physical snapshot
+interface still pins the exact immutable image. Shared-group transfer
+reservations, seed deadlines and Fleet/node inspection authorization remain
+in effect.
+
+The public managed lifecycle passed on real RustFS in 77.964 seconds across
+materialized and extent images. It exercised replacement, retained restart,
+managed stop and return, and a new S3-durable write after repair. The test
+verified the executable and operator CLI digests. The run used host-native
+voters and an isolated constrained RustFS container. Its record SHA-256 is
+`f5b866532bb5c30ce10d302956b47118b00424989d9f30359247685bb6b1b964`.
+
+All five required CG-07 public cases passed as individual exact invocations
+on the same revision. The locked all-target build passed for `cellar`,
+`cellar-logic` and `cellar-recovery-tests`. Formatting, module layout,
+native dependencies, documentation, all 37 plan unit tests and the
+source-anchor preflight passed.
+The complete-group learner/Joint case, exact retained-checkpoint capture and
+archive publication under a competing registry CAS also passed. The scoped
+checkpoint record SHA-256 is
+`e472489a1104af04b3e4ecd71b0a99cf2196bdb30d04505d97ab7ae02b3c8f83`.
+
+The strict library lint phase passed after the cleanup. Strict all-target
+Clippy continued into 25 failing test, example and benchmark targets, with
+145 diagnostics across those target invocations. The repeated fixture
+diagnostics include unused support functions and duplicate module loads.
+The production library had 167 diagnostics before the retirement. CG-07
+still needs the exact all-target gate and complete task evidence.
+
 ## Archive publication under registry contention
 
 A deterministic regression paused the verified publisher at its first registry
