@@ -12,6 +12,46 @@ CG-07 and CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## Archive publication under registry contention
+
+A deterministic regression paused the verified publisher at its first registry
+CAS and let a second owner reserve another upload. The original call returned
+`Conflict` on the previous source, after its complete immutable cut had
+already been uploaded and verified.
+
+At `27fde17edc6505afc93197a170c87885cdf71f46`, publication can retry a definite
+CAS loss using the exact persisted intent and still-pending upload ticket.
+Each bounded attempt reloads the registry and checks the selected cut.
+Readback reconciles the hold by intent digest. The regression denies further
+generation writes after the race and drops the successful retry's provider
+reply. It passed on the fixture store and real RustFS in both image modes.
+The before and after native log SHA-256 digests are
+`66e47b5348d21ef22f2bd159e0b98c87f2aa37e4894a633868a57f215b1d6301` and
+`2e2c101fb155cc404d0519e59620a6eefd8311f1f9b74f18ec954f32172e7cfc`.
+The RustFS contention record digest is
+`d7509d8e783293efa08d61576d0a6e0b685c5bd99739ca68185a8e1efd6b14a5`.
+
+The public managed lifecycle passed on the fixture store in 67.42 seconds
+and on RustFS in 87.921 seconds, including the post-repair S3 write and both
+image modes. The RustFS lifecycle record digest is
+`709a3e57a5e3b2cf3b93a7d95fb6013c74ed42e4e47d659069d6ca1255a5849b`.
+Five focused archive cases, the locked all-target build, formatting, layout
+and the 37 plan unit tests passed. All five named public CG-07 cases passed
+on the same revision, with the lifecycle run isolated from the other cases.
+Both runs verified their executable digests. The public batch log and
+isolated lifecycle log SHA-256 digests are
+`1502cbfcfd7558f8ea317a531b852581528fa0c37fef4982d93a4d5982cbced7` and
+`45245167ef7023129399ac9e46328edc2d902005e3c32b81371ac1a9c5f404f0`.
+The combined constrained Linux RustFS daemon campaign passed in
+91.603 seconds for materialized images and 95.623
+seconds for extents on the same source. It exercised operator provisioning,
+native and Axum SQL, leader SIGKILL, quorum refusal, archive outage and exact
+S3 replay, park and wake, retained maintenance, and failed-voter repair with
+a fourth standby. The voters used separate cgroups and disks in one VM.
+The run record SHA-256 digest is
+`116d01ea1d5a7fadea63c0b098ed3f3a260de5dcca8657a20f5976668b61f89d`.
+Strict Clippy stopped with the same 167 library errors as the preceding source.
+
 ## Joint configuration apply and failed send feedback
 
 The extent maintenance failure retained an outgoing voter with the Joint-leave

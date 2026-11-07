@@ -93,7 +93,7 @@ by `plan.py show <task>`.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-07 | The isolated constrained RustFS daemon passed both image modes at `393bffe4`. All five named public cases passed in individual runs on that revision, with an ingress repeat after a standby timeout. Both shared-group shutdown ports passed in both image modes with a fixture store. Guarded leadership transfer passed with a partitioned voter. A rooted replacement refused to advance with a minority and reachable RustFS in both image modes. Direct standby activation after committed Seeding and a joined voter's solo retained restart also passed both RustFS modes. | Joined restart of the replacement and an original seed owner during Joint passed on real RustFS. Reproduce the intermittent final apply delay, qualify independent process crashes during Joint and finish peer activation cancellation. The predecessor client, SQL dispatcher, membership and operations targets are retired. The locked all-target build and the RustFS managed-ingress case pass. A TLS regression reproduced a send-feedback stall during configuration apply. After the fix, RustFS lifecycle passed in both image modes. A separate fixture-store run settled the extent move and then hit an S3 command deadline with archive coverage one entry behind. Fix that publication delay, clear strict lint and qualify lifecycle on one source revision. Investigate any repeated standby, joint-consensus or maintenance timeout. |
+| CG-07 | At `27fde17e`, all five named public cases and the locked all-target build passed. Native and RustFS lifecycle passed in both image modes after the archive CAS fix. The constrained Linux campaign passed both modes with operator provisioning, native and Axum SQL, leader SIGKILL, quorum refusal, archive outage and exact S3 replay, retained maintenance and failed-voter repair. | Clear strict lint and record the exact task acceptance commands and evidence on the qualifying revision. Finish independent process crashes during Joint, peer activation cancellation and multi-namespace ingress qualification. |
 | CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
 | CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
@@ -112,29 +112,14 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close CG-07 extent voter replacement.** Exact peer archive reuse
-   passed a controlled S3 receipt replay on real RustFS with archive payload
-   writes denied. The public ingress case also passed after archive outage.
-   The extent lifecycle case exhausted its bounded turns at joint consensus.
-   The isolated diagnostic then settled replacement within the same bound.
-   The constrained daemon passed both modes at the pinned executable
-   revision, and the exact ingress repeat passed. The cutover removes the
-   obsolete per-cell dispatcher and its incompatible integration targets.
-   Finish independent process crash coverage during joint replacement and
-   verify cancellation of peer activation on the shared path.
-2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
-   onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
-   writes, leader loss, exact retries, retained restart and quorum refusal.
-   Verify continued quorum writes during archive-payload outage with catalog
-   access available, plus explicit S3 refusal and recovery. The directory
-   suite passed all 16 cases. The Fleet permit port passed all eight cases on
-   its original source. A later full-suite rerun hit an S3 receipt deadline and
-   passed the case in isolation. Seventeen shared-group read cases pass,
-   including follower ReadIndex recovery, peer saturation, routing from a
-   voter without a query callback, and local learner readiness. Resolve the
-   outstanding S3 receipt and CLI deadlines, finish the multi-namespace
-   router port, and pass public CI before
-   making shared groups the default for supported SQL in new namespaces.
+1. **Close the CG-07 acceptance gate.** Remove the unused predecessor
+   adapters flagged by strict lint and rerun the exact acceptance commands
+   on one qualifying revision. All five named public cases and the
+   constrained RustFS daemon campaign passed at `27fde17e`.
+2. **Finish public cutover qualification.** Exercise independent process
+   crashes during Joint, peer activation cancellation and multi-namespace
+   ingress routing. Bind the public CI result to the qualifying source
+   before making shared groups the default for supported SQL in new namespaces.
 3. **Finish CG-09/10 operator split and merge.** One native case now resumes
    the operator-admitted split after a partial reservation, serves SQL on the
    activated children and verifies late writes after merging. The latest
