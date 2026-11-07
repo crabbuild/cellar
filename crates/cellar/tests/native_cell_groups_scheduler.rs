@@ -341,17 +341,112 @@ async fn exercise_quorum_refusal(cluster: &mut ManagedCluster) -> Result<()> {
         .is_none());
     ensure!(!Box::pin(scheduler.settle(TIMEOUT)).await?);
     let write = survivor.cell(seed.cells[0].clone())?;
+    let command = CommandId::new(ClientId::new([249; 16])?, 1)?;
     let refused_write = write
         .command(
             &write.contract("Add")?,
             1i64.to_be_bytes().to_vec(),
-            CommandOptions::new(CommandId::new(ClientId::new([249; 16])?, 1)?, seed.retry),
+            CommandOptions::new(command, seed.retry),
         )
         .await;
     ensure!(
         refused_write.is_err(),
         "minority scheduler path acknowledged a write"
     );
+    // A timeout is not proof that the command failed. Restore the same disks
+    // and reconcile the exact identity before asking shutdown to prove that
+    // every local producer has resolved. Never discard the retained proposal.
+    for peer in (0..3).filter(|peer| *peer != index) {
+        let fixture = &cluster.fixtures[peer];
+        let node = managed_fixture::start_node(
+            cluster.roots[peer].path(),
+            fixture.application.clone(),
+            &fixture.spec.label,
+        )
+        .await?;
+        let (mut config, services) = fixture
+            .config(&node, LogOpenMode::Resume, 51 + peer as u8)
+            .await?;
+        managed_fixture::archives::configure(&mut config);
+        cluster.peers[peer] = config.peers[0].clone();
+        let host = node.start_raft_cells(config, services).await?;
+        cluster.nodes.insert(peer, node);
+        cluster.hosts.insert(peer, host);
+    }
+    movement::discover(cluster).await?;
+    let current = leader(&cluster.hosts[..3], cluster.history).await?;
+    let handle = cluster.hosts[current].cell(seed.cells[0].clone())?;
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    let recovered = tokio::time::timeout_at(deadline, async {
+        cluster.hosts[current]
+            .group(cluster.history)?
+            .quorum_membership(TIMEOUT)
+            .await?;
+        let mut busy = 0;
+        loop {
+            let mut options = CommandOptions::new(command, seed.retry);
+            options.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match handle
+                .command(
+                    &handle.contract("Add")?,
+                    1i64.to_be_bytes().to_vec(),
+                    options,
+                )
+                .await
+            {
+                Err(error)
+                    if matches!(
+                        error.cause.as_ref(),
+                        CellDispatchError::Execution(
+                            cellar::application::consensus::verification::ExecutionError::Busy
+                        )
+                    ) =>
+                {
+                    busy += 1;
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                result => {
+                    eprintln!("CG11 retained-quorum reconciliation busy observations: {busy}");
+                    return Ok::<_, anyhow::Error>(result?);
+                }
+            }
+        }
+    })
+    .await
+    .context("original retained-quorum reconciliation budget")??;
+    ensure!(recovered.id == command && recovered.result == 8i64.to_be_bytes());
+    let duplicate = handle
+        .command(
+            &handle.contract("Add")?,
+            1i64.to_be_bytes().to_vec(),
+            CommandOptions::new(command, seed.retry),
+        )
+        .await?;
+    ensure!(
+        duplicate.id == recovered.id
+            && duplicate.result == recovered.result
+            && duplicate.version == recovered.version
+            && duplicate.witness == recovered.witness
+            && duplicate.durability == recovered.durability,
+        "minority retry changed its committed receipt"
+    );
+    // Token issuance time can differ. Authenticate both against the same
+    // immutable committed observation rather than comparing signatures.
+    let keys = managed_fixture::Fixture::version_keys()?;
+    let now = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?;
+    for receipt in [&recovered, &duplicate] {
+        let verified = keys.verify_cell(
+            &receipt.version_token,
+            &recovered.version.history,
+            cluster.directory.namespace_config().schema_digest,
+            now,
+        )?;
+        ensure!(verified.version == recovered.version && verified.witness == recovered.witness);
+    }
     Ok(())
 }
 

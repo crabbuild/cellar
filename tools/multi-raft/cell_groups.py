@@ -58,7 +58,8 @@ SUITES = {
         "adaptive partition admission retains partial reservations and refuses missing quorum",
         "Both image modes, host-native RF3 voters and fixture capacity. Sizing uses real "
         "SQLite geometry and owner counters. Lost reservation confirmation and joined "
-        "shutdown of both followers are exercised. Physical split execution, whole-group "
+        "shutdown and retained return of both followers are exercised. The minority write is "
+        "reconciled with its original command identity before joined shutdown. Physical split execution, whole-group "
         "balancing, autonomous inventory selection and permanent fencing are separate gates.",
     ),
     "archive": (
@@ -244,7 +245,7 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
+                     or (suite in ("managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
                                    "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
