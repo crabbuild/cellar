@@ -303,7 +303,7 @@ async fn authorize(cluster: &ManagedCluster, members: std::ops::Range<usize>) ->
 }
 
 // The SQL probe shares its cell with the pending delivery worker. Retry only
-// the SDK's typed Busy result, retaining the exact identity and original cap.
+// typed Busy or a short apply-readiness gap, retaining the exact identity and cap.
 pub(super) async fn command_with_pending_effects(
     handle: &RaftCellHandle,
     contract: &OperationContract,
@@ -324,7 +324,7 @@ pub(super) async fn command_with_pending_effects(
                         error.cause.as_ref(),
                         CellDispatchError::Execution(
                             cellar::application::consensus::verification::ExecutionError::Busy
-                        )
+                        ) | CellDispatchError::Runtime(RuntimeError::NotReady)
                     ) =>
                 {
                     tokio::time::sleep(Duration::from_millis(10)).await
