@@ -40,6 +40,23 @@ fn pressure() -> RaftFleetPartitionPressure {
     }
 }
 
+fn cold_scheduler(
+    cluster: &ManagedCluster,
+    observer: &RaftCells,
+) -> Result<RaftFleetPartitionScheduler> {
+    let control = RaftFleetControl::new(
+        &cluster.fixtures[0].domain,
+        managed_fixture::Fixture::open_catalog(
+            &cluster.fixtures[0].domain,
+            cluster.fixtures[0].store.clone(),
+            cluster.history.cluster,
+        )?,
+        vec![cluster.directory.clone()],
+    )?
+    .with_node_observer(observer.clone());
+    Ok(RaftFleetPartitionScheduler::new(control, policy(), 1)?)
+}
+
 pub(super) async fn admit(
     cluster: &ManagedCluster,
     coordinator: &RaftFleetControl,
@@ -73,20 +90,67 @@ pub(super) async fn admit(
     ensure!(scheduler.tracked_groups() == 1);
     ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == before.revision());
     let request = split_request(cluster, coordinator, destinations, pivot).await?;
-    let cold = RaftFleetControl::new(
-        &cluster.fixtures[0].domain,
-        managed_fixture::Fixture::open_catalog(
-            &cluster.fixtures[0].domain,
-            cluster.fixtures[0].store.clone(),
-            cluster.history.cluster,
-        )?,
-        vec![cluster.directory.clone()],
-    )?
-    .with_node_observer(observer);
-    let mut replacement = RaftFleetPartitionScheduler::new(cold, policy(), 1)?;
+    let mut replacement = cold_scheduler(cluster, &observer)?;
     let absent = Box::pin(replacement.resume("automatic-test", &request, TIMEOUT)).await;
     ensure!(matches!(absent, Err(error) if error.code == RaftFleetFailureCode::Conflict));
     ensure!(replacement.pending_request().is_none());
+
+    // Persist the operator plan but fail the first Fleet CAS before mutation.
+    // The unchanged Fleet revision makes the missing-plan retry a real test:
+    // a fresh fallback could otherwise start another admission at that root.
+    cluster.fixtures[0]
+        .store
+        .fail_fleet_before
+        .store(true, Ordering::Release);
+    let (unconfirmed, admission_reads) = catalog_fault::count_reads(Box::pin(scheduler.admit(
+        "automatic-test",
+        &request,
+        TIMEOUT,
+    )))
+    .await;
+    ensure!(
+        matches!(&unconfirmed, Err(error) if error.code == RaftFleetFailureCode::Unavailable),
+        "{unconfirmed:?}"
+    );
+    ensure!(scheduler.pending_request() == Some(&request));
+    ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == before.revision());
+    let head = admission_reads
+        .keys()
+        .find(|path| path.ends_with("/fleet/head"))
+        .context("observed Fleet root read")?
+        .clone();
+    let suffix = format!("/fleet/transition-operator-plans/{}", request.operation_id);
+    let plan = admission_reads
+        .keys()
+        .find(|path| path.ends_with(&suffix))
+        .context("observed operator plan read")?
+        .clone();
+    let interrupted = catalog_fault::missing_read(
+        head,
+        Box::pin(replacement.resume("automatic-test", &request, TIMEOUT)),
+    )
+    .await;
+    ensure!(interrupted.is_err(), "{interrupted:?}");
+    ensure!(replacement.pending_request() == Some(&request));
+    let (missing, reads) = catalog_fault::count_reads(catalog_fault::missing_read(
+        plan.clone(),
+        Box::pin(replacement.resume("automatic-test", &request, TIMEOUT)),
+    ))
+    .await;
+    ensure!(matches!(missing, Err(error) if error.code == RaftFleetFailureCode::Conflict));
+    ensure!(reads.get(&plan) == Some(&1));
+    ensure!(
+        reads.keys().all(|path| path == &plan
+            || path.ends_with("/fleet/pin")
+            || path.ends_with("/fleet/head")),
+        "missing-plan replay entered fresh admission: {reads:?}"
+    );
+    ensure!(replacement.pending_request() == Some(&request));
+    ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == before.revision());
+    drop(replacement);
+
+    // Now lose confirmation after a real reservation CAS. Another cold owner
+    // must reconcile the original partial reservations without fresh samples.
     cluster.fixtures[0]
         .store
         .fail_fleet_confirmation
@@ -108,6 +172,7 @@ pub(super) async fn admit(
     let busy = Box::pin(scheduler.admit("automatic-test", &changed, TIMEOUT)).await;
     ensure!(matches!(busy, Err(error) if error.code == RaftFleetFailureCode::Busy));
     drop(scheduler);
+    let mut replacement = cold_scheduler(cluster, &observer)?;
     let changed_plan = Box::pin(replacement.resume("automatic-test", &changed, TIMEOUT)).await;
     ensure!(
         matches!(changed_plan, Err(error) if error.code == RaftFleetFailureCode::PayloadConflict)

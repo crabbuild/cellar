@@ -5,7 +5,7 @@ use cellar_logic::cell_group_placement::{
     PartitionBasis, PartitionLimits, PartitionLoad, PartitionSample,
 };
 use cellar_logic::{
-    cell_group::{CellId, CellRange, GroupHistory, MembershipRevision, RouteEpoch},
+    cell_group::{CellId, CellKey, CellRange, GroupHistory, MembershipRevision, RouteEpoch},
     consensus::{ClusterId, Durability, GroupId, IncarnationId, NamespaceId, Term},
 };
 
