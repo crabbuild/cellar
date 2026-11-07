@@ -623,6 +623,44 @@ Restart during an active joint configuration needs a managed continuation
 oracle that checks same-disk ownership, fresh quorum and retention of the
 original capacity debit.
 
+## CG-07 active joint replacement restart
+
+The native baseline at `f37775e9` with the new regression reached committed
+Joint, reopened the replacement on the same engine, requalified its capacity
+and hit a catalog Conflict on the first reconciliation turn. The log SHA-256
+is `7104fda409ff293dbc9fca5ee88e812ba028e900ee5cad616f23b3a7d6b2f89c`.
+
+At `8063a40b4f652128713d0bc5ca4ec0af9741b9aa`, a same-engine replacement
+successor can finish Joint and settle Complete with current qualified capacity
+and fresh evidence for the exact permit. The terminal CAS checks current
+physical inventory and preserves the original admission record and the
+monotonic physical floor. The test refuses an unqualified boot, a foreign
+engine and the old seed grant. It checks the original pending debit until
+settlement, repeats the terminal request, verifies the incoming configuration
+and exercises both SQL cells with original receipt replay and new S3 writes.
+The native fixture passed both image modes in 48.67 seconds. Its log SHA-256
+is `dda12a0ad103858a5130ef6fe754c9855f2c034e837455100b816c7c5e203437`.
+
+The first `managed-joint-restart` RustFS run passed materialized and exhausted
+eight settlement turns in extent mode. Its record SHA-256 is
+`c7b0b5ea02c7df2f705998fd2eb37b14e15106801db4d87e5d24b292495010a6`.
+An isolated repeat on the identical executable passed both image modes in
+38.50 seconds. Its record SHA-256 is
+`afdfecab556b0fd88af010710b07a3cb44c1c92f7d14b330f6bec7526d89d6e5`.
+Both runs use host-native voters, fixture capacity and a joined shutdown of
+the replacement. The original seed owners stay up. Original seed-owner
+restart, independent process death and the intermittent extent settlement
+still need managed qualification.
+
+The existing peer replacement case passed both image modes in 58.94 seconds
+on the candidate. It retains the original target boot through terminal
+settlement and reconciles a lost terminal CAS reply. Its log SHA-256 is
+`7ae355a14b44fb6652680071b74149c1b96b96358e532e01275c4f49ef9fd745`.
+Formatting, layout, docs, native dependency isolation and all 37 plan tests
+passed. Strict Clippy still reports 202 library errors starting in
+predecessor code. Its log SHA-256 is
+`e21fe164bf4043e792c1ae8c3a1196b382f758f40e8d387d53dd9edb294ea5ac`.
+
 ## CG-07 voter and learner read readiness
 
 The public shared-group read target at `9ab1334894c6e6d0ce41c2a5421fc3ba56448951`
