@@ -4,12 +4,7 @@
 use super::*;
 use std::sync::mpsc::{sync_channel, SyncSender};
 
-#[path = "raft_ltx_fault.rs"]
-#[expect(
-    dead_code,
-    reason = "pre-copy uses the directory hook, not the separate marker hook"
-)]
-mod filesystem;
+use crate::source_fixture::runtime_fixture::{FaultFileSystem, Faults};
 
 pub(super) struct Context<'a> {
     pub cluster: &'a ManagedCluster,
@@ -150,12 +145,12 @@ pub(super) async fn exercise(context: Context<'_>) -> Result<CommandReceipt> {
         max_restore_bytes: 64 * 1024 * 1024,
     };
     let pool = CellGroupRecoveryPool::new(limits)?;
-    let faults = filesystem::Faults::new(root.path().join("entered/child-0/pages"), None);
+    let faults = Faults::new(root.path().join("entered/child-0/pages"), None);
     let inputs = context
         .inputs(
             &root.path().join("entered"),
             pool.clone(),
-            Arc::new(filesystem::FaultFileSystem {
+            Arc::new(FaultFileSystem {
                 faults: faults.clone(),
             }),
         )
@@ -174,7 +169,7 @@ pub(super) async fn exercise(context: Context<'_>) -> Result<CommandReceipt> {
         inputs,
         TIMEOUT,
     ));
-    tokio::select! {
+    cellar::asyncrt::select! {
         result = &mut preparing => {
             match result {
                 Err(error) => return Err(error).context("pre-copy failed before the physical barrier"),

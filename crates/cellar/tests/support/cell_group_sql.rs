@@ -511,6 +511,7 @@ pub(crate) use apply::apply_images;
 
 #[path = "cell_group_sql_apply_faults.rs"]
 mod apply_faults;
+pub(crate) use apply_faults::physical::{FaultFileSystem, Faults};
 pub(crate) use apply_faults::{cancellation as apply_cancellation, failure as apply_failure};
 
 #[path = "cell_group_sql_apply_recovery.rs"]
