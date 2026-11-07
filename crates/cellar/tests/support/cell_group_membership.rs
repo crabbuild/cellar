@@ -86,7 +86,7 @@ async fn membership_delivery_fence_case(rooted: bool, physical: bool) -> Result<
         fixture.pump(&[], &mut BTreeMap::new()).await?;
         tokio::task::yield_now().await;
     }
-    let (transports, sink) = if physical {
+    let (transports, sink, failure_sink) = if physical {
         // Declare the sink before any pool is installed. A physical node has
         // one endpoint across groups; replacing one group's existing endpoint
         // would correctly be refused as a stale peer before admitting a send.
@@ -94,14 +94,20 @@ async fn membership_delivery_fence_case(rooted: bool, physical: bool) -> Result<
             fixture.transports.push(tcp::start(runtime, node).await?);
         }
         let sink = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let failure_sink = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         for history in fixture.applied.keys() {
             let mut route = fixture.tcp_route(*history)?;
+            route.peers[1].control_address = failure_sink.local_addr()?;
             route.peers[2].control_address = sink.local_addr()?;
             fixture.transports[0].install_physical_group(route)?;
         }
-        (std::mem::take(&mut fixture.transports), Some(sink))
+        (
+            std::mem::take(&mut fixture.transports),
+            Some(sink),
+            Some(failure_sink),
+        )
     } else {
-        (Vec::new(), None)
+        (Vec::new(), None, None)
     };
     for _ in 0..2 {
         fixture.runtimes[0].tick().await?;
@@ -121,7 +127,7 @@ async fn membership_delivery_fence_case(rooted: bool, physical: bool) -> Result<
         }
     })
     .await??;
-    let (prior, socket) = if let Some(sink) = sink {
+    let (prior, socket) = if let Some(sink) = &sink {
         let delivery = transports[0].submit_cell_group_event(&prior)?;
         let (socket, _) = tokio::time::timeout(Duration::from_secs(5), sink.accept()).await??;
         // The physical handshake is entered. Dropping both response owners must
@@ -250,6 +256,28 @@ async fn membership_delivery_fence_case(rooted: bool, physical: bool) -> Result<
         !held.contains_key(&route.history),
         "configuration skipped its terminal announcement deliveries"
     );
+    if let Some(sink) = failure_sink {
+        let failing = notices
+            .iter()
+            .find(|event| matches!(event.effect(), Ok(CellGroupEffect::Message(m)) if m.to == 2))
+            .context("announcement to the stalled peer")?;
+        let delivery = transports[0].submit_cell_group_event(failing)?;
+        let (socket, _) = tokio::time::timeout(Duration::from_secs(5), sink.accept())
+            .await
+            .context("configuration announcement did not reach the peer socket")??;
+        drop(socket);
+        // A failed physical send must return while other configuration
+        // deliveries still own their permits. The advisory feedback may need
+        // to wait for the very configuration these permits are fencing.
+        let outcome = tokio::time::timeout(Duration::from_secs(2), delivery.accepted())
+            .await
+            .context("failed send waited for protocol feedback")?;
+        assert!(
+            outcome.is_err(),
+            "the TLS peer closed without acknowledging"
+        );
+        assert!(group.membership()?.revision() < accepted.position.index);
+    }
     drop(notices);
     fixture.drive(Some(accepted.position.index)).await?;
     assert_eq!(group.membership()?.revision(), accepted.position.index);

@@ -91,7 +91,7 @@ impl TransportRuntime {
                         .await;
                 }
                 if !delivered {
-                    runtime.report_unreachable(route.scope, member).await?;
+                    runtime.admit_unreachable(route.scope, member).await?;
                 }
                 Ok(())
             }

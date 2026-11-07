@@ -565,6 +565,12 @@ registration checks run throughout the stream and again before runtime admission
 The verified closure enters `step_checkpoint`; its stream reply proves admission
 only. Raft releases its acknowledgement after the matching persistence completion.
 
+Ordinary failed sends return after bounded admission of their unreachable
+hint. The group holds the node and per-group reservations until it consumes or
+discards the hint on a later idle turn. The sender can then settle queued
+frames whose permits still fence configuration apply. A hint carries no
+delivery, commit or membership proof.
+
 Snapshot delivery feedback has 256 reserved node-wide slots and 1 MiB, separate
 from ordinary calls and apply completions. The runtime coalesces one status per
 known peer while retaining its reservation, then applies it after the in-flight

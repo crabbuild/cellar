@@ -461,29 +461,37 @@ impl Worker {
             let _ = answer.send(Ok(Response::Unit));
             return;
         }
-        if let Command::AdmitStep(message) = &request.command {
-            if let Err(error) = group.owner.validate_message(message) {
-                reply(request, Err(error));
-                return;
+        let admission_only = match &request.command {
+            Command::AdmitStep(message) => {
+                if let Err(error) = group.owner.validate_message(message) {
+                    reply(request, Err(error));
+                    return;
+                }
+                true
             }
+            Command::Unreachable(_) => true,
+            _ => false,
+        };
+        if admission_only {
             let Some(inbound) = group.inbound.acquire(request.bytes) else {
                 reply(request, Err(RuntimeError::Overloaded));
                 return;
             };
             let Request {
-                command: Command::AdmitStep(message),
+                command,
                 reply: answer,
                 bytes,
                 _permit,
                 ..
-            } = request
-            else {
-                unreachable!()
+            } = request;
+            let command = match command {
+                Command::AdmitStep(message) => Command::Step(message),
+                hint => hint,
             };
             let (reply, _) = oneshot::channel();
             group.deferred.push_back(Request {
                 group: Some(history),
-                command: Command::Step(message),
+                command,
                 reply,
                 bytes,
                 _permit,

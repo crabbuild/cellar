@@ -338,7 +338,7 @@ impl Worker {
                                         if snapshot {
                                             let _ = runtime.report_snapshot(group, member, false).await;
                                         } else {
-                                            let _ = runtime.report_unreachable(group, member).await;
+                                            let _ = runtime.admit_unreachable(group, member).await;
                                         }
                                     }));
                                 }

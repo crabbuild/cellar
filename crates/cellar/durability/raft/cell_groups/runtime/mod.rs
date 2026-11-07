@@ -1129,7 +1129,10 @@ impl CellGroupRuntime {
         .map(|_| ())
     }
 
-    pub(crate) async fn report_unreachable(
+    /// Admit advisory feedback without waiting for the owner to reach an idle
+    /// turn. The sender can still own later frames whose delivery fences the
+    /// configuration apply that would make the owner idle.
+    pub(crate) async fn admit_unreachable(
         &self,
         history: GroupHistory,
         member: u64,
