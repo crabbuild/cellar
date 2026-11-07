@@ -83,7 +83,7 @@ pub(super) async fn standby_import() -> Result<()> {
     let cut = f
         .run(f.directory.freeze_group_births(operation(72203)))
         .await?;
-    anyhow::ensure!(cut.is_empty() && cut.len() == 0);
+    anyhow::ensure!(cut.is_empty());
     let frozen = f.run(f.directory.observe()).await?;
     anyhow::ensure!(frozen.revision() == 2 && frozen.groups() == 0);
     anyhow::ensure!(f
@@ -189,12 +189,13 @@ pub(super) async fn group_import_freeze() -> Result<()> {
         .store(true, Ordering::Release);
     let writer = f.run(f.directory.reserve_group_birth(&delayed));
     let freezer = async {
-        let reached = tokio::time::timeout(Duration::from_secs(5), async {
-            while !f.store.birth_inventory_cas_waiting.load(Ordering::Acquire) {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await;
+        let reached = f
+            .run(cellar::asyncrt::timeout(Duration::from_secs(5), async {
+                while !f.store.birth_inventory_cas_waiting.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+            }))
+            .await;
         // Lose the reply after the actual namespace freeze CAS. The original
         // operation must reconcile; no successful CAS is synthesized.
         f.store

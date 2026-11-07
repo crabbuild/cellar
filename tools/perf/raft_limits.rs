@@ -28,7 +28,7 @@ pub fn shared(
             max_commands: host.max_requests,
             max_command_bytes: host.max_pending_bytes,
             checkpoints: (host.checkpoint_entries > 0).then_some(CellGroupCheckpointPolicy {
-                interval_entries: host.checkpoint_entries as u64,
+                interval_entries: host.checkpoint_entries,
                 max_parallel: sources,
             }),
         },
@@ -119,7 +119,7 @@ fn tail_limits(host: &RaftHostOptions, occupancy: usize) -> Result<CellGroupArch
         .images
         .apply
         .max_total_decoded_bytes
-        .max(u64::try_from(host.execution.envelope.max_decoded_bytes)?);
+        .max(host.execution.envelope.max_decoded_bytes);
     let mut limits = CellGroupArchiveTailLimits {
         max_cells: u32::try_from(occupancy)?,
         max_apply_bytes: usize::try_from(decoded)?

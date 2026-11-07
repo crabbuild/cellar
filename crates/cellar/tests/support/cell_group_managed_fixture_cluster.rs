@@ -131,7 +131,7 @@ pub async fn admit_capacity(
 }
 
 pub async fn leader(hosts: &[RaftCells], history: GroupHistory) -> Result<usize> {
-    Ok(tokio::time::timeout(TIMEOUT, async {
+    tokio::time::timeout(TIMEOUT, async {
         loop {
             for (i, host) in hosts.iter().enumerate() {
                 let status = host.group(history)?.status().await?;
@@ -142,7 +142,7 @@ pub async fn leader(hosts: &[RaftCells], history: GroupHistory) -> Result<usize>
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await??)
+    .await?
 }
 
 pub async fn close_group_nodes(nodes: Vec<Node>, hosts: &[RaftCells]) -> Result<()> {

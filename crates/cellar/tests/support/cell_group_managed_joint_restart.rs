@@ -148,7 +148,7 @@ async fn restart_voter(cluster: &mut ManagedCluster, index: usize) -> Result<Fle
     let opened = async {
         let (mut config, services) = fixture.config(&node, LogOpenMode::Resume, 81).await?;
         archives::configure(&mut config);
-        Ok::<_, anyhow::Error>(node.start_raft_cells(config, services).await?)
+        node.start_raft_cells(config, services).await
     }
     .await;
     let host = match opened {

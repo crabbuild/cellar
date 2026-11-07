@@ -7,7 +7,7 @@ mod download;
 #[path = "support/raft_empty_archive.rs"]
 mod empty_archive;
 #[path = "support/raft_catalog_fault.rs"]
-mod faults;
+pub mod faults;
 #[path = "support/raft_ltx_fault.rs"]
 #[allow(dead_code)]
 mod image_fault;

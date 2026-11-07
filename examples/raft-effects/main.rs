@@ -119,15 +119,13 @@ fn cell(services: &[Option<RaftCells>], index: usize, receiver: bool) -> Result<
 async fn leader(services: &[Option<RaftCells>], receiver: bool) -> Result<usize> {
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
-            for index in 0..3 {
-                if services[index].is_some()
-                    && services[index]
-                        .as_ref()
-                        .context("service")?
-                        .group(effects::group(receiver)?)?
-                        .status()
-                        .await
-                        .is_ok_and(|s| s.ready)
+            for (index, service) in services.iter().enumerate() {
+                let Some(service) = service else { continue };
+                if service
+                    .group(effects::group(receiver)?)?
+                    .status()
+                    .await
+                    .is_ok_and(|s| s.ready)
                 {
                     return Ok::<_, anyhow::Error>(index);
                 }

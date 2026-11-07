@@ -3,9 +3,9 @@
 use super::*;
 use crate::application::consensus::ImageCommitment;
 use crate::raft::cache::CommittedImage;
-use crate::raft::member_state::FleetGroupBinding;
 #[cfg(test)]
-use crate::raft::{cache::DurableApply, inspection::MemberInspection};
+use crate::raft::cache::DurableApply;
+use crate::raft::member_state::FleetGroupBinding;
 use cellar_ltx::{apply::ImageState, TXID};
 use serde::{Deserialize, Serialize};
 
@@ -244,23 +244,6 @@ impl Publication {
             }
             (Some(_), Some((_, position))) if position.index < applied.position.index => {
                 Ok(Self::Pending)
-            }
-            _ => Err(CommandFailure::CorruptState),
-        }
-    }
-
-    pub(crate) fn validate(&self, member: &MemberInspection) -> Result<(), CommandFailure> {
-        match self {
-            Self::Empty if member.published.is_none() => Ok(()),
-            Self::Pending => Ok(()),
-            Self::Image(image)
-                if member.published == Some(image.position)
-                    && image.position.index <= member.applied.index
-                    && image.position.term <= member.applied.term
-                    && (image.position.index != member.applied.index
-                        || image.position.term == member.applied.term) =>
-            {
-                FleetPublishedImage::new_state(image.position, image.state).map(|_| ())
             }
             _ => Err(CommandFailure::CorruptState),
         }

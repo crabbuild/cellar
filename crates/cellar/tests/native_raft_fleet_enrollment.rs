@@ -1,7 +1,7 @@
 //! Low-level immutable birth selection gates for the managed enrollment work.
 //! The complete dynamic host/trust inventory remains part of FO-03 delivery.
 #[path = "support/raft_catalog_fault.rs"]
-mod fault;
+pub mod fault;
 
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::{

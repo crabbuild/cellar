@@ -44,12 +44,10 @@ impl OperatorCli {
                 })
                 .await
         })?;
-        Ok(Self {
-            url,
-            catalog,
-            stop: Some(stop),
-            joined: Some(server),
-        })
+        let mut client = Self::connect(url, catalog);
+        client.stop = Some(stop);
+        client.joined = Some(server);
+        Ok(client)
     }
 
     pub fn connect(url: String, catalog: String) -> Self {
@@ -71,7 +69,7 @@ impl OperatorCli {
         let principal = |id: &str, token: &str, grants| {
             Principal::new(id.into(), token, BTreeMap::from([(FLEET.into(), grants)]))
         };
-        Ok(cellar_admin::router(Console {
+        cellar_admin::router(Console {
             domain: domain.clone(),
             fleets: BTreeMap::from([(
                 FLEET.into(),
@@ -103,7 +101,7 @@ impl OperatorCli {
             audit: AuditStore::open(&root.join("first-group-audit.sqlite"))?,
             assets: root.join("assets"),
             origins: vec![],
-        })?)
+        })
     }
 
     pub async fn call(&self, args: &[&str], token: &str) -> Result<CliReply> {

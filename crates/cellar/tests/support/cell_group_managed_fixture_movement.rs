@@ -34,10 +34,7 @@ pub async fn close(nodes: Vec<Node>, hosts: &[RaftCells]) -> Result<()> {
         }
         match host.close().await {
             Ok(report)
-                if report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers =>
-            {
-                ()
-            }
+                if report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers => {}
             result => failures.push(format!("group host close: {result:?}")),
         }
     }
@@ -395,7 +392,7 @@ pub async fn current_leader(
     members: &[u64],
     history: GroupHistory,
 ) -> Result<usize> {
-    Ok(tokio::time::timeout(TIMEOUT, async {
+    tokio::time::timeout(TIMEOUT, async {
         loop {
             for (i, (host, member)) in hosts.iter().zip(members).enumerate() {
                 let status = host.group(history)?.status().await?;
@@ -406,7 +403,7 @@ pub async fn current_leader(
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await??)
+    .await?
 }
 
 pub async fn verify_cells(host: &RaftCells, seed: &SeededCells, sequence: u64) -> Result<()> {

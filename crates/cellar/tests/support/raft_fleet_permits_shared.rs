@@ -412,7 +412,7 @@ impl Fixture {
             {
                 Ok(observed) => {
                     verify_phase(&observed, reserved, phase)?;
-                    return Ok(status(&observed)?);
+                    return status(&observed);
                 }
                 Err(CellGroupControlError::Refused(
                     RuntimeError::NotLeader | RuntimeError::NotReady | RuntimeError::Overloaded,
@@ -452,7 +452,7 @@ impl Fixture {
             if let Ok(proof) = group.quorum_membership(remaining.min(SHORT)).await {
                 if status(&proof)?.phase == Some(phase) {
                     verify_phase(&proof, reserved, phase)?;
-                    return Ok(status(&proof)?);
+                    return status(&proof);
                 }
             }
             tokio::time::sleep(Duration::from_millis(10)).await;

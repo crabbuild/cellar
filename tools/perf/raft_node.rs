@@ -3,7 +3,10 @@
 //! Isolated one-process-per-container native multi-Raft measurement node.
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]
-mod counter;
+pub mod counter;
+#[cfg(test)]
+#[path = "../../crates/cellar/tests/support/cell_group_disaster_public_node.rs"]
+pub mod public_node;
 mod raft_disaster;
 mod raft_fleet;
 mod raft_groups;
@@ -324,7 +327,6 @@ async fn main() -> Result<()> {
             store.clone(),
             raft_setup::namespace(&layout, schema)?,
             &layout,
-            placement,
             &peers,
             true,
             raft_limits::shared(&host, group_count, occupancy)?,
@@ -402,7 +404,6 @@ async fn main() -> Result<()> {
             store.clone(),
             raft_setup::namespace(&layout, schema)?,
             &layout,
-            placement,
             &peers,
             false,
             raft_limits::shared(&host, group_count, occupancy)?,

@@ -3,7 +3,7 @@
 //! Host integration starts with immutable catalog and initial-member admission.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_catalog_fault.rs"]
-mod store;
+pub mod store;
 
 use anyhow::{bail, ensure, Result};
 use cellar::application::consensus::verification::*;

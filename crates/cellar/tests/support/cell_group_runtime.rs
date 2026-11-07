@@ -5,6 +5,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod catalog_fault;
+
 #[path = "cell_group_multigroup.rs"]
 mod multigroup;
 pub(super) use multigroup::{hot_group_fairness, mixed_roles};

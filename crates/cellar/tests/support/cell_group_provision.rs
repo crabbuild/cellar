@@ -1,8 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Explicit assigned-range provisioning over real engines, files and TLS.
+use super::super::catalog_fault;
 use super::apply_faults::physical;
-use super::registration::catalog_fault;
 use super::remote_queries::{keys, wait_for};
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -330,7 +330,7 @@ pub(crate) async fn provisioning_retries_retained_owner() -> Result<()> {
         let (mut f, _, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut f, controller::limits()).await?;
         let (directory, route, store) = assignment(&f, 31).await?;
-        let mut options = settings(&f, &a, 0, &[directory.clone()]).await?;
+        let mut options = settings(&f, &a, 0, std::slice::from_ref(&directory)).await?;
         let path = pages_path(&options.directory, route.history);
         let faults = physical::Faults::new(path.clone(), None);
         options.filesystem = Arc::new(physical::FaultFileSystem {
@@ -394,7 +394,7 @@ pub(crate) async fn provisioning_joins_cancelled_close() -> Result<()> {
         let (mut f, _, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut f, controller::limits()).await?;
         let (directory, route, _) = assignment(&f, 31).await?;
-        let mut options = settings(&f, &a, 0, &[directory.clone()]).await?;
+        let mut options = settings(&f, &a, 0, std::slice::from_ref(&directory)).await?;
         let faults = physical::Faults::new(pages_path(&options.directory, route.history), None);
         let entered = Arc::new(AtomicBool::new(false));
         let reached = entered.clone();
@@ -455,7 +455,7 @@ pub(crate) async fn provisioning_recovers_selected_roots() -> Result<()> {
         let controllers = controller::start_with_limits(&mut f, controller::limits()).await?;
         let (directory, route, _) = assignment(&f, 31).await?;
         for (n, c) in controllers.iter().enumerate() {
-            c.configure_provisioning(settings(&f, &a, n, &[directory.clone()]).await?)?;
+            c.configure_provisioning(settings(&f, &a, n, std::slice::from_ref(&directory)).await?)?;
             c.provision(directory.clone(), route.clone())?
                 .response()
                 .await?;
@@ -575,7 +575,7 @@ async fn reopen_and_verify(
         )
         .await?;
         assert_eq!(c.usage().groups, 0);
-        let options = settings(f, cell, n, &[directory.clone()]).await?;
+        let options = settings(f, cell, n, std::slice::from_ref(&directory)).await?;
         let marker = f.cluster.voters[n]
             .log
             .cell_group(&route.history)?
@@ -659,7 +659,7 @@ pub(crate) async fn provisioning_refusals_preserve_healthy_group() -> Result<()>
             let (mut f, _, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
             let controllers = controller::start_with_limits(&mut f, controller::limits()).await?;
             let (directory, route, _) = assignment(&f, 31).await?;
-            let mut options = settings(&f, &a, 0, &[directory.clone()]).await?;
+            let mut options = settings(&f, &a, 0, std::slice::from_ref(&directory)).await?;
             let incorrect_endpoint = std::net::TcpListener::bind("127.0.0.1:0")?;
             if missing_member {
                 options.peers.pop();

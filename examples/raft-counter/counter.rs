@@ -14,12 +14,14 @@ use std::{
 };
 use subtle::ConstantTimeEq;
 
+type HistoryResolver = dyn Fn(&str) -> Result<CellHistory> + Send + Sync;
+
 pub struct CounterApi {
     pub cells: Mutex<Option<RaftCells>>,
     pub increment: OperationContract,
     pub get: OperationContract,
     secret: String,
-    resolve: Arc<dyn Fn(&str) -> Result<CellHistory> + Send + Sync>,
+    resolve: Arc<HistoryResolver>,
     next_query: AtomicU64,
 }
 
@@ -376,7 +378,7 @@ impl CounterApi {
 }
 
 fn failure_reply(error: &CellDispatchError, ambiguous: Option<CommandId>) -> Reply {
-    let failure = error.refusal().cloned().unwrap_or_else(|| match error {
+    let failure = error.refusal().cloned().unwrap_or(match error {
         CellDispatchError::Runtime(RuntimeError::NotLeader) => {
             CommandFailure::NotLeader { leader: None }
         }

@@ -11,7 +11,7 @@ mod native;
 #[allow(dead_code)]
 mod public_node;
 #[path = "support/raft_catalog_fault.rs"]
-mod store;
+pub mod store;
 
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::*;

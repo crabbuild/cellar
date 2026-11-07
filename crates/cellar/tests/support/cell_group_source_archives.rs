@@ -9,9 +9,7 @@ use cellar_ltx::{
 use sha2::Digest;
 use std::sync::atomic::Ordering;
 
-#[path = "raft_catalog_fault.rs"]
-#[allow(dead_code)]
-mod catalog_fault;
+use super::catalog_fault;
 
 struct Archives {
     pool: CellGroupArchivePool,

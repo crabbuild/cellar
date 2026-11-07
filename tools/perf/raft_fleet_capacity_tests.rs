@@ -2,9 +2,7 @@
 
 //! Native admission and the lab operator wrapper share the canonical receipt.
 use super::*;
-#[allow(dead_code)]
-#[path = "../../crates/cellar/tests/support/cell_group_disaster_public_node.rs"]
-mod public_node;
+use crate::public_node;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn managed_capacity_retry_reconciles_before_platform_or_native_probes() -> Result<()> {

@@ -74,11 +74,11 @@ pub async fn prepare(
     store: Arc<dyn ObjectStore>,
     declaration: RaftNamespaceConfig,
     layout: &raft_groups::Layout,
-    placement: Placement,
     peers: &[RaftPeerNode],
     initialize: bool,
     limits: CellGroupNodeLimits,
 ) -> Result<()> {
+    let placement = Placement::new(u8::try_from(peers.len())?)?;
     ensure!(
         !initialize || layout.generation == 0,
         "replacement history requires fenced recovery"

@@ -1,12 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Runtime registration uses real engines, catalog reads, TLS and shared SQL.
+use super::super::catalog_fault;
 use super::remote_queries::{keys, wait_for};
 use super::*;
 use std::sync::atomic::Ordering;
-#[path = "raft_catalog_fault.rs"]
-#[allow(dead_code)]
-pub(super) mod catalog_fault;
 
 pub(super) struct Prepared {
     directory: RangeDirectory,

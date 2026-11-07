@@ -68,10 +68,10 @@ pub(super) async fn gateways(
 ) -> Result<Vec<CellQueryGateway>> {
     let mut gateways = Vec::new();
     let cell = history(fixture.cluster.birth.route(), "query-options")?;
-    for n in 0..3 {
+    for (n, controller) in controllers.iter().enumerate() {
         gateways.push(fixture.transports[n].install_cell_query_gateway(
             dispatcher(fixture, class.clone(), keys(190)?)?,
-            controllers[n].clone(),
+            controller.clone(),
             cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
                 fixture.cell_options_at(&cell, n).await?,
             )?,

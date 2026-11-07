@@ -383,9 +383,7 @@ pub async fn restart_seed_cleanup(cluster: &ManagedCluster, debt: SeedDebt) -> R
             history: cluster.history,
             placement: RaftGroupPlacement::Replica,
         });
-        node.start_raft_cells(config, services)
-            .await
-            .map_err(anyhow::Error::from)
+        node.start_raft_cells(config, services).await
     }
     .await;
     let host = match started {

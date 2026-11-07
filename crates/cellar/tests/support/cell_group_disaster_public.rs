@@ -88,7 +88,6 @@ async fn start(
     endpoints: NodeRaftListeners,
     peers: Vec<RaftPeerNode>,
     app: Arc<dyn Application>,
-    rooted: bool,
     authority: Option<Arc<Authority>>,
 ) -> Result<RaftCells> {
     let local = &peers[ordinal];
@@ -117,7 +116,7 @@ async fn start(
         leader_capacity: u32::try_from(host.max_groups)?,
         draining: false,
     });
-    if rooted {
+    if s.cluster.directory.namespace_config().image_storage == RaftImageStorage::Extents {
         host.extents = Some(Default::default());
     }
     let mut shared = node::limits();
@@ -205,7 +204,6 @@ async fn pending_shutdown(
     s: &Scenario,
     root: &std::path::Path,
     app: Arc<dyn Application>,
-    rooted: bool,
     authority: Arc<Authority>,
 ) -> Result<()> {
     let node = node::node_named(root, app.clone(), "fresh-0").await?;
@@ -222,7 +220,6 @@ async fn pending_shutdown(
         endpoints.remove(0),
         peers,
         app,
-        rooted,
         Some(authority.clone()),
     )
     .await?;
@@ -539,17 +536,7 @@ async fn drill(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Resul
             .map(|(i, e)| peer(&s, i, e, 221))
             .collect::<Result<Vec<_>>>()?;
         let endpoints = all_endpoints.remove(0);
-        let refusal = start(
-            &s,
-            &node,
-            0,
-            endpoints,
-            peers,
-            app.clone(),
-            rooted,
-            supplied,
-        )
-        .await;
+        let refusal = start(&s, &node, 0, endpoints, peers, app.clone(), supplied).await;
         let error = refusal
             .err()
             .context("missing or rejected authority must refuse startup")?;
@@ -573,7 +560,6 @@ async fn drill(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Resul
         &s,
         &roots[0],
         app.clone(),
-        rooted,
         authority.clone(),
     ))
     .await?;
@@ -600,7 +586,6 @@ async fn drill(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Resul
                     e,
                     peers.clone(),
                     app.clone(),
-                    rooted,
                     Some(authority.clone()),
                 )
                 .await?,

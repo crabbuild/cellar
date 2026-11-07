@@ -2895,10 +2895,7 @@ async fn retire_merge_parent(
                         if matches!(
                             error.code,
                             RaftFleetFailureCode::Unavailable | RaftFleetFailureCode::Busy
-                        ) =>
-                    {
-                        ()
-                    }
+                        ) => {}
                     Err(error) => return Err(error.into()),
                 }
             }

@@ -65,7 +65,7 @@ fn control(fixture: &Fixture, directory: &RangeDirectory) -> Result<(Bucket, Raf
     ))
 }
 
-pub(crate) async fn prepare_transition(
+pub async fn prepare_transition(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -99,7 +99,7 @@ pub(crate) async fn prepare_transition(
     result
 }
 
-pub(crate) async fn capture_transition_source(
+pub async fn capture_transition_source(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -132,7 +132,7 @@ pub(crate) async fn capture_transition_source(
     result
 }
 
-pub(crate) async fn reopen_transition_retirement(
+pub async fn reopen_transition_retirement(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -161,7 +161,7 @@ pub(crate) async fn reopen_transition_retirement(
     result
 }
 
-pub(crate) async fn verify_transition_archive(
+pub async fn verify_transition_archive(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -196,7 +196,7 @@ pub(crate) async fn verify_transition_archive(
     result
 }
 
-pub(crate) async fn setup_transition_child(
+pub async fn setup_transition_child(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -233,7 +233,7 @@ pub(crate) async fn setup_transition_child(
     result
 }
 
-pub(crate) async fn transition_status(
+pub async fn transition_status(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -259,7 +259,7 @@ pub(crate) async fn transition_status(
     Ok(())
 }
 
-pub(crate) async fn resume_transition(
+pub async fn resume_transition(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -287,7 +287,7 @@ pub(crate) async fn resume_transition(
     Ok(serde_json::from_value(result?.success()?)?)
 }
 
-pub(crate) async fn admit_transition(
+pub async fn admit_transition(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -321,7 +321,7 @@ pub(crate) async fn admit_transition(
     result
 }
 
-pub(crate) async fn authorize_transition_seal(
+pub async fn authorize_transition_seal(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -350,7 +350,7 @@ pub(crate) async fn authorize_transition_seal(
     result
 }
 
-pub(crate) async fn seal_transition_source(
+pub async fn seal_transition_source(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -407,7 +407,7 @@ pub(crate) async fn seal_transition_source(
     result
 }
 
-pub(crate) async fn publish_transition(
+pub async fn publish_transition(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
@@ -437,7 +437,7 @@ pub(crate) async fn publish_transition(
     result
 }
 
-pub(crate) async fn activate_transition_child(
+pub async fn activate_transition_child(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,

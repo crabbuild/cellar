@@ -2,9 +2,7 @@
 
 //! Exercise the measurement configuration through real public Node owners.
 use super::*;
-#[allow(dead_code)]
-#[path = "../../crates/cellar/tests/support/cell_group_disaster_public_node.rs"]
-mod public_node;
+use crate::public_node;
 
 fn tls() -> Result<RaftTls> {
     Ok(RaftTls::new(
@@ -168,7 +166,6 @@ async fn run(
         store.clone(),
         namespace_for(&layout, schema, rooted)?,
         &layout,
-        placement,
         &peers,
         true,
         shared,
@@ -180,7 +177,6 @@ async fn run(
         store.clone(),
         namespace_for(&layout, schema, rooted)?,
         &layout,
-        placement,
         &peers,
         true,
         shared,

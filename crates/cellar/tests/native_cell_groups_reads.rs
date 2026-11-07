@@ -5,7 +5,7 @@
 #[path = "support/raft_shared_read_cluster.rs"]
 mod cluster;
 #[path = "support/cell_group_disaster_public_node.rs"]
-mod public_node;
+pub mod public_node;
 #[path = "support/raft_read_gate.rs"]
 mod read_gate;
 

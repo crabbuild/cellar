@@ -5,7 +5,7 @@ use anyhow::Result;
 use cellar::sdk::{consensus::*, *};
 use std::{path::Path, sync::Arc, time::Duration};
 #[path = "html.rs"]
-pub(super) mod graph;
+pub mod graph;
 
 pub(super) async fn node_named(
     directory: &Path,

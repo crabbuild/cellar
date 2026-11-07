@@ -142,10 +142,7 @@ pub async fn enroll(
                                     CellDispatchError::Runtime(
                                         RuntimeError::NotLeader | RuntimeError::NotReady
                                     )
-                                ) =>
-                        {
-                            ()
-                        }
+                                ) => {}
                         Err(error) => return Err(error.into()),
                     }
                 }

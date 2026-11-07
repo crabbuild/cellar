@@ -29,7 +29,7 @@ pub mod movement;
 #[path = "cell_group_managed_fixture_node.rs"]
 mod node;
 #[path = "cell_group_managed_fixture_operator.rs"]
-pub(super) mod operator;
+pub mod operator;
 #[path = "cell_group_managed_requests.rs"]
 pub mod requests;
 #[path = "cell_group_managed_fixture_seed_failure.rs"]
