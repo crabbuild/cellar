@@ -118,13 +118,33 @@ pub(super) async fn local(
         .as_ref()
         .ok_or_else(RaftFleetFailure::unsupported)?;
     let phase = cx.phase();
+    if phase == Some(TransitionPhase::Retired) && state.options.quiesce_retired_sources {
+        let route = &cx.parents[index % cx.parents.len()];
+        if observer.group(route.history).is_ok() {
+            state.action("quiesce-retired-source");
+            cx.control
+                .quiesce_transition_source(
+                    cx.principal(),
+                    &cx.namespace(),
+                    &cx.operation(),
+                    &cx.source(route, b"quiesce-source"),
+                    turn.remaining()?,
+                )
+                .await?;
+            return Ok(());
+        }
+    }
     let sources = match phase {
-        Some(TransitionPhase::SealAuthorized) => true,
-        Some(TransitionPhase::Active) => cx
-            .transition
-            .journal
-            .as_ref()
-            .is_some_and(|j| j.child_archives().is_some()),
+        Some(TransitionPhase::SealAuthorized) => {
+            index % (cx.parents.len() + cx.children.len()) < cx.parents.len()
+        }
+        Some(TransitionPhase::Active) => {
+            cx.transition
+                .journal
+                .as_ref()
+                .is_some_and(|j| j.child_archives().is_some())
+                && index % (cx.parents.len() + cx.children.len()) < cx.parents.len()
+        }
         _ => false,
     };
     if sources {

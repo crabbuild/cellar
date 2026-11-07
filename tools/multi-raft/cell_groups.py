@@ -51,6 +51,18 @@ CASES = (
 )
 
 SUITES = {
+    "managed-live-retirement": (
+        "native_cell_groups_transition_service",
+        ("rustfs_consented_split_retires_live_without_host_restart",
+         "rustfs_consented_split_keeps_colocated_children_running"),
+        "consented split drains and detaches every parent owner without restarting any voter host",
+        "Both image modes, host-native RF3 voters and fixture capacity. All final source "
+        "members must durably apply retirement before any owner detaches. Original parent "
+        "processes stay live, engine histories remain charged, one child stays colocated with each "
+        "parent within the unchanged two-history bound, and ingress "
+        "reads/S3 writes continue. Physical disk deletion/reclamation, automatic plan selection, "
+        "peak-capacity admission, independent processes, permanent fencing and load remain separate gates.",
+    ),
     "managed-transition-service": (
         "native_cell_groups_transition_service",
         ("rustfs_consented_split_resumes_with_owned_workers",),
@@ -255,7 +267,7 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
+                     or (suite in ("managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
                                    "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()

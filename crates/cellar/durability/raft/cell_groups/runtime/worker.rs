@@ -35,6 +35,7 @@ fn wakes_parked_group(command: &Command, term: u64) -> bool {
 struct Group {
     owner: Box<CellGroupOwner>,
     queued: bool,
+    retiring: bool,
     deferred: VecDeque<Request>,
     completion: Option<Request>,
     park_write: Option<Request>,
@@ -257,6 +258,7 @@ impl Worker {
             let mut group = Group {
                 owner,
                 queued: false,
+                retiring: false,
                 deferred: VecDeque::new(),
                 completion: None,
                 park_write: None,
@@ -283,6 +285,11 @@ impl Worker {
             let _ = answer.send(Ok(Response::Unit));
             return;
         }
+        if let Command::QuiesceRetired(source) = &request.command {
+            let result = source.check(&self.log).and_then(|()| self.retire(history));
+            reply(request, result.map(|()| Response::Unit));
+            return;
+        }
         let Some(group) = self.groups.get_mut(&history) else {
             reply(request, Err(RuntimeError::NotFound));
             return;
@@ -298,6 +305,18 @@ impl Worker {
         }
         if let Some(error) = &group.failed {
             reply(request, Err(error.clone()));
+            return;
+        }
+        if group.retiring
+            && !matches!(
+                request.command,
+                Command::Apply(..)
+                    | Command::CheckpointBeforeApply(..)
+                    | Command::Status
+                    | Command::Observe
+            )
+        {
+            reply(request, Err(RuntimeError::NotReady));
             return;
         }
         // Prepare is a park-only operation. A retry may race certificate
@@ -523,6 +542,50 @@ impl Worker {
             group.deferred.push_back(request);
         }
         group.wake(history, &mut self.order);
+    }
+
+    fn retire(&mut self, history: GroupHistory) -> Result<(), RuntimeError> {
+        let Some(group) = self.groups.get_mut(&history) else {
+            return Ok(());
+        };
+        if let Some(error) = &group.failed {
+            return Err(error.clone());
+        }
+        group.retiring = true;
+        group.owner.revoke_execution();
+        group.tick = false;
+        group.wake_due = false;
+        group.snapshot_hints.clear();
+        self.ticking.remove(&history);
+        self.park_deadlines.remove(&history);
+        while let Some(request) = group.deferred.pop_front() {
+            reply(request, Err(RuntimeError::NotReady));
+        }
+        if group.write.is_some()
+            || group.pending.is_some()
+            || group.settled.is_some()
+            || group.completion.is_some()
+            || group.park_write.is_some()
+            || self.cell_reads.busy(history)
+            || !group.owner.retirement_idle()
+        {
+            group.wake(history, &mut self.order);
+            return Err(RuntimeError::NotReady);
+        }
+        let revision = self
+            .roster_revision
+            .checked_add(1)
+            .ok_or(RuntimeError::Overloaded)?;
+        let group = self.groups.remove(&history).ok_or(RuntimeError::NotFound)?;
+        self.ready -= group.usage.0;
+        self.apply -= group.usage.1;
+        self.reads -= group.usage.2;
+        self.order.retain(|queued| *queued != history);
+        self.writes.retain(|queued| *queued != history);
+        self.outbox.retain(|event| event.group != history);
+        self.roster_revision = revision;
+        drop(group);
+        Ok(())
     }
 
     fn tick(&mut self) {

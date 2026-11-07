@@ -323,6 +323,10 @@ impl NamespaceCatalog {
 }
 
 impl NodeRegistration {
+    pub(crate) fn cluster(&self) -> ClusterId {
+        self.cluster
+    }
+
     fn check(&self) -> Result<(), CatalogError> {
         let local = self.log.limits();
         let instance = self.log.storage_instance().map_err(CatalogError::Log)?;

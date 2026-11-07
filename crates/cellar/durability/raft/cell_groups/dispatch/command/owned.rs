@@ -88,16 +88,37 @@ impl CellCommandInvocation {
         // Only an originating invocation may forward. An authenticated incoming
         // command stays local, so stale hints cannot create forwarding cycles.
         if let Some(transport) = transport.filter(|_| !self.system && self.remote_route.is_none()) {
-            let remote = Box::pin(super::super::mutation_route::mutation_peer(
-                runtime,
-                transport,
-                &self.session,
-                self.current()?,
-                &self.dispatcher.keys,
-                &self.dispatcher.domain,
-            ))
-            .await
-            .map_err(|cause| self.error(cause))?;
+            let remote = loop {
+                let selected = Box::pin(super::super::mutation_route::mutation_peer(
+                    runtime,
+                    transport,
+                    &self.session,
+                    self.current()?,
+                    &self.dispatcher.keys,
+                    &self.dispatcher.domain,
+                ))
+                .await;
+                match selected {
+                    Ok(member) => break member,
+                    Err(CellDispatchError::Runtime(
+                        RuntimeError::NotReady | RuntimeError::NotFound,
+                    )) if usize::from(self.current()?.ordinal())
+                        < self.session.maximum_attempts() =>
+                    {
+                        // No callback or producer has entered. Only discovery
+                        // retries here; a transmitted mutation is never retried.
+                        let previous = self.current()?.clone();
+                        let refreshed = self
+                            .session
+                            .refresh(&previous)
+                            .await
+                            .map_err(CellDispatchError::Routing)
+                            .map_err(|cause| self.error(cause))?;
+                        self.attempt = Some(refreshed);
+                    }
+                    Err(cause) => return Err(self.error(cause)),
+                }
+            };
             if let Some(member) = remote {
                 let response = self.execute_remote(transport, member).await?;
                 return Ok(CellCommandResponse {

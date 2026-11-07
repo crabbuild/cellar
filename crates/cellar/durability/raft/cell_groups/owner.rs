@@ -313,6 +313,14 @@ impl CellGroupOwner {
             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
         Box::pin(permit.log().close_retained_park(&group)).await?;
         let cache = group.read()?;
+        if current
+            .marker()
+            .source_seal()
+            .and_then(|seal| seal.retirement())
+            .is_some()
+        {
+            return Err(RuntimeError::NotReady);
+        }
         if !Arc::ptr_eq(&current.engine_owner, &group.owner)
             || cache.group_manifest.as_ref() != Some(current.marker())
             || current.marker().route() != permit.route()
@@ -2430,6 +2438,10 @@ impl CellGroupOwner {
             && self.waiting.is_none()
             && self.effects.is_empty()
             && !self.node.has_ready()
+    }
+
+    pub(super) fn retirement_idle(&self) -> bool {
+        self.idle() && self.apply.is_empty() && self.applying.is_none()
     }
 
     pub(super) fn waiting(&self) -> bool {

@@ -3,12 +3,26 @@
 //! Managed router membership discovery uses the existing joined directory owner.
 use super::*;
 use crate::raft::{
-    fleet_catalog::{FleetTrustReader, FleetTrustSnapshot},
+    fleet_catalog::{FleetGroupAuthorization, FleetTrustReader, FleetTrustSnapshot},
     storage::ReplicaLog,
     transport::{GroupRoute, RaftPeer, RaftTransport},
 };
 use cellar_logic::consensus::ReplicaIdentity;
 use std::{collections::VecDeque, time::Duration};
+
+pub(super) struct TargetRefresh<'a> {
+    pub(super) history: GroupHistory,
+    pub(super) deadline: u64,
+    pub(super) registrations: &'a [crate::raft::catalog::NodeRegistration],
+}
+
+struct RouterObservation<'a> {
+    route: &'a cellar_logic::cell_group::GroupRoute,
+    authority: &'a FleetGroupAuthorization,
+    observed: &'a crate::raft::host::FleetMembershipObservation,
+    revision: u64,
+    deadline: u64,
+}
 
 struct NamespaceWork {
     directory: RangeDirectory,
@@ -111,7 +125,129 @@ impl RouterDirectory {
                 remaining()?.min(Duration::from_millis(500)),
             )
             .await?;
-        let observed = proof.membership();
+        self.install_observed(
+            log,
+            transport,
+            RouterObservation {
+                route: &route,
+                authority: &authority,
+                observed: proof.membership(),
+                revision,
+                deadline,
+            },
+        )
+        .map(|_| ())
+    }
+
+    pub(super) async fn refresh_target(
+        &mut self,
+        log: &ReplicaLog,
+        transport: &RaftTransport,
+        observer: &RaftCells,
+        reader: &FleetTrustReader,
+        trust: &FleetTrustSnapshot,
+        target: TargetRefresh<'_>,
+    ) -> anyhow::Result<()> {
+        let TargetRefresh {
+            history,
+            deadline,
+            registrations,
+        } = target;
+        let remaining = || super::directory::remaining(log, deadline);
+        let namespace = self
+            .namespaces
+            .iter()
+            .find(|namespace| {
+                let config = namespace.directory.namespace_config();
+                config.cluster == history.cluster && config.namespace == history.namespace
+            })
+            .ok_or_else(|| anyhow::anyhow!("router namespace capability"))?;
+        let birth = namespace
+            .directory
+            .materialize_selected_history(history)
+            .await?;
+        let route = birth.route().clone();
+        if let Ok(local) = log.cell_group(&history) {
+            anyhow::ensure!(
+                local
+                    .consensus_claimed
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    && local
+                        .group_manifest()?
+                        .as_ref()
+                        .is_some_and(|marker| marker.route() == &route
+                            && marker.is_active()
+                            && marker.source_seal().is_none()),
+                "selected local router target is not attached"
+            );
+            return Ok(());
+        }
+        let authority = reader
+            .authorize_router_group(trust, &history, remaining()?)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("router target is not live at this Fleet root"))?;
+        let revision = trust.revision();
+        for voter in birth.voters() {
+            let Some(host) = trust
+                .node(voter.node)
+                .filter(|host| host.permits_transport())
+            else {
+                continue;
+            };
+            // Refresh this exact enrolled endpoint; discovery grants no namespace
+            // origin permission. Never accept a caller-provided address.
+            for registration in registrations
+                .iter()
+                .filter(|registration| registration.cluster() == history.cluster)
+            {
+                if let Some(view) = registration.observe_fleet_node(host, remaining()?).await? {
+                    let peer = view.peer().clone();
+                    transport.accept_node_view(view, &peer)?;
+                }
+            }
+            let proof = observer
+                .observe_peer_fleet_membership(
+                    voter.node,
+                    authority.clone(),
+                    revision,
+                    remaining()?.min(Duration::from_millis(500)),
+                )
+                .await;
+            let Ok(proof) = proof else {
+                continue;
+            };
+            if self.install_observed(
+                log,
+                transport,
+                RouterObservation {
+                    route: &route,
+                    authority: &authority,
+                    observed: proof.membership(),
+                    revision,
+                    deadline,
+                },
+            )? {
+                return Ok(());
+            }
+        }
+        anyhow::bail!("no ready router target quorum observed")
+    }
+
+    fn install_observed(
+        &mut self,
+        log: &ReplicaLog,
+        transport: &RaftTransport,
+        sample: RouterObservation<'_>,
+    ) -> anyhow::Result<bool> {
+        let RouterObservation {
+            route,
+            authority,
+            observed,
+            revision,
+            deadline,
+        } = sample;
+        let group = route.history;
+        let local = log.limits().node;
         let mut peers = Vec::new();
         for voter in authority.router_voters(observed)? {
             let peer = transport.managed_group_peer(&group, voter.node, revision)?;
@@ -136,13 +272,13 @@ impl RouterDirectory {
         }
         // A selected local destination must attach its own engine separately.
         if peers.iter().any(|peer| peer.replica.node == local) {
-            return Ok(());
+            return Ok(false);
         }
         anyhow::ensure!(
             observed.schema_digest() == route.schema_digest,
             "router schema changed"
         );
-        remaining()?;
+        super::directory::remaining(log, deadline)?;
         let route = GroupRoute {
             scope: group,
             revision: observed.membership_revision().get(),
@@ -168,6 +304,6 @@ impl RouterDirectory {
                 transport.remove_cell_query_group(&oldest)?;
             }
         }
-        Ok(())
+        Ok(true)
     }
 }

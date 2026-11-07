@@ -969,7 +969,38 @@ advisory local step hints grant no authority. Invalid consent/payload/configurat
 is surfaced as `needs_operator`, while transient refusals retain diagnostics and
 use bounded retry delay. Stopping execution does not cancel the durable plan.
 
-Parent holds still require the existing authenticated physical quiescence proof.
-Retained parent restart supplies that proof; the controller cannot substitute an
-applied tombstone or a sampled empty queue. Live per-group retirement quiescence,
+Parent holds require the existing authenticated physical quiescence proof.
+By default the service drains retired sources in place. It first verifies every
+final source member's durable tombstone through current enrolled boots and complete
+physical inventories. Only then does a local controller verify the exact selected
+retirement set, seal SQL and seed admission, stop new archive/effect turns and drain
+that group's existing physical work, including the archive owner's actual blocking
+producers after an async timeout. Physical archive tracking is per group, so a
+busy unrelated archive does not impersonate source debt. Before removal, it asks the existing joined
+directory worker to resolve the selected children, refresh their enrolled endpoints,
+verify fresh quorum membership and install advisory routes in that worker's bounded
+cache. The same owner retires the namespace's stale range hints. Public automatic
+queries and originating mutation leader discovery use this same bounded request
+lane when selected routes are missing, including after retained ingress restart.
+Before entering any SQL callback, an originating command can refresh discovery
+inside its original routing session; it retains its identity, input, attempt bank
+and deadline. Transmitted mutations are never retried by this discovery path.
+Former parent ingress can issue reads or a first S3 write after retirement without
+waiting for a background sweep. Discovery grants no application-origin permission.
+
+Raft ticks and inbound work stop for the retired history while admitted persistence
+and apply completions keep their owners. The
+actual consensus claim must leave before the controller removes dispatch/applier
+owners and reports a parked retired source. Other groups keep running. Nodes that
+own parents and children share fair local turns, so source retirement cannot
+starve activation-time child archive discovery.
+
+`quiesce_transition_source` exposes the same managed operator action. Lost replies
+or stopped service waiters cannot reopen source admission or invent physical
+release. The default `quiesce_retired_sources` option can be disabled when an
+external owner will join the source hosts instead. Retained restart remains a
+separate supported way to establish the same quiescence proof.
+
+A parked retired source's engine history, log and storage stay charged. This is
+owner retirement, not disk deletion or a capacity refund. Physical reclamation,
 automatic plan selection and broader placement qualification remain open.

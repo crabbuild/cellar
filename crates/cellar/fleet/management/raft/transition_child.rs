@@ -244,6 +244,7 @@ impl RaftFleetControl {
 }
 
 fn setup_failure(error: CellGroupControllerError) -> RaftFleetFailure {
+    tracing::debug!(target: "cellar::raft::transition_setup", ?error, "managed child setup failed");
     let (code, message) = match error {
         CellGroupControllerError::Catalog(error) => match error.as_ref() {
             CatalogError::Conflict(_) | CatalogError::Fenced | CatalogError::NotInitialMember => {

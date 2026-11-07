@@ -5,6 +5,8 @@
 mod archive;
 mod collection;
 mod directory;
+mod router_refresh;
+pub(crate) use router_refresh::{RouterRefreshClient, RouterRefreshRequest};
 mod provisioning;
 mod recovery;
 mod registration;

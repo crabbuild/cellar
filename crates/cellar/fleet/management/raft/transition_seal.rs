@@ -264,6 +264,43 @@ impl RaftFleetControl {
         }
     }
 
+    /// Drain and detach one retired local source after every final member has
+    /// applied its tombstone. The retained engine and storage remain charged.
+    pub async fn quiesce_transition_source(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionSourceSealRequest,
+        timeout: Duration,
+    ) -> Result<()> {
+        let turn = Turn::new(&self.domain, timeout)?;
+        let (directory, history, transition) = self
+            .authorize_source_action(
+                principal,
+                namespace,
+                operation,
+                request,
+                &turn,
+                SourceAction::Retire,
+            )
+            .await?;
+        let observer = self
+            .node_observer
+            .as_ref()
+            .ok_or_else(RaftFleetFailure::unsupported)?;
+        self.catalog
+            .quiesce_managed_transfer_source(
+                &transition,
+                directory,
+                observer,
+                history,
+                turn.remaining()?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
     async fn authorize_source_action<'a>(
         &'a self,
         principal: &str,

@@ -23,6 +23,7 @@ pub(crate) use managed_park::{
 };
 mod managed_transition_admission;
 pub(crate) use managed_transition_admission::TransitionOperatorStep;
+mod managed_source_quiescence;
 mod managed_transition_execution;
 pub(crate) use managed_transition_execution::ManagedTransitionExecution;
 mod managed_recovery_fence;

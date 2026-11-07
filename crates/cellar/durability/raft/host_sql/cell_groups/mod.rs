@@ -451,7 +451,7 @@ impl CellGroupSqlPool {
             engine_owner: log.owner(),
             workers,
             resources,
-            admission: Admission::new(limits, lease.clone()),
+            admission: Admission::new(limits, lease.clone(), log.limits().max_groups),
             apply_admission: Budget::new(limits.node_bytes, log.limits().max_groups),
             closing: closing.clone(),
             stop: stop.clone(),
@@ -476,6 +476,10 @@ impl CellGroupSqlPool {
             terminal.complete(result);
         }).map_err(|_| unavailable())?;
         Ok(Self { inner })
+    }
+
+    pub(crate) fn retire_group(&self, history: GroupHistory) -> Result<bool, ExecutionError> {
+        self.inner.admission.retire(history)
     }
 
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {

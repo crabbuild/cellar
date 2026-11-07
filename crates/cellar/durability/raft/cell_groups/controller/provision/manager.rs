@@ -401,6 +401,18 @@ impl Manager {
         Ok(())
     }
 
+    pub fn retire(&mut self, group: GroupHistory) -> bool {
+        if self
+            .entries
+            .get(&group)
+            .is_some_and(|entry| entry.running || !entry.active)
+        {
+            return false;
+        }
+        self.entries.remove(&group);
+        true
+    }
+
     pub async fn join(&mut self) {
         // Do not launch attachment after close, but do join every entered
         // blocking recovery and attachment before releasing dependencies.

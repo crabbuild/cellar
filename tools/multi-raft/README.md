@@ -466,3 +466,23 @@ slot, and lets the controller finish once all physical observations verify. It
 runs materialized and extent images with independent bounded catalog clients per
 simulated node. This does not qualify live group retirement without host restart,
 automatic plan selection, independent processes or sustained placement load.
+
+
+## Live source retirement
+
+Use `--suite managed-live-retirement` with an owned RustFS backend and fresh output
+directory. The case executes a consented split in both image modes, then waits for
+the service to drain and detach every source group without replacing any process.
+It checks the exact original node identities, no active parent registrations,
+retained physical log occupancy, parked-source observations, original receipts,
+child archives and subsequent ingress reads and S3-durable writes. It includes
+read-first and write-first ingress. A second case places both child groups on the
+same three source nodes and verifies that their owners stay live while only the
+parent retires. A premature quiescence request refuses before source sealing.
+
+The SQL admission unit case holds a source result/producer reservation across
+retirement: late reservations refuse, held debt remains charged, and another
+group can still reserve while the source drains. Real backend checks use
+host-native RF3 voters and fixture capacity. Disk deletion/reclamation, automatic
+plan selection, destination failures, process fault schedules and sustained load
+remain separate gates.

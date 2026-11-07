@@ -327,6 +327,7 @@ struct Registry {
     node_views: BTreeMap<NodeId, crate::raft::catalog::NodeView>,
     fleet_trust: Option<Arc<crate::raft::fleet_catalog::FleetTrustSnapshot>>,
     seed_peers: BTreeMap<NodeId, directory::SeedPeer>,
+    router_refresh: Option<super::group_host::RouterRefreshClient>,
 }
 
 impl Registry {
@@ -558,6 +559,7 @@ impl RaftTransport {
                 node_views: BTreeMap::new(),
                 fleet_trust: None,
                 seed_peers: BTreeMap::new(),
+                router_refresh: None,
             }),
             outgoing: Banks::new(
                 options.node_control_bytes,

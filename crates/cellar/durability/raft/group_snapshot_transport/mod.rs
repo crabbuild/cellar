@@ -33,6 +33,12 @@ pub struct CellGroupCheckpointRegistration {
     endpoint: Arc<Endpoint>,
 }
 
+impl CellGroupCheckpointRegistration {
+    pub(crate) fn history(&self) -> GroupHistory {
+        self.endpoint.applier.history()
+    }
+}
+
 impl Drop for CellGroupCheckpointRegistration {
     fn drop(&mut self) {
         self.endpoint.active.store(false, Ordering::Release);

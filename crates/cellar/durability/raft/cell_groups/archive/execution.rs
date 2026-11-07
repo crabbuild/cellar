@@ -50,6 +50,10 @@ impl ControllerExecution {
         }
     }
 
+    pub(crate) fn is_idle(&self) -> bool {
+        self.physical.active.load(Ordering::Acquire) == 0
+    }
+
     pub(crate) async fn join(&self) {
         loop {
             let finished = self.physical.finished.notified();

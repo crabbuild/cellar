@@ -5,6 +5,7 @@
 mod leadership;
 mod park_deadlines;
 pub(super) mod reads;
+mod retirement;
 mod worker;
 use leadership::LeadershipBatch;
 
@@ -144,6 +145,7 @@ struct Handle {
 enum Command {
     Attach(Box<CellGroupOwner>),
     Quarantine,
+    QuiesceRetired(Box<super::controller::RetiredSource>),
     Campaign,
     TransferLeader(u64),
     TransferLeadership(crate::raft::completion::LeadershipTransfer),

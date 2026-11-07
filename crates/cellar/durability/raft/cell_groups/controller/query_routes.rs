@@ -109,6 +109,26 @@ pub(super) async fn execute(
 }
 
 impl Destination<'_> {
+    async fn router_members(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        maximum: usize,
+        deadline: u64,
+    ) -> Result<Vec<MemberId>, Error> {
+        match self.transport.cell_query_router_members(route, maximum) {
+            Err(TransportError::UnknownGroup) => {
+                self.transport
+                    .refresh_managed_router(route.history, deadline)
+                    .await
+                    .map_err(Error::Runtime)?;
+                self.transport
+                    .cell_query_router_members(route, maximum)
+                    .map_err(Error::Transport)
+            }
+            result => result.map_err(Error::Transport),
+        }
+    }
+
     async fn automatic(
         &self,
         invocation: &mut CellQueryInvocation,
@@ -135,8 +155,12 @@ impl Destination<'_> {
                 }
                 Err(LogError::NotFound) => {
                     match self
-                        .transport
-                        .cell_query_router_members(route, invocation.maximum_attempts())
+                        .router_members(
+                            route,
+                            invocation.maximum_attempts(),
+                            invocation.deadline_ms(),
+                        )
+                        .await
                     {
                         Ok(members) if !members.is_empty() => {
                             let member = members[next_member % members.len()];
@@ -154,10 +178,8 @@ impl Destination<'_> {
                             self.attempt(invocation, member, options.clone(), permit.clone())
                                 .await
                         }
-                        Ok(_) | Err(TransportError::UnknownGroup) => {
-                            Err(Error::Runtime(RuntimeError::NotFound))
-                        }
-                        Err(error) => Err(Error::Transport(error)),
+                        Ok(_) => Err(Error::Runtime(RuntimeError::NotFound)),
+                        Err(error) => Err(error),
                     }
                 }
                 Err(error) => Err(Error::Runtime(RuntimeError::Storage(error))),

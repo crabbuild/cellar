@@ -112,6 +112,7 @@ pub struct QueryResult {
 
 mod actions;
 mod close;
+mod directory;
 mod drain;
 mod fleet;
 mod hibernation;

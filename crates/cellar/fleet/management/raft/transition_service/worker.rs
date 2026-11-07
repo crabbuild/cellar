@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 pub(super) struct Work {
     control: RaftFleetControl,
-    options: RaftFleetTransitionServiceOptions,
+    pub(super) options: RaftFleetTransitionServiceOptions,
     lease: ControlServiceLease,
     stop: watch::Receiver<bool>,
     status: watch::Sender<RaftFleetTransitionServiceStatus>,

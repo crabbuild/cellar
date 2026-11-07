@@ -16,7 +16,13 @@ async fn dropped_async_waiter_still_requires_physical_join() {
         })
         .unwrap();
     observed.await.unwrap();
+    assert!(!execution.is_idle());
     drop(task);
+    assert!(!execution.is_idle());
+    let unrelated = ControllerExecution::new(domain.services().domain_token().unwrap());
+    unrelated.blocking(|| ()).unwrap().await.unwrap();
+    assert!(unrelated.is_idle());
+    assert!(!execution.is_idle());
     let join = execution.join();
     tokio::pin!(join);
     assert!(
@@ -24,9 +30,11 @@ async fn dropped_async_waiter_still_requires_physical_join() {
             .await
             .is_err()
     );
+    assert!(!execution.is_idle());
     release.send(()).unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(5), join)
         .await
         .unwrap();
+    assert!(execution.is_idle());
     domain.shutdown().await;
 }

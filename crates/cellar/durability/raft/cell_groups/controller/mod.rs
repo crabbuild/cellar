@@ -28,10 +28,12 @@ pub use effects::CellGroupEffectRegistration;
 mod failure;
 mod provision;
 mod registration;
+mod retirement;
 pub use provision::{
     CellGroupProvisionCall, CellGroupProvisionLimits, CellGroupProvisionNamespace,
     CellGroupProvisioning,
 };
+pub(crate) use retirement::RetiredSource;
 mod requests;
 pub use enrollments::{CellEnrollmentAdmissionError, CellEnrollmentCall};
 pub(crate) use registration::GroupRoster;

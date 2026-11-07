@@ -9,6 +9,7 @@ pub(super) enum Request {
     EnsureArchive(cellar_logic::cell_group::GroupHistory),
     S3(Box<archive::settlement::Request>),
     Registration(Box<registration::Request>),
+    Retirement(Box<retirement::Request>),
     Provision(Box<provision::Request>),
     Command(Box<commands::Request>),
     Query(Box<queries::Request>),
@@ -58,7 +59,8 @@ pub(super) async fn drive(
     transport: RaftTransport,
 ) -> Completed {
     match request {
-        Request::Registration(_)
+        Request::Retirement(_)
+        | Request::Registration(_)
         | Request::Provision(_)
         | Request::Archive(_)
         | Request::EnsureArchive(_)

@@ -20,6 +20,7 @@ pub(in crate::raft::cell_groups::controller) struct Manager {
     pending: BTreeSet<GroupHistory>,
     after: Option<GroupHistory>,
     job: Option<BoxFuture<'static, Completed>>,
+    active_group: Option<GroupHistory>,
 }
 
 impl Manager {
@@ -87,6 +88,7 @@ impl Manager {
             return Ok(());
         };
         let runtime = shared.runtime.clone();
+        self.active_group = Some(group);
         self.job = Some(Box::pin(async move {
             let result = async {
                 let _parallel = config
@@ -160,10 +162,14 @@ impl Manager {
         shared: &Shared,
     ) {
         self.job = None;
+        self.active_group = None;
         self.pending.remove(&completed.group);
         match completed.result {
             Ok(registration) => {
-                if shared.closing.load(Ordering::Acquire) || archives.contains(&completed.group) {
+                if shared.closing.load(Ordering::Acquire)
+                    || archives.contains(&completed.group)
+                    || !shared.groups.contains(&completed.group).unwrap_or(false)
+                {
                     registration.store.close();
                 } else {
                     // Keep a clone until the internal handoff has either taken
@@ -188,6 +194,19 @@ impl Manager {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .remove(&group);
+    }
+
+    pub(in crate::raft::cell_groups::controller) fn retire(
+        &mut self,
+        group: GroupHistory,
+        shared: &Shared,
+    ) -> bool {
+        self.pending.remove(&group);
+        if self.active_group == Some(group) {
+            return false;
+        }
+        self.release(group, shared);
+        true
     }
 
     pub async fn join(&mut self, shared: &Shared) {

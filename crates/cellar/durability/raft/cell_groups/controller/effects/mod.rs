@@ -229,6 +229,11 @@ impl Manager {
         }
     }
 
+    pub fn retiring(&mut self, group: GroupHistory) -> bool {
+        self.remove(&group);
+        !self.running() || self.group != Some(group)
+    }
+
     pub fn running(&self) -> bool {
         !self.jobs.is_empty()
     }

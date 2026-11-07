@@ -157,6 +157,14 @@ fn physical_inventory_flags_are_strict_and_digest_bound() {
     let row = decode(&bytes).unwrap().1.histories()[0];
     assert!(!row.in_configuration() && !row.parked_retired_source());
 
+    let before_retirement = inventory.digest();
+    inventory.histories[0].flags = SOURCE_RETIREMENT_APPLIED;
+    assert_ne!(before_retirement, inventory.digest());
+    let bytes = encode(&node, &inventory).unwrap();
+    let decoded = decode(&bytes).unwrap();
+    assert!(decoded.1.histories()[0].source_retirement_applied());
+    assert!(!decoded.1.histories()[0].parked_retired_source());
+
     let inactive = inventory.digest();
     inventory.histories[0].flags = PARKED_RETIRED_SOURCE;
     assert_ne!(inactive, inventory.digest());
@@ -166,7 +174,7 @@ fn physical_inventory_flags_are_strict_and_digest_bound() {
     assert!(encode(&node, &inventory).is_err());
 
     let last = bytes.len() - 1;
-    bytes[last] = 4;
+    bytes[last] = 8;
     assert!(decode(&bytes).is_err());
     bytes.pop();
     assert!(decode(&bytes).is_err());

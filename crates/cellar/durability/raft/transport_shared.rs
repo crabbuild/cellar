@@ -53,6 +53,72 @@ impl RaftTransport {
             .is_ok_and(|owner| owner.same_owner(runtime))
     }
 
+    pub(crate) fn bind_router_refresh(
+        &self,
+        memory: Arc<Budget>,
+    ) -> Result<mpsc::Receiver<crate::raft::group_host::RouterRefreshRequest>, RuntimeError> {
+        let state = &self.handle.0;
+        let mut registry = state.registry.lock().map_err(|_| RuntimeError::Closed)?;
+        state.admit(&registry).map_err(|_| RuntimeError::Closed)?;
+        if registry.router_refresh.is_some() {
+            return Err(RuntimeError::AlreadyAttached);
+        }
+        let (client, receiver) =
+            crate::raft::group_host::RouterRefreshClient::channel(memory, state.domain.clone())?;
+        registry.router_refresh = Some(client);
+        Ok(receiver)
+    }
+
+    pub(crate) async fn refresh_managed_router(
+        &self,
+        history: GroupHistory,
+        deadline: u64,
+    ) -> Result<(), RuntimeError> {
+        let client = {
+            let state = &self.handle.0;
+            let registry = state.registry.lock().map_err(|_| RuntimeError::Closed)?;
+            state.admit(&registry).map_err(|_| RuntimeError::Closed)?;
+            registry
+                .router_refresh
+                .clone()
+                .ok_or(RuntimeError::NotFound)?
+        };
+        client.request(history, deadline).await
+    }
+
+    /// Remove dispatch only after this retired history has no consensus claim.
+    /// Old pools/streams retain their physical admission until their own exit.
+    pub(crate) fn retire_physical_group(
+        &self,
+        history: GroupHistory,
+    ) -> Result<(), TransportError> {
+        let state = &self.handle.0;
+        let group = state
+            .runtime
+            .shared()?
+            .log()
+            .cell_group(&history)
+            .map_err(|_| TransportError::UnknownGroup)?;
+        if group.consensus_claimed.load(Ordering::Acquire)
+            || group
+                .group_manifest()
+                .map_err(|_| TransportError::Refused)?
+                .as_ref()
+                .and_then(|marker| marker.source_seal())
+                .and_then(|seal| seal.retirement())
+                .is_none()
+        {
+            return Err(TransportError::Refused);
+        }
+        let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        group_snapshots::revoke(&mut registry, &history);
+        registry.physical_groups.remove(&history);
+        registry.physical_owners.remove(&history);
+        registry.prune_pools();
+        Ok(())
+    }
+
     /// Install already-authorized physical membership. This creates no group,
     /// grants no serving authority and changes no committed configuration.
     pub fn install_physical_group(&self, route: PhysicalRoute) -> Result<(), TransportError> {

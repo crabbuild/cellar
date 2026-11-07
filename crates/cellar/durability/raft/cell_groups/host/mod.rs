@@ -156,6 +156,19 @@ impl CellGroupHost {
         })
     }
 
+    pub(crate) async fn refresh_namespace_routes(
+        &self,
+        history: cellar_logic::cell_group::GroupHistory,
+    ) -> Result<u64, CellDispatchError> {
+        self.inner.check_open()?;
+        let binding = self
+            .inner
+            .namespaces
+            .get(&(history.cluster, history.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        binding.dispatcher.refresh_routes().await
+    }
+
     /// Namespace capability lookup only; supplies no group placement or startup authority.
     pub(crate) fn directory(
         &self,

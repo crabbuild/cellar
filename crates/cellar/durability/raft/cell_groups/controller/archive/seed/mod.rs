@@ -81,6 +81,7 @@ impl Lease {
 #[derive(Default)]
 struct State {
     active: usize,
+    retired: std::collections::BTreeSet<GroupHistory>,
     groups: BTreeMap<GroupHistory, Weak<tokio::sync::Mutex<()>>>,
     cleanup_errors: BTreeMap<GroupHistory, Arc<Error>>,
     cleaning: bool,
@@ -141,12 +142,27 @@ impl Jobs {
         history: GroupHistory,
     ) -> Result<(Entered, Arc<tokio::sync::Mutex<()>>)> {
         let mut state = self.state.lock().map_err(|_| Error::Stopped)?;
-        if self.stopping.load(Ordering::Acquire) {
+        if self.stopping.load(Ordering::Acquire) || state.retired.contains(&history) {
             return Err(Error::Stopped);
         }
         let group = self.group(&mut state, history)?;
         state.active += 1;
         Ok((Entered(self.clone()), group))
+    }
+
+    pub(in crate::raft::cell_groups::controller) fn retire(
+        &self,
+        history: GroupHistory,
+    ) -> Result<bool> {
+        let mut state = self.state.lock().map_err(|_| Error::Stopped)?;
+        if !state.retired.contains(&history) && state.retired.len() >= self.max_groups {
+            return Err(Error::Runtime(RuntimeError::Overloaded));
+        }
+        state.retired.insert(history);
+        Ok(state
+            .groups
+            .get(&history)
+            .is_none_or(|group| group.strong_count() == 0))
     }
 
     pub(in crate::raft::cell_groups::controller) fn stop(&self) {

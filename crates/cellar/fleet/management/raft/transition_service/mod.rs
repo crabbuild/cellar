@@ -31,6 +31,9 @@ pub struct RaftFleetTransitionExecutionRequest {
 #[derive(Clone, Debug)]
 pub struct RaftFleetTransitionServiceOptions {
     pub coordinate: bool,
+    /// Drain retired local sources after all final members applied retirement.
+    /// Disable only when an external owner is responsible for their shutdown.
+    pub quiesce_retired_sources: bool,
     pub interval: Duration,
     pub retry_max_interval: Duration,
     pub turn_timeout: Duration,
@@ -40,6 +43,7 @@ impl Default for RaftFleetTransitionServiceOptions {
     fn default() -> Self {
         Self {
             coordinate: true,
+            quiesce_retired_sources: true,
             interval: Duration::from_millis(500),
             retry_max_interval: Duration::from_secs(10),
             turn_timeout: Duration::from_secs(5),

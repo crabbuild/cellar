@@ -217,6 +217,7 @@ impl CellGroupController {
 }
 
 struct Entry {
+    execution: ControllerExecution,
     registration: CellGroupArchiveRegistration,
     activation: Option<Arc<ArchiveActivation>>,
     context: Option<job::Context>,
@@ -225,6 +226,7 @@ struct Entry {
     latest_applied: Option<LogIndex>,
     dirty: bool,
     fatal: bool,
+    stopping: bool,
     retry_at: u64,
     waiters: Vec<settlement::Request>,
 }
@@ -237,29 +239,30 @@ pub(super) struct Completed {
     waiters: Vec<settlement::Request>,
 }
 
+#[derive(Default)]
 pub(super) struct Manager {
     entries: BTreeMap<GroupHistory, Entry>,
     queue: VecDeque<GroupHistory>,
     job: Option<BoxFuture<'static, Completed>>,
-    execution: ControllerExecution,
+    active_group: Option<GroupHistory>,
 }
 
 impl Manager {
-    pub fn new(domain: crate::asyncrt::DomainToken) -> Self {
-        Self {
-            entries: BTreeMap::new(),
-            queue: VecDeque::new(),
-            job: None,
-            execution: ControllerExecution::new(domain),
-        }
-    }
-
     pub(super) fn contains(&self, group: &GroupHistory) -> bool {
         self.entries.contains_key(group)
     }
 
     pub fn request(&mut self, request: Request, shared: &Shared) {
         let group = request.registration.birth.route().history;
+        match shared.groups.contains(&group) {
+            Ok(true) => (),
+            result => {
+                request.reply.send(Err(Arc::new(Error::Runtime(
+                    result.err().unwrap_or(RuntimeError::NotFound),
+                ))));
+                return;
+            }
+        }
         if self.entries.contains_key(&group) || self.entries.len() >= shared.limits.max_groups {
             request.reply.send(Err(Arc::new(Error::Invalid(
                 "duplicate/full archive roster",
@@ -274,6 +277,7 @@ impl Manager {
         self.entries.insert(
             group,
             Entry {
+                execution: ControllerExecution::new(shared.domain.clone()),
                 registration: request.registration,
                 activation: Some(request.activation),
                 context: None,
@@ -282,6 +286,7 @@ impl Manager {
                 latest_applied: None,
                 dirty: true,
                 fatal: false,
+                stopping: false,
                 retry_at: 0,
                 waiters: Vec::new(),
             },
@@ -319,6 +324,7 @@ impl Manager {
         self.entries.insert(
             group,
             Entry {
+                execution: ControllerExecution::new(shared.domain.clone()),
                 registration,
                 activation: Some(activation),
                 context: None,
@@ -327,6 +333,7 @@ impl Manager {
                 latest_applied: None,
                 dirty: true,
                 fatal: false,
+                stopping: false,
                 retry_at: 0,
                 waiters: Vec::new(),
             },
@@ -388,7 +395,7 @@ impl Manager {
             let group = self.queue.pop_front().expect("archive roster queue");
             let entry = self.entries.get_mut(&group).expect("archive roster entry");
             entry.queued = false;
-            if !entry.dirty || entry.fatal {
+            if !entry.dirty || entry.fatal || entry.stopping {
                 continue;
             }
             if entry.retry_at > now {
@@ -408,7 +415,7 @@ impl Manager {
             let registration = entry.registration.clone();
             let activation = entry.activation.clone();
             let mut context = entry.context.clone();
-            let execution = self.execution.clone();
+            let execution = entry.execution.clone();
             let runtime = runtime.clone();
             // Bound receipt SQL work per fair group turn, independently of the
             // node's potentially larger total command admission.
@@ -417,6 +424,7 @@ impl Manager {
             tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                 group = ?group.group, stage = "launch", waiters = count);
             settlement::prune(&mut waiters, now);
+            self.active_group = Some(group);
             self.job = Some(Box::pin(async move {
                 let result = std::panic::AssertUnwindSafe(async {
                     if context.is_none() {
@@ -484,6 +492,7 @@ impl Manager {
 
     pub fn complete(&mut self, completed: Completed, shared: &Shared, now: u64, closing: bool) {
         self.job = None;
+        self.active_group = None;
         let entry = self
             .entries
             .get_mut(&completed.group)
@@ -558,13 +567,46 @@ impl Manager {
         }
     }
 
+    pub(super) fn retire(&mut self, group: GroupHistory, shared: &Shared) -> bool {
+        if let Some(entry) = self.entries.get_mut(&group) {
+            entry.stopping = true;
+        }
+        if self.active_group == Some(group)
+            || self
+                .entries
+                .get(&group)
+                .is_some_and(|entry| !entry.execution.is_idle())
+        {
+            return false;
+        }
+        self.queue.retain(|queued| *queued != group);
+        if let Some(mut entry) = self.entries.remove(&group) {
+            for request in entry.waiters.drain(..) {
+                request.fail(Arc::new(Error::Stopped));
+            }
+            if let Some(reply) = entry.reply.take() {
+                reply.send(Err(Arc::new(Error::Stopped)));
+            }
+            entry.registration.store.close();
+        }
+        if let Some(status) = shared
+            .archives
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_mut(&group)
+        {
+            status.stopped = true;
+        }
+        true
+    }
+
     pub async fn finish(&mut self, shared: &Shared) {
         if let Some(job) = self.job.take() {
             let completed = job.await;
             self.complete(completed, shared, 0, true);
         }
-        self.execution.join().await;
         for entry in self.entries.values_mut() {
+            entry.execution.join().await;
             for request in entry.waiters.drain(..) {
                 request.fail(Arc::new(Error::Stopped));
             }

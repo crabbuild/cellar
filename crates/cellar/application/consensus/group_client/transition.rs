@@ -220,6 +220,46 @@ impl RaftGroupHandle {
 }
 
 impl RaftCells {
+    /// Internal physical handoff, called only after Fleet checks every final
+    /// source member. The controller independently verifies the local tombstone.
+    pub(crate) fn quiesce_managed_source<'a>(
+        &self,
+        transition: &'a ReopenedManagedCellGroupTransition,
+        history: GroupHistory,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<(), CellGroupControllerError>> + Send + 'a {
+        let admitted = self
+            .metadata_admission(timeout, 4096)
+            .map_err(super::startup::admission_error);
+        let owner = self.internal_observer();
+        async move {
+            let (deadline, _memory) = admitted?;
+            let core = &owner.handle.core;
+            let host = core.managed.as_ref().ok_or_else(|| {
+                super::startup::catalog_error(CatalogError::ManagedAdmissionRequired)
+            })?;
+            let directory = core
+                .host
+                .namespace_directory(history.cluster, history.namespace)
+                .map_err(|_| CellGroupControllerError::Invalid("source retirement namespace"))?;
+            owner.startup_live(host, deadline)?;
+            owner
+                .handle
+                .domain
+                .run(Box::pin(crate::asyncrt::timeout_at(
+                    deadline,
+                    Box::pin(core.controller.quiesce_retired_source(
+                        &directory,
+                        &transition.plan,
+                        history,
+                    )),
+                )))
+                .await
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))?
+        }
+    }
+
     /// Attach this boot's exact installed voter to the pending child. The
     /// majority of install receipts and current capacity are revalidated before
     /// attachment. The child can vote but cannot serve application requests.

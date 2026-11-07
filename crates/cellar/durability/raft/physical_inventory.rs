@@ -16,6 +16,7 @@ const PREFIX: usize = 45;
 const ENTRY_BYTES: usize = 81;
 const IN_CONFIGURATION: u8 = 1;
 const PARKED_RETIRED_SOURCE: u8 = 2;
+const SOURCE_RETIREMENT_APPLIED: u8 = 4;
 
 pub(crate) type PhysicalNodeObservation = (RaftHostObservation, RaftPhysicalInventory);
 
@@ -45,10 +46,17 @@ impl RaftPhysicalHistory {
         self.flags & IN_CONFIGURATION != 0
     }
 
-    /// This exact source slot has a verified retirement tombstone and opened
-    /// without a Raft owner. Its retained storage remains charged.
+    /// This exact source slot has a verified retirement tombstone and no
+    /// attached Raft owner after startup or joined retirement. Storage stays charged.
     pub fn parked_retired_source(&self) -> bool {
         self.flags & PARKED_RETIRED_SOURCE != 0
+    }
+
+    /// This immutable history has durably applied its source tombstone. This
+    /// observation supplies no authority to detach, release holds or erase data.
+    /// Managed quiescence independently binds the selected plan and every member.
+    pub fn source_retirement_applied(&self) -> bool {
+        self.flags & SOURCE_RETIREMENT_APPLIED != 0
     }
 
     /// Locally durable Complete phase for this birth/history. A fresh quorum
@@ -277,8 +285,17 @@ fn capture_row<S>(group: &GroupLog<S>, scope: [u8; 32]) -> Result<RaftPhysicalHi
         birth: group.birth_digest,
         member: group.identity().member.get().to_be_bytes(),
         completed_sequence: completed_sequence.to_be_bytes(),
-        flags: if contains_member(&cache.conf_state, group.identity().member) {
+        flags: (if contains_member(&cache.conf_state, group.identity().member) {
             IN_CONFIGURATION
+        } else {
+            0
+        }) | if cache.group_manifest.as_ref().is_some_and(|marker| {
+            marker
+                .source_seal()
+                .and_then(|seal| seal.retirement())
+                .is_some_and(|retired| cache.hard_state.commit >= retired.position().index.get())
+        }) {
+            SOURCE_RETIREMENT_APPLIED
         } else {
             0
         },
@@ -358,7 +375,7 @@ pub(crate) fn decode(
         sequence.copy_from_slice(&row[72..80]);
         MemberId::new(u64::from_be_bytes(member)).map_err(|_| TransportError::Identity)?;
         let flags = row[80];
-        if flags & !(IN_CONFIGURATION | PARKED_RETIRED_SOURCE) != 0 {
+        if flags & !(IN_CONFIGURATION | PARKED_RETIRED_SOURCE | SOURCE_RETIREMENT_APPLIED) != 0 {
             return Err(TransportError::Protocol);
         }
         histories.push(RaftPhysicalHistory {

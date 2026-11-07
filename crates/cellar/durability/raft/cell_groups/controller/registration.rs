@@ -12,6 +12,7 @@ use tokio::sync::{mpsc, oneshot};
 enum GroupState {
     Pending,
     Active,
+    Retiring,
     ParkedRetired,
     Quarantined(CellGroupControllerError),
 }
@@ -88,7 +89,7 @@ impl GroupRoster {
             .lock()
             .map(|g| {
                 g.values()
-                    .filter(|s| matches!(s, GroupState::Active))
+                    .filter(|s| matches!(s, GroupState::Active | GroupState::Retiring))
                     .count()
             })
             .unwrap_or(0)
@@ -114,6 +115,36 @@ impl GroupRoster {
                     .count()
             })
             .unwrap_or(0)
+    }
+
+    pub(super) fn begin_retirement(&self, group: GroupHistory) -> Result<bool, RuntimeError> {
+        let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
+        match groups.get_mut(&group) {
+            Some(state @ (GroupState::Active | GroupState::Retiring)) => {
+                *state = GroupState::Retiring;
+                Ok(false)
+            }
+            Some(GroupState::ParkedRetired) => Ok(true),
+            Some(GroupState::Quarantined(_)) => Err(RuntimeError::GroupQuarantined),
+            _ => Err(RuntimeError::NotReady),
+        }
+    }
+
+    pub(super) fn finish_retirement(&self, group: GroupHistory) -> Result<(), RuntimeError> {
+        let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
+        match groups.get_mut(&group) {
+            Some(state @ GroupState::Retiring) => {
+                *state = GroupState::ParkedRetired;
+                Ok(())
+            }
+            _ => Err(RuntimeError::NotReady),
+        }
+    }
+
+    pub(super) fn retired(&self, group: &GroupHistory) -> bool {
+        self.groups
+            .lock()
+            .is_ok_and(|groups| matches!(groups.get(group), Some(GroupState::ParkedRetired)))
     }
 
     pub(super) fn reserve(
@@ -283,7 +314,7 @@ impl CellGroupController {
         for (history, state) in groups.iter() {
             match state {
                 GroupState::Pending => inventory.pending += 1,
-                GroupState::Active => inventory.attached.push(*history),
+                GroupState::Active | GroupState::Retiring => inventory.attached.push(*history),
                 GroupState::ParkedRetired => inventory.retired_sources.push(*history),
                 GroupState::Quarantined(_) => {
                     inventory.attached.push(*history);

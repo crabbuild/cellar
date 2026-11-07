@@ -45,7 +45,18 @@ pub(super) async fn mutation_peer(
 
     let candidates = match transport.cell_query_router_members(route, session.maximum_attempts()) {
         Ok(members) => members,
-        Err(TransportError::UnknownGroup) => return Ok(None),
+        Err(TransportError::UnknownGroup) => {
+            match transport
+                .refresh_managed_router(route.history, session.deadline_ms())
+                .await
+            {
+                Ok(()) => transport
+                    .cell_query_router_members(route, session.maximum_attempts())
+                    .map_err(CellDispatchError::Transport)?,
+                Err(RuntimeError::NotFound) => return Ok(None),
+                Err(error) => return Err(CellDispatchError::Runtime(error)),
+            }
+        }
         Err(error) => return Err(CellDispatchError::Transport(error)),
     };
     for (index, member) in candidates.iter().enumerate() {

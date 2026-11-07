@@ -240,6 +240,7 @@ impl Directory {
         let lease =
             service.register_control_service(ControlServiceKind::Directory, METADATA_BYTES)?;
         let mut stop = lease.stop_receiver();
+        let mut requests = service.bind_router_refresh()?;
         let observer = service.internal_observer();
         log.domain().spawn_cleanup(async move {
             let _lease = lease;
@@ -248,18 +249,73 @@ impl Directory {
                 if *stop.borrow() { break; }
                 // Entered discovery work is retained until its original bounded
                 // operation finishes. Shutdown never drops it at a select edge.
-                if let Err(error) = directory.refresh(&log, &transport, &observer).await {
+                if let Err(error) = directory.refresh(&log, &transport, &observer, None).await {
                     tracing::debug!(%error, "shared node directory fenced local owner");
                     drop(observer.close()); // requests independently owned joined closure
                     break;
                 }
-                crate::asyncrt::select! {
-                    _ = stop.changed() => break,
-                    _ = crate::asyncrt::sleep(Duration::from_millis(directory.options.poll_ms)) => (),
+                let sleep = crate::asyncrt::sleep(Duration::from_millis(directory.options.poll_ms));
+                tokio::pin!(sleep);
+                loop {
+                    if *stop.borrow() { break; }
+                    crate::asyncrt::select! {
+                        _ = stop.changed() => break,
+                        _ = &mut sleep => break,
+                        Some(request) = requests.recv() => {
+                            // A dropped caller cannot cancel entered discovery;
+                            // this worker owns it through its original deadline.
+                            let result = Box::pin(directory.refresh_target(&log, &transport, &observer, request.history, request.deadline)).await;
+                            let _ = request.reply.send(result);
+                        }
+                    }
                 }
             }
         })?.detach();
         Ok(())
+    }
+
+    async fn refresh_target(
+        &mut self,
+        log: &ReplicaLog,
+        transport: &RaftTransport,
+        observer: &RaftCells,
+        history: GroupHistory,
+        deadline: u64,
+    ) -> Result<(), crate::raft::completion::RuntimeError> {
+        use crate::raft::completion::RuntimeError;
+        remaining(log, deadline).map_err(|_| RuntimeError::DeadlineExceeded)?;
+        if let Err(error) = self.refresh(log, transport, observer, Some(deadline)).await {
+            tracing::debug!(%error, "targeted directory refresh fenced local owner");
+            drop(observer.close());
+            return Err(RuntimeError::Closed);
+        }
+        let (Some(routers), Some(reader), Some(trust)) =
+            (&mut self.routers, &self.reader, &self.rooted)
+        else {
+            return Err(RuntimeError::NotReady);
+        };
+        transport
+            .seed_control_until(deadline, async {
+                Ok(Box::pin(routers.refresh_target(
+                    log,
+                    transport,
+                    observer,
+                    reader,
+                    trust,
+                    super::router_directory::TargetRefresh {
+                        registrations: &self.registrations,
+                        history,
+                        deadline,
+                    },
+                ))
+                .await)
+            })
+            .await
+            .map_err(|_| RuntimeError::NotReady)?
+            .map_err(|_| RuntimeError::NotReady)?;
+        observer
+            .refresh_local_namespace_routes(history, deadline)
+            .await
     }
 
     async fn refresh(
@@ -267,12 +323,14 @@ impl Directory {
         log: &ReplicaLog,
         transport: &RaftTransport,
         observer: &RaftCells,
+        original_deadline: Option<u64>,
     ) -> anyhow::Result<()> {
         let deadline = log
             .domain()
             .mono_ms()?
             .checked_add(self.options.timeout_ms)
             .ok_or_else(|| anyhow::anyhow!("directory deadline overflow"))?;
+        let deadline = original_deadline.map_or(deadline, |original| original.min(deadline));
         if let Some(reader) = &self.reader {
             let result = transport
                 .seed_control_until(deadline, async {

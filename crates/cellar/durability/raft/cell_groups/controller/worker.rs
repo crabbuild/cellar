@@ -1,5 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+use super::retirement as registration_retirement;
 use super::*;
 use crate::raft::cell_groups::{CellGroupApply, CellGroupEffect, CellGroupPreparedApply};
 use cellar_logic::{cell_group::GroupHistory, consensus::CommandFailure};
@@ -79,7 +80,7 @@ impl Worker {
                 );
             }
         }
-        let archives = archive::Manager::new(shared.domain.clone());
+        let archives = archive::Manager::default();
         transport
             .enable_group_archive_seeds(archive::seed::Client::new(&shared))
             .map_err(CellGroupControllerError::Transport)?;
@@ -111,6 +112,65 @@ impl Worker {
             effects,
             _checkpoint_routes: checkpoint_routes,
         })
+    }
+
+    async fn retire_source(
+        &mut self,
+        source: &registration_retirement::RetiredSource,
+    ) -> Result<(), CellGroupControllerError> {
+        source.check(self.runtime.log())?;
+        let history = source.history();
+        if self.shared.groups.begin_retirement(history)? {
+            return Ok(());
+        }
+        let sql_idle = self
+            .sql
+            .retire_group(history)
+            .map_err(|error| CellGroupControllerError::Apply(Arc::new(error)))?;
+        let seeds_idle = self
+            .shared
+            .archive_seeds
+            .retire(history)
+            .map_err(|error| CellGroupControllerError::Archive(Arc::new(error)))?;
+        let effects_idle = self.effects.retiring(history);
+        let archive_idle = self.archives.retire(history, &self.shared);
+        let discovery_idle = self.late_archives.retire(history, &self.shared);
+        let provision_idle = self.provisioning.retire(history);
+        // Freeze only this owner, then keep driving its persistence and apply
+        // completions. A retry can detach it after all queued work settles.
+        self.runtime.quiesce_retired_source(source.clone()).await?;
+        if !sql_idle
+            || !seeds_idle
+            || !effects_idle
+            || !archive_idle
+            || !discovery_idle
+            || !provision_idle
+            || self.active.contains(&history)
+            || self.pending.iter().any(|work| work.group == history)
+            || self.checkpoints.contains(&history)
+            || self
+                .runtime
+                .log()
+                .cell_group(&history)
+                .map_err(RuntimeError::from)?
+                .consensus_claimed
+                .load(Ordering::Acquire)
+        {
+            return Err(RuntimeError::NotReady.into());
+        }
+        // The physical engine history stays in the log and roster. Only active
+        // dispatch, page/applier and checkpoint-registration owners leave here.
+        self.transport
+            .retire_physical_group(history)
+            .map_err(CellGroupControllerError::Transport)?;
+        self.routes.remove(&history);
+        self._checkpoint_routes
+            .retain(|route| route.history() != history);
+        self.roster.remove(&history);
+        self.effects.remove(&history);
+        self.shared.groups.finish_retirement(history)?;
+        self.progress.send_replace(());
+        Ok(())
     }
 
     fn launch(&mut self, now: u64) -> Result<(), CellGroupControllerError> {
@@ -216,6 +276,10 @@ impl Worker {
                 },
                 Some(request) = self.requests.recv() => {
                     match request {
+                        requests::Request::Retirement(request) => {
+                            let result = self.retire_source(&request.source).await.map_err(Arc::new);
+                            let _ = request.reply.send(super::calls::Delivery { result, _permit: request.memory });
+                        }
                         requests::Request::Archive(request) => self.archives.request(*request, &self.shared),
                         requests::Request::EnsureArchive(group) => self.late_archives.request(group, &self.archives, &self.shared)? ,
                         requests::Request::S3(request) => self.archives.settle(*request),
@@ -308,6 +372,12 @@ impl Worker {
                 event = self.events.recv() => {
                     let event = event.ok_or(CellGroupControllerError::Closed)?;
                     let group = event.group();
+                    if !self.roster.contains_key(&group) && self.shared.groups.retired(&group) {
+                        // Metadata/messages can have been delivered before the
+                        // runtime detached. Apply tickets prevent physical join.
+                        if event.retain_apply().is_some() { return Err(CellGroupControllerError::Invalid("retired source apply event")); }
+                        continue;
+                    }
                     if !self.roster.contains_key(&group) {
                         return Err(CellGroupControllerError::Invalid("unregistered group event"));
                     }
