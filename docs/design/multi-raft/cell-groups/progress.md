@@ -7,10 +7,56 @@ Purpose: Source-pinned cell-group implementation checkpoints and qualification l
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
-CG-01 through CG-08 have passed their scoped native gates.
-CG-09 through CG-15 are in progress. CG-16 remains pending
+CG-01 through CG-09 have passed their scoped native gates.
+CG-10 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-09 complete native acceptance and publication disk-loss replay
+
+CG-09 passes all 12 required acceptance commands at
+`f4d46d98676bda6c178dea462f51b2f121266a14`: strict all-target compilation,
+case inventory, all seven exact cases, formatting, layout and strict all-target
+Clippy. The six earlier sealing, publication, controller-loss, effect and
+retirement cases pass again on the same frozen executable. The new
+`publication_requires_remote_transfer_closure` passes both image modes in
+50.817 seconds. Real RustFS passes the exact publication-loss case in
+64.934 seconds across materialized and extent images.
+
+Before publication, hiding either the immutable closure or its retained source
+registry causes the expected typed refusal, with unchanged Fleet and directory
+state. Immediately after the confirmed publication, every child is still
+non-serving and has no child archive. The fixture joins all six voter owners,
+drops their clients, and deletes all six disks and both prior verifier inventories.
+Fresh domain, catalog clients and private stores reconstruct the exact installed
+child roots solely from the journal-pinned source closure. A remote payload outage
+must refuse that fresh replay. The restored SQL retains both business values,
+all three recorded S3 receipts, the exact pending signed outbox envelope and the
+receiver's original deduplication proof. No application callback runs twice.
+
+The new `FleetCatalog::replay_managed_transfer_baseline` supplies that data-only
+path. Historical parent metadata is usable only under the owned Published
+transition. Retained holds, source seals and installed child roots are verified,
+and both directory and Fleet snapshots are rechecked before returning. Replay
+changes no remote topology and grants no membership, engine or serving authority.
+An activated child's later writes still require its archived tail; live disaster
+recovery still requires permanent fencing and new incarnations.
+
+Native task evidence is
+`.cellar/cell-groups-evidence/CG-09-f4d46d98-01/record.json`.
+It pins the complete runtime source tree, all command logs and a retained
+executable. Record digests are:
+
+- Complete native task: `0c087609635dca08b633e40a64d01f91343ebfb585e908f427f168e8cc7a5305`.
+- RustFS publication loss: `ba11a42239812b83c466e3f9a6e9ccd8f9b1ccb02c3e0c4f38f7fe7b35c1437e`.
+- Shared frozen executable: `accef8dfc1202cad9a20b2fe8e93ef15e4bae98be2c400d15aa42dea3092770a`.
+
+The RustFS suite is `managed-publication-loss`. Voters are host-native RF3 TLS
+owners with fixture capacity; they join before disk deletion. Independent voter
+process crashes, permanent platform fencing, child-tail recovery and the combined
+release/load matrix remain CG-13–16 gates. The accepted index now contains nine
+tasks and 127 accepted cases. Continue with CG-10's exact split/merge
+target, partial source failure, movement under writes and bounded pre-copy.
 
 ## CG-09 S3 effect handoff and late archive attachment
 

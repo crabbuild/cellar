@@ -12,7 +12,7 @@ and validation boundaries and [handoff](handoff.md) for executor context.
 
 ## Current boundary
 
-CG-01–08 passed their recorded acceptance gates. Shared group owners,
+CG-01–09 passed their recorded acceptance gates. Shared group owners,
 cell-specific SQLite histories/receipts/effects/versions, complete checkpoints,
 archives/reclamation and fenced fresh-history recovery have scoped coverage.
 Managed startup, directory refresh, membership send fences, capacity admission,
@@ -64,7 +64,7 @@ namespace and physical group requests through the admin API. Valid retries
 preserve the original receipt after those refusals. The named public authority
 and occupancy-one cases pass their recorded native scope.
 
-CG-09 through CG-15 are in progress. CG-16 is pending the combined
+CG-10 through CG-15 are in progress. CG-16 is pending the combined
 release gate. Individual checkpoints cover operator-driven split and merge,
 placement recommendations, fenced parking and wake, managed recovery and
 parts of the qualification matrix. The task-level evidence remains open.
@@ -82,15 +82,17 @@ their own qualification.
 
 ## Open case audit
 
-The [implementation index](implementation-plan.md) records eight accepted
-tasks and 120 of 163 required cases. CG-07 has a complete acceptance record
+The [implementation index](implementation-plan.md) records nine accepted
+tasks and 127 of 163 required cases. CG-07 has a complete acceptance record
 for its five public cases and all required commands at `84942c4e`.
 Each remaining task still needs the exact target, case oracles and evidence
 specified by `plan.py show <task>`.
 
+CG-09 has a complete seven-case, 12-command acceptance record at `f4d46d98`.
+The publication-erasure case also passes both real RustFS image modes.
+
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-09 | Six of seven exact cases pass on one executable at `f7378fcd`. The new signed S3 effect case retains the original envelope, old tokens and receipts across split, retained startup and parent cleanup. Child retry mutates the receiver once, and independent child archive replay retains completion and the original inbox proof. The exact effect case also passes both real RustFS image modes. The five earlier cases pass again on this source. | Qualify `publication_requires_remote_transfer_closure`: missing remote dependencies must block publication, then erase every local copy immediately after publication and independently replay the pinned closure. Complete the full task acceptance batch. OS process-kill remains CG-15. |
 | CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
@@ -108,18 +110,14 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close CG-09 transition acceptance.** The planned target now passes
-   six of seven required cases. Finish remote closure after immediate local
-   erasure, retain the six passing oracles, and complete the whole acceptance
-   batch on one source.
-2. **Close CG-10 split and merge acceptance.** Qualify exact partition union,
+1. **Close CG-10 split and merge acceptance.** Qualify exact partition union,
    adjacency and policy checks, partial reservations, writes during movement
    and bounded precopy with the existing operator.
-3. **Finish CG-11–13 managed operations.** Qualify adaptive placement,
+2. **Finish CG-11–13 managed operations.** Qualify adaptive placement,
    fenced hibernation and wakeup, and S3 recovery of interrupted transitions.
    Run the managed Docker fencing and complete voter-disk-loss drill. CG-13
    also requires the CG-14 infrastructure harness.
-4. **Qualify and ship through CG-14–16.** Resolve the occupancy-128 matrix
+3. **Qualify and ship through CG-14–16.** Resolve the occupancy-128 matrix
    timeout without changing its original bounds. Run the mixed-load,
    reclamation, crash, partition and disk-loss matrix, including process crashes
    during Joint, peer activation cancellation and multi-namespace ingress.
@@ -143,10 +141,10 @@ now uses one directory barrier while retaining every page-file barrier and
 quarantining uncertain writes. These results establish scoped correctness and
 an unresolved matrix gap; they do not qualify the load profiles.
 
-Proceed with the planned CG-09 and CG-10 targets while retaining that CG-14
-failure. A successful clean split and merge does not prove restart at every
-phase, partial reservation handling or all required retirement pins. Preserve
-the exact oracles in `tasks.json` and source-pinned acceptance records.
+Proceed with the planned CG-10 target while retaining that CG-14 failure.
+CG-09's full native acceptance is recorded at `f4d46d98`. CG-10 still needs
+its exact union, compatibility, partial failure, writes-under-movement and
+resource-bound oracles. Preserve the source-pinned acceptance records.
 
 Local and remote request attempts must keep the same routing session,
 admission and original deadline. Incoming RPCs execute locally; leader hints
@@ -176,9 +174,10 @@ The child install, fresh-term quorum set and verified source archive closure
 pass their focused native and real RustFS gates. Atomic publication and
 replicated child activation have a focused native test that also checks
 retained cell values, original receipt replay and a new quorum write on each
-transferred cell. Complete the planned CG-09 target, including restart at
-every phase, child archive closure and retirement pins, on one qualified
-source.
+transferred cell. All seven planned CG-09 cases, including controller loss at
+every phase, publication-erasure closure and retirement pins, pass the complete
+12-command native gate at `f4d46d98`. Broader process-crash qualification
+remains in CG-15.
 
 The sealed-source journal accepts one explicit archive hold per planned parent.
 Each hold must belong to the namespace-bound archive and independently restore

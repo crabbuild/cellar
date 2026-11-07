@@ -6,10 +6,10 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current accepted boundary
 
-CG-01–08 have complete scoped task records. CG-07 passed all ten required
+CG-01–09 have complete scoped task records. CG-07 passed all ten required
 commands at `84942c4e`, including strict all-target Clippy and all five
 public cases. Native and constrained Linux RustFS campaigns passed both
-image modes, including failed-voter replacement. Continue with the CG-09/10 transition targets. Track the wide-group
+image modes, including failed-voter replacement. Continue with the CG-10 split/merge target. Track the wide-group
 setup gap under CG-14.
 [Current priorities](remaining-work.md) and [source records](progress.md).
 
@@ -20,24 +20,25 @@ pass. The focused occupancy-128 case passes its full data checks, with
 60-second window after 66 cells. Retain both results; the process sample
 identifies blocking file synchronization as substantial preparation cost.
 
-The planned CG-09 target passes six of seven exact cases on one executable at
-`f7378fcd4ffd6e9358d8f886202b21db1c75b1bd`. The five earlier sealing, publication,
-nine-phase controller-loss and retirement cases pass again. The new effect case
-passes both native image modes in 120.511 seconds and both real RustFS image
-modes in 145.403 seconds. A committed receiver reply is lost before the split.
-After retained startup and guarded handoff to an unrestarted voter, the child
-retries the same signed envelope and mutates the receiver once. Old tokens,
-receipts, outbox completion and the original inbox proof survive parent cleanup
-and independent child archive replay. Late archive discovery fixes the existing
-voter's S3 claim stall without restart or weaker acknowledgement.
+CG-09 passes all seven exact native cases and all 12 required commands at
+`f4d46d98676bda6c178dea462f51b2f121266a14`. The new publication-loss case passes
+both native image modes in 50.817 seconds and both real RustFS image modes in
+64.934 seconds. Missing closure/registry dependencies refuse publication.
+After publication, all six voter disks and both verifier inventories are erased
+before child activation. Fresh clients and private stores rebuild the exact
+child baseline, retaining business state, three S3 receipts, the pending signed
+outbox envelope and the original receiver proof. Replay does not rerun callbacks
+or change topology. The new data-only baseline API retains ordinary parent
+fences and grants no membership or live authority.
 
-Next deliver the remaining CG-09 oracle: missing remote dependencies must block
-publication, then erase every local copy immediately after publication and replay
-the pinned remote closure. Complete the full task acceptance batch before closing
-CG-09. Then finish CG-10 partial reservations and movement under writes. Preserve
-the original deadlines and all six passing oracles. Independent process kills,
-platform fencing and wide-group/load qualification remain CG-13–15 gates.
-Source and artifact digests are in [progress](progress.md).
+Next implement the planned `native_cell_groups_split_merge` target and its five
+exact CG-10 cases. Start with exact union/whole-cell boundaries and adjacency,
+schema and durability compatibility. Then cover partial source failure, repeated
+movement under writes and stale routes, and bounded pre-copy resource ownership.
+Keep CG-13's live fenced recovery and child-tail recovery distinct from the
+CG-09 immutable baseline proof. Independent process/failure-domain and load
+qualification remain required. Source and artifact digests are in
+[progress](progress.md).
 
 The following checkpoints preserve earlier source and qualification history.
 
