@@ -325,10 +325,11 @@ pub async fn authorize_transition_seal(
     fixture: &Fixture,
     directory: &RangeDirectory,
     principal: &str,
+    observer: &RaftCells,
     request: &RaftFleetTransitionSealRequest,
 ) -> Result<RaftFleetTransitionSealAuthorization> {
     let root = tempfile::tempdir()?;
-    let cli = open_cli(fixture, directory, root.path(), principal, None).await?;
+    let cli = open_cli(fixture, directory, root.path(), principal, Some(observer)).await?;
     let plan = root.path().join("transition-seal-authorization.json");
     std::fs::write(&plan, serde_json::to_vec(request)?)?;
     let command = [

@@ -364,14 +364,14 @@ impl FleetCatalog {
         Ok(physical)
     }
 
-    pub(super) fn resource_now(&self) -> Result<u64> {
+    pub(in crate::raft::fleet_catalog) fn resource_now(&self) -> Result<u64> {
         self.inner
             .domain
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed)
     }
 
-    pub(super) fn require_resource_age(&self, started: u64) -> Result<()> {
+    pub(in crate::raft::fleet_catalog) fn require_resource_age(&self, started: u64) -> Result<()> {
         if self
             .resource_now()?
             .checked_sub(started)

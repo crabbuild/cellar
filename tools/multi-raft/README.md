@@ -476,9 +476,9 @@ the service to drain and detach every source group without replacing any process
 It checks the exact original node identities, no active parent registrations,
 retained physical log occupancy, parked-source observations, original receipts,
 child archives and subsequent ingress reads and S3-durable writes. It includes
-read-first and write-first ingress. A second case places both child groups on the
-same three source nodes and verifies that their owners stay live while only the
-parent retires. A premature quiescence request refuses before source sealing.
+read-first and write-first ingress. A second case places one child on the three source nodes and the other on
+spare voters, preserving the unchanged two-history bound. It verifies that child
+owners stay live while only the parent retires. A premature quiescence request refuses before source sealing.
 
 The SQL admission unit case holds a source result/producer reservation across
 retirement: late reservations refuse, held debt remains charged, and another
@@ -486,3 +486,27 @@ group can still reserve while the source drains. Real backend checks use
 host-native RF3 voters and fixture capacity. Disk deletion/reclamation, automatic
 plan selection, destination failures, process fault schedules and sustained load
 remain separate gates.
+
+
+## Pre-seal destination capacity
+
+Use `--suite managed-transition-capacity` with an owned RustFS backend and fresh
+output directory. All three exact cases execute materialized and extent images. One
+places two children beside a retained parent on two-slot nodes. The other starts
+with empty destination engines and an unrelated, unmaterialized birth reservation.
+The third restores the original 512-MiB image profile and proves that two slots
+can fit while their combined reservations and existing usage exceed the platform
+storage budget. The positive fixtures use a stricter 32-MiB per-image quota and 256-MiB image pool with the
+unchanged two slots and 1-GiB deployment budget.
+
+All must refuse before sealing, keep the original parent writable at quorum,
+preserve receipt/version reads, replay the refusal after controller replacement,
+and permit pre-seal cancellation without deleting unrelated reservation debt.
+
+The gate owns fresh complete inventories at the exact Fleet root. It accounts
+for current settled voters, retained physical occupancy, missing reserved/live
+members and durable resource floors. Placement reservation quotas and deployment
+capacity are checked separately. The node's existing control budget pays for the
+bounded inventory workspace. Tests retain the original capacity and deadline
+limits. Physical source reclamation, temporary disk/RSS peaks, automatic placement,
+independent processes and load remain separate qualification work.

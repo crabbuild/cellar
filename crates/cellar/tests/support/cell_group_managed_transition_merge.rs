@@ -645,6 +645,7 @@ async fn run_inner(
         fixture,
         &reopened_directory,
         &request.principal,
+        &cluster.hosts[0],
         &RaftFleetTransitionSealRequest {
             catalog_id: prepare_request.catalog_id,
             namespace_id: prepare_request.namespace_id,

@@ -145,7 +145,7 @@ impl FleetCatalog {
         Ok(row)
     }
 
-    pub(in super::super) async fn resource_floor(
+    pub(in crate::raft::fleet_catalog) async fn resource_floor(
         &self,
         snapshot: &FleetSnapshot,
         attestation: &FleetResourceAttestation,

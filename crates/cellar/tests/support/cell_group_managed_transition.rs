@@ -355,7 +355,13 @@ async fn exercise_inner(
 
     ensure!(matches!(
         reopened
-            .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)
+            .authorize_managed_transition_seal(
+                original,
+                directory,
+                plan,
+                &cluster.hosts[0],
+                TIMEOUT
+            )
             .await,
         Err(FleetCatalogError::Conflict)
     ));
@@ -430,7 +436,13 @@ async fn exercise_inner(
     ) {
         ensure!(matches!(
             reopened
-                .authorize_managed_transition_seal(&cancel, directory, plan, TIMEOUT)
+                .authorize_managed_transition_seal(
+                    &cancel,
+                    directory,
+                    plan,
+                    &cluster.hosts[0],
+                    TIMEOUT
+                )
                 .await,
             Err(FleetCatalogError::PayloadConflict)
         ));
@@ -491,6 +503,7 @@ async fn exercise_inner(
             fixture,
             directory,
             &original.principal,
+            &cluster.hosts[0],
             &seal_request,
         )
         .await?;
@@ -506,7 +519,13 @@ async fn exercise_inner(
             .await?;
         ensure!(replay == reply);
         let authorized = reopened
-            .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)
+            .authorize_managed_transition_seal(
+                original,
+                directory,
+                plan,
+                &cluster.hosts[0],
+                TIMEOUT,
+            )
             .await?;
         ensure!(authorized.phase() == TransitionPhase::SealAuthorized);
         ensure!(
@@ -515,7 +534,13 @@ async fn exercise_inner(
         );
         ensure!(
             fleet
-                .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)
+                .authorize_managed_transition_seal(
+                    original,
+                    directory,
+                    plan,
+                    &cluster.hosts[0],
+                    TIMEOUT
+                )
                 .await?
                 == authorized
         );
@@ -682,7 +707,13 @@ async fn exercise_inner(
     ensure!(domain.run(directory.active_transition()).await??.is_none());
     ensure!(matches!(
         reopened
-            .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)
+            .authorize_managed_transition_seal(
+                original,
+                directory,
+                plan,
+                &cluster.hosts[0],
+                TIMEOUT
+            )
             .await,
         Err(FleetCatalogError::Conflict)
     ));

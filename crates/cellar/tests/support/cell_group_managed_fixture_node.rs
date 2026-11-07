@@ -29,6 +29,7 @@ pub struct Fixture {
     pub application: Arc<dyn Application>,
     pub effects: Option<RaftEffectOptions>,
     pub max_input_bytes: usize,
+    pub image_bytes: u64,
     pub spec: FleetNodeSpec,
 }
 
@@ -132,6 +133,7 @@ impl Fixture {
             application,
             effects: None,
             max_input_bytes: 1024,
+            image_bytes: 256 * 1024 * 1024,
             spec,
         })
     }
@@ -196,6 +198,12 @@ impl Fixture {
             effects: self.effects,
             ..Default::default()
         };
+        // Keep two group reservations plus the attested existing usage inside
+        // the fixture's unchanged 1-GiB platform budget. Tests can explicitly
+        // restore the oversized image profile to qualify its capacity refusal.
+        host.images.max_bytes = self.image_bytes;
+        // Snapshot/current/private/apply/incoming ownership admits eight copies.
+        host.execution.max_image_bytes = self.image_bytes / 8;
         host.node_profile = Some(RaftNodeProfile {
             pool: "test".into(),
             region: "local".into(),

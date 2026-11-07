@@ -950,6 +950,28 @@ the catalog, namespace, operation, principal, plan, request ID and observed Flee
 revision. Retain that request after uncertainty. Consent is immutable and confers
 no quorum, membership, physical-release or serving authority.
 
+A fresh `authorize_transition_seal` call requires a managed node observer on the
+operator endpoint. The node-owned transition service supplies its own observer.
+Before the directory selects the irreversible decision, Fleet validates every
+reserved child's current boot and capacity profile, owns fresh complete physical
+inventories for at most six destination nodes, and scans bounded rooted history
+pages. Missing reserved/live members consume prospective slots; retained or
+cancelled engines still consume physical slots. Live membership comes from the
+settled movement records. Unrelated reservations and durable resource floors
+survive controller loss and lower physical samples. The disruption slot blocks
+new births and membership admissions while this plan owns topology.
+
+The gate independently checks engine/runtime slots, host registration room,
+placement storage reservations, deployment durable capacity and installed buffer
+bounds. It charges its inventory workspace to the existing node control budget
+and rechecks the original sample ages and Fleet root before the directory CAS.
+Capacity refusal leaves the prepared plan cancellable and its parents writable.
+A selected authorization replays without requiring a new observation. These are
+configured bounds and deployment attestations; process RSS and temporary disk
+peaks retain their separate qualification. Physical source storage stays charged
+until its owning reclamation proof exists.
+
+
 Start `start_transition_service` on each assigned managed voter with a trusted
 archive verifier and recovery pool. At least one configured coordinator performs
 preparation and metadata/archive steps. Every voter installs, attaches and

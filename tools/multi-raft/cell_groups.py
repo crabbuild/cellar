@@ -51,6 +51,20 @@ CASES = (
 )
 
 SUITES = {
+    "managed-transition-capacity": (
+        "native_cell_groups_transition_service",
+        ("capacity::rustfs_split_capacity_keeps_parent_writable",
+         "capacity::rustfs_split_capacity_counts_unmaterialized_births",
+         "capacity::rustfs_split_capacity_respects_platform_storage"),
+        "pre-seal capacity refusal preserves writable parents and rooted reservation debt",
+        "Both image modes, host-native RF3 voters and fixture capacity. Colocated parents "
+        "remain charged; a prior controller's unmaterialized birth cannot impersonate an "
+        "empty destination. A two-slot placement with an oversized storage reservation also refuses. "
+        "Exact retries after coordinator replacement refuse before "
+        "sealing, parents serve quorum reads/writes, and cancellation retains unrelated "
+        "reservations. No process RSS, temporary disk peak, independent process, load, "
+        "automatic placement or physical reclamation qualification is claimed.",
+    ),
     "managed-live-retirement": (
         "native_cell_groups_transition_service",
         ("rustfs_consented_split_retires_live_without_host_restart",
@@ -267,7 +281,7 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
+                     or (suite in ("managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
                                    "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()

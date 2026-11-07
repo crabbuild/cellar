@@ -2,6 +2,8 @@
 
 //! Automatic split execution uses rooted consent and real voter owners.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/cell_group_transition_capacity.rs"]
+mod capacity;
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
 #[path = "support/cell_group_managed_fixture.rs"]
@@ -131,7 +133,8 @@ async fn control(
         )?,
         vec![cluster.directory.clone()],
     )?
-    .with_transition_preparer(verifier, CellGroupRecoveryPool::new(Default::default())?))
+    .with_transition_preparer(verifier, CellGroupRecoveryPool::new(Default::default())?)
+    .with_node_observer(cluster.hosts[0].clone()))
 }
 
 async fn qualify(
@@ -177,20 +180,14 @@ async fn qualify(
     Ok(())
 }
 
-async fn exercise(
-    cluster: &mut ManagedCluster,
-    rooted: bool,
-    workers: &mut [Option<RaftFleetTransitionService>],
-    roots: &mut Vec<tempfile::TempDir>,
-    live_retirement: bool,
-    colocated: bool,
-) -> Result<()> {
-    // Retained source storage stays charged. Place only one child beside its
-    // parent so each node stays within the unchanged two-history bound.
-    let destinations = if colocated { [0, 3] } else { [3, 3] };
-    let original_nodes: Vec<_> = cluster.hosts.iter().map(|host| host.identity()).collect();
-    let seed = seed_cells(&cluster.hosts, cluster.history).await?;
-    let coordinator = Box::pin(control(cluster, rooted, roots)).await?;
+async fn admit_split(
+    cluster: &ManagedCluster,
+    coordinator: &RaftFleetControl,
+    destinations: [usize; 2],
+) -> Result<(
+    RaftFleetTransitionAdmissionRequest,
+    RaftFleetTransitionAdmission,
+)> {
     let namespace = hex::encode(cluster.history.namespace.bytes());
     let basis = coordinator.transition_basis(&namespace, TIMEOUT).await?;
     let first = leader(&cluster.hosts[..3], cluster.history).await?;
@@ -241,6 +238,26 @@ async fn exercise(
     ))
     .await?;
     ensure!(admitted.phase == TransitionPhase::Planned);
+    Ok((request, admitted))
+}
+
+async fn exercise(
+    cluster: &mut ManagedCluster,
+    rooted: bool,
+    workers: &mut [Option<RaftFleetTransitionService>],
+    roots: &mut Vec<tempfile::TempDir>,
+    live_retirement: bool,
+    colocated: bool,
+) -> Result<()> {
+    // Retained source storage stays charged. Place only one child beside its
+    // parent so each node stays within the unchanged two-history bound.
+    let destinations = if colocated { [0, 3] } else { [3, 3] };
+    let original_nodes: Vec<_> = cluster.hosts.iter().map(|host| host.identity()).collect();
+    let seed = seed_cells(&cluster.hosts, cluster.history).await?;
+    let coordinator = Box::pin(control(cluster, rooted, roots)).await?;
+    let namespace = hex::encode(cluster.history.namespace.bytes());
+    let (request, admitted) = admit_split(cluster, &coordinator, destinations).await?;
+    let first = leader(&cluster.hosts[..3], cluster.history).await?;
     let mut controls = Vec::new();
     for (i, host) in cluster.hosts.iter().enumerate() {
         let endpoint = Box::pin(control(cluster, rooted, roots)).await?;

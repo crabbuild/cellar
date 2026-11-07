@@ -482,16 +482,28 @@ impl RaftFleetControl {
             return Err(FleetCatalogError::Conflict.into());
         }
         let phase = match journal.phase() {
-            TransitionPhase::Prepared => self
-                .catalog
-                .authorize_managed_transition_seal(
-                    &transition.request,
-                    directory,
-                    &transition.plan,
-                    turn.remaining()?,
-                )
-                .await?
-                .phase(),
+            TransitionPhase::Prepared => {
+                let observer = self
+                    .node_observer
+                    .as_ref()
+                    .ok_or_else(|| RaftFleetFailure {
+                        code: RaftFleetFailureCode::Unsupported,
+                        outcome: RaftFleetOutcome::NotSubmitted,
+                        message:
+                            "Seal authorization requires a managed physical inventory observer."
+                                .into(),
+                    })?;
+                self.catalog
+                    .authorize_managed_transition_seal(
+                        &transition.request,
+                        directory,
+                        &transition.plan,
+                        observer,
+                        turn.remaining()?,
+                    )
+                    .await?
+                    .phase()
+            }
             TransitionPhase::Planned | TransitionPhase::Cancelled => {
                 return Err(FleetCatalogError::Conflict.into());
             }
