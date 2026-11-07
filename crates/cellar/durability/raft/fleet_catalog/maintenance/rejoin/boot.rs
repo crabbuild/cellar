@@ -403,3 +403,67 @@ impl FleetCatalog {
         })
     }
 }
+
+impl FleetHostAuthorization {
+    /// Verify the exact returned-boot lineage for an existing voting member.
+    /// The directory independently checks local retention, claims and closure;
+    /// this metadata proof cannot create genesis or grant application serving.
+    pub(crate) fn require_retained_group_start<'a>(
+        &'a self,
+        selector: &'a StopSelector,
+        replica: &'a cellar_logic::consensus::ReplicaIdentity<
+            cellar_logic::cell_group::GroupHistory,
+        >,
+        timeout: Duration,
+    ) -> BoxFuture<'a, Result<()>> {
+        Box::pin(async move {
+            let boot = self.boot_binding()?;
+            if selector.boot != boot
+                || replica.node != self.node()
+                || replica.disk != self.disk()
+                || replica.process.bytes() != boot.process
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+            self.catalog
+                .run(timeout, async {
+                    let snapshot = self.catalog.inner.current().await?;
+                    let current = self
+                        .catalog
+                        .host_from_record(&snapshot, self.node())
+                        .await?;
+                    self.require_running_successor(&current)?;
+                    let cut = self
+                        .catalog
+                        .checked_returned_cut(&snapshot, selector.operation)
+                        .await?;
+                    if cut.quiescence != *selector
+                        || cut.node != current.record
+                        || current.boot_binding()? != boot
+                        || current.state() != FleetNodeState::RestartPending
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    let key = self
+                        .catalog
+                        .binding(&replica.scope)?
+                        .key()
+                        .map_err(|_| FleetCatalogError::Invalid("retained group scope"))?;
+                    let rooted = self.catalog.history_inner(&snapshot, &key).await?;
+                    if *rooted.state() != crate::raft::fleet_catalog::FleetHistoryState::Live {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    let (voters, _) = self
+                        .catalog
+                        .restart_voters(&snapshot, &rooted, self.node())
+                        .await?
+                        .ok_or(FleetCatalogError::Conflict)?;
+                    if voters.get(&self.node()) != Some(&replica.member) {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    Ok(())
+                })
+                .await
+        })
+    }
+}

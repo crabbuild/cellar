@@ -28,7 +28,7 @@ fn occupied(count: usize) -> (RaftHostObservation, RaftPhysicalInventory) {
                 birth: [8; 32],
                 member: (i as u64).to_be_bytes(),
                 completed_sequence: (i as u64).to_be_bytes(),
-                in_configuration: true,
+                flags: IN_CONFIGURATION,
             }
         })
         .collect();
@@ -128,7 +128,7 @@ fn physical_inventory_scope_matching_binds_the_full_history() {
             birth: [8; 32],
             member: 3u64.to_be_bytes(),
             completed_sequence: 0u64.to_be_bytes(),
-            in_configuration: false,
+            flags: 0,
         }],
         initializing: None,
     };
@@ -148,18 +148,26 @@ fn physical_inventory_scope_matching_binds_the_full_history() {
 }
 
 #[test]
-fn physical_inventory_configuration_flag_is_strict_and_digest_bound() {
-    let (node, mut inventory) = occupied(1);
+fn physical_inventory_flags_are_strict_and_digest_bound() {
+    let (mut node, mut inventory) = occupied(1);
     let active = inventory.digest();
-    inventory.histories[0].in_configuration = false;
+    inventory.histories[0].flags = 0;
     assert_ne!(active, inventory.digest());
+    let bytes = encode(&node, &inventory).unwrap();
+    let row = decode(&bytes).unwrap().1.histories()[0];
+    assert!(!row.in_configuration() && !row.parked_retired_source());
+
+    let inactive = inventory.digest();
+    inventory.histories[0].flags = PARKED_RETIRED_SOURCE;
+    assert_ne!(inactive, inventory.digest());
     let mut bytes = encode(&node, &inventory).unwrap();
-    assert!(!decode(&bytes).unwrap().1.histories()[0].in_configuration());
+    assert!(decode(&bytes).unwrap().1.histories()[0].parked_retired_source());
+    node.unattached_engine_histories = 0;
+    assert!(encode(&node, &inventory).is_err());
+
     let last = bytes.len() - 1;
-    bytes[last] = 2;
+    bytes[last] = 4;
     assert!(decode(&bytes).is_err());
-    // The internal format marker remains 1; old shorter rows cannot silently
-    // default the new role observation to false during a mixed deployment.
     bytes.pop();
     assert!(decode(&bytes).is_err());
 }
@@ -182,4 +190,39 @@ fn physical_inventory_role_includes_every_joint_configuration_set() {
         &::raft::prelude::ConfState::default(),
         member
     ));
+}
+
+#[test]
+fn physical_inventory_group_history_is_canonical_and_domain_separated() {
+    let legacy = scope();
+    let history = GroupHistory::from(&legacy);
+    let digest = group_digest(&history);
+    // Independent SHA-256 vector over the fixed domain and four 16-byte IDs.
+    assert_eq!(
+        hex::encode(digest),
+        "08040247cafda32726f8585b91312bb8d84c904fae55e05fa22009b1b4a276f6"
+    );
+    assert_ne!(digest, scope_digest(&legacy).unwrap());
+    let inventory = RaftPhysicalInventory {
+        histories: vec![RaftPhysicalHistory {
+            scope: digest,
+            birth: [8; 32],
+            member: 3u64.to_be_bytes(),
+            completed_sequence: 0u64.to_be_bytes(),
+            flags: 0,
+        }],
+        initializing: None,
+    };
+    assert_eq!(inventory.group_history(&history).unwrap().member().get(), 3);
+    assert!(inventory.history(&legacy).unwrap().is_none());
+    for field in 0..4 {
+        let mut changed = history;
+        match field {
+            0 => changed.cluster = ClusterId::new([9; 16]).unwrap(),
+            1 => changed.namespace = NamespaceId::new([9; 16]).unwrap(),
+            2 => changed.group = GroupId::new([9; 16]).unwrap(),
+            _ => changed.incarnation = IncarnationId::new([9; 16]).unwrap(),
+        }
+        assert!(inventory.group_history(&changed).is_none());
+    }
 }

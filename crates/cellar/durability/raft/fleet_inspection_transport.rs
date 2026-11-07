@@ -279,7 +279,7 @@ impl State {
             .checked_add(request.timeout_ms)
             .ok_or(TransportError::Limit)?;
         let handle = self
-            .query_gateway
+            .fleet_gateway
             .lock()
             .map_err(|_| TransportError::Closed)?
             .as_ref()
@@ -290,7 +290,7 @@ impl State {
                 .checked_sub(self.domain.mono_ms().map_err(|_| TransportError::Closed)?)
                 .filter(|ms| *ms > 0)
                 .ok_or(TransportError::Timeout)?;
-            let work = RaftCells { handle }.observe_local_fleet_membership(
+            let work = RaftCells::from_internal_handle(handle).observe_local_fleet_membership(
                 request.history.clone(), request.route.minimum_revision()?, std::time::Duration::from_millis(remaining),
             );
             let mut extra = [0; 1];

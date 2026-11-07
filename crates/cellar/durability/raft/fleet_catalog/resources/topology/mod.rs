@@ -7,7 +7,7 @@ mod membership;
 
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::host::RaftPeerNodeObservation;
 use crate::raft::member_state::{JoiningMember, RepairPlan};
 use cellar_logic::consensus::{MemberId, ProposalId};
@@ -40,7 +40,7 @@ pub struct FleetTopologyNodeResources {
 /// values are not measurements of image size or estimated command throughput.
 #[derive(Clone, Debug)]
 pub struct FleetTopologyHistoryResources {
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub resident: FleetResourceBounds,
     pub peak: FleetResourceBounds,
 }
@@ -84,6 +84,7 @@ pub struct FleetTopologyVerification {
     nodes: Vec<NodeInput>,
     bounds: BTreeMap<String, FleetTopologyHistoryResources>,
     groups: Vec<GroupInput>,
+    retired: BTreeMap<[u8; 32], [u8; 32]>,
     cursor: Option<FleetCursor>,
     exhausted: bool,
     seen: u64,
@@ -164,7 +165,7 @@ impl FleetTopologyPreview {
         Ok(Some(FleetMovementRequest {
             resources: FleetResourceRequest {
                 identity,
-                group: selected.group.clone(),
+                group: selected.group,
                 attestation: attestation.clone(),
                 peak: group.resources.peak,
             },
@@ -183,7 +184,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetTopologyRequest,
         observer: &RaftCells,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetTopologyVerification> {
         self.check_snapshot(snapshot)?;
@@ -289,6 +290,7 @@ impl FleetCatalog {
             nodes,
             bounds,
             groups: Vec::new(),
+            retired: BTreeMap::new(),
             cursor: None,
             exhausted: false,
             seen: 0,
@@ -407,6 +409,7 @@ impl FleetTopologyVerification {
             return Err(FleetCatalogError::Corrupt("topology inventory page"));
         }
         let mut group = None;
+        let mut retired = None;
         let mut transcript = self.transcript.clone();
         if let Some(row) = page.entries.first() {
             let history = FleetHistory::decode(&row.value)?;
@@ -421,6 +424,16 @@ impl FleetTopologyVerification {
             transcript.update(hash(&row.value));
             match *history.state() {
                 FleetHistoryState::Cancelled { .. } => (),
+                FleetHistoryState::Retired { .. } => {
+                    let scope = history
+                        .binding()
+                        .scope()
+                        .map_err(|_| FleetCatalogError::Corrupt("retired topology history"))?;
+                    retired = Some((
+                        crate::raft::physical_inventory::group_digest(&scope),
+                        history.birth_digest(),
+                    ));
+                }
                 FleetHistoryState::Live => {
                     let bounds = self
                         .bounds
@@ -452,6 +465,9 @@ impl FleetTopologyVerification {
         deadline.remaining()?;
         if let Some(group) = group {
             self.groups.push(group);
+        }
+        if let Some((scope, birth)) = retired {
+            self.retired.insert(scope, birth);
         }
         if !page.entries.is_empty() {
             self.seen = self.seen.checked_add(1).ok_or(FleetCatalogError::Limit)?;
@@ -491,7 +507,7 @@ impl FleetTopologyVerification {
             .groups
             .iter()
             .map(|group| {
-                let scope = group.resources.group.clone();
+                let scope = group.resources.group;
                 let mut occupied = Vec::new();
                 for node in &self.nodes {
                     if node
@@ -499,8 +515,7 @@ impl FleetTopologyVerification {
                         .inventory
                         .as_ref()
                         .ok_or(FleetCatalogError::InventoryIncomplete)?
-                        .history(&scope)
-                        .map_err(|_| FleetCatalogError::Corrupt("topology physical scope"))?
+                        .group_history(&scope)
                         .is_some()
                     {
                         occupied.push(node.host.node());

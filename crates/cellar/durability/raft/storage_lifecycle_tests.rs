@@ -67,6 +67,13 @@ async fn fleet_lifecycle_maintenance_stop_requires_exact_gate_and_retains_accept
     })
     .await?;
     let mut gate = stop(&binding, 2);
+    assert!(log.lifecycle_guard()?.unwrap().admits_group_start(&binding));
+    let mut other_boot = binding.clone();
+    other_boot.boot = [99; 16];
+    assert!(!log
+        .lifecycle_guard()?
+        .unwrap()
+        .admits_group_start(&other_boot));
     gate.purpose = LifecyclePurpose::Maintenance;
     let mut selector = gate.clone();
     selector.finalization = [13; 16];
@@ -93,6 +100,7 @@ async fn fleet_lifecycle_maintenance_stop_requires_exact_gate_and_retains_accept
         deadline: deadline(&log)?,
     })
     .await?;
+    assert!(!log.lifecycle_guard()?.unwrap().admits_group_start(&binding));
     let mut foreign = gate.clone();
     foreign.request = [15; 16];
     assert!(matches!(
@@ -113,6 +121,7 @@ async fn fleet_lifecycle_maintenance_stop_requires_exact_gate_and_retains_accept
         .await?;
     }
     assert_eq!(log.lifecycle_guard()?.unwrap().accepted(), Some(&selector));
+    assert!(!log.lifecycle_guard()?.unwrap().admits_group_start(&binding));
     assert!(matches!(
         log.update_lifecycle(LifecycleUpdate::Fence {
             boot: binding,
@@ -790,6 +799,7 @@ async fn fleet_lifecycle_resume_requires_exact_gate_and_survives_reopen() -> any
         log.lifecycle_guard()?.unwrap().resumed(),
         Some((&resume, &gate))
     );
+    assert!(log.lifecycle_guard()?.unwrap().admits_group_start(&binding));
     assert!(matches!(
         log.update_lifecycle(LifecycleUpdate::Fence {
             boot: binding.clone(),

@@ -26,7 +26,6 @@ pub(super) struct RootCut {
     pub position: LogPosition,
     image_position: LogPosition,
     pub image_bytes: u64,
-    pub memory_bytes: usize,
     dependencies: Vec<ArchiveDependency>,
     membership: super::super::member_state::GroupMembership,
 }
@@ -105,7 +104,6 @@ impl RootCut {
             position,
             image_position,
             image_bytes: set.marker().length,
-            memory_bytes,
             dependencies,
             membership,
         })

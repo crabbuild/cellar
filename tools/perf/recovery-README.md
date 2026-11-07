@@ -2,6 +2,10 @@
 
 # Native cold-recovery measurement
 
+This guide records the predecessor per-cell recovery campaign. To reproduce
+its runner commands, use a separate checkout at `6b580171f3cfa55a3caad1310e6d5abfce5e0350`.
+Current shared-group qualification uses the [cell-group qualification plan](../../docs/design/multi-raft/cell-groups/qualification.md).
+
 This runner exercises a focused immediate-repair fixture through the native SDK.
 It measures from original-owner loss to an empty replacement's first local
 indexed read and its first durable small write, including version-bound read-back.

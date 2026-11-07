@@ -10,7 +10,7 @@ use crate::raft::{
 };
 use cellar_ltx::{
     generation::{GenerationPin, GenerationStore, ImageId},
-    internal::{NodeExtentStore, SealedImageRoot},
+    internal::NodeExtentStore,
 };
 
 #[derive(Clone)]
@@ -80,13 +80,6 @@ impl CommittedArchiveCut {
         match &self.inner {
             Cut::Materialized(cut) => cut.position(),
             Cut::Rooted(cut) => cut.position,
-        }
-    }
-
-    pub(crate) fn memory_bytes(&self) -> usize {
-        match &self.inner {
-            Cut::Materialized(cut) => cut.memory_bytes(),
-            Cut::Rooted(cut) => cut.memory_bytes,
         }
     }
 
@@ -239,13 +232,6 @@ impl ArchiveRecoverySet {
             .transpose()
     }
 
-    pub(crate) fn birth_digest(&self) -> [u8; 32] {
-        match &self.inner {
-            Recovery::Materialized(set) => set.manifest.birth_digest,
-            Recovery::Rooted(set) => set.metadata.head.birth_digest,
-        }
-    }
-
     pub fn reference(&self) -> ArchiveReference {
         match &self.inner {
             Recovery::Materialized(set) => set.reference.clone(),
@@ -368,33 +354,6 @@ impl ArchiveRecoverySet {
             Recovery::Materialized(_) => Err(ArchiveError::Invalid(
                 "materialized archive requires a generation store",
             )),
-        }
-    }
-
-    pub(crate) fn into_root(
-        self,
-        store: &NodeExtentStore,
-    ) -> Result<(::raft::prelude::Snapshot, Arc<SealedImageRoot>), ArchiveError> {
-        match self.inner {
-            Recovery::Rooted(set) if store.same_inventory(&set.root.store) => {
-                Ok((set.root.snapshot().clone(), set.root.image))
-            }
-            Recovery::Rooted(_) => Err(ArchiveError::Invalid("archive root inventory owner")),
-            Recovery::Materialized(_) => {
-                Err(ArchiveError::Invalid("extent archive material required"))
-            }
-        }
-    }
-
-    /// Canonical absence has no image commitment domain. Check the complete
-    /// empty payload/configuration shape before using it for an extent seed.
-    pub(crate) fn is_canonical_empty(&self) -> Result<bool, ArchiveError> {
-        match &self.inner {
-            Recovery::Materialized(set) if set.manifest.image.is_none() => {
-                set.check_payloads()?;
-                Ok(true)
-            }
-            _ => Ok(false),
         }
     }
 }

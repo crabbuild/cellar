@@ -14,6 +14,7 @@ import os
 import pathlib
 import re
 import secrets
+import socket
 import subprocess
 import time
 import urllib.error
@@ -83,9 +84,17 @@ def prepare(args):
                   rustfs_image=args.rustfs_image, network=owner, volume=owner + "-objects",
                   container=owner + "-rustfs")
     save(root, record)
+    # Docker allocates ephemeral ports inside the guest. Another Colima profile
+    # may already forward that port on the host, silently reaching its service.
+    # Choose on the host instead; the signed probe still verifies connectivity.
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        host_port = listener.getsockname()[1]
     credential_file = root / "rustfs.env"
     with open(credential_file, "x", opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
-        output.write("RUSTFS_ACCESS_KEY=" + secrets.token_hex(16) + "\n")
+        # The pinned image rejects longer access keys during signed S3 requests,
+        # even when its unauthenticated health endpoint reports readiness.
+        output.write("RUSTFS_ACCESS_KEY=" + secrets.token_hex(10) + "\n")
         output.write("RUSTFS_SECRET_KEY=" + secrets.token_hex(32) + "\n")
     command(docker + ["pull", args.rustfs_image])
     command(docker + ["network", "create", "--label", label, record["network"]])
@@ -95,7 +104,7 @@ def prepare(args):
         "--network", record["network"], "--network-alias", "rustfs",
         "--cpus", "1", "--memory", "2g", "--memory-swap", "2g",
         "--ulimit", "nofile=65536:65536", "--restart", "no",
-        "--publish", "127.0.0.1::9000", "--env-file", str(credential_file),
+        "--publish", f"127.0.0.1:{host_port}:9000", "--env-file", str(credential_file),
         "--env", "RUSTFS_CONSOLE_ENABLE=false", "--env", "RUSTFS_OBS_LOGGER_LEVEL=error",
         "--mount", f"type=volume,src={record['volume']},dst=/data",
         args.rustfs_image, "/data",

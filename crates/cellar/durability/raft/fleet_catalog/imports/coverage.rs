@@ -1,29 +1,30 @@
 use super::*;
-use crate::raft::catalog::BirthDisposition;
+use crate::raft::cell_groups::CellGroupBirthDisposition;
+use crate::raft::host::FleetMembershipConfiguration;
 use crate::raft::member_state::FleetMembershipPermit;
 use records::{Decision, Voter, Witness};
 use std::collections::BTreeSet;
 
 impl FleetCatalog {
     /// Confirm that every retained proof and history is still readable before
-    /// the irreversible namespace effect. Missing pages are never empty sets.
+    /// the irreversible directory effect. Missing pages are never empty sets.
     pub(super) async fn verify_complete_import(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         record: &Record,
     ) -> Result<()> {
-        self.verify_import_coverage(snapshot, namespace, record, true)
+        self.verify_import_coverage(snapshot, directory, record, true)
             .await
     }
 
     pub(in crate::raft::fleet_catalog) async fn verify_imported_inventory(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
     ) -> Result<()> {
         let record = self
-            .import_record(snapshot, namespace)
+            .import_record(snapshot, directory)
             .await
             .map_err(|e| match e {
                 FleetCatalogError::Conflict => FleetCatalogError::InventoryIncomplete,
@@ -32,21 +33,63 @@ impl FleetCatalog {
         if record.phase != records::FleetImportPhase::Complete || record.stopped {
             return Err(FleetCatalogError::InventoryIncomplete);
         }
-        namespace
-            .check_birth_import(&record.cut, &self.birth_owner()?, true)
+        directory
+            .check_group_import(&record.cut, &self.birth_owner()?, true)
             .await
             .map_err(catalog_error)?;
-        self.verify_import_coverage(snapshot, namespace, &record, false)
+        self.verify_import_coverage(snapshot, directory, &record, false)
             .await
     }
 
     async fn verify_import_coverage(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         record: &Record,
         handoff: bool,
     ) -> Result<()> {
+        directory
+            .check_group_import(&record.cut, &self.birth_owner()?, !handoff)
+            .await
+            .map_err(catalog_error)?;
+        let frozen = directory
+            .import_directory_view(&record.cut)
+            .await
+            .map_err(catalog_error)?;
+        let mut cursor = None;
+        let mut selected = 0u64;
+        loop {
+            let page = directory
+                .group_page(&frozen, cursor.as_ref(), 16)
+                .await
+                .map_err(catalog_error)?;
+            for route in page.routes {
+                selected = selected
+                    .checked_add(1)
+                    .filter(|n| *n <= record.cut.count)
+                    .ok_or(FleetCatalogError::Corrupt(
+                        "untracked selected import group",
+                    ))?;
+                let key = hex::encode(hash(&route.history.group.bytes()));
+                let admitted = directory
+                    .namespace()
+                    .cell_group_import_entry(directory, &record.cut, &self.birth_owner()?, &key)
+                    .await
+                    .map_err(catalog_error)?;
+                if admitted.route() != &route
+                    || self.inner.lookup(record.coverage, &key).await?.is_none()
+                {
+                    return Err(FleetCatalogError::Corrupt("selected import group coverage"));
+                }
+            }
+            cursor = page.next;
+            if cursor.is_none() {
+                break;
+            }
+        }
+        if selected != u64::from(frozen.groups()) {
+            return Err(FleetCatalogError::Corrupt("missing selected import group"));
+        }
         let mut after = None;
         let mut seen = 0u64;
         loop {
@@ -60,18 +103,24 @@ impl FleetCatalog {
                     .filter(|n| *n <= record.cut.count)
                     .ok_or(FleetCatalogError::Corrupt("extra import coverage"))?;
                 let witness: Witness = decode(records::WITNESS_KIND, &value.value, 4096)?;
-                let entry = namespace
-                    .import_birth_entry(&record.cut, &self.birth_owner()?, &value.key)
+                let entry = directory
+                    .namespace()
+                    .cell_group_import_entry(
+                        directory,
+                        &record.cut,
+                        &self.birth_owner()?,
+                        &value.key,
+                    )
                     .await
                     .map_err(catalog_error)?;
-                let scope = &entry.proposal().scope;
+                let scope = &entry.route().history;
                 let binding = self.binding(scope)?;
                 let history_key = binding
                     .key()
                     .map_err(|_| FleetCatalogError::Corrupt("import witness binding"))?;
                 let history = self.history_inner(snapshot, &history_key).await?;
                 if witness.history != history_key
-                    || witness.birth != entry.expected_digest()
+                    || witness.birth != entry.route().birth_digest
                     || history.birth_digest != witness.birth
                     || history.namespace_root != record.cut.root
                     || history.schema_digest != record.schema
@@ -80,15 +129,15 @@ impl FleetCatalog {
                 }
                 match (
                     witness.decision,
-                    namespace
-                        .birth_disposition(&scope.cell)
+                    directory
+                        .group_birth_disposition(&entry)
                         .await
                         .map_err(catalog_error)?,
                 ) {
                     (
                         Decision::Cancelled { operation },
-                        Some(BirthDisposition::Cancelled {
-                            scope: actual,
+                        Some(CellGroupBirthDisposition::Cancelled {
+                            history: actual,
                             operation: op,
                         }),
                     ) => {
@@ -113,9 +162,9 @@ impl FleetCatalog {
                             phase,
                             voters,
                         },
-                        Some(BirthDisposition::Live(birth)),
+                        Some(CellGroupBirthDisposition::Live(birth)),
                     ) if history.state == FleetHistoryState::Live
-                        && history.check_birth(namespace, &birth) =>
+                        && history.check_birth(directory, &birth) =>
                     {
                         let valid_id = |id| cellar_logic::consensus::IncarnationId::new(id).is_ok();
                         if !valid_id(node)
@@ -164,19 +213,18 @@ impl FleetCatalog {
                             {
                                 return Err(FleetCatalogError::Conflict);
                             }
-                            namespace
+                            directory
+                                .namespace()
                                 .verify_fleet_storage_pin(&host)
                                 .await
                                 .map_err(catalog_error)?;
-                            namespace
-                                .verify_import_member_claim(
+                            directory
+                                .verify_group_import_member_claim(
                                     &birth,
                                     cellar_logic::consensus::MemberId::new(voter.member).map_err(
                                         |_| FleetCatalogError::Corrupt("import witness member"),
                                     )?,
-                                    cellar_logic::consensus::DiskLineage::new(voter.disk).map_err(
-                                        |_| FleetCatalogError::Corrupt("import witness disk"),
-                                    )?,
+                                    &host,
                                 )
                                 .await
                                 .map_err(catalog_error)?;
@@ -200,7 +248,7 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Corrupt("missing import coverage"));
         }
         if handoff {
-            self.no_namespace_admissions(snapshot, namespace.config().namespace)
+            self.no_namespace_admissions(snapshot, directory.namespace_config().namespace)
                 .await
         } else {
             Ok(())
@@ -210,61 +258,77 @@ impl FleetCatalog {
     pub(super) async fn import_coverage_step(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         record: &mut Record,
-        observation: Option<&FleetMembershipObservation>,
+        observation: Option<&CellGroupQuorumMembership>,
     ) -> Result<Vec<FleetChange>> {
-        let step = namespace
-            .import_birth_step(&record.cut, &self.birth_owner()?, record.cursor.as_deref())
+        directory
+            .check_group_import(&record.cut, &self.birth_owner()?, false)
+            .await
+            .map_err(catalog_error)?;
+        let step = directory
+            .namespace()
+            .cell_group_import_step(
+                directory,
+                &record.cut,
+                &self.birth_owner()?,
+                record.cursor.as_deref(),
+            )
             .await
             .map_err(catalog_error)?;
         if let Some(entry) = step.entry {
-            let proposal = entry.proposal();
-            let binding = self.binding(&proposal.scope)?;
+            let proposal = &entry;
+            let binding = self.binding(&proposal.route().history)?;
             let history_key = binding
                 .key()
                 .map_err(|_| FleetCatalogError::Corrupt("import binding key"))?;
             let history = self.history_inner(snapshot, &history_key).await?;
             if history.namespace_root != record.cut.root
                 || history.schema_digest != record.schema
-                || history.birth_digest != entry.expected_digest()
+                || history.birth_digest != entry.route().birth_digest
             {
                 return Err(FleetCatalogError::Conflict);
             }
-            let decision = match namespace
-                .birth_disposition(&proposal.scope.cell)
+            let decision = match directory
+                .group_birth_disposition(proposal)
                 .await
                 .map_err(catalog_error)?
             {
-                Some(BirthDisposition::Cancelled { scope, operation })
-                    if scope == proposal.scope
-                        && history.state
-                            == (FleetHistoryState::Cancelled {
-                                operation: operation.bytes(),
-                            })
-                        && observation.is_none() =>
+                Some(CellGroupBirthDisposition::Cancelled {
+                    history: scope,
+                    operation,
+                }) if scope == proposal.route().history
+                    && history.state
+                        == (FleetHistoryState::Cancelled {
+                            operation: operation.bytes(),
+                        })
+                    && observation.is_none() =>
                 {
                     Decision::Cancelled {
                         operation: operation.bytes(),
                     }
                 }
-                Some(BirthDisposition::Live(birth))
+                Some(CellGroupBirthDisposition::Live(birth))
                     if history.state == FleetHistoryState::Live
-                        && history.check_birth(namespace, &birth) =>
+                        && history.check_birth(directory, &birth) =>
                 {
                     let observed = observation.ok_or(FleetCatalogError::Invalid(
                         "missing live import observation",
                     ))?;
-                    let status = observed.status();
-                    let conf = observed.configuration();
-                    if observed.replica().scope != proposal.scope
+                    let status = observed
+                        .membership()
+                        .fleet_status()
+                        .ok_or(FleetCatalogError::Conflict)?;
+                    let conf = FleetMembershipConfiguration::capture(observed.configuration())
+                        .map_err(|_| FleetCatalogError::Corrupt("import configuration"))?;
+                    if observed.replica().scope != proposal.route().history
                         || status.binding != binding
-                        || observed.birth_digest() != history.birth_digest
-                        || observed.schema_digest() != record.schema
-                        || observed.barrier().get() == 0
-                        || observed.applied().index < observed.barrier()
-                        || observed.membership_revision() > observed.applied().index
-                        || observed.membership_revision() < status.changed_at
+                        || observed.root().route().birth_digest != history.birth_digest
+                        || observed.root().route().schema_digest != record.schema
+                        || observed.barrier().index.get() == 0
+                        || observed.root().position().index < observed.barrier().index
+                        || observed.membership().revision() > observed.root().position().index
+                        || observed.membership().revision() < status.changed_at
                         || conf.voters().len() != 3
                         || !conf.outgoing_voters().is_empty()
                         || !conf.learners().is_empty()
@@ -272,6 +336,7 @@ impl FleetCatalog {
                         || conf.auto_leave()
                         || status.phase.is_some_and(|phase| phase.active())
                         || observed
+                            .membership()
                             .repair_status()
                             .map_err(|_| FleetCatalogError::Corrupt("import repair status"))?
                             .is_some_and(|repair| repair.phase.active())
@@ -283,15 +348,16 @@ impl FleetCatalog {
                     let mut nodes = BTreeSet::new();
                     for member in conf.voters() {
                         let (node, disk) = if let Some((joined, _)) = observed
-                            .joined_member(*member)
+                            .membership()
+                            .joined(*member)
                             .map_err(|_| FleetCatalogError::Corrupt("import joined member"))?
                         {
                             (joined.node, Some(joined.disk))
                         } else {
                             let initial = proposal
-                                .voters
+                                .voters()
                                 .iter()
-                                .chain(&proposal.learners)
+                                .chain(proposal.learners())
                                 .find(|m| m.member == *member)
                                 .ok_or(FleetCatalogError::Conflict)?;
                             (initial.node, None)
@@ -308,12 +374,13 @@ impl FleetCatalog {
                         {
                             return Err(FleetCatalogError::Conflict);
                         }
-                        namespace
+                        directory
+                            .namespace()
                             .verify_fleet_storage_pin(&host)
                             .await
                             .map_err(catalog_error)?;
-                        namespace
-                            .verify_import_member_claim(&birth, *member, host.disk())
+                        directory
+                            .verify_group_import_member_claim(&birth, *member, &host)
                             .await
                             .map_err(catalog_error)?;
                         voters.push(Voter {
@@ -328,6 +395,7 @@ impl FleetCatalog {
                     }
                     let source = self.host_from(snapshot, observed.replica().node).await?;
                     if source.disk() != observed.replica().disk
+                        || source.storage_instance() != Some(observed.engine())
                         || !voters.iter().any(|v| {
                             v.member == observed.replica().member.get()
                                 && v.node == observed.replica().node.bytes()
@@ -341,10 +409,10 @@ impl FleetCatalog {
                         disk: observed.replica().disk.bytes(),
                         process: observed.replica().process.bytes(),
                         member: observed.replica().member.get(),
-                        barrier: observed.barrier().get(),
-                        applied: observed.applied().index.get(),
-                        term: observed.applied().term.get(),
-                        membership_revision: observed.membership_revision().get(),
+                        barrier: observed.barrier().index.get(),
+                        applied: observed.root().position().index.get(),
+                        term: observed.root().position().term.get(),
+                        membership_revision: observed.membership().revision().get(),
                         consumed_sequence: status.consumed_sequence,
                         phase: status.phase,
                         voters,
@@ -352,7 +420,7 @@ impl FleetCatalog {
                 }
                 _ => return Err(FleetCatalogError::Conflict),
             };
-            let name = hex::encode(hash(proposal.scope.cell.as_bytes()));
+            let name = crate::raft::catalog::cell_group_import_key(proposal);
             if self.inner.lookup(record.coverage, &name).await?.is_some() {
                 return Err(FleetCatalogError::Corrupt("duplicate import coverage"));
             }
@@ -360,7 +428,7 @@ impl FleetCatalog {
                 records::WITNESS_KIND,
                 &Witness {
                     history: history_key,
-                    birth: entry.expected_digest(),
+                    birth: entry.route().birth_digest,
                     decision,
                 },
                 4096,
@@ -389,7 +457,7 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Corrupt("incomplete import coverage"));
         }
         if record.covered == record.cut.count {
-            self.no_namespace_admissions(snapshot, namespace.config().namespace)
+            self.no_namespace_admissions(snapshot, directory.namespace_config().namespace)
                 .await?;
             record.phase = FleetImportPhase::Handoff;
         }
@@ -399,7 +467,7 @@ impl FleetCatalog {
     async fn no_namespace_admissions(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: NamespaceId,
+        directory: NamespaceId,
     ) -> Result<()> {
         let index = snapshot.head.tables[FleetTable::Admissions.slot()];
         let mut after = None;
@@ -417,7 +485,7 @@ impl FleetCatalog {
                     .binding()
                     .scope()
                     .map_err(|_| FleetCatalogError::Corrupt("import permit scope"))?;
-                if scope.namespace == namespace {
+                if scope.namespace == directory {
                     return Err(FleetCatalogError::Conflict);
                 }
             }

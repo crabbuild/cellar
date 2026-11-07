@@ -9,13 +9,13 @@ use super::*;
 pub enum FleetRestartRuntimeProgress {
     /// Transfer admission only. A later turn must observe the survivor leader.
     HandoffRequested {
-        group: GroupScope,
+        group: GroupHistory,
         from: MemberId,
         to: MemberId,
         term: cellar_logic::consensus::Term,
     },
     Materialized {
-        group: GroupScope,
+        group: GroupHistory,
         node: NodeId,
         member: MemberId,
         previously_present: bool,

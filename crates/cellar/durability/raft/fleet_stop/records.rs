@@ -40,7 +40,15 @@ impl BootBinding {
         Ok(())
     }
 
-    fn same_engine_owner(&self, other: &Self) -> bool {
+    pub(crate) fn is_retained_successor_of(&self, previous: &Self) -> bool {
+        self.same_engine_owner(previous)
+            && self.epoch > previous.epoch
+            && self.boot != previous.boot
+            && self.process != previous.process
+            && self.join_key != previous.join_key
+    }
+
+    pub(crate) fn same_engine_owner(&self, other: &Self) -> bool {
         self.catalog == other.catalog
             && self.fleet == other.fleet
             && self.node == other.node
@@ -180,6 +188,13 @@ pub(crate) struct Guard {
 }
 
 impl Guard {
+    /// New group attachments must order behind this exact locally synced boot.
+    /// Quiescence, stop acceptance and fencing close this admission as well as
+    /// business traffic; only a committed resume reopens the same boot.
+    pub(crate) fn admits_group_start(&self, boot: &BootBinding) -> bool {
+        self.boot == *boot && matches!(&self.phase, Phase::Open | Phase::Resumed { .. })
+    }
+
     pub fn accepted(&self) -> Option<&StopSelector> {
         match &self.phase {
             Phase::StopAccepted { selector } => Some(selector),

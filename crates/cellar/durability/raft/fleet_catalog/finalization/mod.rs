@@ -2,6 +2,7 @@
 
 //! Bounded receipt material for inventory-consuming terminal verification.
 //! Stored descriptors grant no completion or disruption-release authority.
+mod archive_holds;
 mod cancellation;
 mod fencing;
 pub(super) mod receipts;
@@ -19,8 +20,11 @@ pub use terminal::{
 
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::archive::{ArchiveReference, ArchiveVerifier, CellArchive};
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
+use crate::raft::cell_groups::{
+    CellGroupArchiveCheckpointReceiver, CellGroupArchiveHold, CellGroupArchiveRegistry,
+    CellGroupArchiveTailPool,
+};
 use crate::raft::host::FleetPublishedCut;
 use cellar_logic::consensus::{NodeId, ProposalId};
 use receipts::{Basis, Book, Candidate, Entry, Evidence, LiveEvidence};
@@ -28,9 +32,10 @@ use receipts::{Basis, Book, Candidate, Entry, Evidence, LiveEvidence};
 /// Services and the exact immutable archive selected for one history. Scratch
 /// storage and recovery-memory admission remain owned by the embedding runtime.
 pub struct FleetEvacuationArchive<'a> {
-    pub archive: &'a CellArchive,
-    pub reference: &'a ArchiveReference,
-    pub verifier: &'a ArchiveVerifier,
+    pub registry: &'a CellGroupArchiveRegistry,
+    pub hold: &'a CellGroupArchiveHold,
+    pub tails: &'a CellGroupArchiveTailPool,
+    pub receiver: CellGroupArchiveCheckpointReceiver,
 }
 
 /// A bounded, complete-inventory walk that owns its authenticated quorum calls
@@ -107,7 +112,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         operation: ProposalId,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetEvacuationVerification> {
         self.check_snapshot(snapshot)?;
@@ -247,6 +252,32 @@ impl FleetEvacuationVerification {
             .await
     }
 
+    /// Consume a retired history already checked against the closed transfer
+    /// and its exact source retirement set by complete inventory.
+    pub async fn verify_retired(&mut self, timeout: Duration) -> Result<()> {
+        let catalog = self.catalog.clone();
+        let deadline = Deadline::new(&catalog, timeout)?;
+        let history = self
+            .next_history(deadline.remaining()?)
+            .await?
+            .ok_or(FleetCatalogError::InventoryIncomplete)?;
+        let FleetHistoryState::Retired {
+            operation,
+            retirement,
+        } = *history.state()
+        else {
+            return Err(FleetCatalogError::Conflict);
+        };
+        self.append(
+            Evidence::Retired {
+                operation,
+                retirement,
+            },
+            &deadline,
+        )
+        .await
+    }
+
     /// Freeze this pending history's fixed cut through three actual quorum
     /// responses. Repeated calls return that same historical cut, allowing
     /// archive catch-up while writes continue. Rooted-input changes invalidate
@@ -327,13 +358,12 @@ impl FleetEvacuationVerification {
             .try_into()
             .map_err(|_| FleetCatalogError::Corrupt("receipt observation count"))?;
         let observations: [crate::raft::host::RaftPeerFleetMembershipObservation; 3] = observations;
-        let current = observations[0]
-            .published_cut()
-            .ok_or(FleetCatalogError::Unconfirmed)?;
+        let current = observations[0].published_cut();
         let (fixed, survivors) = catalog
             .run(deadline.remaining()?, async {
                 self.book.basis.check_current(&catalog).await?;
                 let mut fixed = current.clone();
+                let mut from_prior = false;
                 if let Some(prior) = &self.prior {
                     let (pending, _) = self
                         .pending
@@ -342,12 +372,24 @@ impl FleetEvacuationVerification {
                     if let Some(entry) = prior.entry(&catalog, &pending.key).await? {
                         if entry.record == hash(&pending.value) {
                             if let Evidence::Live(live) = entry.evidence {
-                                if live.fixed.revision == current.membership_revision().get() {
+                                if live.fixed.configuration_revision()?
+                                    == current.membership_revision()
+                                {
                                     fixed = live.fixed.restore(current)?;
+                                    from_prior = true;
                                 }
                             }
                         }
                     }
+                }
+                if let Some(saved) = self.archive_fixed(current).await? {
+                    if from_prior
+                        && (saved.root() != fixed.root()
+                            || saved.configuration_digest() != fixed.configuration_digest())
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    fixed = saved;
                 }
                 let survivors =
                     survivors::verify(&catalog, &self.snapshot, history, &observations, &fixed)
@@ -370,51 +412,59 @@ impl FleetEvacuationVerification {
     /// needed, capture that cut first through actual quorum calls under this
     /// same method deadline. Prior freeze_live work remains historical; retry
     /// does not move its business-write boundary or grant a freshness lease.
-    pub async fn verify_live(
-        &mut self,
-        observer: &RaftCells,
+    pub fn verify_live<'a>(
+        &'a mut self,
+        observer: &'a RaftCells,
         nodes: [NodeId; 3],
-        archive: FleetEvacuationArchive<'_>,
+        archive: FleetEvacuationArchive<'a>,
         timeout: Duration,
-    ) -> Result<()> {
-        let catalog = self.catalog.clone();
-        let deadline = Deadline::new(&catalog, timeout)?;
-        let fixed = self
-            .freeze_live(observer, nodes, deadline.remaining()?)
-            .await?;
-        let coverage = catalog
-            .inner
-            .domain
-            .run(archive.archive.verify_published_at(
-                archive.reference,
-                &fixed,
-                archive.verifier,
-                deadline.remaining()?,
-            ))
+    ) -> futures_util::future::BoxFuture<'a, Result<()>> {
+        // A caller retains this entire physical verification operation. Its
+        // state must not also occupy the caller's control-service poll frame.
+        // Keep the same fixed cut, deadline and post-replay authority checks.
+        Box::pin(async move {
+            let catalog = self.catalog.clone();
+            let deadline = Deadline::new(&catalog, timeout)?;
+            let fixed = self
+                .freeze_live(observer, nodes, deadline.remaining()?)
+                .await?;
+            let coverage = catalog
+                .run(deadline.remaining()?, async {
+                    archive
+                        .registry
+                        .verify_fleet_published_at(
+                            &catalog.inner.domain,
+                            archive.tails,
+                            archive.hold,
+                            &fixed,
+                            archive.receiver,
+                        )
+                        .await
+                        .map_err(FleetCatalogError::from)
+                })
+                .await?;
+            deadline.remaining()?;
+            if !coverage
+                .covers(&fixed)
+                .map_err(|_| FleetCatalogError::Conflict)?
+            {
+                return Err(FleetCatalogError::Unconfirmed);
+            }
+            self.append(
+                Evidence::Live(Box::new(LiveEvidence {
+                    fixed: (&fixed).into(),
+                    archive: (&coverage).into(),
+                    survivors: self
+                        .frozen
+                        .as_ref()
+                        .ok_or(FleetCatalogError::Unconfirmed)?
+                        .survivors
+                        .clone(),
+                })),
+                &deadline,
+            )
             .await
-            .map_err(|_| FleetCatalogError::Closed)?
-            .map_err(|error| FleetCatalogError::Storage(error.into()))?;
-        deadline.remaining()?;
-        if !coverage
-            .covers(&fixed)
-            .map_err(|_| FleetCatalogError::Conflict)?
-        {
-            return Err(FleetCatalogError::Unconfirmed);
-        }
-        self.append(
-            Evidence::Live(Box::new(LiveEvidence {
-                fixed: (&fixed).into(),
-                archive: (&coverage).into(),
-                survivors: self
-                    .frozen
-                    .as_ref()
-                    .ok_or(FleetCatalogError::Unconfirmed)?
-                    .survivors
-                    .clone(),
-            })),
-            &deadline,
-        )
-        .await
+        })
     }
 
     async fn append(&mut self, evidence: Evidence, deadline: &Deadline<'_>) -> Result<()> {

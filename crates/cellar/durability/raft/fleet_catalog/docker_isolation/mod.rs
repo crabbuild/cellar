@@ -5,7 +5,7 @@
 //! Immutable IDs never authorize deletion or replacement-container discovery.
 use super::*;
 use crate::docker::{ContainerId, Docker};
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::fleet_stop::BootBinding;
 use cellar_logic::consensus::{NodeId, ProposalId};
 use std::pin::Pin;
@@ -42,7 +42,7 @@ pub struct FleetDockerIsolation {
 struct Adapter {
     catalog: FleetCatalog,
     engine: Engine,
-    namespaces: Vec<NamespaceCatalog>,
+    namespaces: Vec<RangeDirectory>,
     turn: Mutex<()>,
 }
 
@@ -54,7 +54,7 @@ impl FleetDockerIsolation {
         catalog: FleetCatalog,
         docker: Docker,
         owner: &str,
-        namespaces: Vec<NamespaceCatalog>,
+        namespaces: Vec<RangeDirectory>,
     ) -> Result<Self> {
         if namespaces.len() > super::namespaces::MAX_NAMESPACES {
             return Err(FleetCatalogError::Limit);
@@ -176,7 +176,7 @@ impl FleetFailureRecoveryPlatform for FleetDockerIsolation {
     fn namespaces<'a>(
         &'a self,
         timeout: Duration,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<NamespaceCatalog>>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<RangeDirectory>>> + Send + 'a>> {
         Box::pin(async move {
             self.run(timeout, async { Ok(self.inner.namespaces.clone()) })
                 .await

@@ -3,6 +3,7 @@
 
 """Independently check native Raft run receipts, replica counts and TPS/quantiles."""
 import argparse
+from raft_groups import cached_layout
 import collections
 import json
 import math
@@ -61,16 +62,18 @@ def analyze(root, p99_limit_ms=200):
         assert replica['index'] >= latest.get(key[1], 0)
     archives = json.loads((root / 'archive-verification.json').read_text())
     assert len(archives) == report['cells']
+    layout=cached_layout(report['cells'],report['cells_per_group'],'Counter')
+    assert report['physical_groups']==len(layout.groups)
     leaders = collections.Counter()
     for c, (code, status) in enumerate(archives):
         assert code == 200 and status['cell'] == c and status['ready']
-        assert status['leader'] == (1 if report.get('primary_only') else c % 3 + 1)
+        assert status['leader'] == (1 if report.get('primary_only') else layout.members(c,3)[0])
         assert status['archived'] >= latest.get(c, 0)
         leaders[status['leader']] += 1
     if report.get('primary_only'):
         assert dict(leaders) == {1: report['cells']}
     else:
-        assert list(sorted(leaders.values())) == [report['cells'] // 3] * 3
+        assert dict(leaders) == {r['node']:r['leader_cells'] for r in layout.placement(3) if r['leader_cells']}
     for limits in report['limits']:
         assert limits['NanoCpus'] == 1_000_000_000
         assert limits['Memory'] == limits['MemorySwap'] == 3 * 1024**3
@@ -104,10 +107,12 @@ def analyze(root, p99_limit_ms=200):
             assert len(report[phase]) == 3
             for usage in report[phase]:
                 sql = usage['sql']
-                assert sql is not None and not sql['queue_closed']
+                assert sql is not None and not sql['closing']
                 assert sql['running_workers'] == sql['worker_capacity'] == report['sql_workers']
-                assert sql['work_capacity'] == report['sql_workers'] * report['sql_worker_queue']
-                assert 0 <= sql['work_reservations'] <= sql['work_capacity']
+                assert sql['limits']['workers'] == report['sql_workers'] and sql['limits']['queue_per_worker'] == report['sql_worker_queue']
+                assert 0 <= sql['queued_or_running'] <= report['sql_workers'] * (report['sql_worker_queue'] + 1)
+                assert 0 <= sql['completion_reservations'] <= sql['limits']['max_pending_cells']
+                assert 0 <= sql['retained_bytes'] <= sql['limits']['node_bytes']
     candidates = []
     for concurrency,rate in sorted({(w['concurrency'],w['offered_rate']) for w in windows}):
         group = [w for w in windows if (w['concurrency'],w['offered_rate']) == (concurrency,rate)]

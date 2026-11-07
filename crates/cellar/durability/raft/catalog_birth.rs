@@ -62,46 +62,6 @@ impl NamespaceCatalog {
             .await
     }
 
-    /// A reservation remains inventoried even if drain wins a later revision.
-    /// Cancellation contends on the same birth key and never erases a live birth.
-    pub async fn cancel_managed_birth(
-        &self,
-        authorization: &super::super::fleet_catalog::FleetBirthAuthorization,
-        operation: ProposalId,
-        timeout: Duration,
-    ) -> Result<BirthDisposition, CatalogError> {
-        authorization.check_namespace(self)?;
-        self.cancel_selected_birth(
-            authorization.proposal(),
-            operation,
-            timeout,
-            Some(authorization.owner()),
-        )
-        .await
-    }
-
-    pub async fn resolve_managed_birth(
-        &self,
-        authorization: &super::super::fleet_catalog::FleetBirthAuthorization,
-        timeout: Duration,
-    ) -> Result<GroupBirth, CatalogError> {
-        authorization.check_namespace(self)?;
-        if timeout.is_zero() || timeout > Duration::from_secs(60) {
-            return Err(CatalogError::Invalid("managed birth timeout"));
-        }
-        let birth = crate::asyncrt::timeout(
-            timeout,
-            self.select_birth(authorization.proposal(), None, Some(authorization.owner())),
-        )
-        .await
-        .map_err(|_| CatalogError::Unconfirmed)??
-        .live()?;
-        if !authorization.check_birth(self, &birth) {
-            return Err(CatalogError::Conflict("reserved birth winner"));
-        }
-        Ok(birth)
-    }
-
     async fn cancel_selected_birth(
         &self,
         proposal: BirthProposal,

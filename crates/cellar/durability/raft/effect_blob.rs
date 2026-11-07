@@ -1,7 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::super::{apply::PublishedImage, archive::ArchiveDependency, archive::ArchiveLimits};
-use anyhow::{ensure, Context as _, Result};
+use anyhow::{ensure, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 
@@ -184,67 +183,4 @@ pub(crate) fn get_blob(
         "Blob digest mismatch"
     );
     Ok(bytes)
-}
-
-pub(crate) fn capture_dependencies(
-    image: &PublishedImage,
-    limits: Option<RaftBlobLimits>,
-    services: cellar_ltx::generation::ReadServices,
-    archive: ArchiveLimits,
-) -> Result<Vec<ArchiveDependency>> {
-    let Some(limits) = limits else {
-        return Ok(vec![]);
-    };
-    let database = crate::storage::open_immutable_generation(
-        image.pin(),
-        crate::storage::ImmutableQueryOptions {
-            services,
-            sqlite_vec: false,
-        },
-    )?;
-    capture_connection_dependencies(database.connection(), limits, archive)
-}
-
-pub(crate) fn capture_connection_dependencies(
-    connection: &Connection,
-    limits: RaftBlobLimits,
-    archive: ArchiveLimits,
-) -> Result<Vec<ArchiveDependency>> {
-    if !exists(connection)? {
-        return Ok(vec![]);
-    }
-    let (count, bytes) = inventory(connection, limits)?;
-    ensure!(
-        count <= archive.max_dependencies && bytes <= archive.max_capture_bytes,
-        "Blob closure exceeds archive bounds"
-    );
-    // Check every length before allocating bodies. The pinned generation and
-    // read-only connection cannot change between this pass and the body pass.
-    let mut statement =
-        connection.prepare("SELECT digest,length(body) FROM __sys_raft_blobs ORDER BY digest")?;
-    let references = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))
-        })?
-        .map(|row| {
-            let (digest, length) = row?;
-            let reference = RaftBlobReference {
-                digest: digest
-                    .try_into()
-                    .map_err(|_| anyhow::anyhow!("invalid stored Blob digest"))?,
-                length: u64::try_from(length)?,
-            };
-            ensure!(
-                reference.length <= limits.max_blob_bytes as u64,
-                "stored Blob exceeds object bound"
-            );
-            Ok(reference)
-        })
-        .collect::<Result<Vec<_>>>()?;
-    ensure!(references.len() == count, "Blob inventory changed");
-    references
-        .into_iter()
-        .map(|reference| get_blob(connection, limits, reference).map(ArchiveDependency))
-        .collect::<Result<Vec<_>>>()
-        .context("capture exact committed Blob closure")
 }

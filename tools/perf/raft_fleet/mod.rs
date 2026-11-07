@@ -3,12 +3,15 @@
 //! Opt-in managed lab deployment. The ordinary performance fixture stays static.
 use super::*;
 use cellar::docker::{ContainerId, Docker};
-use cellar::sdk::consensus::verification::{Catalog, FleetCatalog, NamespaceCatalog};
+use cellar::sdk::consensus::verification::{
+    cell_groups::RangeDirectory, Catalog, FleetCatalog, NamespaceCatalog,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
 mod config;
+mod initial;
 mod recovery;
 pub use config::Config;
 
@@ -23,6 +26,8 @@ pub struct Managed {
     pub domain: ExecutionDomain,
     pub catalog: FleetCatalog,
     pub namespace: NamespaceCatalog,
+    pub directory: RangeDirectory,
+    pub layout: Arc<crate::raft_groups::Layout>,
     pub declaration: RaftNamespaceRegistration,
     pub config: Config,
 }
@@ -73,14 +78,32 @@ impl Managed {
                     }
                 })
                 .await??;
-            Ok::<_, anyhow::Error>((catalog, namespace, declaration))
+            let layout = Arc::new(crate::raft_groups::Layout::new(
+                config.cells as usize,
+                config.cells_per_group as usize,
+                class,
+                0,
+            )?);
+            let directory = RangeDirectory::new(
+                namespace.clone(),
+                DirectoryLimits {
+                    max_groups: config
+                        .group_capacity
+                        .checked_mul(u32::from(config.nodes))
+                        .context("namespace group bound")?,
+                    ..Default::default()
+                },
+            )?;
+            Ok::<_, anyhow::Error>((catalog, namespace, directory, layout, declaration))
         }
         .await;
         match result {
-            Ok((catalog, namespace, declaration)) => Ok(Self {
+            Ok((catalog, namespace, directory, layout, declaration)) => Ok(Self {
                 domain,
                 catalog,
                 namespace,
+                directory,
+                layout,
                 declaration,
                 config,
             }),
@@ -101,7 +124,17 @@ impl Managed {
     /// Only run before starting hosts. Fixed revisions and identities allow
     /// exact retries after an unknown response, including after later writes.
     /// Conflicting bootstrap inputs fail; they never silently adopt a fleet.
-    pub async fn bootstrap(&self) -> Result<Value> {
+    pub async fn bootstrap(&self, journal: &std::path::Path) -> Result<Value> {
+        let standby = self
+            .directory
+            .prepare_standby_initialization(ProposalId::new([120; 16])?)?;
+        crate::raft_setup::persist(
+            &self.domain,
+            journal.join("standby.json"),
+            standby.encode().to_vec(),
+        )
+        .await?;
+        self.domain.run(self.directory.publish(&standby)).await??;
         let cut = self.catalog.read(TIMEOUT).await?;
         self.catalog
             .declare_namespace(
@@ -142,7 +175,12 @@ impl Managed {
         let cut = self.catalog.read(TIMEOUT).await?;
         let authorization = self.catalog.authorize_host(&cut, node, TIMEOUT).await?;
         ensure!(authorization.state() == FleetNodeState::Registered, "managed startup requires a new enrolled boot; use the intact-return protocol for retained volumes");
-        config.cells.clear();
+        config.groups.clear();
+        config.namespaces = vec![RaftNamespaceConfig {
+            namespace: self.declaration.namespace.clone(),
+            class: self.declaration.class.clone(),
+            initialize: None,
+        }];
         config.peers.retain(|peer| peer.node == node);
         ensure!(
             config.peers.len() == 1,
@@ -152,14 +190,17 @@ impl Managed {
         let host = &mut config.host;
         host.max_groups = self.config.group_capacity as usize;
         host.close_report.max_groups = host.max_groups;
-        host.images.max_bytes = self.config.image_bytes * 8;
+        let group_bytes = self.config.image_bytes * 8 * u64::from(self.config.cells_per_group);
+        // One shared image bank remains independent of the sum of durable
+        // group reservations. Physical image admission may refuse earlier.
+        host.images.max_bytes = group_bytes;
         host.node_profile = Some(RaftNodeProfile {
             pool: "managed-lab".into(),
             region: "local".into(),
             zone: "shared-colima".into(),
             group_capacity: self.config.group_capacity,
             byte_capacity: self.config.durable_bytes,
-            bytes_per_group: host.images.max_bytes,
+            bytes_per_group: group_bytes,
             leader_capacity: self.config.group_capacity,
             draining: false,
         });
@@ -172,6 +213,11 @@ impl Managed {
         config.infrastructure.log.snapshot_scratch.max_bytes =
             self.config.storage.snapshot_scratch_bytes;
         config.infrastructure.consensus.max_groups = host.max_groups;
+        config.shared = crate::raft_limits::shared(
+            host,
+            self.config.group_capacity as usize * usize::from(self.config.nodes),
+            self.config.cells_per_group as usize,
+        )?;
         Ok(())
     }
 }
@@ -194,27 +240,41 @@ enum Command {
     ActivateInitial {
         history: History,
     },
+    InitializeArchive {
+        history: History,
+    },
+    Enroll {
+        cell: u32,
+    },
     StartRecovery,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct History {
-    cell: u32,
+    ordinal: u32,
     group: [u8; 16],
     incarnation: [u8; 16],
 }
 
 impl History {
-    fn scope(&self, declaration: &RaftNamespaceRegistration) -> Result<GroupScope> {
-        ensure!(self.cell < 1_000_000, "cell outside lab range");
-        Ok(GroupScope {
-            cluster: declaration.namespace.cluster,
-            namespace: declaration.namespace.namespace,
-            cell: format!("{}:{}", declaration.class, self.cell),
+    fn scope(&self, managed: &Managed) -> Result<GroupHistory> {
+        ensure!(self.ordinal < 1_000_000, "group outside lab range");
+        let history = GroupHistory {
+            cluster: managed.declaration.namespace.cluster,
+            namespace: managed.declaration.namespace.namespace,
             group: GroupId::new(self.group)?,
             incarnation: IncarnationId::new(self.incarnation)?,
-        })
+        };
+        ensure!(
+            managed
+                .layout
+                .groups
+                .get(self.ordinal as usize)
+                .is_some_and(|g| g.history == history),
+            "physical history differs from configured layout"
+        );
+        Ok(history)
     }
 }
 
@@ -263,12 +323,25 @@ impl Api {
                         &cut,
                         &request,
                         &self.cells,
-                        std::slice::from_ref(&m.namespace),
+                        std::slice::from_ref(&m.directory),
                         TIMEOUT,
                     )
                     .await?;
                 Ok(
                     json!({"revision":accepted.applied_revision(), "state":format!("{:?}",accepted.state())}),
+                )
+            }
+            Command::InitializeArchive { history } => {
+                self.initialize_archive(history.scope(m)?, history.ordinal)
+                    .await?;
+                Ok(json!({"archive_initialized": true}))
+            }
+            Command::Enroll { cell } => {
+                let cell = cell as usize;
+                let handle = self.cells.cell(m.layout.history(cell)?)?;
+                let receipt = handle.enroll(m.layout.enrollment(cell)?, TIMEOUT).await?;
+                Ok(
+                    json!({"enrolled":true,"cell":cell,"durability":format!("{:?}",receipt.durability())}),
                 )
             }
             Command::Reserve {
@@ -280,9 +353,22 @@ impl Api {
                     voters.iter().all(|n| (1..=m.config.nodes).contains(n)),
                     "unknown initial voter"
                 );
-                let proposal = BirthProposal {
-                    scope: history.scope(&m.declaration)?,
-                    voters: voters
+                ensure!(
+                    voters == Placement::new(m.config.nodes)?.voters(history.ordinal as usize),
+                    "initial voters differ from frozen placement"
+                );
+                let selected = m
+                    .layout
+                    .groups
+                    .get(history.ordinal as usize)
+                    .context("group outside layout")?;
+                ensure!(
+                    history.scope(m)? == selected.history,
+                    "physical history differs from layout"
+                );
+                let proposal = m.layout.spec(
+                    history.ordinal as usize,
+                    voters
                         .into_iter()
                         .map(|n| {
                             Ok(InitialMember {
@@ -291,45 +377,51 @@ impl Api {
                             })
                         })
                         .collect::<Result<_>>()?,
-                    learners: vec![],
-                };
+                )?;
                 let reserved = m
                     .catalog
-                    .reserve_birth(&cut, &request, &m.namespace, proposal, TIMEOUT)
+                    .reserve_birth(
+                        &cut,
+                        &request,
+                        &m.directory,
+                        proposal,
+                        &m.declaration.class,
+                        TIMEOUT,
+                    )
                     .await?;
                 m.domain
                     .run(
-                        m.namespace
-                            .resolve_managed_birth(&reserved.authorization, TIMEOUT),
+                        m.directory
+                            .materialize_fleet_group_birth(&reserved.authorization),
                     )
                     .await??;
                 Ok(json!({"reserved": true, "revision":m.catalog.read(TIMEOUT).await?.revision()}))
             }
             Command::Confirm { request, history } => {
-                let scope = history.scope(&m.declaration)?;
+                self.select_initial_ranges().await?;
+                let scope = history.scope(m)?;
                 let auth = m
                     .catalog
-                    .recover_birth_reservation(&cut, &m.namespace, &scope, TIMEOUT)
+                    .recover_birth_reservation(&cut, &m.directory, &scope, TIMEOUT)
                     .await?;
                 // A lost reserve response can leave either side of the physical
                 // birth boundary. Reconcile its original authorization first.
                 m.domain
-                    .run(m.namespace.resolve_managed_birth(&auth, TIMEOUT))
+                    .run(m.directory.materialize_fleet_group_birth(&auth))
                     .await??;
                 let committed = m
                     .catalog
-                    .confirm_birth(&cut, &request, &m.namespace, &auth, TIMEOUT)
+                    .confirm_birth(&cut, &request, &m.directory, &auth, TIMEOUT)
                     .await?;
                 Ok(json!({"revision":committed.applied_revision}))
             }
             Command::ActivateInitial { history } => {
-                let scope = history.scope(&m.declaration)?;
+                let scope = history.scope(m)?;
                 let auth = m.catalog.authorize_group(&cut, &scope, TIMEOUT).await?;
-                let cell = self
+                let guard = self
                     .cells
-                    .register_managed_history(auth.clone(), TIMEOUT)
+                    .activate_managed_initial_group(auth, TIMEOUT)
                     .await?;
-                let guard = cell.activate_managed_initial_member(auth, TIMEOUT).await?;
                 Ok(
                     json!({"changed_at":guard.changed_at.get(), "consumed_sequence":guard.consumed_sequence}),
                 )
@@ -372,7 +464,7 @@ pub fn router(
         managed.catalog.clone(),
         Docker::new("/var/run/docker.sock"),
         &managed.config.owner,
-        vec![managed.namespace.clone()],
+        vec![managed.directory.clone()],
     )?;
     let resources = FleetDockerResources::new(
         isolation.clone(),

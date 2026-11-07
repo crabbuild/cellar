@@ -7,7 +7,17 @@ use super::apply::{marker, PublishedImage};
 use super::cache::{DurableApply, GroupLog};
 use super::completion::GroupStatus;
 use super::receipts;
+mod cell;
+mod submission;
+pub(crate) use cell::authority_failure;
+pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
+mod command;
+mod enrollment;
+mod registered;
+pub use enrollment::{CellEnrollmentAttempt, CellEnrollmentResolution, CellPrivateEnrollment};
+pub(crate) use registered::validate as validate_registered_command;
 mod images;
+pub use cell::{CellCommittedReceipt, CellPrivateExecutor, CellReconciliation, CellStageOutcome};
 mod rooted_working;
 use crate::application::consensus::{
     command_request_digest, CommittedVersion, EnvelopeLimits, OperationContract, OperationKind,
@@ -21,7 +31,6 @@ use cellar_logic::consensus::{
 use cellar_ltx::apply::ImageState;
 use cellar_ltx::generation::{GenerationPin, GenerationStore, ImageId, ReadServices};
 use cellar_ltx::{HostFileLock, LtxHost};
-pub(crate) use images::Published as PublishedExecutionImage;
 pub use images::RootPrivateOptions;
 use images::{Images, Options, Preview, Published, State, WorkingImage};
 use sha2::{Digest, Sha256};
@@ -145,18 +154,6 @@ pub fn query_registered(
     services: ReadServices,
     limits: ExecutionLimits,
 ) -> Result<RegisteredQueryOutput, ExecutionError> {
-    query_registered_controlled(published, class, contract, input, services, limits, None)
-}
-
-pub(crate) fn query_registered_controlled(
-    published: &PublishedImage,
-    class: &RaftClass,
-    contract: &OperationContract,
-    input: &[u8],
-    services: ReadServices,
-    limits: ExecutionLimits,
-    cancel: Option<std::sync::Arc<crate::application::consensus::client::AttemptControl>>,
-) -> Result<RegisteredQueryOutput, ExecutionError> {
     validate_registered_query(
         class,
         contract,
@@ -172,18 +169,12 @@ pub(crate) fn query_registered_controlled(
         },
     )
     .map_err(storage)?;
-    if let Some(cancel) = cancel {
-        database
-            .connection()
-            .progress_handler(1000, Some(cancel.interrupt_check()))
-            .map_err(storage)?;
-    }
     let version = CommittedVersion {
         scope: published.scope().clone(),
         position: published.position(),
     };
     let result = class
-        .invoke_query(contract, &version, &database, input)
+        .invoke_group_query(contract, &version, &database, input)
         .map_err(storage)?;
     if result.len() > limits.max_result_bytes {
         return Err(ExecutionError::Refused(CommandFailure::Overloaded));
@@ -370,10 +361,8 @@ pub struct CommandAttempt {
 #[derive(Clone)]
 pub struct PreparedCommand {
     bytes: Vec<u8>,
-    pub(crate) ltx_bytes: u64,
     proposal: ProposalId,
     command: Option<CommandId>,
-    archive_bytes: u64,
 }
 
 impl PreparedCommand {
@@ -391,12 +380,6 @@ impl PreparedCommand {
 
     pub fn context(&self) -> Vec<u8> {
         self.proposal.bytes().to_vec()
-    }
-
-    /// Retention bound after the physical preview has verified the image size.
-    /// Includes the encoded log entry and room for its protobuf/context framing.
-    pub(crate) fn archive_bytes(&self) -> u64 {
-        self.archive_bytes
     }
 }
 
@@ -604,77 +587,21 @@ impl PrivateExecutor {
         input: &[u8],
         allow_new: bool,
     ) -> Result<StageOutcome, ExecutionError> {
-        self.stage_registered_kind(attempt, class, input, allow_new, false)
-    }
-
-    pub(crate) fn stage_system_admitted(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-        allow_new: bool,
-    ) -> Result<StageOutcome, ExecutionError> {
-        self.stage_registered_kind(attempt, class, input, allow_new, true)
-    }
-
-    fn stage_registered_kind(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-        allow_new: bool,
-        system: bool,
-    ) -> Result<StageOutcome, ExecutionError> {
-        let contract = OperationContract {
-            operation: attempt.request.operation.clone(),
-            kind: OperationKind::Command,
-            digest: attempt.request.contract_digest,
-        };
-        if system {
-            class.validate_system_operation(&contract)
-        } else {
-            class.validate_operation(&contract)
-        }
-        .map_err(ExecutionError::Registration)?;
-        if class.schema_digest() != self.options.application_digest {
-            return Err(ExecutionError::Registration(
-                RegistrationError::ContractMismatch,
-            ));
-        }
-        if input.len() > self.options.limits.envelope.max_payload_bytes {
-            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-        }
-        if command_request_digest(input) != attempt.request.request_digest {
-            return Err(ExecutionError::Refused(CommandFailure::CommandConflict));
-        }
-        let scope = self.authority.replica.scope.clone();
+        let scope = cellar_logic::cell_group::CellHistory::try_from(&self.authority.replica.scope)
+            .map_err(storage)?;
+        let contract = registered::validate(
+            self.options.limits,
+            self.options.application_digest,
+            &scope,
+            &attempt.request,
+            class,
+            input,
+            false,
+        )?;
         let command = attempt.request.id;
         let durability = attempt.request.durability;
-        if !system {
-            class
-                .validate_command_identity(&scope, &contract, command, durability, input)
-                .map_err(|error| {
-                    ExecutionError::Refused(
-                        error
-                            .downcast_ref::<CommandFailure>()
-                            .cloned()
-                            .unwrap_or(CommandFailure::UnsupportedCapability),
-                    )
-                })?;
-        }
         self.stage_admitted(attempt, allow_new, |transaction| {
-            if system {
-                class.invoke_system_command(
-                    &contract,
-                    &scope,
-                    command,
-                    durability,
-                    transaction,
-                    input,
-                )
-            } else {
-                class.invoke_command(&contract, &scope, command, durability, transaction, input)
-            }
+            class.invoke_command(&contract, &scope, command, durability, transaction, input)
         })
     }
 
@@ -706,8 +633,7 @@ impl PrivateExecutor {
         }
         authority.check_base(base.as_ref(), options.application_digest)?;
         let filesystem = options.host.filesystem();
-        cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &options.directory)
-            .map_err(storage)?;
+        options.prepare_directory()?;
         let lock = filesystem
             .lock_file(&options.directory.join("working.lock"))
             .map_err(storage)?;
@@ -742,10 +668,6 @@ impl PrivateExecutor {
         } else {
             ExecutionStatus::Ready
         }
-    }
-
-    pub(crate) fn has_pending_proposal(&self) -> bool {
-        self.pending.is_some()
     }
 
     /// Logical bytes hashed by the last extent observation. This excludes
@@ -821,102 +743,41 @@ impl PrivateExecutor {
         command: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
     ) -> Result<StageOutcome, ExecutionError> {
         self.ready()?;
-        if attempt.request.operation.is_empty() || attempt.request.operation.len() > 128 {
-            return Err(ExecutionError::Invalid("command operation"));
-        }
         let working = self
             .working
             .as_ref()
             .ok_or(ExecutionError::RebuildRequired)?;
-        if receipts::preflight_identity(
+        let maintenance = match command::prepare(
             working.database().framework(),
-            &attempt.request,
-            &self.options.limits,
-        )?
-        .is_some()
-        {
-            let receipt = self.read_committed(
-                &attempt.request,
-                self.base
-                    .as_ref()
-                    .ok_or(ExecutionError::Invalid("receipt without base"))?,
-            )?;
-            return Ok(StageOutcome::Duplicate(receipt));
-        }
-        let count = receipts::retained_count(working.database().framework())?;
-        let ceiling = self.options.limits.max_retained_receipts;
-        let maintenance = match self.options.limits.receipt_maintenance {
-            Some(limits) if count >= ceiling - ceiling / 4 => {
-                let plan = super::receipt_maintenance::plan(
-                    working.database().framework(),
-                    attempt.inputs.now_unix_millis,
-                    limits,
-                    self.receipt_cursor,
+            self.options.limits,
+            &mut self.receipt_cursor,
+            &attempt,
+            allow_new,
+        )? {
+            command::Admission::Duplicate => {
+                let receipt = self.read_committed(
+                    &attempt.request,
+                    self.base
+                        .as_ref()
+                        .ok_or(ExecutionError::Invalid("receipt without base"))?,
                 )?;
-                self.receipt_cursor = plan.next_cursor;
-                Some(plan)
+                return Ok(StageOutcome::Duplicate(receipt));
             }
-            _ => None,
+            command::Admission::New(maintenance) => maintenance,
         };
-        let removed = maintenance.as_ref().map_or(0, |plan| plan.rows_removed);
-        if count
-            .checked_sub(removed)
-            .is_none_or(|count| count >= ceiling)
-        {
-            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-        }
-        if attempt.request.retry_until_ms < attempt.inputs.now_unix_millis
-            || attempt
-                .request
-                .retry_until_ms
-                .checked_sub(attempt.inputs.now_unix_millis)
-                .is_none_or(|window| window > self.options.limits.max_retry_window_ms)
-        {
-            return Err(ExecutionError::Invalid("command retry window"));
-        }
-        // Duplicate receipt lookup above remains available under archive
-        // pressure. A known refusal has not mutated SQL or capture state and
-        // must not force the next request to reconstruct the private image.
-        if !allow_new {
-            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-        }
         self.rebuild_required = true;
-        self.working
+        let working = self
+            .working
             .as_mut()
-            .ok_or(ExecutionError::RebuildRequired)?
-            .begin_mutation();
-        self.working
-            .as_ref()
-            .ok_or(ExecutionError::RebuildRequired)?
-            .database()
-            .transaction(attempt.inputs, |connection, transaction| {
-                if let Some(maintenance) = maintenance {
-                    maintenance
-                        .apply(connection, attempt.inputs.now_unix_millis)
-                        .map_err(anyhow::Error::new)?;
-                }
-                let result = command(transaction)?;
-                if result.len() > self.options.limits.max_result_bytes {
-                    return Err(anyhow::Error::new(CommandFailure::Overloaded));
-                }
-                receipts::record(connection, &attempt.request, result)?;
-                let limits = &self.options.limits;
-                if limits.receipt_reserve_bytes != 0 {
-                    let usage = crate::storage::CommandDatabase::capacity(
-                        connection,
-                        limits.max_image_bytes,
-                    )?;
-                    limits
-                        .check_capacity(
-                            usage.application_bytes,
-                            usage.receipt_bytes,
-                            usage.structural_reserve_bytes,
-                        )
-                        .map_err(anyhow::Error::new)?;
-                }
-                Ok(())
-            })
-            .map_err(private_failure)?;
+            .ok_or(ExecutionError::RebuildRequired)?;
+        working.begin_mutation();
+        command::apply(
+            working.database(),
+            self.options.limits,
+            &attempt,
+            maintenance,
+            command,
+        )?;
         let prepared = self.freeze(
             attempt.proposal,
             attempt.preview,
@@ -1004,10 +865,6 @@ impl PrivateExecutor {
             .retired_preview
             .take()
             .ok_or(ExecutionError::RebuildRequired)?;
-        let archive_bytes = preview
-            .length()
-            .saturating_add(bytes.len() as u64)
-            .saturating_add(1024);
         self.pending = Some(Pending {
             proposal,
             result: preview.state(),
@@ -1019,15 +876,9 @@ impl PrivateExecutor {
         });
         self.rebuild_required = false;
         Ok(PreparedCommand {
-            ltx_bytes: update
-                .files
-                .iter()
-                .map(|file| file.bytes.len() as u64)
-                .sum(),
             bytes,
             proposal,
             command,
-            archive_bytes,
         })
     }
 

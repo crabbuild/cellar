@@ -20,8 +20,28 @@ cellar raft fleet nodes add --descriptor NODE.json --operation-id REQUEST_HEX --
 cellar raft fleet nodes status NODE_HEX
 cellar raft fleet nodes qualify NODE_HEX --attestation CAPACITY.json --operation-id REQUEST_HEX --expected-revision R
 cellar raft fleet nodes activate NODE_HEX --attestation CAPACITY.json --operation-id REQUEST_HEX --expected-revision R
+cellar raft fleet first-group standby NAMESPACE_HEX
+cellar raft fleet first-group reserve NAMESPACE_HEX --plan PLAN.json
+cellar raft fleet first-group publish NAMESPACE_HEX --plan PLAN.json --request-id ID --expected-revision R
+cellar raft fleet first-group archive NAMESPACE_HEX --plan PLAN.json --request-id ID --expected-revision R
+cellar raft fleet first-group apply NAMESPACE_HEX --plan SETUP.json
 cellar raft fleet status --fleet F --admin-url URL [--json]
 cellar raft fleet rebalance --keep NODE_HEX,... --policy POLICY.json --operation-id OP_HEX --expected-revision R [--wait]
+cellar raft fleet transition status NAMESPACE_HEX --operation-id OP_HEX
+cellar raft fleet transition basis NAMESPACE_HEX
+cellar raft fleet transition admit NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition prepare NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition authorize-seal NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition seal-source NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition capture-source NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition retire-source NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition setup-child NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition verify-archive NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition verify-child-archives NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition publish NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition activate NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition resume NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet group park|park-status|wake NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet operation status OP_HEX
 cellar raft fleet operation progress OP_HEX [--cursor TOKEN] [--limit 64]
 cellar raft fleet operation wait OP_HEX [--timeout-seconds 600]
@@ -37,12 +57,23 @@ it does not certify leader balance or authorize node/storage deletion.
 Exit codes: 0 success, 2 invalid input, 3 conflict, 4 blocked/cancelled,
 5 unavailable/unknown outcome, 6 wait timeout.";
 
+pub(super) enum ParkAction {
+    Park,
+    Status,
+    Wake,
+}
+
 pub(super) enum Action {
     GrantMaintenance(String, Box<RaftFleetMaintenanceAction>),
     MaintenanceStatus(String),
     PrepareMaintenance(String, Box<RaftFleetMaintenancePrepare>),
     CancelMaintenance(String, Box<RaftFleetMaintenanceCancel>),
     Status,
+    FirstGroupStandby(String),
+    FirstGroupReserve(Box<RaftFleetFirstGroupPlan>),
+    FirstGroupPublish(Box<RaftFleetFirstGroupPublish>),
+    FirstGroupArchive(Box<RaftFleetFirstGroupMutation>),
+    FirstGroupApply(Box<first_group::ApplyPlan>),
     NodeStatus(String),
     EvacuationStatus(String),
     Evacuate(String, Box<RaftFleetNodeOperation>),
@@ -54,6 +85,21 @@ pub(super) enum Action {
     NodeCapacity(String, Box<RaftFleetNodeCapacity>, bool),
     Begin(RaftFleetBegin),
     Operation(String),
+    Park(ParkAction, Box<RaftFleetParkRequest>),
+    TransitionStatus(String, String),
+    TransitionResume(Box<RaftFleetTransitionResume>),
+    TransitionActivate(Box<RaftFleetTransitionActivationRequest>),
+    TransitionBasis(String),
+    TransitionAdmit(Box<RaftFleetTransitionAdmissionRequest>),
+    TransitionPrepare(Box<RaftFleetTransitionPrepareRequest>),
+    TransitionSeal(Box<RaftFleetTransitionSealRequest>),
+    TransitionSealSource(Box<RaftFleetTransitionSourceSealRequest>),
+    TransitionCaptureSource(Box<RaftFleetTransitionSourceSealRequest>),
+    TransitionRetireSource(Box<RaftFleetTransitionSourceSealRequest>),
+    TransitionSetupChild(Box<RaftFleetTransitionChildSetupRequest>),
+    TransitionVerifyArchive(Box<RaftFleetTransitionPrepareRequest>),
+    TransitionVerifyChildArchives(Box<RaftFleetTransitionPrepareRequest>),
+    TransitionPublish(Box<RaftFleetTransitionPublishRequest>),
     Progress(String, Option<String>, usize),
     Wait(String),
     Cancel(String, RaftFleetCancel),
@@ -85,6 +131,24 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             Some(args.next().ok_or_else(|| invalid("missing node ID"))?)
         };
         (format!("nodes_{verb}"), target)
+    } else if command == "first-group" {
+        let verb = args
+            .next()
+            .ok_or_else(|| invalid("missing first group command"))?;
+        let namespace = args.next().ok_or_else(|| invalid("missing namespace ID"))?;
+        (format!("first_group_{verb}"), Some(namespace))
+    } else if command == "transition" {
+        let verb = args
+            .next()
+            .ok_or_else(|| invalid("missing transition command"))?;
+        let namespace = args.next().ok_or_else(|| invalid("missing namespace ID"))?;
+        (format!("transition_{verb}"), Some(namespace))
+    } else if command == "group" {
+        let verb = args
+            .next()
+            .ok_or_else(|| invalid("missing group park command"))?;
+        let namespace = args.next().ok_or_else(|| invalid("missing namespace ID"))?;
+        (format!("group_{verb}"), Some(namespace))
     } else if command == "operation" {
         let command = args
             .next()
@@ -112,6 +176,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
     let mut policy = None;
     let mut descriptor = None;
     let mut attestation = None;
+    let mut first_group_plan = None;
     let mut cursor = None;
     let mut limit = 64usize;
     let mut wait = false;
@@ -175,6 +240,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
                 &mut policy,
                 json_file::<crate::raft::fleet_catalog::FleetTopologyPolicy>(&value)?,
             )?,
+            "--plan" => set(&mut first_group_plan, value)?,
             "--cursor" => set(&mut cursor, value)?,
             "--limit" => limit = value.parse().map_err(|_| invalid("invalid page limit"))?,
             "--timeout-seconds" => {
@@ -203,6 +269,229 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         validate_catalog(pin)?;
     }
     let action = match (command.as_str(), target) {
+        (verb @ ("group_park" | "group_park-status" | "group_wake"), Some(namespace))
+            if !wait && cursor.is_none() =>
+        {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetParkRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            let action = match verb {
+                "group_park" => ParkAction::Park,
+                "group_park-status" => ParkAction::Status,
+                _ => ParkAction::Wake,
+            };
+            Action::Park(action, Box::new(plan))
+        }
+        ("transition_status", Some(namespace)) if !wait && cursor.is_none() => {
+            validate_id(&namespace)?;
+            let operation = operation_id
+                .take()
+                .ok_or_else(|| invalid("--operation-id is required"))?;
+            validate_id(&operation)?;
+            if catalog_id.is_none() {
+                return Err(invalid("--catalog-id from fleet status is required"));
+            }
+            Action::TransitionStatus(namespace, operation)
+        }
+        ("transition_basis", Some(namespace)) if !wait && cursor.is_none() => {
+            validate_id(&namespace)?;
+            Action::TransitionBasis(namespace)
+        }
+        ("transition_admit", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionAdmissionRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionAdmit(Box::new(plan))
+        }
+        ("transition_prepare", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionPrepareRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionPrepare(Box::new(plan))
+        }
+        (
+            command @ ("transition_verify-archive" | "transition_verify-child-archives"),
+            Some(namespace),
+        ) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionPrepareRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            if command == "transition_verify-child-archives" {
+                Action::TransitionVerifyChildArchives(Box::new(plan))
+            } else {
+                Action::TransitionVerifyArchive(Box::new(plan))
+            }
+        }
+        ("transition_authorize-seal", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionSealRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionSeal(Box::new(plan))
+        }
+        ("transition_seal-source", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionSourceSealRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionSealSource(Box::new(plan))
+        }
+        (command @ ("transition_capture-source" | "transition_retire-source"), Some(namespace))
+            if !wait && cursor.is_none() =>
+        {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionSourceSealRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            if command == "transition_retire-source" {
+                Action::TransitionRetireSource(Box::new(plan))
+            } else {
+                Action::TransitionCaptureSource(Box::new(plan))
+            }
+        }
+        ("transition_setup-child", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionChildSetupRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionSetupChild(Box::new(plan))
+        }
+        ("transition_publish", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionPublishRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionPublish(Box::new(plan))
+        }
+        ("transition_activate", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionActivationRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionActivate(Box::new(plan))
+        }
+        ("transition_resume", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionResume>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionResume(Box::new(plan))
+        }
+        ("first_group_standby", Some(namespace)) if !wait && cursor.is_none() => {
+            validate_id(&namespace)?;
+            if catalog_id.is_none() {
+                return Err(invalid("--catalog-id from fleet status is required"));
+            }
+            Action::FirstGroupStandby(namespace)
+        }
+        ("first_group_apply", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<first_group::ApplyPlan>(&path)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            plan.validate(&namespace, catalog)?;
+            Action::FirstGroupApply(Box::new(plan))
+        }
+        (
+            verb @ ("first_group_reserve" | "first_group_publish" | "first_group_archive"),
+            Some(namespace),
+        ) if !wait && cursor.is_none() && operation_id.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetFirstGroupPlan>(&path)?;
+            plan.validate(&namespace)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            if catalog != plan.catalog_id {
+                return Err(invalid("first group plan belongs to another catalog"));
+            }
+            if verb != "first_group_reserve" {
+                let request = RaftFleetFirstGroupMutation {
+                    plan,
+                    request_id: request_id
+                        .take()
+                        .ok_or_else(|| invalid("--request-id is required"))?,
+                    expected_revision: expected_revision
+                        .take()
+                        .ok_or_else(|| invalid("--expected-revision is required"))?,
+                };
+                request.validate(&namespace)?;
+                if verb == "first_group_archive" {
+                    Action::FirstGroupArchive(Box::new(request))
+                } else {
+                    Action::FirstGroupPublish(Box::new(request))
+                }
+            } else {
+                if request_id.is_some() || expected_revision.is_some() {
+                    return Err(invalid("reservation identity belongs in the plan"));
+                }
+                Action::FirstGroupReserve(Box::new(plan))
+            }
+        }
         ("nodes_maintenance-status", Some(operation)) if cursor.is_none() => {
             validate_id(&operation)?;
             Action::MaintenanceStatus(operation)
@@ -435,6 +724,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         || cursor.is_some()
         || descriptor.is_some()
         || attestation.is_some()
+        || first_group_plan.is_some()
         || request_id.is_some()
         || expected_process.is_some()
         || next_process.is_some()
@@ -505,7 +795,7 @@ fn json_file<T: serde::de::DeserializeOwned>(path: &str) -> Result<T> {
     serde_json::from_slice(&read_file(path, 16 * 1024)?).map_err(|_| invalid("invalid JSON input"))
 }
 
-fn validate_id(value: &str) -> Result<()> {
+pub(super) fn validate_id(value: &str) -> Result<()> {
     let mut bytes = [0; 16];
     if value.len() != 32
         || hex::decode_to_slice(value, &mut bytes).is_err()
@@ -520,7 +810,7 @@ fn validate_id(value: &str) -> Result<()> {
     }
 }
 
-fn validate_catalog(value: &str) -> Result<()> {
+pub(super) fn validate_catalog(value: &str) -> Result<()> {
     let mut bytes = [0; 32];
     if value.len() != 64
         || hex::decode_to_slice(value, &mut bytes).is_err()

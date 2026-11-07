@@ -79,21 +79,12 @@ impl FleetHostAuthorization {
             let authorization = catalog
                 .authorize_group(&snapshot, &scope, deadline.remaining()?)
                 .await?;
-            let cell = match gateway.cell(scope.namespace, &scope.cell) {
-                Ok(cell) if cell.scope() == &scope => cell,
-                Ok(_) => return Err(FleetCatalogError::Conflict),
-                Err(_) => gateway
-                    .register_managed_history(authorization.clone(), deadline.remaining()?)
-                    .await
-                    .map_err(command_failure)?,
-            };
-            // This pipeline owns initialization after submission, even when the
-            // control waiter disconnects. It refuses an already-claimed blank
-            // engine, occupied/retired slot, wrong schema or substituted boot.
-            let receipt = cell
-                .activate_managed_initial_member(authorization, deadline.remaining()?)
+            // The controller owns complete-group recovery and attachment after
+            // admission. A receipt is descriptive; fresh quorum is checked later.
+            let receipt = gateway
+                .activate_managed_initial_group(authorization, deadline.remaining()?)
                 .await
-                .map_err(command_failure)?;
+                .map_err(startup_failure)?;
             if &receipt.binding != history.binding() {
                 return Err(FleetCatalogError::Conflict);
             }
@@ -110,13 +101,50 @@ impl FleetHostAuthorization {
     }
 }
 
-fn command_failure(error: crate::application::consensus::CommandFailure) -> FleetCatalogError {
-    use crate::application::consensus::CommandFailure as C;
+fn startup_failure(
+    error: crate::application::consensus::CellGroupStartupError,
+) -> FleetCatalogError {
+    use crate::application::consensus::CellGroupStartupError;
+    use crate::raft::cell_groups::CellGroupControllerError as C;
     match error {
-        C::Overloaded => FleetCatalogError::Overloaded,
-        C::CommandConflict => FleetCatalogError::Conflict,
-        C::CorruptState => FleetCatalogError::Corrupt("genesis host state"),
-        C::UnsupportedCapability => FleetCatalogError::Invalid("genesis host capability"),
-        _ => FleetCatalogError::Unconfirmed,
+        // Entered recovery may have synced or attached even if its delivery failed.
+        CellGroupStartupError::Unconfirmed(_) => FleetCatalogError::Unconfirmed,
+        CellGroupStartupError::Refused(C::Runtime(
+            crate::raft::completion::RuntimeError::Overloaded,
+        )) => FleetCatalogError::Overloaded,
+        CellGroupStartupError::Refused(C::Catalog(error)) => {
+            use crate::raft::catalog::CatalogError as E;
+            match error.as_ref() {
+                E::Invalid(reason) => FleetCatalogError::Invalid(reason),
+                E::Corrupt(reason) => FleetCatalogError::Corrupt(reason),
+                E::Limit => FleetCatalogError::Limit,
+                E::Log(crate::raft::storage::LogError::Corrupt(_)) | E::LostStableState => {
+                    FleetCatalogError::Corrupt("genesis group state")
+                }
+                E::Conflict(_) | E::ManagedAdmissionRequired | E::NotInitialMember | E::Fenced => {
+                    FleetCatalogError::Conflict
+                }
+                E::FleetAuthority(authority) => match authority.as_ref() {
+                    FleetCatalogError::Invalid(reason) => FleetCatalogError::Invalid(reason),
+                    FleetCatalogError::Corrupt(reason) => FleetCatalogError::Corrupt(reason),
+                    FleetCatalogError::Overloaded => FleetCatalogError::Overloaded,
+                    FleetCatalogError::Limit => FleetCatalogError::Limit,
+                    FleetCatalogError::Conflict => FleetCatalogError::Conflict,
+                    FleetCatalogError::Closed => FleetCatalogError::Closed,
+                    // Preserve the complete typed cause for local diagnosis;
+                    // transport delivery still classifies unknown outcomes.
+                    _ => FleetCatalogError::Storage(
+                        CellGroupStartupError::Refused(C::Catalog(error)).into(),
+                    ),
+                },
+                _ => FleetCatalogError::Storage(
+                    CellGroupStartupError::Refused(C::Catalog(error)).into(),
+                ),
+            }
+        }
+        CellGroupStartupError::Refused(C::Invalid(_)) => {
+            FleetCatalogError::Invalid("genesis group capability")
+        }
+        CellGroupStartupError::Refused(_) => FleetCatalogError::Unconfirmed,
     }
 }

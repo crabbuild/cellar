@@ -1,7 +1,7 @@
 //! CAS behavior uses real conditional in-memory writes with lost-response faults.
 //! This qualifies the catalog adapter, not the future fleet operating envelope.
 #[path = "support/raft_catalog_fault.rs"]
-mod fault;
+pub mod fault;
 
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::*;

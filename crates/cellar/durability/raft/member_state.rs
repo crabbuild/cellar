@@ -23,7 +23,7 @@ pub use fleet::{
 use fleet::{FleetIntent, FleetState};
 
 const MAX_BYTES: usize = 16 * 1024;
-const MAX_MEMBERS: usize = 32;
+pub(crate) const MAX_MEMBERS: usize = 32;
 
 // A configuration entry carries one bounded intent plus at most 32 small
 // protobuf changes. Bound decoding before allocating their repeated fields.
@@ -49,6 +49,16 @@ struct Binding {
     node: [u8; 16],
     disk: [u8; 16],
     joined_at: u64,
+}
+
+impl Binding {
+    fn joining_member(&self) -> Result<JoiningMember, LogError> {
+        Ok(JoiningMember {
+            member: MemberId::new(self.member).map_err(|_| invalid())?,
+            node: NodeId::new(self.node).map_err(|_| invalid())?,
+            disk: DiskLineage::new(self.disk).map_err(|_| invalid())?,
+        })
+    }
 }
 
 /// Persisted with the applied configuration, including across compaction. IDs
@@ -125,13 +135,39 @@ impl GroupMembership {
         self.high_water
     }
 
-    pub(crate) fn permits(&self, replica: &cellar_logic::consensus::ReplicaIdentity) -> bool {
+    pub(crate) fn has_node_binding(&self, node: NodeId) -> bool {
+        self.bindings
+            .iter()
+            .any(|binding| binding.node == node.bytes())
+    }
+
+    pub(crate) fn has_disk_binding(&self, disk: cellar_logic::consensus::DiskLineage) -> bool {
+        self.bindings
+            .iter()
+            .any(|binding| binding.disk == disk.bytes())
+    }
+
+    pub(crate) fn permits<S>(&self, replica: &cellar_logic::consensus::ReplicaIdentity<S>) -> bool
+    where
+        for<'a> cellar_logic::cell_group::GroupHistory: From<&'a S>,
+    {
         if self.validate_scope(&replica.scope).is_err() {
             return false;
         }
+        self.permits_binding(replica)
+    }
+
+    pub(crate) fn permits_group(
+        &self,
+        replica: &cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory>,
+    ) -> bool {
+        self.validate_scope(&replica.scope).is_ok() && self.permits_binding(replica)
+    }
+
+    fn permits_binding<S>(&self, replica: &cellar_logic::consensus::ReplicaIdentity<S>) -> bool {
         self.bindings
             .iter()
-            .find(|b| b.member == replica.member.get())
+            .find(|binding| binding.member == replica.member.get())
             .map_or_else(
                 || self.initial.contains(&replica.member.get()),
                 |binding| {
@@ -144,17 +180,14 @@ impl GroupMembership {
         self.bindings
             .iter()
             .find(|b| b.member == member.get())
-            .map(|b| {
-                Ok((
-                    JoiningMember {
-                        member,
-                        node: NodeId::new(b.node).map_err(|_| invalid())?,
-                        disk: DiskLineage::new(b.disk).map_err(|_| invalid())?,
-                    },
-                    LogIndex::new(b.joined_at),
-                ))
-            })
+            .map(|binding| Ok((binding.joining_member()?, LogIndex::new(binding.joined_at))))
             .transpose()
+    }
+
+    pub(crate) fn retained_lineages(
+        &self,
+    ) -> impl Iterator<Item = Result<JoiningMember, LogError>> + '_ {
+        self.bindings.iter().map(Binding::joining_member)
     }
 
     pub(crate) fn reserved_bytes(&self) -> usize {
@@ -285,6 +318,19 @@ impl GroupMembership {
             return Err(invalid());
         }
         Ok(intent)
+    }
+
+    pub(crate) fn admit_group(
+        &self,
+        change: &ConfChangeV2,
+        conf: &ConfState,
+        history: &cellar_logic::cell_group::GroupHistory,
+    ) -> Result<(), LogError> {
+        let intent = self.intent(change)?;
+        if self.fleet.is_none() && (self.repair.is_some() || intent.repair.is_some()) {
+            return Err(invalid());
+        }
+        self.admit_scoped(change, conf, history)
     }
 
     pub(crate) fn admit(&self, change: &ConfChangeV2, conf: &ConfState) -> Result<(), LogError> {

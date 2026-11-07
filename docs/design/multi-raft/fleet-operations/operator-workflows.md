@@ -23,6 +23,7 @@ flowchart LR
 Start with these sections; subsequent entries retain their original source and evidence scope:
 
 - [Delivered keep-set workflow](#delivered-keep-set-workflow)
+- [First managed group workflow](#first-managed-group-workflow)
 - [Delivered add-capacity workflow](#delivered-add-capacity-workflow)
 - [Failure-observation SDK workflow](#failure-observation-sdk-workflow)
 - [Automatic failure-recovery SDK workflow](#automatic-failure-recovery-sdk-workflow)
@@ -100,6 +101,103 @@ The API routes use `/api/v1/fleets/{fleet}/raft`:
 - Success carries the observed phase and terminal/converged flags; errors carry a typed `code`, `outcome`, and null phase/terminal.
 - CLI exit codes are 0 for the requested result, 2 invalid input, 3 conflict, 4 blocked/cancelled/authentication/authorization, 5 unavailable or unknown result, and 6 wait timeout.
 - Mutations are never retried automatically; exact caller retries are reconciled against the catalog.
+
+## First managed group workflow
+
+Provision a new native SQL namespace with
+`FleetCatalog::provision_managed_sql_namespace` and its compiled `RaftClass`.
+The SDK binds the fleet cluster and class schema, and declares a shared Raft
+standby with three voters, quorum writes and materialized images. Use
+`provision_managed_namespace` for an explicit namespace policy such as extent
+images. Configure the admin fleet with the resulting exact declaration. Bring
+up the three enrolled hosts and qualify and activate their capacity through
+the workflow below. Read the current catalog generation and revision before
+preparing the first group.
+
+A compiled application's one-shot bootstrap command can provision the same
+default standby before starting any voter. Run it with write access to the
+selected storage scope and an existing fleet catalog.
+
+```sh
+application --provision-sql-namespace sql-namespace.json --bucket "$FLEET_BUCKET"
+```
+
+The JSON plan contains `catalog_id`, `cluster_id`, `incarnation_id`,
+`coordination_prefix`, `catalog_prefix`, `namespace_id`, `script`, `version`,
+`class`, `principal`, `request_id`, `operation_id` and `expected_revision`.
+Use the exact compiled script version and Raft class. The optional
+`image_storage` field accepts `materialized` (the default) or `extents`.
+The receipt includes the selected image policy and schema digest for the
+admin and voter configuration.
+Retain the plan and retry it byte for byte after an unknown result.
+
+```sh
+cellar raft fleet first-group standby "$NAMESPACE" --fleet F --catalog-id "$CATALOG" --json
+cellar raft fleet first-group reserve "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \
+  --plan first-group.json --json
+cellar raft fleet first-group publish "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \
+  --plan first-group.json --request-id "$CONFIRMATION" --expected-revision "$CURRENT_REVISION" --json
+cellar raft fleet first-group archive "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \
+  --plan first-group.json --request-id "$ARCHIVE_REQUEST" --expected-revision "$PUBLISHED_REVISION" --json
+```
+
+Keep `first-group.json` with the catalog and namespace IDs, the returned
+`standby` digest, and the reservation's `request_id`, `operation_id` and
+`expected_revision`. Include `publication_id`, `group_id`,
+`incarnation_id` and `creation_id` identities and exactly three `voters`.
+Each voter has a registered `node_id` and a nonzero numeric `member_id`.
+List voters in increasing member ID order. Hex identities use lowercase and
+the same lengths as the node and fleet operations below.
+
+For an uninterrupted first-group setup, persist a single `setup.json` with
+`reservation` set to the full `first-group.json` object. Add `publication` and
+`archive`, each containing its own `request_id` and `expected_revision`. With
+exclusive fleet mutation during setup, use the reservation's revision plus one
+for publication and plus two for archive initialization.
+
+```sh
+cellar raft fleet first-group apply "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \
+  --plan setup.json --json
+```
+
+The CLI validates all three identities and the catalog pin before submission.
+It runs the existing authenticated operations in order under one 30-second
+deadline and returns the three verified receipts. An error from a specific
+stage describes that stage's outcome. Earlier stages may already be committed.
+Replay the saved plan after an unknown outcome. If a concurrent fleet change
+causes a definite revision conflict, use the individual stage commands to
+reconcile with the latest revision. Daemon readiness still requires the local
+member claim and a fresh quorum.
+
+Reserve checks live capacity and replica separation and binds the exact range
+mutation. Confirm with a distinct request ID at the observed fleet revision.
+Publish uses the original reservation and plan. Retry an uncertain reply with
+the same confirmation ID and revision. After a definite revision conflict,
+retain the plan and use a new confirmation request at the new revision. A
+published receipt describes catalog admission. Read the current revision again
+before submitting the archive request with its own ID. The archive command roots
+the exact initializer intent before creating registry state. Reconcile an unknown
+reply with the same request. An incomplete archive refuses verification and
+requires authority recovery. An archive receipt supplies no coverage or voter
+authority. For a compiled SQL application on its initial voters, use
+`NativeDaemon::managed_sql_namespace` with the cluster and namespace IDs, the
+startup timeout, resource preparation and the application binding. The daemon
+discovers the first full-range group, waits for the rooted archive and complete
+registry, validates or attaches the local voter and establishes fresh quorum
+under the same deadline. The binding receives the selected history after that
+barrier. The same entry point can reopen a retained initial voter while the
+first group and its membership remain selected.
+Managed retained boot discovers local replicas from its opened engine within
+the declared namespaces. Each replica still requires its selected catalog
+history, exact boot and membership authorization before attachment. Configure
+router placements explicitly.
+
+| Method and suffix under `/api/v1/fleets/{fleet}/raft` | Permission and result |
+| --- | --- |
+| `GET /namespaces/{namespace}/first-group/standby` | `metadata_read`; exact empty standby digest |
+| `POST /namespaces/{namespace}/first-group/reserve` | `fleet_topology`; exact plan and historical reservation receipt |
+| `POST /namespaces/{namespace}/first-group/publish` | `fleet_topology`; `plan`, `request_id`, `expected_revision` and historical publication receipt |
+| `POST /namespaces/{namespace}/first-group/archive` | `fleet_topology`; `plan`, `request_id`, `expected_revision` and exact archive initialization receipt |
 
 ## Delivered add-capacity workflow
 

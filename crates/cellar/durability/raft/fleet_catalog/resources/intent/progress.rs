@@ -222,7 +222,7 @@ impl FleetCatalog {
         preview: &FleetTopologyPreview,
         identity: FleetRequestIdentity,
         observer: &RaftCells,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<Option<FleetMovementAdmission>> {
         self.check_snapshot(&preview.snapshot)?;

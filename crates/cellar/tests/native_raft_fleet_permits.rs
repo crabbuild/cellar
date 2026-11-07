@@ -1,1040 +1,500 @@
-//! Managed permits through native SQLite hosts, real TLS links and retained
-//! engines. Catalog edits here stand in for the later typed fleet controller.
-#[path = "support/raft_catalog_fault.rs"]
-#[allow(dead_code)]
-mod catalog_fault;
-#[path = "support/raft_cluster.rs"]
-#[allow(dead_code)]
-mod cluster;
-#[path = "support/raft_namespace_import.rs"]
-mod namespace_import;
-#[path = "support/raft_fleet_observation.rs"]
-mod observation;
-#[path = "support/raft_node.rs"]
-#[allow(dead_code)]
-mod public_node;
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+//! Exact shared-group membership permits through rooted managed movement APIs.
+#![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};
-use cellar::application::consensus::verification::{
-    Catalog, CatalogOptions, FleetCatalog, FleetCatalogError, FleetChange, FleetMutation,
-    FleetTable,
+use cellar::sdk::{consensus::*, *};
+use managed_fixture::{
+    archives, inspect_current, movement, request, start_node, ArchiveSetup, FirstGroupSetup,
+    ManagedCluster,
 };
-use cellar::bucket::{Bucket, StorageBackend};
-use cellar::sdk::{consensus::*, ExecutionDomain};
-use object_store::{list::*, ObjectStore};
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-const TIMEOUT: Duration = Duration::from_secs(10);
+#[path = "support/raft_catalog_fault.rs"]
+pub mod catalog_fault;
 
-#[derive(Debug)]
-struct NoListing;
+#[path = "support/cell_group_managed_fixture.rs"]
+#[allow(dead_code, unused_imports)]
+mod managed_fixture;
 
-#[async_trait::async_trait]
-impl PaginatedListStore for NoListing {
-    async fn list_paginated(
-        &self,
-        _: Option<&str>,
-        _: PaginatedListOptions,
-    ) -> object_store::Result<PaginatedListResult> {
-        Err(object_store::Error::NotSupported {
-            source: "permit authority never lists objects".into(),
-        })
-    }
-}
-
-struct Fixture {
-    cluster: cluster::Cluster,
-    definitions: Vec<public_node::Counter>,
-    calls: Vec<Arc<AtomicUsize>>,
-    handles: Vec<RaftCellHandle>,
-    registration: RaftCellRegistration,
-    primary: usize,
-    domain: ExecutionDomain,
-    catalog: FleetCatalog,
-    binding: FleetGroupBinding,
-    _entered: tokio::sync::mpsc::UnboundedReceiver<()>,
-}
-
-async fn leader(domain: &ExecutionDomain, cells: &[RaftCellHandle]) -> Result<usize> {
-    Ok(leader_status(domain, cells).await?.0)
-}
-
-// Local readiness can briefly outlive isolation. Route at the highest
-// observed term; the guarded operation still has to establish its proof.
-async fn leader_status(
-    domain: &ExecutionDomain,
-    cells: &[RaftCellHandle],
-) -> Result<(usize, CellStatus)> {
-    Ok(domain
-        .run(cellar::asyncrt::timeout(TIMEOUT, async {
-            loop {
-                let mut highest_term = 0;
-                let mut ready = None;
-                for (index, cell) in cells.iter().enumerate() {
-                    if let Ok(status) = cell.status().await {
-                        if status.term.get() > highest_term {
-                            highest_term = status.term.get();
-                            ready = None;
-                        }
-                        if status.term.get() == highest_term && status.command_ready {
-                            ready = Some((index, status));
-                        }
-                    }
-                }
-                if let Some(ready) = ready {
-                    return ready;
-                }
-                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
-            }
-        }))
-        .await??)
-}
-
-impl Fixture {
-    async fn new() -> Result<Self> {
-        Self::create(true, true).await
-    }
-
-    async fn create(write_image: bool, enroll: bool) -> Result<Self> {
-        Self::configured(
-            write_image,
-            enroll,
-            RaftHostOptions::default(),
-            Arc::new(object_store::memory::InMemory::new()),
-        )
-        .await
-    }
-
-    async fn configured(
-        write_image: bool,
-        enroll: bool,
-        host: RaftHostOptions,
-        store: Arc<dyn ObjectStore>,
-    ) -> Result<Self> {
-        let (gate, entered) = public_node::Gate::new();
-        gate.release();
-        let calls: Vec<_> = (0..4).map(|_| Arc::new(AtomicUsize::new(0))).collect();
-        let definitions = calls
-            .iter()
-            .map(|n| public_node::counter(n.clone(), gate.clone()))
-            .collect::<Result<Vec<_>>>()?;
-        let scope = GroupScope {
-            cluster: ClusterId::new([1; 16])?,
-            namespace: NamespaceId::new([2; 16])?,
-            cell: "Counter:fleet".into(),
-            group: GroupId::new([55; 16])?,
-            incarnation: IncarnationId::new([3; 16])?,
-        };
-        let registration = RaftCellRegistration {
-            placement: RaftCellPlacement::Replica,
-            namespace: NamespaceConfig::new(
-                scope.cluster,
-                scope.namespace,
-                NamespaceMode::Raft,
-                definitions[0].schema,
-            ),
-            class: "Counter".into(),
-            birth: BirthProposal {
-                scope: scope.clone(),
-                voters: (1..=3)
-                    .map(|n| {
-                        Ok(InitialMember {
-                            member: MemberId::new(n)?,
-                            node: NodeId::new([n as u8; 16])?,
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-                learners: vec![],
-            },
-        };
-        let cluster = cluster::Cluster::start_with_standby_store(
-            &definitions,
-            vec![registration.clone()],
-            host,
-            store,
-        )
-        .await?;
-        let handles = cluster
-            .services
-            .iter()
-            .map(|s| s.cell(scope.namespace, &scope.cell))
-            .collect::<Result<Vec<_>, _>>()?;
-        let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
-        let primary = leader(&domain, &handles).await?;
-        let catalog = Self::open_catalog(&domain, cluster.store.clone())?;
-        catalog.initialize(TIMEOUT).await?;
-        let binding = catalog.group_binding(&scope)?;
-        let f = Self {
-            cluster,
-            definitions,
-            calls,
-            handles,
-            registration,
-            primary,
-            domain,
-            catalog,
-            binding,
-            _entered: entered,
-        };
-        let namespace = Catalog::new(
-            f.cluster.store.clone(),
-            CatalogOptions {
-                prefix: "partition/test".into(),
-                ..Default::default()
-            },
-        )?
-        .existing_namespace(f.registration.namespace.clone())
-        .await?;
-        let root = f.catalog.read(TIMEOUT).await?;
-        f.catalog
-            .declare_namespace(
-                &root,
-                &FleetRequestIdentity {
-                    id: [250; 16],
-                    operation: [251; 16],
-                    principal: "fixture-declaration".into(),
-                    expected_revision: root.revision(),
-                },
-                &namespace,
-                "Counter",
-                TIMEOUT,
-            )
-            .await?;
-        let birth = namespace
-            .birth(&scope.cell)
-            .await?
-            .context("selected birth")?;
-        let snapshot = f.catalog.read(TIMEOUT).await?;
-        f.catalog
-            .enroll_history(
-                &snapshot,
-                &FleetRequestIdentity {
-                    id: [10; 16],
-                    operation: [99; 16],
-                    principal: "permit-test".into(),
-                    expected_revision: snapshot.revision(),
-                },
-                &namespace,
-                &birth,
-                TIMEOUT,
-            )
-            .await?;
-        // Establish a real SQL image before metadata-only enrollment changes.
-        if write_image {
-            f.write(1, 5, true).await?;
-        }
-        let root = f.catalog.read(TIMEOUT).await?;
-        let authorization = f.catalog.authorize_group(&root, &scope, TIMEOUT).await?;
-        let expected = f.handles[primary].status().await?.membership_revision;
-        if enroll {
-            let enrolled = f.handles[primary]
-                .enroll_fleet(authorization, expected, TIMEOUT)
-                .await?;
-            ensure!(
-                enrolled.binding == f.binding
-                    && enrolled.consumed_sequence == 0
-                    && enrolled.permit.is_none()
-            );
-        }
-        Ok(f)
-    }
-
-    async fn change(&self, id: u8, table: FleetTable, value: Option<Vec<u8>>) -> Result<()> {
-        let root = self.catalog.read(TIMEOUT).await?;
-        self.catalog
-            .commit(
-                &root,
-                &FleetMutation {
-                    id: [id; 16],
-                    operation: [99; 16],
-                    expected_revision: root.revision(),
-                    principal: "native-test-controller".into(),
-                    changes: vec![FleetChange {
-                        table,
-                        key: self.binding.key()?,
-                        value,
-                    }],
-                },
-                TIMEOUT,
-            )
-            .await?;
-        Ok(())
-    }
-
-    async fn plan(&self, id: u8) -> Result<RepairPlan> {
-        Ok(RepairPlan {
-            id: ProposalId::new([id; 16])?,
-            policy_revision: 1,
-            expected_revision: self.handles[self.primary]
-                .status()
-                .await?
-                .membership_revision,
-            obsolete: MemberId::new(((self.primary + 1) % 3) as u64 + 1)?,
-            replacement: JoiningMember {
-                member: MemberId::new(4)?,
-                node: NodeId::new([4; 16])?,
-                disk: DiskLineage::new([13; 16])?,
-            },
-        })
-    }
-
-    async fn reserve(
-        &self,
-        sequence: u64,
-        id: u8,
-        plan: &RepairPlan,
-    ) -> Result<FleetPermitAuthorization> {
-        let permit = FleetMembershipPermit::new(
-            self.binding.clone(),
-            sequence,
-            ProposalId::new([id; 16])?,
-            ProposalId::new([99; 16])?,
-            plan,
-        )?;
-        self.change(id, FleetTable::Admissions, Some(permit.encode()?))
-            .await?;
-        let root = self.catalog.read(TIMEOUT).await?;
-        Ok(self
-            .catalog
-            .authorize_membership(&root, &self.registration.birth.scope, TIMEOUT)
-            .await?)
-    }
-
-    async fn write(&self, id: u8, value: i64, s3: bool) -> Result<CommandReceipt> {
-        let mut options = public_node::options(u64::from(id))?;
-        if s3 {
-            options.durability = Durability::S3;
-        }
-        Ok(self.handles[self.primary]
-            .command(
-                self.definitions[self.primary].increment.clone(),
-                value.to_be_bytes().to_vec(),
-                options,
-            )
-            .await?)
-    }
-
-    async fn strong(&self) -> Result<i64> {
-        let read = self.handles[self.primary]
-            .query(
-                self.definitions[self.primary].get.clone(),
-                vec![],
-                QueryOptions {
-                    consistency: QueryConsistency::Linearizable,
-                    ..Default::default()
-                },
-            )
-            .await?;
-        Ok(i64::from_be_bytes(read.result.as_slice().try_into()?))
-    }
-
-    async fn step(
-        &self,
-        authorization: &FleetPermitAuthorization,
-        step: RepairStep,
-    ) -> Result<RepairStatus> {
-        let mut last_status = None;
-        let mut last_refusal = None;
-        let result = self
-            .domain
-            .run(cellar::asyncrt::timeout(TIMEOUT, async {
-                loop {
-                    // A repair survives leader loss. Route the same permit
-                    // and idempotent step to a freshly observed leader; the
-                    // initial fixture leader is not permanent authority.
-                    let (primary, status) = leader_status(&self.domain, &self.handles).await?;
-                    let expected = status.membership_revision;
-                    last_status = Some((primary, status));
-                    match self.handles[primary]
-                        .advance_managed_repair(
-                            authorization.clone(),
-                            step,
-                            expected,
-                            Duration::from_secs(2),
-                        )
-                        .await
-                    {
-                        Ok(status) => return Ok(status),
-                        Err(
-                            error @ (CommandFailure::Unavailable
-                            | CommandFailure::Overloaded
-                            | CommandFailure::NotLeader { .. }),
-                        ) => {
-                            last_refusal = Some(error);
-                            cellar::asyncrt::sleep(Duration::from_millis(10)).await
-                        }
-                        Err(error) => return Err(error.into()),
-                    }
-                }
-            }))
-            .await?;
-        result.map_err(anyhow::Error::from).and_then(|status| status)
-            .with_context(|| format!(
-                "managed repair {step:?}: last leader status {last_status:?}, refusal {last_refusal:?}",
-            ))
-    }
-
-    fn activation(&self, from_s3: bool) -> Result<LearnerActivation> {
-        Ok(LearnerActivation {
-            member: MemberId::new(4)?,
-            source: MemberId::new(self.primary as u64 + 1)?,
-            source_node: NodeId::new([self.primary as u8 + 1; 16])?,
-            from_s3,
-            timeout: TIMEOUT,
-        })
-    }
-
-    async fn standby(&mut self) -> Result<RaftCellHandle> {
-        let service = self
-            .cluster
-            .join_standby(
-                self.definitions[3].application.clone(),
-                RaftCellPlacement::Standby,
-            )
-            .await?;
-        let cell = service.cell(
-            self.registration.namespace.namespace,
-            &self.registration.birth.scope.cell,
-        )?;
-        self.handles.push(cell.clone());
-        Ok(cell)
-    }
-
-    async fn observed(
-        &self,
-        cell: &RaftCellHandle,
-        sequence: u64,
-        phase: FleetPermitPhase,
-    ) -> Result<FleetMembershipStatus> {
-        self.domain
-            .run(cellar::asyncrt::timeout(TIMEOUT, async {
-                loop {
-                    if let Some(status) = cell.fleet_membership_status().await? {
-                        if status.consumed_sequence == sequence && status.phase == Some(phase) {
-                            return Ok(status);
-                        }
-                    }
-                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
-                }
-            }))
-            .await?
-            .context("expected durable fleet phase not observed")?
-    }
-
-    fn open_catalog(domain: &ExecutionDomain, store: Arc<dyn ObjectStore>) -> Result<FleetCatalog> {
-        let bucket = Bucket::from_clients(
-            store.clone(),
-            store,
-            Arc::new(NoListing),
-            StorageBackend::S3,
-            "fleet-permits".into(),
-            "".into(),
-        )?;
-        Ok(FleetCatalog::new(
-            domain,
-            bucket,
-            ClusterId::new([1; 16])?,
-            IncarnationId::new([80; 16])?,
-            "coordination/",
-        )?)
-    }
-
-    async fn restart(mut self) -> Result<Self> {
-        ensure!(
-            self.handles.len() == 4,
-            "all retained engines must exist before Resume"
-        );
-        self.cluster = self
-            .cluster
-            .restart(
-                &self.definitions,
-                vec![self.registration.clone()],
-                vec![
-                    RaftCellPlacement::Replica,
-                    RaftCellPlacement::Replica,
-                    RaftCellPlacement::Replica,
-                    RaftCellPlacement::Standby,
-                ],
-                Box::new(|_| Box::pin(async { Ok(()) })),
-            )
-            .await?;
-        self.handles = self
-            .cluster
-            .services
-            .iter()
-            .map(|s| {
-                s.cell(
-                    self.registration.namespace.namespace,
-                    &self.registration.birth.scope.cell,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        self.primary = leader(&self.domain, &self.handles).await?;
-        self.catalog = Self::open_catalog(&self.domain, self.cluster.store.clone())?;
-        Ok(self)
-    }
-
-    async fn close(self) -> Result<()> {
-        self.cluster.close().await?;
-        self.domain.shutdown().await;
-        Ok(())
-    }
-}
+#[path = "support/raft_fleet_permits_shared.rs"]
+mod fixture;
+use fixture::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_permit_delayed_after_cancel() -> Result<()> {
-    let mut f = Fixture::new().await?;
-    // The reserved replacement receives protocol traffic once the plan starts.
-    // Start its real dormant process; activation still requires normal seeding.
-    f.standby().await?;
-    let plan = f.plan(40).await?;
-    let cached = f.reserve(1, 20, &plan).await?;
-    let status = f.handles[f.primary]
-        .fence_fleet_permit(cached.clone(), TIMEOUT)
-        .await?;
-    ensure!(status.consumed_sequence == 1 && status.phase == Some(FleetPermitPhase::Fenced));
-    // This quorum read is separate from local status and precedes the simulated
-    // controller release. FO-06 owns typed terminal proof/root reconciliation.
-    assert_eq!(f.strong().await?, 5);
-    f.change(21, FleetTable::Admissions, None).await?;
-    let root = f.catalog.read(TIMEOUT).await?;
-    ensure!(matches!(
-        f.catalog
-            .authorize_membership(&root, &f.registration.birth.scope, TIMEOUT)
-            .await,
-        Err(FleetCatalogError::Conflict)
-    ));
-    ensure!(matches!(
-        f.handles[f.primary]
-            .begin_managed_repair(cached.clone(), plan, TIMEOUT)
-            .await,
-        Err(CommandFailure::CommandConflict)
-    ));
-    ensure!(f.handles[f.primary].repair_status().await?.is_none());
-    assert_eq!(f.handles[f.primary].status().await?.member_high_water, 3);
-    assert_eq!(
-        f.handles[f.primary]
-            .fence_fleet_permit(cached.clone(), TIMEOUT)
-            .await?,
-        status
-    );
-    let next = f.plan(41).await?;
-    let authorization = f.reserve(2, 22, &next).await?;
-    let repair = f.handles[f.primary]
-        .begin_managed_repair(authorization.clone(), next, TIMEOUT)
-        .await?;
-    ensure!(repair.phase == RepairPhase::Seeding);
-    ensure!(f.handles[f.primary]
-        .fence_fleet_permit(cached, TIMEOUT)
-        .await
-        .is_err());
-    assert_eq!(
-        f.step(&authorization, RepairStep::AbortLearner)
-            .await?
-            .phase,
-        RepairPhase::Aborted
-    );
-    f.close().await
+    qualify(false, async |f| {
+        let reserved = f.reserve(210).await?;
+        let fenced = f
+            .group(f.primary)?
+            .fence_fleet_permit(reserved.permit.clone(), TIMEOUT)
+            .await?;
+        let guard = status(&fenced)?;
+        ensure!(guard.consumed_sequence == 1 && guard.phase == Some(FleetPermitPhase::Fenced));
+        drop(fenced);
+        ensure!(f.strong(f.primary).await? == 5);
+        f.settle(&reserved, 230, FleetPermitPhase::Fenced).await?;
+        // Settlement keeps the historical permit. Even a freshly read
+        // authorization cannot restart the quorum-fenced sequence.
+        let reconciled = f.catalog_permit().await?;
+        ensure!(f
+            .group(f.primary)?
+            .begin_managed_repair(
+                reserved.group.clone(),
+                reconciled,
+                reserved.plan.clone(),
+                TIMEOUT,
+            )
+            .await
+            .is_err());
+        ensure!(f.begin(f.primary, &reserved).await.is_err());
+        let fenced = f
+            .group(f.primary)?
+            .fence_fleet_permit(reserved.permit.clone(), TIMEOUT)
+            .await?;
+        ensure!(status(&fenced)? == guard && fenced.membership().high_water() == 3);
+        ensure!(fenced.membership().repair_status()?.is_none());
+        drop(fenced);
+
+        let next = f.reserve(212).await?;
+        ensure!(next.expected.sequence() == 2);
+        verify_phase(
+            &f.begin(f.primary, &next).await?,
+            &next,
+            FleetPermitPhase::Seeding,
+        )?;
+        ensure!(f
+            .group(f.primary)?
+            .fence_fleet_permit(reserved.permit, TIMEOUT)
+            .await
+            .is_err());
+        f.advance(&next, RepairStep::AbortLearner, FleetPermitPhase::Aborted)
+            .await?;
+        Ok(())
+    })
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_permit_repair_step_follows_new_quorum_leader() -> Result<()> {
-    let mut f = Fixture::new().await?;
-    f.standby().await?;
-    let plan = f.plan(40).await?;
-    let authorization = f.reserve(1, 20, &plan).await?;
-    let repair = f.handles[f.primary]
-        .begin_managed_repair(authorization.clone(), plan, TIMEOUT)
+    qualify(false, async |f| {
+        let reserved = f.reserve(210).await?;
+        let source = f.primary;
+        let began = f.begin(source, &reserved).await?;
+        verify_phase(&began, &reserved, FleetPermitPhase::Seeding)?;
+        let term = began.status().term;
+        drop(began);
+        f.stop(source).await?;
+        let (leader, successor_term) = f.leader().await?;
+        ensure!(leader != source && successor_term > term);
+        f.advance(
+            &reserved,
+            RepairStep::AbortLearner,
+            FleetPermitPhase::Aborted,
+        )
         .await?;
-    ensure!(repair.phase == RepairPhase::Seeding);
-    let (source, status) = leader_status(&f.domain, &f.handles).await?;
-    ensure!(source == f.primary);
-    // Optional transfers correctly refuse an active repair. Exercise actual
-    // leader loss instead, retaining the same permit and committed plan.
-    f.cluster.isolate_consensus(source).await?;
-    let survivors = f
-        .handles
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| *index != source)
-        .map(|(_, cell)| cell.clone())
-        .collect::<Vec<_>>();
-    let (_, successor) = leader_status(&f.domain, &survivors).await?;
-    ensure!(successor.term > status.term);
-    let advanced = f.step(&authorization, RepairStep::AbortLearner).await;
-    if advanced.is_err() {
-        for (index, cell) in f.handles.iter().enumerate() {
-            eprintln!("stalled repair node {index}: {:?}", cell.status().await);
-        }
-    }
-    f.cluster.heal();
-    let closed = f.close().await;
-    let advanced = advanced.with_context(|| format!("joined repair fixture: {closed:?}"))?;
-    ensure!(advanced.phase == RepairPhase::Aborted);
-    closed
+        ensure!(f.strong(leader).await? == 5);
+        f.ensure_pending(&reserved).await?;
+        Ok(())
+    })
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_permit_crash_recovery() -> Result<()> {
-    let mut f = Fixture::new().await?;
-    // An empty registered host has an actual intact engine to resume; no
-    // learner or SQL image is initialized by this step.
-    f.standby().await?;
-    let plan = f.plan(40).await?;
-    f.reserve(1, 20, &plan).await?;
-    let calls: Vec<_> = f.calls.iter().map(|n| n.load(Ordering::SeqCst)).collect();
-    f = f.restart().await.context("restart after reservation")?;
-    assert_eq!(
-        f.handles[f.primary]
-            .fleet_membership_status()
-            .await?
-            .unwrap()
-            .consumed_sequence,
-        0
-    );
-    let root = f.catalog.read(TIMEOUT).await?;
-    let authorization = f
-        .catalog
-        .authorize_membership(&root, &f.registration.birth.scope, TIMEOUT)
-        .await?;
-    // An unpolled returned future still represents a submitted configuration.
-    let lost =
-        f.handles[f.primary].begin_managed_repair(authorization.clone(), plan.clone(), TIMEOUT);
-    let consumed = f
-        .observed(&f.handles[f.primary], 1, FleetPermitPhase::Seeding)
-        .await?;
-    drop(lost);
-    f = f
-        .restart()
-        .await
-        .context("restart after committed plan/lost response")?;
-    let restored = f.handles[f.primary]
-        .fleet_membership_status()
-        .await?
-        .context("fleet guard lost on engine reopen")?;
-    assert_eq!(restored, consumed);
-    let resumed = f.handles[f.primary]
-        .begin_managed_repair(authorization.clone(), plan.clone(), TIMEOUT)
-        .await?;
-    ensure!(resumed.phase == RepairPhase::Seeding && resumed.changed_at == consumed.changed_at);
-    assert_eq!(
-        f.calls
-            .iter()
-            .map(|n| n.load(Ordering::SeqCst))
-            .collect::<Vec<_>>(),
-        calls
-    );
-    let terminal = f.step(&authorization, RepairStep::AbortLearner).await?;
-    assert_eq!(terminal.phase, RepairPhase::Aborted);
-    assert_eq!(f.strong().await?, 5);
-    f.change(21, FleetTable::Admissions, None).await?;
-    f = f
-        .restart()
-        .await
-        .context("restart after terminal receipt/release")?;
-    assert_eq!(
-        f.handles[f.primary]
-            .begin_managed_repair(authorization, plan, TIMEOUT)
-            .await?,
-        terminal
-    );
-    let root = f.catalog.read(TIMEOUT).await?;
-    ensure!(matches!(
-        f.catalog
-            .authorize_membership(&root, &f.registration.birth.scope, TIMEOUT)
-            .await,
-        Err(FleetCatalogError::Conflict)
-    ));
-    assert_eq!(
-        f.calls
-            .iter()
-            .map(|n| n.load(Ordering::SeqCst))
-            .collect::<Vec<_>>(),
-        calls
-    );
-    f.close().await
+    qualify(false, async |f| {
+        let reserved = f.reserve(210).await?;
+        let calls = f.counts();
+        // The spare's original boot owns the reservation throughout this voter
+        // restart. Changing it would require independent capacity settlement.
+        f.restart_voters(40).await?;
+        let selected = f.group(f.primary)?.quorum_membership(TIMEOUT).await?;
+        ensure!(status(&selected)?.consumed_sequence == 0 && status(&selected)?.permit.is_none());
+        drop(selected);
+        let reopened_permit = f.catalog_permit().await?;
+
+        let lost = tokio::spawn(f.group(f.primary)?.begin_managed_repair(
+            reserved.group.clone(),
+            reopened_permit,
+            reserved.plan.clone(),
+            TIMEOUT,
+        ));
+        let consumed = f
+            .wait_phase(f.primary, &reserved, FleetPermitPhase::Seeding)
+            .await?;
+        // The independent quorum observation owns the evidence. Discard the
+        // original reply even if its producer already finished.
+        lost.abort();
+        let _ = lost.await;
+        f.restart_voters(50).await?;
+        let restored = f
+            .wait_phase(f.primary, &reserved, FleetPermitPhase::Seeding)
+            .await?;
+        ensure!(restored == consumed);
+        let resumed = f.begin(f.primary, &reserved).await?;
+        ensure!(status(&resumed)? == consumed);
+        drop(resumed);
+        ensure!(f.counts() == calls);
+
+        let terminal = f
+            .advance(
+                &reserved,
+                RepairStep::AbortLearner,
+                FleetPermitPhase::Aborted,
+            )
+            .await?;
+        ensure!(f.strong(f.primary).await? == 5);
+        let refused = f
+            .settle(&reserved, 230, FleetPermitPhase::Aborted)
+            .await
+            .expect_err("new voter boots released the old physical debit");
+        ensure!(
+            matches!(
+                refused.downcast_ref::<FleetCatalogError>(),
+                Some(FleetCatalogError::Unconfirmed)
+            ),
+            "retained boot settlement: {refused:#}"
+        );
+        f.ensure_pending(&reserved).await?;
+        f.restart_voters(60).await?;
+        let replay = f
+            .advance(
+                &reserved,
+                RepairStep::AbortLearner,
+                FleetPermitPhase::Aborted,
+            )
+            .await?;
+        ensure!(replay == terminal);
+        let delayed = f
+            .group(f.primary)?
+            .begin_managed_repair(
+                reserved.group.clone(),
+                reserved.permit.clone(),
+                reserved.plan.clone(),
+                TIMEOUT,
+            )
+            .await;
+        ensure!(matches!(
+            delayed,
+            Err(CellGroupControlError::Refused(
+                RuntimeError::StaleCompletion
+            ))
+        ));
+        ensure!(f.counts() == calls);
+        f.ensure_pending(&reserved).await?;
+        Ok(())
+    })
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_permit_joint_cancel() -> Result<()> {
-    let mut f = Fixture::new().await?;
-    let plan = f.plan(40).await?;
-    let authorization = f.reserve(1, 20, &plan).await?;
-    f.handles[f.primary]
-        .begin_managed_repair(authorization.clone(), plan.clone(), TIMEOUT)
-        .await?;
-    let target = f.standby().await?;
-    target
-        .activate_managed_learner(authorization.clone(), f.activation(false)?)
-        .await?;
-    assert_eq!(
-        f.step(&authorization, RepairStep::PromoteAndRemove)
-            .await?
-            .phase,
-        RepairPhase::Joint
-    );
-    let joint_guard = f.observed(&target, 1, FleetPermitPhase::Joint).await?;
-    ensure!(f.handles[f.primary]
-        .fence_fleet_permit(authorization.clone(), TIMEOUT)
-        .await
-        .is_err());
-    let expected = f.handles[f.primary].status().await?.membership_revision;
-    ensure!(f.handles[f.primary]
-        .advance_managed_repair(
-            authorization.clone(),
-            RepairStep::AbortLearner,
-            expected,
-            TIMEOUT
-        )
-        .await
-        .is_err());
-    // Preserve only the leader and incoming target: new majority exists, old
-    // majority does not. Neither a cancellation nor finish may invent it.
-    for (index, service) in f.cluster.services[..3].iter().enumerate() {
-        if index != f.primary {
-            ensure!(service.close().await?.unfinished.is_empty());
-        }
-    }
-    ensure!(f.handles[f.primary]
-        .advance_managed_repair(
-            authorization.clone(),
-            RepairStep::FinishJoint,
-            expected,
-            Duration::from_millis(500)
-        )
-        .await
-        .is_err());
-    assert_eq!(
-        f.handles[f.primary]
-            .fleet_membership_status()
-            .await?
-            .unwrap()
-            .phase,
-        Some(FleetPermitPhase::Joint)
-    );
-    let root = f.catalog.read(TIMEOUT).await?;
-    ensure!(f
-        .catalog
-        .get(&root, FleetTable::Admissions, &f.binding.key()?, TIMEOUT)
-        .await?
-        .is_some());
-    let ns = f.registration.namespace.namespace;
-    let name = f.registration.birth.scope.cell.clone();
-    let get = f.definitions[3].get.clone();
-    let group_authorization = f
-        .catalog
-        .authorize_group(&root, &f.registration.birth.scope, TIMEOUT)
-        .await?;
-    for cell in [&f.handles[f.primary], &target] {
-        ensure!(
-            cell.observe_fleet_membership(group_authorization.clone(), Duration::from_millis(500),)
-                .await
-                .is_err(),
-            "a new majority alone cannot authorize a joint observation"
-        );
-    }
-    let reopen_authorization = group_authorization.clone();
-    f.cluster = f
-        .cluster
-        .restart(
-            &f.definitions,
-            vec![f.registration.clone()],
-            vec![
-                RaftCellPlacement::Replica,
-                RaftCellPlacement::Replica,
-                RaftCellPlacement::Replica,
-                RaftCellPlacement::Standby,
-            ],
-            Box::new(move |service| {
-                Box::pin(async move {
-                    let cell = service.cell(ns, &name)?;
-                    assert_eq!(cell.fleet_membership_status().await?, Some(joint_guard));
-                    let read = cell
-                        .query(
-                            get,
-                            vec![],
-                            QueryOptions {
-                                consistency: QueryConsistency::Linearizable,
-                                timeout: Duration::from_millis(200),
-                                ..Default::default()
-                            },
-                        )
-                        .await;
-                    ensure!(
-                        matches!(read, Err(CommandFailure::VersionUnavailable)),
-                        "retained joint target bypassed the missing old majority: {read:?}"
-                    );
-                    ensure!(
-                        cell.observe_fleet_membership(
-                            reopen_authorization,
-                            Duration::from_millis(200),
-                        )
-                        .await
-                        .is_err(),
-                        "reopened joint metadata bypassed the missing old majority"
-                    );
-                    Ok(())
-                })
-            }),
-        )
-        .await?;
-    f.handles = f
-        .cluster
-        .services
-        .iter()
-        .map(|s| {
-            s.cell(
-                f.registration.namespace.namespace,
-                &f.registration.birth.scope.cell,
+    qualify(false, async |f| {
+        let reserved = f.reserve(210).await?;
+        verify_phase(
+            &f.begin(f.primary, &reserved).await?,
+            &reserved,
+            FleetPermitPhase::Seeding,
+        )?;
+        f.activate(&reserved, f.primary, false).await?;
+        let joint = f
+            .advance(
+                &reserved,
+                RepairStep::PromoteAndRemove,
+                FleetPermitPhase::Joint,
             )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    f.primary = leader(&f.domain, &f.handles).await?;
-    assert_eq!(
-        f.step(&authorization, RepairStep::FinishJoint).await?.phase,
-        RepairPhase::Complete
-    );
-    let terminal = f
-        .observed(&f.handles[f.primary], 1, FleetPermitPhase::Complete)
-        .await?;
-    ensure!(
-        terminal.permit
-            == Some(FleetMembershipPermit::new(
-                f.binding.clone(),
-                1,
-                ProposalId::new([20; 16])?,
-                ProposalId::new([99; 16])?,
-                &plan
-            )?)
-    );
-    let fresh = f.handles[f.primary]
-        .observe_fleet_membership(group_authorization, TIMEOUT)
-        .await?;
-    assert_eq!(fresh.status(), &terminal);
-    ensure!(fresh.configuration().outgoing_voters().is_empty());
-    ensure!(fresh.applied().index >= fresh.barrier());
-    assert_eq!(f.strong().await?, 5);
-    f.change(21, FleetTable::Admissions, None).await?;
-    f.close().await
+            .await?;
+        ensure!(
+            f.wait_phase(SPARE, &reserved, FleetPermitPhase::Joint)
+                .await?
+                == joint
+        );
+        let primary = f.primary;
+        let group = f.group(primary)?;
+        ensure!(group
+            .fence_fleet_permit(reserved.permit.clone(), TIMEOUT)
+            .await
+            .is_err());
+        let revision = group.observe(TIMEOUT).await?.membership_revision;
+        ensure!(group
+            .advance_managed_repair(
+                reserved.group.clone(),
+                reserved.permit.clone(),
+                RepairStep::AbortLearner,
+                revision,
+                TIMEOUT,
+            )
+            .await
+            .is_err());
+
+        // Keep a majority of the incoming voters while losing the old majority.
+        for voter in 0..SPARE {
+            if voter != primary {
+                f.stop(voter).await?;
+            }
+        }
+        ensure!(group
+            .advance_managed_repair(
+                reserved.group.clone(),
+                reserved.permit.clone(),
+                RepairStep::FinishJoint,
+                revision,
+                SHORT,
+            )
+            .await
+            .is_err());
+        ensure!(group.observe(TIMEOUT).await?.membership_revision == revision);
+        f.ensure_pending(&reserved).await?;
+        for index in [primary, SPARE] {
+            ensure!(f
+                .group(index)?
+                .observe_fleet_membership(reserved.group.clone(), SHORT)
+                .await
+                .is_err());
+        }
+
+        f.stop(SPARE).await?;
+        f.reopen(SPARE, 45).await?;
+        let retained = f.group(SPARE)?;
+        ensure!(retained.observe(TIMEOUT).await?.membership_revision == revision);
+        let refused = f.read(SPARE, QueryConsistency::Linearizable, SHORT).await;
+        let refused = refused.expect_err("retained joint read bypassed the missing old majority");
+        ensure!(
+            matches!(
+                refused
+                    .downcast_ref::<Arc<CellDispatchError>>()
+                    .map(Arc::as_ref),
+                Some(CellDispatchError::Runtime(
+                    RuntimeError::DeadlineExceeded | RuntimeError::NotReady
+                ))
+            ),
+            "retained joint read outcome: {refused:?}"
+        );
+        ensure!(retained
+            .observe_fleet_membership(reserved.group.clone(), SHORT)
+            .await
+            .is_err());
+
+        for voter in 0..SPARE {
+            if voter != primary {
+                f.reopen(voter, 50 + voter as u8).await?;
+            }
+        }
+        let terminal = f
+            .advance(
+                &reserved,
+                RepairStep::FinishJoint,
+                FleetPermitPhase::Complete,
+            )
+            .await?;
+        let fresh = f
+            .group(f.primary)?
+            .observe_fleet_membership(reserved.group.clone(), TIMEOUT)
+            .await?;
+        ensure!(status(&fresh)? == terminal);
+        ensure!(fresh.configuration().voters_outgoing.is_empty());
+        ensure!(fresh.status().applied.index >= fresh.barrier().index);
+        ensure!(f.strong(f.primary).await? == 5);
+        // The retained learner changed boot. Completion of consensus does
+        // not release the original destination's physical capacity debit.
+        f.ensure_pending(&reserved).await?;
+        Ok(())
+    })
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_permit_snapshot_roundtrip() -> Result<()> {
     for from_s3 in [false, true] {
-        let mut f = Fixture::new().await?;
-        let plan = f.plan(40).await?;
-        let authorization = f.reserve(1, 20, &plan).await?;
-        f.handles[f.primary]
-            .begin_managed_repair(authorization.clone(), plan, TIMEOUT)
-            .await?;
-        let receipt = f.write(2, 1, true).await?;
-        let before = f.handles[f.primary].fleet_membership_status().await?;
-        let target = f.standby().await?;
-        target
-            .activate_managed_learner(authorization.clone(), f.activation(from_s3)?)
-            .await?;
-        let read = target
-            .query(
-                f.definitions[3].get.clone(),
-                vec![],
-                QueryOptions {
-                    consistency: QueryConsistency::AtLeast(receipt.version_token),
-                    ..Default::default()
-                },
+        qualify(from_s3, async |f| {
+            let reserved = f.reserve(210).await?;
+            let began = f.begin(f.primary, &reserved).await?;
+            let before = status(&began)?;
+            drop(began);
+            let receipt = f.write(2, 1, Durability::S3).await?;
+            let target = f.activate(&reserved, f.primary, from_s3).await?;
+            ensure!(target == before);
+            let read = f
+                .read(
+                    SPARE,
+                    QueryConsistency::AtLeast(receipt.version_token),
+                    TIMEOUT,
+                )
+                .await?;
+            ensure!(read.result == 6_i64.to_be_bytes() && read.served_by == MemberId::new(4)?);
+            ensure!(f.counts()[SPARE] == 0, "seed reran application commands");
+            f.advance(
+                &reserved,
+                RepairStep::PromoteAndRemove,
+                FleetPermitPhase::Joint,
             )
             .await?;
-        assert_eq!(read.result, 6_i64.to_be_bytes());
-        assert_eq!(target.fleet_membership_status().await?, before);
-        assert_eq!(
-            f.calls[3].load(Ordering::SeqCst),
-            0,
-            "snapshot recovery reran application commands"
-        );
-        ensure!(target
-            .activate_learner(f.activation(from_s3)?)
-            .await
-            .is_err());
-        assert_eq!(
-            f.step(&authorization, RepairStep::PromoteAndRemove)
-                .await?
-                .phase,
-            RepairPhase::Joint
-        );
-        assert_eq!(
-            f.step(&authorization, RepairStep::FinishJoint).await?.phase,
-            RepairPhase::Complete
-        );
-        f.observed(&target, 1, FleetPermitPhase::Complete).await?;
-        target
-            .activate_managed_learner(authorization.clone(), f.activation(from_s3)?)
-            .await?;
-        ensure!(f.handles[f.primary]
-            .fence_fleet_permit(authorization, TIMEOUT)
-            .await
-            .is_err());
-        f.close().await?;
+            let complete = f
+                .advance(
+                    &reserved,
+                    RepairStep::FinishJoint,
+                    FleetPermitPhase::Complete,
+                )
+                .await?;
+            ensure!(
+                f.wait_phase(SPARE, &reserved, FleetPermitPhase::Complete)
+                    .await?
+                    == complete
+            );
+            ensure!(f.activate(&reserved, f.primary, from_s3).await? == complete);
+            ensure!(f
+                .group(f.primary)?
+                .fence_fleet_permit(reserved.permit, TIMEOUT)
+                .await
+                .is_err());
+            Ok(())
+        })
+        .await?;
     }
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_permit_quorumless_fence() -> Result<()> {
-    let f = Fixture::new().await?;
-    let plan = f.plan(40).await?;
-    let authorization = f.reserve(1, 20, &plan).await?;
-    for (index, service) in f.cluster.services.iter().enumerate() {
-        if index != f.primary {
-            ensure!(service.close().await?.unfinished.is_empty());
+    qualify(false, async |f| {
+        let reserved = f.reserve(210).await?;
+        let group = f.group(f.primary)?;
+        let before = group.observe(TIMEOUT).await?.membership_revision;
+        for voter in 0..SPARE {
+            if voter != f.primary {
+                f.stop(voter).await?;
+            }
         }
-    }
-    ensure!(f.handles[f.primary]
-        .fence_fleet_permit(authorization.clone(), Duration::from_millis(500))
-        .await
-        .is_err());
-    let status = f.handles[f.primary]
-        .fleet_membership_status()
-        .await?
-        .unwrap();
-    assert_eq!(status.consumed_sequence, 0);
-    assert!(status.permit.is_none());
-    let root = f.catalog.read(TIMEOUT).await?;
-    ensure!(f
-        .catalog
-        .get(&root, FleetTable::Admissions, &f.binding.key()?, TIMEOUT)
-        .await?
-        .is_some());
-    ensure!(f.handles[f.primary]
-        .begin_managed_repair(authorization, plan, Duration::from_millis(500))
-        .await
-        .is_err());
-    f.close().await
+        ensure!(group
+            .fence_fleet_permit(reserved.permit.clone(), SHORT)
+            .await
+            .is_err());
+        ensure!(group
+            .begin_managed_repair(
+                reserved.group.clone(),
+                reserved.permit.clone(),
+                reserved.plan.clone(),
+                SHORT,
+            )
+            .await
+            .is_err());
+        ensure!(group.observe(TIMEOUT).await?.membership_revision == before);
+        f.ensure_pending(&reserved).await?;
+        Ok(())
+    })
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_permit_no_manual_bypass() -> Result<()> {
-    let mut f = Fixture::new().await?;
-    let plan = f.plan(40).await?;
-    let authorization = f.reserve(1, 20, &plan).await?;
-    ensure!(matches!(
-        f.handles[f.primary]
-            .begin_repair(plan.clone(), TIMEOUT)
-            .await,
-        Err(CommandFailure::UnsupportedCapability)
-    ));
-    ensure!(matches!(
-        f.handles[f.primary]
-            .add_learner(
-                plan.replacement.clone(),
-                LearnerOptions {
-                    expected_revision: plan.expected_revision,
-                    timeout: TIMEOUT
-                }
-            )
-            .await,
-        Err(CommandFailure::UnsupportedCapability)
-    ));
-    let mut changed = plan.clone();
-    changed.policy_revision += 1;
-    ensure!(f.handles[f.primary]
-        .begin_managed_repair(authorization.clone(), changed, TIMEOUT)
-        .await
-        .is_err());
-    f.handles[f.primary]
-        .begin_managed_repair(authorization.clone(), plan.clone(), TIMEOUT)
-        .await?;
-    let expected = f.handles[f.primary].status().await?.membership_revision;
-    ensure!(matches!(
-        f.handles[f.primary]
-            .advance_repair(plan.id, RepairStep::AbortLearner, expected, TIMEOUT)
-            .await,
-        Err(CommandFailure::UnsupportedCapability)
-    ));
-    ensure!(
-        matches!(
-            f.handles[f.primary]
-                .add_learner(
-                    plan.replacement,
-                    LearnerOptions {
-                        expected_revision: expected,
-                        timeout: TIMEOUT
-                    }
+    qualify(false, async |f| {
+        let reserved = f.reserve(210).await?;
+        let source = f.group(f.primary)?;
+        let mut changed = reserved.plan.clone();
+        changed.policy_revision += 1;
+        ensure!(matches!(
+            source
+                .begin_managed_repair(
+                    reserved.group.clone(),
+                    reserved.permit.clone(),
+                    changed,
+                    TIMEOUT,
                 )
                 .await,
-            Err(CommandFailure::UnsupportedCapability)
-        ),
-        "idempotent learner ingress bypassed the guard"
-    );
-    let target = f.standby().await?;
-    ensure!(target.activate_learner(f.activation(false)?).await.is_err());
-    ensure!(matches!(
-        target.status().await,
-        Err(CommandFailure::UnsupportedCapability)
-    ));
-    target
-        .activate_managed_learner(authorization.clone(), f.activation(false)?)
+            Err(CellGroupControlError::Refused(_))
+        ));
+        ensure!(source
+            .advance_managed_repair(
+                reserved.group.clone(),
+                reserved.permit.clone(),
+                RepairStep::AbortLearner,
+                reserved.plan.expected_revision,
+                TIMEOUT,
+            )
+            .await
+            .is_err());
+        ensure!(
+            f.activate(&reserved, f.primary, false).await.is_err(),
+            "unconsumed permit seeded a learner"
+        );
+        ensure!(f.group(SPARE).is_err());
+        verify_phase(
+            &f.begin(f.primary, &reserved).await?,
+            &reserved,
+            FleetPermitPhase::Seeding,
+        )?;
+        let mut wrong = f.activation(f.primary, false)?;
+        wrong.member = MemberId::new(5)?;
+        ensure!(f.cluster.hosts[SPARE]
+            .activate_managed_learner_group(reserved.group.clone(), reserved.permit.clone(), wrong)
+            .await
+            .is_err());
+        ensure!(f.group(SPARE).is_err());
+        let seeded = f.activate(&reserved, f.primary, false).await?;
+        ensure!(seeded.phase == Some(FleetPermitPhase::Seeding));
+        f.advance(
+            &reserved,
+            RepairStep::AbortLearner,
+            FleetPermitPhase::Aborted,
+        )
         .await?;
-    ensure!(target.activate_learner(f.activation(false)?).await.is_err());
-    assert_eq!(
-        f.step(&authorization, RepairStep::AbortLearner)
-            .await?
-            .phase,
-        RepairPhase::Aborted
-    );
-    f.close().await
+        Ok(())
+    })
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_permit_legacy_startup_cannot_seed_managed_history() -> Result<()> {
     for from_s3 in [false, true] {
-        let mut f = Fixture::new().await?;
-        let plan = f.plan(40).await?;
-        let authorization = f.reserve(1, 20, &plan).await?;
-        f.handles[f.primary]
-            .begin_managed_repair(authorization.clone(), plan, TIMEOUT)
+        qualify(from_s3, async |f| {
+            let reserved = f.reserve(210).await?;
+            verify_phase(
+                &f.begin(f.primary, &reserved).await?,
+                &reserved,
+                FleetPermitPhase::Seeding,
+            )?;
+            f.write(2, 1, Durability::S3).await?;
+            f.stop(SPARE).await?;
+            let config = &f.cluster.fixtures[SPARE];
+            let node = start_node(
+                f.cluster.roots[SPARE].path(),
+                config.application.clone(),
+                &config.spec.label,
+            )
             .await?;
-        f.write(2, 1, true).await?;
-        let activation = f.activation(from_s3)?;
-        let placement = if from_s3 {
-            RaftCellPlacement::JoiningFromS3 {
-                member: activation.member,
-                source: activation.source,
-                source_node: activation.source_node,
-            }
-        } else {
-            RaftCellPlacement::Joining {
-                member: activation.member,
-                source: activation.source,
-                source_node: activation.source_node,
-            }
-        };
-        ensure!(f
-            .cluster
-            .join_standby(f.definitions[3].application.clone(), placement)
-            .await
-            .is_err());
-        use futures_util::TryStreamExt as _;
-        let objects = f.cluster.store.list(None).try_collect::<Vec<_>>().await?;
-        ensure!(
-            !objects.iter().any(|object| object
-                .location
-                .as_ref()
-                .ends_with("/claims/0000000000000004")),
-            "unguarded startup claimed a managed learner"
-        );
-        assert_eq!(f.calls[3].load(Ordering::SeqCst), 0);
-        assert_eq!(
-            f.step(&authorization, RepairStep::AbortLearner)
-                .await?
-                .phase,
-            RepairPhase::Aborted
-        );
-        f.close().await?;
+            let (mut options, services) = config.config(&node, LogOpenMode::Resume, 45).await?;
+            options.host.managed = None;
+            options.groups.push(RaftGroupAssignment {
+                history: f.cluster.history,
+                placement: RaftGroupPlacement::Replica,
+            });
+            archives::configure(&mut options);
+            let before = f.catalog().read(TIMEOUT).await?.revision();
+            let refused = node.start_raft_cells(options, services).await;
+            node.shutdown(ShutdownMode::Preserve).await?;
+            ensure!(
+                refused.is_err(),
+                "unmanaged startup attached a managed replica"
+            );
+            ensure!(f.catalog().read(TIMEOUT).await?.revision() == before);
+            f.ensure_spare_unclaimed().await?;
+            ensure!(f.counts()[SPARE] == 0);
+            f.ensure_pending(&reserved).await?;
+            f.advance(
+                &reserved,
+                RepairStep::AbortLearner,
+                FleetPermitPhase::Aborted,
+            )
+            .await?;
+            Ok(())
+        })
+        .await?;
     }
     Ok(())
 }

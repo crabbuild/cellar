@@ -20,7 +20,7 @@ impl From<RaftPhysicalHistory> for Physical {
     fn from(value: RaftPhysicalHistory) -> Self {
         Self {
             member: value.member().get(),
-            in_configuration: value.in_configuration(),
+            in_configuration: value.in_configuration() && !value.parked_retired_source(),
             completed_sequence: value.completed_sequence(),
         }
     }

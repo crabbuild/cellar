@@ -11,6 +11,8 @@ pub struct Config {
     pub physical_host: [u8; 16],
     pub owner: String,
     pub nodes: u8,
+    pub cells: u32,
+    pub cells_per_group: u32,
     pub group_capacity: u32,
     pub image_bytes: u64,
     pub extent_bytes: u64,
@@ -59,9 +61,23 @@ impl Config {
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-'),
             "invalid deployment owner"
         );
-        let charge = self.image_bytes * 8;
         ensure!(
-            self.extent_bytes >= charge && self.replay_extent_bytes >= charge,
+            (1..=1_000_000).contains(&self.cells)
+                && (1..=crate::raft_groups::MAX_OCCUPANCY as u32).contains(&self.cells_per_group),
+            "invalid cell-group population"
+        );
+        let groups = (self.cells as usize).div_ceil(self.cells_per_group as usize);
+        let placement = Placement::new(self.nodes)?;
+        for node in 1..=self.nodes {
+            ensure!(
+                placement.local_count(groups, node)? <= self.group_capacity as usize,
+                "group capacity is below frozen placement"
+            );
+        }
+        let charge = self.image_bytes * 8;
+        let group_charge = charge * u64::from(self.cells_per_group);
+        ensure!(
+            self.extent_bytes >= group_charge && self.replay_extent_bytes >= group_charge,
             "extent inventories cannot cover image work"
         );
         let workspace = cellar::sdk::consensus::verification::RootPrivateOptions::workspace_bounds(
@@ -72,7 +88,7 @@ impl Config {
         )?
         .reservation()?;
         ensure!(
-            self.extent_bytes >= workspace + 4 * self.image_bytes,
+            self.extent_bytes >= workspace + group_charge * u64::from(self.group_capacity),
             "extent inventory cannot cover native WAL, capture and image ownership"
         );
         let storage = &self.storage;
@@ -95,7 +111,7 @@ impl Config {
                 && storage.snapshot_scratch_bytes * 2 <= storage.raft_bytes,
             "snapshot scratch cannot cover image work and shared-log headroom"
         );
-        let image_work = (charge * u64::from(self.group_capacity))
+        let image_work = (group_charge * u64::from(self.group_capacity))
             .checked_add(self.extent_bytes)
             .and_then(|n| n.checked_add(charge))
             .and_then(|n| n.checked_add(storage.extent_cache_bytes))
@@ -129,7 +145,7 @@ impl Config {
             self.durable_bytes <= capacity * 9 / 10,
             "usable disk budget omits filesystem overhead"
         );
-        let required = (charge * u64::from(self.group_capacity))
+        let required = (group_charge * u64::from(self.group_capacity))
             .checked_add(self.resources.durable_overhead_bytes)
             .context("disk budget overflow")?;
         ensure!(
@@ -137,7 +153,7 @@ impl Config {
             "disk budget does not cover all group reservations"
         );
         ensure!(
-            self.resources.resident.durable_bytes >= charge
+            self.resources.resident.durable_bytes >= group_charge
                 && self.resources.peak.durable_bytes >= self.resources.resident.durable_bytes
                 && self.resources.durable_overhead_bytes > 0
                 && self.resources.resident.engine_slots == 1

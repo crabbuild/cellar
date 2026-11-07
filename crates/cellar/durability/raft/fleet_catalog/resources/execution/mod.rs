@@ -26,8 +26,9 @@ pub use service::{
 pub(crate) use work::{MovementAction, MovementCommand};
 
 /// Caller-retained deployment occupancy evidence is required for settlement.
-/// The receiver separately measures current physical lower bounds. This value
-/// grants no reservation and cannot change an admitted move's plan.
+/// A requalified replacement on the same retained engine can provide its new
+/// boot after the exact Joint entry commits. The receiver separately measures
+/// physical lower bounds. This value grants no reservation or plan changes.
 #[derive(Clone, Debug)]
 pub struct FleetMovementExecutionRequest {
     pub reservation: [u8; 16],
@@ -60,7 +61,7 @@ pub struct FleetMovementProgress {
 #[derive(Clone, Debug)]
 pub struct FleetPendingMovement {
     pub reservation: [u8; 16],
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub plan: crate::raft::member_state::RepairPlan,
 }
 
@@ -69,7 +70,7 @@ pub struct FleetPendingMovement {
 #[derive(Clone, Debug)]
 pub struct FleetPendingReservation {
     pub reservation: [u8; 16],
-    pub group: cellar_logic::consensus::GroupScope,
+    pub group: cellar_logic::cell_group::GroupHistory,
     pub target: cellar_logic::consensus::NodeId,
     pub boot: crate::raft::fleet_stop::FleetBootBinding,
     pub peak: FleetResourceBounds,
@@ -144,7 +145,8 @@ impl FleetCatalog {
     /// Reconcile one exact admitted move through the authenticated control lane.
     /// Recreated callers discover the same work from pending_movements. A lost
     /// action reply requires another fresh observation; it never releases debt.
-    /// No internal retry loop or application traffic is needed for progress.
+    /// Read-only leader discovery may resample within the turn deadline.
+    /// Actions are not retried within a turn; progress needs no application traffic.
     pub fn reconcile_movement<'a>(
         &'a self,
         snapshot: &'a FleetSnapshot,
@@ -192,10 +194,20 @@ impl FleetCatalog {
                     snapshot.revision(),
                 ));
             }
-            if request.attestation.boot != row.request.attestation.boot
-                || request.attestation.profile_revision != row.request.attestation.profile_revision
-            {
+            if !row.matches_target_attestation(&request.attestation, true) {
                 return Err(FleetCatalogError::Conflict);
+            }
+            let retained_target = request.attestation.boot != row.request.attestation.boot;
+            if retained_target {
+                self.run(
+                    deadline.remaining()?,
+                    self.confirm_retained_movement_target(
+                        snapshot,
+                        &row,
+                        &request.attestation.boot,
+                    ),
+                )
+                .await?;
             }
             let proof = self
                 .movement_leader(snapshot, &row, observer, &deadline)
@@ -221,6 +233,14 @@ impl FleetCatalog {
             } else {
                 return Err(FleetCatalogError::Conflict);
             };
+            if retained_target
+                && !matches!(
+                    phase,
+                    FleetMovementPhase::Joint | FleetMovementPhase::Complete
+                )
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
             let leader = proof.membership().replica().node;
             let revision = proof.membership().membership_revision().get();
             let action = match phase {
@@ -282,7 +302,14 @@ impl FleetCatalog {
                             deadline.remaining()?,
                             kind,
                         )
-                        .await?
+                        .await
+                        .map_err(|error| match error {
+                            // Provider I/O may fail after the terminal CAS has
+                            // committed. This turn cannot claim rollback; the
+                            // next turn must inspect the permanent receipt.
+                            FleetCatalogError::Storage(_) => FleetCatalogError::Unconfirmed,
+                            other => other,
+                        })?
                         .observed_revision();
                     return Ok(progress(phase, true, observed));
                 }

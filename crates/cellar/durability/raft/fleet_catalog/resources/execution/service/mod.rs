@@ -49,7 +49,7 @@ pub trait FleetTopologyEvidence: Send + Sync {
 
 pub struct FleetTopologyServiceInputs {
     pub request: FleetTopologyRequest,
-    pub namespaces: Vec<crate::raft::catalog::NamespaceCatalog>,
+    pub namespaces: Vec<crate::raft::catalog::RangeDirectory>,
 }
 
 /// Local diagnostics, not a convergence, membership or physical-release proof.
@@ -162,7 +162,7 @@ pub struct FleetIsolatedRepairServiceStatus {
     pub histories_checked: u64,
     pub blocked_histories: u64,
     pub inventory_exhausted: bool,
-    pub last_blocked_group: Option<GroupScope>,
+    pub last_blocked_group: Option<GroupHistory>,
     pub last_blocked_failure: Option<FleetMovementServiceFailure>,
 }
 

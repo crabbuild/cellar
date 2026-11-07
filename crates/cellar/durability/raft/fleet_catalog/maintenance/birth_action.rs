@@ -344,7 +344,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         operation: ProposalId,
-        scope: &cellar_logic::consensus::GroupScope,
+        scope: &cellar_logic::cell_group::GroupHistory,
         resolution: FleetRestartBirthResolution,
         timeout: Duration,
     ) -> Result<(Action, FleetSnapshot)> {
@@ -395,8 +395,8 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         parent: &Action,
-        namespace: &NamespaceCatalog,
-        winner: crate::raft::catalog::BirthDisposition,
+        namespace: &RangeDirectory,
+        winner: crate::raft::catalog::CellGroupBirthDisposition,
         timeout: Duration,
     ) -> Result<FleetRestartSettlementProgress> {
         self.run(timeout, async {
@@ -423,13 +423,13 @@ impl FleetCatalog {
             action.check_history(&history)?;
             let scope = history.binding().scope().map_err(|_| corrupt())?;
             history.state = match winner {
-                crate::raft::catalog::BirthDisposition::Live(birth)
+                crate::raft::catalog::CellGroupBirthDisposition::Live(birth)
                     if history.check_birth(namespace, &birth) =>
                 {
                     FleetHistoryState::Live
                 }
-                crate::raft::catalog::BirthDisposition::Cancelled {
-                    scope: actual,
+                crate::raft::catalog::CellGroupBirthDisposition::Cancelled {
+                    history: actual,
                     operation,
                 } if actual == scope => FleetHistoryState::Cancelled {
                     operation: operation.bytes(),

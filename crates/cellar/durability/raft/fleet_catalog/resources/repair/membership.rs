@@ -62,9 +62,7 @@ impl FleetCatalog {
                 .current_enrollment
                 .as_ref()
                 .ok_or(FleetCatalogError::Unconfirmed)?;
-            let published = sample
-                .published_cut()
-                .ok_or(FleetCatalogError::Unconfirmed)?;
+            let published = sample.published_cut();
             let expected = group.voters.values().copied().collect::<BTreeSet<_>>();
             let settled = match &group.latest {
                 None => {

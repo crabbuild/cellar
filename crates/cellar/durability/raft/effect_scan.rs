@@ -3,14 +3,15 @@
 //! Discover work only from the published committed image. Both adapters share
 //! one client allocator, one metadata reservation and one owned scheduler turn.
 use super::{alarm, outbox, RaftOutbox};
-use crate::{
-    application::consensus::RaftClass,
-    raft::{apply::PublishedImage, budget::Permit},
-};
+use crate::{application::consensus::RaftClass, raft::budget::Permit};
 use anyhow::{ensure, Result};
-use cellar_logic::consensus::{CommandFailure, CommandId, Durability, LogPosition};
+use cellar_logic::consensus::{CommandFailure, CommandId, Durability};
 use rusqlite::OptionalExtension;
 use std::sync::Arc;
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "effect_scan_tests.rs"]
+mod tests;
 
 pub(crate) enum DueEffect {
     Alarm(alarm::DueAlarm),
@@ -40,42 +41,14 @@ impl DueEffect {
 }
 
 pub(crate) struct EffectScan {
-    pub position: LogPosition,
     pub next: CommandId,
     pub due: Option<DueEffect>,
     pub _reservation: Permit,
 }
 
-pub(crate) fn scan(
-    image: PublishedImage,
-    class: &RaftClass,
-    services: cellar_ltx::generation::ReadServices,
-    now: u64,
-    prefer_delivery: bool,
-    reservation: Permit,
-) -> Result<EffectScan> {
-    let database = crate::storage::open_immutable_generation(
-        image.pin(),
-        crate::storage::ImmutableQueryOptions {
-            services,
-            sqlite_vec: false,
-        },
-    )?;
-    scan_connection(
-        database.connection(),
-        image.scope(),
-        image.position(),
-        class,
-        now,
-        prefer_delivery,
-        reservation,
-    )
-}
-
-pub(crate) fn scan_connection(
+fn scan_connection(
     connection: &rusqlite::Connection,
-    scope: &cellar_logic::consensus::GroupScope,
-    position: LogPosition,
+    scope: &cellar_logic::cell_group::CellHistory,
     class: &RaftClass,
     now: u64,
     prefer_delivery: bool,
@@ -123,9 +96,27 @@ pub(crate) fn scan_connection(
         CommandFailure::CorruptState
     );
     Ok(EffectScan {
-        position,
         next,
         due,
         _reservation: reservation,
     })
+}
+
+/// Alternate adapter preference using the last committed private operation.
+/// Placement, process restarts and the number of other cells do not affect it.
+pub(crate) fn scan_connection_fair(
+    connection: &rusqlite::Connection,
+    scope: &cellar_logic::cell_group::CellHistory,
+    class: &RaftClass,
+    now: u64,
+    reservation: Permit,
+) -> Result<EffectScan> {
+    let client = super::system_client(scope)?;
+    let previous: Option<String> = connection.query_row(
+        "SELECT CASE WHEN typeof(r.operation)='text' AND length(CAST(r.operation AS BLOB)) BETWEEN 1 AND 128 THEN r.operation ELSE NULL END FROM __sys_raft_clients c JOIN __sys_raft_receipts r ON r.client_id=c.client_id AND r.sequence=c.last_sequence WHERE c.client_id=?1",
+        [client.bytes().as_slice()], |row| row.get(0),
+    ).optional()?;
+    let prefer_delivery =
+        previous.is_some_and(|operation| operation.starts_with("__sys_raft_alarm_"));
+    scan_connection(connection, scope, class, now, prefer_delivery, reservation)
 }

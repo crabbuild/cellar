@@ -151,6 +151,180 @@ impl Fixture {
 }
 
 #[test]
+fn warm_image_seals_recheck_bytes_and_reuse_only_completed_root_barriers() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let image = store
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .unwrap();
+    let reference = image.reference();
+    let reads = f.files.metrics.read_bytes.load(Ordering::Acquire);
+    let files = f.files.metrics.file_sync_calls.load(Ordering::Acquire);
+    let directories = f.files.metrics.dir_sync_calls.load(Ordering::Acquire);
+    let again = store
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .unwrap();
+    assert_eq!(again.reference(), reference);
+    let required = f.manifest.encode().unwrap().len()
+        + f.objects
+            .iter()
+            .map(|(id, _)| id.length() as usize)
+            .sum::<usize>();
+    assert!(f.files.metrics.read_bytes.load(Ordering::Acquire) - reads >= required);
+    assert_eq!(
+        f.files.metrics.file_sync_calls.load(Ordering::Acquire),
+        files
+    );
+    assert_eq!(
+        f.files.metrics.dir_sync_calls.load(Ordering::Acquire),
+        directories
+    );
+
+    // Even a held seal cannot hide damaged root bytes. A failed recheck also
+    // invalidates the persistence observation before this fixture repairs bytes.
+    let path = f.root.path().join("store").join(format!(
+        "r-{}",
+        reference
+            .root()
+            .bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    ));
+    let original = std::fs::read(&path).unwrap();
+    let mut corrupt = original.clone();
+    corrupt[0] ^= 0x80;
+    std::fs::write(&path, corrupt).unwrap();
+    assert!(store
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .is_err());
+    std::fs::write(path, original).unwrap();
+    f.files.metrics.fail_sync.store(true, Ordering::Release);
+    assert!(store
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .is_err());
+    store
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .unwrap();
+}
+
+#[test]
+fn reopened_root_seals_require_both_persistence_barriers_after_metadata_reads() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let image = store
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .unwrap();
+    let reference = image.reference();
+    drop(image);
+    drop(store);
+    let reopened = f.store();
+    let read = reopened.open_root(reference).unwrap();
+    for (id, _) in &f.objects {
+        reopened.verify_extent(*id).unwrap();
+    }
+    f.files.metrics.fail_sync.store(true, Ordering::Release);
+    assert!(reopened
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .is_err());
+    f.files.metrics.fail_dir_sync.store(true, Ordering::Release);
+    assert!(reopened
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .is_err());
+    let image = reopened
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .unwrap();
+    assert_eq!(read.reference(), image.reference());
+}
+
+#[test]
+fn collection_hint_is_idle_after_marking_and_notices_reader_release_without_io() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    store.retain_only(&[]).unwrap();
+    let receiving = store.stage_transient_root(f.manifest.clone()).unwrap();
+    f.fill(&store);
+    assert_eq!(store.reclaim(32).unwrap(), 0);
+    let before = f.files.metrics.read_bytes.load(Ordering::Acquire);
+    assert!(!store.needs_reclaim().unwrap());
+    assert_eq!(f.files.metrics.read_bytes.load(Ordering::Acquire), before);
+    drop(receiving);
+    assert!(store.needs_reclaim().unwrap());
+    assert_eq!(f.files.metrics.read_bytes.load(Ordering::Acquire), before);
+    assert_eq!(store.reclaim(1).unwrap(), 1);
+    assert!(
+        store.needs_reclaim().unwrap(),
+        "synced root deletion hid its orphan objects"
+    );
+    assert_eq!(store.reclaim(32).unwrap(), f.objects.len());
+    assert!(!store.needs_reclaim().unwrap());
+    let bytes = vec![9; 4096];
+    store
+        .put_extent_bytes(ExtentId::of(&bytes).unwrap(), &bytes)
+        .unwrap();
+    assert!(
+        store.needs_reclaim().unwrap(),
+        "a new unreferenced object did not request marking"
+    );
+    assert_eq!(store.reclaim(32).unwrap(), 1);
+    assert!(!store.needs_reclaim().unwrap());
+}
+
+#[test]
+fn collection_marks_local_objects_while_a_pinned_receive_is_still_missing_dependencies() {
+    let f = Fixture::new(EXTENT_BYTES as usize + 4096);
+    let store = f.store();
+    store.retain_only(&[]).unwrap();
+    let receiving = store.stage_transient_root(f.manifest.clone()).unwrap();
+    let orphan = vec![9; 4096];
+    store
+        .put_extent_bytes(ExtentId::of(&orphan).unwrap(), &orphan)
+        .unwrap();
+    assert_eq!(store.reclaim(32).unwrap(), 1);
+    assert_eq!(store.usage().unwrap().roots, 1);
+    assert!(!store.needs_reclaim().unwrap());
+    f.fill(&store);
+    assert!(store.needs_reclaim().unwrap());
+    assert_eq!(
+        store.reclaim(32).unwrap(),
+        0,
+        "partial receive lost an imported dependency"
+    );
+    drop(receiving);
+    assert_eq!(store.reclaim(32).unwrap(), f.objects.len() + 1);
+}
+
+#[test]
+fn collection_memory_admission_refuses_overflow_without_allocating_an_inventory() {
+    let f = Fixture::new(0);
+    let mut limits = f.limits();
+    limits.max_roots = usize::MAX;
+    let store = NodeExtentStore::open(
+        f.root.path().join("oversized-control"),
+        f.files.clone(),
+        limits,
+    )
+    .unwrap();
+    assert!(matches!(
+        store.reclaim_working_bytes(16),
+        Err(StoreError::Limit)
+    ));
+    assert!(matches!(
+        store.reclaim_working_bytes(0),
+        Err(StoreError::Limit)
+    ));
+    assert!(matches!(
+        store.reclaim_working_bytes(4097),
+        Err(StoreError::Limit)
+    ));
+    assert_eq!(store.usage().unwrap().bytes, 0);
+}
+
+#[test]
 fn reopen_uses_metadata_only_inventory_then_verifies_sqlite_extents_on_demand() {
     let f = Fixture::new(9 * 1024 * 1024);
     let store = f.store();

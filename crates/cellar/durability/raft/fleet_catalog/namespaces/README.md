@@ -20,6 +20,52 @@ and journal determine its original applied revision. A changed request payload
 conflicts. An unadmitted stale candidate cannot overwrite a newer root. A
 different request cannot replace an earlier declaration.
 
+## Fresh managed standby
+
+`FleetCatalog::provision_managed_namespace` checks the compiled class and
+binds the immutable namespace to this fleet. It pins the canonical declaration
+request before namespace writes, publishes the standby directory and commits
+the declaration. The returned registration selects a namespace for managed
+startup. Capacity admission and an authorized birth select the first group.
+
+Persist the request identity and catalog settings before submitting. Replay
+the same request after an uncertain reply. If an unrelated fleet CAS advances
+the root before declaration, a new request ID at the current revision may use
+the same logical operation and configuration. The operation identifies the
+original standby publication. A confirmed replay verifies existing metadata,
+including the historical standby receipt if a group was selected later.
+
+## First full-range group
+
+Use `observe_managed_standby` to read the exact empty root. Persist a
+`RaftManagedFirstGroupRequest` with that digest, the original fleet reservation
+identity, the range operation and the full-range RF3 birth. The reservation API
+rechecks current capacity and placement against the fleet root. Reopening uses
+the same request, including the original range operation.
+
+`publish_managed_first_group` first resolves the immutable birth decision,
+then selects the range and confirms the fleet history. The directory cannot
+select a birth whose cancellation won. If the range CAS loses, the exact birth
+remains inventoried and cannot start a replica outside the selected map. A
+confirmed range with missing birth metadata refuses replay. Persist and retry
+the exact confirmation request after an uncertain reply. A confirmed revision
+conflict can use a new confirmation request at the new fleet revision with the
+same operation and prepared reservation. Activation requires the existing
+managed host boot and local member claim.
+
+## Managed group archives
+
+After fleet confirmation, use `FleetCatalog::open_managed_archive_provisioning`
+with the same declared namespace. `prepare_archive` resolves the current live
+fleet history and selected birth. Persist and sync the returned
+`encoded_intent()` before committing the one-use initializer.
+
+After restart or an uncertain commit, reopen the namespace and call
+`verify_archive` with the saved bytes. It verifies that exact binding, identity
+and counters without creating metadata. A different intent conflicts. Missing
+or incomplete metadata refuses and requires archive authority recovery. The
+archive result does not admit voters or establish coverage of a command.
+
 ## Compiled host and birth admission
 
 Managed startup checks every actual prepared namespace and compiled class against

@@ -10,14 +10,15 @@ use super::rejoin::ReturnedCut;
 use super::runtime::{proof, records as runtime_records};
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::fleet_catalog::deadline::Deadline;
 use crate::raft::fleet_catalog::resources::Authority;
 use crate::raft::fleet_stop::{
     FleetStopAction, FleetStopRequest, LocalResume, ResumeMode, StopSelector,
 };
 use crate::raft::physical_inventory::RaftPhysicalInventory;
-use cellar_logic::consensus::{GroupScope, MemberId};
+use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::consensus::MemberId;
 use futures_util::future::BoxFuture;
 pub(crate) use leadership::ResumeLeadershipCommand;
 use records::{Completion, Intent};
@@ -60,16 +61,16 @@ impl From<ResumeMode> for FleetRestartResumePhase {
 #[derive(Clone, Debug)]
 pub enum FleetRestartResumeProgress {
     Unrelated {
-        group: GroupScope,
+        group: GroupHistory,
     },
     Verified {
-        group: GroupScope,
+        group: GroupHistory,
         current_member: Option<MemberId>,
         retained_member: Option<MemberId>,
         replaced: bool,
     },
     HandoffRequested {
-        group: GroupScope,
+        group: GroupHistory,
         from: MemberId,
         to: MemberId,
     },
@@ -161,7 +162,7 @@ impl FleetCatalog {
         &'a self,
         snapshot: &'a FleetSnapshot,
         request: &'a FleetRestartResumeRequest,
-        namespaces: &'a [NamespaceCatalog],
+        namespaces: &'a [RangeDirectory],
         observer: &'a RaftCells,
         timeout: Duration,
     ) -> BoxFuture<'a, Result<FleetRestartResumeVerification>> {

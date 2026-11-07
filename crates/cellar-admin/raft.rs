@@ -82,6 +82,577 @@ pub(crate) async fn operation(
     })
 }
 
+pub(crate) async fn transition(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::MetadataRead)?;
+    Ok(match backend(&console, &fleet) {
+        Ok(control) => match control
+            .transition_status(&namespace, &operation, TIMEOUT)
+            .await
+        {
+            Ok(value) => Json(value).into_response(),
+            Err(error) => failure(error),
+        },
+        Err(error) => failure(error),
+    })
+}
+
+pub(crate) async fn transition_basis(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::MetadataRead)?;
+    Ok(match backend(&console, &fleet) {
+        Ok(control) => match control.transition_basis(&namespace, TIMEOUT).await {
+            Ok(value) => Json(value).into_response(),
+            Err(error) => failure(error),
+        },
+        Err(error) => failure(error),
+    })
+}
+
+pub(crate) async fn admit_transition(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionAdmissionRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition admission",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition admission",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/admit"),
+        "raft_transition_admit",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .admit_transition(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish_with_status(&console, &mut audit, result, "admitted")
+}
+
+pub(crate) async fn prepare_transition(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionPrepareRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition preparation",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition preparation",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/prepare"),
+        "raft_transition_prepare",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .prepare_transition(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish_with_status(&console, &mut audit, result, "prepared")
+}
+
+pub(crate) async fn verify_transition_archive(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path(selector): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionPrepareRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    verify_archive(&console, principal, selector, body, false).await
+}
+
+pub(crate) async fn verify_transition_child_archives(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path(selector): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionPrepareRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    verify_archive(&console, principal, selector, body, true).await
+}
+
+async fn verify_archive(
+    console: &Console,
+    principal: Principal,
+    (fleet, namespace, operation): (String, String, String),
+    body: Result<Json<RaftFleetTransitionPrepareRequest>, JsonRejection>,
+    child_archives: bool,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transfer archive verification",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transfer archive verification",
+            )))
+        }
+    };
+    let (path, action) = if child_archives {
+        (
+            "verify-child-archives",
+            "raft_transition_verify_child_archives",
+        )
+    } else {
+        ("verify-archive", "raft_transition_verify_archive")
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/{path}"),
+        action,
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(console, &fleet) {
+        Ok(control) if child_archives => {
+            control
+                .verify_transition_child_archives(
+                    &principal.id,
+                    &namespace,
+                    &operation,
+                    &request,
+                    TIMEOUT,
+                )
+                .await
+        }
+        Ok(control) => {
+            control
+                .verify_transition_archive(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish_with_status(console, &mut audit, result, "archive_verified")
+}
+
+pub(crate) async fn authorize_transition_seal(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionSealRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition seal authorization",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition seal authorization",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/authorize-seal"),
+        "raft_transition_authorize_seal",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .authorize_transition_seal(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish_with_status(&console, &mut audit, result, "seal_authorized")
+}
+
+pub(crate) async fn seal_transition_source(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionSourceSealRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition source seal",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition source seal",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/seal-source"),
+        "raft_transition_seal_source",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .seal_transition_source(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish(&console, &mut audit, result)
+}
+
+pub(crate) async fn retire_transition_source(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionSourceSealRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition source retirement",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition source retirement",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/retire-source"),
+        "raft_transition_retire_source",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .retire_transition_source(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish(&console, &mut audit, result)
+}
+
+pub(crate) async fn capture_transition_source(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionSourceSealRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition source capture",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition source capture",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/capture-source"),
+        "raft_transition_capture_source",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .capture_transition_source(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish_with_status(&console, &mut audit, result, "source_captured")
+}
+
+pub(crate) async fn setup_transition_child(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionChildSetupRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition child setup",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition child setup",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/setup-child"),
+        "raft_transition_setup_child",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .setup_transition_child(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish(&console, &mut audit, result)
+}
+
+pub(crate) async fn publish_transition(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionPublishRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition publication",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition publication",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/publish"),
+        "raft_transition_publish",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .publish_transition(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish_with_status(&console, &mut audit, result, "published")
+}
+
+pub(crate) async fn activate_transition_child(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionActivationRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid child activation",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid child activation",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/activate"),
+        "raft_transition_activate",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .activate_transition_child(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    let status = if result.as_ref().is_ok_and(|value| value.applied.is_some()) {
+        "applied"
+    } else {
+        "accepted"
+    };
+    finish_with_status(&console, &mut audit, result, status)
+}
+
+pub(crate) async fn resume_transition(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionResume>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition resume",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition resume",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}"),
+        "raft_transition_resume",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .resume_transition(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish_with_status(&console, &mut audit, result, "completed")
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Page {

@@ -9,16 +9,25 @@ use std::sync::{Arc, RwLock};
 pub const LANE: &str = "Events";
 pub const BINDING: [u8; 32] = [41; 32];
 
-pub fn scope(receiver: bool) -> Result<GroupScope> {
-    Ok(GroupScope {
+pub fn history(receiver: bool) -> Result<CellHistory> {
+    Ok(CellHistory {
         cluster: ClusterId::new([1; 16])?,
         namespace: NamespaceId::new([if receiver { 3 } else { 2 }; 16])?,
-        cell: if receiver {
+        cell: CellId::new(if receiver {
             "Receiver:one"
         } else {
             "Producer:one"
-        }
-        .into(),
+        })
+        .map_err(|_| anyhow::anyhow!("cell identity"))?,
+        incarnation: IncarnationId::new([4; 16])?,
+    })
+}
+
+pub fn group(receiver: bool) -> Result<GroupHistory> {
+    let cell = history(receiver)?;
+    Ok(GroupHistory {
+        cluster: cell.cluster,
+        namespace: cell.namespace,
         group: GroupId::new([if receiver { 31 } else { 30 }; 16])?,
         incarnation: IncarnationId::new([4; 16])?,
     })
@@ -56,7 +65,7 @@ pub fn receiver(
     source: RaftEffectVerificationKey,
     key: Arc<RaftEffectSigningKey>,
 ) -> Result<RaftClass> {
-    let origin = scope(false)?;
+    let origin = history(false)?;
     let inbox = RaftInbox::new(
         vec![RaftEffectSourceGrant::new(
             origin.cluster,
@@ -71,6 +80,10 @@ pub fn receiver(
         16,
     )?;
     Ok(RaftClass::new("Receiver",1,[42;32])?
+        .initializer([54; 32], |_, sql| {
+            sql.execute_batch("CREATE TABLE receiver(value INTEGER); INSERT INTO receiver VALUES(0)")?;
+            Ok(())
+        })?
         .inbox("Receive",[43;32],inbox,|context,payload| {
             let amount=i64::from_be_bytes(payload.try_into()?);
             context.sql().execute("UPDATE receiver SET value=value+?1",[amount])?;
@@ -87,7 +100,12 @@ pub fn producer(
 ) -> Result<RaftClass> {
     let outbox = RaftOutbox::new(key, RaftOutboxLimits::default())?
         .binding(LANE, BINDING, target, routing)?;
-    Ok(RaftClass::new("Producer",1,[46;32])?.outbox(outbox)?
+    Ok(RaftClass::new("Producer",1,[46;32])?
+        .initializer([55; 32], |_, sql| {
+            sql.execute_batch("CREATE TABLE producer(value INTEGER); INSERT INTO producer VALUES(0)")?;
+            Ok(())
+        })?
+        .outbox(outbox)?
         .command("Prime",[47;32],|context,_|{context.sql().execute_batch("CREATE TABLE IF NOT EXISTS producer(value INTEGER);INSERT INTO producer SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM producer)")?;Ok(vec![])})?
         .command("Emit",[48;32],|context,input|{
             ensure!(input.len()==8);let amount=i64::from_be_bytes(input.try_into()?);

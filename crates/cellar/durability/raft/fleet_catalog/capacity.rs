@@ -6,7 +6,7 @@ use super::histories::validate_request;
 use super::nodes::NODE_KIND;
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::fleet_stop::BootBinding;
 use crate::raft::host::RaftPeerNodeObservation;
 use crate::raft::inspection::RaftNodeProfile;
@@ -203,7 +203,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetCapacityRequest,
         observer: &RaftCells,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetCapacityAdmission> {
         self.check_snapshot(snapshot)?;

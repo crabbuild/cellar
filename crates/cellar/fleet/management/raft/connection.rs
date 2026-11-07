@@ -32,6 +32,8 @@ pub struct RaftFleetNamespace {
     /// Must match the existing namespace Root; opening never changes its mode.
     #[serde(default = "materialized")]
     pub image_storage: crate::raft::catalog::RaftImageStorage,
+    /// Explicit bounded physical-group directory discovery and operation limits.
+    pub group_directory: crate::raft::cell_groups::DirectoryLimits,
 }
 
 fn materialized() -> crate::raft::catalog::RaftImageStorage {
@@ -121,7 +123,9 @@ impl RaftFleetControl {
                 _ = timer => return Err(FleetCatalogError::Unconfirmed.into()),
                 result = adapter.existing_namespace(namespace_config) => result.map_err(namespace_failure)?,
             };
-            namespaces.push(opened);
+            namespaces.push(
+                RangeDirectory::new(opened, entry.group_directory).map_err(namespace_failure)?,
+            );
         }
         catalog
             .check_inventory(&root, &namespaces, turn.remaining()?)

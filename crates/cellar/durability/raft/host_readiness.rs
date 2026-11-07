@@ -2,7 +2,7 @@
 
 //! Conservative local observations, separate from per-invocation proof gates.
 use super::*;
-use crate::application::consensus::{RaftQueryReadiness, RaftReplicaRole};
+use crate::application::consensus::RaftReplicaRole;
 
 fn role(cache: &super::super::cache::CachedGroup, status: &GroupStatus) -> RaftReplicaRole {
     if cache.membership.revision() != status.membership_revision
@@ -37,46 +37,4 @@ fn coherent_image(
     image.is_some_and(|image| {
         cache.coherent_image_position(&image.image, image.position) == Some(applied)
     })
-}
-
-pub(super) fn capture(
-    cell: &Cell,
-    status: &GroupStatus,
-    now: u64,
-    source_timeout_ms: u64,
-    draining: bool,
-    registered_queries: bool,
-) -> Result<(RaftReplicaRole, RaftQueryReadiness), RuntimeError> {
-    let cache = cell.group.read()?;
-    let role = role(&cache, status);
-    let coherent_image = coherent_image(&cache, cell.image.as_ref(), status.applied);
-    let historical = registered_queries
-        && coherent_image
-        && !matches!(role, RaftReplicaRole::Removed | RaftReplicaRole::Unknown)
-        && !draining
-        && !cell.failed
-        && !cell.retired
-        && cell.incoming.is_none()
-        && !cell.sql_busy
-        && cell.apply.is_none()
-        && cell.publication.is_none();
-    let source_age_ms = status.source_observed_ms.and_then(|at| now.checked_sub(at));
-    let recent_source = historical
-        && super::super::query::recent_source_deadline(
-            status.source_observed_ms,
-            now,
-            source_timeout_ms,
-        )
-        .is_some();
-    Ok((
-        role,
-        RaftQueryReadiness {
-            registered_queries,
-            coherent_image,
-            historical,
-            recent_source,
-            source_age_ms,
-            source_timeout_ms,
-        },
-    ))
 }

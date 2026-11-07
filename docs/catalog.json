@@ -638,9 +638,117 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/README.md",
+      "title": "Cell group delivery package",
+      "summary": "Shared cell-group delivery status, execution commands and completion boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/design.md",
+      "title": "Cell group design",
+      "summary": "Physical group consensus over independent SQLite cells, identities and hard cutover.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/handoff.md",
+      "title": "Cell-group implementation handoff",
+      "summary": "Current implementation checkpoint, evidence transfer and next executor steps.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/implementation-plan.md",
+      "title": "Implementation order",
+      "summary": "Dependency order and status of the sixteen cell-group implementation tasks.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/progress.md",
+      "title": "Cell-group implementation progress",
+      "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/protocols.md",
+      "title": "Durable protocols and crash cuts",
+      "summary": "Durable enrollment, apply, topology, hibernation and disaster-recovery protocols.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/qualification.md",
+      "title": "Qualification and evidence contract",
+      "summary": "Failure oracles, workload profiles and evidence required for release.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/remaining-work.md",
+      "title": "Remaining cell-group work and priorities",
+      "summary": "Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/control-window-performance.md",
       "title": "Multi-Raft control-window performance",
       "summary": "Record the control-window comparison, matched measurements, retained evidence, and remaining performance work.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/density-decision.md",
+      "title": "Shared cell groups: architecture decision",
+      "summary": "TiKV investigation and the decision to share physical Raft groups across whole cells.",
       "roles": [
         "builder",
         "platform",

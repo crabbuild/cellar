@@ -5,13 +5,12 @@ mod records;
 pub(super) mod verification;
 mod waiting;
 use super::*;
-use crate::raft::archive::{ArchiveLimits, ArchiveVerifier};
+use crate::raft::fleet_catalog::FleetGroupArchiveVerifier;
 use crate::raft::fleet_catalog::{
     FleetFinalizationAdmission, FleetRemovalAdmission, FleetRemovalAttempt, FleetRemovalRequest,
     FleetSnapshot,
 };
 use cellar_logic::consensus::ProcessGeneration;
-use cellar_ltx::LtxHost;
 pub use records::*;
 use verification::{Advance, Key, Session, Verification};
 pub use waiting::{
@@ -138,15 +137,10 @@ fn request_from(identity: &FleetRequestIdentity, catalog: &str) -> RaftFleetNode
 
 impl RaftFleetControl {
     /// Explicit replay services for one bounded lifecycle proof session. The
-    /// caller owns the private GenerationStore and its configured disk/memory
-    /// limits. This neither creates a node nor starts a background controller.
-    pub fn with_removal_verifier(
-        mut self,
-        host: LtxHost,
-        verifier: ArchiveVerifier,
-        limits: ArchiveLimits,
-    ) -> Result<Self> {
-        self.removal_verification = Some(Arc::new(Verification::new(host, verifier, limits)?));
+    /// caller owns private group replay inventories and shared checkpoint,
+    /// archive, tail and scratch pools. This starts no background controller.
+    pub fn with_removal_verifier(mut self, verifier: FleetGroupArchiveVerifier) -> Result<Self> {
+        self.removal_verification = Some(Arc::new(Verification::new(verifier)));
         Ok(self)
     }
 
@@ -284,7 +278,9 @@ impl RaftFleetControl {
             });
         }
         let session = lease.session.as_mut().ok_or(FleetCatalogError::Closed)?;
-        let advance = runtime.advance(self, session, observer, &turn).await?;
+        let advance = runtime
+            .advance(self, session, observer, &root, &turn)
+            .await?;
         if advance != Advance::Exhausted {
             if advance == Advance::Waiting {
                 let current = self.catalog.read(turn.remaining()?).await?;
@@ -520,7 +516,9 @@ impl RaftFleetControl {
             });
         }
         let session = lease.session.as_mut().ok_or(FleetCatalogError::Closed)?;
-        let advance = runtime.advance(self, session, observer, &turn).await?;
+        let advance = runtime
+            .advance(self, session, observer, &root, &turn)
+            .await?;
         if advance != Advance::Exhausted {
             if advance == Advance::Waiting {
                 let current = self.catalog.read(turn.remaining()?).await?;
@@ -726,7 +724,6 @@ impl RaftFleetControl {
                 namespace: hex::encode(m.group.namespace.bytes()),
                 group: hex::encode(m.group.group.bytes()),
                 incarnation: hex::encode(m.group.incarnation.bytes()),
-                cell: m.group.cell,
                 target: hex::encode(m.target.bytes()),
                 peak_engine_slots: m.peak.engine_slots,
                 peak_durable_bytes: m.peak.durable_bytes,

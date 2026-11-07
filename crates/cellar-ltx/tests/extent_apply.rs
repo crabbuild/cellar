@@ -458,3 +458,60 @@ fn byte_closure_and_reopened_inventory_cannot_substitute_for_sqlite_image_valida
     };
     fixture.query(&recovered, 7);
 }
+
+#[test]
+fn transient_images_keep_live_readers_and_preserve_existing_retention() {
+    let (fixture, before) = Fixture::new(4096, 4096);
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let base = fixture.seal(&before, false, &mut buffer);
+    fixture.store.retain_only(&[base.reference()]).unwrap();
+    let after = fixture.mutate("UPDATE counter SET value=8");
+    let encoded = delta(&before, &after, 4096, 2, false);
+    let update = fixture.update(&base, &encoded, &after, 2, false);
+    let transient = fixture
+        .store
+        .prepare_transient_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+        .unwrap()
+        .image;
+    let selected = transient.reference();
+    assert_eq!(
+        fixture.store.reclaim(4096).unwrap(),
+        0,
+        "live reader closure was collected"
+    );
+    fixture.query(&transient, 8);
+    fixture.query(&base, 7);
+    drop(transient);
+    assert!(
+        fixture.store.reclaim(4096).unwrap() > 0,
+        "fresh unpinned root retained forever"
+    );
+    assert!(matches!(
+        fixture.store.open_root(selected),
+        Err(StoreError::Missing)
+    ));
+    fixture.query(&base, 7);
+
+    // An earlier native marker may retain exactly these bytes. Retrying the
+    // transient preparation must not withdraw that separate host reference.
+    let retained = fixture
+        .store
+        .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+        .unwrap()
+        .image;
+    assert_eq!(retained.reference(), selected);
+    drop(retained);
+    let reused = fixture
+        .store
+        .prepare_transient_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+        .unwrap()
+        .image;
+    fixture.query(&reused, 8);
+    drop(reused);
+    assert_eq!(
+        fixture.store.reclaim(4096).unwrap(),
+        0,
+        "existing retention was withdrawn"
+    );
+    assert!(fixture.store.open_root(selected).is_ok());
+}

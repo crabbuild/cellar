@@ -123,7 +123,7 @@ impl FleetCatalog {
             if let Some(movement) = &row.request.movement {
                 result.movements.push(FleetPendingMovement {
                     reservation: row.request.identity.id,
-                    group: group.clone(),
+                    group,
                     plan: movement.plan()?,
                 });
             }

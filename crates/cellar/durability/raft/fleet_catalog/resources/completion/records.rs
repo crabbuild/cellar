@@ -96,8 +96,10 @@ impl Completion {
                 })
             })
             || self.request.identity.operation != row.request.identity.operation
-            || self.request.attestation.boot != row.request.attestation.boot
-            || self.request.attestation.profile_revision != row.request.attestation.profile_revision
+            || !row.matches_target_attestation(
+                &self.request.attestation,
+                self.settlement == Settlement::Complete,
+            )
             || self.resource != hash(&row.encode()?)
             || self.permit
                 != hash(

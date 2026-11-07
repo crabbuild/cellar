@@ -295,33 +295,14 @@ archive, settle permits and fence or join physical work. Cold canonical-empty
 histories use explicit empty archives; the terminal verifier must select and
 verify their exact history-bound set rather than waive the archive gate.
 
-`CellArchive::verify_published_at(reference, minimum, verifier, timeout)` now
-provides that archive sub-proof. It downloads the exact selected immutable set,
-checks complete coverage of the fixed `FleetPublishedCut`, physically replays the
-SQL image or verifies canonical-empty state, and reclaims the exclusive scratch
-generations before returning an opaque `VerifiedArchiveCoverage`. Metadata-only
-reads cannot mint it. Missing/corrupt selected material never falls back to a
-newer mutable head. Failed replay quarantines the verifier until its storage
-owner recovers it.
-
-The proof binds the fleet/catalog/history, birth/schema, membership revision,
-archive reference, applied position, original image-publication position and image state. It handles protocol-only
-progress and intact-restore aliases, while a changed configuration requires a
-new attempt. The manifest requires `image_position`: populated state has a
-bounded non-null publication origin, canonical-empty state has explicit null,
-and tail replay refuses an origin preceding its last data entry. A full snapshot
-does not manufacture a later SQL publication position. An old archive cannot cover later data, and a later no-op cannot
-make a conflicting earlier SQL image appear current. One original deadline
-covers object reads, workspace waiting, replay and delivery; completed work
-cannot issue a proof after expiry. Blocking work retains its inputs until its
-execution owner joins it. The caller owns scratch storage and admission for the
-configured recovery-memory bound.
-
-This is historical archive coverage. Candidate preparation consumes this proof
-with complete inventory, quorum publications and exact permit settlement as
-described below. The terminal removal API combines that coverage with renewed
-survivor proofs and exact signed closure before its atomic receipt/node/slot CAS.
-Business-write acknowledgement calls none of this metadata work.
+Managed evacuation uses `FleetGroupArchiveVerifier` to reopen the exact
+history's archive and replay its selected checkpoint and tail into independent
+scratch storage. The resulting complete root covers the fixed
+`FleetPublishedCut`. A missing or corrupt object prevents proof delivery.
+Candidate preparation also needs complete inventory, quorum publications and
+exact permit settlement. Terminal removal combines archive coverage with
+renewed survivor proofs and signed closure before the atomic receipt, node and
+slot update. Business-write acknowledgement runs independently of this work.
 
 The opaque response includes the installed node enrollment and whole invocation
 age through SDK delivery. Per-node and per-peer 1 MiB transport reservations cover
@@ -572,6 +553,14 @@ The receiver independently checks those current rooted values, current settled
 placement and original-member identity, then invokes the existing guarded
 registration and initial-member pipeline. An imported birth, dynamic member,
 retired slot or claimed blank engine cannot grant fresh genesis.
+
+Live voting verification divides its remaining observation budget among the
+unobserved members and final validation. A lost read-only membership reply can
+therefore return Unavailable before consuming the complete turn. The pending
+history remains unverified; the owning walk must obtain all three fresh safe
+ReadIndex/durable-apply observations again. Root-input, boot, configuration and
+proof-age checks remain mandatory. This allocation extends no deadline and
+introduces no mutation retry or stale-proof fallback.
 
 The shared fleet action lane now carries explicit Movement and RestartGenesis
 variants. Their receiving authorities remain separate; a movement permit cannot
@@ -832,8 +821,23 @@ origin, including an origin with no business groups. Each invocation obtains
 fresh safe-ReadIndex progress from a current leader and performs at most one
 learner activation and one configuration action, or one terminal settlement CAS.
 Leader discovery has at most four pinned candidates and a 500-ms budget per
-probe under the original operation deadline. Missing or changed boots never
-supply a replacement identity. A minority remains unconfirmed.
+probe under the original operation deadline. A minority remains unconfirmed.
+
+A replacement that reopens its retained disk and engine can finish a committed
+joint move under a newer rooted boot. It must qualify capacity again for the
+same profile revision. Fresh membership must prove the exact Joint or Complete
+permit. The original reservation, peak charge and permit stay rooted through
+restart. Completion checks current target inventory and original seed-owner
+closure before it releases the active charge and advances the physical floor.
+Starting a move, seeding and promotion still require their original boot grants.
+
+An original voter can finish or attest closure after the same kind of retained
+restart. Before ordinary startup replaces its rooted boot, the catalog preserves
+the exact boot binding if an active move pins its digest. This immutable record
+lets execution match the current qualified engine against the admission.
+Settlement still requires the original membership sequence and an authenticated
+physical observation with seed work joined. Fenced and aborted settlement
+continues to require exact admitted boot evidence.
 
 The receiving process independently resolves the current active reservation,
 resource digest, live history and exact rooted membership permit. It validates
@@ -880,11 +884,24 @@ generic mutations cannot erase the receipt, clear quarantine or change its boot.
 A lost confirmation reconciles the exact original journal before current live
 prerequisites. Changed evidence under the same request identity conflicts.
 
+Shared-host startup checks the current host authorization together with namespace
+declarations against one rooted cut before opening the mutable Raft engine. A
+saved pre-isolation capability therefore refuses without changing an already
+quarantined engine. This is an early refusal check, not a disk fence against a
+concurrent platform action: the later engine-bound boot CAS still rechecks current
+authority before publishing endpoints or attaching groups.
+
 A resource-backed repair can pin the quarantined obsolete voter while obtaining
 fresh quorum from surviving voters. Route construction omits only an explicitly
 quarantined endpoint; placement validation still uses the full durable membership,
 including that voter's node and failure domain. Raft configuration and quorum
 thresholds do not change until the membership protocol commits them.
+
+Shared physical route refresh also removes explicitly quarantined initial
+endpoints when membership is otherwise unchanged. Keeping such an endpoint would
+make the refreshed route fail trust validation and prevent an admitted learner
+from receiving its seed. Missing discovery or an unreachable surviving voter does
+not establish isolation and cannot supply its settlement closure.
 
 Successful movement completion can substitute the admitted isolation proof only
 for the exact original obsolete boot, after fresh target quorum proves that
@@ -1463,7 +1480,10 @@ the durable handoff; neither a timeout nor Unavailable can evict a voter.
 
 `start_failure_recovery_service(observer, movement_evidence, repair_evidence,
 platform, options, recovery)` uses the same exclusive Node-owned worker and
-existing probe bounds. It is explicitly enabled and default-off. Installing
+existing probe bounds. It is explicitly enabled and default-off. The worker
+must have an exact rooted boot whose state permits admitted movement actions.
+Each recovery turn revalidates that authority before changing the catalog or
+calling the platform. Installing
 `FleetFailureRecoveryPlatform` authorizes permanent isolation of a failed boot;
 operators must select and authenticate that deployment integration.
 `FleetDockerIsolation` supplies a Linux Docker/Colima adapter for exclusively
@@ -1489,10 +1509,13 @@ deployment; they are not inferred from Engine block-I/O counters or a filesystem
 scan. This homogeneous-policy provider covers Ready/Active recovery targets;
 departure/return settlement still needs its own retained evidence. Complete
 deployment wiring and resource-limit qualification remain separate gates.
-`FleetFailureRecoveryOptions` supplies detection bounds plus an explicit LTX host,
-archive verifier and archive limits. The embedding runtime owns the verifier's
-private scratch store and disk/memory admission, including extent storage when
-required by its namespace. Startup validates both detection and archive bounds.
+`FleetFailureRecoveryOptions` supplies detection bounds and an explicit
+`FleetGroupArchiveVerifier`. The embedding runtime owns its private image/page
+inventories and shared checkpoint, archive, tail and scratch admission, including
+extent storage when required by its namespace. Receiver setup creates and syncs
+the private spool directory on the execution domain before materialized image
+replay. Startup validates both detection and archive bounds. Serving image pins
+cannot replace physical archive verification.
 
 The worker first advances due admitted movements. During their retry/backoff
 windows it collects direct failure observations and complete namespace handles,
@@ -1545,6 +1568,16 @@ slot; it cannot release that newer operation or authorize data deletion.
 VerifyingRemoval and Removed, with checked/total history counts and the confirmed
 terminal revision. Only Removed follows an accepted terminal receipt. Status
 grants no current health lease; observation timestamps remain local.
+
+Catalog turns box their work before constructing the turn future, keeping large
+replay state out of enclosing poll frames before object-store HTTP calls.
+Control turns, recovery/removal phases and complete live verification retain
+boxed futures under the existing worker admission, stop owner and original
+deadline. This bounds nested poll-frame stack use without increasing the
+worker stack or changing failure grace. Receiver rejection returns its typed
+checkpoint failure after joining the consumer, rather than hiding it behind a
+closed-channel message. An archive outage retains the intent and disruption;
+controller restart repeats physical replay before finalization/removal.
 
 The SDK handoff includes the opt-in Docker/Colima isolation adapter described
 above. Simultaneous-failure policy, deployment startup integration and deployed fleet

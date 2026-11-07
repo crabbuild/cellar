@@ -388,7 +388,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetRemovalRequest,
         verification: Option<&mut FleetEvacuationVerification>,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetRemovalAdmission> {
         self.complete_evacuation_attempt(snapshot, request, verification, namespaces, timeout)
@@ -401,7 +401,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetRemovalRequest,
         verification: Option<&mut FleetEvacuationVerification>,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetRemovalAttempt<FleetRemovalAdmission>> {
         match self
@@ -437,7 +437,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetIsolatedRemovalRequest,
         verification: Option<&mut FleetEvacuationVerification>,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetIsolatedRemovalAdmission> {
         let completed = self
@@ -466,7 +466,7 @@ impl FleetCatalog {
         request: &FleetRequestIdentity,
         proof: RemovalProof,
         verification: Option<&mut FleetEvacuationVerification>,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetRemovalAttempt<Completed>> {
         self.check_snapshot(snapshot)?;

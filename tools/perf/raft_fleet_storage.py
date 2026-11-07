@@ -40,10 +40,10 @@ def validate_storage(policy):
     # Conservative lab preflight for current native workspace policy: 512 MiB
     # WAL, up to 64 MiB per capture (three), 16 MiB housekeeping and five images.
     # Native Config also derives and validates the actual execution reservation.
-    require(policy['extent_bytes'] >= 720 * MIB + 5 * policy['image_bytes'],
+    require(policy['extent_bytes'] >= 720 * MIB + policy['image_bytes'] + policy['group_capacity'] * policy['cells_per_group'] * charge,
             'extent inventory cannot cover native WAL and capture ownership')
     require(limits['snapshot_scratch_bytes'] >= charge, 'snapshot scratch below image work')
-    images = policy['group_capacity'] * charge + policy['extent_bytes'] + charge + limits['extent_cache_bytes']
+    images = policy['group_capacity'] * policy['cells_per_group'] * charge + policy['extent_bytes'] + charge + limits['extent_cache_bytes']
     require(images <= limits['images_bytes'] * 9 // 10,
             'image filesystem cannot cover private images, extents and archive replay')
     require(policy['replay_extent_bytes'] + charge <= limits['replay_bytes'] * 9 // 10,

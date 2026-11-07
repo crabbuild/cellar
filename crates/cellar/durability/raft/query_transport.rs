@@ -4,51 +4,14 @@
 //! occupy the control or LTX connection required to establish its barrier.
 
 use super::*;
-use crate::application::consensus::{client, CommandFailure, QueryResult, RaftCells, VersionKeys};
 use crate::raft::query_identity::QueryRoute;
-use crate::raft::query_wire::{self as wire, QueryCall};
-use cellar_logic::consensus::{MemberId, NodeIdentity};
+use crate::raft::query_wire as wire;
+use cellar_logic::consensus::NodeIdentity;
 use sha2::{Digest, Sha256};
 
-pub(crate) struct QueryResponse {
-    pub value: Result<QueryResult, CommandFailure>,
-    _node: Permit,
-    _peer: Permit,
-}
-
-pub(crate) struct QueryDelivery {
-    result: Option<oneshot::Receiver<Result<QueryResponse, TransportError>>>,
-    cancel: watch::Sender<bool>,
-}
-
-impl QueryDelivery {
-    pub async fn receive(mut self) -> Result<QueryResponse, TransportError> {
-        self.result
-            .take()
-            .ok_or(TransportError::Closed)?
-            .await
-            .map_err(|_| TransportError::Closed)?
-    }
-}
-
-impl Drop for QueryDelivery {
-    fn drop(&mut self) {
-        self.cancel.send_replace(true);
-    }
-}
-
-pub(super) struct SendQuery {
-    scope: GroupScope,
-    route: Arc<GroupRoute>,
-    peer: RaftPeer,
-    call: QueryCall,
-    sequence: u64,
-    deadline: u64,
-    keys: VersionKeys,
-    cancel: watch::Receiver<bool>,
-    reply: oneshot::Sender<Result<QueryResponse, TransportError>>,
-    node: Permit,
-    peer_bytes: Permit,
+pub(super) enum SendQuery {
+    Shared(Box<super::cell_queries::SendCellQuery>),
+    Write(Box<super::cell_commands::SendCellWrite>),
 }
 
 pub(super) struct OriginGrant {
@@ -70,6 +33,7 @@ impl RaftTransport {
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
         registry.check_node_view(&grant.peer)?;
+        registry.check_physical_endpoint(&grant.peer)?;
         if let Some(old) = registry.origins.get(&key) {
             if old.revision == grant.revision && old.peer.as_ref() == Some(&grant.peer) {
                 return Ok(());
@@ -198,6 +162,7 @@ impl RaftTransport {
         state.admit(&registry)?;
         for peer in &physical {
             registry.check_node_view(peer)?;
+            registry.check_physical_endpoint(peer)?;
         }
         if let Some(old) = registry.query_groups.get(&route.scope) {
             if **old == route {
@@ -206,7 +171,7 @@ impl RaftTransport {
             if old.revision >= route.revision || old.schema_digest != route.schema_digest {
                 return Err(TransportError::StalePeer);
             }
-        } else if registry.query_groups.len() + registry.groups.len() >= state.options.max_groups {
+        } else if registry.route_count() >= state.options.max_groups {
             return Err(TransportError::Overloaded);
         }
         for peer in &physical {
@@ -239,128 +204,12 @@ impl RaftTransport {
         drop(registry);
         state.start_pools(starts)
     }
-
-    pub(crate) fn install_query_gateway(
-        &self,
-        handle: Arc<client::Handle>,
-    ) -> Result<(), TransportError> {
-        let state = &self.handle.0;
-        let mut gateway = state
-            .query_gateway
-            .lock()
-            .map_err(|_| TransportError::Closed)?;
-        if gateway.is_some()
-            || handle.closed.load(Ordering::Acquire)
-            || !handle.domain.same_owner(&state.domain)
-        {
-            return Err(TransportError::Refused);
-        }
-        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
-        state.admit(&registry)?;
-        *gateway = Some(Arc::downgrade(&handle));
-        Ok(())
-    }
-
-    pub(in crate::raft) fn query(
-        &self,
-        scope: &GroupScope,
-        member: MemberId,
-        call: QueryCall,
-        keys: VersionKeys,
-        deadline: u64,
-    ) -> Result<QueryDelivery, TransportError> {
-        let state = &self.handle.0;
-        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
-        state.admit(&registry)?;
-        if state.domain.mono_ms().map_err(|_| TransportError::Closed)? >= deadline {
-            return Err(TransportError::Timeout);
-        }
-        let route = registry
-            .groups
-            .get(scope)
-            .or_else(|| registry.query_groups.get(scope))
-            .ok_or(TransportError::UnknownGroup)?
-            .clone();
-        let local_node = state.runtime.log().limits().node;
-        let peer = route
-            .peers
-            .iter()
-            .find(|p| p.replica.member == member && p.replica.node != local_node)
-            .ok_or(TransportError::Identity)?
-            .clone();
-        let pool = registry
-            .pools
-            .get(&peer.replica.node)
-            .ok_or(TransportError::StalePeer)?
-            .clone();
-        drop(registry);
-        let charge = reservation(
-            call.input
-                .len()
-                .checked_add(4096)
-                .ok_or(TransportError::Limit)?,
-            &state.options,
-        )?;
-        let node = state
-            .outgoing
-            .query
-            .acquire(charge)
-            .ok_or(TransportError::Overloaded)?;
-        let peer_bytes = pool
-            .outgoing
-            .query
-            .acquire(charge)
-            .ok_or(TransportError::Overloaded)?;
-        // Validate/size the bounded representation before queueing, but retain
-        // only captured inputs. The sender encodes again with remaining time.
-        drop(call.encode(state.options.max_query_request_bytes)?);
-        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
-        state.admit(&registry)?;
-        if !registry
-            .groups
-            .get(scope)
-            .or_else(|| registry.query_groups.get(scope))
-            .is_some_and(|r| Arc::ptr_eq(r, &route))
-            || !registry
-                .pools
-                .get(&peer.replica.node)
-                .is_some_and(|p| Arc::ptr_eq(p, &pool))
-        {
-            return Err(TransportError::StalePeer);
-        }
-        let sequence = state
-            .sequence
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
-            .map_err(|_| TransportError::Closed)?
-            + 1;
-        let (reply, result) = oneshot::channel();
-        let (cancel, cancelled) = watch::channel(false);
-        pool.query
-            .try_send(SendQuery {
-                scope: scope.clone(),
-                route,
-                peer,
-                call,
-                sequence,
-                deadline,
-                keys,
-                cancel: cancelled,
-                reply,
-                node,
-                peer_bytes,
-            })
-            .map_err(|e| match e {
-                mpsc::error::TrySendError::Full(_) => TransportError::Overloaded,
-                mpsc::error::TrySendError::Closed(_) => TransportError::Closed,
-            })?;
-        Ok(QueryDelivery {
-            result: Some(result),
-            cancel,
-        })
-    }
 }
 
-fn reservation(request: usize, options: &TransportOptions) -> Result<usize, TransportError> {
+pub(super) fn reservation(
+    request: usize,
+    options: &TransportOptions,
+) -> Result<usize, TransportError> {
     request
         .checked_mul(2)
         .and_then(|n| {
@@ -391,58 +240,33 @@ impl State {
         &self,
         wire: &QueryRoute,
     ) -> Result<(Arc<Pool>, Option<watch::Receiver<bool>>), TransportError> {
-        let (source, target) = wire.decode()?;
-        let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
-        self.admit(&registry)?;
-        let route = registry
-            .groups
-            .get(&target.scope)
-            .ok_or(TransportError::UnknownGroup)?;
-        let group = self
-            .runtime
-            .log()
-            .group(&target.scope)
-            .map_err(|_| TransportError::UnknownGroup)?;
-        if *group.identity() != target
-            || wire.target_label() != self.auth.source()
-            || wire.schema() != route.schema_digest
-        {
-            return Err(TransportError::StalePeer);
+        if wire.requires_command_grant() {
+            return self.authorize_cell_command(wire);
         }
-        let member_peer = route.peers.iter().find(|peer| {
-            peer.replica.node_identity() == source && peer.label == wire.source_label()
-        });
-        let cache = group
-            .read()
-            .map_err(|error| TransportError::Runtime(error.into()))?;
-        if !cache.membership.permits(&target) {
-            return Err(TransportError::StalePeer);
-        }
-        let conf = &cache.conf_state;
-        let present = |member| {
-            conf.voters
-                .iter()
-                .chain(&conf.voters_outgoing)
-                .chain(&conf.learners)
-                .chain(&conf.learners_next)
-                .any(|id| *id == member)
-        };
-        if !present(target.member.get()) {
-            return Err(TransportError::StalePeer);
-        }
-        let implicit = member_peer.filter(|peer| {
-            present(peer.replica.member.get()) && cache.membership.permits(&peer.replica)
-        });
+        self.authorize_cell_query(wire)
+    }
+
+    /// Every cell read uses the same read-only origin grant, process binding,
+    /// revocation and peer-pool permission path.
+    pub(super) fn authorize_query_origin<S>(
+        &self,
+        registry: &Registry,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+        source: NodeIdentity,
+        source_label: &str,
+        implicit: Option<&RaftPeer<S>>,
+    ) -> Result<(Arc<Pool>, Option<watch::Receiver<bool>>), TransportError> {
         let grant = registry
             .origins
-            .get(&(target.scope.cluster, target.scope.namespace, source.node))
+            .get(&(cluster, namespace, source.node))
             .filter(|grant| !*grant.stop.borrow())
             .filter(|grant| {
                 grant.peer.as_ref().is_some_and(|peer| {
                     peer.node == source.node
                         && peer.disk == source.disk
                         && peer.process == source.process
-                        && peer.label == wire.source_label()
+                        && peer.label == source_label
                 })
             });
         let permission = if implicit.is_some() {
@@ -462,28 +286,6 @@ impl State {
             .cloned()
             .ok_or(TransportError::Refused)?;
         Ok((pool, permission))
-    }
-
-    fn current_query_route(
-        &self,
-        scope: &GroupScope,
-        route: &Arc<GroupRoute>,
-        peer: &RaftPeer,
-    ) -> bool {
-        if self.runtime.log().group(scope).is_ok() {
-            return self.current_route(scope, route, peer);
-        }
-        self.registry.lock().is_ok_and(|registry| {
-            self.admit(&registry).is_ok()
-                && registry
-                    .query_groups
-                    .get(scope)
-                    .is_some_and(|view| Arc::ptr_eq(view, route))
-                && registry
-                    .pools
-                    .get(&peer.replica.node)
-                    .is_some_and(|pool| pool.peer.same_host(peer))
-        })
     }
 
     pub(super) async fn query_until<T>(
@@ -541,7 +343,10 @@ impl State {
             let state = self.clone();
             match self.spawn(async move {
                 let _slot = slot;
-                let _ = state.receive_queries(stream).await;
+                let endpoint = state.local_query;
+                if let Err(error) = state.receive_queries(stream).await {
+                    tracing::debug!(target: "cellar::raft::query_connection", %endpoint, %error, "shared request connection ended");
+                }
             }) {
                 Ok(()) | Err(TransportError::Overloaded) => (),
                 Err(_) => return,
@@ -572,7 +377,7 @@ impl State {
                 .bounded(None, read_query_head(&mut stream, &self.options, false))
                 .await?;
             let header = wire::read_request(&head, &self.auth, &exporter, &self.options)?;
-            let (source, target) = header.route.decode()?;
+            let source = header.route.source()?;
             let host = (
                 source.node,
                 source.disk,
@@ -615,65 +420,71 @@ impl State {
             })
             .await?;
             header.verify_body(&body)?;
-            let call = QueryCall::decode(&body, self.options.max_query_request_bytes)?;
+            let call = super::cell_queries::IncomingCall::decode(
+                &header.route,
+                &body,
+                self.options.max_query_request_bytes,
+            )?;
             drop(body);
             self.authorize_query_route(&header.route)?;
-            let handle = self
-                .query_gateway
-                .lock()
-                .map_err(|_| TransportError::Closed)?
-                .as_ref()
-                .and_then(|handle| handle.upgrade())
-                .ok_or(TransportError::Refused)?;
-            let gateway = RaftCells { handle };
-            let cell = gateway
-                .cell(target.scope.namespace, &target.scope.cell)
-                .map_err(|_| TransportError::Refused)?;
-            if cell.scope() != &target.scope
-                || cell.binding.class.schema_digest() != header.route.schema()
-            {
-                return Err(TransportError::StalePeer);
-            }
-            let timeout = u64::try_from(call.options.timeout.as_millis())
-                .map_err(|_| TransportError::Limit)?;
             let until = self
                 .domain
                 .mono_ms()
                 .map_err(|_| TransportError::Closed)?
-                .saturating_add(timeout);
-            let query = cell.query(call.contract, call.input, call.options);
+                .checked_add(call.timeout_ms())
+                .ok_or(TransportError::Limit)?;
+            let query = async {
+                call.execute(&self, &header.route).await.inspect_err(|error| {
+                    tracing::debug!(target: "cellar::raft::query_connection", endpoint=%self.local_query, %error, "shared request execution refused");
+                })
+            };
             let mut extra = [0; 1];
-            // Query connections do not pipeline. EOF or unexpected input while
-            // waiting cancels the SDK waiter and its bounded SQL work.
-            let result = self.query_until(&pool, until, cancel.clone(), permission.clone(), async {
+            // No pipelining: EOF/unexpected input cancels the SDK waiter while
+            // the SQL owner retains any entered physical work through cleanup.
+            let body = self.query_until(&pool, until, cancel.clone(), permission.clone(), async {
                 crate::asyncrt::select! {
-                    value = query => Ok(value),
+                    value = query => value,
                     read = stream.read(&mut extra) => { let _ = read?; Err(TransportError::Closed) },
                 }
             }).await?;
-            if result
-                .as_ref()
-                .is_ok_and(|value| value.served_by != target.member)
-            {
-                return Err(TransportError::Identity);
-            }
             self.authorize_query_route(&header.route)?;
-            let body = wire::encode_result(&result, self.options.max_query_response_bytes)?;
             let response = wire::response_head(
                 &self.auth,
                 &exporter,
                 &header,
                 &head.tag,
-                &body,
+                body.bytes(),
                 &self.options,
             )?;
-            self.query_until(&pool, until, cancel, permission, async {
-                write_head(&mut stream, &response).await?;
-                stream.write_all(&body).await?;
-                stream.flush().await?;
-                Ok(())
-            })
-            .await?;
+            // This aggregate closes the stream before dropping the output proof
+            // on every exit, including destruction of the entire serving task.
+            let mut writing = super::query_replies::Write {
+                stream,
+                reply: body,
+            };
+            let observation = self
+                .performance
+                .timer(crate::raft::performance::Operation::QueryReplyWrite);
+            let result = self
+                .query_until(&pool, until, cancel, permission, async {
+                    write_head(&mut writing.stream, &response).await?;
+                    writing.stream.write_all(writing.reply.bytes()).await?;
+                    writing.stream.flush().await?;
+                    Ok(())
+                })
+                .await;
+            if let Err(error) = result {
+                drop(writing);
+                observation.finish(false);
+                return Err(error);
+            }
+            let super::query_replies::Write {
+                stream: resumed,
+                reply,
+            } = writing;
+            stream = resumed;
+            drop(reply);
+            observation.finish(true);
             self.accepted.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -685,132 +496,114 @@ impl State {
     ) {
         let mut stop = self.stop.subscribe();
         let mut peer_stop = pool.stop.subscribe();
-        let mut connection = None;
+        let mut connection: Option<QueryConnection> = None;
         loop {
             if *stop.borrow() || *peer_stop.borrow() {
                 return;
             }
-            let mut request = crate::asyncrt::select! { _ = stop.changed() => return, _ = peer_stop.changed() => return, request = requests.recv() => match request { Some(request) => request, None => return } };
-            let result = self
-                .query_until(
-                    &pool,
-                    request.deadline,
-                    request.cancel.clone(),
-                    None,
-                    async {
-                        if !self.current_query_route(&request.scope, &request.route, &request.peer)
-                        {
-                            return Err(TransportError::StalePeer);
-                        }
-                        if connection.is_none() {
-                            let owner = self.outgoing_connections.query();
-                            let tcp = TcpStream::connect(request.peer.query_address).await?;
-                            tcp.set_nodelay(true)?;
-                            let tcp = self.observed_socket(tcp, metrics::Lane::Query);
-                            let name = rustls::pki_types::ServerName::try_from(
-                                request.peer.server_name.clone(),
-                            )
-                            .map_err(|_| TransportError::Identity)?;
-                            let tls = tokio_rustls::TlsConnector::from(self.tls.client.clone())
-                                .connect(name, tcp)
-                                .await
-                                .map_err(|e| TransportError::Tls(e.to_string()))?;
-                            let exporter = tls
-                                .get_ref()
-                                .1
-                                .export_keying_material([0; 32], wire::EXPORT_LABEL, None)
-                                .map_err(|e| TransportError::Tls(e.to_string()))?;
-                            connection = Some((tls, exporter, owner));
-                        }
-                        let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
-                        let remaining = request
-                            .deadline
-                            .checked_sub(now)
-                            .filter(|ms| *ms > 0)
-                            .ok_or(TransportError::Timeout)?;
-                        request.call.options.timeout = request
-                            .call
-                            .options
-                            .timeout
-                            .min(std::time::Duration::from_millis(remaining));
-                        let body = request.call.encode(self.options.max_query_request_bytes)?;
-                        let local = self.runtime.log().limits();
-                        let route = QueryRoute::new(
-                            NodeIdentity {
-                                node: local.node,
-                                disk: local.disk,
-                                process: local.process,
-                            },
-                            self.auth.source(),
-                            &request.peer.replica,
-                            &request.peer.label,
-                            request.route.schema_digest,
-                        )?;
-                        let header = wire::RequestHead::new(route, request.sequence, &body);
-                        let (stream, exporter, _owner) =
-                            connection.as_mut().ok_or(TransportError::Closed)?;
-                        let head = wire::request_head(
-                            &self.auth,
-                            exporter,
-                            &header,
-                            &body,
-                            &self.options,
-                        )?;
-                        write_head(stream, &head).await?;
-                        stream.write_all(&body).await?;
-                        stream.flush().await?;
-                        drop(body);
-                        let response = read_query_head(stream, &self.options, true).await?;
-                        let digest = wire::read_response(
-                            &response,
-                            &self.auth,
-                            exporter,
-                            &header,
-                            &head.tag,
-                            &self.options,
-                        )?;
-                        let mut body = vec![0; response.payload_len];
-                        stream.read_exact(&mut body).await?;
-                        if digest != <[u8; 32]>::from(Sha256::digest(&body)) {
-                            return Err(TransportError::Authentication);
-                        }
-                        if !self.current_query_route(&request.scope, &request.route, &request.peer)
-                        {
-                            return Err(TransportError::StalePeer);
-                        }
-                        let now = u64::try_from(crate::asyncrt::wall_ms())
-                            .map_err(|_| TransportError::Authentication)?;
-                        wire::decode_result(
-                            &body,
-                            &request.scope,
-                            request.route.schema_digest,
-                            &request.keys,
-                            now,
-                            self.options.max_query_response_bytes,
-                            request.peer.replica.member,
-                        )
-                    },
-                )
-                .await;
-            if result.is_err() {
+            // The server bounds its idle header read. Observe peer closure
+            // while the lane is idle so the next request can connect afresh.
+            // No response bytes are valid before the next request is sent.
+            let idle_read = async {
+                if let Some((stream, _, _)) = connection.as_mut() {
+                    let mut unexpected = [0];
+                    let _ = stream.read(&mut unexpected).await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            };
+            let next = crate::asyncrt::select_biased! {
+                "retire a closed idle connection before sending a queued request";
+                _ = stop.changed() => return,
+                _ = peer_stop.changed() => return,
+                _ = idle_read => None,
+                request = requests.recv() => match request {
+                    Some(request) => Some(request),
+                    None => return,
+                },
+            };
+            let Some(request) = next else {
+                connection = None;
+                continue;
+            };
+            let failed = match request {
+                SendQuery::Write(request) => {
+                    self.send_cell_write(&pool, *request, &mut connection).await
+                }
+                SendQuery::Shared(request) => {
+                    self.send_cell_query(&pool, *request, &mut connection).await
+                }
+            };
+            if failed {
                 connection = None;
                 self.failed.fetch_add(1, Ordering::Relaxed);
             }
-            let SendQuery {
-                reply,
-                node,
-                peer_bytes,
-                ..
-            } = request;
-            let result = result.map(|value| QueryResponse {
-                value,
-                _node: node,
-                _peer: peer_bytes,
-            });
-            let _ = reply.send(result);
         }
     }
+
+    pub(super) async fn exchange_query(
+        &self,
+        connection: &mut Option<QueryConnection>,
+        peer: &RaftPeerNode,
+        route: QueryRoute,
+        body: Vec<u8>,
+    ) -> Result<Vec<u8>, TransportError> {
+        if connection.is_none() {
+            let owner = self.outgoing_connections.query();
+            let tcp = TcpStream::connect(peer.query_address).await?;
+            tcp.set_nodelay(true)?;
+            let tcp = self.observed_socket(tcp, metrics::Lane::Query);
+            let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
+                .map_err(|_| TransportError::Identity)?;
+            let tls = tokio_rustls::TlsConnector::from(self.tls.client.clone())
+                .connect(name, tcp)
+                .await
+                .map_err(|e| TransportError::Tls(e.to_string()))?;
+            let exporter = tls
+                .get_ref()
+                .1
+                .export_keying_material([0; 32], wire::EXPORT_LABEL, None)
+                .map_err(|e| TransportError::Tls(e.to_string()))?;
+            *connection = Some((tls, exporter, owner));
+        }
+        let (stream, exporter, _owner) = connection.as_mut().ok_or(TransportError::Closed)?;
+        // Assign in this peer's single sender, after dequeueing. Allocating at
+        // ingress can enqueue concurrent callers in reverse sequence order and
+        // make the receiver correctly refuse an otherwise valid read as replay.
+        let sequence = self
+            .sequence
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
+            .map_err(|_| TransportError::Closed)?
+            + 1;
+        let header = wire::RequestHead::new(route, sequence, &body);
+        let head = wire::request_head(&self.auth, exporter, &header, &body, &self.options)?;
+        write_head(stream, &head).await?;
+        stream.write_all(&body).await?;
+        stream.flush().await?;
+        drop(body);
+        let response = read_query_head(stream, &self.options, true).await?;
+        let digest = wire::read_response(
+            &response,
+            &self.auth,
+            exporter,
+            &header,
+            &head.tag,
+            &self.options,
+        )?;
+        let mut body = vec![0; response.payload_len];
+        stream.read_exact(&mut body).await?;
+        if digest != <[u8; 32]>::from(Sha256::digest(&body)) {
+            return Err(TransportError::Authentication);
+        }
+        Ok(body)
+    }
 }
+
+pub(super) type QueryConnection = (
+    tokio_rustls::client::TlsStream<metrics::Socket<TcpStream>>,
+    [u8; 32],
+    resources::ConnectionOwner,
+);
 
 async fn read_query_head<S: AsyncRead + Unpin>(
     stream: &mut S,

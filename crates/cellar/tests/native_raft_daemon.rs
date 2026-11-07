@@ -2,16 +2,30 @@
 
 //! Production process startup, retained-history resume and refusal boundaries.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_daemon_archive.rs"]
+mod archive;
+#[path = "support/cell_group_archive_verifier.rs"]
+mod archive_verifier;
+#[path = "../../../examples/raft-counter/configuration.rs"]
+#[allow(dead_code)]
+mod configuration;
 #[path = "../../../examples/raft-counter/counter.rs"]
 #[allow(dead_code)]
 mod counter;
-#[path = "support/html.rs"]
+#[path = "support/raft_daemon_docker.rs"]
+mod docker;
+#[path = "support/raft_daemon_managed.rs"]
+mod managed;
+#[path = "support/cell_group_disaster_public_node.rs"]
 #[allow(dead_code)]
-mod graph;
+mod public_node;
 #[path = "support/raft_daemon_recovery.rs"]
 mod recovery;
+#[path = "support/raft_retained_disk.rs"]
+mod retained_disk;
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{consensus::*, *};
+use public_node::graph;
 use serde_json::Value;
 use std::{
     fs::File,
@@ -27,127 +41,198 @@ use std::{
 const SECRET: &str = "fixture-secret-raft-cli";
 
 fn child(root: PathBuf, mode: String) -> Result<()> {
+    if mode == "provision-sql" {
+        return Host::local(graph::graph("raft-cli", "", vec![]))
+            .register("raft-cli", "test", || {
+                let class = counter::definition()?;
+                let api = counter::CounterApi::new(
+                    SECRET.into(),
+                    ClusterId::new([1; 16])?,
+                    NamespaceId::new([2; 16])?,
+                    &class,
+                )?;
+                counter::application(api, class)
+            })?
+            .run();
+    }
+    if mode.starts_with("cluster-") {
+        return managed::child(root, &mode);
+    }
     let class = counter::definition()?;
     let namespace = NamespaceId::new([2; 16])?;
-    let api = counter::CounterApi::new(SECRET.into(), namespace, &class)?;
+    let api = counter::CounterApi::new(SECRET.into(), ClusterId::new([1; 16])?, namespace, &class)?;
     let serving = api.clone();
     let prepared_root = root.clone();
-    let verify_join = mode == "bind-fail";
+    let cluster = ClusterId::new([1; 16])?;
+    let history = configuration::group(cluster, namespace)?;
+    let local_member = MemberId::new(1)?;
+    let bind_fail = mode == "bind-fail";
+    let cancel_bind = mode == "cancel-bind";
+    let verify_join = bind_fail || cancel_bind;
+    let binding_root = root.clone();
     let verify_directory = root.join("disk/raft");
     let factories = AtomicUsize::new(0);
     let result = Host::local(graph::graph("raft-cli", "", vec![]))
         .register("raft-cli", "test", move || {
             // Exactly one application instance must serve HTTP and register Raft.
-            ensure!(factories.fetch_add(1, Ordering::SeqCst) == 0, "Raft startup constructed a second application instance");
+            ensure!(
+                factories.fetch_add(1, Ordering::SeqCst) == 0,
+                "Raft startup constructed a second application instance"
+            );
             std::fs::write(root.join("factory-called"), b"1")?;
             counter::application(serving.clone(), counter::definition()?)
         })?
-        .raft_cells(if mode == "missing-app" { "absent" } else { "raft-cli" }, move |node| async move {
-            std::fs::write(prepared_root.join("prepared"), node.data_dir.as_os_str().as_encoded_bytes())?;
-            if mode == "cancel-prepare" {
-                std::future::pending::<()>().await;
-            }
-            let control = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-            let data = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-            let query = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-            let resume = mode.starts_with("cluster-resume-");
-            let ordinal = mode.strip_prefix("cluster-resume-").or_else(|| mode.strip_prefix("cluster-")).map(str::parse::<u8>).transpose()?;
-            let index = ordinal.unwrap_or(0);
-            ensure!(index < 3, "invalid daemon fixture member");
-            let id = NodeId::new([index + 3; 16])?;
-            let disk = DiskLineage::new([index + 4; 16])?;
-            let mut process = [0; 16];
-            process[..4].copy_from_slice(&std::process::id().to_be_bytes());
-            let process = ProcessGeneration::new(process)?;
-            let peer = RaftPeerNode {
-                node: id, disk, process, label: node.node,
-                server_name: "localhost".into(),
-                control_address: control.local_addr()?,
-                data_address: data.local_addr()?,
-                query_address: query.local_addr()?,
-            };
-            let mut peers = if ordinal.is_some() {
-                std::fs::write(prepared_root.join(format!("peer-{index}.tmp")), serde_json::to_vec(&serde_json::json!({
-                    "pid": std::process::id(), "label": peer.label,
-                    "control": peer.control_address, "data": peer.data_address, "query": peer.query_address,
-                }))?)?;
-                std::fs::rename(prepared_root.join(format!("peer-{index}.tmp")), prepared_root.join(format!("peer-{index}.json")))?;
-                let deadline = Instant::now() + Duration::from_secs(15);
-                while !(0..3).all(|i| prepared_root.join(format!("peer-{i}.json")).exists()) {
-                    ensure!(Instant::now() < deadline, "peer startup rendezvous expired");
-                    cellar::asyncrt::sleep(Duration::from_millis(25)).await;
+        .raft_cells_with_startup(
+            if mode == "missing-app" {
+                "absent"
+            } else {
+                "raft-cli"
+            },
+            move |node| async move {
+                std::fs::write(
+                    prepared_root.join("prepared"),
+                    node.data_dir.as_os_str().as_encoded_bytes(),
+                )?;
+                if mode == "cancel-prepare" {
+                    std::future::pending::<()>().await;
                 }
-                (0..3u8).map(|i| -> Result<_> {
-                    let file: Value = serde_json::from_slice(&std::fs::read(prepared_root.join(format!("peer-{i}.json")))?)?;
-                    let mut generation = [0; 16];
-                    generation[..4].copy_from_slice(&u32::try_from(file["pid"].as_u64().context("pid missing")?)?.to_be_bytes());
-                    Ok(RaftPeerNode {
-                        node: NodeId::new([i + 3; 16])?, disk: DiskLineage::new([i + 4; 16])?, process: ProcessGeneration::new(generation)?,
-                        label: file["label"].as_str().context("label missing")?.into(), server_name: "localhost".into(),
-                        control_address: serde_json::from_value(file["control"].clone())?,
-                        data_address: serde_json::from_value(file["data"].clone())?,
-                        query_address: serde_json::from_value(file["query"].clone())?,
+                let control = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+                let data = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+                let query = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+                let id = NodeId::new([3; 16])?;
+                let disk = DiskLineage::new([4; 16])?;
+                let mut process = [0; 16];
+                process[..4].copy_from_slice(&std::process::id().to_be_bytes());
+                let process = ProcessGeneration::new(process)?;
+                let peer = RaftPeerNode {
+                    node: id,
+                    disk,
+                    process,
+                    label: node.node,
+                    server_name: "localhost".into(),
+                    control_address: control.local_addr()?,
+                    data_address: data.local_addr()?,
+                    query_address: query.local_addr()?,
+                };
+                let mut peers = vec![peer];
+                if mode == "missing-peer-auth" {
+                    let mut remote = peers[0].clone();
+                    remote.node = NodeId::new([42; 16])?;
+                    remote.label = "unreachable-fixture-peer".into();
+                    peers.push(remote);
+                }
+                let mut namespace = NamespaceConfig::new(
+                    cluster,
+                    namespace,
+                    NamespaceMode::Raft,
+                    if mode == "bad-schema" {
+                        [99; 32]
+                    } else {
+                        class.schema_digest()
+                    },
+                );
+                namespace.voters = VoterPolicy::SingleVoterDevelopment;
+                let log_mode =
+                    if mode == "create" || mode == "bad-schema" || bind_fail || cancel_bind {
+                        LogOpenMode::Create
+                    } else {
+                        LogOpenMode::Resume
+                    };
+                let initialize = if log_mode == LogOpenMode::Create {
+                    Some(RaftNamespaceInitialization {
+                        operation: ProposalId::new([11; 16])?,
+                        groups: vec![CellGroupBirthSpec {
+                            history,
+                            range: CellRange::all(),
+                            epoch: RouteEpoch::new(1)?,
+                            creation: ProposalId::new([12; 16])?,
+                            voters: peers
+                                .iter()
+                                .enumerate()
+                                .map(|(i, peer)| {
+                                    Ok(InitialMember {
+                                        node: peer.node,
+                                        member: MemberId::new(i as u64 + 1)?,
+                                    })
+                                })
+                                .collect::<Result<Vec<_>>>()?,
+                            learners: vec![],
+                        }],
                     })
-                }).collect::<Result<Vec<_>>>()?
-            } else { vec![peer] };
-            if mode == "missing-peer-auth" {
-                let mut remote = peers[0].clone();
-                remote.node = NodeId::new([42; 16])?;
-                remote.label = "unreachable-fixture-peer".into();
-                peers.push(remote);
-            }
-            let cluster = ClusterId::new([1; 16])?;
-            let mut config = NamespaceConfig::new(cluster, namespace, NamespaceMode::Raft,
-                if mode == "bad-schema" { [99; 32] } else { class.schema_digest() });
-            config.voters = if ordinal.is_some() { VoterPolicy::ThreeVoters } else { VoterPolicy::SingleVoterDevelopment };
-            let cells = ["one", "two"].into_iter().enumerate().map(|(i, name)| -> Result<_> {
-                Ok(RaftCellRegistration {
-                    class: "Counter".into(), placement: RaftCellPlacement::Replica,
-                    namespace: config.clone(),
-                    birth: BirthProposal {
-                        scope: GroupScope { cluster, namespace, cell: format!("Counter:{name}"),
-                            group: GroupId::new([i as u8 + 5; 16])?, incarnation: IncarnationId::new([7; 16])? },
-                        voters: peers.iter().enumerate().map(|(i, peer)| Ok(InitialMember { node: peer.node, member: MemberId::new(i as u64 + 1)? })).collect::<Result<Vec<_>>>()?, learners: vec![],
+                } else {
+                    None
+                };
+                let mut shared = configuration::limits();
+                shared.archive = None;
+                let mut log =
+                    ReplicaLogOptions::new(node.data_dir.join("raft"), id, disk, process, log_mode);
+                log.max_groups = shared.controller.max_groups;
+                Ok(NativeRaftCells {
+                    config: RaftCellsConfig {
+                        infrastructure: NodeRaftConfig {
+                            log,
+                            consensus: RaftRuntimeOptions {
+                                tick_interval_ms: Some(25),
+                                max_groups: shared.controller.max_groups,
+                                ..Default::default()
+                            },
+                            transport: TransportOptions::default(),
+                        },
+                        catalog: CatalogOptions {
+                            prefix: "raft-cli".into(),
+                            ..Default::default()
+                        },
+                        namespaces: vec![RaftNamespaceConfig {
+                            namespace,
+                            class: "Counter".into(),
+                            initialize,
+                        }],
+                        groups: vec![RaftGroupAssignment {
+                            history,
+                            placement: RaftGroupPlacement::Replica,
+                        }],
+                        peers,
+                        query_origins: vec![],
+                        command_origins: vec![],
+                        host: RaftHostOptions {
+                            max_groups: shared.controller.max_groups,
+                            max_input_bytes: shared.dispatch.max_input_bytes,
+                            ..Default::default()
+                        },
+                        shared,
                     },
+                    listeners: NodeRaftListeners {
+                        control,
+                        data,
+                        query,
+                    },
+                    tls: fixture_tls()?,
+                    store: cellar::bucket::Bucket::open_dev(&prepared_root.join("catalog.sqlite"))?
+                        .raft_store(),
+                    versions: fixture_versions()?,
                 })
-            }).collect::<Result<Vec<_>>>()?;
-            let log_mode = if resume {
-                LogOpenMode::Resume
-            } else if ordinal.is_some() || mode == "create" || mode == "bad-schema" || mode == "bind-fail" {
-                LogOpenMode::Create
-            } else { LogOpenMode::Resume };
-            Ok(NativeRaftCells {
-                config: RaftCellsConfig {
-                    infrastructure: NodeRaftConfig {
-                        log: ReplicaLogOptions::new(node.data_dir.join("raft"), id, disk, process, log_mode),
-                        consensus: RaftRuntimeOptions { tick_interval_ms: Some(25), ..Default::default() },
-                        transport: TransportOptions::default(),
-                    },
-                    catalog: CatalogOptions { prefix: "raft-cli".into(), ..Default::default() },
-                    cells, peers, query_origins: vec![], host: RaftHostOptions {
-                        node_directory: ordinal.map(|_| RaftNodeDirectoryOptions::default()),
-                        ..Default::default()
-                    },
-                },
-                listeners: NodeRaftListeners { control, data, query },
-                tls: RaftTls::new(
-                    vec![include_bytes!("../transport/tcp/fixtures/ca.der").to_vec().into()],
-                    vec![include_bytes!("../transport/tcp/fixtures/server.der").to_vec().into()],
-                    rustls::pki_types::PrivatePkcs8KeyDer::from(include_bytes!("../transport/tcp/fixtures/key.der").to_vec()).into(),
-                )?,
-                store: cellar::bucket::Bucket::open_dev(&prepared_root.join("catalog.sqlite"))?.raft_store(),
-                versions: VersionKeys::new(VersionSigningKey::new([29; 32], u64::MAX)?, vec![], Duration::from_secs(86400))?,
-            })
-        }, move |service| {
-            if std::env::var("CELLAR_RAFT_CLI_CHILD").as_deref() == Ok("bind-fail") {
-                anyhow::bail!("fixture binding failed");
-            }
-            *api.cells.lock().map_err(|_| anyhow::anyhow!("binding poisoned"))? = Some(service);
-            Ok(())
-        })?
+            },
+            move |service| async move {
+                ready_counter(&service, history, local_member).await?;
+                if cancel_bind {
+                    std::fs::write(binding_root.join("binding"), b"entered")?;
+                    std::future::pending::<()>().await;
+                }
+                if bind_fail {
+                    anyhow::bail!("fixture binding failed");
+                }
+                *api.cells
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("binding poisoned"))? = Some(service);
+                Ok(())
+            },
+        )?
         .run_until(std::future::pending());
     if verify_join {
-        ensure!(result.is_err(), "failed binding admitted a node");
+        ensure!(
+            result.is_err(),
+            "failed or cancelled binding admitted a node"
+        );
         // Stay in this process after the daemon returned. A surviving storage
         // worker/owner would still hold the engine lock and refuse this open.
         tokio::runtime::Builder::new_current_thread()
@@ -175,20 +260,133 @@ fn child(root: PathBuf, mode: String) -> Result<()> {
                 domain.shutdown().await;
                 opened
             })?;
-        cellar::note!("failed Raft binding physically joined before daemon returned");
+        if bind_fail {
+            cellar::note!("failed Raft binding physically joined before daemon returned");
+        } else {
+            cellar::note!("cancelled Raft binding physically joined before daemon returned");
+        }
     }
     result
 }
 
+fn fixture_tls() -> Result<RaftTls> {
+    Ok(RaftTls::new(
+        vec![include_bytes!("../transport/tcp/fixtures/ca.der")
+            .to_vec()
+            .into()],
+        vec![include_bytes!("../transport/tcp/fixtures/server.der")
+            .to_vec()
+            .into()],
+        rustls::pki_types::PrivatePkcs8KeyDer::from(
+            include_bytes!("../transport/tcp/fixtures/key.der").to_vec(),
+        )
+        .into(),
+    )?)
+}
+
+fn fixture_versions() -> Result<VersionKeys> {
+    Ok(VersionKeys::new(
+        VersionSigningKey::new([29; 32], u64::MAX)?,
+        vec![],
+        Duration::from_secs(86400),
+    )?)
+}
+
+async fn ready_counter(service: &RaftCells, history: GroupHistory, local: MemberId) -> Result<()> {
+    let group = service.group(history)?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let usage = service.resource_usage();
+        ensure!(
+            usage.host.controller.groups == 1,
+            "daemon must host one shared group"
+        );
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let status = group.status().await?;
+        ensure!(
+            !remaining.is_zero(),
+            "replicated enrollment did not finish for member {local:?}: {status:?}, cells={:?}",
+            usage.retained_manifest_cells
+        );
+        if usage.retained_manifest_cells == Some(2) {
+            group.quorum_membership(remaining).await?;
+            return Ok(());
+        }
+        if status.ready && status.leader == Some(local.get()) {
+            for (index, name) in ["one", "two"].into_iter().enumerate() {
+                let handle =
+                    service.cell(counter::history(history.cluster, history.namespace, name)?)?;
+                let request = CellEnrollmentRequest {
+                    creation: ProposalId::new([31 + index as u8; 16])?,
+                    durability: Durability::Quorum,
+                };
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                match handle.enroll(request, remaining).await {
+                    Ok(_) => (),
+                    Err(error)
+                        if !error.ambiguous
+                            && matches!(
+                                error.cause.as_ref(),
+                                CellDispatchError::Runtime(
+                                    RuntimeError::NotLeader | RuntimeError::NotReady
+                                )
+                            ) =>
+                    {
+                        break
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+        cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[derive(Clone)]
+struct ManagedIngress {
+    native: String,
+    internal: String,
+    axum: String,
+}
+
+#[derive(Clone, Copy)]
+enum Ingress {
+    Native,
+    Axum,
+}
+
+impl Ingress {
+    const ALL: [Self; 2] = [Self::Native, Self::Axum];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Axum => "axum",
+        }
+    }
+
+    fn endpoint(self, address: &ManagedIngress) -> &str {
+        match self {
+            Self::Native => &address.native,
+            Self::Axum => &address.axum,
+        }
+    }
+}
+
 struct Process {
     child: Child,
+    voter: Option<docker::Voter>,
     log: PathBuf,
     diagnostics: PathBuf,
 }
 
 impl Drop for Process {
     fn drop(&mut self) {
-        if self.child.try_wait().ok().flatten().is_none() {
+        if let Some(voter) = &self.voter {
+            if voter.kill_if_running().is_err() {
+                let _ = self.child.kill();
+            }
+        } else if self.child.try_wait().ok().flatten().is_none() {
             let _ = self.child.kill();
         }
         let _ = self.child.wait();
@@ -206,7 +404,7 @@ impl Process {
         let diagnostics = root.join(format!("{mode}-stderr.log"));
         // A new process generation keeps the configured physical node label.
         // The authenticated directory refreshes its new addresses and boot.
-        let label = mode.strip_prefix("cluster-resume-").map_or_else(
+        let label = managed::retained_index(mode).map_or_else(
             || format!("raft-cli-{mode}"),
             |index| format!("raft-cli-cluster-{index}"),
         );
@@ -227,21 +425,38 @@ impl Process {
                 "--internal-listen",
                 "127.0.0.1:0",
             ])
-            .args(data_args)
-            .stdout(Stdio::from(File::create(&log)?))
-            .stderr(Stdio::from(File::create(&diagnostics)?));
+            .args(data_args);
         if mode.starts_with("cluster-") {
-            cmd.env("CELLAR_TEST_BUCKET", "cellar-dev")
-                .env("CELLAR_INTERNAL_DEV_STORE", root.join("fleet.sqlite"));
+            managed::configure_deployment(&mut cmd, root)?;
         }
         if override_dir {
             cmd.env("CELLAR_TEST_DATA_DIR", root.join("override"));
         }
+        let stdout = File::create(&log)?;
+        let stderr = File::create(&diagnostics)?;
+        let (child, voter) = if mode.starts_with("cluster-") && docker::enabled() {
+            let voter = docker::Voter::create(root, mode, &cmd)?;
+            (voter.start(stdout, stderr)?, Some(voter))
+        } else {
+            (
+                cmd.stdout(Stdio::from(stdout))
+                    .stderr(Stdio::from(stderr))
+                    .spawn()?,
+                None,
+            )
+        };
         Ok(Self {
-            child: cmd.spawn()?,
+            child,
+            voter,
             log,
             diagnostics,
         })
+    }
+
+    fn pid(&self) -> Result<u64> {
+        self.voter
+            .as_ref()
+            .map_or_else(|| Ok(u64::from(self.child.id())), docker::Voter::pid)
     }
 
     fn logs(&self) -> Result<String> {
@@ -276,17 +491,13 @@ impl Process {
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let logs = self.logs()?;
-            let addr = |prefix| {
-                logs.lines().find_map(|line| {
-                    line.strip_prefix(prefix)
-                        .and_then(|s| s.split_whitespace().next())
-                        .map(|s| format!("http://{s}"))
-                })
-            };
             if let (Some(public), Some(internal)) = (
-                addr("cellar listening on "),
-                addr("cellar internal listening on "),
+                listener_address(&logs, "cellar listening on "),
+                listener_address(&logs, "cellar internal listening on "),
             ) {
+                if let Some(voter) = &self.voter {
+                    voter.running()?;
+                }
                 return Ok((public, internal));
             }
             ensure!(
@@ -296,6 +507,34 @@ impl Process {
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
     }
+
+    async fn managed_addresses(&mut self) -> Result<ManagedIngress> {
+        let (native, internal) = self.addresses().await?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let logs = self.logs()?;
+            if let Some(axum) = listener_address(&logs, "cellar axum listening on ") {
+                return Ok(ManagedIngress {
+                    native,
+                    internal,
+                    axum,
+                });
+            }
+            ensure!(
+                self.child.try_wait()?.is_none() && Instant::now() < deadline,
+                "Axum startup failed\n{logs}"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+}
+
+fn listener_address(logs: &str, prefix: &str) -> Option<String> {
+    logs.lines().find_map(|line| {
+        line.strip_prefix(prefix)
+            .and_then(|value| value.split_whitespace().next())
+            .map(|address| format!("http://{address}"))
+    })
 }
 
 async fn qualify() -> Result<()> {
@@ -341,7 +580,7 @@ async fn qualify() -> Result<()> {
     }
     for (mode, expected) in [
         ("missing-app", "absent from the active deployment"),
-        ("bad-schema", "mode/schema disagrees"),
+        ("bad-schema", "compiled namespace schema mismatch"),
         (
             "missing-peer-auth",
             "requires a fleet bucket for shared peer authentication",
@@ -472,57 +711,80 @@ async fn qualify() -> Result<()> {
         ensure!(
             report["raft"]["owners_closed"] == true
                 && report["raft"]["startup_incomplete"] == false
-                && report["raft"]["groups"] == 2
+                && report["raft"]["groups"] == 1
                 && report["raft"]["retain_replica_disks"] == true,
             "wrong close proof: {report}"
         );
     }
-    let root = tempfile::tempdir()?;
-    let disk = root.path().join("disk");
-    let mut process = Process::spawn(
-        root.path(),
-        "cancel-prepare",
-        &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()],
-        false,
-    )?;
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while !root.path().join("prepared").exists() {
+    for (mode, marker) in [("cancel-prepare", "prepared"), ("cancel-bind", "binding")] {
+        let root = tempfile::tempdir()?;
+        let disk = root.path().join("disk");
+        let mut process = Process::spawn(
+            root.path(),
+            mode,
+            &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()],
+            false,
+        )?;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !root.path().join(marker).exists() {
+            ensure!(
+                process.child.try_wait()?.is_none() && Instant::now() < deadline,
+                "{mode} did not start\n{}",
+                process.logs()?
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        ensure!(Command::new("/bin/kill")
+            .args(["-TERM", &process.child.id().to_string()])
+            .status()?
+            .success());
+        let logs = process.exited(false).await?;
         ensure!(
-            process.child.try_wait()?.is_none() && Instant::now() < deadline,
-            "prepare did not start\n{}",
-            process.logs()?
+            logs.contains("startup interrupted by SIGTERM")
+                && !logs.contains("cellar listening on "),
+            "{logs}"
         );
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        if mode == "cancel-bind" {
+            ensure!(
+                logs.contains("cancelled Raft binding physically joined before daemon returned"),
+                "{logs}"
+            );
+        }
     }
-    ensure!(Command::new("/bin/kill")
-        .args(["-TERM", &process.child.id().to_string()])
-        .status()?
-        .success());
-    let logs = process.exited(false).await?;
-    ensure!(
-        logs.contains("startup interrupted by SIGTERM") && !logs.contains("cellar listening on "),
-        "{logs}"
-    );
     // Three separate production CLI processes use a shared catalog and peer
-    // authentication key, two independent groups and real TLS replication.
-    let root = tempfile::tempdir()?;
-    // The real dev supervisor initializes its local store before starting
-    // children. Concurrent first-open WAL/schema setup is not peer readiness.
-    cellar::bucket::Bucket::open_dev(&root.path().join("fleet.sqlite"))?;
-    cellar::bucket::Bucket::open_dev(&root.path().join("catalog.sqlite"))?;
+    // authentication key, one shared group with two independent cells and real TLS replication.
+    let mut root = tempfile::tempdir()?;
+    root.disable_cleanup(docker::enabled());
+    // Initialize the local dev store before children race to open its schema.
+    // The Linux RustFS campaign uses a separate S3 prefix for daemon leases.
+    if std::env::var_os(managed::RUSTFS_ENDPOINT).is_none() {
+        managed::open_deployment_store(root.path())?;
+    }
+    managed::initialize(root.path()).await?;
     let mut cluster = Vec::new();
-    for i in 0..3 {
-        let disk = root.path().join(format!("disk-{i}"));
-        cluster.push(Process::spawn(
+    for i in 0u8..3 {
+        let disk = docker::disk(root.path(), usize::from(i));
+        let mut process = Process::spawn(
             root.path(),
             &format!("cluster-{i}"),
             &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()],
             false,
-        )?);
+        )?;
+        // Serialize the independent boot CAS operations by observing the
+        // rooted engine. The operator checks each live standby over peer RPC.
+        managed::wait_for_cold_boot(root.path(), i, &mut process).await?;
+        if i < 2 {
+            ensure!(
+                !process.logs()?.contains("cellar listening on ")
+                    && !process.logs()?.contains("cellar axum listening on "),
+                "standby opened public ingress"
+            );
+        }
+        cluster.push(process);
     }
     let mut addresses = Vec::new();
     for index in 0..cluster.len() {
-        match cluster[index].addresses().await {
+        match cluster[index].managed_addresses().await {
             Ok(address) => addresses.push(address),
             Err(error) => {
                 let logs = cluster
@@ -536,9 +798,18 @@ async fn qualify() -> Result<()> {
             }
         }
     }
-    let mut ledger = recovery::Ledger::new(root.path())?;
+    let ledger_backend = if std::env::var_os(managed::RUSTFS_ENDPOINT).is_some() {
+        "rustfs_catalog_archives_and_node_leases"
+    } else {
+        "shared_dev_sqlite"
+    };
+    let mut ledger = recovery::Ledger::new(root.path(), ledger_backend)?;
+    if std::env::var_os(managed::RUSTFS_ENDPOINT).is_some() {
+        managed::verify_deployment_leases(root.path(), cluster.len()).await?;
+        ledger.record(serde_json::json!({"phase":"rustfs_node_leases","voters":cluster.len()}))?;
+    }
     let mut acknowledged = Vec::new();
-    for name in ["one", "two"] {
+    for (name, ingress) in [("one", Ingress::Native), ("two", Ingress::Axum)] {
         let command = format!("{}:1", hex::encode([90; 16]));
         let retry = (std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -546,12 +817,14 @@ async fn qualify() -> Result<()> {
             + 60_000)
             .to_string();
         let deadline = Instant::now() + Duration::from_secs(20);
-        let (leader, receipt) = loop {
+        let (ingress_member, receipt) = loop {
             let mut committed = None;
-            for (index, (public, _)) in addresses.iter().enumerate() {
+            for (index, address) in addresses.iter().enumerate() {
+                let public = ingress.endpoint(address);
                 ledger.record(serde_json::json!({
                     "phase": "send", "cell": name, "command": command,
                     "retry_until": retry, "delta": 11, "member": index + 1,
+                    "ingress": ingress.label(),
                 }))?;
                 let response = client
                     .post(format!("{public}/counters/{name}?delta=11"))
@@ -581,42 +854,70 @@ async fn qualify() -> Result<()> {
         ledger.record(serde_json::json!({
             "phase": "acknowledged", "cell": name, "command": command,
             "retry_until": retry, "delta": 11, "receipt": receipt,
+            "ingress": ingress.label(),
         }))?;
-        for (index, (public, _)) in addresses
+        for (index, address) in addresses
             .iter()
             .enumerate()
-            .filter(|(index, _)| *index != leader)
+            .filter(|(index, _)| *index != ingress_member)
         {
-            let query: Value = client
-                .get(format!("{public}/counters/{name}"))
-                .bearer_auth(SECRET)
-                .header("x-read-consistency", "at-least")
-                .header(
-                    "x-min-version",
-                    receipt["version_token"]
-                        .as_str()
-                        .context("version token absent")?,
-                )
-                .send()
-                .await?
-                .error_for_status()?
-                .json()
-                .await?;
-            ensure!(
-                query["value"] == 11
-                    && query["served_by"] == index as u64 + 1
-                    && query["group"] == receipt["group"],
-                "follower query failed: {query}"
-            );
+            for ingress in Ingress::ALL {
+                let public = ingress.endpoint(address);
+                let query: Value = client
+                    .get(format!("{public}/counters/{name}"))
+                    .bearer_auth(SECRET)
+                    .header("x-read-consistency", "at-least")
+                    .header(
+                        "x-min-version",
+                        receipt["version_token"]
+                            .as_str()
+                            .context("version token absent")?,
+                    )
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .json()
+                    .await?;
+                ensure!(
+                    query["value"] == 11
+                        && query["served_by"] == index as u64 + 1
+                        && query["group"] == receipt["group"],
+                    "follower query failed: {query}"
+                );
+            }
         }
         acknowledged.push(recovery::Acknowledged {
             cell: name,
-            leader,
+            ingress,
+            ingress_member,
             command,
             retry_until: retry,
             receipt,
         });
     }
+    ensure!(
+        acknowledged[0].receipt["group"] == acknowledged[1].receipt["group"]
+            && acknowledged[0].receipt["group_incarnation"]
+                == acknowledged[1].receipt["group_incarnation"]
+            && acknowledged[0].receipt["cell"] != acknowledged[1].receipt["cell"],
+        "two independent cell histories must share the physical group"
+    );
+    managed::verify_park_wake(
+        root.path(),
+        &client,
+        &addresses,
+        &acknowledged[0].receipt,
+        &mut ledger,
+    )
+    .await?;
+    archive::verify(
+        root.path(),
+        &client,
+        &addresses[acknowledged[0].ingress_member],
+        &acknowledged[0].receipt,
+        &mut ledger,
+    )
+    .await?;
     recovery::hard_kill_and_resume(
         root.path(),
         &client,
@@ -626,9 +927,53 @@ async fn qualify() -> Result<()> {
         &mut ledger,
     )
     .await?;
-    for (process, (_, internal)) in cluster.iter_mut().zip(&addresses) {
+    managed::maintenance::qualify(
+        root.path(),
+        &client,
+        &mut cluster,
+        &mut addresses,
+        &acknowledged[0],
+        &mut ledger,
+    )
+    .await?;
+    let mut members = [1, 2, 3];
+    let repair = std::env::var_os(managed::repair::ENABLED).is_some();
+    if repair {
+        let (replacement, ingress) = Box::pin(managed::repair::qualify(
+            root.path(),
+            &client,
+            &mut cluster,
+            &addresses,
+            &acknowledged[0].receipt,
+            &mut ledger,
+        ))
+        .await?;
+        cluster[0] = replacement;
+        addresses[0] = ingress;
+        members = managed::repair::REPAIRED;
+    } else if std::env::var_os(managed::standby::ENABLED).is_some() {
+        managed::standby::qualify(root.path(), &addresses[0], &mut ledger).await?;
+    }
+    let survivor = cluster.len() - 1;
+    if !repair {
+        recovery::verify_linearizable_before_loss(&client, &addresses[survivor], &mut ledger)
+            .await?;
+    }
+    let receipt = &acknowledged[0].receipt;
+    for (index, (process, address)) in cluster.iter_mut().zip(&addresses).enumerate() {
+        if index == survivor {
+            recovery::verify_quorum_loss(&client, address, index, &mut ledger).await?;
+        }
+        let drain_term = if repair && index == 0 {
+            let (leader, term, _) =
+                recovery::observe_members(&client, &addresses, &members, None, 1, receipt).await?;
+            ensure!(leader == index, "replacement lost leadership before drain");
+            Some(term)
+        } else {
+            None
+        };
         client
-            .post(format!("{internal}/shutdown"))
+            .post(format!("{}/shutdown", address.internal))
             .send()
             .await?
             .error_for_status()?;
@@ -637,8 +982,49 @@ async fn qualify() -> Result<()> {
             logs.contains("\"owners_closed\":true"),
             "three-voter owner did not join\n{logs}"
         );
+        if let Some(term) = drain_term {
+            let report: Value = logs
+                .lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .find(|value| value["event"] == "daemon_node_stopped")
+                .context("replacement drain report missing")?;
+            let raft = &report["raft"];
+            let handoff = &raft["handoff"];
+            ensure!(
+                report["mode"] == "handoff"
+                    && raft["startup_incomplete"] == false
+                    && raft["groups"] == 1
+                    && raft["retain_replica_disks"] == true
+                    && handoff["groups_examined"] == 1
+                    && handoff["accepted"] == 1
+                    && handoff["leadership_released"] == 1
+                    && handoff["unavailable_groups"] == 0
+                    && handoff["deadline_elapsed"] == false,
+                "incomplete replacement drain: {report}"
+            );
+            let next_term = term.checked_add(1).context("Raft term overflow")?;
+            let (successor, successor_term, voters) = recovery::observe_members(
+                &client,
+                &addresses,
+                &members,
+                Some(index),
+                next_term,
+                receipt,
+            )
+            .await?;
+            ledger.record(serde_json::json!({
+                "phase":"repair_drain_complete", "member":members[index], "term":term,
+                "successor":members[successor], "successor_term":successor_term,
+                "handoff":handoff, "voters":voters,
+            }))?;
+            recovery::verify_linearizable_before_loss(&client, &addresses[survivor], &mut ledger)
+                .await?;
+        }
+        ledger.record(
+            serde_json::json!({"phase":"voter_shutdown_joined", "member":members[index]}),
+        )?;
     }
-    cellar::note!("production Raft CLI qualification passed: directory and registration refusals, failed binding joins, two retained groups, linearizable queries, process restart, semantic closure, startup cancellation, and three daemon processes with two groups over TLS and local follower reads");
+    cellar::note!("production Raft CLI qualification passed: directory and registration refusals, failed binding joins, two cells in one retained group, linearizable queries, process restart, semantic closure, startup cancellation, and three managed daemon processes with one shared group over TLS with native and Axum reads and writes");
     Ok(())
 }
 
@@ -650,6 +1036,13 @@ fn main() -> Result<()> {
                 .into(),
             mode,
         );
+    }
+    if std::env::var_os("CELLAR_RAFT_DAEMON_REPAIR_GATE").is_some() {
+        tracing_subscriber::fmt()
+            .with_env_filter("cellar_raft_repair=debug")
+            .with_ansi(false)
+            .try_init()
+            .map_err(|error| anyhow::anyhow!("repair trace subscriber: {error}"))?;
     }
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(3)

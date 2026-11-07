@@ -245,7 +245,7 @@ impl TopologyService {
                 )
                 .and_then(|n| n.checked_add(histories.checked_mul(4096)?))
                 .ok_or(FleetCatalogError::Limit)?;
-            let input = reserve_collection_memory(&observer.handle.control_budget, input_bytes, 0)?;
+            let input = reserve_collection_memory(observer.control_budget(), input_bytes, 0)?;
             let inputs = self
                 .evidence
                 .refresh(&operation, deadline.remaining()?)
@@ -263,11 +263,8 @@ impl TopologyService {
                 .checked_mul(28 * 1024)
                 .and_then(|n| n.checked_add(actions.checked_mul(48)?))
                 .ok_or(FleetCatalogError::Limit)?;
-            let planning = reserve_collection_memory(
-                &observer.handle.control_budget,
-                planning_bytes,
-                input_bytes,
-            )?;
+            let planning =
+                reserve_collection_memory(observer.control_budget(), planning_bytes, input_bytes)?;
             let memory = Arc::new(vec![input, planning]);
             let verification = catalog
                 .prepare_topology_verification(

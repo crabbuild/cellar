@@ -3,10 +3,11 @@
 
 """Run real native/Axum reads, remote routing and retained receipts after restart.
 
-Usage: python3 examples/raft-counter/smoke.py BINARY NEW_WORK_DIRECTORY
+Usage: python3 examples/raft-counter/smoke.py BINARY NEW_WORK_DIRECTORY [--single-cell]
 Requires the example's six loopback ports to be free. Retains the work directory
 and child logs for inspection; prints no bearer credentials.
 """
+import errno
 import json
 from pathlib import Path
 import secrets
@@ -19,7 +20,28 @@ import urllib.error
 import urllib.request
 
 
-def run(binary, work):
+def late_failure_listener(ports):
+    # Reserve the actual non-reusing socket. A reusing bind can succeed while
+    # TIME_WAIT still prevents the deliberate conflict on the final port.
+    deadline = time.monotonic() + 60
+    while True:
+        listeners = []
+        try:
+            for port in ports:
+                listener = socket.socket()
+                listeners.append(listener)
+                listener.bind(("127.0.0.1", port))
+            return listeners.pop()
+        except OSError as error:
+            if error.errno != errno.EADDRINUSE or time.monotonic() >= deadline:
+                raise
+        finally:
+            for listener in listeners:
+                listener.close()
+        time.sleep(0.1)
+
+
+def run(binary, work, *, single_cell=False):
     root = Path(__file__).resolve().parents[2]
     work.mkdir(parents=True, exist_ok=False)
     token = secrets.token_hex(32)
@@ -29,16 +51,17 @@ def run(binary, work):
     fixture = root / "crates/cellar/transport/tcp/fixtures"
     argv = [str(binary), str(work), *(str(fixture / name) for name in
             ["ca.der", "server.der", "key.der"]), str(secret)]
-    bases = [f"http://127.0.0.1:{port}" for port in
-             [9901, 9902, 9903, 9911, 9912, 9913]]
+    if single_cell:
+        argv.append("--single-cell")
+    ports = [9901, 9902, 9903, 9911, 9912, 9913]
+    bases = [f"http://127.0.0.1:{port}" for port in ports]
     retry = int(time.time() * 1000) + 300_000
     client = "07" * 16
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
     # Fail late startup after node/service owners exist, then resume the same
     # disks. This must join cleanly without resetting any voting history.
-    with socket.socket() as occupied:
-        occupied.bind(("127.0.0.1", 9913))
+    with late_failure_listener(ports) as occupied:
         occupied.listen(1)
         with (work / "startup-failure.log").open("wb") as output:
             process = subprocess.Popen(argv, stdout=output, stderr=subprocess.STDOUT)
@@ -52,7 +75,8 @@ def run(binary, work):
                     process.wait(timeout=10)
     print("late startup failure joined owners; resuming the same disks", flush=True)
 
-    def request(base, sequence=None, delta=None, *, cell="one", read_headers=None):
+    def request(base, sequence=None, delta=None, *, cell="one", read_headers=None,
+                client_id=client, durability=None):
         path = f"/counters/{cell}"
         headers = {"authorization": f"Bearer {token}"}
         headers.update(read_headers or {})
@@ -60,8 +84,10 @@ def run(binary, work):
         if sequence is not None:
             method = "POST"
             path += f"?delta={delta}"
-            headers.update({"x-command-id": f"{client}:{sequence}",
+            headers.update({"x-command-id": f"{client_id}:{sequence}",
                             "x-retry-until-ms": str(retry)})
+        if durability is not None:
+            headers["x-write-durability"] = durability
         try:
             with opener.open(urllib.request.Request(base + path, headers=headers,
                                                    method=method), timeout=6) as response:
@@ -73,14 +99,16 @@ def run(binary, work):
         with (work / f"process-{phase}.log").open("wb") as output:
             process = subprocess.Popen(argv, stdout=output, stderr=subprocess.STDOUT)
             try:
-                def command(sequence, delta, expected, candidates, *, cell="one"):
+                def command(sequence, delta, expected, candidates, *, cell="one",
+                            client_id=client, durability=None):
                     deadline = time.monotonic() + 30
                     while time.monotonic() < deadline:
                         if process.poll() is not None:
                             raise RuntimeError(f"example exited {process.returncode}")
                         for base in candidates:
                             try:
-                                status, body = request(base, sequence, delta, cell=cell)
+                                status, body = request(base, sequence, delta, cell=cell,
+                                                       client_id=client_id, durability=durability)
                             except OSError:
                                 continue
                             if status == 200:
@@ -88,6 +116,7 @@ def run(binary, work):
                                 assert result["value"] == expected, result
                                 assert isinstance(result["version_token"], str)
                                 assert result["served_by"] is None
+                                assert result["durability"] == (durability or "quorum"), result
                                 return result
                             assert status == 503, (status, body)
                         time.sleep(0.02)
@@ -96,6 +125,16 @@ def run(binary, work):
                 # A successful retry after restart must return the original
                 # result 7 even though the current business value is already 9.
                 original = command(1, 7, 7, bases)
+                # Once ready, every public entry point must forward the same
+                # identity to the leader. Searching for a working leader here
+                # would hide a missing SDK command-routing path.
+                for base in bases:
+                    status, body = request(base, 1, 7)
+                    assert status == 200, (base, status, body)
+                    duplicate = json.loads(body)
+                    assert duplicate["value"] == 7, duplicate
+                    assert duplicate["cell"] == original["cell"], duplicate
+                    assert duplicate["incarnation"] == original["incarnation"], duplicate
                 if phase == 0:
                     first = original
                     latest = command(2, 2, 9, bases[3:])
@@ -108,7 +147,22 @@ def run(binary, work):
                     assert original["index"] >= first["index"], (original, first)
                     latest = command(3, 4, 13, bases[:3])
                     expected = 13
-                other = command(1, 31, 31, bases, cell="two")
+                if not single_cell:
+                    other = command(1, 31, 31, bases, cell="two")
+                # Cross the original 64-image inventory without increasing it.
+                # A separate client's zero-delta writes preserve every original
+                # business-result/retry assertion while producing real receipts
+                # and LTX images, both before and after retained restart.
+                for sequence in range(phase * 80 + 1, (phase + 1) * 80 + 1):
+                    latest = command(sequence, 0, expected, bases, client_id="08" * 16)
+                # Request archive coverage for the same immutable command
+                # through the alternate HTTP surface and verify its result.
+                archived = command((phase + 1) * 80, 0, expected,
+                                   bases[3:] if phase == 0 else bases[:3],
+                                   client_id="08" * 16, durability="s3")
+                assert all(archived[k] == latest[k] for k in
+                           ["group", "group_incarnation", "cell", "incarnation", "value"]), archived
+                assert archived["index"] >= latest["index"], (archived, latest)
                 for i, base in enumerate(bases):
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:
@@ -129,7 +183,7 @@ def run(binary, work):
                         if consistency == "at-least":
                             headers["x-min-version"] = latest["version_token"]
                         status, body = request(base, read_headers=headers)
-                        assert status == 200, (status, body)
+                        assert status == 200, (phase, i, consistency, remote, status, body)
                         read = json.loads(body)
                         assert read["value"] == expected, read
                         assert read["served_by"] == remote, read
@@ -144,10 +198,15 @@ def run(binary, work):
                     status, body = request(base, cell="two", read_headers={
                         "x-read-consistency": "at-least", "x-min-version": latest["version_token"],
                         "x-query-members": str(remote), "x-leader-fallback": "true"})
-                    assert status == 409 and body == b"WrongIncarnation", (status, body)
-                    status, body = request(base, cell="two", read_headers={
-                        "x-read-consistency": "at-least", "x-min-version": other["version_token"]})
-                    assert status == 200 and json.loads(body)["value"] == 31, (status, body)
+                    if single_cell:
+                        assert status == 400 and body == b"invalid request or unavailable cell", (status, body)
+                        status, body = request(base, 1, 31, cell="two")
+                        assert status == 400 and body == b"invalid request or unavailable cell", (status, body)
+                    else:
+                        assert status == 409 and body == b"WrongIncarnation", (status, body)
+                        status, body = request(base, cell="two", read_headers={
+                            "x-read-consistency": "at-least", "x-min-version": other["version_token"]})
+                        assert status == 200 and json.loads(body)["value"] == 31, (status, body)
                 process.send_signal(signal.SIGINT)
                 assert process.wait(timeout=30) == 0, "example shutdown failed"
                 print(f"phase {phase}: six HTTP endpoints verify strong remote reads and cell-scoped tokens; joined shutdown", flush=True)
@@ -159,6 +218,6 @@ def run(binary, work):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 3 and not (len(sys.argv) == 4 and sys.argv[3] == "--single-cell"):
         raise SystemExit(__doc__)
-    run(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())
+    run(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve(), single_cell=len(sys.argv) == 4)

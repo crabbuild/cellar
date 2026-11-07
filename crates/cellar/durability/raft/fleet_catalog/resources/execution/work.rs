@@ -3,6 +3,7 @@
 //! Reconstruct exact admitted work; cached descriptors never mint a lease.
 use super::*;
 use crate::raft::fleet_catalog::deadline::Deadline;
+use crate::raft::inspection::InspectionError;
 use cellar_logic::consensus::MemberId;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +30,12 @@ pub(crate) struct MovementCommand {
     pub resource_digest: [u8; 32],
     pub target: BootBinding,
     pub action: MovementAction,
+}
+
+impl MovementAction {
+    pub(super) fn finishes_joint(&self) -> bool {
+        matches!(self, Self::Finish { .. })
+    }
 }
 
 impl MovementCommand {
@@ -95,29 +102,45 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         row: &Record,
         node: NodeId,
-    ) -> Result<BootBinding> {
+        allow_retained: bool,
+    ) -> Result<(BootBinding, bool)> {
         let host = self.host_from(snapshot, node).await?;
         if !host.state().permits_admitted_movement() {
             return Err(FleetCatalogError::Conflict);
         }
         let boot = host.boot_binding()?;
-        if node == row.node {
-            if boot != row.request.attestation.boot {
+        let owner = if node == row.node {
+            None
+        } else {
+            Some(
+                row.seed_owners
+                    .as_ref()
+                    .ok_or_else(invalid)?
+                    .iter()
+                    .find(|owner| owner.node == node.bytes())
+                    .ok_or_else(invalid)?,
+            )
+        };
+        let retained = match owner {
+            Some(owner) => !owner.matches(&boot)?,
+            None => boot != row.request.attestation.boot,
+        };
+        if retained {
+            if !allow_retained {
                 return Err(FleetCatalogError::Conflict);
             }
-        } else {
-            let owner = row
-                .seed_owners
-                .as_ref()
-                .ok_or_else(invalid)?
-                .iter()
-                .find(|owner| owner.node == node.bytes())
-                .ok_or_else(invalid)?;
-            if !owner.matches(&boot)? {
-                return Err(FleetCatalogError::Conflict);
+            match owner {
+                Some(owner) => {
+                    self.confirm_retained_movement_source(snapshot, owner, &boot)
+                        .await?
+                }
+                None => {
+                    self.confirm_retained_movement_target(snapshot, row, &boot)
+                        .await?
+                }
             }
         }
-        Ok(boot)
+        Ok((boot, retained))
     }
 
     pub(super) async fn movement_leader(
@@ -145,46 +168,69 @@ impl FleetCatalog {
             }
         }
         nodes.push(row.node);
-        for node in nodes {
-            let boot = match self
-                .run(
-                    deadline.remaining()?,
-                    self.movement_boot(snapshot, row, node),
-                )
-                .await
-            {
-                Ok(boot) => boot,
-                Err(FleetCatalogError::Conflict) => continue,
-                Err(error) => return Err(error),
-            };
-            let observed = observer
-                .observe_peer_fleet_membership(
-                    node,
-                    authorization.clone(),
-                    snapshot.revision(),
-                    deadline.remaining()?.min(Duration::from_millis(500)),
-                )
-                .await;
-            let sample = match observed {
-                Ok(sample) => sample,
-                Err(crate::raft::inspection::InspectionError::Overloaded) => {
-                    return Err(FleetCatalogError::Overloaded)
+        // A lost observation or a concurrent leader change can leave one
+        // sweep empty despite a live quorum. Resample once within the original
+        // turn budget; the caller still dispatches each action only once.
+        for _ in 0..2 {
+            let mut retryable = false;
+            for &node in &nodes {
+                let (boot, retained) = match self
+                    .run(
+                        deadline.remaining()?,
+                        self.movement_boot(snapshot, row, node, true),
+                    )
+                    .await
+                {
+                    Ok(boot) => boot,
+                    Err(FleetCatalogError::Conflict) => continue,
+                    Err(error) => return Err(error),
+                };
+                let sample = match observer
+                    .observe_peer_fleet_membership(
+                        node,
+                        authorization.clone(),
+                        snapshot.revision(),
+                        deadline.remaining()?.min(Duration::from_millis(500)),
+                    )
+                    .await
+                {
+                    Ok(sample) => sample,
+                    Err(InspectionError::Overloaded) => return Err(FleetCatalogError::Overloaded),
+                    Err(InspectionError::Unreachable | InspectionError::Unavailable) => {
+                        retryable = true;
+                        continue;
+                    }
+                    Err(InspectionError::Refused | InspectionError::StalePeer) => continue,
+                };
+                if sample.sample_age_ms() > MAX_SAMPLE_AGE_MS
+                    || sample.node().fleet_boot.as_ref() != Some(&boot)
+                    || sample.membership().status().binding != *permit.binding()
+                {
+                    return Err(FleetCatalogError::Unconfirmed);
                 }
-                Err(_) => continue,
-            };
-            if sample.sample_age_ms() > MAX_SAMPLE_AGE_MS
-                || sample.node().fleet_boot.as_ref() != Some(&boot)
-                || sample.membership().status().binding != *permit.binding()
-            {
-                return Err(FleetCatalogError::Unconfirmed);
+                let status = sample.membership().status();
+                if retained
+                    && (status.permit.as_ref() != Some(permit)
+                        || status.consumed_sequence != permit.sequence()
+                        || !matches!(
+                            status.phase,
+                            Some(FleetPermitPhase::Joint | FleetPermitPhase::Complete)
+                        ))
+                {
+                    continue;
+                }
+                if sample
+                    .progress()
+                    .member
+                    .as_ref()
+                    .is_some_and(|member| member.is_leader)
+                {
+                    return Ok(sample);
+                }
+                retryable = true;
             }
-            if sample
-                .progress()
-                .member
-                .as_ref()
-                .is_some_and(|member| member.is_leader)
-            {
-                return Ok(sample);
+            if !retryable {
+                break;
             }
         }
         Err(FleetCatalogError::Unconfirmed)
@@ -208,7 +254,10 @@ impl FleetCatalog {
                 let command = MovementCommand {
                     reservation: row.request.identity.id,
                     resource_digest: hash(&row.encode()?),
-                    target: self.movement_boot(snapshot, row, node).await?,
+                    target: self
+                        .movement_boot(snapshot, row, node, action.finishes_joint())
+                        .await?
+                        .0,
                     action,
                 };
                 command.validate()?;

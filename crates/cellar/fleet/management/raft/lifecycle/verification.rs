@@ -2,21 +2,18 @@
 
 //! At most one in-memory complete-inventory walk. Restart repeats its proofs.
 use super::*;
-use crate::raft::archive::{ArchiveError, ArchiveLimits, ArchiveVerifier};
 use crate::raft::fleet_catalog::{
-    FleetEvacuationArchive, FleetEvacuationVerification, FleetHistoryState,
+    FleetEvacuationArchive, FleetEvacuationVerification, FleetGroupArchiveVerifier,
+    FleetHistoryState,
 };
-use cellar_logic::consensus::{MemberId, NodeId};
-use cellar_ltx::LtxHost;
+use cellar_logic::consensus::NodeId;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
 };
 
 pub(in super::super) struct Verification {
-    host: LtxHost,
-    verifier: ArchiveVerifier,
-    limits: ArchiveLimits,
+    archive: FleetGroupArchiveVerifier,
     session: Mutex<Option<Session>>,
     busy: AtomicBool,
 }
@@ -93,21 +90,12 @@ impl Verification {
         Ok(Some(value))
     }
 
-    pub(super) fn new(
-        host: LtxHost,
-        verifier: ArchiveVerifier,
-        limits: ArchiveLimits,
-    ) -> Result<Self> {
-        limits
-            .validate()
-            .map_err(|_| RaftFleetFailure::invalid("removal archive bounds"))?;
-        Ok(Self {
-            host,
-            verifier,
-            limits,
+    pub(super) fn new(archive: FleetGroupArchiveVerifier) -> Self {
+        Self {
+            archive,
             session: Mutex::new(None),
             busy: AtomicBool::new(false),
-        })
+        }
     }
 
     pub(super) fn lease(&self, key: &Key) -> Result<Lease<'_>> {
@@ -140,6 +128,7 @@ impl Verification {
         control: &RaftFleetControl,
         session: &mut Session,
         observer: &RaftCells,
+        cut: &FleetSnapshot,
         turn: &Turn<'_>,
     ) -> Result<Advance> {
         session.waiting = None;
@@ -150,6 +139,9 @@ impl Verification {
             FleetHistoryState::Cancelled { .. } => {
                 session.walk.verify_cancelled(turn.remaining()?).await?
             }
+            FleetHistoryState::Retired { .. } => {
+                session.walk.verify_retired(turn.remaining()?).await?
+            }
             FleetHistoryState::Live => {
                 let scope = history
                     .binding()
@@ -158,87 +150,56 @@ impl Verification {
                 let namespace = control
                     .namespaces
                     .iter()
-                    .find(|n| n.config().namespace == scope.namespace)
+                    .find(|n| n.namespace_config().namespace == scope.namespace)
                     .ok_or(FleetCatalogError::InventoryIncomplete)?;
-                let birth = turn
-                    .run(namespace.birth(&scope.cell))
-                    .await?
-                    .map_err(FleetCatalogError::from)?
-                    .ok_or(FleetCatalogError::InventoryIncomplete)?;
-                if birth.scope() != &scope || birth.digest() != history.birth_digest() {
-                    return Err(FleetCatalogError::Conflict.into());
-                }
-                // Bind archive I/O to the management owner's execution domain
-                // even for SDK calls made outside an HTTP/domain task.
-                let archive = turn
-                    .run(async { namespace.cell_archive(&birth, self.host.clone(), self.limits) })
-                    .await?
-                    .map_err(FleetCatalogError::from)?;
-                let metadata = turn
-                    .run(archive.recovery_metadata())
-                    .await?
-                    .map_err(archive_error)?
-                    .ok_or(FleetCatalogError::Unconfirmed)?;
-                let configuration = metadata.configuration().map_err(archive_error)?;
-                if configuration.voters.len() != 3
-                    || !configuration.voters_outgoing.is_empty()
-                    || !configuration.learners.is_empty()
-                    || !configuration.learners_next.is_empty()
-                {
-                    return Err(FleetCatalogError::Unconfirmed.into());
-                }
-                let membership = metadata.membership();
-                let mut nodes = Vec::with_capacity(3);
-                for member in configuration.voters {
-                    let member = MemberId::new(member)
-                        .map_err(|_| FleetCatalogError::Corrupt("archive voter"))?;
-                    let node = match membership
-                        .joined(member)
-                        .map_err(|_| FleetCatalogError::Corrupt("archive binding"))?
-                    {
-                        Some((binding, _)) => binding.node,
-                        None => birth
-                            .voters()
-                            .iter()
-                            .chain(birth.learners())
-                            .find(|v| v.member == member)
-                            .map(|v| v.node)
-                            .ok_or(FleetCatalogError::InventoryIncomplete)?,
-                    };
-                    nodes.push(node);
-                }
-                let nodes: [NodeId; 3] = nodes
+                // Rooted current membership only selects candidates; the
+                // walk independently authenticates all three live survivors.
+                let (voters, _) = turn
+                    .run(control.catalog.settled_group_voters(cut, &history))
+                    .await??;
+                let nodes: [NodeId; 3] = voters
+                    .into_keys()
+                    .collect::<Vec<_>>()
                     .try_into()
                     .map_err(|_| FleetCatalogError::InventoryIncomplete)?;
-                let reference = metadata.reference();
+                let fixed = match session
+                    .walk
+                    .freeze_live(observer, nodes, turn.remaining()?)
+                    .await
+                {
+                    Ok(fixed) => fixed,
+                    Err(error) => return waiting(session, &history, error),
+                };
+                let registry = turn
+                    .run(self.archive.open(&control.domain, namespace, &history))
+                    .await??;
+                let hold = session
+                    .walk
+                    .acquire_archive_hold(&registry, turn.remaining()?)
+                    .await?;
+                let receiver = turn
+                    .run(self.archive.receiver(
+                        &control.domain,
+                        fixed.root().route(),
+                        namespace.namespace_config().image_storage,
+                    ))
+                    .await??;
                 let result = session
                     .walk
                     .verify_live(
                         observer,
                         nodes,
                         FleetEvacuationArchive {
-                            archive: &archive,
-                            reference: &reference,
-                            verifier: &self.verifier,
+                            registry: &registry,
+                            hold: &hold,
+                            tails: self.archive.tails(),
+                            receiver,
                         },
                         turn.remaining()?,
                     )
                     .await;
                 if let Err(error) = result {
-                    let Some(blocker) = RaftFleetVerificationBlocker::observation(
-                        &error,
-                        RaftFleetVerificationStage::HistoryQuorum,
-                        Some(
-                            history
-                                .binding()
-                                .key()
-                                .map_err(|_| FleetCatalogError::Corrupt("waiting history key"))?,
-                        ),
-                    ) else {
-                        return Err(error.into());
-                    };
-                    session.waiting = Some(blocker);
-                    return Ok(Advance::Waiting);
+                    return waiting(session, &history, error);
                 }
             }
             _ => return Err(FleetCatalogError::Unconfirmed.into()),
@@ -251,14 +212,23 @@ impl Verification {
     }
 }
 
-fn archive_error(error: ArchiveError) -> FleetCatalogError {
-    match error {
-        ArchiveError::Invalid(reason) => FleetCatalogError::Invalid(reason),
-        ArchiveError::Corrupt(reason) => FleetCatalogError::Corrupt(reason),
-        ArchiveError::Conflict => FleetCatalogError::Conflict,
-        ArchiveError::Limit => FleetCatalogError::Limit,
-        ArchiveError::Unconfirmed | ArchiveError::Timeout => FleetCatalogError::Unconfirmed,
-        ArchiveError::Stopped => FleetCatalogError::Closed,
-        error => FleetCatalogError::Storage(error.into()),
-    }
+fn waiting(
+    session: &mut Session,
+    history: &crate::raft::fleet_catalog::FleetHistory,
+    error: FleetCatalogError,
+) -> Result<Advance> {
+    let Some(blocker) = RaftFleetVerificationBlocker::observation(
+        &error,
+        RaftFleetVerificationStage::HistoryQuorum,
+        Some(
+            history
+                .binding()
+                .key()
+                .map_err(|_| FleetCatalogError::Corrupt("waiting history key"))?,
+        ),
+    ) else {
+        return Err(error.into());
+    };
+    session.waiting = Some(blocker);
+    Ok(Advance::Waiting)
 }

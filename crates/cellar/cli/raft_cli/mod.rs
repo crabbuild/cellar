@@ -3,11 +3,13 @@
 // This module is an explicit process boundary for environment, files and exit.
 #![allow(clippy::disallowed_methods)]
 //! Human operator commands use authenticated management, not bucket listing.
+mod first_group;
 mod http;
 mod lifecycle;
 mod maintenance;
 mod nodes;
 mod options;
+mod park;
 use crate::sdk::fleet_operations::*;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -40,6 +42,34 @@ async fn execute(options: &options::Options) -> Result<Value> {
     let client = http::Client::new(options)?;
     let timeout = Duration::from_secs(30);
     match &options.action {
+        Action::Park(action, request) => park::execute(&client, action, request).await,
+        Action::FirstGroupStandby(namespace) => {
+            let catalog = options
+                .catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("missing catalog ID"))?;
+            first_group::standby(&client, catalog, namespace, timeout).await
+        }
+        Action::FirstGroupReserve(plan) => first_group::reserve(&client, plan).await,
+        Action::FirstGroupApply(plan) => first_group::apply(&client, plan, timeout).await,
+        Action::FirstGroupPublish(request) => {
+            first_group::mutate(
+                &client,
+                request,
+                "publish",
+                RaftFleetFirstGroupStage::Published,
+            )
+            .await
+        }
+        Action::FirstGroupArchive(request) => {
+            first_group::mutate(
+                &client,
+                request,
+                "archive",
+                RaftFleetFirstGroupStage::ArchiveInitialized,
+            )
+            .await
+        }
         Action::GrantMaintenance(node, request) => {
             maintenance::submit_action(&client, node, request, options.wait, options.timeout).await
         }
@@ -206,6 +236,296 @@ async fn execute(options: &options::Options) -> Result<Value> {
                 }
             }
             serde_json::to_value(view).map_err(|_| unavailable())
+        }
+        Action::TransitionStatus(namespace, operation) => {
+            let view = client
+                .get::<RaftFleetTransitionStatus>(
+                    &format!("namespaces/{namespace}/transitions/{operation}"),
+                    None,
+                    None,
+                    timeout,
+                )
+                .await?;
+            check_catalog(options.catalog_id.as_deref(), &view.catalog_id)?;
+            if view.namespace_id != *namespace
+                || view.operation_id != *operation
+                || view.observed_fleet_revision == 0
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(view).map_err(|_| unavailable())
+        }
+        Action::TransitionBasis(namespace) => {
+            let basis = client
+                .get::<RaftFleetTransitionBasis>(
+                    &format!("namespaces/{namespace}/transition-basis"),
+                    None,
+                    None,
+                    timeout,
+                )
+                .await?;
+            check_catalog(options.catalog_id.as_deref(), &basis.catalog_id)?;
+            check_catalog(None, &basis.directory_digest)?;
+            if basis.namespace_id != *namespace
+                || basis.fleet_revision == 0
+                || basis.directory_revision == 0
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(basis).map_err(|_| unavailable())
+        }
+        Action::TransitionAdmit(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/admit",
+                request.namespace_id, request.operation_id,
+            );
+            let admitted = client
+                .post::<RaftFleetTransitionAdmission>(&path, request.as_ref())
+                .await?;
+            check_catalog(None, &admitted.plan_digest)?;
+            if admitted.request_id != request.request_id
+                || admitted.operation_id != request.operation_id
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(admitted).map_err(|_| unavailable())
+        }
+        Action::TransitionPrepare(request) => {
+            use crate::raft::cell_groups::TransitionPhase;
+            let path = format!(
+                "namespaces/{}/transitions/{}/prepare",
+                request.namespace_id, request.operation_id,
+            );
+            let prepared = client
+                .post::<RaftFleetTransitionPreparation>(&path, request.as_ref())
+                .await?;
+            if prepared.request != **request
+                || matches!(
+                    prepared.phase,
+                    TransitionPhase::Planned | TransitionPhase::Cancelled
+                )
+                || options::validate_catalog(&prepared.preparation_digest).is_err()
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(prepared).map_err(|_| unavailable())
+        }
+        Action::TransitionSeal(request) => {
+            use crate::raft::cell_groups::TransitionPhase;
+            let path = format!(
+                "namespaces/{}/transitions/{}/authorize-seal",
+                request.namespace_id, request.operation_id,
+            );
+            let authorized = client
+                .post::<RaftFleetTransitionSealAuthorization>(&path, request.as_ref())
+                .await?;
+            if authorized.request != **request
+                || matches!(
+                    authorized.phase,
+                    TransitionPhase::Planned
+                        | TransitionPhase::Prepared
+                        | TransitionPhase::Cancelled
+                )
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(authorized).map_err(|_| unavailable())
+        }
+        Action::TransitionSealSource(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/seal-source",
+                request.namespace_id, request.operation_id,
+            );
+            let sealed = client
+                .post::<RaftFleetTransitionSourceSeal>(&path, request.as_ref())
+                .await?;
+            if sealed.request != **request
+                || sealed.applied.as_ref().is_some_and(|cut| {
+                    cut.index == 0
+                        || cut.term == 0
+                        || options::validate_catalog(&cut.authorization_digest).is_err()
+                })
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(sealed).map_err(|_| unavailable())
+        }
+        Action::TransitionRetireSource(request) => {
+            use crate::raft::cell_groups::TransitionPhase;
+            let path = format!(
+                "namespaces/{}/transitions/{}/retire-source",
+                request.namespace_id, request.operation_id,
+            );
+            let retired = client
+                .post::<RaftFleetTransitionSourceRetirement>(&path, request.as_ref())
+                .await?;
+            if retired.request != **request
+                || !matches!(
+                    retired.phase,
+                    TransitionPhase::Active | TransitionPhase::Retired
+                )
+                || retired
+                    .applied
+                    .as_ref()
+                    .is_some_and(|position| position.index == 0 || position.term == 0)
+                || (retired.phase == TransitionPhase::Retired && retired.applied.is_none())
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(retired).map_err(|_| unavailable())
+        }
+        Action::TransitionCaptureSource(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/capture-source",
+                request.namespace_id, request.operation_id,
+            );
+            let captured = client
+                .post::<RaftFleetTransitionSourceArchive>(&path, request.as_ref())
+                .await?;
+            if captured.request != **request
+                || captured.sealed.index == 0
+                || captured.sealed.term == 0
+                || options::validate_catalog(&captured.sealed.authorization_digest).is_err()
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(captured).map_err(|_| unavailable())
+        }
+        Action::TransitionSetupChild(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/setup-child",
+                request.namespace_id, request.operation_id,
+            );
+            let setup = client
+                .post::<RaftFleetTransitionChildSetup>(&path, request.as_ref())
+                .await?;
+            let matches_step = match (request.step, &setup.result) {
+                (
+                    RaftFleetTransitionChildStep::Install,
+                    RaftFleetTransitionChildSetupResult::Installed {
+                        member,
+                        node_id,
+                        disk_lineage,
+                        storage_instance,
+                    },
+                ) => {
+                    *member > 0
+                        && [node_id, disk_lineage, storage_instance]
+                            .into_iter()
+                            .all(|id| options::validate_id(id).is_ok())
+                }
+                (
+                    RaftFleetTransitionChildStep::Attach,
+                    RaftFleetTransitionChildSetupResult::Attached,
+                ) => true,
+                (
+                    RaftFleetTransitionChildStep::InitializeArchive,
+                    RaftFleetTransitionChildSetupResult::ArchiveInitialized,
+                ) => true,
+                (
+                    RaftFleetTransitionChildStep::Quorum,
+                    RaftFleetTransitionChildSetupResult::Quorum { index, term, phase },
+                ) => {
+                    use crate::raft::cell_groups::TransitionPhase;
+                    *index > 1
+                        && *term > 1
+                        && matches!(
+                            phase,
+                            TransitionPhase::Sealed
+                                | TransitionPhase::Installed
+                                | TransitionPhase::Archived
+                        )
+                }
+                _ => false,
+            };
+            if setup.request != **request || !matches_step {
+                return Err(unavailable());
+            }
+            serde_json::to_value(setup).map_err(|_| unavailable())
+        }
+        Action::TransitionVerifyArchive(request)
+        | Action::TransitionVerifyChildArchives(request) => {
+            use crate::raft::cell_groups::TransitionPhase;
+            let child_archives =
+                matches!(&options.action, Action::TransitionVerifyChildArchives(_));
+            let command = if child_archives {
+                "verify-child-archives"
+            } else {
+                "verify-archive"
+            };
+            let path = format!(
+                "namespaces/{}/transitions/{}/{command}",
+                request.namespace_id, request.operation_id,
+            );
+            let verified = client
+                .post::<RaftFleetTransitionArchiveVerification>(&path, request.as_ref())
+                .await?;
+            let valid_phase = match verified.phase {
+                TransitionPhase::Active | TransitionPhase::Retired => true,
+                TransitionPhase::Archived | TransitionPhase::Published => !child_archives,
+                _ => false,
+            };
+            if verified.request != **request
+                || !valid_phase
+                || options::validate_catalog(&verified.archive_digest).is_err()
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(verified).map_err(|_| unavailable())
+        }
+        Action::TransitionPublish(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/publish",
+                request.namespace_id, request.operation_id,
+            );
+            let published = client
+                .post::<RaftFleetTransitionPublication>(&path, request.as_ref())
+                .await?;
+            check_catalog(None, &published.tree_digest)?;
+            check_catalog(None, &published.publication_digest)?;
+            if published.request != **request || published.directory_revision == 0 {
+                return Err(unavailable());
+            }
+            serde_json::to_value(published).map_err(|_| unavailable())
+        }
+        Action::TransitionActivate(request) => {
+            use crate::raft::cell_groups::TransitionPhase;
+            let path = format!(
+                "namespaces/{}/transitions/{}/activate",
+                request.namespace_id, request.operation_id,
+            );
+            let accepted = client
+                .post::<RaftFleetTransitionActivation>(&path, request.as_ref())
+                .await?;
+            if accepted.request != **request
+                || !matches!(
+                    accepted.phase,
+                    TransitionPhase::Published | TransitionPhase::Active
+                )
+                || accepted
+                    .applied
+                    .is_some_and(|position| position.index <= 1 || position.term <= 1)
+                || (accepted.phase == TransitionPhase::Active && accepted.applied.is_none())
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(accepted).map_err(|_| unavailable())
+        }
+        Action::TransitionResume(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/resume",
+                request.namespace_id, request.operation_id,
+            );
+            let accepted = client
+                .post::<RaftFleetTransitionResumeAcceptance>(&path, request.as_ref())
+                .await?;
+            if accepted.request != **request
+                || Some(accepted.applied_revision) != request.expected_revision.checked_add(1)
+                || accepted.observed_fleet_revision < accepted.applied_revision
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(accepted).map_err(|_| unavailable())
         }
         Action::Operation(id) => {
             let view = client

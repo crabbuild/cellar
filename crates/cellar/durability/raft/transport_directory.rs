@@ -28,6 +28,26 @@ impl Registry {
 }
 
 impl RaftTransport {
+    pub(crate) fn local_label(&self) -> &str {
+        self.handle.0.auth.source()
+    }
+
+    /// Accepted physical metadata only. This grants neither group membership
+    /// nor application authority; route installation rechecks the current cut.
+    pub(crate) fn observed_peer(
+        &self,
+        node: NodeId,
+    ) -> Result<Option<RaftPeerNode>, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let Some(view) = registry.node_views.get(&node) else {
+            return Ok(None);
+        };
+        registry.check_node_view(view.peer())?;
+        Ok(Some(view.peer().clone()))
+    }
+
     /// Refresh one explicitly configured physical node across all routes and
     /// permissions. This changes no group/member identity or configuration
     /// revision. A superseded local process is refused; its host must close and
@@ -103,9 +123,21 @@ impl RaftTransport {
             }
         }
         for old in registry
+            .physical_groups
+            .values()
+            .chain(registry.cell_query_groups.values())
+            .flat_map(|route| &route.peers)
+            .filter(|old| old.replica.node == peer.node)
+        {
+            if !same_registration(&RaftPeerNode::from(old), peer) {
+                return Err(TransportError::Identity);
+            }
+        }
+        for old in registry
             .origins
             .values()
             .chain(registry.inspection_origins.values())
+            .chain(registry.command_origins.values())
             .filter_map(|grant| grant.peer.as_ref())
             .filter(|old| old.node == peer.node)
         {
@@ -130,9 +162,15 @@ impl RaftTransport {
                 .chain(registry.query_groups.values())
                 .any(|route| route.peers.iter().any(|old| old.replica.node == peer.node))
                 || registry
+                    .physical_groups
+                    .values()
+                    .chain(registry.cell_query_groups.values())
+                    .any(|route| route.peers.iter().any(|old| old.replica.node == peer.node))
+                || registry
                     .origins
                     .values()
                     .chain(registry.inspection_origins.values())
+                    .chain(registry.command_origins.values())
                     .any(|grant| grant.peer.as_ref().is_some_and(|old| old.node == peer.node)));
         let physical = if registry.pools.contains_key(&peer.node) || routed {
             std::slice::from_ref(peer)
@@ -142,16 +180,20 @@ impl RaftTransport {
         // Reservations include old workers until physical completion. A full
         // budget refuses the refresh without partially changing routing.
         let starts = state.prepare_pools(&mut registry, physical)?;
+        refresh_routes(&mut registry.physical_groups, peer);
+        refresh_routes(&mut registry.cell_query_groups, peer);
         refresh_routes(&mut registry.groups, peer);
         refresh_routes(&mut registry.query_groups, peer);
         let Registry {
             origins,
             inspection_origins,
+            command_origins,
             ..
         } = &mut *registry;
         for grant in origins
             .values_mut()
             .chain(inspection_origins.values_mut())
+            .chain(command_origins.values_mut())
             .filter(|grant| {
                 grant
                     .peer
@@ -180,15 +222,14 @@ impl RaftTransport {
         }
         registry.node_views.insert(peer.node, view.clone());
         drop(registry);
-        // A retained source is host-owned. Mark an old route finished so its
-        // owner can release it; an active socket still retains its reservation
-        // until its cancelled physical I/O exits.
-        state.invalidate_snapshot_routes();
         state.start_pools(starts)
     }
 }
 
-fn refresh_routes(routes: &mut BTreeMap<GroupScope, Arc<GroupRoute>>, peer: &RaftPeerNode) {
+fn refresh_routes<S: Clone + Ord>(
+    routes: &mut BTreeMap<S, Arc<GroupRoute<S>>>,
+    peer: &RaftPeerNode,
+) {
     for route in routes.values_mut() {
         if !route
             .peers

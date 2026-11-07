@@ -12,7 +12,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetTopologyIntentRequest,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetTopologyOperation> {
         self.check_snapshot(snapshot)?;

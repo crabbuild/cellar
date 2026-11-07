@@ -12,6 +12,11 @@ Purpose: Define consensus authority, commit, persistence, read proofs, archival,
 
 Status: proposed implementation contract. Baseline and source hashes are in [baseline.json](baseline.json); execution order is in [implementation-plan.md](implementation-plan.md).
 
+The [shared cell-group decision](density-decision.md) supersedes the one-cell
+consensus target below. This document retains the earlier runtime's contracts;
+[the replacement](cell-groups/design.md) separates cell identity from group
+consensus and requires complete-group recovery and qualification before cutover.
+
 ## 1 Scope and architectural decision
 
 - Introduce an opt-in Raft namespace.

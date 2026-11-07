@@ -168,7 +168,6 @@ pub struct RaftFleetMovement {
     pub namespace: String,
     pub group: String,
     pub incarnation: String,
-    pub cell: String,
     pub source: String,
     pub target: String,
     pub admitted_revision: u64,

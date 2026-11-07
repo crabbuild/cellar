@@ -8,14 +8,32 @@ use super::completion::RuntimeError;
 use super::mailbox;
 use super::performance::{Operation, Timer};
 use super::runtime::RaftRuntime;
+use cellar_logic::cell_group::GroupHistory;
+#[path = "transport_runtime.rs"]
+mod runtime_adapter;
+use runtime_adapter::TransportRuntime;
+#[path = "group_snapshot_transport/mod.rs"]
+mod group_snapshots;
+#[path = "transport_shared.rs"]
+mod shared;
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "transport_shared_fixture.rs"]
+mod shared_fixture;
 use super::transport_frame::{self as frame, Disposition, FrameHead, RequestHeader, Route};
 use super::transport_options::{NamespaceQueryOrigin, RaftPeerNode, RaftTls, TransportOptions};
 use crate::asyncrt::DomainToken;
 use crate::peer_auth::PeerAuth;
 use ::raft::prelude::{Message, MessageType};
 use cellar_logic::consensus::{ClusterId, GroupScope, NamespaceId, NodeId, ReplicaIdentity};
+pub(crate) use group_snapshots::seed::Grant as CellGroupSeedGrant;
+pub(crate) use group_snapshots::seed::{ManagedArchiveSeed, ManagedPeerSeed};
+pub use group_snapshots::{
+    CellGroupCheckpointRegistration, CellGroupSeedError, CellGroupSeedSession,
+};
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
+pub(crate) use shared::PhysicalRegistration;
+use shared::SendRoute;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::io::IoSlice;
@@ -28,6 +46,20 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
+#[path = "command_cell_transport.rs"]
+mod cell_commands;
+#[path = "query_cell_transport.rs"]
+mod cell_queries;
+#[path = "command_origins.rs"]
+mod command_origins;
+#[path = "query_reply.rs"]
+mod query_replies;
+pub use cell_commands::{
+    CellCommandGateway, CellRemoteCommandResponse, CellRemoteEnrollmentResponse,
+    CellRemoteReceiptResponse,
+};
+#[path = "query_cell_discovery.rs"]
+mod cell_query_discovery;
 #[path = "transport_control_send.rs"]
 mod control_sender;
 #[path = "transport_directory.rs"]
@@ -46,15 +78,18 @@ pub(crate) mod inspections;
 mod metrics;
 #[path = "node_inspection_transport.rs"]
 pub(crate) mod node_inspections;
+#[path = "park_transport.rs"]
+mod parks;
+pub(crate) use parks::ParkDeliveryReceipt;
 #[path = "query_transport.rs"]
 mod queries;
+pub(crate) use cell_queries::CellQueryContext;
+pub use cell_queries::{CellQueryGateway, CellRemoteQueryResponse};
 #[path = "transport_resources.rs"]
 mod resources;
 #[path = "transport_send.rs"]
 mod sender;
 pub(crate) use resources::ResourceObserver;
-#[path = "seed_transport.rs"]
-pub(crate) mod seeds;
 #[path = "snapshot_transport.rs"]
 pub(crate) mod snapshots;
 
@@ -71,6 +106,8 @@ pub enum TransportError {
     Tls(String),
     Runtime(RuntimeError),
     Authentication,
+    Query(cellar_logic::consensus::CommandFailure),
+    Command(cellar_logic::consensus::CommandFailure),
     Protocol,
     Identity,
     Replay,
@@ -104,8 +141,8 @@ impl From<RuntimeError> for TransportError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RaftPeer {
-    pub replica: ReplicaIdentity,
+pub struct RaftPeer<S = GroupScope> {
+    pub replica: ReplicaIdentity<S>,
     pub label: String,
     pub server_name: String,
     pub control_address: SocketAddr,
@@ -113,7 +150,7 @@ pub struct RaftPeer {
     pub query_address: SocketAddr,
 }
 
-impl RaftPeer {
+impl<S> RaftPeer<S> {
     fn same_host(&self, other: &Self) -> bool {
         self.replica.node == other.replica.node
             && self.replica.disk == other.replica.disk
@@ -126,8 +163,8 @@ impl RaftPeer {
     }
 }
 
-impl From<&RaftPeer> for RaftPeerNode {
-    fn from(peer: &RaftPeer) -> Self {
+impl<S> From<&RaftPeer<S>> for RaftPeerNode {
+    fn from(peer: &RaftPeer<S>) -> Self {
         Self {
             node: peer.replica.node,
             disk: peer.replica.disk,
@@ -164,7 +201,7 @@ impl RaftPeerNode {
         }
     }
 
-    fn same_host(&self, peer: &RaftPeer) -> bool {
+    fn same_host<S>(&self, peer: &RaftPeer<S>) -> bool {
         self.node == peer.replica.node
             && self.disk == peer.replica.disk
             && self.process == peer.replica.process
@@ -179,11 +216,11 @@ impl RaftPeerNode {
 /// An already authorized routing view, installed by the membership controller.
 /// Installing it never creates storage or changes Raft's configuration.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GroupRoute {
-    pub scope: GroupScope,
+pub struct GroupRoute<S = GroupScope> {
+    pub scope: S,
     pub schema_digest: [u8; 32],
     pub revision: u64,
-    pub peers: Vec<RaftPeer>,
+    pub peers: Vec<RaftPeer<S>>,
 }
 
 /// Message admission only. No durability, commit or applied position is implied.
@@ -239,9 +276,10 @@ impl Banks {
 }
 
 struct SendRequest {
-    scope: GroupScope,
-    route: Arc<GroupRoute>,
-    peer: RaftPeer,
+    // The runtime configuration fence survives a dropped Delivery waiter.
+    _source: Option<Arc<Permit>>,
+    route: SendRoute,
+    member: cellar_logic::consensus::MemberId,
     header: RequestHeader,
     body: Vec<u8>,
     snapshot: bool,
@@ -272,7 +310,16 @@ struct Registry {
     closed: bool,
     tasks: usize,
     groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
+    physical_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
+    // One bounded lifecycle token per physical route. Advisory process/member
+    // refreshes keep it; explicit replacement/removal starts another lifetime.
+    physical_owners: BTreeMap<GroupHistory, Arc<()>>,
+    group_checkpoint_pool: Option<crate::raft::cell_groups::CellGroupCheckpointPool>,
+    group_archive_seeds: Option<crate::raft::cell_groups::ArchiveSeedClient>,
+    group_checkpoints: BTreeMap<GroupHistory, std::sync::Weak<group_snapshots::Endpoint>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
+    cell_query_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
+    command_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     inspection_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     inspection_peers: BTreeMap<NodeId, Arc<Budget>>,
@@ -283,6 +330,13 @@ struct Registry {
 }
 
 impl Registry {
+    fn route_count(&self) -> usize {
+        self.groups.len()
+            + self.physical_groups.len()
+            + self.query_groups.len()
+            + self.cell_query_groups.len()
+    }
+
     fn prune_pools(&mut self) {
         let used: BTreeSet<_> = self
             .groups
@@ -290,8 +344,15 @@ impl Registry {
             .chain(self.query_groups.values())
             .flat_map(|route| route.peers.iter().map(|peer| peer.replica.node))
             .chain(
+                self.physical_groups
+                    .values()
+                    .chain(self.cell_query_groups.values())
+                    .flat_map(|route| route.peers.iter().map(|peer| peer.replica.node)),
+            )
+            .chain(
                 self.origins
                     .values()
+                    .chain(self.command_origins.values())
                     .filter_map(|grant| grant.peer.as_ref().map(|peer| peer.node)),
             )
             .collect();
@@ -309,14 +370,19 @@ impl Registry {
 struct State {
     performance: Arc<super::performance::Registry>,
     domain: DomainToken,
-    runtime: RaftRuntime,
+    runtime: TransportRuntime,
     auth: Arc<PeerAuth>,
     tls: RaftTls,
     options: TransportOptions,
     local_control: SocketAddr,
     local_data: SocketAddr,
     local_query: SocketAddr,
-    query_gateway: Mutex<Option<std::sync::Weak<crate::application::consensus::client::Handle>>>,
+    cell_command_gateways:
+        Mutex<BTreeMap<(ClusterId, NamespaceId), std::sync::Weak<cell_commands::Gateway>>>,
+    cell_query_gateways:
+        Mutex<BTreeMap<(ClusterId, NamespaceId), std::sync::Weak<cell_queries::Gateway>>>,
+    fleet_gateway:
+        Mutex<Option<std::sync::Weak<crate::application::consensus::group_client::Handle>>>,
     registry: Mutex<Registry>,
     outgoing: Banks,
     incoming: Banks,
@@ -326,9 +392,7 @@ struct State {
     accepted: AtomicU64,
     refused: AtomicU64,
     failed: AtomicU64,
-    claim: Mutex<Option<super::runtime::TransportClaim>>,
-    snapshot_source: Mutex<Option<std::sync::Weak<snapshots::Source>>>,
-    prepared_snapshot: super::snapshot::prepared::Cache,
+    claim: Mutex<Option<Box<dyn Send + Sync>>>,
     snapshot_source_budget: Arc<Budget>,
     snapshot_receive_budget: Arc<Budget>,
     snapshot_connections: Arc<Semaphore>,
@@ -404,6 +468,48 @@ impl RaftTransport {
         query: TcpListener,
         options: TransportOptions,
     ) -> Result<Self, TransportError> {
+        Self::start_runtime(
+            TransportRuntime::Legacy(runtime),
+            auth,
+            tls,
+            control,
+            data,
+            query,
+            options,
+        )
+        .await
+    }
+
+    pub async fn start_shared(
+        runtime: super::cell_groups::CellGroupRuntime,
+        auth: Arc<PeerAuth>,
+        tls: RaftTls,
+        control: TcpListener,
+        data: TcpListener,
+        query: TcpListener,
+        options: TransportOptions,
+    ) -> Result<Self, TransportError> {
+        Self::start_runtime(
+            TransportRuntime::Shared(runtime),
+            auth,
+            tls,
+            control,
+            data,
+            query,
+            options,
+        )
+        .await
+    }
+
+    async fn start_runtime(
+        runtime: TransportRuntime,
+        auth: Arc<PeerAuth>,
+        tls: RaftTls,
+        control: TcpListener,
+        data: TcpListener,
+        query: TcpListener,
+        options: TransportOptions,
+    ) -> Result<Self, TransportError> {
         options.validate()?;
         let local_control = control.local_addr()?;
         let local_data = data.local_addr()?;
@@ -421,8 +527,6 @@ impl RaftTransport {
         let snapshot_memory = snapshots::memory_bound(&options);
         let seed_recovery_memory = options.max_seed_recovery_bytes;
         let performance = runtime.log().performance();
-        let (prepared_snapshot, prepared_owner) =
-            super::snapshot::prepared::channel(performance.clone());
         let state = Arc::new(State {
             performance,
             domain,
@@ -432,12 +536,21 @@ impl RaftTransport {
             local_control,
             local_data,
             local_query,
-            query_gateway: Mutex::new(None),
+            fleet_gateway: Mutex::new(None),
+            cell_command_gateways: Mutex::new(BTreeMap::new()),
+            cell_query_gateways: Mutex::new(BTreeMap::new()),
             registry: Mutex::new(Registry {
                 closed: false,
                 tasks: 0,
                 groups: BTreeMap::new(),
+                physical_groups: BTreeMap::new(),
+                physical_owners: BTreeMap::new(),
+                group_checkpoint_pool: None,
+                group_archive_seeds: None,
+                group_checkpoints: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
+                cell_query_groups: BTreeMap::new(),
+                command_origins: BTreeMap::new(),
                 origins: BTreeMap::new(),
                 inspection_origins: BTreeMap::new(),
                 inspection_peers: BTreeMap::new(),
@@ -476,17 +589,14 @@ impl RaftTransport {
             inspection_enabled: AtomicBool::new(false),
             options,
             claim: Mutex::new(Some(claim)),
-            snapshot_source: Mutex::new(None),
-            prepared_snapshot,
             snapshot_source_budget: Budget::new(snapshot_memory, 1),
             snapshot_receive_budget: Budget::new(snapshot_memory + seed_recovery_memory, 1),
             snapshot_connections: Arc::new(Semaphore::new(1)),
-            seed_metadata: Budget::new(seeds::META_BYTES, 1),
+            seed_metadata: Budget::new(group_snapshots::seed::GRANT_RESERVATION_BYTES, 1),
         });
         let service = Self {
             handle: Arc::new(Handle(state.clone())),
         };
-        snapshots::start_prepared(&state, prepared_owner)?;
         for (listener, lane) in [(control, Lane::Control), (data, Lane::Data)] {
             let worker = state.clone();
             state.spawn(async move {
@@ -570,6 +680,7 @@ impl RaftTransport {
         state.admit(&registry)?;
         for peer in &route.peers {
             registry.check_node_view(&RaftPeerNode::from(peer))?;
+            registry.check_physical_endpoint(&RaftPeerNode::from(peer))?;
         }
         if registry.query_groups.contains_key(&route.scope) {
             return Err(TransportError::Identity);
@@ -594,7 +705,7 @@ impl RaftTransport {
                     }
                 }
             }
-        } else if registry.groups.len() + registry.query_groups.len() >= state.options.max_groups {
+        } else if registry.route_count() >= state.options.max_groups {
             return Err(TransportError::Overloaded);
         }
         // Existing peers' physical addresses/process must agree across groups.
@@ -635,10 +746,6 @@ impl RaftTransport {
         registry.groups.insert(route.scope.clone(), Arc::new(route));
         registry.prune_pools();
         drop(registry);
-        // Replacing the route invalidates source leases captured under the old
-        // configuration. Mark them finished now; active I/O retains its own
-        // source and reservation until physical exit.
-        state.invalidate_snapshot_routes();
         state.start_pools(starts)?;
         Ok(())
     }
@@ -650,7 +757,6 @@ impl RaftTransport {
         registry.groups.remove(scope);
         registry.prune_pools();
         drop(registry);
-        state.invalidate_snapshot_routes();
         Ok(())
     }
 
@@ -745,9 +851,13 @@ impl RaftTransport {
         header.set_sequence(sequence);
         let (result, wait) = oneshot::channel();
         let request = SendRequest {
-            scope: scope.clone(),
-            route,
-            peer,
+            _source: None,
+            route: SendRoute::Legacy {
+                scope: scope.clone(),
+                route,
+                peer: peer.clone(),
+            },
+            member: peer.replica.member,
             header,
             body,
             snapshot: message.get_msg_type() == MessageType::MsgSnapshot,
@@ -797,6 +907,23 @@ impl RaftTransport {
         })
     }
 
+    pub(crate) async fn seed_control_until<T>(
+        &self,
+        deadline: u64,
+        future: impl Future<Output = Result<T, TransportError>>,
+    ) -> Result<T, TransportError> {
+        self.handle.0.seed_until(deadline, future).await
+    }
+
+    pub(crate) fn seed_deadline(&self) -> Result<u64, TransportError> {
+        let state = &self.handle.0;
+        Ok(state
+            .domain
+            .mono_ms()
+            .map_err(|_| TransportError::Closed)?
+            .saturating_add(state.options.snapshot_timeout_ms))
+    }
+
     /// Release sockets, queued permits and worker resources. Domain shutdown
     /// additionally joins the owning execution-domain task registry.
     pub async fn close(&self) {
@@ -822,6 +949,49 @@ fn lane_index(lane: Lane) -> usize {
 }
 
 impl State {
+    async fn seed_until<T>(
+        &self,
+        deadline: u64,
+        future: impl Future<Output = Result<T, TransportError>>,
+    ) -> Result<T, TransportError> {
+        let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        let mut stopped = self.stop.subscribe();
+        if now >= deadline {
+            return Err(TransportError::Timeout);
+        }
+        if *stopped.borrow() {
+            return Err(TransportError::Closed);
+        }
+        let timer = self
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| TransportError::Closed)?;
+        crate::asyncrt::select! {
+            _ = timer => Err(TransportError::Timeout),
+            _ = stopped.changed() => Err(TransportError::Closed),
+            result = future => result,
+        }
+    }
+
+    async fn seed_io<T>(
+        &self,
+        deadline: u64,
+        future: impl Future<Output = Result<T, TransportError>>,
+    ) -> Result<T, TransportError> {
+        let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        if now >= deadline {
+            return Err(TransportError::Timeout);
+        }
+        let timer = self
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| TransportError::Closed)?;
+        crate::asyncrt::select! {
+            _ = timer => Err(TransportError::Timeout),
+            result = self.bounded(None, future) => result,
+        }
+    }
+
     /// Reserve every worker before mutating a view. Callers perform all other
     /// fallible validation first, release the registry lock, then start workers.
     fn prepare_pools(
@@ -959,8 +1129,14 @@ impl State {
             registry.tasks == 0
         };
         self.stop.send_replace(true);
-        if let Ok(mut gateway) = self.query_gateway.lock() {
+        if let Ok(mut gateway) = self.fleet_gateway.lock() {
             gateway.take();
+        }
+        if let Ok(mut gateways) = self.cell_command_gateways.lock() {
+            gateways.clear();
+        }
+        if let Ok(mut gateways) = self.cell_query_gateways.lock() {
+            gateways.clear();
         }
         if finished {
             if let Ok(mut claim) = self.claim.lock() {
@@ -1026,7 +1202,7 @@ impl State {
             query_items: qi + rqi,
             tasks: registry.tasks,
             peers: registry.pools.len(),
-            groups: registry.groups.len(),
+            groups: registry.groups.len() + registry.physical_groups.len(),
             accepted: self.accepted.load(Ordering::Acquire),
             refused: self.refused.load(Ordering::Acquire),
             failed: self.failed.load(Ordering::Acquire),
@@ -1034,7 +1210,10 @@ impl State {
     }
 
     fn current(&self, request: &SendRequest) -> bool {
-        self.current_route(&request.scope, &request.route, &request.peer)
+        match &request.route {
+            SendRoute::Legacy { scope, route, peer } => self.current_route(scope, route, peer),
+            SendRoute::Physical { route, peer } => self.current_physical(route, peer),
+        }
     }
 
     fn current_route(&self, scope: &GroupScope, route: &Arc<GroupRoute>, peer: &RaftPeer) -> bool {
@@ -1072,6 +1251,9 @@ impl State {
     }
 
     fn authorize_route(&self, wire: &Route) -> Result<Arc<Pool>, TransportError> {
+        if wire.is_group() {
+            return self.authorize_physical(wire);
+        }
         let (source, target) = wire.decode()?;
         let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
         self.admit(&registry)?;
@@ -1212,22 +1394,6 @@ impl State {
                 Ok(())
             })
             .await?;
-            if &prefix[..4] == inspections::REQUEST_MAGIC {
-                if lane != Lane::Control
-                    || sequence != 0
-                    || !self.inspection_enabled.load(Ordering::Acquire)
-                {
-                    return Err(TransportError::Protocol);
-                }
-                let exporter = stream
-                    .get_ref()
-                    .1
-                    .export_keying_material([0; 32], inspections::EXPORT_LABEL, None)
-                    .map_err(|error| TransportError::Tls(error.to_string()))?;
-                return self
-                    .receive_inspection(&mut stream, &exporter, prefix)
-                    .await;
-            }
             if &prefix[..4] == node_inspections::REQUEST_MAGIC {
                 if lane != Lane::Control
                     || sequence != 0
@@ -1258,6 +1424,19 @@ impl State {
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self
                     .receive_fleet_action(&mut stream, &exporter, prefix, connected_at)
+                    .await;
+            }
+            if &prefix[..4] == parks::REQUEST_MAGIC {
+                if lane != Lane::Control || sequence != 0 {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], parks::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_park(&mut stream, &exporter, prefix, connected_at)
                     .await;
             }
             if &prefix[..4] == fleet_stops::REQUEST_MAGIC {
@@ -1292,22 +1471,26 @@ impl State {
                     .receive_fleet_inspection(&mut stream, &exporter, prefix)
                     .await;
             }
-            if &prefix[..4] == seeds::REQUEST_MAGIC {
+            if &prefix[..4] == group_snapshots::seed::REQUEST_MAGIC {
                 if lane != Lane::Data || sequence != 0 {
                     return Err(TransportError::Protocol);
                 }
                 let exporter = stream
                     .get_ref()
                     .1
-                    .export_keying_material([0; 32], seeds::EXPORT_LABEL, None)
+                    .export_keying_material([0; 32], group_snapshots::seed::EXPORT_LABEL, None)
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
-                return self.receive_seed(&mut stream, &exporter, prefix).await;
+                return self
+                    .receive_group_seed(&mut stream, &exporter, prefix)
+                    .await;
             }
-            if &prefix[..4] == snapshots::REQUEST_MAGIC {
+            if &prefix[..4] == group_snapshots::START_MAGIC {
                 if lane != Lane::Data || sequence != 0 {
                     return Err(TransportError::Protocol);
                 }
-                return self.receive_snapshot(&mut stream, &exporter, prefix).await;
+                return self
+                    .receive_group_checkpoint(&mut stream, &exporter, prefix)
+                    .await;
             }
             if lane == Lane::Control && control_slot.is_none() {
                 control_slot = Some(
@@ -1327,13 +1510,7 @@ impl State {
             if header.lane != lane || header.sequence()? <= sequence {
                 return Err(TransportError::Replay);
             }
-            let (source, _) = header.route.decode()?;
-            let host = (
-                source.node,
-                source.disk,
-                source.process,
-                header.route.source_label().to_owned(),
-            );
+            let host = header.route.source_host()?;
             if source_host.as_ref().is_some_and(|h| *h != host) {
                 return Err(TransportError::StalePeer);
             }
@@ -1377,7 +1554,6 @@ impl State {
             let message = header.verify_body(&body, &self.options)?;
             // Routing/configuration may have changed while reading the body.
             self.authorize(&header)?;
-            let scope = source.scope.clone();
             let admission = self.performance.timer(match lane {
                 Lane::Control => Operation::ControlAdmit,
                 Lane::Data => Operation::DataAdmit,
@@ -1385,7 +1561,7 @@ impl State {
             let result = self
                 .bounded(Some(&pool), async {
                     self.runtime
-                        .admit_step(&scope, message)
+                        .admit_route(&header.route, message)
                         .await
                         .map_err(TransportError::from)
                 })

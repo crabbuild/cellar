@@ -123,21 +123,6 @@ impl RootPayload {
         }
         result
     }
-
-    pub(in crate::raft::snapshot) fn complete(&self) -> Result<(), SnapshotError> {
-        let reader = self
-            .reader
-            .lock()
-            .map_err(|_| SnapshotError::Invalid("root source owner"))?;
-        if reader.failed
-            || reader.next != self.length
-            || reader.object != self.objects.len()
-            || !reader.bytes.is_empty()
-        {
-            return Err(SnapshotError::Invalid("incomplete root source"));
-        }
-        Ok(())
-    }
 }
 
 /// Registered receive workers own all imports and their admission. Only one

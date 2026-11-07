@@ -90,6 +90,98 @@ pub(super) fn preflight_identity(
     request: &CommandRequest,
     limits: &ExecutionLimits,
 ) -> Result<Option<StoredReceipt>, ExecutionError> {
+    match inspect_identity(connection, request, limits)? {
+        Identity::Retained(receipt) => Ok(Some(receipt)),
+        Identity::Vacant { new_client } => {
+            if new_client {
+                let count: usize = connection
+                    .query_row("SELECT count(*) FROM __sys_raft_clients", [], |r| r.get(0))
+                    .map_err(storage)?;
+                if count >= limits.max_client_identities {
+                    return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+                }
+            }
+            Ok(None)
+        }
+    }
+}
+
+/// Inspect immutable committed state without admitting a new client or receipt.
+/// Capacity cannot obscure absence; identity, expiry, sequence and result-size
+/// checks still apply. The caller supplies the consensus proof for using absence.
+pub(super) fn lookup_identity(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+) -> Result<Option<StoredReceipt>, ExecutionError> {
+    match inspect_identity(connection, request, limits)? {
+        Identity::Retained(receipt) => Ok(Some(receipt)),
+        Identity::Vacant { .. } => Ok(None),
+    }
+}
+
+/// An initial cell image may precede receipt schema installation. Losing schema
+/// after a mutation, or retaining only half of it, is corruption, not absence.
+/// A missing receipt never proves that a submitted command cannot still commit.
+pub(super) fn lookup_cell_identity(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    cell_sequence: u64,
+) -> Result<Option<StoredReceipt>, ExecutionError> {
+    lookup_cell_identity_admitted(connection, request, limits, cell_sequence, |_| Ok(()))
+}
+
+/// Reserve a retained result after inspecting its length, before fetching bytes.
+/// Admission failure is not absence and consumes no additional operation slot.
+pub(super) fn lookup_cell_identity_admitted(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    cell_sequence: u64,
+    mut reserve_result: impl FnMut(usize) -> Result<(), ExecutionError>,
+) -> Result<Option<StoredReceipt>, ExecutionError> {
+    let tables: u64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN ('__sys_raft_clients','__sys_raft_receipts')",
+        [], |row| row.get(0),
+    ).map_err(storage)?;
+    match tables {
+        0 if cell_sequence == 1 => {
+            if request.id.sequence() == 1 {
+                Ok(None)
+            } else {
+                Err(ExecutionError::Refused(CommandFailure::SequenceGap {
+                    next: 1,
+                }))
+            }
+        }
+        2 => match inspect_identity_admitted(connection, request, limits, &mut reserve_result)? {
+            Identity::Retained(receipt) => Ok(Some(receipt)),
+            Identity::Vacant { .. } => Ok(None),
+        },
+        _ => Err(corrupt()),
+    }
+}
+
+enum Identity {
+    Retained(StoredReceipt),
+    Vacant { new_client: bool },
+}
+
+fn inspect_identity(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+) -> Result<Identity, ExecutionError> {
+    inspect_identity_admitted(connection, request, limits, &mut |_| Ok(()))
+}
+
+fn inspect_identity_admitted(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    reserve_result: &mut dyn FnMut(usize) -> Result<(), ExecutionError>,
+) -> Result<Identity, ExecutionError> {
     let state = client(connection, request.id.client)?;
     let (last, floor) = state.unwrap_or((0, 0));
     let sequence = request.id.sequence();
@@ -113,6 +205,7 @@ pub(super) fn preflight_identity(
         if length.is_none_or(|n| n < 0 || n as u64 > limits.max_result_bytes as u64) {
             return Err(corrupt());
         }
+        reserve_result(length.ok_or_else(corrupt)? as usize)?;
         let row=connection.query_row(
             "SELECT operation,contract_digest,request_digest,result,minimum_durability,retry_until
              FROM __sys_raft_receipts WHERE client_id=?1 AND sequence=?2",
@@ -133,7 +226,7 @@ pub(super) fn preflight_identity(
             1 => Durability::S3,
             _ => return Err(corrupt()),
         };
-        return Ok(Some(StoredReceipt {
+        return Ok(Identity::Retained(StoredReceipt {
             id: request.id,
             operation: row.0,
             contract_digest: contract,
@@ -149,15 +242,9 @@ pub(super) fn preflight_identity(
             next,
         }));
     }
-    if state.is_none() {
-        let count: usize = connection
-            .query_row("SELECT count(*) FROM __sys_raft_clients", [], |r| r.get(0))
-            .map_err(storage)?;
-        if count >= limits.max_client_identities {
-            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-        }
-    }
-    Ok(None)
+    Ok(Identity::Vacant {
+        new_client: state.is_none(),
+    })
 }
 
 pub(super) fn record(

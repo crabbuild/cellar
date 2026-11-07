@@ -9,7 +9,11 @@ pub(crate) mod admission;
 mod archive_status;
 pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
-pub(crate) mod client;
+pub(crate) use class::callback_active;
+pub(crate) mod group_client;
+mod group_contracts;
+pub(crate) use group_contracts::cell_routing_key;
+pub(crate) mod group_protocol;
 mod performance;
 pub use performance::{
     RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,
@@ -26,7 +30,9 @@ pub use resources::{
 pub(crate) mod protocol;
 
 pub use crate::raft::archive::ArchiveLimits;
-pub use crate::raft::completion::{LeadershipTransfer, MemberProgress, ReplicationStatus};
+pub use crate::raft::completion::{
+    LeadershipTransfer, MemberProgress, ReplicationStatus, RuntimeError,
+};
 pub use crate::raft::effects::{
     RaftAlarmLimits, RaftBlobLimits, RaftBlobReference, RaftDeliveryRequest, RaftEffectOptions,
     RaftEffectSigningKey, RaftEffectSink, RaftEffectSourceGrant, RaftEffectTarget,
@@ -37,20 +43,42 @@ pub use crate::raft::physical_inventory::{RaftPhysicalHistory, RaftPhysicalInven
 pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::archive::ArchiveReference;
-pub use crate::raft::catalog::CatalogError;
 pub use crate::raft::catalog::{
     BirthDisposition, BirthProposal, CatalogOptions, DisasterFenceAuthority, DisasterFenceRequest,
     DisasterRecoveryRequest, InitialMember, ManagedBirthOwner, NamespaceConfig, RaftImageStorage,
     VoterPolicy,
 };
+pub use crate::raft::catalog::{Catalog, CatalogError};
 pub use crate::raft::disaster::S3DisasterRecovery;
+pub use cellar_logic::cell_group_placement::{
+    HotCell, PartitionBasis, PartitionDecision, PartitionLimits, PartitionLoad, PartitionPolicy,
+    PartitionSample, PartitionTracker, SplitReason, WaitReason,
+};
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 
+pub use crate::raft::cell_groups::{
+    CellCommandError, CellDispatchError, CellDispatchLimits, CellEnrollmentError,
+    CellEnrollmentRequest, CellEnrollmentResponse, CellGroupArchiveControlError,
+    CellGroupArchiveLimits, CellGroupArchivePool, CellGroupArchiveStatus,
+    CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupArchiveUploadLimits,
+    CellGroupBirthSpec, CellGroupCheckpointLimits, CellGroupCheckpointPolicy,
+    CellGroupControllerError, CellGroupControllerLimits, CellGroupDisasterFenceRequest,
+    CellGroupHostLimits, CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionContext,
+    CellGroupPartitionObservation, CellGroupPartitionWriter, CellGroupProposal,
+    CellGroupProvisionLimits, CellGroupQuorumMembership, CellGroupRecoveryLimits,
+    CellGroupRecoveryPool, CellGroupSealOutcome, CellGroupSourceRetirement,
+    CellGroupSourceRetirementAck, CellGroupTransferActivation, CellGroupTransferActivationAck,
+    CellGroupTransferArchive, CellGroupTransitionSource, CellGroupWorkload, CellReceiptRequest,
+    CellReceiptResponse, CellSqlLimits, DirectoryLimits, DirectoryPublication, GroupSourceSeal,
+    InstalledTransferVoter, ManifestLimits, TransferChildQuorum, TransferInstallQuorum,
+    VerifiedCellGroupTransitionSources,
+};
 pub use crate::raft::fleet_catalog::{
     fleet_capacity_profile_digest, FleetAbortedMovementCompletion, FleetCapacityAction,
     FleetCapacityAdmission, FleetCapacityAttestation, FleetCapacityAuthorization,
-    FleetCapacityRequest, FleetFencedMovementCompletion, FleetGroupAuthorization,
+    FleetCapacityRequest, FleetCatalog, FleetCatalogError, FleetFencedMovementCompletion,
+    FleetGroupArchiveReplayOptions, FleetGroupArchiveVerifier, FleetGroupAuthorization,
     FleetHostAuthorization, FleetIsolationAttestation, FleetMovementAdmission,
     FleetMovementCompletion, FleetMovementCompletionRequest, FleetMovementExecutionRequest,
     FleetMovementPhase, FleetMovementProgress, FleetMovementRequest, FleetNodeEligibility,
@@ -79,47 +107,66 @@ pub use crate::raft::fleet_catalog::{
     FleetTopologyIntentRequest, FleetTopologyMovementEntry, FleetTopologyMovementPage,
     FleetTopologyOperation, FleetTopologyPhase,
 };
+pub use crate::raft::fleet_catalog::{
+    RaftManagedArchiveProvisioning, RaftManagedFirstGroup, RaftManagedFirstGroupRequest,
+    ReopenedManagedCellGroupTransition,
+};
 pub use crate::raft::fleet_stop::{
     FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
 };
+pub use crate::raft::group_host::{
+    CellGroupNodeArchiveOptions, CellGroupNodeLimits, RaftCellsConfig,
+    RaftGroupArchiveInitialization, RaftGroupAssignment, RaftGroupPlacement, RaftNamespaceConfig,
+    RaftNamespaceInitialization, RaftNamespaceProvisioning,
+};
 pub use crate::raft::host::{
     FleetImageState, FleetMembershipConfiguration, FleetMembershipObservation, FleetPublishedCut,
-    FleetPublishedImage, RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration,
-    RaftCellsConfig, RaftCellsServices, RaftControllerOptions, RaftControllerStatus,
-    RaftExtentCacheLimits, RaftExtentLimits, RaftExtentOptions, RaftHostEnrollmentObservation,
-    RaftHostObservation, RaftHostOptions, RaftHostStartupBounds, RaftInspectionScanOptions,
-    RaftManagedHostOptions, RaftNamespaceRegistration, RaftNodeDirectoryOptions,
-    RaftPeerFleetMembershipObservation, RaftPeerNode, RaftPeerNodeObservation,
+    FleetPublishedImage, RaftArchiveOptions, RaftCellsServices, RaftControllerOptions,
+    RaftControllerStatus, RaftExtentCacheLimits, RaftExtentLimits, RaftExtentOptions,
+    RaftHostEnrollmentObservation, RaftHostObservation, RaftHostOptions, RaftHostStartupBounds,
+    RaftInspectionScanOptions, RaftManagedHostOptions, RaftNamespaceRegistration,
+    RaftNodeDirectoryOptions, RaftPeerFleetMembershipObservation, RaftPeerNode,
+    RaftPeerNodeObservation,
 };
 pub use crate::raft::inspection::{
-    CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
-    ReplicaOccupancy,
+    CellInspection, GroupInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection,
+    RaftNodeProfile, ReplicaOccupancy,
 };
 pub use crate::raft::member_state::{
     FleetGroupBinding, FleetMembershipPermit, FleetMembershipStatus, FleetPermitPhase,
     JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep,
 };
 pub use crate::raft::operations::{
-    RaftCloseReportLimits, RaftDrainReport, RaftGroupCloseReport, RaftNodeShutdownReport,
+    RaftCloseReportLimits, RaftDrainReport, RaftNodeShutdownError, RaftNodeShutdownReport,
 };
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 pub use crate::raft::transport_options::{
-    NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls, TransportOptions,
+    NamespaceCommandOrigin, NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls,
+    TransportOptions,
 };
 pub use crate::raft::version::{
     VersionError, VersionKeys, VersionSigningKey, VersionToken, VersionVerificationKey,
 };
 pub use crate::storage::{CommandInputs, CommandTransaction};
+pub use cellar_logic::cell_group::{CellBound, CellRange, RouteEpoch};
 pub use class::{
     command_request_digest, CommandContext, OperationContract, OperationKind, QueryContext,
-    RaftClass, RegistrationError,
+    QueryVersion, RaftClass, RegistrationError,
 };
-pub use client::{
-    CellStatus, CommandOptions, CommandReceipt, LearnerActivation, LearnerOptions, LearnerReceipt,
-    QueryConsistency, QueryOptions, QueryResult, QueryRouting, RaftCellHandle, RaftCells,
-    RaftCloseReport, StaleReadPolicy, UnfinishedCommand,
+pub use group_protocol::GroupEntryLimits;
+
+pub use crate::raft::version::CellVersionToken;
+pub use cellar_logic::cell_group::{CommitWitness, GroupHistory};
+pub use group_client::{
+    CellGroupCollectionFailure, CellGroupCollectionUsage, CellGroupControlError,
+    CellGroupImageUsage, CellGroupResourceUsage, CellGroupStartupError, CommandOptions,
+    CommandReceipt, LearnerActivation, MutationOutcomes, QueryConsistency, QueryOptions,
+    QueryResult, QueryRouting, RaftCellHandle, RaftCells, RaftCloseError, RaftCloseReport,
+    RaftGroupCloseReport, RaftGroupHandle, StaleReadPolicy,
 };
 
+pub use crate::raft::version::CellVersionObservation;
+pub use cellar_logic::cell_group::{CellHistory, CellId, CellVersion};
 pub use cellar_logic::consensus::{
     ClientId, ClusterId, CommandFailure, CommandId, CommittedVersion, DiskLineage, Durability,
     EngineInstanceId, GroupId, GroupScope, IncarnationId, LogIndex, LogPosition, MemberId,
@@ -138,7 +185,7 @@ pub mod verification {
         ArchiveDependency, ArchiveError, ArchiveLimits, ArchiveMetadata, ArchiveRecoverySet,
         ArchiveReference, ArchiveVerifier, CellArchive, CommittedArchiveCut, RootAllocation,
         RootArchiveReference, RootArchiveSnapshot, RootDescriptor, RootIntent, RootProtection,
-        RootReference, RootRegistry, RootRegistryId, RootReservation, VerifiedArchiveCoverage,
+        RootReference, RootRegistry, RootRegistryId, RootReservation,
     };
     pub use crate::raft::cache::{
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,
@@ -154,10 +201,12 @@ pub mod verification {
         RuntimeEventKind, SnapshotCompletion,
     };
     pub use crate::raft::execution::{
-        query_registered, AppliedExecution, CommandAttempt, CommandAuthority, CommandRequest,
-        CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
-        PrivateExecutor, PrivateOptions, RegisteredQueryOutput, RootPrivateOptions, StageOutcome,
-        StoredReceipt,
+        query_registered, AppliedExecution, CellCommittedReceipt, CellEnrollmentAttempt,
+        CellEnrollmentResolution, CellPreparedCommand, CellPrivateEnrollment, CellPrivateExecutor,
+        CellProposalRejection, CellReconciliation, CellStageOutcome, CellSubmissionOutcome,
+        CommandAttempt, CommandAuthority, CommandRequest, CommittedReceipt, ExecutionError,
+        ExecutionLimits, ExecutionStatus, PreparedCommand, PrivateExecutor, PrivateOptions,
+        RegisteredQueryOutput, RootPrivateOptions, StageOutcome, StoredReceipt,
     };
     pub use crate::raft::fleet_catalog::{
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
@@ -199,11 +248,27 @@ pub mod verification {
         PreparedSnapshot, RootSnapshotSet, RootSnapshotSource, SnapshotCheckpoint,
         SnapshotDownload, SnapshotError, SnapshotLimits, SnapshotPackage, SnapshotReference,
     };
-    pub use crate::raft::storage::{GroupBootstrap, LogError, ReplicaLog, SyncReceipt};
+    pub use crate::raft::storage::{
+        CellGroupBootstrap, GroupBootstrap, LogError, ReplicaLog, SyncReceipt,
+    };
     pub use crate::raft::transport::{
-        Delivery, GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
+        CellGroupCheckpointRegistration, CellGroupSeedError, CellGroupSeedSession, Delivery,
+        GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
     };
     pub use crate::raft::transport_options::{
-        NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls, TransportOptions,
+        NamespaceCommandOrigin, NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls,
+        TransportOptions,
     };
+    /// Contracts under integration into the replacement group runtime.
+    pub mod cell_groups {
+        pub use super::super::group_contracts::cell_routing_key;
+        pub use super::super::group_protocol::*;
+        pub use crate::raft::cell_groups::*;
+        pub use crate::raft::version::{CellVersionObservation, CellVersionToken};
+        pub use cellar_logic::cell_group::{
+            CellBound, CellHistory, CellId, CellImage, CellImageCommitment, CellKey, CellRange,
+            CellVersion, CommitWitness, GroupHistory, GroupRoute, MembershipRevision,
+            MutationSequence, ParkGeneration, RouteEpoch, TransitionId,
+        };
+    }
 }

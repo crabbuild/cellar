@@ -11,8 +11,17 @@ use std::sync::{
 
 pub(crate) enum Access {
     Application,
+    #[cfg(test)]
     Control,
     Cleanup,
+}
+
+/// The rejection is captured while holding the registration barrier; callers
+/// must not infer a cause by resampling flags after the barrier is released.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RegistrationRefusal {
+    Closed,
+    Maintenance,
 }
 
 #[derive(Default)]
@@ -31,15 +40,25 @@ impl Admission {
         &self,
         access: Access,
     ) -> Result<MutexGuard<'_, ()>, CommandFailure> {
-        let guard = self.gate.lock().map_err(|_| CommandFailure::Unavailable)?;
-        if self.is_draining() && !matches!(access, Access::Cleanup)
-            || matches!(access, Access::Application)
-                && self
-                    .maintenance
-                    .get()
-                    .is_some_and(|gate| gate.raft_closed())
+        self.registration_reason(access)
+            .map_err(|_| CommandFailure::Unavailable)
+    }
+
+    pub(crate) fn registration_reason(
+        &self,
+        access: Access,
+    ) -> Result<MutexGuard<'_, ()>, RegistrationRefusal> {
+        let guard = self.gate.lock().map_err(|_| RegistrationRefusal::Closed)?;
+        if self.is_draining() && !matches!(access, Access::Cleanup) {
+            return Err(RegistrationRefusal::Closed);
+        }
+        if matches!(access, Access::Application)
+            && self
+                .maintenance
+                .get()
+                .is_some_and(|gate| gate.raft_closed())
         {
-            return Err(CommandFailure::Unavailable);
+            return Err(RegistrationRefusal::Maintenance);
         }
         Ok(guard)
     }

@@ -182,6 +182,11 @@ impl State {
         mut request: SendRequest,
         result: Result<(), TransportError>,
     ) {
+        // The frame's physical exchange has settled. Feedback is advisory and
+        // may wait for an idle Raft owner; retaining its send fence through that
+        // wait would prevent the configuration which makes the owner idle.
+        // Keep transport metadata/queue charges until this task actually exits.
+        drop(request._source.take());
         if result.is_err() {
             self.failed.fetch_add(1, Ordering::Relaxed);
             if self.current(&request) {
@@ -190,17 +195,13 @@ impl State {
                 let _ = self
                     .bounded(Some(pool), async {
                         self.runtime
-                            .admit_unreachable(&request.scope, request.peer.replica.member.get())
+                            .delivery_hint(
+                                &request.route,
+                                request.member.get(),
+                                false,
+                                request.snapshot,
+                            )
                             .await?;
-                        if request.snapshot {
-                            self.runtime
-                                .admit_snapshot_status(
-                                    &request.scope,
-                                    request.peer.replica.member.get(),
-                                    false,
-                                )
-                                .await?;
-                        }
                         Ok(())
                     })
                     .await;
@@ -212,11 +213,7 @@ impl State {
             let _ = self
                 .bounded(Some(pool), async {
                     self.runtime
-                        .admit_snapshot_status(
-                            &request.scope,
-                            request.peer.replica.member.get(),
-                            true,
-                        )
+                        .delivery_hint(&request.route, request.member.get(), true, true)
                         .await?;
                     Ok(())
                 })

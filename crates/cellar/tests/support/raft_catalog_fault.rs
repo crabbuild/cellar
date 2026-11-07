@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Conditional writes are real InMemory operations; faults lose responses only.
+//! Conditional writes use the selected store unchanged; faults surround real operations.
 use futures_util::{stream::BoxStream, StreamExt, TryStreamExt};
 use object_store::{
     path::Path, GetOptions, GetResult, GetResultPayload, ListResult, MultipartUpload, ObjectMeta,
@@ -8,15 +8,98 @@ use object_store::{
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+fn is_managed_recovery_record(path: &Path) -> bool {
+    path.as_ref()
+        .contains("/fleet/managed-transition-recovery/")
+        || path
+            .as_ref()
+            .contains("/fleet/managed-transition-recovery-fences/")
+        || path
+            .as_ref()
+            .contains("/fleet/managed-transition-recovery-replacements/")
+        || path
+            .as_ref()
+            .contains("/fleet/managed-transition-recovery-seed-quorums/")
+        || (path.as_ref().contains("/managed-recovery-seeds/")
+            && matches!(path.filename(), Some("complete" | "activation")))
+}
+
 tokio::task_local! {
     static READ_COUNTS: std::cell::RefCell<std::collections::BTreeMap<String, usize>>;
     static MISSING_READ: String;
+    static GATED_READ: (String, std::sync::Arc<RegistryGate>);
+    static GATED_STORE_READ: (std::sync::Arc<()>, String, std::sync::Arc<RegistryGate>);
+    static DENIED_ARCHIVE_CREATION: (&'static str, std::cell::Cell<bool>);
+    static DIRECTORY_CONFIRMATION: std::cell::Cell<DirectoryConfirmation>;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DirectoryConfirmation {
+    WaitingForWrite,
+    WaitingForRead,
+    Delivered,
+}
+
+/// Lose only this operation's first directory confirmation after a real CAS.
+#[allow(dead_code)]
+pub async fn lose_directory_confirmation<T>(
+    work: impl std::future::Future<Output = T>,
+) -> (T, bool) {
+    DIRECTORY_CONFIRMATION
+        .scope(
+            std::cell::Cell::new(DirectoryConfirmation::WaitingForWrite),
+            async {
+                let result = work.await;
+                let delivered = DIRECTORY_CONFIRMATION
+                    .with(|state| state.get() == DirectoryConfirmation::Delivered);
+                (result, delivered)
+            },
+        )
+        .await
+}
+
+/// Interrupt one foreground archive initializer before its conditional create.
+#[allow(dead_code)]
+pub async fn deny_archive_creation<T>(
+    suffix: &'static str,
+    work: impl std::future::Future<Output = T>,
+) -> (T, bool) {
+    DENIED_ARCHIVE_CREATION
+        .scope((suffix, std::cell::Cell::new(false)), async {
+            let result = work.await;
+            let delivered = DENIED_ARCHIVE_CREATION.with(|(_, delivered)| delivered.get());
+            (result, delivered)
+        })
+        .await
+}
+
+// Keep a lost observation on one foreground client's store, without delaying
+// background trust refresh or the controller's independent catalog client.
+pub async fn gate_store_read<T>(
+    store: &Store,
+    suffix: String,
+    gate: std::sync::Arc<RegistryGate>,
+    work: impl std::future::Future<Output = T>,
+) -> T {
+    GATED_STORE_READ
+        .scope((store.gate_identity.clone(), suffix, gate), work)
+        .await
 }
 
 // Keep a read fault local to one verifier; running nodes still see the store.
 #[allow(dead_code)]
 pub async fn missing_read<T>(path: String, work: impl std::future::Future<Output = T>) -> T {
     MISSING_READ.scope(path, work).await
+}
+
+// Scope a stalled read to one routing waiter; unrelated metadata continues.
+#[allow(dead_code)]
+pub async fn gate_read<T>(
+    path: String,
+    gate: std::sync::Arc<RegistryGate>,
+    work: impl std::future::Future<Output = T>,
+) -> T {
+    GATED_READ.scope((path, gate), work).await
 }
 
 // Shared fault adapter: only catalog work-count regressions use this scope.
@@ -59,9 +142,28 @@ impl RegistryGate {
 
 #[derive(Debug, Default)]
 pub struct Store {
+    external: Option<std::sync::Arc<dyn ObjectStore>>,
+    gate_identity: std::sync::Arc<()>,
+    pub group_payload_reads: AtomicUsize,
+    pub denied_group_payload_reads: AtomicUsize,
+    pub deny_group_payload_reads: AtomicBool,
+    pub denied_prefix: std::sync::Mutex<Option<Path>>,
+    pub denied_prefix_reads: AtomicUsize,
+    pub deny_group_archive_writes: AtomicBool,
+    pub denied_group_archive_writes: AtomicUsize,
+    pub deny_registry_writes: std::sync::Arc<AtomicBool>,
+    pub denied_registry_writes: AtomicUsize,
+    pub registry_denial_on_payload_refusal: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
+    pub range_before: RegistryGate,
+    pub range_genesis_after: RegistryGate,
+    pub first_group_birth_after: RegistryGate,
+    pub range_page_puts: AtomicUsize,
     pub fail_closure_after: AtomicBool,
+    pub fail_fleet_before: AtomicBool,
     pub fail_fleet_after: AtomicBool,
     pub fail_fleet_confirmation: AtomicBool,
+    pub fail_recovery_record_confirmation: AtomicBool,
+    fail_recovery_record_read: AtomicBool,
     pub fail_fleet_read: AtomicBool,
     // Background trust refresh must not steal the mutator's confirmation loss.
     fleet_confirmation_task: std::sync::Mutex<Option<tokio::task::Id>>,
@@ -76,6 +178,7 @@ pub struct Store {
     pub fleet_read_resume: tokio::sync::Notify,
     pub registry_before: RegistryGate,
     pub registry_after: RegistryGate,
+    pub group_archive_read: RegistryGate,
     pub fail_registry_before: AtomicBool,
     pub fail_registry_after: AtomicBool,
     pub registry_writes: AtomicUsize,
@@ -167,6 +270,9 @@ pub struct Store {
     pub view_waiting: AtomicBool,
     pub view_resume: tokio::sync::Notify,
     pub fail_directory_reads: AtomicBool,
+    pub hold_group_head_reads: AtomicBool,
+    pub active_group_head_reads: AtomicUsize,
+    pub group_head_reads_resume: tokio::sync::Notify,
     pub hold_view_reads: AtomicBool,
     pub view_reads: AtomicUsize,
     pub active_view_reads: AtomicUsize,
@@ -195,6 +301,17 @@ impl Drop for BirthWaiting<'_> {
 }
 
 impl Store {
+    pub fn around(store: std::sync::Arc<dyn ObjectStore>) -> Self {
+        Self {
+            external: Some(store),
+            ..Default::default()
+        }
+    }
+
+    fn backend(&self) -> &dyn ObjectStore {
+        self.external.as_deref().unwrap_or(&self.inner)
+    }
+
     async fn wait_birth(&self) {
         self.birth_waiting.store(true, Ordering::Release);
         let _waiting = BirthWaiting(&self.birth_waiting);
@@ -245,6 +362,27 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if matches!(options.mode, PutMode::Create)
+            && path.as_ref().contains("/cell-group-archives/")
+            && DENIED_ARCHIVE_CREATION
+                .try_with(|(suffix, delivered)| {
+                    path.as_ref().ends_with(suffix) && {
+                        delivered.set(true);
+                        true
+                    }
+                })
+                .unwrap_or(false)
+        {
+            return Err(failure());
+        }
+        if path.as_ref().contains("/cell-groups/ranges/") {
+            self.range_page_puts.fetch_add(1, Ordering::AcqRel);
+        }
+        let directory_cas = path.as_ref().ends_with("/cell-groups/head")
+            && matches!(options.mode, PutMode::Update(_));
+        if directory_cas {
+            self.range_before.pause().await;
+        }
         if path.as_ref().contains("/root-extents/") {
             self.root_extent_puts.fetch_add(1, Ordering::AcqRel);
         }
@@ -347,6 +485,20 @@ impl ObjectStore for Store {
                 return Err(failure());
             }
         }
+        if path.as_ref().contains("/cell-group-archives/")
+            && self.deny_group_archive_writes.load(Ordering::Acquire)
+        {
+            self.denied_group_archive_writes
+                .fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
+        }
+        if path.as_ref().contains("/cell-group-archives/")
+            && path.as_ref().ends_with("/ownership/registry")
+            && self.deny_registry_writes.load(Ordering::Acquire)
+        {
+            self.denied_registry_writes.fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
+        }
         if self.fail_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
@@ -375,10 +527,39 @@ impl ObjectStore for Store {
         }
         let fleet_cas =
             path.as_ref().ends_with("/fleet/head") && matches!(options.mode, PutMode::Update(_));
-        let result = self.inner.put_opts(path, payload, options).await?;
+        if fleet_cas && self.fail_fleet_before.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
+        let range_genesis =
+            path.as_ref().ends_with("/cell-groups/head") && matches!(options.mode, PutMode::Create);
+        let group_birth = path.as_ref().contains("/cell-groups/births/")
+            && matches!(options.mode, PutMode::Create);
+        let result = self.backend().put_opts(path, payload, options).await?;
+        if directory_cas {
+            let _ = DIRECTORY_CONFIRMATION.try_with(|state| {
+                if state.get() == DirectoryConfirmation::WaitingForWrite {
+                    state.set(DirectoryConfirmation::WaitingForRead);
+                }
+            });
+        }
+        if group_birth {
+            self.first_group_birth_after.pause().await;
+        }
+        if range_genesis {
+            self.range_genesis_after.pause().await;
+        }
         if path.as_ref().contains("/closures/")
             && self.fail_closure_after.swap(false, Ordering::AcqRel)
         {
+            return Err(failure());
+        }
+        if is_managed_recovery_record(path)
+            && self
+                .fail_recovery_record_confirmation
+                .swap(false, Ordering::AcqRel)
+        {
+            self.fail_recovery_record_read
+                .store(true, Ordering::Release);
             return Err(failure());
         }
         if fleet_cas && self.fail_fleet_confirmation.swap(false, Ordering::AcqRel) {
@@ -480,13 +661,60 @@ impl ObjectStore for Store {
         path: &Path,
         options: PutMultipartOptions,
     ) -> object_store::Result<Box<dyn MultipartUpload>> {
-        self.inner.put_multipart_opts(path, options).await
+        self.backend().put_multipart_opts(path, options).await
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        let denied = self
+            .denied_prefix
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|prefix| path.prefix_match(prefix).is_some());
+        if denied {
+            self.denied_prefix_reads.fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
+        }
+        let gate = GATED_STORE_READ
+            .try_with(|(identity, suffix, gate)| {
+                (std::sync::Arc::ptr_eq(identity, &self.gate_identity)
+                    && path.as_ref().ends_with(suffix))
+                .then(|| gate.clone())
+            })
+            .ok()
+            .flatten();
+        if let Some(gate) = gate {
+            gate.pause().await;
+        }
+        if path.as_ref().contains("/cell-group-archives/") && path.as_ref().contains("/chunks/") {
+            self.group_payload_reads.fetch_add(1, Ordering::AcqRel);
+            if self.deny_group_payload_reads.load(Ordering::Acquire) {
+                self.denied_group_payload_reads
+                    .fetch_add(1, Ordering::AcqRel);
+                if let Some(denial) = self
+                    .registry_denial_on_payload_refusal
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                {
+                    denial.store(true, Ordering::Release);
+                }
+                return Err(failure());
+            }
+        }
+        if path.as_ref().contains("/cell-group-archives/") {
+            self.group_archive_read.pause().await;
+        }
         let _ = READ_COUNTS.try_with(|counts| {
             *counts.borrow_mut().entry(path.to_string()).or_default() += 1;
         });
+        let gate = GATED_READ
+            .try_with(|(key, gate)| (key == path.as_ref()).then(|| gate.clone()))
+            .ok()
+            .flatten();
+        if let Some(gate) = gate {
+            gate.pause().await;
+        }
         if MISSING_READ
             .try_with(|missing| missing == path.as_ref())
             .unwrap_or(false)
@@ -498,6 +726,24 @@ impl ObjectStore for Store {
                     "scoped missing object",
                 )),
             });
+        }
+        if path.as_ref().ends_with("/cell-groups/head")
+            && DIRECTORY_CONFIRMATION
+                .try_with(|state| {
+                    if state.get() != DirectoryConfirmation::WaitingForRead {
+                        return false;
+                    }
+                    state.set(DirectoryConfirmation::Delivered);
+                    true
+                })
+                .unwrap_or(false)
+        {
+            return Err(failure());
+        }
+        if is_managed_recovery_record(path)
+            && self.fail_recovery_record_read.swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
         }
         if path.as_ref().ends_with("/fleet/head")
             && *self.fleet_confirmation_task.lock().unwrap() == tokio::task::try_id()
@@ -548,6 +794,26 @@ impl ObjectStore for Store {
             && self.fail_directory_reads.load(Ordering::Acquire)
         {
             return Err(failure());
+        }
+        if path.filename() == Some("head") {
+            struct Reading<'a>(&'a AtomicUsize);
+
+            impl Drop for Reading<'_> {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+            self.active_group_head_reads.fetch_add(1, Ordering::AcqRel);
+            let _reading = Reading(&self.active_group_head_reads);
+            loop {
+                let resumed = self.group_head_reads_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.hold_group_head_reads.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
         }
         if path.filename() == Some("view") {
             self.view_reads.fetch_add(1, Ordering::AcqRel);
@@ -736,7 +1002,7 @@ impl ObjectStore for Store {
         if self.fail_read.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
-        let mut result = self.inner.get_opts(path, options).await?;
+        let mut result = self.backend().get_opts(path, options).await?;
         if root_extent {
             self.root_extent_hits.fetch_add(1, Ordering::AcqRel);
         }
@@ -790,7 +1056,7 @@ impl ObjectStore for Store {
     }
 
     async fn delete(&self, path: &Path) -> object_store::Result<()> {
-        self.inner.delete(path).await
+        self.backend().delete(path).await
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
@@ -798,7 +1064,7 @@ impl ObjectStore for Store {
         if self.reject_listing.load(Ordering::Acquire) {
             return futures_util::stream::once(async { Err(failure()) }).boxed();
         }
-        self.inner.list(prefix)
+        self.backend().list(prefix)
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
@@ -806,14 +1072,14 @@ impl ObjectStore for Store {
         if self.reject_listing.load(Ordering::Acquire) {
             return Err(failure());
         }
-        self.inner.list_with_delimiter(prefix).await
+        self.backend().list_with_delimiter(prefix).await
     }
 
     async fn copy(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.inner.copy(from, to).await
+        self.backend().copy(from, to).await
     }
 
     async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.inner.copy_if_not_exists(from, to).await
+        self.backend().copy_if_not_exists(from, to).await
     }
 }

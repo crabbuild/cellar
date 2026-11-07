@@ -5,21 +5,37 @@
 //! proofs remain host-owned; capacity-granted operators explicitly attest limits.
 mod connection;
 mod failure;
+mod first_group;
+mod hibernation;
 mod lifecycle;
 mod maintenance;
 pub use maintenance::*;
 mod nodes;
 mod records;
+mod transition;
+mod transition_admission;
+mod transition_child;
+mod transition_seal;
+mod transition_verify;
 use crate::application::consensus::RaftCells;
 use crate::asyncrt::{DomainToken, ExecutionDomain};
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
+use crate::raft::cell_groups::{CellGroupArchiveLimits, CellGroupArchivePool};
 use crate::raft::fleet_catalog::{
     FleetCatalog, FleetCatalogError, FleetCursor, FleetRequestIdentity, FleetTopologyIntentRequest,
     FleetTopologyOperation, FleetTopologyPhase, FleetTopologyPolicy,
 };
-use cellar_logic::consensus::{NodeId, ProposalId};
+use cellar_logic::consensus::{NamespaceId, NodeId, ProposalId};
 pub use connection::{RaftFleetConnection, RaftFleetNamespace, RaftFleetNamespaceScope};
 pub use failure::{RaftFleetFailure, RaftFleetFailureCode, RaftFleetOutcome};
+pub use first_group::{
+    RaftFleetFirstGroupAcceptance, RaftFleetFirstGroupMutation, RaftFleetFirstGroupPlan,
+    RaftFleetFirstGroupPublish, RaftFleetFirstGroupStage, RaftFleetFirstGroupStandby,
+    RaftFleetFirstGroupVoter,
+};
+pub use hibernation::{
+    RaftFleetParkPhase, RaftFleetParkRequest, RaftFleetParkStatus, RaftFleetWakeStatus,
+};
 pub use lifecycle::{
     RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
     RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetNodeCancel,
@@ -36,6 +52,34 @@ pub use records::{
     RaftFleetOperation, RaftFleetStatus,
 };
 use std::{sync::Arc, time::Duration};
+pub use transition::{
+    RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
+    RaftFleetTransitionActivationRequest, RaftFleetTransitionPreparation,
+    RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublication,
+    RaftFleetTransitionPublishRequest, RaftFleetTransitionRecoveryBasis, RaftFleetTransitionResume,
+    RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
+    RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
+    RaftFleetTransitionStatus,
+};
+pub use transition_admission::{
+    RaftFleetTransitionAdmission, RaftFleetTransitionAdmissionRequest, RaftFleetTransitionBasis,
+    RaftFleetTransitionChild, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
+};
+
+pub use transition_child::{
+    RaftFleetTransitionChildSetup, RaftFleetTransitionChildSetupRequest,
+    RaftFleetTransitionChildSetupResult, RaftFleetTransitionChildStep,
+};
+pub use transition_seal::{
+    RaftFleetTransitionSourceArchive, RaftFleetTransitionSourceCut,
+    RaftFleetTransitionSourceRetirement, RaftFleetTransitionSourceSeal,
+    RaftFleetTransitionSourceSealRequest,
+};
+
+pub use transition_verify::{
+    RaftFleetPreparedRecoveryRange, RaftFleetTransitionArchiveVerification,
+    RaftFleetVerifiedTransitionRecovery,
+};
 
 type Result<T> = std::result::Result<T, RaftFleetFailure>;
 
@@ -46,9 +90,11 @@ type Result<T> = std::result::Result<T, RaftFleetFailure>;
 pub struct RaftFleetControl {
     catalog: FleetCatalog,
     catalog_id: String,
-    namespaces: Arc<[NamespaceCatalog]>,
+    namespaces: Arc<[RangeDirectory]>,
     domain: DomainToken,
     node_observer: Option<RaftCells>,
+    archive_pool: CellGroupArchivePool,
+    transition_preparation: Option<transition::Preparation>,
     removal_verification: Option<Arc<lifecycle::verification::Verification>>,
 }
 
@@ -56,7 +102,7 @@ impl RaftFleetControl {
     pub fn new(
         domain: &ExecutionDomain,
         catalog: FleetCatalog,
-        namespaces: Vec<NamespaceCatalog>,
+        namespaces: Vec<RangeDirectory>,
     ) -> Result<Self> {
         if namespaces.len() > 64 {
             return Err(RaftFleetFailure::invalid("too many managed namespaces"));
@@ -72,8 +118,31 @@ impl RaftFleetControl {
             namespaces: namespaces.into(),
             domain,
             node_observer: None,
+            archive_pool: CellGroupArchivePool::new(CellGroupArchiveLimits::default())
+                .map_err(FleetCatalogError::from)?,
+            transition_preparation: None,
             removal_verification: None,
         })
+    }
+
+    fn managed_namespace(&self, namespace: &str) -> Result<&RangeDirectory> {
+        let id = NamespaceId::new(records::id(namespace)?)
+            .map_err(|_| RaftFleetFailure::invalid("managed namespace ID"))?;
+        let mut found = self
+            .namespaces
+            .iter()
+            .filter(|directory| directory.namespace_config().namespace == id);
+        let directory = found.next().ok_or_else(|| RaftFleetFailure {
+            code: RaftFleetFailureCode::NotFound,
+            outcome: RaftFleetOutcome::NotSubmitted,
+            message: "The namespace is outside configured fleet management.".into(),
+        })?;
+        if found.next().is_some() {
+            return Err(RaftFleetFailure::invalid(
+                "duplicate configured managed namespace",
+            ));
+        }
+        Ok(directory)
     }
 
     pub fn catalog_id(&self) -> &str {
@@ -233,7 +302,6 @@ impl RaftFleetControl {
                 namespace: hex::encode(m.group.namespace.bytes()),
                 group: hex::encode(m.group.group.bytes()),
                 incarnation: hex::encode(m.group.incarnation.bytes()),
-                cell: m.group.cell,
                 source: hex::encode(m.source.bytes()),
                 target: hex::encode(m.target.bytes()),
                 admitted_revision: m.admitted_revision,

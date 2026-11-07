@@ -2,10 +2,7 @@
 
 //! Node-owned stop observations. These are not deployment-fencing certificates
 //! or permission to delete active replica disks, even with complete S3 coverage.
-use crate::application::consensus::{
-    CommandFailure, CommandId, EngineInstanceId, GroupScope, LogIndex, LogPosition, MemberId,
-    NodeIdentity, RaftCells,
-};
+use crate::application::consensus::{CommandFailure, RaftCells};
 use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Copy, Debug)]
@@ -34,52 +31,61 @@ impl RaftCloseReportLimits {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnfinishedCommand {
-    pub scope: GroupScope,
-    pub id: CommandId,
-}
-
-/// Final synced local log observations. Archive coverage is the last verified
-/// coverage observed by this host; a remote publisher may have advanced farther.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RaftGroupCloseReport {
-    pub scope: GroupScope,
-    pub member: MemberId,
-    pub committed: LogIndex,
-    pub applied: LogPosition,
-    pub archived: LogIndex,
-    pub retired: bool,
-    pub failed: bool,
-}
-
-/// Successful return follows local runtime/transport/SQL/log joins. Submitted
-/// commands can remain ambiguous and durable intents can remain unsettled. The
-/// complete group counts include omitted details. No field grants disk deletion.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RaftCloseReport {
-    pub node: NodeIdentity,
-    pub storage_instance: EngineInstanceId,
-    pub groups: Vec<RaftGroupCloseReport>,
-    pub groups_total: usize,
-    pub omitted_groups: usize,
-    pub groups_with_archive_lag: usize,
-    /// Recovered durable histories parked without a host registration. Their
-    /// archive coverage is unknown, not zero lag. They count in groups_total
-    /// and omitted_groups; the shared engine still closes their owners.
-    pub groups_with_unknown_archive: usize,
-    pub unfinished: Vec<UnfinishedCommand>,
-}
-
 /// Requested Node shutdown records the actual cell-host close result before
 /// joining the complete domain. Missing startup/close proof remains explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftNodeShutdownReport {
-    pub result: Result<RaftCloseReport, CommandFailure>,
+    pub result:
+        Result<crate::application::consensus::group_client::RaftCloseReport, RaftNodeShutdownError>,
     pub startup_incomplete: bool,
     /// Best-effort handoff under the original Node shutdown deadline. Missing
     /// evidence is not a graceful drain, even when physical closure succeeded.
     pub drain: Option<Result<RaftDrainReport, CommandFailure>>,
+}
+
+/// Preserve the joined closure failure, including both controller and log
+/// failures. Cloned waiters share one failure identity; admission errors remain
+/// comparable by value. This error never resolves an individual mutation.
+#[derive(Clone, Debug)]
+pub enum RaftNodeShutdownError {
+    Admission(CommandFailure),
+    Closure(Arc<crate::application::consensus::group_client::RaftCloseError>),
+}
+
+impl From<CommandFailure> for RaftNodeShutdownError {
+    fn from(error: CommandFailure) -> Self {
+        Self::Admission(error)
+    }
+}
+
+impl PartialEq for RaftNodeShutdownError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Admission(a), Self::Admission(b)) => a == b,
+            (Self::Closure(a), Self::Closure(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for RaftNodeShutdownError {}
+
+impl std::fmt::Display for RaftNodeShutdownError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Admission(error) => std::fmt::Display::fmt(error, f),
+            Self::Closure(error) => std::fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl std::error::Error for RaftNodeShutdownError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(match self {
+            Self::Admission(error) => error,
+            Self::Closure(error) => error.as_ref(),
+        })
+    }
 }
 
 /// Each registered local replica receives at most one bounded handoff turn.
@@ -101,7 +107,7 @@ impl RaftNodeShutdownReport {
     pub(crate) fn cli_summary(&self) -> serde_json::Value {
         match &self.result {
             Ok(report) => {
-                serde_json::json!({"owners_closed":true,"startup_incomplete":self.startup_incomplete,"groups":report.groups_total,"omitted_group_details":report.omitted_groups,"groups_with_archive_lag":report.groups_with_archive_lag,"groups_with_unknown_archive":report.groups_with_unknown_archive,"unfinished_commands":report.unfinished.len(),"retain_replica_disks":true,"handoff":self.drain.as_ref().map(|result|match result {Ok(drain)=>serde_json::json!({"groups_examined":drain.groups_examined,"attempts":drain.handoff_attempts,"accepted":drain.handoffs_accepted,"leadership_released":drain.leadership_released,"unavailable_groups":drain.unavailable_groups,"deadline_elapsed":drain.deadline_elapsed}),Err(error)=>serde_json::json!({"error":error.to_string()})})})
+                serde_json::json!({"owners_closed":true,"startup_incomplete":self.startup_incomplete,"groups":report.groups_total,"omitted_group_details":report.omitted_groups,"groups_with_archive_lag":report.groups_with_archive_lag,"groups_with_unknown_archive":report.groups_with_unknown_archive,"mutation_outcomes":report.mutation_outcomes,"retained_calls_at_shutdown":report.retained_calls_at_shutdown,"retain_replica_disks":true,"handoff":self.drain.as_ref().map(|result|match result {Ok(drain)=>serde_json::json!({"groups_examined":drain.groups_examined,"attempts":drain.handoff_attempts,"accepted":drain.handoffs_accepted,"leadership_released":drain.leadership_released,"unavailable_groups":drain.unavailable_groups,"deadline_elapsed":drain.deadline_elapsed}),Err(error)=>serde_json::json!({"error":error.to_string()})})})
             }
             Err(error) => {
                 serde_json::json!({"owners_closed":false,"startup_incomplete":self.startup_incomplete,"error":error.to_string(),"retain_replica_disks":true})
@@ -171,17 +177,6 @@ impl NodeLifecycle {
         }
         self.maintenance.begin(selector)?;
         self.maintenance.seal_raft(selector)
-    }
-
-    pub(crate) fn bind_startup_admission(
-        &self,
-        admission: &crate::application::consensus::admission::Admission,
-    ) -> Result<(), CommandFailure> {
-        admission.bind_maintenance(self.maintenance.clone())
-    }
-
-    pub(crate) fn hold_startup_maintenance(&self) {
-        self.maintenance.hold_startup();
     }
 
     pub(crate) fn maintenance_matches(
@@ -258,7 +253,10 @@ impl NodeLifecycle {
 
     pub(crate) fn resource_usage(
         &self,
-    ) -> Result<Option<crate::application::consensus::RaftResourceUsage>, CommandFailure> {
+    ) -> Result<
+        Option<crate::application::consensus::group_client::CellGroupResourceUsage>,
+        CommandFailure,
+    > {
         Ok(self
             .sample_service()?
             .map(|service| service.resource_usage()))
@@ -312,7 +310,7 @@ impl NodeLifecycle {
                 Ok(state) => state,
                 Err(_) => {
                     return Some(RaftNodeShutdownReport {
-                        result: Err(CommandFailure::Unavailable),
+                        result: Err(CommandFailure::Unavailable.into()),
                         startup_incomplete: true,
                         drain: None,
                     })
@@ -333,13 +331,16 @@ impl NodeLifecycle {
                     None => None,
                 };
                 RaftNodeShutdownReport {
-                    result: service.close().await,
+                    result: service
+                        .close()
+                        .await
+                        .map_err(RaftNodeShutdownError::Closure),
                     startup_incomplete: false,
                     drain,
                 }
             }
             None => RaftNodeShutdownReport {
-                result: Err(CommandFailure::Unavailable),
+                result: Err(CommandFailure::Unavailable.into()),
                 startup_incomplete: true,
                 drain: None,
             },

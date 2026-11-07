@@ -3,21 +3,48 @@
 //! empty runtime scan proves that those references can be released.
 use super::*;
 use crate::raft::catalog::{
-    BirthDisposition, BirthProposal, CatalogError, GroupBirth, InitialMember, ManagedBirthOwner,
-    NamespaceCatalog, NamespaceConfig, VoterPolicy,
+    CatalogError, InitialMember, ManagedBirthOwner, NamespaceCatalog, NamespaceConfig, VoterPolicy,
+};
+use crate::raft::cell_groups::{
+    CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec, RangeDirectory,
 };
 use crate::raft::member_state::FleetGroupBinding;
-use cellar_logic::consensus::{GroupScope, MemberId, NodeId, ProposalId};
+use cellar_logic::{
+    cell_group::{CellBound, CellId, CellRange, GroupHistory, GroupRoute, RouteEpoch},
+    consensus::{MemberId, NodeId, ProposalId},
+};
 use serde::Deserialize;
 use std::collections::BTreeSet;
 
 const HISTORY_KIND: u8 = 48;
+
+#[cfg(test)]
+#[path = "histories_tests.rs"]
+mod tests;
+
+fn bound_key(bound: &CellBound) -> Option<String> {
+    match bound {
+        CellBound::Key(key) => Some(key.cell().as_str().into()),
+        CellBound::NegativeInfinity | CellBound::PositiveInfinity => None,
+    }
+}
+
+fn required_bound<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    Option::deserialize(decoder)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FleetHistoryState {
     Reserved,
     /// The immutable birth was confirmed; this does not attest to live quorum.
     Live,
+    /// The transfer closed. Any retained engine occupancy still counts.
+    Retired {
+        operation: [u8; 16],
+        retirement: [u8; 32],
+    },
     Cancelled {
         operation: [u8; 16],
     },
@@ -43,6 +70,12 @@ pub struct FleetHistory {
     pub(super) schema_digest: [u8; 32],
     pub(super) namespace_root: [u8; 32],
     pub(super) birth_digest: [u8; 32],
+    #[serde(deserialize_with = "required_bound")]
+    lower: Option<String>,
+    #[serde(deserialize_with = "required_bound")]
+    upper: Option<String>,
+    epoch: u64,
+    creation: [u8; 16],
     pub(super) admission: [u8; 16],
     pub(super) operation: [u8; 16],
     pub(super) voters: Vec<Member>,
@@ -52,21 +85,96 @@ pub struct FleetHistory {
 }
 
 impl FleetHistory {
+    pub(super) fn reserved_group(
+        binding: FleetGroupBinding,
+        directory: &RangeDirectory,
+        proposal: &CellGroupBirthRequest,
+        request: &FleetRequestIdentity,
+    ) -> Result<Self> {
+        if !binding.matches_scope(&proposal.route().history) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let namespace = directory.namespace();
+        let history = Self {
+            binding,
+            schema_digest: namespace.config().schema_digest,
+            namespace_root: namespace.root_digest(),
+            birth_digest: proposal.route().birth_digest,
+            lower: bound_key(proposal.route().range.lower()),
+            upper: bound_key(proposal.route().range.upper()),
+            epoch: proposal.route().epoch.get(),
+            creation: proposal.creation().bytes(),
+            admission: request.id,
+            operation: request.operation,
+            voters: proposal
+                .voters()
+                .iter()
+                .copied()
+                .map(Member::from)
+                .collect(),
+            learners: vec![],
+            state: FleetHistoryState::Reserved,
+            origin: Origin::Managed,
+        };
+        history.validate()?;
+        Ok(history)
+    }
+
+    pub(super) fn cancelled_group(
+        binding: FleetGroupBinding,
+        directory: &RangeDirectory,
+        request: &CellGroupBirthRequest,
+        admission: ProposalId,
+        operation: ProposalId,
+        cancellation: ProposalId,
+    ) -> Result<Self> {
+        let decoded = directory
+            .decode_group_birth(request.encode())
+            .map_err(catalog_error)?;
+        if !binding.matches_scope(&decoded.route().history) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let value = Self {
+            binding,
+            schema_digest: directory.namespace_config().schema_digest,
+            namespace_root: directory.namespace().root_digest(),
+            birth_digest: decoded.route().birth_digest,
+            lower: bound_key(decoded.route().range.lower()),
+            upper: bound_key(decoded.route().range.upper()),
+            epoch: decoded.route().epoch.get(),
+            creation: decoded.creation().bytes(),
+            admission: admission.bytes(),
+            operation: operation.bytes(),
+            voters: decoded.voters().iter().copied().map(Member::from).collect(),
+            learners: decoded
+                .learners()
+                .iter()
+                .copied()
+                .map(Member::from)
+                .collect(),
+            state: FleetHistoryState::Cancelled {
+                operation: cancellation.bytes(),
+            },
+            origin: Origin::Observed,
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
     /// An exact observed birth is import material, not proof that the namespace
     /// inventory is complete or that legacy creation has been quiesced.
     pub fn observed(
         binding: FleetGroupBinding,
-        namespace: &NamespaceCatalog,
-        birth: &GroupBirth,
+        directory: &RangeDirectory,
+        birth: &CellGroupBirth,
         admission: ProposalId,
         operation: ProposalId,
     ) -> Result<Self> {
-        namespace.check_birth(birth).map_err(catalog_error)?;
-        if !binding.matches_scope(birth.scope())
-            || birth.managed_owner().is_some_and(|owner| {
-                owner.fleet != binding.fleet() || owner.catalog != binding.catalog()
-            })
-        {
+        let namespace = directory.namespace();
+        let decoded = directory
+            .decode_group_birth(birth.encode())
+            .map_err(catalog_error)?;
+        if !binding.matches_scope(&birth.route().history) || decoded.route() != birth.route() {
             return Err(FleetCatalogError::Conflict);
         }
         if namespace
@@ -83,7 +191,11 @@ impl FleetHistory {
             binding,
             schema_digest: namespace.config().schema_digest,
             namespace_root: namespace.root_digest(),
-            birth_digest: birth.digest(),
+            birth_digest: birth.route().birth_digest,
+            lower: bound_key(birth.route().range.lower()),
+            upper: bound_key(birth.route().range.upper()),
+            epoch: birth.route().epoch.get(),
+            creation: birth.creation().bytes(),
             admission: admission.bytes(),
             operation: operation.bytes(),
             voters: birth.voters().iter().copied().map(Member::from).collect(),
@@ -127,6 +239,7 @@ impl FleetHistory {
     }
 
     pub(super) fn validate(&self) -> Result<()> {
+        self.initial_placement()?;
         self.binding
             .scope()
             .map_err(|_| FleetCatalogError::Corrupt("history binding"))?;
@@ -137,6 +250,18 @@ impl FleetHistory {
         if let FleetHistoryState::Cancelled { operation } = self.state {
             ProposalId::new(operation)
                 .map_err(|_| FleetCatalogError::Corrupt("birth cancellation"))?;
+        }
+        if let FleetHistoryState::Retired {
+            operation,
+            retirement,
+        } = self.state
+        {
+            if ProposalId::new(operation).is_err()
+                || retirement == [0; 32]
+                || self.origin != Origin::Managed
+            {
+                return Err(FleetCatalogError::Corrupt("history retirement"));
+            }
         }
         if self.schema_digest == [0; 32]
             || self.namespace_root == [0; 32]
@@ -163,12 +288,39 @@ impl FleetHistory {
     }
 
     /// Recorded genesis references, never a current-membership or absence proof.
-    pub fn initial_placement(&self) -> Result<BirthProposal> {
-        Ok(BirthProposal {
-            scope: self
-                .binding
-                .scope()
-                .map_err(|_| FleetCatalogError::Corrupt("history scope"))?,
+    pub fn initial_placement(&self) -> Result<CellGroupBirthSpec> {
+        let history = self
+            .binding
+            .scope()
+            .map_err(|_| FleetCatalogError::Corrupt("history scope"))?;
+        let key = |name: &str| {
+            CellId::new(name)
+                .map(|cell| {
+                    crate::application::consensus::cell_routing_key(history.namespace, &cell)
+                })
+                .map(CellBound::Key)
+                .map_err(|_| FleetCatalogError::Corrupt("history range"))
+        };
+        let range = CellRange::new(
+            self.lower
+                .as_deref()
+                .map(key)
+                .transpose()?
+                .unwrap_or(CellBound::NegativeInfinity),
+            self.upper
+                .as_deref()
+                .map(key)
+                .transpose()?
+                .unwrap_or(CellBound::PositiveInfinity),
+        )
+        .map_err(|_| FleetCatalogError::Corrupt("history range"))?;
+        Ok(CellGroupBirthSpec {
+            history,
+            range,
+            epoch: RouteEpoch::new(self.epoch)
+                .map_err(|_| FleetCatalogError::Corrupt("history route epoch"))?,
+            creation: ProposalId::new(self.creation)
+                .map_err(|_| FleetCatalogError::Corrupt("history creation"))?,
             voters: self
                 .voters
                 .iter()
@@ -182,15 +334,26 @@ impl FleetHistory {
         })
     }
 
+    // Multiple admitted candidates can share a range/epoch before the directory
+    // selects one. Every losing physical identity must remain inventoried too.
     pub(super) fn name_key(&self) -> Result<String> {
         let scope = self
             .binding
             .scope()
             .map_err(|_| FleetCatalogError::Corrupt("history scope"))?;
         Ok(format!(
-            "birth/{}/{}",
+            "range/{}/{}",
             hex::encode(scope.namespace.bytes()),
-            hex::encode(hash(scope.cell.as_bytes()))
+            hex::encode(hash(
+                &serde_json::to_vec(&(
+                    &self.lower,
+                    &self.upper,
+                    self.epoch,
+                    scope.group.bytes(),
+                    scope.incarnation.bytes(),
+                ))
+                .map_err(|_| FleetCatalogError::Corrupt("history range key"))?
+            ))
         ))
     }
 
@@ -202,17 +365,39 @@ impl FleetHistory {
         Ok(format!("group/{}", hex::encode(scope.group.bytes())))
     }
 
-    pub(crate) fn check_birth(&self, namespace: &NamespaceCatalog, birth: &GroupBirth) -> bool {
-        namespace.check_birth(birth).is_ok()
-            && namespace
-                .config()
-                .managed_fleet
-                .as_ref()
-                .is_none_or(|owner| owner.fleet == self.binding.fleet())
-            && self.binding.matches_scope(birth.scope())
+    pub(super) fn check_route(&self, directory: &RangeDirectory, route: &GroupRoute) -> bool {
+        let namespace = directory.namespace();
+        namespace
+            .config()
+            .managed_fleet
+            .as_ref()
+            .is_none_or(|owner| owner.fleet == self.binding.fleet())
+            && self.binding.matches_scope(&route.history)
             && self.namespace_root == namespace.root_digest()
             && self.schema_digest == namespace.config().schema_digest
-            && self.birth_digest == birth.digest()
+            && self.schema_digest == route.schema_digest
+            && self.birth_digest == route.birth_digest
+            && self.lower == bound_key(route.range.lower())
+            && self.upper == bound_key(route.range.upper())
+            && self.epoch == route.epoch.get()
+    }
+
+    pub(crate) fn check_birth(&self, directory: &RangeDirectory, birth: &CellGroupBirth) -> bool {
+        directory.decode_group_birth(birth.encode()).is_ok()
+            && self.check_route(directory, birth.route())
+            && self.creation == birth.creation().bytes()
+            && self.voters.len() == birth.voters().len()
+            && self.learners.len() == birth.learners().len()
+            && self
+                .voters
+                .iter()
+                .zip(birth.voters())
+                .all(|(a, b)| a.member == b.member.get() && a.node == b.node.bytes())
+            && self
+                .learners
+                .iter()
+                .zip(birth.learners())
+                .all(|(a, b)| a.member == b.member.get() && a.node == b.node.bytes())
     }
 }
 
@@ -241,20 +426,34 @@ impl Member {
 #[derive(Clone, Debug)]
 pub struct FleetBirthAuthorization {
     history: FleetHistory,
-    proposal: BirthProposal,
+    proposal: CellGroupBirthRequest,
     owner: ManagedBirthOwner,
 }
 
 impl FleetBirthAuthorization {
-    pub(crate) fn check_birth(&self, namespace: &NamespaceCatalog, birth: &GroupBirth) -> bool {
-        self.history.check_birth(namespace, birth)
+    pub(super) fn matches_active_reservation(&self, history: &FleetHistory) -> bool {
+        match history.state() {
+            FleetHistoryState::Reserved => history == &self.history,
+            FleetHistoryState::Live => {
+                let mut expected = self.history.clone();
+                expected.state = FleetHistoryState::Live;
+                history == &expected
+            }
+            FleetHistoryState::Cancelled { .. } | FleetHistoryState::Retired { .. } => false,
+        }
     }
 
-    pub fn scope(&self) -> &GroupScope {
-        &self.proposal.scope
+    pub fn scope(&self) -> &GroupHistory {
+        &self.proposal.route().history
     }
 
-    pub(crate) fn proposal(&self) -> BirthProposal {
+    /// Exact reserved metadata for the first range publication. Selection still
+    /// requires the directory CAS; this grants no member or quorum authority.
+    pub fn route(&self) -> &GroupRoute {
+        self.proposal.route()
+    }
+
+    pub(crate) fn proposal(&self) -> CellGroupBirthRequest {
         self.proposal.clone()
     }
 
@@ -330,25 +529,22 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
-        namespace: &NamespaceCatalog,
-        birth: &GroupBirth,
+        directory: &RangeDirectory,
+        birth: &CellGroupBirth,
+        class: &str,
         timeout: Duration,
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
-        if let Some(owner) = birth.managed_owner() {
-            if self.birth_owner()? != *owner {
-                return Err(FleetCatalogError::Conflict);
-            }
-        }
+        let namespace = directory.namespace();
         if namespace.config().managed_fleet.is_some()
             && self.bind_namespace(namespace.config().clone())? != *namespace.config()
         {
             return Err(FleetCatalogError::Conflict);
         }
         let history = FleetHistory::observed(
-            self.binding(birth.scope())?,
-            namespace,
+            self.binding(&birth.route().history)?,
+            directory,
             birth,
             ProposalId::new(request.id).map_err(|_| FleetCatalogError::Invalid("admission"))?,
             ProposalId::new(request.operation)
@@ -356,7 +552,14 @@ impl FleetCatalog {
         )?;
         self.run(
             timeout,
-            self.insert_history(snapshot, request, &history, namespace, false),
+            self.insert_history(
+                snapshot,
+                request,
+                &history,
+                directory,
+                class,
+                HistoryAdmission::Observed,
+            ),
         )
         .await
     }
@@ -365,12 +568,35 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
-        namespace: &NamespaceCatalog,
-        proposal: BirthProposal,
+        directory: &RangeDirectory,
+        proposal: CellGroupBirthSpec,
+        class: &str,
         timeout: Duration,
     ) -> Result<FleetBirthReservation> {
+        self.reserve_birth_with_intent(
+            snapshot,
+            request,
+            directory,
+            (proposal, None),
+            class,
+            timeout,
+        )
+        .await
+    }
+
+    pub(super) async fn reserve_birth_with_intent(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        directory: &RangeDirectory,
+        setup: (CellGroupBirthSpec, Option<[u8; 32]>),
+        class: &str,
+        timeout: Duration,
+    ) -> Result<FleetBirthReservation> {
+        let (proposal, intent) = setup;
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
+        let namespace = directory.namespace();
         if namespace.config().cluster.bytes() != self.inner.cluster
             || namespace.config().voters != VoterPolicy::ThreeVoters
             || proposal.voters.len() != 3
@@ -379,25 +605,25 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Invalid("managed initial placement"));
         }
         self.run(timeout, async {
-            let owner = self.managed_owner_for_birth(snapshot, namespace).await?;
-            let (proposal, digest) = namespace
-                .prepare_birth_with_owner(proposal, Some(&owner))
+            let owner = self.managed_owner_for_birth(snapshot, directory).await?;
+            let proposal = directory
+                .prepare_fleet_group_birth(proposal, &owner)
                 .map_err(catalog_error)?;
-            let history = FleetHistory {
-                binding: self.binding(&proposal.scope)?,
-                schema_digest: namespace.config().schema_digest,
-                namespace_root: namespace.root_digest(),
-                birth_digest: digest,
-                admission: request.id,
-                operation: request.operation,
-                voters: proposal.voters.iter().copied().map(Member::from).collect(),
-                learners: vec![],
-                state: FleetHistoryState::Reserved,
-                origin: Origin::Managed,
-            };
-            history.validate()?;
+            let history = FleetHistory::reserved_group(
+                self.binding(&proposal.route().history)?,
+                directory,
+                &proposal,
+                request,
+            )?;
             let commit = self
-                .insert_history(snapshot, request, &history, namespace, true)
+                .insert_history(
+                    snapshot,
+                    request,
+                    &history,
+                    directory,
+                    class,
+                    HistoryAdmission::Reserved(intent),
+                )
                 .await?;
             Ok(FleetBirthReservation {
                 commit,
@@ -418,11 +644,24 @@ impl FleetCatalog {
     pub async fn recover_birth_reservation(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
-        scope: &GroupScope,
+        directory: &RangeDirectory,
+        scope: &GroupHistory,
+        timeout: Duration,
+    ) -> Result<FleetBirthAuthorization> {
+        self.recover_birth_reservation_matching(snapshot, directory, scope, None, timeout)
+            .await
+    }
+
+    pub(super) async fn recover_birth_reservation_matching(
+        &self,
+        snapshot: &FleetSnapshot,
+        directory: &RangeDirectory,
+        scope: &GroupHistory,
+        expected: Option<(&FleetRequestIdentity, [u8; 32])>,
         timeout: Duration,
     ) -> Result<FleetBirthAuthorization> {
         self.check_snapshot(snapshot)?;
+        let namespace = directory.namespace();
         let binding = self.binding(scope)?;
         let key = binding
             .key()
@@ -454,26 +693,11 @@ impl FleetCatalog {
                 principal: mutation.principal.clone(),
                 expected_revision: mutation.expected_revision,
             };
-            let expected = history_mutation(
-                &request,
-                vec![
-                    FleetChange {
-                        table: FleetTable::Histories,
-                        key: key.clone(),
-                        value: Some(history.encode()?),
-                    },
-                    FleetChange {
-                        table: FleetTable::Policy,
-                        key: history.name_key()?,
-                        value: Some(key.as_bytes().to_vec()),
-                    },
-                    FleetChange {
-                        table: FleetTable::Policy,
-                        key: history.group_key()?,
-                        value: Some(key.as_bytes().to_vec()),
-                    },
-                ],
-            );
+            let intent = self.first_group_intent(snapshot, &request.id).await?;
+            if expected.is_some_and(|(saved, digest)| saved != &request || Some(digest) != intent) {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            let expected = birth_mutation(&history, &request, &key, intent)?;
             if mutation.id != history.admission
                 || mutation.operation != history.operation
                 || mutation != expected
@@ -491,10 +715,11 @@ impl FleetCatalog {
             if applied.is_none() || applied != request.expected_revision.checked_add(1) {
                 return Err(FleetCatalogError::Corrupt("unadmitted birth reservation"));
             }
-            let owner = self.managed_owner_for_birth(snapshot, namespace).await?;
-            let (proposal, digest) = namespace
-                .prepare_birth_with_owner(history.initial_placement()?, Some(&owner))
+            let owner = self.managed_owner_for_birth(snapshot, directory).await?;
+            let proposal = directory
+                .prepare_fleet_group_birth(history.initial_placement()?, &owner)
                 .map_err(catalog_error)?;
+            let digest = proposal.route().birth_digest;
             let authorization = FleetBirthAuthorization {
                 history,
                 proposal,
@@ -517,12 +742,13 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         authorization: &FleetBirthAuthorization,
         timeout: Duration,
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
+        let namespace = directory.namespace();
         authorization
             .check_namespace(namespace)
             .map_err(catalog_error)?;
@@ -530,27 +756,23 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Conflict);
         }
         self.run(timeout, async {
-            if self.managed_owner_for_birth(snapshot, namespace).await? != authorization.owner {
+            if self.managed_owner_for_birth(snapshot, directory).await? != authorization.owner {
                 return Err(FleetCatalogError::Conflict);
             }
             let mut history = authorization.history.clone();
-            match namespace
-                .birth_disposition(&authorization.scope().cell)
+            let birth = self
+                .inner
+                .domain
+                .run(Box::pin(
+                    directory.materialize_fleet_group_birth(authorization),
+                ))
                 .await
-                .map_err(catalog_error)?
-            {
-                Some(BirthDisposition::Live(birth)) if history.check_birth(namespace, &birth) => {
-                    history.state = FleetHistoryState::Live
-                }
-                Some(BirthDisposition::Cancelled { scope, operation })
-                    if scope == *authorization.scope() =>
-                {
-                    history.state = FleetHistoryState::Cancelled {
-                        operation: operation.bytes(),
-                    }
-                }
-                _ => return Err(FleetCatalogError::Conflict),
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(catalog_error)?;
+            if !history.check_birth(directory, &birth) {
+                return Err(FleetCatalogError::Conflict);
             }
+            history.state = FleetHistoryState::Live;
             let key = history
                 .binding
                 .key()
@@ -585,7 +807,7 @@ impl FleetCatalog {
     pub async fn history(
         &self,
         snapshot: &FleetSnapshot,
-        scope: &GroupScope,
+        scope: &GroupHistory,
         timeout: Duration,
     ) -> Result<FleetHistory> {
         self.check_snapshot(snapshot)?;
@@ -633,14 +855,71 @@ impl FleetCatalog {
         Ok(history)
     }
 
+    pub(super) async fn first_group_intent(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &[u8; 16],
+    ) -> Result<Option<[u8; 32]>> {
+        self.inner
+            .lookup(
+                snapshot.head.tables[FleetTable::Policy.slot()],
+                &first_group_intent_key(request),
+            )
+            .await?
+            .map(|value| {
+                value
+                    .try_into()
+                    .map_err(|_| FleetCatalogError::Corrupt("first group intent"))
+            })
+            .transpose()
+    }
+
+    pub(super) async fn require_unoccupied_birth(
+        &self,
+        snapshot: &FleetSnapshot,
+        history: &FleetHistory,
+        key: &str,
+    ) -> Result<()> {
+        if snapshot.head.history_count >= HISTORY_LIMIT {
+            return Err(FleetCatalogError::Limit);
+        }
+        if self
+            .inner
+            .lookup(snapshot.head.tables[FleetTable::Histories.slot()], key)
+            .await?
+            .is_some()
+            || self
+                .inner
+                .lookup(
+                    snapshot.head.tables[FleetTable::Policy.slot()],
+                    &history.name_key()?,
+                )
+                .await?
+                .is_some()
+            || self
+                .inner
+                .lookup(
+                    snapshot.head.tables[FleetTable::Policy.slot()],
+                    &history.group_key()?,
+                )
+                .await?
+                .is_some()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
     async fn insert_history(
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         history: &FleetHistory,
-        namespace: &NamespaceCatalog,
-        placement: bool,
+        directory: &RangeDirectory,
+        class: &str,
+        admission: HistoryAdmission,
     ) -> Result<FleetCommit> {
+        let namespace = directory.namespace();
         let key = history
             .binding
             .key()
@@ -652,26 +931,11 @@ impl FleetCatalog {
         if self.binding(&scope)? != history.binding {
             return Err(FleetCatalogError::Conflict);
         }
-        let mutation = history_mutation(
-            request,
-            vec![
-                FleetChange {
-                    table: FleetTable::Histories,
-                    key: key.clone(),
-                    value: Some(history.encode()?),
-                },
-                FleetChange {
-                    table: FleetTable::Policy,
-                    key: history.name_key()?,
-                    value: Some(key.as_bytes().to_vec()),
-                },
-                FleetChange {
-                    table: FleetTable::Policy,
-                    key: history.group_key()?,
-                    value: Some(key.as_bytes().to_vec()),
-                },
-            ],
-        );
+        let intent = match admission {
+            HistoryAdmission::Observed => None,
+            HistoryAdmission::Reserved(intent) => intent,
+        };
+        let mutation = birth_mutation(history, request, &key, intent)?;
         mutation.validate()?;
         let current = self.inner.current().await?;
         let digest = hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?);
@@ -681,44 +945,14 @@ impl FleetCatalog {
             .await?
             .is_none()
         {
-            let class = scope
-                .cell
-                .split_once(':')
-                .ok_or(FleetCatalogError::Invalid("history class"))?
-                .0;
             self.require_namespace_declaration(snapshot, namespace, Some(class))
                 .await?;
             if current.token != snapshot.token || request.expected_revision != snapshot.revision() {
                 return Err(FleetCatalogError::Conflict);
             }
-            if snapshot.head.history_count >= HISTORY_LIMIT {
-                return Err(FleetCatalogError::Limit);
-            }
-            if self
-                .inner
-                .lookup(snapshot.head.tables[FleetTable::Histories.slot()], &key)
-                .await?
-                .is_some()
-                || self
-                    .inner
-                    .lookup(
-                        snapshot.head.tables[FleetTable::Policy.slot()],
-                        &history.name_key()?,
-                    )
-                    .await?
-                    .is_some()
-                || self
-                    .inner
-                    .lookup(
-                        snapshot.head.tables[FleetTable::Policy.slot()],
-                        &history.group_key()?,
-                    )
-                    .await?
-                    .is_some()
-            {
-                return Err(FleetCatalogError::Conflict);
-            }
-            if placement {
+            self.require_unoccupied_birth(snapshot, history, &key)
+                .await?;
+            if let HistoryAdmission::Reserved(_) = admission {
                 let nodes = self.node_records(snapshot).await?;
                 let mut hosts = BTreeSet::new();
                 for member in &history.voters {
@@ -735,18 +969,80 @@ impl FleetCatalog {
                     {
                         return Err(FleetCatalogError::Conflict);
                     }
+                    // Active is a placement hint. An ordinary retained boot
+                    // invalidates the prior capacity receipt without erasing
+                    // that state or its existing group ownership.
+                    let target = NodeId::new(member.node)
+                        .map_err(|_| FleetCatalogError::Corrupt("birth capacity node"))?;
+                    if !self
+                        .capacity_from(snapshot, target)
+                        .await?
+                        .receive_replicas()
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
                 }
                 // This claim grants no birth authority. Confirming it before
                 // the root CAS closes races with other namespace catalogs that
                 // share the global group-ID key, including unmanaged imports.
-                namespace
-                    .reserve_group_identity(&scope)
+                let owner = self.birth_owner()?;
+                let proposal = directory
+                    .prepare_fleet_group_birth(history.initial_placement()?, &owner)
+                    .map_err(catalog_error)?;
+                self.inner
+                    .domain
+                    .run(Box::pin(
+                        directory.reserve_fleet_group_identity(&proposal, &owner),
+                    ))
                     .await
+                    .map_err(|_| FleetCatalogError::Closed)?
                     .map_err(catalog_error)?;
             }
         }
         self.commit_inner(snapshot, &mutation).await
     }
+}
+
+enum HistoryAdmission {
+    Observed,
+    Reserved(Option<[u8; 32]>),
+}
+
+fn first_group_intent_key(request: &[u8; 16]) -> String {
+    format!("first-group-intents/{}", hex::encode(request))
+}
+
+pub(super) fn birth_mutation(
+    history: &FleetHistory,
+    request: &FleetRequestIdentity,
+    key: &str,
+    intent: Option<[u8; 32]>,
+) -> Result<FleetMutation> {
+    let mut changes = vec![
+        FleetChange {
+            table: FleetTable::Histories,
+            key: key.into(),
+            value: Some(history.encode()?),
+        },
+        FleetChange {
+            table: FleetTable::Policy,
+            key: history.name_key()?,
+            value: Some(key.as_bytes().to_vec()),
+        },
+        FleetChange {
+            table: FleetTable::Policy,
+            key: history.group_key()?,
+            value: Some(key.as_bytes().to_vec()),
+        },
+    ];
+    if let Some(digest) = intent {
+        changes.push(FleetChange {
+            table: FleetTable::Policy,
+            key: first_group_intent_key(&request.id),
+            value: Some(digest.to_vec()),
+        });
+    }
+    Ok(history_mutation(request, changes))
 }
 
 pub(super) fn history_mutation(
@@ -782,6 +1078,7 @@ pub(super) fn catalog_error(error: CatalogError) -> FleetCatalogError {
         CatalogError::Limit => FleetCatalogError::Limit,
         CatalogError::Unconfirmed => FleetCatalogError::Unconfirmed,
         CatalogError::Storage(error) => FleetCatalogError::Storage(error.into()),
+        CatalogError::FleetAuthority(error) => *error,
         _ => FleetCatalogError::Conflict,
     }
 }

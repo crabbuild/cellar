@@ -1,0 +1,630 @@
+{
+  "format": 1,
+  "status": "unqualified_candidate_gates",
+  "note": "All numbers are proposed acceptance targets, not measurements. Freeze profile digest before each campaign; retain misses and obtain a reviewed revision before changing targets. All expected fault refusals remain in the ledger.",
+  "profiles": [
+    {
+      "id": "idle_density",
+      "required": true,
+      "description": "Matched 4096-cell idle cohorts; compare occupancy 64 with occupancy 1, including control costs and complete physical inventory.",
+      "topology": "local_containers",
+      "cells": 4096,
+      "nodes": 5,
+      "voters": 3,
+      "occupancies": [
+        1,
+        8,
+        32,
+        64,
+        128
+      ],
+      "duration_seconds": 300,
+      "offered_requests_per_second": 0,
+      "repetitions": 3,
+      "image_modes": [
+        "materialized",
+        "extents"
+      ],
+      "checks": {
+        "lost_acknowledged_effects": {
+          "max": 0
+        },
+        "duplicate_mutations": {
+          "max": 0
+        },
+        "stale_strong_reads": {
+          "max": 0
+        },
+        "double_writers": {
+          "max": 0
+        },
+        "unexpected_errors": {
+          "max": 0
+        },
+        "peak_rss_limit_ratio": {
+          "max": 0.85
+        },
+        "unjoined_owners": {
+          "max": 0
+        },
+        "control_bytes_ratio": {
+          "max": 0.1
+        },
+        "cpu_core_ratio": {
+          "max": 0.65
+        },
+        "baseline_cpu_cores": {
+          "min": 0.05
+        },
+        "baseline_control_bytes": {
+          "min": 1
+        },
+        "actual_cells": {
+          "eq": 4096
+        },
+        "measured_groups_occupancy64": {
+          "max": 128
+        }
+      },
+      "historical_control": true,
+      "historical_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
+      "gate_occupancies": [
+        64
+      ],
+      "ratios": {
+        "control_bytes_ratio": {
+          "numerator": "control_bytes_per_second",
+          "denominator": "control_bytes_per_second",
+          "control_occupancy": 1
+        },
+        "cpu_core_ratio": {
+          "numerator": "cpu_cores",
+          "denominator": "cpu_cores",
+          "control_occupancy": 1
+        }
+      }
+    },
+    {
+      "id": "mixed_quorum",
+      "required": true,
+      "description": "Fixed 100 requests/s, 80% writes and 20% strong/AtLeast reads, uniform cells, Quorum acknowledgements.",
+      "topology": "local_containers",
+      "cells": 4096,
+      "nodes": 5,
+      "voters": 3,
+      "occupancies": [
+        1,
+        8,
+        32,
+        64,
+        128
+      ],
+      "duration_seconds": 600,
+      "offered_requests_per_second": 100,
+      "repetitions": 3,
+      "image_modes": [
+        "materialized",
+        "extents"
+      ],
+      "checks": {
+        "lost_acknowledged_effects": {
+          "max": 0
+        },
+        "duplicate_mutations": {
+          "max": 0
+        },
+        "stale_strong_reads": {
+          "max": 0
+        },
+        "double_writers": {
+          "max": 0
+        },
+        "unexpected_errors": {
+          "max": 0
+        },
+        "peak_rss_limit_ratio": {
+          "max": 0.85
+        },
+        "unjoined_owners": {
+          "max": 0
+        },
+        "refused_requests": {
+          "max": 0
+        },
+        "ambiguous_requests": {
+          "max": 0
+        },
+        "latency_samples": {
+          "min": 60000
+        },
+        "p99_ratio_to_occupancy1": {
+          "max": 1.2
+        },
+        "max_archive_lag_seconds": {
+          "max": 60
+        },
+        "p99_ms": {
+          "max": 200
+        }
+      },
+      "historical_control": true,
+      "historical_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
+      "gate_occupancies": [
+        8,
+        32,
+        64,
+        128
+      ],
+      "ratios": {
+        "p99_ratio_to_occupancy1": {
+          "numerator": "p99_ms",
+          "denominator": "p99_ms",
+          "control_occupancy": 1
+        }
+      }
+    },
+    {
+      "id": "mixed_s3",
+      "required": true,
+      "description": "Identical trace to mixed_quorum with S3 acknowledgements against real RustFS.",
+      "topology": "local_containers",
+      "cells": 4096,
+      "nodes": 5,
+      "voters": 3,
+      "occupancies": [
+        1,
+        8,
+        32,
+        64,
+        128
+      ],
+      "duration_seconds": 600,
+      "offered_requests_per_second": 100,
+      "repetitions": 3,
+      "image_modes": [
+        "materialized",
+        "extents"
+      ],
+      "checks": {
+        "lost_acknowledged_effects": {
+          "max": 0
+        },
+        "duplicate_mutations": {
+          "max": 0
+        },
+        "stale_strong_reads": {
+          "max": 0
+        },
+        "double_writers": {
+          "max": 0
+        },
+        "unexpected_errors": {
+          "max": 0
+        },
+        "peak_rss_limit_ratio": {
+          "max": 0.85
+        },
+        "unjoined_owners": {
+          "max": 0
+        },
+        "refused_requests": {
+          "max": 0
+        },
+        "ambiguous_requests": {
+          "max": 0
+        },
+        "latency_samples": {
+          "min": 60000
+        },
+        "p99_ratio_to_occupancy1": {
+          "max": 1.2
+        },
+        "max_archive_lag_seconds": {
+          "max": 60
+        },
+        "p99_ms": {
+          "max": 1000
+        }
+      },
+      "historical_control": true,
+      "historical_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
+      "gate_occupancies": [
+        8,
+        32,
+        64,
+        128
+      ],
+      "ratios": {
+        "p99_ratio_to_occupancy1": {
+          "numerator": "p99_ms",
+          "denominator": "p99_ms",
+          "control_occupancy": 1
+        }
+      }
+    },
+    {
+      "id": "hot_cold",
+      "required": true,
+      "description": "One cell receives 50% of writes; compare adapted grouping with occupancy-one replacement at identical offered traffic.",
+      "topology": "local_containers",
+      "cells": 4096,
+      "nodes": 5,
+      "voters": 3,
+      "occupancies": [
+        1,
+        64
+      ],
+      "duration_seconds": 600,
+      "offered_requests_per_second": 100,
+      "repetitions": 3,
+      "image_modes": [
+        "materialized",
+        "extents"
+      ],
+      "checks": {
+        "lost_acknowledged_effects": {
+          "max": 0
+        },
+        "duplicate_mutations": {
+          "max": 0
+        },
+        "stale_strong_reads": {
+          "max": 0
+        },
+        "double_writers": {
+          "max": 0
+        },
+        "unexpected_errors": {
+          "max": 0
+        },
+        "peak_rss_limit_ratio": {
+          "max": 0.85
+        },
+        "unjoined_owners": {
+          "max": 0
+        },
+        "cold_p99_ms": {
+          "max": 250
+        },
+        "cold_p99_ratio_to_control": {
+          "max": 1.25
+        },
+        "refused_requests": {
+          "max": 0
+        },
+        "hot_cell_isolated": {
+          "eq": 1
+        }
+      },
+      "historical_control": false,
+      "historical_revision": null,
+      "gate_occupancies": [
+        64
+      ],
+      "ratios": {
+        "cold_p99_ratio_to_control": {
+          "numerator": "cold_p99_ms",
+          "denominator": "cold_p99_ms",
+          "control_occupancy": 1
+        }
+      }
+    },
+    {
+      "id": "split_merge",
+      "required": true,
+      "description": "Foreground commands/strong reads during repeated split, merge, learner movement and controller restarts.",
+      "topology": "local_containers",
+      "cells": 4096,
+      "nodes": 5,
+      "voters": 3,
+      "occupancies": [
+        64
+      ],
+      "duration_seconds": 900,
+      "offered_requests_per_second": 50,
+      "repetitions": 3,
+      "image_modes": [
+        "materialized",
+        "extents"
+      ],
+      "checks": {
+        "lost_acknowledged_effects": {
+          "max": 0
+        },
+        "duplicate_mutations": {
+          "max": 0
+        },
+        "stale_strong_reads": {
+          "max": 0
+        },
+        "double_writers": {
+          "max": 0
+        },
+        "unexpected_errors": {
+          "max": 0
+        },
+        "peak_rss_limit_ratio": {
+          "max": 0.85
+        },
+        "unjoined_owners": {
+          "max": 0
+        },
+        "completed_transitions": {
+          "min": 30
+        },
+        "max_transition_pause_ms": {
+          "max": 10000
+        },
+        "peak_transition_slot_ratio": {
+          "max": 1
+        },
+        "history_checks": {
+          "min": 45000
+        }
+      },
+      "historical_control": false,
+      "historical_revision": null,
+      "gate_occupancies": [
+        64
+      ],
+      "ratios": {}
+    },
+    {
+      "id": "hibernate_wake",
+      "required": true,
+      "description": "Separate healthy retained leader, cold execution cache, parked leader loss, minority wake and alarm-triggered wake cohorts.",
+      "topology": "local_containers",
+      "cells": 4096,
+      "nodes": 5,
+      "voters": 3,
+      "occupancies": [
+        64
+      ],
+      "duration_seconds": 600,
+      "offered_requests_per_second": 10,
+      "repetitions": 3,
+      "image_modes": [
+        "materialized",
+        "extents"
+      ],
+      "checks": {
+        "lost_acknowledged_effects": {
+          "max": 0
+        },
+        "duplicate_mutations": {
+          "max": 0
+        },
+        "stale_strong_reads": {
+          "max": 0
+        },
+        "double_writers": {
+          "max": 0
+        },
+        "unexpected_errors": {
+          "max": 0
+        },
+        "peak_rss_limit_ratio": {
+          "max": 0.85
+        },
+        "unjoined_owners": {
+          "max": 0
+        },
+        "healthy_wake_samples": {
+          "min": 1000
+        },
+        "healthy_cached_wake_p99_ms": {
+          "max": 500
+        },
+        "leader_loss_wake_max_ms": {
+          "max": 10000
+        },
+        "missed_due_effects": {
+          "max": 0
+        },
+        "parked_control_ratio": {
+          "max": 0.1
+        }
+      },
+      "historical_control": false,
+      "historical_revision": null,
+      "gate_occupancies": [
+        64
+      ],
+      "ratios": {
+        "parked_control_ratio": {
+          "numerator": "parked_control_bytes_per_second",
+          "denominator": "active_control_bytes_per_second"
+        }
+      }
+    },
+    {
+      "id": "rustfs_disaster",
+      "required": true,
+      "description": "Owned all-voter erasure after reclaim, before/after topology publication, managed and unmanaged group restore from real RustFS.",
+      "topology": "local_containers",
+      "cells": 256,
+      "nodes": 5,
+      "voters": 3,
+      "occupancies": [
+        64
+      ],
+      "duration_seconds": 900,
+      "offered_requests_per_second": 20,
+      "repetitions": 3,
+      "image_modes": [
+        "materialized",
+        "extents"
+      ],
+      "checks": {
+        "lost_acknowledged_effects": {
+          "max": 0
+        },
+        "duplicate_mutations": {
+          "max": 0
+        },
+        "stale_strong_reads": {
+          "max": 0
+        },
+        "double_writers": {
+          "max": 0
+        },
+        "unexpected_errors": {
+          "max": 0
+        },
+        "peak_rss_limit_ratio": {
+          "max": 0.85
+        },
+        "unjoined_owners": {
+          "max": 0
+        },
+        "erased_voter_disks": {
+          "min": 3
+        },
+        "restored_cells": {
+          "eq": 256
+        },
+        "old_token_acceptances": {
+          "max": 0
+        },
+        "old_host_restart_acceptances": {
+          "max": 0
+        },
+        "peer_seed_bytes": {
+          "eq": 0
+        },
+        "restored_receipt_callbacks": {
+          "eq": 0
+        },
+        "scenarios_completed": {
+          "min": 6
+        }
+      },
+      "historical_control": false,
+      "historical_revision": null,
+      "gate_occupancies": [
+        64
+      ],
+      "ratios": {}
+    },
+    {
+      "id": "independent_domain_loss",
+      "required": true,
+      "description": "Actual five-node deployment across at least three independent failure domains; isolate one domain, then demonstrate two-domain quorum refusal.",
+      "topology": "independent_hosts",
+      "cells": 4096,
+      "nodes": 5,
+      "voters": 3,
+      "occupancies": [
+        64
+      ],
+      "duration_seconds": 1800,
+      "offered_requests_per_second": 50,
+      "repetitions": 1,
+      "image_modes": [
+        "materialized",
+        "extents"
+      ],
+      "checks": {
+        "lost_acknowledged_effects": {
+          "max": 0
+        },
+        "duplicate_mutations": {
+          "max": 0
+        },
+        "stale_strong_reads": {
+          "max": 0
+        },
+        "double_writers": {
+          "max": 0
+        },
+        "unexpected_errors": {
+          "max": 0
+        },
+        "peak_rss_limit_ratio": {
+          "max": 0.85
+        },
+        "unjoined_owners": {
+          "max": 0
+        },
+        "independent_failure_domains": {
+          "min": 3
+        },
+        "actual_hosts": {
+          "min": 5
+        },
+        "successful_single_domain_failover": {
+          "eq": 1
+        },
+        "writes_without_quorum": {
+          "eq": 0
+        }
+      },
+      "historical_control": false,
+      "historical_revision": null,
+      "gate_occupancies": [
+        64
+      ],
+      "ratios": {}
+    },
+    {
+      "id": "soak_24h",
+      "required": true,
+      "description": "24-hour mixed traffic, effect scheduling, bounded S3 outages, transfers, hibernation and rolling process restarts.",
+      "topology": "local_containers",
+      "cells": 4096,
+      "nodes": 5,
+      "voters": 3,
+      "occupancies": [
+        64
+      ],
+      "duration_seconds": 86400,
+      "offered_requests_per_second": 50,
+      "repetitions": 1,
+      "image_modes": [
+        "materialized",
+        "extents"
+      ],
+      "checks": {
+        "lost_acknowledged_effects": {
+          "max": 0
+        },
+        "duplicate_mutations": {
+          "max": 0
+        },
+        "stale_strong_reads": {
+          "max": 0
+        },
+        "double_writers": {
+          "max": 0
+        },
+        "unexpected_errors": {
+          "max": 0
+        },
+        "peak_rss_limit_ratio": {
+          "max": 0.85
+        },
+        "unjoined_owners": {
+          "max": 0
+        },
+        "measured_seconds": {
+          "min": 86400
+        },
+        "max_archive_lag_after_recovery_seconds": {
+          "max": 60
+        },
+        "steady_rss_growth_ratio": {
+          "max": 1.1
+        },
+        "completed_history_checks": {
+          "min": 4320000
+        }
+      },
+      "historical_control": false,
+      "historical_revision": null,
+      "gate_occupancies": [
+        64
+      ],
+      "ratios": {}
+    }
+  ]
+}

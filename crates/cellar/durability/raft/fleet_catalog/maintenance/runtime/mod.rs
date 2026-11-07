@@ -19,7 +19,8 @@ use crate::raft::fleet_catalog::finalization::receipts::Publication;
 use crate::raft::physical_inventory::{RaftPhysicalHistory, RaftPhysicalInventory};
 pub(crate) use action::RestartActionContext;
 use basis::Basis;
-use cellar_logic::consensus::{GroupScope, MemberId};
+use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::consensus::MemberId;
 use futures_util::future::BoxFuture;
 pub(super) use handoff::LeadershipAction;
 pub(crate) use handoff::RestartLeadershipCommand;
@@ -50,17 +51,17 @@ pub struct FleetRestartVerification {
 #[derive(Clone, Debug)]
 pub enum FleetRestartHistoryProgress {
     Cancelled {
-        group: GroupScope,
+        group: GroupHistory,
     },
     Unrelated {
-        group: GroupScope,
+        group: GroupHistory,
     },
     Retained {
-        group: GroupScope,
+        group: GroupHistory,
         member: MemberId,
     },
     Voting {
-        group: GroupScope,
+        group: GroupHistory,
         member: MemberId,
         survivors: [NodeId; 2],
     },
@@ -117,7 +118,7 @@ impl FleetCatalog {
         &'a self,
         snapshot: &'a FleetSnapshot,
         operation: ProposalId,
-        namespaces: &'a [NamespaceCatalog],
+        namespaces: &'a [RangeDirectory],
         observer: &'a RaftCells,
         timeout: Duration,
     ) -> BoxFuture<'a, Result<FleetRestartVerification>> {
@@ -263,11 +264,7 @@ impl FleetRestartVerification {
                 .binding()
                 .scope()
                 .map_err(|_| FleetCatalogError::Corrupt("restart scope"))?;
-            let physical = self
-                .inventory
-                .history(&group)
-                .map_err(|_| FleetCatalogError::Conflict)?
-                .copied();
+            let physical = self.inventory.group_history(&group).copied();
             let target = NodeId::new(self.gate.node.node)
                 .map_err(|_| FleetCatalogError::Corrupt("restart target"))?;
             let voters = catalog
@@ -319,6 +316,20 @@ impl FleetRestartVerification {
                         FleetRestartHistoryProgress::Cancelled { group },
                     )
                 }
+                FleetHistoryState::Retired { .. } => match physical {
+                    Some(slot) if slot.parked_retired_source() || !slot.in_configuration() => (
+                        Evidence::Retained,
+                        FleetRestartHistoryProgress::Retained {
+                            group,
+                            member: slot.member(),
+                        },
+                    ),
+                    Some(_) => return Err(FleetCatalogError::Conflict),
+                    None => (
+                        Evidence::Unrelated,
+                        FleetRestartHistoryProgress::Unrelated { group },
+                    ),
+                },
                 FleetHistoryState::Live => {
                     if let Some((voters, permit)) = voters {
                         let member = *voters.get(&target).ok_or(FleetCatalogError::Conflict)?;

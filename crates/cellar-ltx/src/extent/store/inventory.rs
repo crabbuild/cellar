@@ -145,6 +145,7 @@ impl NodeExtentStore {
                         bytes: metadata.len,
                         slots,
                         retained: true,
+                        persisted: false,
                         token: Arc::new(()),
                         data: None,
                     },
@@ -194,6 +195,31 @@ impl NodeExtentStore {
         reference: ExtentRootReference,
         persist: bool,
     ) -> Result<Arc<RootData>, StoreError> {
+        let result = self.read_root_inner(reference, persist);
+        if result.is_err() {
+            if let Some(entry) = self.inner.state()?.roots.get_mut(&reference.root) {
+                entry.persisted = false;
+            }
+        }
+        result
+    }
+
+    fn read_root_inner(
+        &self,
+        reference: ExtentRootReference,
+        persist: bool,
+    ) -> Result<Arc<RootData>, StoreError> {
+        let persisted = {
+            let state = self.inner.state()?;
+            let entry = state
+                .roots
+                .get(&reference.root)
+                .ok_or(StoreError::Missing)?;
+            if entry.bytes != u64::from(reference.length) {
+                return Err(StoreError::Integrity);
+            }
+            entry.persisted
+        };
         let path = self.inner.directory.join(root_name(reference.root));
         let mut file = self
             .inner
@@ -211,9 +237,15 @@ impl NodeExtentStore {
             return Err(StoreError::Integrity);
         }
         let manifest = ExtentManifest::decode(&bytes, reference.root)?;
-        if persist {
+        if persist && !persisted {
             file.sync_all()?;
             self.inner.filesystem.sync_all(&self.inner.directory)?;
+            self.inner
+                .state()?
+                .roots
+                .get_mut(&reference.root)
+                .ok_or(StoreError::Missing)?
+                .persisted = true;
         }
         let mut objects = BTreeSet::new();
         for index in 0..manifest.geometry().extent_count() {
