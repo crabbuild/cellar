@@ -267,8 +267,10 @@ async fn source_clean_keeps_capacity_until_sync_even_when_waiter_is_lost() -> an
     let release = gate.arm(fault::HOLD_SYNC);
     let permit = Permit::new(&log, source)?;
     let owner = log.clone();
-    let waiter = tokio::spawn(async move { owner.reclaim_source(permit).await });
-    tokio::time::timeout(Duration::from_secs(5), entered).await?;
+    let waiter = domain.spawn(async move { owner.reclaim_source(permit).await })?;
+    domain
+        .run(crate::asyncrt::timeout(Duration::from_secs(5), entered))
+        .await??;
     assert_eq!(log.cell_groups()?.len(), 1);
     waiter.abort();
     let _ = waiter.await;
