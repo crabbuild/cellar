@@ -661,6 +661,45 @@ passed. Strict Clippy still reports 202 library errors starting in
 predecessor code. Its log SHA-256 is
 `e21fe164bf4043e792c1ae8c3a1196b382f758f40e8d387d53dd9edb294ea5ac`.
 
+## CG-07 joint restart of an original seed owner
+
+On the `7aa83f75` baseline, the original leader reopened its retained engine
+and requalified during Joint. Raft completed the move and all four physical
+inventories showed the completed sequence and zero seed workers. The catalog
+returned Unconfirmed on every terminal turn because the original owner boot
+had changed. The native baseline log SHA-256 is
+`d84ca5decae5540507236c6985cc0ab52569a42625fa24ae6653bb38a5053add`.
+
+At `663fc881bb6eb7558c655bb7bafe9bb54bc49af0`, ordinary startup preserves the
+original boot binding while the rooted move still pins its digest. Execution
+matches the new qualified boot to the exact old binding, same retained engine
+and higher epoch. Fresh quorum permits Finish after Joint, and terminal
+settlement still checks current physical inventory and original seed work exit.
+The reservation, capacity charge and admission wire shape stay fixed until
+the same terminal CAS. Seed and cancellation paths retain exact boot checks.
+
+The `managed-joint-restart` RustFS suite passed both the replacement restart
+and original owner restart in both image modes. The tests took 41.44 and
+44.35 seconds. Each uses a joined shutdown of one host-native voter and
+fixture capacity. The record SHA-256 is
+`c18addeba5c727140fb71cc4b6fc7f12eb9289ebae9fac8888282b17600d4f65`.
+
+The first candidate native run exhausted eight settlement turns while one
+voter had committed index 10, applied index 9 and reported seven retained
+workers. The other three inventories showed completion. The charge stayed
+rooted. The log SHA-256 is
+`e1bb1d860541bed1945a5e63c66249c97441827e2de2632a7541f3dcaf5e2542`.
+An isolated native repeat passed both image modes in 49.61 seconds.
+Its log SHA-256 is
+`c70c6b818f0fa4b3e6d32307298b260ba93edecb45223973d27bc18ce9493555`.
+The observed apply delay and earlier extent timeout remain open. The next
+qualification needs independent voter process crashes and an oracle for
+the outgoing quorum and physical apply fence during the active move.
+
+Formatting, layout, docs, native dependency isolation and 37 plan tests
+passed. Strict Clippy still fails with the same 202 library errors and log
+SHA-256 as the preceding candidate.
+
 ## CG-07 voter and learner read readiness
 
 The public shared-group read target at `9ab1334894c6e6d0ce41c2a5421fc3ba56448951`
