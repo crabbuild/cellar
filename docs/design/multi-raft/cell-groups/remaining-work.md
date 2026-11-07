@@ -93,7 +93,7 @@ The publication-erasure case also passes both real RustFS image modes.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
+| CG-10 | Two of five exact named cases pass at `938d7bf8`: whole-cell equal union and adjacent compatible merges. Clean split/merge and interrupted-transition recovery also pass real RustFS in both image modes on that source. | Qualify the explicit partial-merge failure case, repeated movement under foreground writes and effects, and bounded precopy with live-group progress and retained transfer debt. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
@@ -141,10 +141,15 @@ now uses one directory barrier while retaining every page-file barrier and
 quarantining uncertain writes. These results establish scoped correctness and
 an unresolved matrix gap; they do not qualify the load profiles.
 
-Proceed with the planned CG-10 target while retaining that CG-14 failure.
-CG-09's full native acceptance is recorded at `f4d46d98`. CG-10 still needs
-its exact union, compatibility, partial failure, writes-under-movement and
-resource-bound oracles. Preserve the source-pinned acceptance records.
+Finish the three remaining CG-10 named cases while retaining that CG-14
+failure. CG-09's full native acceptance is recorded at `f4d46d98`. CG-10's
+exact union and compatibility cases now pass at `938d7bf8`; task acceptance
+still requires explicit partial failure, writes/effects during repeated movement
+and resource-bound oracles. Preserve the source-pinned acceptance records.
+
+The former per-cell host and wire paths are retired. The generic `Replica`
+still executes shared groups. Remaining legacy cleanup must audit cell-scoped
+archive and recovery verification APIs and their shared image/capture dependencies.
 
 Local and remote request attempts must keep the same routing session,
 admission and original deadline. Incoming RPCs execute locally; leader hints

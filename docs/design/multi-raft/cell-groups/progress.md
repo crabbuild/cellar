@@ -12,6 +12,68 @@ CG-10 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-10 exact partition and compatibility cases
+
+At `938d7bf8d2f9888266e9e3f361f07ef82723933e`, two of CG-10's five named
+cases pass on one frozen native executable:
+
+- `split_equal_union_whole_cells`: 19.793 seconds, materialized and extent images.
+- `merge_requires_adjacent_compatible_ranges`: 164.689 seconds, materialized and extent images.
+
+The split case checks forced digest ties, exact whole-cell union, empty occupied
+edges, fresh child histories and unchanged selection before publication. Its
+managed RF3 fixtures reject a forged pivot digest before any reservation, then
+resume the original partial child reservation through a fresh CLI controller
+and an intervening Fleet revision. The merge case rejects namespace, cluster,
+schema, durability, placement, directory, identity, gap, overlap and ordering
+mismatches before child reservation or source sealing. Valid operator split and
+merge still complete with late writes, retained receipts and parent retirement.
+
+`cell_groups::partition` now validates recommended geometry and compatibility
+before durable operator admission. The forged-pivot regression previously
+returned a successful Planned transition. Selected histories, live quorum,
+capacity and topology proofs remain mandatory after the new preflight.
+
+The managed merge exposed a default-stack overflow in archive-tail verification.
+The owned macOS crash report identifies `DomainToken::run` around
+`CellGroupArchive::verify_tail` below held-source preparation. The verifier is
+now heap-pinned before the execution-domain wrappers carry it by value. All
+I/O, retention, cancellation, replay and marker checks remain intact. The
+regression passes without a `RUST_MIN_STACK` override or larger deadlines.
+
+All seven selected checkpoint commands pass: strict all-target compilation,
+case inventory, the two exact cases, formatting, layout and strict all-target
+Clippy for `cellar` and `cellar-logic`. Plan unit tests, documentation and native
+dependency checks also pass. The historical legacy membership compile-error
+count is no longer a blocker. The generic `Replica` remains the shared runtime's
+engine; the retired per-cell host and wire paths stay removed.
+
+Real RustFS passes both fixed `managed-split-merge` suite cases on the same
+source, each in both image modes. Interrupted-transition recovery takes
+262.682 seconds; clean split/merge takes 205.806 seconds.
+The suite retains original command identities, source fencing, controller
+restart, archive preparation, publication, activation and retirement checks.
+Voters are host-native RF3 TLS owners with fixture capacity. Source disk erasure
+uses joined shutdown and fixture fencing. Independent Linux voter processes,
+permanent launch revocation, sustained load and release qualification remain
+separate gates. The owned RustFS container is stopped; its objects are retained.
+
+Evidence is retained at:
+
+- `.cellar/cell-groups-evidence/CG-10-938d7bf8-01/record.json`; SHA-256 `515cf35e1ce5d126005ee4bb3560f7ee31d4df41a4a5c8371c8cb1a9db1ae302`.
+- `.cellar/cell-groups-evidence/CG-10-rustfs-938d7bf8-01/record.json`; SHA-256 `24bdf89619c0ec163634767585f8a5ee9ab7bde84b95c84a818ec4479839ab0b`.
+- Native executable SHA-256 `05f141b50fdb28d23914ebfdfb1908aa71e69069968180af65739cad198d4f73`; RustFS executable SHA-256 `c52aeee0cbfb324d277afd90c35e1068999d37c5282159d0a3ea9507c38c9c7f`.
+
+This is a two-case checkpoint, not complete CG-10 acceptance. Its full task
+still requires `partial_merge_failure_no_double_writer`,
+`split_merge_under_writes` and `transition_precopy_resource_bounds`. Add the
+explicit premature-child admission probe during partial parent failure, then
+exercise repeated transitions with a complete foreground write/effect ledger
+and bounded pre-copy while unrelated live groups continue progressing. Complete
+the five-case command gate before marking CG-10 DONE. The task-level accepted
+count remains nine; individual passes are reported separately in the open-case
+audit.
+
 ## CG-09 complete native acceptance and publication disk-loss replay
 
 CG-09 passes all 12 required acceptance commands at
