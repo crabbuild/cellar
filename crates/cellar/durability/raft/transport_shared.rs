@@ -137,9 +137,7 @@ impl RaftTransport {
         for peer in &route.peers {
             registry.check_node_view(&RaftPeerNode::from(peer))?;
         }
-        if registry.cell_query_groups.contains_key(&route.scope) {
-            return Err(TransportError::Identity);
-        }
+        let replaces_discovery = registry.cell_query_groups.contains_key(&route.scope);
         if let Some(old) = registry.physical_groups.get(&route.scope) {
             if exclusive {
                 return Err(TransportError::Identity);
@@ -163,7 +161,7 @@ impl RaftTransport {
                     return Err(TransportError::Identity);
                 }
             }
-        } else if registry.route_count() >= state.options.max_groups {
+        } else if !replaces_discovery && registry.route_count() >= state.options.max_groups {
             return Err(TransportError::Overloaded);
         }
         let physical: Vec<_> = route
@@ -202,6 +200,10 @@ impl RaftTransport {
             group_snapshots::revoke(&mut registry, &route.scope);
         }
         let owner = refresh.unwrap_or_else(|| Arc::new(()));
+        // Only this fully validated local engine/membership can replace an
+        // advisory route. Revoke its queued route identities under the same
+        // registry lock; discovery itself never creates a physical owner.
+        registry.cell_query_groups.remove(&route.scope);
         registry.physical_owners.insert(route.scope, owner.clone());
         registry.physical_groups.insert(route.scope, route.clone());
         registry.prune_pools();
