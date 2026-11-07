@@ -53,7 +53,7 @@ pub(super) async fn install(
     Ok(())
 }
 
-pub(in crate::runtime_fixture) fn enrollment_bytes(
+pub(in super::super) fn enrollment_bytes(
     route: &GroupRoute,
     cell: &CellHistory,
     bytes: &[u8],

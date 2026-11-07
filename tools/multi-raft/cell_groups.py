@@ -88,15 +88,15 @@ SUITES = {
         "production peer authentication and sustained load remain separate gates.",
     ),
     "managed-transition": (
-        "native_cell_groups_managed",
+        "native_cell_groups_transitions",
         ("bootstrap::transition::rustfs_managed_split_plan",
          "bootstrap::transition::rustfs_managed_split_authorization"),
-        "managed split cancellation, sealed archive replay, child installation and retained restart",
-        "Host-native voters and fixture capacity. Child attachment, fresh quorum, publication "
-        "and activation remain separate gates.",
+        "managed split cancellation, sealed archive replay, quorum child installation, publication and retained source tokens",
+        "Host-native voters and fixture capacity. Phase-crash schedules, full effect continuity "
+        "and permanent platform fencing remain separate gates.",
     ),
     "managed-split-merge": (
-        "native_cell_groups_managed",
+        "native_cell_groups_transitions",
         ("bootstrap::transition::merge::rustfs_managed_recovery_barrier_fences_transfer_and_reopens",
          "bootstrap::transition::merge::rustfs_managed_split_merge"),
         "managed split and merge through retirement, with restored SQL after source disk erasure",

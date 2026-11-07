@@ -325,3 +325,25 @@ The fresh private output directory contains credentials, opaque tokens, command
 ledgers, signing material and sanitized process logs; keep it out of Git and
 publish only deliberately sanitized reports. A successful drill is an exact
 local recovery result, separate from the complete CG-06 task and release gates.
+
+## Cell-group transition contracts
+
+CG-09 uses `native_cell_groups_transitions`. Its current required cases cover
+seal authorization/cancellation, delayed work at a sealed source, and child
+installation/publication. The child case runs both image forms and verifies
+original source version floors and receipts after transfer and retained restart.
+Phase-by-phase crash, full effect continuity, remote closure after all local
+copies are erased, and complete retirement acceptance remain explicit gates.
+
+```sh
+cargo +1.98.1 test -p cellar --test native_cell_groups_transitions --locked -- --list
+cargo +1.98.1 test -p cellar --test native_cell_groups_transitions --locked \
+  -- child_requires_install_and_publication --exact --test-threads=1
+python3 tools/multi-raft/cell_groups.py --suite managed-transition \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-transitions-rustfs-001 \
+  --target-directory "$HOME/Workspace/crabbuild-target/cellar-my-checkout"
+```
+
+The RustFS transition and split/merge suites select this target and retain their
+exact case names. They refuse zero-test selections and source/binary drift.

@@ -44,10 +44,9 @@ async fn rustfs_managed_split_plan() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn managed_split_authorizes_only_the_prepared_plan() -> Result<()> {
+pub(crate) async fn child_requires_install_and_publication(rooted: bool) -> Result<()> {
     Box::pin(run_plan(
-        false,
+        rooted,
         Arc::new(fault::Store::default()),
         Decision::Authorize,
     ))

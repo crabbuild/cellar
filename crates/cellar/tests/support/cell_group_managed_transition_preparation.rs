@@ -1103,6 +1103,11 @@ pub(super) async fn verify_transferred_sql(
     let view = domain.run(directory.observe()).await??;
     let hosts = &cluster.hosts[DESTINATION..];
     let mut positions = Vec::with_capacity(seeded.cells.len());
+    let original_floors = seeded
+        .receipts
+        .iter()
+        .map(|receipt| receipt.version_token.clone())
+        .collect::<Vec<_>>();
     for (index, (cell, original)) in seeded
         .cells
         .iter()
@@ -1124,6 +1129,25 @@ pub(super) async fn verify_transferred_sql(
             .await?;
         let expected = [10i64, 11][index];
         ensure!(query.result == expected.to_be_bytes());
+        let retained_floor = handle
+            .query(
+                ProposalId::new([186 + index as u8; 16])?,
+                &get,
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::AtLeast(original.version_token.clone()),
+                    routing: QueryRouting::Local,
+                    ..Default::default()
+                },
+            )
+            .await
+            .context("source token must remain valid on the activated child")?;
+        ensure!(
+            retained_floor.result == expected.to_be_bytes()
+                && retained_floor.version.history == original.version.history
+                && retained_floor.version.sequence >= original.version.sequence
+                && retained_floor.served_by_node == hosts[leader].identity()
+        );
         let add = handle.contract("Add")?;
         let replay = handle
             .command(
@@ -1132,7 +1156,12 @@ pub(super) async fn verify_transferred_sql(
                 CommandOptions::new(original.id, seeded.retry),
             )
             .await?;
-        ensure!(replay.id == original.id && replay.result == original.result);
+        ensure!(
+            replay.id == original.id
+                && replay.result == original.result
+                && replay.version == original.version
+                && replay.witness == original.witness
+        );
         let next = handle
             .command(
                 &add,
@@ -1150,7 +1179,8 @@ pub(super) async fn verify_transferred_sql(
     reopen_transfer_destination(cluster, 111, 2, true).await?;
     let restarted = &cluster.hosts[DESTINATION];
     let view = domain.run(directory.observe()).await??;
-    for (index, cell) in seeded.cells.into_iter().enumerate() {
+    for (index, (cell, original_floor)) in seeded.cells.into_iter().zip(original_floors).enumerate()
+    {
         let route = domain.run(directory.lookup(&view, &cell.cell)).await??;
         let group = restarted.group(route.history)?;
         ensure!(group.archive_status()?.is_none());
@@ -1168,6 +1198,20 @@ pub(super) async fn verify_transferred_sql(
             .await?;
         ensure!(query.result == [11i64, 12][index].to_be_bytes());
         ensure!(query.served_by_node == restarted.identity());
+        let carried = handle
+            .query(
+                ProposalId::new([196 + index as u8; 16])?,
+                &handle.contract("Get")?,
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::AtLeast(original_floor),
+                    routing: QueryRouting::Local,
+                    ..Default::default()
+                },
+            )
+            .await
+            .context("retained child must still accept the original source token")?;
+        ensure!(carried.result == query.result && carried.served_by_node == restarted.identity());
     }
     Ok(())
 }
