@@ -1128,7 +1128,10 @@ pub(super) async fn verify_transferred_sql(
             )
             .await?;
         let expected = [10i64, 11][index];
-        ensure!(query.result == expected.to_be_bytes());
+        ensure!(
+            query.result == expected.to_be_bytes() && query.witness.group == cluster.history,
+            "transfer must retain the source image's decision"
+        );
         let retained_floor = handle
             .query(
                 ProposalId::new([186 + index as u8; 16])?,
@@ -1159,8 +1162,8 @@ pub(super) async fn verify_transferred_sql(
         ensure!(
             replay.id == original.id
                 && replay.result == original.result
-                && replay.version == original.version
-                && replay.witness == original.witness
+                && replay.version == query.version
+                && replay.witness == query.witness
         );
         let next = handle
             .command(
