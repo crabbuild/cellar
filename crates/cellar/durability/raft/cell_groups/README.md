@@ -8,6 +8,27 @@ these owners. A stored root or local attachment is not fresh quorum authority.
 See the [delivery status](../../../../../docs/design/multi-raft/cell-groups/remaining-work.md)
 for the remaining public fleet and backend qualification gates.
 
+## SDK reads and receipt inspection
+
+Automatic SDK reads and receipt inspection follow directory-selected successor
+groups after a split or merge. Read-only retries retain the original invocation,
+catalog revision floor, deadline and attempt bank. Incoming RPCs execute locally
+and cannot forward again. Receipt absence remains ambiguous and releases no
+original producer.
+
+The joined managed directory worker discovers one selected group per namespace
+turn. Its advisory cache shares the transport route limit. Discovery grants no
+namespace read/write permission or engine ownership. An admitted local engine
+can atomically replace an advisory route only after validating its exact member,
+manifest, boot and peers. Receipt RPCs retain explicit namespace command grants.
+
+Remote receipts carry authenticated values and achieved durability, separately
+from the stored command's minimum. They provide neither a local SQL image nor a
+local archive-settlement proof. Receipt replies include that stored minimum at
+marker 1; this is a hard internal cutover. Native handles retain their owning host:
+after joined shutdown they return `Closed`, and the caller opens a new handle on
+the replacement host.
+
 ## Managed startup outcomes
 
 `cellar::sdk::consensus` exports `CellGroupStartupError` and its nested
@@ -116,8 +137,8 @@ I/O on its blocking execution domain and retains the selected verified root;
 returned metadata still requires fresh leader, route, image and private-command
 admission before execution. Missing scheduling fields refuse at marker 1, with
 no compatibility reader. The shared controller now integrates indexed discovery
-and private system commands. Full CG-08 effect/cache qualification and the public
-SDK/fleet cutover remain unfinished; qualification is scoped to its recorded source.
+and private system commands. See the delivery status for current acceptance
+scopes and remaining public cutover and release qualification.
 
 Leaves bind logical cell history, mutation sequence, image commitment and
 geometry, last group installation/mutation position, schema, effect summary,

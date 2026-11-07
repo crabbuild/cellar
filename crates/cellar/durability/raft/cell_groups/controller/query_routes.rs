@@ -243,7 +243,7 @@ fn unavailable(failure: &CommandFailure) -> bool {
     )
 }
 
-fn retryable(error: &Error) -> bool {
+pub(super) fn retryable(error: &Error) -> bool {
     match error {
         Error::Runtime(
             RuntimeError::NotLeader

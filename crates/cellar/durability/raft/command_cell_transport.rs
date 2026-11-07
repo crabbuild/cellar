@@ -112,6 +112,7 @@ impl CellRemoteEnrollmentResponse {
 /// Receipt inspection retains reply admission but never owns a producer.
 pub struct CellRemoteReceiptResponse {
     value: CellReceiptValue,
+    stored: Option<crate::raft::execution::StoredReceipt>,
     _node: Permit,
     _peer: Permit,
 }
@@ -127,15 +128,15 @@ impl CellRemoteReceiptResponse {
 
     /// None remains ambiguous; no command or initializer was invoked by lookup.
     pub fn result(&self) -> Option<&[u8]> {
-        self.value
-            .retained
-            .then_some(self.value.value.value.result.as_slice())
+        self.stored.as_ref().map(|receipt| receipt.result())
     }
 
     pub fn retry_until_ms(&self) -> Option<u64> {
-        self.value
-            .retained
-            .then_some(self.value.value.retry_until_ms)
+        self.stored.as_ref().map(|receipt| receipt.retry_until_ms())
+    }
+
+    pub(crate) fn stored_receipt(&self) -> Option<&crate::raft::execution::StoredReceipt> {
+        self.stored.as_ref()
     }
 
     pub fn observation(&self) -> &CellVersionObservation {
@@ -384,6 +385,10 @@ impl RaftTransport {
         keys: VersionKeys,
         deadline: u64,
     ) -> Result<CellRemoteReceiptResponse, TransportError> {
+        let operation = call.request.contract.operation.clone();
+        let contract_digest = call.request.contract.digest;
+        let request_digest =
+            crate::application::consensus::command_request_digest(&call.request.input);
         let response = self
             .write_cell(
                 route,
@@ -394,11 +399,25 @@ impl RaftTransport {
                 deadline,
             )
             .await?;
-        let WriteValue::Receipt(value) = response.value else {
+        let WriteValue::Receipt(mut value) = response.value else {
             return Err(TransportError::Protocol);
+        };
+        let stored = if value.retained {
+            Some(crate::raft::execution::StoredReceipt {
+                id: value.value.command,
+                operation,
+                contract_digest,
+                request_digest,
+                result: std::mem::take(&mut value.value.value.result),
+                minimum_durability: value.minimum_durability.ok_or(TransportError::Protocol)?,
+                retry_until_ms: value.value.retry_until_ms,
+            })
+        } else {
+            None
         };
         Ok(CellRemoteReceiptResponse {
             value,
+            stored,
             _node: response.node,
             _peer: response.peer,
         })

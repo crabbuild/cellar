@@ -162,8 +162,9 @@ SUITES = {
         ("rustfs_split_merge_under_writes",),
         "reconcile acknowledged writes, signed delivery and every receipt through split and merge",
         "Both image modes and host-native voters. The signed delivery loses its first S3 reply. "
-        "Cached SDK handles and former-parent ingress verify the complete command ledger, "
-        "receiver deduplication, source version floors and independent merged S3 image replay. "
+        "Cached SDK handles follow merged routes before joined host restart, then refuse Closed. "
+        "Fresh former-parent ingress verifies the complete command ledger, receiver deduplication, "
+        "source version floors and independent merged S3 image replay. "
         "Sustained load, additional split/merge cycles and process-crash schedules remain separate gates.",
     ),
     "managed-minority": (

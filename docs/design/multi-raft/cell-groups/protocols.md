@@ -1063,6 +1063,13 @@ only worker-owned advisory entries are evicted. This permits cached cell handles
 on former voters to follow new split/merge histories. Discovery grants no
 namespace permission, engine ownership, activation or quorum authority.
 
+Automatic SDK reads and receipt inspection can refresh a stale cell route and
+replan against its verified successor within the original invocation budget.
+Received RPCs remain local. Receipt inspection never invokes a command, and
+absence remains ambiguous. Remote receipt values retain their transport
+admission and actual stored durability minimum separately from achieved
+durability; they cannot become local SQL or archive-settlement proof.
+
 
 Use the same transition state machine for one parent to multiple child ranges
 (split) and compatible adjacent parents to one child (merge). Create fresh child

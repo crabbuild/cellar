@@ -17,6 +17,7 @@ pub(in crate::raft) struct CellReceiptCall {
 
 pub(in crate::raft) struct CellReceiptValue {
     pub retained: bool,
+    pub minimum_durability: Option<Durability>,
     pub value: command::CellCommandValue,
 }
 
@@ -117,6 +118,7 @@ pub(in crate::raft) fn encode_result(
             body.extend_from_slice(&response.command().sequence().to_be_bytes());
             string(&mut body, response.token().as_str())?;
             if let Some(receipt) = response.receipt() {
+                body.push(durability_code(receipt.minimum_durability()));
                 body.extend_from_slice(&receipt.retry_until_ms().to_be_bytes());
                 let len =
                     u32::try_from(receipt.result().len()).map_err(|_| TransportError::Limit)?;
@@ -182,15 +184,20 @@ pub(in crate::raft) fn decode_result(
                 .verify_cell(&token, expected.1, schema, now)
                 .map_err(|_| TransportError::Authentication)?;
             let retained = status == 0;
-            let (retry_until_ms, result) = if retained {
+            let (minimum_durability, retry_until_ms, result) = if retained {
+                let minimum = read_durability(&mut body)?;
+                if minimum > durability {
+                    return Err(TransportError::Authentication);
+                }
                 let retry = u64::from_be_bytes(body.array()?);
                 let len = u32::from_be_bytes(body.array()?) as usize;
-                (retry, body.take(len)?.to_vec())
+                (Some(minimum), retry, body.take(len)?.to_vec())
             } else {
-                (0, vec![])
+                (None, 0, vec![])
             };
             Ok(CellReceiptValue {
                 retained,
+                minimum_durability,
                 value: command::CellCommandValue {
                     command,
                     durability,

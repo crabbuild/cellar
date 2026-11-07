@@ -20,6 +20,7 @@ pub use checkpoints::CellGroupCheckpointPolicy;
 mod commands;
 mod queries;
 mod query_routes;
+mod receipt_routes;
 pub use queries::CellQueryCall;
 mod effects;
 mod enrollments;
@@ -151,6 +152,7 @@ struct Shared {
     // bindings contain weak archive clients back to this same shared owner.
     host_resources: Mutex<Option<HostResourceRelease>>,
     runtime: CellGroupRuntime,
+    transport: RaftTransport,
     sql: crate::raft::host_sql::cell_groups::WeakCellGroupSqlPool,
     groups: Arc<GroupRoster>,
     limits: CellGroupControllerLimits,
@@ -310,6 +312,7 @@ impl CellGroupController {
             public: OnceLock::new(),
             host_resources: Mutex::new(None),
             runtime: runtime.clone(),
+            transport: transport.clone(),
             sql: sql.downgrade(),
             groups: GroupRoster::new(roster.keys().copied(), limits.max_groups),
             limits,
@@ -481,7 +484,7 @@ impl CellGroupController {
 impl CellGroupController {
     pub(crate) async fn lookup_receipt(
         &self,
-        mut invocation: super::CellReceiptInvocation,
+        invocation: super::CellReceiptInvocation,
         options: super::CellSqlOptions,
     ) -> Result<super::CellReceiptResponse, super::CellDispatchError> {
         let shared = &self.handle.0;
@@ -492,21 +495,6 @@ impl CellGroupController {
             registration.work.take()
         };
         let _work = work;
-        invocation.begin().await?;
-        let attempt = invocation
-            .attempt()
-            .ok_or(super::CellDispatchError::Runtime(RuntimeError::NotFound))?;
-        if !shared
-            .groups
-            .contains(&attempt.route().history)
-            .map_err(super::CellDispatchError::Runtime)?
-        {
-            return Err(super::CellDispatchError::Runtime(RuntimeError::NotFound));
-        }
-        let sql = shared
-            .sql
-            .upgrade()
-            .ok_or(super::CellDispatchError::Runtime(RuntimeError::Closed))?;
-        invocation.execute(&shared.runtime, &sql, options).await
+        Box::pin(receipt_routes::execute(shared, invocation, options)).await
     }
 }

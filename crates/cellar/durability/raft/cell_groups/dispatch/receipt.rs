@@ -26,10 +26,17 @@ pub struct CellReceiptInvocation {
 }
 
 pub struct CellReceiptResponse {
-    command: CommandId,
-    selected: Box<CellSqlReceiptLookup>,
-    token: CellVersionToken,
-    s3: Option<Box<super::super::controller::S3OutputProof>>,
+    output: ReceiptOutput,
+}
+
+enum ReceiptOutput {
+    Local {
+        command: CommandId,
+        selected: Box<CellSqlReceiptLookup>,
+        token: CellVersionToken,
+        s3: Option<Box<super::super::controller::S3OutputProof>>,
+    },
+    Remote(Box<crate::raft::transport::CellRemoteReceiptResponse>),
 }
 
 /// One coherent quorum selection, bound to its original operation and deadline.
@@ -58,29 +65,48 @@ impl CellReceiptSelection<'_> {
 impl CellReceiptResponse {
     /// Achieved durability of this observation, including an ambiguous absence.
     pub fn durability(&self) -> Durability {
-        if self.s3.is_some() {
-            Durability::S3
-        } else {
-            Durability::Quorum
+        match &self.output {
+            ReceiptOutput::Local { s3: Some(_), .. } => Durability::S3,
+            ReceiptOutput::Local { s3: None, .. } => Durability::Quorum,
+            ReceiptOutput::Remote(response) => response.durability(),
         }
     }
 
     pub fn command(&self) -> CommandId {
-        self.command
+        match &self.output {
+            ReceiptOutput::Local { command, .. } => *command,
+            ReceiptOutput::Remote(response) => response.command(),
+        }
     }
 
-    /// None is ambiguous, even after a quorum or S3 read: an unresolved or delayed
-    /// original command may still commit. This response releases no producer.
+    /// Receipt values may come from an authenticated remote observation; they
+    /// are never a local SQL image or local archive-settlement proof. None is
+    /// ambiguous and releases no producer, even after a quorum or S3 read.
     pub fn receipt(&self) -> Option<&StoredReceipt> {
-        self.selected.receipt()
+        match &self.output {
+            ReceiptOutput::Local { selected, .. } => selected.receipt(),
+            ReceiptOutput::Remote(response) => response.stored_receipt(),
+        }
     }
 
     pub fn observation(&self) -> &CellVersionObservation {
-        self.selected.observation()
+        match &self.output {
+            ReceiptOutput::Local { selected, .. } => selected.observation(),
+            ReceiptOutput::Remote(response) => response.observation(),
+        }
     }
 
     pub fn token(&self) -> &CellVersionToken {
-        &self.token
+        match &self.output {
+            ReceiptOutput::Local { token, .. } => token,
+            ReceiptOutput::Remote(response) => response.token(),
+        }
+    }
+
+    pub(crate) fn remote(response: crate::raft::transport::CellRemoteReceiptResponse) -> Self {
+        Self {
+            output: ReceiptOutput::Remote(Box::new(response)),
+        }
     }
 }
 
@@ -172,6 +198,43 @@ impl CellGroupDispatcher {
 }
 
 impl CellReceiptInvocation {
+    pub(crate) fn is_remote_destination(&self) -> bool {
+        self.remote_route.is_some()
+    }
+
+    pub(crate) fn maximum_attempts(&self) -> usize {
+        self.session.maximum_attempts()
+    }
+
+    pub(crate) async fn refresh(&mut self) -> Result<(), CellDispatchError> {
+        let previous = self.current()?.clone();
+        self.dispatched = true;
+        self.attempt = Some(
+            self.session
+                .refresh(&previous)
+                .await
+                .map_err(CellDispatchError::Routing)?,
+        );
+        self.dispatched = false;
+        Ok(())
+    }
+
+    pub(crate) async fn remote_member(
+        &self,
+        runtime: &CellGroupRuntime,
+        transport: &crate::raft::transport::RaftTransport,
+    ) -> Result<Option<cellar_logic::consensus::MemberId>, CellDispatchError> {
+        super::mutation_route::mutation_peer(
+            runtime,
+            transport,
+            &self.session,
+            self.current()?,
+            &self.dispatcher.keys,
+            &self.dispatcher.domain,
+        )
+        .await
+    }
+
     pub fn attempt(&self) -> Option<&CellRouteAttempt> {
         self.attempt.as_ref()
     }
@@ -409,10 +472,12 @@ impl CellReceiptInvocation {
                 .map_err(CellDispatchError::Runtime)?;
         }
         Ok(CellReceiptResponse {
-            command: self.request.id,
-            selected,
-            token,
-            s3,
+            output: ReceiptOutput::Local {
+                command: self.request.id,
+                selected,
+                token,
+                s3,
+            },
         })
     }
 

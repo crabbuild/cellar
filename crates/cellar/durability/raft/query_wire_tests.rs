@@ -1232,6 +1232,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         body.extend_from_slice(&call.request.id.sequence().to_be_bytes());
         string(&mut body, token.as_str()).unwrap();
         if retained {
+            body.push(durability_code(Durability::Quorum));
             body.extend_from_slice(&9000_u64.to_be_bytes());
             body.extend_from_slice(&0_u32.to_be_bytes());
         }
@@ -1247,6 +1248,10 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         .unwrap()
         .unwrap();
         assert_eq!(value.retained, retained);
+        assert_eq!(
+            value.minimum_durability,
+            retained.then_some(Durability::Quorum)
+        );
         assert!(value.value.value.result.is_empty());
         assert_eq!(value.value.value.observation, observation);
         assert_eq!(value.value.retry_until_ms, if retained { 9000 } else { 0 });
@@ -1337,6 +1342,52 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
             .err(),
             Some(error)
         );
+    }
+}
+
+#[test]
+fn shared_receipt_reply_preserves_stored_minimum() {
+    let call = receipt_call();
+    let observation = cell_observation();
+    let cell = &observation.version.history;
+    let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
+    for achieved in [Durability::Quorum, Durability::S3] {
+        for minimum in [0, 1, 2, 3, 255] {
+            let mut body = b"CLGCRS01".to_vec();
+            body.extend_from_slice(&[0, durability_code(achieved)]);
+            body.extend_from_slice(&call.request.id.client.bytes());
+            body.extend_from_slice(&call.request.id.sequence().to_be_bytes());
+            string(&mut body, token.as_str()).unwrap();
+            let minimum_offset = body.len();
+            body.push(minimum);
+            body.extend_from_slice(&9000_u64.to_be_bytes());
+            body.extend_from_slice(&0_u32.to_be_bytes());
+            let decode = |bytes: &[u8]| {
+                receipt::decode_result(
+                    bytes,
+                    (call.request.id, cell, Durability::Quorum),
+                    [9; 32],
+                    &keys(),
+                    1000,
+                    4096,
+                    MemberId::new(2).unwrap(),
+                )
+            };
+            let expected = match minimum {
+                1 => Some(Durability::Quorum),
+                2 if achieved == Durability::S3 => Some(Durability::S3),
+                _ => None,
+            };
+            if let Some(expected) = expected {
+                let value = decode(&body).unwrap().unwrap();
+                assert_eq!(value.minimum_durability, Some(expected));
+                assert_eq!(value.value.durability, achieved);
+                body.remove(minimum_offset);
+                assert!(decode(&body).is_err(), "missing stored minimum must refuse");
+            } else {
+                assert!(decode(&body).is_err());
+            }
+        }
     }
 }
 
