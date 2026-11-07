@@ -4,6 +4,7 @@
 //! markers are observations, never S3 command settlement or serving authority.
 mod job;
 mod journal;
+pub(super) mod late;
 mod provision;
 pub(in crate::raft::cell_groups::controller) mod seed;
 pub(crate) use provision::Provisioning;
@@ -251,6 +252,10 @@ impl Manager {
             job: None,
             execution: ControllerExecution::new(domain),
         }
+    }
+
+    pub(super) fn contains(&self, group: &GroupHistory) -> bool {
+        self.entries.contains_key(group)
     }
 
     pub fn request(&mut self, request: Request, shared: &Shared) {

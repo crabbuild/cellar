@@ -1543,13 +1543,13 @@ async fn verify_live_transfer_children(
         ensure!(query.served_by_node == reopened.identity());
         let leader = &voters[leader(voters, route.history).await?];
         let handle = leader.cell(cell)?;
-        let receipt = handle
-            .command(
-                &handle.contract("Add")?,
-                1i64.to_be_bytes().to_vec(),
-                CommandOptions::new(CommandId::new(ClientId::new([201; 16])?, 1)?, retry),
-            )
-            .await?;
+        let receipt = effects::command_with_pending_effects(
+            &handle,
+            &handle.contract("Add")?,
+            1i64.to_be_bytes().to_vec(),
+            CommandOptions::new(CommandId::new(ClientId::new([201; 16])?, 1)?, retry),
+        )
+        .await?;
         ensure!(receipt.result == [12i64, 13][index].to_be_bytes());
         ensure!(receipt.witness.group == route.history);
     }
@@ -1889,16 +1889,19 @@ async fn reopen_transfer_destination(
             .config(&node, LogOpenMode::Resume, generation)
             .await?;
         crate::managed_fixture::archives::configure(&mut config);
-        node.start_raft_cells(config, services).await
+        let peer = config.peers[0].clone();
+        let host = node.start_raft_cells(config, services).await?;
+        Ok::<_, anyhow::Error>((peer, host))
     }
     .await;
-    let host = match startup {
-        Ok(host) => host,
+    let (peer, host) = match startup {
+        Ok(started) => started,
         Err(error) => {
             let stopped = node.shutdown(ShutdownMode::Preserve).await;
             return Err(error.context(format!("retained transfer startup, shutdown={stopped:?}")));
         }
     };
+    cluster.peers[DESTINATION] = peer;
     cluster.nodes.insert(DESTINATION, node);
     cluster.hosts.insert(DESTINATION, host);
     let host = &cluster.hosts[DESTINATION];

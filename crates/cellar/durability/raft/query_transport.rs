@@ -343,7 +343,10 @@ impl State {
             let state = self.clone();
             match self.spawn(async move {
                 let _slot = slot;
-                let _ = state.receive_queries(stream).await;
+                let endpoint = state.local_query;
+                if let Err(error) = state.receive_queries(stream).await {
+                    tracing::debug!(target: "cellar::raft::query_connection", %endpoint, %error, "shared request connection ended");
+                }
             }) {
                 Ok(()) | Err(TransportError::Overloaded) => (),
                 Err(_) => return,
@@ -430,7 +433,11 @@ impl State {
                 .map_err(|_| TransportError::Closed)?
                 .checked_add(call.timeout_ms())
                 .ok_or(TransportError::Limit)?;
-            let query = call.execute(&self, &header.route);
+            let query = async {
+                call.execute(&self, &header.route).await.inspect_err(|error| {
+                    tracing::debug!(target: "cellar::raft::query_connection", endpoint=%self.local_query, %error, "shared request execution refused");
+                })
+            };
             let mut extra = [0; 1];
             // No pipelining: EOF/unexpected input cancels the SDK waiter while
             // the SQL owner retains any entered physical work through cleanup.

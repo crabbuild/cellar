@@ -186,13 +186,55 @@ impl Client {
         if shared.closing.load(Ordering::Acquire) {
             return Err(CellDispatchError::Runtime(RuntimeError::Closed));
         }
-        let states = shared
+        let state = shared
             .archives
             .lock()
-            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
-        let state = states
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
             .get(&route.history)
-            .ok_or(CellDispatchError::Runtime(RuntimeError::NotReady))?;
+            .cloned();
+        let Some(state) = state else {
+            // A transfer can activate before its archive binding exists. An S3
+            // request still refuses until an owned, verified local publisher is
+            // installed. Coalesce discovery before enqueueing to preserve the
+            // ordinary command queue during a missing-binding outage.
+            let configured = shared
+                .provisioning
+                .lock()
+                .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
+                .as_ref()
+                .is_some_and(|config| config.archives.is_some());
+            if configured
+                && shared
+                    .groups
+                    .contains(&route.history)
+                    .map_err(CellDispatchError::Runtime)?
+            {
+                let mut pending = shared
+                    .archive_discovery
+                    .lock()
+                    .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+                if !pending.contains(&route.history) && pending.len() >= shared.limits.max_groups {
+                    return Err(CellDispatchError::Runtime(RuntimeError::Overloaded));
+                }
+                if pending.insert(route.history) {
+                    if let Err(error) = shared
+                        .requests
+                        .try_send(requests::Request::EnsureArchive(route.history))
+                    {
+                        pending.remove(&route.history);
+                        return Err(CellDispatchError::Runtime(match error {
+                            tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                                RuntimeError::Overloaded
+                            }
+                            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                                RuntimeError::Closed
+                            }
+                        }));
+                    }
+                }
+            }
+            return Err(CellDispatchError::Runtime(RuntimeError::NotReady));
+        };
         if state.stopped {
             return Err(state.error.clone().map_or(
                 CellDispatchError::Runtime(RuntimeError::Closed),

@@ -1617,6 +1617,17 @@ irreversible through an engine-synced metadata write. The required marker-1
 snapshot neither grants a frontier nor clears this policy. Missing-field records
 refuse; no legacy decoder, migration or marker increment is introduced.
 
+A managed voter may already host an activated transfer child when its archive
+binding is first published. An S3 request without a local archive registration
+returns `NotReady` and requests discovery of that exact existing binding. The
+controller coalesces requests by hosted group, bounds the pending set by the
+node roster, and admits one discovery through the existing preparation memory
+and parallelism limits. Discovery requires the selected birth and a matching
+active, unsealed local manifest. It cannot initialize an archive or authorize
+a new replica. The normal archive owner verifies and activates the registration
+before S3 output may settle. Shutdown joins entered discovery and closes unused
+private verifier stores. Quorum requests do not wait on this discovery.
+
 After opening a retained disk, that requirement blocks local checkpoint
 compaction until the journaled remote hold has been independently verified again.
 The controller advances a private engine-local frontier only from complete archive

@@ -80,6 +80,24 @@ uses both image modes and keeps the obsolete member's physical debt through
 repair. It verifies a guarded handoff, joined stop, paused retained return
 and fresh resume before the returning member serves both cells.
 
+## Shared-group effect handoff through a split
+
+Use `--suite managed-effect-transfer` with the same owned RustFS backend and a
+fresh output directory. The exact case sends a signed S3-durable effect to a
+second cell, loses its committed receiver reply, then moves the two cells into
+different child groups. It retains the pending source delivery through child
+activation and retained restart. Guarded handoff selects an unrestarted child
+voter so S3 settlement must attach its archive in the existing process.
+Retrying the original envelope must settle the source once and preserve the receiver's original deduplication proof. Old
+version tokens and command retries remain valid. Independent child archive
+replay checks the completed outbox, receipt and receiver rows in both image
+formats.
+
+This host-native RF3 TLS fixture explicitly admits 64 KiB inputs to satisfy the
+signed inbox protocol. The ordinary SQL fixture keeps its 1 KiB profile. These
+checks do not establish independent voter processes, permanent host fencing,
+or all-local-copy erasure immediately after publication.
+
 ## Constrained Linux managed daemon
 
 The daemon fixture runs from the dedicated Colima guest. It launches each voter

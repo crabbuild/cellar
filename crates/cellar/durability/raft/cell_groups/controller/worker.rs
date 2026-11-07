@@ -47,6 +47,7 @@ pub(super) struct Worker {
     progress: tokio::sync::watch::Sender<()>,
     checkpoints: checkpoints::Manager,
     archives: archive::Manager,
+    late_archives: archive::late::Manager,
     effects: effects::Manager,
     _checkpoint_routes: Vec<crate::raft::transport::CellGroupCheckpointRegistration>,
 }
@@ -106,6 +107,7 @@ impl Worker {
             progress: tokio::sync::watch::channel(()).0,
             checkpoints: checkpoints::Manager::default(),
             archives,
+            late_archives: archive::late::Manager::default(),
             effects,
             _checkpoint_routes: checkpoint_routes,
         })
@@ -197,6 +199,7 @@ impl Worker {
                 .mono_ms()
                 .map_err(|_| CellGroupControllerError::Closed)?;
             self.launch(now)?;
+            self.late_archives.launch(&self.archives, &self.shared)?;
             self.archives.launch(&self.runtime, &self.shared, now);
             self.shared.archive_seeds.maintain(&self.shared, now);
             self.effects.launch(&self.quarantined, &self.shared, now)?;
@@ -214,6 +217,7 @@ impl Worker {
                 Some(request) = self.requests.recv() => {
                     match request {
                         requests::Request::Archive(request) => self.archives.request(*request, &self.shared),
+                        requests::Request::EnsureArchive(group) => self.late_archives.request(group, &self.archives, &self.shared)? ,
                         requests::Request::S3(request) => self.archives.settle(*request),
                         requests::Request::Provision(request) => self.provisioning.request(*request, &self.shared, &self.transport),
                         requests::Request::Registration(request) => {
@@ -292,6 +296,10 @@ impl Worker {
                 Some(completed) = self.effects.next(), if self.effects.running() => {
                     if let Some(applier) = self.roster.get(&completed.group) { self.effects.register(applier)?; }
                     self.effects.complete(completed, &self.shared);
+                }
+                completed = self.late_archives.next(), if self.late_archives.running() => {
+                    self.late_archives.complete(completed, &mut self.archives, &self.shared);
+                    self.progress.send_replace(());
                 }
                 completed = self.archives.next(), if self.archives.running() => {
                     self.archives.complete(completed, &self.shared, now, false);
@@ -428,6 +436,7 @@ impl Worker {
         self.effects.join(&self.shared).await;
         self.provisioning.join().await;
         self.checkpoints.join().await;
+        self.late_archives.join(&self.shared).await;
         self.archives.finish(&self.shared).await;
         // A seed producer waits for its transport-held handoff lease before
         // retiring the journaled generation. Drive both joins together.
