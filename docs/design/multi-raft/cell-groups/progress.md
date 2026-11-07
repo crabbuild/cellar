@@ -12,6 +12,84 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 live source retirement and bounded ingress discovery
+
+At `e582f3806febae0903ceeb56cb18092c09a80e0e`, the node-owned transition
+service can retire parent runtimes without restarting their hosts. The exact
+selected retirement set and current boots must verify first. Every final source
+member must report its durable applied tombstone before any member detaches.
+The inventory flag is observation, not authority: the selected immutable plan,
+final configuration and local synced marker are checked independently.
+
+Retirement seals only the target group's SQL and seed admission, stops new
+archive/effect work and freezes its runtime. Its existing owners continue driving
+actual apply, checkpoint, read and persistence completions. Archive drainage now
+tracks actual blocking I/O per group; losing an async waiter cannot refund that
+work. The runtime detaches after its own persistence, apply and read work drains.
+The controller removes physical transport registrations and the applier only after
+the other target owners join and the actual consensus claim leaves. The engine
+history and disk charge remain retained.
+No physical reclamation or capacity refund is claimed.
+
+The existing joined directory worker owns one bounded target-refresh lane and
+the same advisory route cache. It resolves selected births, enrolled endpoints and
+fresh membership using configured namespace capability. It grants no application
+origin permission. Read-first and write-first requests can discover child routes
+after parent detachment or retained restart, within their original deadline and
+attempt bank. Discovery retries occur before a SQL callback or producer enters;
+a transmitted mutation is not retried by this path.
+
+Nodes owning both parents and children rotate source and child work fairly during
+sealing and activation. The new colocated case places one child beside its parent
+and the other on spare voters, preserving the existing two-history bound. A prior
+three-history attempt correctly refused `Catalog(Log(Overloaded))`; its failed log
+is retained. History reservation does not yet prove peak physical headroom before
+sealing. That admission gap remains explicit next work.
+
+All three ordinary native cases pass in both image modes (125.08 seconds of test
+execution): retained-parent restart, live retirement on separate destination
+voters, and colocated parent/child execution. The corresponding three exact RustFS
+cases pass on the same frozen executable. They retain consent, registry-outage,
+coordinator-replacement, receipt/version and joined-shutdown oracles. The live
+cases assert unchanged process identities, absent parent runtimes, retained
+physical charges, child reads and subsequent S3 writes through original ingress.
+RustFS command elapsed seconds are 61.608, 389.107, 61.610; these include any
+Cargo contention and are correctness observations, not benchmark results.
+
+The SQL held-output admission case, actual archive-I/O join case and seven strict
+physical-inventory cases pass. Strict all-target Clippy, formatting, module layout,
+native dependency checks, 37 plan tests and the original evidence/preflight
+validation pass. The reviewed baseline preserves every prior excerpt and changes
+only the Fleet module's new private declaration and effect-manager drainage
+observation. All other anchored source bytes are unchanged from `502198bd`.
+No stack, compiler, capacity or operation deadline limit was raised.
+
+Retained local evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-live-retirement-e582f380-01/record.json`,
+  SHA-256 `3f9d15f288f2db5f76faf637a9ce3f16a7fe30b84c6591ebd82338dbfe95bdf1`.
+  This CHECKPOINT pins 3,343 Git-blob inputs, successful checks,
+  failed development attempts and the executable; full CG-11 acceptance remains open.
+- `.cellar/cell-groups-evidence/CG-11-live-retirement-e582f380-rustfs-01/record.json`,
+  SHA-256 `e58456ec63918819adbdbd6c64e44d20083a8cae797f8bccae7a65bca15148de`.
+- `.cellar/cell-groups-evidence/CG-11-live-retained-e582f380-rustfs-01/record.json`,
+  SHA-256 `2333e26869c148dbd57587004b49e87d403d7275f342d489893fa53c3b0943f9`.
+- Shared frozen executable SHA-256
+  `2d04d3661cd080a4ca5b5213d34a5ff038f77895cc274bdce485b4cb69533fc7`.
+
+Voters are host-native RF3 TLS owners with fixture capacity. RustFS runs in one VM
+with observed one-CPU, 2-GiB and no-extra-swap limits. The owned backend is stopped
+and objects retained. Independent voter processes, sustained load and permanent
+platform fencing remain separate qualification gates.
+
+CG-11 remains IN_PROGRESS. Next reclaim retained source storage safely and admit
+peak parent-plus-child capacity before irreversible sealing; qualify late child
+attachment and destination faults. Then connect bounded automatic inventory/plan
+selection and qualify whole-group scale out/in, failure-domain repair/reserve and
+fleet-wide fanout. CG-12/13 lifecycle/recovery, the unchanged CG-14 occupancy-matrix
+gap and CG-15/16 release gates remain open. Full public primitive coverage remains
+part of the complete architecture objective.
+
 ## CG-11 consented transition execution and child archive handoff
 
 At `502198bddd3ca57880ca1c5c269c163ce5f04286`, managed transitions have a

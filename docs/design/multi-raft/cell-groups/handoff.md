@@ -38,10 +38,19 @@ replacement, automatic split, retained-parent return and subsequent reads/S3 wri
 The CHECKPOINT records in [progress](progress.md) pin source, executable and logs;
 they do not close the full CG-11 task.
 
-Next implement live per-group retirement/quiescence and physical reclamation.
-The new case uses retained parent restart for the existing physical proof; do not
-release holds or capacity while owners remain live. Audit late child attachment
-after publication and qualify destination failures. Then connect bounded automatic
+At `e582f380`, live source retirement validates every final voter's applied
+tombstone before draining the target runtime, SQL, archive, seed and effect owners.
+The existing joined directory worker now handles bounded target discovery for
+read-first and write-first ingress after parent removal and retained restart.
+One child can run beside its parent within the unchanged two-history bound.
+Physical source storage remains charged; retirement does not reclaim disks.
+See [progress](progress.md) for the frozen-source qualification.
+
+Next implement safe physical source reclamation and peak parent-plus-child
+capacity admission before sealing. The failed three-history fixture is retained
+as development evidence; do not raise its two-slot limit or treat history
+reservation as proof of physical headroom. Audit late child attachment after
+publication and qualify destination failures. Then connect bounded automatic
 inventory/plan selection and qualify whole-group movement, reserve and fanout.
 Consent remains explicit and irreversible sealing requires the recorded authority.
 Continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
