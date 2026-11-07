@@ -42,7 +42,24 @@ impl FleetCatalog {
     /// The rooted disruption slot prevents new births or membership admissions;
     /// existing reservations remain charged even before their engines initialize.
     /// Replaying a selected authorization requires no new health observation.
-    pub async fn authorize_managed_transition_seal(
+    pub fn authorize_managed_transition_seal<'a>(
+        &'a self,
+        request: &'a FleetRequestIdentity,
+        directory: &'a RangeDirectory,
+        plan: &'a DirectoryMutation,
+        observer: &'a RaftCells,
+        timeout: Duration,
+    ) -> impl std::future::Future<Output = Result<TransitionJournal>> + 'a {
+        // Allocate the bounded inventory/catalog operation before a caller's
+        // composite transition future can embed its complete polling frame.
+        Box::pin(
+            self.authorize_managed_transition_seal_inner(
+                request, directory, plan, observer, timeout,
+            ),
+        )
+    }
+
+    async fn authorize_managed_transition_seal_inner(
         &self,
         request: &FleetRequestIdentity,
         directory: &RangeDirectory,
