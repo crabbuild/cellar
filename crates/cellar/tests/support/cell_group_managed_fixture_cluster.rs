@@ -53,6 +53,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         declaration: f.declaration.clone(),
         application: f.application.clone(),
         effects: f.effects,
+        max_input_bytes: f.max_input_bytes,
         spec,
     })
 }

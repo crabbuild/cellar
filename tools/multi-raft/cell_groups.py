@@ -95,6 +95,14 @@ SUITES = {
         "Host-native voters and fixture capacity. Phase-crash schedules, full effect continuity "
         "and permanent platform fencing remain separate gates.",
     ),
+    "managed-effect-transfer": (
+        "native_cell_groups_transitions",
+        ("rustfs_transfer_preserves_tokens_receipts_effects",),
+        "S3 outbox and receiver deduplication survive a real split, retained restart and source cleanup",
+        "Both image modes and host-native voters. The receiver commits before its first reply is lost. "
+        "A child retries the original envelope, then both child archives are independently replayed. "
+        "OS process-kill, permanent platform fencing and sustained load remain separate gates.",
+    ),
     "managed-phase-restart": (
         "native_cell_groups_transitions",
         ("rustfs_transition_restart_retains_single_writer",),
@@ -188,7 +196,7 @@ def sources(suite):
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
                      or (suite in ("managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge", "managed-retirement", "managed-phase-restart")
+                                   "managed-split-merge", "managed-retirement", "managed-phase-restart", "managed-effect-transfer")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]

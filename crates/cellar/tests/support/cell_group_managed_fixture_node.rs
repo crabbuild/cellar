@@ -28,6 +28,7 @@ pub struct Fixture {
     pub declaration: RaftNamespaceRegistration,
     pub application: Arc<dyn Application>,
     pub effects: Option<RaftEffectOptions>,
+    pub max_input_bytes: usize,
     pub spec: FleetNodeSpec,
 }
 
@@ -130,6 +131,7 @@ impl Fixture {
             declaration,
             application,
             effects: None,
+            max_input_bytes: 1024,
             spec,
         })
     }
@@ -190,7 +192,7 @@ impl Fixture {
         };
         let mut host = RaftHostOptions {
             max_groups: 2,
-            max_input_bytes: 1024,
+            max_input_bytes: self.max_input_bytes,
             effects: self.effects,
             ..Default::default()
         };
@@ -220,6 +222,8 @@ impl Fixture {
             mode,
         );
         log.max_groups = 2;
+        let mut shared = limits();
+        shared.dispatch.max_input_bytes = self.max_input_bytes;
         Ok((
             RaftCellsConfig {
                 infrastructure: NodeRaftConfig {
@@ -244,7 +248,7 @@ impl Fixture {
                 query_origins: vec![],
                 command_origins: vec![],
                 host,
-                shared: limits(),
+                shared,
             },
             RaftCellsServices {
                 recovery: None,

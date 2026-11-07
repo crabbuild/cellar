@@ -99,6 +99,26 @@ async fn rustfs_transition_restart_retains_single_writer() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn transfer_preserves_tokens_receipts_effects() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(bootstrap::transition::effects::qualify(rooted, Arc::new(fault::Store::default())))
+            .await.with_context(|| format!("effect transfer, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_transfer_preserves_tokens_receipts_effects() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store("effect-transfer", rooted)?));
+        Box::pin(bootstrap::transition::effects::qualify(rooted, store))
+            .await.with_context(|| format!("RustFS effect transfer, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
 fn route() -> GroupRoute {
     GroupRoute {
         history: GroupHistory {

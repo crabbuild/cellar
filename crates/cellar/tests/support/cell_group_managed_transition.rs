@@ -24,6 +24,9 @@ mod merge;
 #[path = "cell_group_transition_restart.rs"]
 pub(crate) mod restart;
 
+#[path = "cell_group_transition_effects.rs"]
+pub(crate) mod effects;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_plan_fences_membership_and_replays_cancellation() -> Result<()> {
     Box::pin(run_plan(
@@ -83,7 +86,14 @@ enum Decision {
 }
 
 async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) -> Result<()> {
-    let first = Fixture::with_store(rooted, counter_class()?, store).await?;
+    let class = effects::class()?.unwrap_or(counter_class()?);
+    let mut first = Fixture::with_store(rooted, class, store).await?;
+    if effects::enabled() {
+        first.effects = Some(RaftEffectOptions::default());
+        // The signed inbox protocol admits requests up to 60 KiB. Keep the
+        // ordinary 1 KiB SQL fixture profile unchanged for all other cases.
+        first.max_input_bytes = 64 * 1024;
+    }
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
         first,
         &[7, 8, 9],
@@ -189,7 +199,7 @@ async fn exercise_inner(
     let domain = &fixture.domain;
     let scope = cluster.history;
     let merge = matches!(decision, Decision::SplitMerge { .. });
-    let pivot = if merge {
+    let pivot = if merge || effects::enabled() {
         let left = cell_routing_key(scope.namespace, &CellId::new("Counter:cold-0")?);
         let right = cell_routing_key(scope.namespace, &CellId::new("Counter:cold-1")?);
         left.max(right)
@@ -359,6 +369,7 @@ async fn exercise_inner(
     ))
     .await?;
 
+    effects::before_seal(cluster, &seeded.cells).await?;
     let admitted = fleet.read(TIMEOUT).await?;
     let other = identity(235, admitted.revision());
     let mutation = FleetMutation {
@@ -563,6 +574,7 @@ async fn exercise_inner(
         ))
         .await?;
         restart::checkpoint(cluster, directory, &recovered, TransitionPhase::Retired).await?;
+        effects::resume_children(cluster, directory).await?;
         if matches!(decision, Decision::Retirement) {
             Box::pin(retirement::qualify_parent_cleanup(
                 cluster, directory, &recovered, &registry, &held, &cells, archived,
@@ -578,6 +590,7 @@ async fn exercise_inner(
             cluster, directory, plan, &registry, held,
         ))
         .await?;
+        effects::after_cleanup(cluster, directory).await?;
         return match decision {
             Decision::SplitMerge { recovery_barrier } => {
                 merge::run(cluster, directory, cells, rooted, recovery_barrier).await
