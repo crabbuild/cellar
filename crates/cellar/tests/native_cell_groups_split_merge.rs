@@ -43,7 +43,37 @@ async fn split_equal_union_whole_cells() -> Result<()> {
 async fn merge_requires_adjacent_compatible_ranges() -> Result<()> {
     Box::pin(partition::merge_requires_adjacent_compatible_ranges()).await?;
     for rooted in [false, true] {
-        bootstrap::transition::qualify_split_merge(rooted).await?;
+        bootstrap::transition::qualify_split_merge(
+            rooted,
+            Arc::new(fault::Store::default()),
+            false,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn partial_merge_failure_no_double_writer() -> Result<()> {
+    for rooted in [false, true] {
+        bootstrap::transition::qualify_split_merge(rooted, Arc::new(fault::Store::default()), true)
+            .await
+            .with_context(|| format!("partial merge child fence, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_partial_merge_failure_no_double_writer() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "partial-merge",
+            rooted,
+        )?));
+        bootstrap::transition::qualify_split_merge(rooted, store, true)
+            .await
+            .with_context(|| format!("RustFS partial merge child fence, extents={rooted}"))?;
     }
     Ok(())
 }

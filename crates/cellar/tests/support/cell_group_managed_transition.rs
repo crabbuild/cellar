@@ -86,7 +86,10 @@ enum Decision {
     Retirement,
     Publication,
     Cancel,
-    SplitMerge { recovery_barrier: bool },
+    SplitMerge {
+        recovery_barrier: bool,
+        check_child_fence: bool,
+    },
 }
 
 async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) -> Result<()> {
@@ -611,8 +614,19 @@ async fn exercise_inner(
         .await?;
         effects::after_cleanup(cluster, directory).await?;
         return match decision {
-            Decision::SplitMerge { recovery_barrier } => {
-                merge::run(cluster, directory, cells, rooted, recovery_barrier).await
+            Decision::SplitMerge {
+                recovery_barrier,
+                check_child_fence,
+            } => {
+                merge::run(
+                    cluster,
+                    directory,
+                    cells,
+                    rooted,
+                    recovery_barrier,
+                    check_child_fence,
+                )
+                .await
             }
             _ => Ok(None),
         };
@@ -730,12 +744,15 @@ async fn commit_source_seal(
 
 pub(crate) fn qualify_split_merge(
     rooted: bool,
+    store: Arc<fault::Store>,
+    check_child_fence: bool,
 ) -> futures_util::future::LocalBoxFuture<'static, Result<()>> {
     Box::pin(run_plan(
         rooted,
-        Arc::new(fault::Store::default()),
+        store,
         Decision::SplitMerge {
             recovery_barrier: false,
+            check_child_fence,
         },
     ))
 }

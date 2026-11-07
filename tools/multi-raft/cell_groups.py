@@ -137,6 +137,16 @@ SUITES = {
         "Fixture capacity and fencing authority. Permanent Docker launch revocation "
         "and sustained load remain separate gates.",
     ),
+    "managed-partial-merge": (
+        "native_cell_groups_split_merge",
+        ("rustfs_partial_merge_failure_no_double_writer",),
+        "partial merge refuses every child setup step until all sealed sources verify",
+        "Both image modes; one parent remains durably sealed while the other lacks quorum. "
+        "Fresh control clients probe all three reserved child voters, then retry the original "
+        "install after quorum returns and finish publication, activation and retirement. "
+        "Voter loss uses joined shutdown; capacity is a fixture attestation. "
+        "Independent process crashes and permanent launch revocation remain separate gates.",
+    ),
     "managed-minority": (
         "native_cell_groups_managed",
         ("bootstrap::lifecycle::s3::rustfs_managed_minority_cannot_reconfigure_from_s3",),
@@ -205,7 +215,7 @@ def sources(suite):
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
                      or (suite in ("managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
+                                   "managed-split-merge", "managed-partial-merge", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]

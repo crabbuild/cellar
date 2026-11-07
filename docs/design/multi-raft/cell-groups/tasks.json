@@ -2312,7 +2312,8 @@
         "crates/cellar-admin/",
         "crates/cellar/cli/",
         "crates/cellar/fleet/management/raft/",
-        "crates/cellar/tests/"
+        "crates/cellar/tests/",
+        "tools/multi-raft/"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/partition.rs",

@@ -344,7 +344,7 @@ fn transition_group(history: GroupHistory) -> RaftFleetTransitionGroup {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_then_merge_replays_late_writes() -> Result<()> {
-    qualify_split_merge(false).await
+    qualify_split_merge(false, Arc::new(fault::Store::default()), false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -360,6 +360,7 @@ async fn rustfs_managed_split_merge() -> Result<()> {
             store,
             Decision::SplitMerge {
                 recovery_barrier: false,
+                check_child_fence: false,
             },
         ))
         .await
@@ -375,6 +376,7 @@ async fn managed_recovery_barrier_fences_transfer_and_reopens() -> Result<()> {
         Arc::new(fault::Store::default()),
         Decision::SplitMerge {
             recovery_barrier: true,
+            check_child_fence: false,
         },
     ))
     .await
@@ -393,6 +395,7 @@ async fn rustfs_managed_recovery_barrier_fences_transfer_and_reopens() -> Result
             store,
             Decision::SplitMerge {
                 recovery_barrier: true,
+                check_child_fence: false,
             },
         ))
         .await
@@ -448,6 +451,7 @@ pub(super) fn run<'a>(
     cells: Vec<CellHistory>,
     rooted: bool,
     recovery_barrier: bool,
+    check_child_fence: bool,
 ) -> impl std::future::Future<Output = Result<Option<GroupHistory>>> + 'a {
     Box::pin(run_inner(
         cluster,
@@ -455,6 +459,7 @@ pub(super) fn run<'a>(
         cells,
         rooted,
         recovery_barrier,
+        check_child_fence,
     ))
 }
 
@@ -464,6 +469,7 @@ async fn run_inner(
     cells: Vec<CellHistory>,
     rooted: bool,
     recovery_barrier: bool,
+    check_child_fence: bool,
 ) -> Result<Option<GroupHistory>> {
     let fixture = &cluster.fixtures[0];
     let fleet = fixture.catalog.clone();
@@ -671,6 +677,7 @@ async fn run_inner(
     )
     .await?;
     let mut controller = (fleet.clone(), directory.clone());
+    let mut refused_install = None;
     let mut receipts = Vec::with_capacity(2);
     for (index, (parent, (cell, expected))) in parents.iter().zip(&routed).enumerate() {
         let fixture = &cluster.fixtures[0];
@@ -837,6 +844,28 @@ async fn run_inner(
                 .reopen_managed_transition(&controller.1, operation, TIMEOUT)
                 .await?
                 .context("reopened partial merge")?;
+            if check_child_fence {
+                refused_install = Some(
+                    Box::pin(partial::verify_operator_fence(
+                        cluster,
+                        &controller.0,
+                        &controller.1,
+                        &selected,
+                        &child,
+                        &verifier,
+                    ))
+                    .await?,
+                );
+                Box::pin(verify_minority(
+                    &cluster.hosts[3],
+                    &transition,
+                    &seal,
+                    &parents,
+                    &routed,
+                    retry,
+                ))
+                .await?;
+            }
             let alternate = preparation::acquire_hold(domain, &registries[index]).await?;
             let birth = domain
                 .run(controller.1.materialize_selected_history(parent.history))
@@ -1006,6 +1035,12 @@ async fn run_inner(
         child: transition_group(child.history),
         step: RaftFleetTransitionChildStep::Install,
     };
+    if let Some(refused) = refused_install {
+        ensure!(
+            refused == operator_install,
+            "resume must retain the original refused install request"
+        );
+    }
     let operator_workspace = tempfile::tempdir()?;
     let operator_verifier =
         crate::managed_fixture::verifier::open(fixture, operator_workspace.path(), rooted, limits)
@@ -3564,3 +3599,6 @@ async fn check_merge_recommendations(
     }
     Ok(())
 }
+
+#[path = "cell_group_partial_merge.rs"]
+mod partial;
