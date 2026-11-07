@@ -5,28 +5,28 @@
 Purpose: Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.
 
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime
-and the canonical SDK/fleet cutover in progress. This ordering preserves the full
+and the accepted public SQL cutover. This ordering preserves the full
 CG-01–16 objective in [tasks.json](tasks.json), [design](design.md) and
 [qualification](qualification.md). See [progress](progress.md) for exact source
 and validation boundaries and [handoff](handoff.md) for executor context.
 
 ## Current boundary
 
-CG-01–06 and CG-08 passed their recorded component gates. Shared group owners,
+CG-01–08 passed their recorded acceptance gates. Shared group owners,
 cell-specific SQLite histories/receipts/effects/versions, complete checkpoints,
 archives/reclamation and fenced fresh-history recovery have scoped coverage.
 Managed startup, directory refresh, membership send fences, capacity admission,
 peer/S3 replacement, stop/return/resume and retained initial/joined restart pass
 component cases. Automatic S3 voter recovery reaches terminal removal while
-retaining the obsolete engine and disk. These are fixture isolation/capacity
-results, not production platform fencing or a completed public lifecycle gate.
+retaining the obsolete engine and disk. Production platform fencing and the complete fault matrix remain in CG-13–16.
 
-The latest complete eleven-target campaign has 308 passes, 2 failures and 39
-explicit skips. The new managed native/Axum request case and strengthened public
-SDK/process gate pass. The full campaign remains FAILED: eight-turn maintenance
-replacement settlement and fresh successor readiness after closing an S3 source
-service fail, with retained disks/logs and an Unobserved close report. No bound or
-assertion is relaxed and later passes do not waive these failures.
+An earlier eleven-target campaign recorded 308 passes, 2 failures and 39
+explicit skips. Subsequent fixes and qualification retain their own source
+records. At `84942c4e`, all ten CG-07 acceptance commands passed, including
+the five exact public cases and strict all-target Clippy. The managed lifecycle
+passed both real RustFS image modes. The constrained Linux campaign also
+passed both modes with failed-voter replacement. Full release qualification
+remains in CG-14–16.
 
 The request case qualifies follower writes, explicit namespace/process grant and
 revocation, remote minimum-version/linearizable reads, forwarded S3 acknowledgement,
@@ -55,8 +55,8 @@ ingress. At `cd1d8315`, the native process gate and constrained Linux RustFS
 gate passed in both image formats. The latter uses separate voter containers
 and disks in one VM with fixture capacity. It covers native and Axum reads and
 writes, voter SIGKILL, receipt replay, retained restart and quorum-loss refusal.
-Production capacity admission and the combined lifecycle, outage and load
-gates remain open.
+Production capacity admission, interrupted-operation schedules and sustained
+load qualification remain open.
 
 The managed native and real RustFS request cases now cover foreign cluster,
 namespace and cell histories through both HTTP hosts, and foreign fleet,
@@ -64,7 +64,7 @@ namespace and physical group requests through the admin API. Valid retries
 preserve the original receipt after those refusals. The named public authority
 and occupancy-one cases pass their recorded native scope.
 
-CG-07 and CG-09 through CG-15 are in progress. CG-16 is pending the combined
+CG-09 through CG-15 are in progress. CG-16 is pending the combined
 release gate. Individual checkpoints cover operator-driven split and merge,
 placement recommendations, fenced parking and wake, managed recovery and
 parts of the qualification matrix. The task-level evidence remains open.
@@ -82,17 +82,14 @@ their own qualification.
 
 ## Open case audit
 
-The [implementation index](implementation-plan.md) counts accepted cases from
-completed task records. For example, CG-07 has recorded passes for all five
-required cases. Acceptance also requires a locked all-target build and strict
-lint on the qualifying revision. CG-07 blocks acceptance of its dependent
-tasks. Component and process checkpoints retain their recorded source revisions.
-Each open task still needs the exact target, case oracles and evidence specified
-by `plan.py show <task>`.
+The [implementation index](implementation-plan.md) records eight accepted
+tasks and 120 of 163 required cases. CG-07 has a complete acceptance record
+for its five public cases and all required commands at `84942c4e`.
+Each remaining task still needs the exact target, case oracles and evidence
+specified by `plan.py show <task>`.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-07 | At `27fde17e`, all five named public cases and the locked all-target build passed. Native and RustFS lifecycle passed in both image modes after the archive CAS fix. The constrained Linux campaign passed both modes with operator provisioning, native and Axum SQL, leader SIGKILL, quorum refusal, archive outage and exact S3 replay, retained maintenance and failed-voter repair. The public managed lifecycle passed both RustFS image modes again after the transport retirement at `607d17eb`. | Strict library Clippy is clear after the per-cell adapter removal. Fix the example, benchmark and test-fixture diagnostics for all-target Clippy, then record the exact acceptance commands on one qualifying revision. Finish independent process crashes during Joint, peer activation cancellation and multi-namespace ingress qualification. |
 | CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
 | CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
@@ -111,30 +108,23 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close the CG-07 acceptance gate.** Resolve the all-target Clippy
-   diagnostics in the examples, benchmark and test fixtures. Record the
-   five exact public cases and all required commands on the qualifying
-   revision. The constrained RustFS daemon campaign passed at `27fde17e`.
-2. **Finish public cutover qualification.** Exercise independent process
-   crashes during Joint, peer activation cancellation and multi-namespace
-   ingress routing. Bind the public CI result to the qualifying source
-   before making shared groups the default for supported SQL in new namespaces.
-3. **Finish CG-09/10 operator split and merge.** One native case now resumes
-   the operator-admitted split after a partial reservation, serves SQL on the
-   activated children and verifies late writes after merging. The latest
-   real RustFS recovery rerun passed the released voter restart in both image
-   modes. Clean split/merge passed after retained boot moved to a separate
-   task. Complete the named
-   transition targets, including partial seals and lost publication replies.
-4. **Finish CG-11–13 managed operations.** Qualify adaptive placement, fenced
-   hibernation and wakeup, and S3 recovery of interrupted transitions. Run the
-   Docker-fenced disk-loss drill with all old voter disks deleted and a fresh
-   incarnation serving through quorum. Measure the difference between the
-   last acknowledged quorum write and the recoverable archive cut.
-5. **Qualify and ship through CG-14–16.** Run the constrained mixed-load,
-   reclamation, crash, partition and disk-loss matrix. Reclaim only
-   archive-covered local history. Complete the release cutover and remove the
-   predecessor Raft paths after the combined gate passes.
+1. **Resolve the wide-group setup failure.** Preserve the original setup
+   and per-call bounds. Profile physical apply preparation, image/page work
+   and sync costs at occupancy 128. Preserve the retained failure evidence.
+2. **Close CG-09 transition acceptance.** Add the planned target with its
+   seven exact oracles. Exercise irreversible sealing, complete child install
+   and publication, restart with one writer, receipt/effect continuity and
+   retirement pins.
+3. **Close CG-10 split and merge acceptance.** Qualify exact partition union,
+   adjacency and policy checks, partial reservations, writes during movement
+   and bounded precopy with the existing operator.
+4. **Finish CG-11–13 managed operations.** Qualify adaptive placement,
+   fenced hibernation and wakeup, and S3 recovery of interrupted transitions.
+   Run the managed Docker fencing and complete voter-disk-loss drill.
+5. **Qualify and ship through CG-14–16.** Run the mixed-load, reclamation,
+   crash, partition and disk-loss matrix. Include process crashes during Joint,
+   peer activation cancellation and multi-namespace ingress. Bind the supported
+   default backend and final cutover to the complete release evidence.
 
 ## P0: finish the MVP and its merge gates
 
@@ -147,9 +137,12 @@ The performance/fleet consumer port now uses shared layout, replicated enrollmen
 logical versions and physical witnesses locally; its full native RF3 gate remains
 failing. The owned-workspace checkpoint passes occupancy 32 in the matrix
 and isolated diagnostic case, including the original explicit S3 assertions.
-The matrix reaches occupancy 128 and refuses enrollment after 58 cells under
-the original 60-second setup budget and five-second per-call cap. The full suite
-has eighteen passes and one failure. Earlier 28/31/44-cell enrollment and explicit
+At `84942c4e`, the setup audit reached occupancy 128 and timed out after
+61 cells. The isolated replay, using the same executable after the other
+qualification workloads exited, reached 66–67 cells and also timed out.
+The earlier matrix reached 58 cells. All runs retained the original
+60-second setup budget and five-second per-call cap. The earlier performance suite
+recorded eighteen passes and one failure. Earlier 28/31/44-cell enrollment and explicit
 S3 failures remain preserved; this result establishes no fixed cell-count limit
 or cause for the remaining refusal. Workspace creation now syncs its child and
 owned parent rather than repeating the open store's ancestor barriers; rooted

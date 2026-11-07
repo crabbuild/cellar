@@ -4,6 +4,23 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current accepted boundary
+
+CG-01–08 have complete scoped task records. CG-07 passed all ten required
+commands at `84942c4e`, including strict all-target Clippy and all five
+public cases. Native and constrained Linux RustFS campaigns passed both
+image modes, including failed-voter replacement. Continue with the wide-group
+setup gap and the CG-09/10 transition targets.
+[Current priorities](remaining-work.md) and [source records](progress.md).
+
+The occupancy-128 setup audit still fails with the original 60-second
+enrollment budget. The same executable also failed in isolation after
+66–67 cells. Use the retained observations and the existing physical-apply
+timers to narrow preparation and sync cost before the next runtime change.
+The source and log digests are in the current progress record.
+
+The following checkpoints preserve earlier source and qualification history.
+
 ## CG-07 cold router return after birth-voter replacement
 
 The router returns after three rooted moves and joined retirement of the birth

@@ -7,10 +7,43 @@ Purpose: Source-pinned cell-group implementation checkpoints and qualification l
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
-CG-01 through CG-06 and CG-08 have passed their scoped native gates.
-CG-07 and CG-09 through CG-15 are in progress. CG-16 remains pending
+CG-01 through CG-08 have passed their scoped native gates.
+CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-07 public SQL acceptance
+
+CG-07 is accepted at `84942c4e722e72f6d00e3264b22e2660c5eedbb8`. All ten required
+commands passed on that revision, including strict all-target Clippy, the
+locked all-target build, the five individually selected public cases,
+formatting and module layout. The case inventory and executable hashes
+were verified through the complete batch. The acceptance record SHA-256 is
+`6d9a1dbb120cafe62daa7041d18895c916dc3f3d00f455e708cab1e306b0eed2`.
+
+The managed lifecycle also passed on real RustFS in 141.139 seconds across
+both image modes with host-native voters. The constrained Linux campaign
+passed materialized images in 92.657 seconds and extents in 87.853 seconds.
+It covered operator provisioning, native and Axum SQL, leader loss, quorum
+refusal, archive outage, retained restart, park and wake, and failed-voter
+replacement. The voters had separate cgroups and disks in one VM.
+The RustFS native and Linux record digests are
+`bcbd3506bcc0b0fc52c1d572a8758f3a5db6286daa0aaf42fcf02a8f2d166f3b` and
+`22f971a308bd2220d8a8f7b8604b9d87d5abd2ea52541d510cdb1a259fad7b91`.
+
+The service-close regression and the catalog import-freeze regression
+passed. A separate wide-group setup audit reached occupancy 128 and failed
+the original enrollment window after 61 cells. This continues the recorded
+wide-group qualification gap. Its log SHA-256 is
+`d88bf484b4a4cb1cc4860b26c7e9a383d230bc88bdcfea4398dc6159a28bd552`.
+The isolated replay also failed at occupancy 128 after 224.786 seconds for
+the three-occupancy test. Observations reached 66–67 cells before the
+enrollment deadline. Its unchanged executable SHA-256 is
+`673943654257da9dd59081531115c47f61c699aa7a93b2fbbfebe1ac815caf05`, and the isolated log digest is
+`168bc87480c70b44489e7ff608c3cce2fa9d43a96b781331fff9eff581386f4d`.
+The native and Linux qualification workloads had exited before this replay.
+Physical apply preparation, image/page work and sync costs remain the next
+measurement boundary.
 
 ## Per-cell transport and archive retirement
 

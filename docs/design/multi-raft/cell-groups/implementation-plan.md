@@ -5,7 +5,7 @@
 Purpose: Dependency order and status of the sixteen cell-group implementation tasks.
 
 Generated from `tasks.json`. Regenerate with `plan.py index` after status changes.
-**7 of 16 tasks are accepted**, covering **115 of 163 required cases**.
+**8 of 16 tasks are accepted**, covering **120 of 163 required cases**.
 The acceptance count includes only DONE tasks. A task closes after its dependencies
 and complete source-pinned evidence pass. The [open case audit](remaining-work.md#open-case-audit)
 tracks individual passes and remaining gates for pending tasks.
@@ -30,7 +30,7 @@ never executed by the plan runner. Read the [design](design.md),
 | CG-05 | Snapshot and rebuild complete groups through membership changes | CG-04 | DONE | 5 | Accepted |
 | CG-06 | Archive and reclaim the complete group recovery history | CG-04, CG-05 | DONE | 5 | Accepted |
 | CG-08 | Preserve per-cell effects and bounded idle execution caches | CG-04, CG-05, CG-06 | DONE | 5 | Accepted |
-| CG-07 | Cut public SDK routing and managed fleet over to shared groups | CG-03, CG-04, CG-05, CG-06, CG-08 | IN_PROGRESS | 5 | Pending |
+| CG-07 | Cut public SDK routing and managed fleet over to shared groups | CG-03, CG-04, CG-05, CG-06, CG-08 | DONE | 5 | Accepted |
 | CG-09 | Implement irreversible source sealing and destination activation | CG-07, CG-08 | IN_PROGRESS | 7 | Pending |
 | CG-10 | Split hot groups and merge compatible adjacent ranges | CG-09 | IN_PROGRESS | 5 | Pending |
 | CG-11 | Schedule group placement and adaptive partition size | CG-07, CG-10 | IN_PROGRESS | 5 | Pending |
