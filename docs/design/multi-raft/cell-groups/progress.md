@@ -12,6 +12,56 @@ CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-09 S3 effect handoff and late archive attachment
+
+At `f7378fcd4ffd6e9358d8f886202b21db1c75b1bd`, six of seven exact CG-09 cases pass on one
+source and frozen executable. The new `transfer_preserves_tokens_receipts_effects`
+case passes both native image modes in 120.511 seconds. The five earlier
+sealing, publication, phase-restart and retirement cases also pass on this source.
+Real RustFS passes `rustfs_transfer_preserves_tokens_receipts_effects` in
+145.403 seconds across materialized and extent images.
+
+A signed S3 delivery commits at its receiver and loses the reply. The sender
+retains its pending outbox row while sender and receiver move to different
+children. After retained startup, explicit namespace write grants bind the
+current peer processes. Guarded handoff selects an unrestarted child voter.
+The original envelope must settle the sender without invoking the receiver
+callback twice. Old command IDs, result bytes and cell-history tokens remain
+valid after parent cleanup. Independent child archive replay requires the
+completed outbox lane, an empty pending outbox, one receiver mutation and the
+exact original inbox deduplication proof.
+
+The regression exposed a production defect: an already running child voter
+never attached an archive binding created after activation. S3 effect claims
+remained `NotReady` even after another restarted voter archived the group.
+Demand-driven discovery now opens that exact existing binding through the
+controller's preparation memory and parallelism limits. Requests coalesce by
+hosted group; shutdown joins entered preparation and closes unused stores.
+Discovery cannot initialize an archive or authorize a replica. S3 output still
+requires verified coverage and current serving authority.
+
+Foreground probes run alongside background deliveries. They retry only typed
+contention and readiness refusals with the same command ID, input, durability,
+retry window and original five-second total call cap. Transport loss, archive
+proof errors and definitive command failures remain hard failures. The delivery
+completion deadline and all receipt, effect and recovery assertions are unchanged.
+
+Strict all-target Clippy passes for `cellar`, `cellar-logic` and
+`cellar-recovery-tests`; the historical 154-error checkpoint below predates the
+per-cell host and wire adapter removal. Formatting, layout, native dependencies,
+documentation and all 37 plan tests pass. Record digests are:
+
+- Native six-case checkpoint: `726ce1c91384a91f2af4f76e42a5f73727253bcdd6b3446d78202b2230e71464`.
+- RustFS effect handoff: `2a59deefda926186c1489a3cf5554f35fbd33f81d7718d0f2199b7cb582c526a`.
+- Shared frozen executable: `739c5cfd53c29cd7ec66478d8bef5cc381d5e948f8d80e33a80937e749c022d1`.
+
+Voters are host-native RF3 TLS tasks with fixture capacity. RustFS runs in one
+owned local container. This is not an OS process-kill, independent-host or
+immediate-all-local-copy-erasure drill. CG-09 remains in progress for
+`publication_requires_remote_transfer_closure`, followed by the complete task
+acceptance batch. Continue with that case, then CG-10 partial reservations and
+movement under writes. The accepted task total does not count partial passes.
+
 ## CG-09 nine-phase controller loss and single-writer qualification
 
 At `d7c3329b3b7a0eae00de4e9853cf1eb91b598519`, five of seven named

@@ -20,25 +20,24 @@ pass. The focused occupancy-128 case passes its full data checks, with
 60-second window after 66 cells. Retain both results; the process sample
 identifies blocking file synchronization as substantial preparation cost.
 
-The planned CG-09 target passes five of seven exact cases together at
-`d7c3329b`. The new controller-loss case covers all nine forward phases,
-including Archived. It cancels a foreground operation at an observed object-store
-read, drops that controller and its directory, and resumes solely from the
-rooted operation using independent metadata clients. Exact replay preserves the
-journal, Fleet revision and published ranges. Both cells have one serving
-history before sealing and after activation, with no serving history in between.
-Replicated commands and duplicates preserve results without advancing the
-logical cell on retry. The fixture also covers lost CAS replies and retained
-voter restart. The exact phase case also passes real RustFS in both image modes
-in 133.371 seconds. OS process-kill and independent-host schedules remain CG-15 gates.
+The planned CG-09 target passes six of seven exact cases on one executable at
+`f7378fcd4ffd6e9358d8f886202b21db1c75b1bd`. The five earlier sealing, publication,
+nine-phase controller-loss and retirement cases pass again. The new effect case
+passes both native image modes in 120.511 seconds and both real RustFS image
+modes in 145.403 seconds. A committed receiver reply is lost before the split.
+After retained startup and guarded handoff to an unrestarted voter, the child
+retries the same signed envelope and mutates the receiver once. Old tokens,
+receipts, outbox completion and the original inbox proof survive parent cleanup
+and independent child archive replay. Late archive discovery fixes the existing
+voter's S3 claim stall without restart or weaker acknowledgement.
 
-Next deliver the two remaining CG-09 oracles. Move an in-flight outbox delivery
-and receiver deduplication state through the split, then prove the original
-effect ID mutates the receiver once. Retain original version/receipt checks.
-Separately erase every local copy immediately after publication and replay the
-pinned remote closure. Then finish CG-10 partial reservations and movement under
-writes. Keep the wide matrix and load profiles in CG-14; retain the accepted
-CG-07 boundary. Source and artifact digests are in [progress](progress.md).
+Next deliver the remaining CG-09 oracle: missing remote dependencies must block
+publication, then erase every local copy immediately after publication and replay
+the pinned remote closure. Complete the full task acceptance batch before closing
+CG-09. Then finish CG-10 partial reservations and movement under writes. Preserve
+the original deadlines and all six passing oracles. Independent process kills,
+platform fencing and wide-group/load qualification remain CG-13–15 gates.
+Source and artifact digests are in [progress](progress.md).
 
 The following checkpoints preserve earlier source and qualification history.
 
