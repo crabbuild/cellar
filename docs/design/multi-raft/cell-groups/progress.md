@@ -12,6 +12,75 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 consented transition execution and child archive handoff
+
+At `502198bddd3ca57880ca1c5c269c163ce5f04286`, managed transitions have a
+node-owned execution service and durable, exact-plan consent. Admitting a manual
+plan leaves it cancellable; it does not authorize irreversible source sealing.
+`authorize_transition_execution` roots the principal, original request identity,
+namespace genesis and plan digest. Exact retries reuse the same consent, changed
+payloads refuse, and consent never reopens a cancelled operation.
+
+`start_transition_service` registers one joined worker per node. It observes the
+single disruption slot and consent record, rather than scanning namespace history.
+Each round performs at most one local voter action and one coordination action,
+within the original request budget. Replacing the coordinator resumes the journal's
+current phase. Local installation, archive preparation and physical transfer retain
+their existing owners and limits. The worker holds an internal SDK observer; its
+registry lease is released only after work exits. Stopping the service joins it.
+
+The coordinator prepares, authorizes sealing, verifies the sealed transfer,
+publishes, initializes child archives and confirms retirement through existing
+quorum, capacity, directory and physical settlement checks. The local worker now
+requests the existing coalesced archive publisher when an activated child has its
+verified archive binding. Previously that child required an S3 request or host
+restart to start publication. Publisher admission does not prove archive coverage;
+the coordinator still verifies actual remote coverage before retiring parents.
+
+The new native case passes in 47.38 seconds, and the fixed
+`managed-transition-service` RustFS suite passes its exact case in 57.523 seconds.
+Each executes materialized and extent images. The case proves no execution without
+consent, duplicate-worker refusal, conflicting-consent refusal, a real registry
+write outage, stopped and replaced coordination, automatic split execution,
+original receipt and version preservation, child writes and archives, retained
+parent return, and reads and S3-durable writes through returning ingress. Returning
+processes receive explicit application-origin grants; discovery grants no I/O
+authority. Every owner joins with the existing shutdown oracle.
+
+Each simulated node uses its own bounded catalog client, as separate processes
+would. The provider, quorum and capacity owners remain shared authorities. The
+scheduler's two native regression cases also pass (57.82 seconds); its two ignored
+RustFS variants are not counted as new passes. Strict all-target Clippy, formatting,
+layout, native dependency checks and 37 plan tests pass. No stack, compiler,
+capacity or operation deadline limit was raised. The reviewed baseline successor
+retains every old anchor and changes only the fleet module's two new exports.
+Historical accepted task records retain their original source and scope.
+
+Retained local evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-transition-service-502198bd-01/record.json`,
+  SHA-256 `a193ffcd419021f4ce855b601ff76ee1fecd390d8f21878182d2d7dff4073cf3`.
+  This CHECKPOINT pins 3,338 Git-blob inputs, successful logs, development attempts
+  and the executable; it is not complete CG-11 acceptance.
+- `.cellar/cell-groups-evidence/CG-11-transition-service-502198bd-rustfs-01/record.json`,
+  SHA-256 `bec389a439e7aa47f782c620507f9bed02123ad226404c4126688bf06175eb71`.
+- Shared frozen executable SHA-256
+  `0db55fa2cdf6f9c43cbe2cd78294722ee8aa4a487efc55b7d210c672d1e5dfe7`.
+
+Voters are host-native RF3 TLS owners with fixture capacity. RustFS runs in one VM
+with observed one-CPU, 2-GiB and no-extra-swap limits. The campaigns shared the host
+with compilation and native tests; these durations are correctness observations,
+not benchmark results. The owned RustFS container is stopped and objects retained.
+
+CG-11 remains IN_PROGRESS. Consent and service startup are explicit APIs; automatic
+inventory/plan selection is still open. The case deliberately restarts retained
+parents to obtain existing physical quiescence proof before releasing holds. Live
+per-group retirement and eventual disk reclamation must join actual owners before
+freeing capacity. Late child attachment after publication and destination-failure
+schedules are unqualified. Complete these lifecycle paths, then whole-group scale
+out/in, failure-domain repair/reserve and bounded fleet-wide fanout. CG-12/13,
+the unchanged CG-14 occupancy-matrix failure and CG-15/16 release gates remain open.
+
 ## CG-11 live sizing and managed admission checkpoint
 
 At `d0ef46ec20f630da5156928c45ce88fe2fb8c898`, the SDK exposes an explicitly driven

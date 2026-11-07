@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "f4d46d98676bda6c178dea462f51b2f121266a14",
-  "runtime_revision": "5331fc4ada3334564fff3c2342c63faefe65da2d",
-  "review_note": "Reviewed 5331fc4ada3334564fff3c2342c63faefe65da2d on 2026-11-06 for CG-09 transition qualification. All anchored source bytes and excerpts are unchanged from beeaa1b3. The dedicated transition target owns the managed topology cases. Shared catalog/RustFS fixtures load once per target, and relative visibility preserves their owning boundaries. New checks retain the original source version floor across transfer and retained restart, and bind receipt replay to the selected source cut while preserving result/identity. Qualification scopes and historical reviews remain in progress.md and Git history. CG-09 remains pending its full seven-case acceptance record. Reviewed successor f4d46d98: the Fleet anchor adds the private managed transfer baseline reader. Its Published-only replay validates the retained remote closure and immutable install roots without granting bootstrap, activation or serving authority. Membership, existing archive and version anchor contents remain unchanged. CG-09 caller scope includes its native fixtures and fixed RustFS runner.",
+  "source_revision": "502198bddd3ca57880ca1c5c269c163ce5f04286",
+  "runtime_revision": "502198bddd3ca57880ca1c5c269c163ce5f04286",
+  "review_note": "Reviewed 5331fc4ada3334564fff3c2342c63faefe65da2d on 2026-11-06 for CG-09 transition qualification. All anchored source bytes and excerpts are unchanged from beeaa1b3. The dedicated transition target owns the managed topology cases. Shared catalog/RustFS fixtures load once per target, and relative visibility preserves their owning boundaries. New checks retain the original source version floor across transfer and retained restart, and bind receipt replay to the selected source cut while preserving result/identity. Qualification scopes and historical reviews remain in progress.md and Git history. CG-09 remains pending its full seven-case acceptance record. Reviewed successor f4d46d98: the Fleet anchor adds the private managed transfer baseline reader. Its Published-only replay validates the retained remote closure and immutable install roots without granting bootstrap, activation or serving authority. Membership, existing archive and version anchor contents remain unchanged. CG-09 caller scope includes its native fixtures and fixed RustFS runner. Reviewed successor 502198bddd3ca57880ca1c5c269c163ce5f04286: the Fleet module adds the private execution-consent record and locator. The existing admission/recovery excerpt is retained with those two exports inserted; every other anchor is byte-identical to f4d46d98676bda6c178dea462f51b2f121266a14. Execution revalidates existing proofs and does not grant serving authority.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -115,9 +115,9 @@
     },
     "fleet": {
       "path": "crates/cellar/durability/raft/fleet_catalog/mod.rs",
-      "sha256": "4fe032b10eb7b3a54b8e4e2fff9b25ab521ef0d07ab53172e624e062c501d103",
+      "sha256": "312eade4111a1419a6b562a13957ae9ece03f19afcbac633d399e6675f10cd73",
       "line": 24,
-      "excerpt": "mod managed_transition_admission;\npub(crate) use managed_transition_admission::TransitionOperatorStep;\nmod managed_recovery_fence;\npub(crate) use managed_recovery_fence::PreparedManagedRecoveryFence;\npub use managed_recovery_fence::{\n    FleetFencedTransitionRecovery, FleetTransitionRecoveryFenceRequest,\n};\nmod managed_recovery_intent;\npub use managed_recovery_intent::{FleetTransitionRecoveryBarrier, FleetTransitionRecoveryIntent};\npub(crate) use managed_recovery_intent::{ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput};"
+      "excerpt": "mod managed_transition_admission;\npub(crate) use managed_transition_admission::TransitionOperatorStep;\nmod managed_transition_execution;\npub(crate) use managed_transition_execution::ManagedTransitionExecution;\nmod managed_recovery_fence;\npub(crate) use managed_recovery_fence::PreparedManagedRecoveryFence;\npub use managed_recovery_fence::{\n    FleetFencedTransitionRecovery, FleetTransitionRecoveryFenceRequest,\n};\nmod managed_recovery_intent;\npub use managed_recovery_intent::{FleetTransitionRecoveryBarrier, FleetTransitionRecoveryIntent};\npub(crate) use managed_recovery_intent::{ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput};"
     },
     "public": {
       "path": "crates/cellar/durability/raft/host_node.rs",

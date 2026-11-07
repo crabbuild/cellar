@@ -30,8 +30,20 @@ durability at marker 1. Valid engine admission atomically replaces advisory
 routes. Keep concrete transport at the SDK invocation edge; storing it in Shared
 breaks default-limit application type checking.
 
-Next connect CG-11's explicit scheduler to bounded automatic inventory and durable
-operation execution, then qualify whole-group movement, reserve and fanout.
+At `502198bd`, exact-plan execution consent and a node-owned joined transition
+service connect admitted plans to journal-driven execution. Activated child groups
+start their existing archive publisher without a host restart or foreground S3
+request. Native and real RustFS cases pass both image modes through coordinator
+replacement, automatic split, retained-parent return and subsequent reads/S3 writes.
+The CHECKPOINT records in [progress](progress.md) pin source, executable and logs;
+they do not close the full CG-11 task.
+
+Next implement live per-group retirement/quiescence and physical reclamation.
+The new case uses retained parent restart for the existing physical proof; do not
+release holds or capacity while owners remain live. Audit late child attachment
+after publication and qualify destination failures. Then connect bounded automatic
+inventory/plan selection and qualify whole-group movement, reserve and fanout.
+Consent remains explicit and irreversible sealing requires the recorded authority.
 Continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all
 voter disks erased. Keep CG-15/16's combined-source load/crash, public cutover and
