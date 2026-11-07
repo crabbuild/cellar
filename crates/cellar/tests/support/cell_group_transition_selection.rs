@@ -185,6 +185,50 @@ pub(super) async fn admit(
     Ok((request, admitted))
 }
 
+pub(super) async fn verify_discovery(
+    cluster: &ManagedCluster,
+    coordinator: &RaftFleetControl,
+    children: &[cellar::application::consensus::verification::cell_groups::GroupRoute],
+) -> Result<()> {
+    let revision = cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision();
+    let target = coordinator
+        .clone()
+        .with_node_observer(cluster.hosts[3].clone());
+    let mut limited = RaftFleetPartitionScheduler::new(target.clone(), policy(), 1)?;
+    let refused = limited.poll(pressure(), TIMEOUT).await;
+    ensure!(matches!(refused, Err(error) if error.code == RaftFleetFailureCode::Limit));
+    ensure!(limited.tracked_groups() == 0 && limited.pending_request().is_none());
+    drop(limited);
+    let mut sampler = RaftFleetPartitionScheduler::new(target, policy(), 2)?;
+    let first = sampler.poll(pressure(), TIMEOUT).await?;
+    let second = sampler.poll(pressure(), TIMEOUT).await?;
+    ensure!(first.recommendation.is_none() && second.recommendation.is_none());
+    let selected = [
+        first.sampled.context("first child discovery")?,
+        second.sampled.context("second child discovery")?,
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    ensure!(selected == children.iter().map(|route| route.history).collect());
+    ensure!(sampler.tracked_groups() == 2);
+    let wrapped = sampler.poll(pressure(), TIMEOUT).await?;
+    ensure!(wrapped.sampled == first.sampled);
+    drop(sampler);
+    let mut retired = RaftFleetPartitionScheduler::new(
+        coordinator
+            .clone()
+            .with_node_observer(cluster.hosts[0].clone()),
+        policy(),
+        1,
+    )?;
+    let empty = retired.poll(pressure(), TIMEOUT).await?;
+    ensure!(
+        empty.sampled.is_none() && empty.recommendation.is_none() && retired.tracked_groups() == 0
+    );
+    ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == revision);
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn automatic_selection_resumes_partial_admission_and_executes() -> Result<()> {
     for rooted in [false, true] {
@@ -192,7 +236,7 @@ async fn automatic_selection_resumes_partial_admission_and_executes() -> Result<
             rooted,
             Arc::new(catalog_fault::Store::default()),
             true,
-            true,
+            false,
             true,
         ))
         .await?;
@@ -208,7 +252,7 @@ async fn rustfs_automatic_selection_resumes_partial_admission_and_executes() -> 
             "automatic-selection",
             rooted,
         )?));
-        Box::pin(qualify_with_selection(rooted, store, true, true, true)).await?;
+        Box::pin(qualify_with_selection(rooted, store, true, false, true)).await?;
     }
     Ok(())
 }

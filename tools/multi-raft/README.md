@@ -520,8 +520,9 @@ owner samples and selects a whole-cell split. After a real child reservation
 loses its confirmation, a new sampler and catalog client resume the exact
 persisted plan. Missing and changed plans refuse, and pending sampling makes
 no catalog reads or replacement operation. The consented node-owned service
-then qualifies coordinator replacement, live source retirement, colocated
-children and original receipts/versions plus subsequent child S3 writes.
+then qualifies coordinator replacement, live source retirement and original receipts/versions plus subsequent child S3 writes.
+Discovery then rotates across both live child groups on the same voters, refuses
+a one-tracker profile, and excludes the physically retained retired parent.
 
 The complete managed local inventory must fit the configured 1–128 tracker
 capacity. Overflow refuses; it never silently truncates to a preferred prefix.

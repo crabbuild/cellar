@@ -676,6 +676,14 @@ async fn exercise(
             ensure!(!host.is_closed());
         }
     }
+    if automatic {
+        Box::pin(selection::verify_discovery(
+            cluster,
+            &coordinator,
+            &children,
+        ))
+        .await?;
+    }
     // Namespace discovery never grants application I/O. Reinstall the trusted
     // ingress grants for its new boot before forwarding application requests.
     for destination in destinations.into_iter().collect::<BTreeSet<_>>() {

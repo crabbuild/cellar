@@ -94,6 +94,8 @@ SUITES = {
         "Both image modes, host-native RF3 TLS voters and fixture capacity. The sampler discovers "
         "the group, waits for hysteresis and chooses a whole-cell split. Lost reservation confirmation, "
         "cold sampler recovery, absent/changed-plan refusal and frozen pending discovery are checked. "
+        "Both live local children are discovered in turn; a one-tracker profile refuses and "
+        "retained retired parents are excluded. "
         "The existing node-owned worker then runs through coordinator replacement, live source "
         "retirement and original receipts/versions plus child S3 writes. Deployment placement and "
         "identities and execution consent remain explicit. Independent processes, physical source "
