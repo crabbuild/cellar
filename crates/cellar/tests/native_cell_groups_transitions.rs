@@ -71,6 +71,34 @@ async fn rustfs_retirement_keeps_required_archive_pins() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn transition_restart_retains_single_writer() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(bootstrap::transition::restart::qualify(
+            rooted,
+            Arc::new(fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("phase restart, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_transition_restart_retains_single_writer() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "phase-restart",
+            rooted,
+        )?));
+        Box::pin(bootstrap::transition::restart::qualify(rooted, store))
+            .await
+            .with_context(|| format!("RustFS phase restart, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
 fn route() -> GroupRoute {
     GroupRoute {
         history: GroupHistory {

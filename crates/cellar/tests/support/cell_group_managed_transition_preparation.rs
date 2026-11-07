@@ -49,6 +49,7 @@ pub(super) async fn exercise(
     CommandReceipt,
 )> {
     let seeded = seed_cells(&cluster.hosts, cluster.history).await?;
+    restart::checkpoint(cluster, directory, transition, TransitionPhase::Planned).await?;
     let fixture = &cluster.fixtures[0];
     let domain = &fixture.domain;
     let leader = leader(&cluster.hosts[..3], cluster.history).await?;
@@ -221,6 +222,7 @@ pub(super) async fn exercise(
     )
     .await?;
     ensure!(prepared.phase == TransitionPhase::Prepared);
+    restart::checkpoint(cluster, directory, transition, TransitionPhase::Prepared).await?;
     // The selected cut survives a later quorum write to the active parent.
     let next = handle
         .command(
@@ -497,6 +499,7 @@ pub(super) async fn verify_sealed_cut(
     ensure!(tails.usage().operations == 1);
     drop(first);
     ensure!(tails.usage().operations == 0);
+    restart::checkpoint(cluster, directory, transition, TransitionPhase::Sealed).await?;
     let reopened = domain
         .run(directory.sealed_source_holds(&transition.plan))
         .await??;
@@ -788,6 +791,7 @@ async fn verify_managed_archive_decision(
             .route()
             == parent.route()
     );
+    restart::checkpoint(cluster, directory, &reopened, TransitionPhase::Archived).await?;
     Box::pin(verify_managed_publication(
         cluster,
         fleet,
@@ -901,6 +905,7 @@ async fn verify_managed_publication(
             .await?
             == publication
     );
+    restart::checkpoint(cluster, directory, &reopened, TransitionPhase::Published).await?;
     ensure!(matches!(
         cluster.hosts[0]
             .group(cluster.history)?
@@ -1726,6 +1731,7 @@ async fn verify_managed_installed_decision(
     ensure!(
         installed.phase() == TransitionPhase::Installed && installed.installed_children().is_some()
     );
+    restart::checkpoint(cluster, directory, &reopened, TransitionPhase::Installed).await?;
     let after = domain.run(directory.observe()).await??;
     ensure!(after.revision() == before.revision() && after.groups() == before.groups());
     ensure!(

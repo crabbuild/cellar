@@ -21,6 +21,9 @@ mod retirement;
 #[path = "cell_group_managed_transition_merge.rs"]
 mod merge;
 
+#[path = "cell_group_transition_restart.rs"]
+pub(crate) mod restart;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_plan_fences_membership_and_replays_cancellation() -> Result<()> {
     Box::pin(run_plan(
@@ -278,6 +281,7 @@ async fn exercise_inner(
         ensure!(domain.run(directory.active_transition()).await??.is_none());
         (children, plan, original)
     };
+    restart::register(&children);
     let reopened = Fixture::open_catalog(domain, fixture.store.clone(), scope.cluster)?;
     let adapter = Catalog::new(
         fixture.store.clone(),
@@ -501,6 +505,13 @@ async fn exercise_inner(
         ensure!(
             matches!(without_observer, Err(error) if error.code == RaftFleetFailureCode::Unsupported)
         );
+        restart::checkpoint(
+            cluster,
+            directory,
+            &recovered,
+            TransitionPhase::SealAuthorized,
+        )
+        .await?;
         let voter = leader(&cluster.hosts[..3], scope).await?;
         let voter = &cluster.hosts[voter];
         let cut = Box::pin(crate::managed_fixture::operator::seal_transition_source(
@@ -538,6 +549,7 @@ async fn exercise_inner(
             cluster, directory, seeded,
         ))
         .await?;
+        restart::checkpoint(cluster, directory, &recovered, TransitionPhase::Active).await?;
         let tombstone = Box::pin(retirement::reopen_and_retire(
             cluster, directory, &recovered,
         ))
@@ -550,6 +562,7 @@ async fn exercise_inner(
             cells.clone(),
         ))
         .await?;
+        restart::checkpoint(cluster, directory, &recovered, TransitionPhase::Retired).await?;
         if matches!(decision, Decision::Retirement) {
             Box::pin(retirement::qualify_parent_cleanup(
                 cluster, directory, &recovered, &registry, &held, &cells, archived,

@@ -151,6 +151,24 @@ reopens the winning decision after a lost reply, and refuses an alternate hold
 for the same source cut. The unmanaged namespace remains selected at its parent
 ranges throughout the drill.
 
+## Managed transition controller loss
+
+Use `cell_groups.py --suite managed-phase-restart` with an owned RustFS backend
+and a fresh output directory. The exact case runs both image modes through all
+nine forward journal phases, including Archived. At each phase it interrupts an
+actual provider read, drops the foreground controller, and reopens independent
+metadata clients using the rooted operation ID. Replaying the original plan
+must preserve the exact journal, Fleet revision and range publication.
+
+The case samples the physical source and destination leaders for both seeded cells'
+ranges. Only the source can serve before sealing, neither history can serve
+between sealing and activation, and only the child can serve after activation.
+Fresh replicated zero-delta SQL commands and exact retries verify the serving
+history without altering the fixture's separately checked business values.
+The fixture also includes lost directory CAS replies and retained voter restarts.
+Controller loss is modeled by cancellation at an observed provider read;
+independent process-kill and host-loss schedules remain CG-15 gates.
+
 ## Managed retirement archive checks
 
 Use `cell_groups.py --suite managed-retirement` with an owned RustFS backend
