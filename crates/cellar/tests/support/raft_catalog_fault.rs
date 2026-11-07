@@ -147,6 +147,8 @@ pub struct Store {
     pub group_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
     pub deny_group_payload_reads: AtomicBool,
+    pub denied_prefix: std::sync::Mutex<Option<Path>>,
+    pub denied_prefix_reads: AtomicUsize,
     pub deny_group_archive_writes: AtomicBool,
     pub denied_group_archive_writes: AtomicUsize,
     pub deny_registry_writes: std::sync::Arc<AtomicBool>,
@@ -663,6 +665,16 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        let denied = self
+            .denied_prefix
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|prefix| path.prefix_match(prefix).is_some());
+        if denied {
+            self.denied_prefix_reads.fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
+        }
         let gate = GATED_STORE_READ
             .try_with(|(identity, suffix, gate)| {
                 (std::sync::Arc::ptr_eq(identity, &self.gate_identity)

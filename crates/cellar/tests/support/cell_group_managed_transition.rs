@@ -68,8 +68,13 @@ async fn rustfs_managed_split_authorization() -> Result<()> {
     Ok(())
 }
 
+pub(crate) async fn qualify_retirement(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
+    Box::pin(run_plan(rooted, store, Decision::Retirement)).await
+}
+
 enum Decision {
     Authorize,
+    Retirement,
     Cancel,
     SplitMerge { recovery_barrier: bool },
 }
@@ -87,7 +92,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
     .await?;
     let merge = matches!(decision, Decision::SplitMerge { .. });
     let expected_children = match decision {
-        Decision::Authorize | Decision::SplitMerge { .. } => 2,
+        Decision::Authorize | Decision::Retirement | Decision::SplitMerge { .. } => 2,
         Decision::Cancel => 0,
     };
     let result = exercise(&mut cluster, rooted, decision).await;
@@ -345,7 +350,7 @@ async fn exercise_inner(
         .await;
     ensure!(matches!(unprepared, Err(error) if error.code == RaftFleetFailureCode::Conflict));
 
-    let (registry, held, seeded) = Box::pin(preparation::exercise(
+    let (registry, held, seeded, archived) = Box::pin(preparation::exercise(
         cluster, &reopened, directory, &recovered, &parent, &children, rooted,
     ))
     .await?;
@@ -368,7 +373,10 @@ async fn exercise_inner(
         Err(FleetCatalogError::DisruptionInProgress { operation: actual }) if actual == operation.bytes()
     ));
     let cancel = identity(236, admitted.revision());
-    if matches!(decision, Decision::Authorize | Decision::SplitMerge { .. }) {
+    if matches!(
+        decision,
+        Decision::Authorize | Decision::Retirement | Decision::SplitMerge { .. }
+    ) {
         ensure!(matches!(
             reopened
                 .authorize_managed_transition_seal(&cancel, directory, plan, TIMEOUT)
@@ -542,10 +550,17 @@ async fn exercise_inner(
             cells.clone(),
         ))
         .await?;
-        Box::pin(retirement::park_and_release_parent(
-            cluster, directory, &recovered,
-        ))
-        .await?;
+        if matches!(decision, Decision::Retirement) {
+            Box::pin(retirement::qualify_parent_cleanup(
+                cluster, directory, &recovered, &registry, &held, &cells, archived,
+            ))
+            .await?;
+        } else {
+            Box::pin(retirement::park_and_release_parent(
+                cluster, directory, &recovered,
+            ))
+            .await?;
+        }
         Box::pin(preparation::verify_released_source_holds(
             cluster, directory, plan, &registry, held,
         ))

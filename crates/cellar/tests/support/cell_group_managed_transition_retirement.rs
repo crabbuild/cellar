@@ -7,6 +7,39 @@ use cellar::application::consensus::verification::{
 };
 use std::time::Instant;
 
+#[path = "cell_group_retirement_qualification.rs"]
+mod qualification;
+use qualification::ArchiveCheck;
+
+pub(super) async fn qualify_parent_cleanup(
+    cluster: &mut ManagedCluster,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    source: &CellGroupArchiveRegistry,
+    preparation: &CellGroupArchiveHold,
+    cells: &[CellHistory],
+    archived: CommandReceipt,
+) -> Result<()> {
+    let check = ArchiveCheck::new(
+        cluster,
+        directory,
+        transition,
+        source,
+        preparation,
+        cells,
+        archived,
+    )
+    .await
+    .context("reopen selected child baselines for retirement cleanup")?;
+    release_parent(cluster, directory, transition, Some(&check))
+        .await
+        .context("retirement parent release with archive faults")?;
+    check
+        .after_release(cluster, directory)
+        .await
+        .context("independent child replay after parent cleanup")
+}
+
 pub(super) async fn reopen_and_retire(
     cluster: &mut ManagedCluster,
     directory: &RangeDirectory,
@@ -64,6 +97,15 @@ pub(super) async fn park_and_release_parent(
     directory: &RangeDirectory,
     transition: &ReopenedManagedCellGroupTransition,
 ) -> Result<()> {
+    release_parent(cluster, directory, transition, None).await
+}
+
+async fn release_parent(
+    cluster: &mut ManagedCluster,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    check: Option<&ArchiveCheck>,
+) -> Result<()> {
     let archives = CellGroupArchivePool::new(Default::default())?;
     let fleet = cluster.fixtures[0].catalog.clone();
     let domain = cluster.fixtures[0].domain.clone();
@@ -105,6 +147,9 @@ pub(super) async fn park_and_release_parent(
     let revision = fleet.read(TIMEOUT).await?.revision();
     for source in &cluster.hosts[..3] {
         inspect_current(observer, source.identity().node, revision).await?;
+    }
+    if let Some(check) = check {
+        check.before_release(cluster, directory, transition).await?;
     }
     let store = &cluster.fixtures[0].store;
     store.deny_registry_writes.store(true, Ordering::Release);

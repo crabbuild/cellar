@@ -42,7 +42,12 @@ pub(super) async fn exercise(
     parent: &CellGroupBirth,
     children: &[GroupRoute],
     rooted: bool,
-) -> Result<(CellGroupArchiveRegistry, CellGroupArchiveHold, SeededCells)> {
+) -> Result<(
+    CellGroupArchiveRegistry,
+    CellGroupArchiveHold,
+    SeededCells,
+    CommandReceipt,
+)> {
     let seeded = seed_cells(&cluster.hosts, cluster.history).await?;
     let fixture = &cluster.fixtures[0];
     let domain = &fixture.domain;
@@ -283,7 +288,7 @@ pub(super) async fn exercise(
             .await??
             == vec![held.clone()]
     );
-    Ok((registry, held, seeded))
+    Ok((registry, held, seeded, archived))
 }
 
 pub(super) async fn allocate_preparation_holds(

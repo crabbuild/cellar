@@ -43,6 +43,34 @@ async fn child_requires_install_and_publication() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retirement_keeps_required_archive_pins() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(bootstrap::transition::qualify_retirement(
+            rooted,
+            Arc::new(fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("retirement qualification, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_retirement_keeps_required_archive_pins() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "retirement-pins",
+            rooted,
+        )?));
+        Box::pin(bootstrap::transition::qualify_retirement(rooted, store))
+            .await
+            .with_context(|| format!("RustFS retirement qualification, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
 fn route() -> GroupRoute {
     GroupRoute {
         history: GroupHistory {

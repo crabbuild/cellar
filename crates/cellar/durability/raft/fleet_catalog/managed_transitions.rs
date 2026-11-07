@@ -967,7 +967,9 @@ impl FleetCatalog {
             .map_err(|_| FleetCatalogError::Unconfirmed)?
     }
 
-    /// Reopen the selected references for retirement reconciliation.
+    /// Reopen the selected references for retirement reconciliation. Children
+    /// may already be Live; reading references grants no install or admission
+    /// authority. Physical replay and registry liveness need their own checks.
     pub async fn reopen_managed_transfer_child_holds(
         &self,
         transition: &ReopenedManagedCellGroupTransition,
@@ -978,17 +980,35 @@ impl FleetCatalog {
         self.run(
             timeout,
             Box::pin(async {
+                let current = self.inner.current().await?;
                 let permit = self
-                    .verified_managed_transfer_permit(transition, directory)
+                    .managed_transition_permit_at(
+                        &current,
+                        &transition.request,
+                        directory,
+                        &transition.plan,
+                    )
                     .await?;
-                self.inner
+                let (_, children) = directory
+                    .transition_routes(&transition.plan)
+                    .map_err(catalog_error)?;
+                for route in &children {
+                    self.transfer_child_history(&current, transition, directory, route)
+                        .await?;
+                }
+                let holds = self
+                    .inner
                     .domain
                     .run(Box::pin(
                         directory.managed_retirement_child_holds(&transition.plan, &permit),
                     ))
                     .await
                     .map_err(|_| FleetCatalogError::Closed)?
-                    .map_err(catalog_error)
+                    .map_err(catalog_error)?;
+                if self.inner.current().await?.token != current.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                Ok(holds)
             }),
         )
         .await

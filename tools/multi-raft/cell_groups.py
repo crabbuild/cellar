@@ -95,6 +95,14 @@ SUITES = {
         "Host-native voters and fixture capacity. Phase-crash schedules, full effect continuity "
         "and permanent platform fencing remain separate gates.",
     ),
+    "managed-retirement": (
+        "native_cell_groups_transitions",
+        ("rustfs_retirement_keeps_required_archive_pins",),
+        "managed retirement retains source pins on child archive outage and independently restores children after cleanup",
+        "Both image modes, host-native voters and fixture capacity. The retired source archive is denied "
+        "during fresh child replay. All-voter disk loss, permanent platform fencing and sustained load "
+        "remain separate gates.",
+    ),
     "managed-split-merge": (
         "native_cell_groups_transitions",
         ("bootstrap::transition::merge::rustfs_managed_recovery_barrier_fences_transfer_and_reopens",
@@ -172,7 +180,7 @@ def sources(suite):
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
                      or (suite in ("managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge")
+                                   "managed-split-merge", "managed-retirement")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]

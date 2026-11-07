@@ -151,6 +151,22 @@ reopens the winning decision after a lost reply, and refuses an alternate hold
 for the same source cut. The unmanaged namespace remains selected at its parent
 ranges throughout the drill.
 
+## Managed retirement archive checks
+
+Use `cell_groups.py --suite managed-retirement` with an owned RustFS backend
+and a fresh output directory. The exact case runs both image modes. It reopens
+selected child archive holds after promotion to Live, refuses parent release
+while either child archive is unreadable, and independently replays the retained
+parent holds. After all source owners are physically parked and cleanup settles,
+it runs archive collection and restores both child baselines into fresh physical
+inventories while the complete retired source archive prefix is inaccessible.
+Restored SQL and the original S3 receipt must survive. Parked source replicas
+continue to occupy their physical capacity slots.
+
+These are host-native voters with fixture capacity and joined shutdown. The
+case does not qualify independent process crashes, permanent platform fencing,
+or complete local disk loss immediately after range publication.
+
 ## Shared cell-group archive checks
 
 Commit the test and harness sources, then run the native three-voter TLS fixture
