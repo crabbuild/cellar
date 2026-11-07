@@ -62,11 +62,32 @@ at its API boundary: the full split/merge regression retains expected CAS-error
 backtrace capture and passes the default stack. Installed bounds/attestations are
 separate from measured RSS and temporary disk peaks.
 
-Next implement safe physical source reclamation. The engine histories and floors
-remain charged after live retirement; a second movement cycle must not invent
-free slots. Audit late child attachment after publication and qualify destination
-failures. Then connect bounded automatic inventory/plan selection and qualify
-whole-group movement, reserve and fanout.
+At `ee7d7b62`, `poll` discovers a complete bounded active local inventory and
+rotates sampling and fresh split/adjacent-merge selection. Its state is charged
+to the existing node control budget. `resume` verifies the exact persisted operator
+plan and the actual admission read remains persisted-plan-only. New native and
+RustFS cases prove before/after-CAS uncertainty, missing-plan refusal, cold sampler
+recovery and node-owned split execution; both local children are discovered while
+the physically retained parent is excluded. See [progress](progress.md).
+
+Next implement safe physical source reclamation. The durable log mapping and the
+parked registration currently prevent history reuse and still consume slots.
+Select exact cleanup authority after child coverage and joined source retirement,
+then atomically sync an engine tombstone with removal of the old group log. Preserve
+permanent history refusal on every genesis/import/restart path. Drop registration
+and image/page owners only through their actual joined completion; pinned closures
+remain protected. Refund each resource only after its exact boot/history-bound
+physical completion proof; a synced logical tombstone does not prove segment
+bytes reclaimed. Retain byte charges until file cleanup/purge proves release.
+A smaller inventory sample alone cannot lower those floors. Qualify another
+movement cycle under the unchanged slot/disk budget and retained restart refusal
+of the old source. Keep permanent source-history retirement separate from cleanup
+of an obsolete member of a still-live history, which needs its own current join
+authorization before that node can receive a new member identity.
+
+Then supply deployment placement and stable-operation identity policy to the
+sampler and qualify larger inventory profiles, whole-group movement, reserve and
+fanout. Late child attachment and destination failures retain their own gates.
 Consent remains explicit and irreversible sealing requires the recorded authority.
 Continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all

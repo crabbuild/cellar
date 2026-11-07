@@ -12,6 +12,93 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 automatic local sizing selection and admission recovery
+
+At `ee7d7b62a59f114ae00f903b4218d376d04b6ba2`, the public SDK sampler discovers
+active local groups in configured cluster/namespace scopes, samples one per turn
+and selects fresh split or compatible adjacent-merge candidates. The complete
+local inventory must fit its explicit 1–128 tracker capacity; overflow refuses
+instead of silently omitting groups. Pending, quarantined, retiring and parked
+owners are excluded. Detached/failed observations lose advisory state, and
+round-robin cursors prevent one failed owner or eligible split from monopolizing
+selection. Split pressure precedes quiet merges; merge adjacency follows range
+order rather than opaque group IDs. Existing policy retains freshness, hysteresis,
+cooldown, archive and compatibility checks.
+
+The existing node control budget owns 32 KiB per tracker plus 64 KiB for shared
+inventory, candidate, request and transient metadata. The caller still polls,
+journals stable placement/operation identities and explicitly consents to
+irreversible execution. Discovery and sampling grant no quorum, admission,
+physical-release or serving authority.
+
+`resume` restores the exact operator-journal request only after reading its
+persisted plan with the original principal and payload digest. The actual admission
+read uses an explicitly persisted-plan-only mode: missing metadata cannot fall
+back to fresh unsampled work. Pending requests retain their identity through
+cancellation, metadata outage and lost confirmations. Restoration needs no new
+sizing samples; the existing resource, directory and Raft owners retain authority.
+
+The new case first fails before the first reservation CAS, leaving the Fleet
+revision unchanged. It proves that a missing Fleet head freezes the exact request,
+then hides the actual admission's plan read and requires Conflict with only the
+root/plan reads. This prevents an unrelated revision conflict from hiding a fresh
+fallback. Next it loses confirmation after a real child-reservation CAS, drops the
+sampler, opens a new catalog client and resumes the original partial reservation.
+Changed payloads refuse; pending polling performs no catalog reads or replacement
+operation. The consented node-owned worker then survives coordinator replacement
+and registry write refusal, retires sources live and preserves original SQL,
+receipts and versions plus subsequent child S3 writes.
+
+After execution, both children run on the same destination voters. The sampler
+rotates through both real active groups and wraps, refuses a one-tracker profile,
+and discovers no active parent on the still-running retired source node. The
+source engine history and capacity charge remain retained. Sampling changes no
+Fleet revision.
+
+All four new unit checks pass. Both named native scheduler cases pass in both
+image modes (58.30 seconds), all seven native transition cases pass
+(231.36 seconds; seven RustFS variants explicitly ignored), and the full native
+merge regression passes both modes at the default stack (134.27 seconds). The
+fixed automatic-selection RustFS suite and both existing scheduler RustFS cases
+pass both image modes on the same frozen source and corresponding executables.
+Strict all-target Clippy for cellar/cellar-logic, formatting/layout of 2,081 Rust
+files, native dependency checks, 37 committed-plan tests and all original
+plan/evidence/preflight checks pass. All architecture anchors remain byte-identical
+to `cb3d0ca2`. No capacity, compiler/stack or operation limit was raised.
+
+Retained local evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-selection-ee7d7b62-01/record.json`,
+  SHA-256 `82575cd50a6741aaa986ae4f901d0fa55fe1c039a8edf90dd7c95901702eb701`. This CHECKPOINT pins
+  3,348 Git-blob inputs, commands, executables and development attempts; it does
+  not accept the complete CG-11 task.
+- `.cellar/cell-groups-evidence/CG-11-selection-ee7d7b62-rustfs-01/record.json`,
+  SHA-256 `51dfe1743806f71a233a3ccbd452c5b0614f7ea7c3263dd14ceaacc6ba175585`.
+- `.cellar/cell-groups-evidence/CG-11-selection-ee7d7b62-scheduler-rustfs-01/record.json`,
+  SHA-256 `c7537529261ec10d94f7f8091e6e9bcc45ce87e1aff665e6a08d88e0e6b8d64f`.
+- native_cell_groups_transition_service executable SHA-256
+  `f1db92a1a1ee812db16f4146f66c68471019bb8b4adee15bc477a3c6b4dae2d7`.
+- native_cell_groups_split_merge executable SHA-256
+  `6b261036e12d3dc55e614bff9c6f96192f16729cf4f7b761e51a07765e1e7381`.
+- cellar executable SHA-256
+  `9bfca76194a7d0857c42e499729afce4b734af7e0aac2952c4f7dc2d1fea40dc`.
+
+The actual sampler profile qualifies one parent and two live local children,
+with host-native RF3 TLS voters and the unchanged fixture capacity. The 128-tracker
+ceiling is a configured bound, not a large-inventory performance result. RustFS
+uses one CPU, 2 GiB and no extra swap; its owned container is stopped with objects
+retained. Shared-machine timings are correctness observations, not benchmarks.
+Independent voter processes, permanent platform fencing and sustained load remain
+separate gates.
+
+CG-11 remains IN_PROGRESS. Next implement durable engine/registration tombstones,
+pin-safe source cleanup and verified capacity-floor refunds so repeated movement
+cycles remain possible. Connect deployment placement/identity policy to the
+sampler, then qualify whole-group scale out/in, failure-domain repair/reserve and
+fleet-wide fanout. CG-12/13 lifecycle/recovery, the unchanged CG-14 occupancy-128
+matrix gap, CG-15/16 release qualification and full public primitive coverage
+remain open.
+
 ## CG-11 configured capacity before irreversible sealing
 
 At `cb3d0ca2401ba504a74e209ddce9357c42cb3b77`, fresh seal authorization
