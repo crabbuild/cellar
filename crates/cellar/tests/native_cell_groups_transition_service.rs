@@ -408,26 +408,20 @@ async fn exercise(
         source: group(cluster.history),
     };
     if reclaim {
-        let refused = controls[first]
-            .reclaim_transition_source(
-                "automatic-test",
-                &namespace,
-                &request.operation_id,
-                &early,
-                TIMEOUT,
-            )
-            .await;
-        ensure!(matches!(refused, Err(error) if error.code == RaftFleetFailureCode::Conflict));
-        let forbidden = controls[first]
-            .reclaim_transition_source(
-                "another-principal",
-                &namespace,
-                &request.operation_id,
-                &early,
-                TIMEOUT,
-            )
-            .await;
-        ensure!(matches!(forbidden, Err(error) if error.code == RaftFleetFailureCode::Forbidden));
+        reclamation::expect_refusal(
+            &controls[first],
+            &early,
+            "automatic-test",
+            RaftFleetFailureCode::Conflict,
+        )
+        .await?;
+        reclamation::expect_refusal(
+            &controls[first],
+            &early,
+            "another-principal",
+            RaftFleetFailureCode::Forbidden,
+        )
+        .await?;
     }
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     let refused = tokio::time::timeout(TIMEOUT, async {

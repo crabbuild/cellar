@@ -3,6 +3,38 @@
 //! Real source collection preserves colocated child serving and retained restart.
 use super::*;
 
+pub(super) async fn expect_refusal(
+    endpoint: &RaftFleetControl,
+    request: &RaftFleetTransitionSourceSealRequest,
+    principal: &str,
+    expected: RaftFleetFailureCode,
+) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let result = Box::pin(endpoint.reclaim_transition_source(
+                principal,
+                &request.namespace_id,
+                &request.operation_id,
+                request,
+                deadline.saturating_duration_since(tokio::time::Instant::now()),
+            ))
+            .await;
+            if matches!(&result, Err(error) if error.code == RaftFleetFailureCode::Busy) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+            ensure!(
+                matches!(&result, Err(error) if error.code == expected),
+                "expected {expected:?}, got {result:?}"
+            );
+            return Ok::<_, anyhow::Error>(());
+        }
+    })
+    .await??;
+    Ok(())
+}
+
 pub(super) async fn collect(
     cluster: &ManagedCluster,
     rooted: bool,
