@@ -116,7 +116,7 @@ pub(super) async fn node_with_peer_key(
     .await
 }
 
-pub(super) fn limits() -> CellGroupNodeLimits {
+pub fn limits() -> CellGroupNodeLimits {
     CellGroupNodeLimits {
         namespaces: CellGroupHostLimits {
             max_namespaces: 1,
