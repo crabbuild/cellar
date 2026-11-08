@@ -323,6 +323,12 @@ enum Work {
     ),
     SourceStatus(GroupHistory, Reply<Option<SourceReclaimAck>>),
     FinishSource(Box<SourceReclaimAck>, Reply<SourceReclaimAck>),
+    ReclaimMember(
+        Box<super::cell_groups::member_reclaim::Permit>,
+        Reply<MemberReclaimAck>,
+    ),
+    MemberStatus(GroupHistory, Reply<Option<MemberReclaimAck>>),
+    FinishMember(Box<MemberReclaimAck>, Reply<MemberReclaimAck>),
     Purge(Reply<()>),
 }
 
@@ -331,6 +337,31 @@ enum Work {
 pub(crate) struct SourceReclaimAck {
     owner: Arc<()>,
     record: super::cell_groups::source_reclaim::Record,
+}
+
+/// Local engine authority is retained through page/image collection and the
+/// caller's root settlement. A deserialized record cannot construct this ack.
+#[derive(Clone)]
+pub(crate) struct MemberReclaimAck {
+    owner: Arc<()>,
+    record: super::cell_groups::member_reclaim::Record,
+}
+
+impl MemberReclaimAck {
+    pub(crate) fn record(&self) -> &super::cell_groups::member_reclaim::Record {
+        &self.record
+    }
+
+    pub(crate) fn check(&self, log: &ReplicaLog) -> Result<(), LogError> {
+        if !Arc::ptr_eq(&self.owner, &log.inner.owner) {
+            return Err(LogError::WrongIdentity);
+        }
+        self.record.validate(
+            log.storage_instance()?.bytes(),
+            log.limits().node,
+            log.limits().disk,
+        )
+    }
 }
 
 impl SourceReclaimAck {
@@ -954,6 +985,33 @@ impl ReplicaLog {
         .await
     }
 
+    pub(crate) async fn reclaim_member(
+        &self,
+        permit: super::cell_groups::member_reclaim::Permit,
+    ) -> Result<MemberReclaimAck, LogError> {
+        self.request(32 * 1024, |reply| {
+            Work::ReclaimMember(Box::new(permit), reply)
+        })
+        .await
+    }
+
+    pub(crate) async fn member_reclamation(
+        &self,
+        history: GroupHistory,
+    ) -> Result<Option<MemberReclaimAck>, LogError> {
+        self.request(4096, |reply| Work::MemberStatus(history, reply))
+            .await
+    }
+
+    pub(crate) async fn finish_member_reclamation(
+        &self,
+        ack: MemberReclaimAck,
+    ) -> Result<MemberReclaimAck, LogError> {
+        ack.check(self)?;
+        self.request(4096, |reply| Work::FinishMember(Box::new(ack), reply))
+            .await
+    }
+
     pub(crate) async fn source_reclamation(
         &self,
         history: GroupHistory,
@@ -1269,6 +1327,17 @@ impl Worker {
                 return Err(LogError::Corrupt(
                     "live mapping also has source tombstone".into(),
                 ));
+            }
+            if let Some(previous) = self.member_status(mapping.history()?)? {
+                if !mapping.is_cells()
+                    || !previous.record.permits_mapping(
+                        mapping.history()?,
+                        mapping.birth_digest,
+                        mapping.member,
+                    )
+                {
+                    return Err(records::corrupt("live mapping violates member refusal"));
+                }
             }
             if application
                 .replace(mapping.is_cells())
@@ -1624,11 +1693,18 @@ impl Worker {
             // remains outside this birth configuration until authenticated install.
             cache.membership = seed.initial_membership(&conf)?;
         }
+        let bootstrap_history = bootstrap.route.history;
         cache.group_manifest = Some(
             super::cell_groups::GroupManifest::genesis(bootstrap.route)
                 .map_err(|error| LogError::Invalid(error.to_string()))?,
         );
-        self.insert_mapping(mapping, cache, None)?
+        let rejoin = if let Some(previous) = self.member_status(bootstrap_history)? {
+            seed.and_then(|grant| grant.managed_binding())
+                == Some(previous.record.member.authorization()?.binding())
+        } else {
+            false
+        };
+        self.insert_mapping_with_member_admission(mapping, cache, None, rejoin)?
             .as_cells()
             .cloned()
     }
@@ -1698,10 +1774,29 @@ impl Worker {
     fn insert_mapping(
         &mut self,
         mapping: MappingRecord,
-        mut cache: CachedGroup,
+        cache: CachedGroup,
         imported: Option<&ImportedGenesis>,
     ) -> Result<StoredGroup, LogError> {
+        self.insert_mapping_with_member_admission(mapping, cache, imported, false)
+    }
+
+    fn insert_mapping_with_member_admission(
+        &mut self,
+        mapping: MappingRecord,
+        mut cache: CachedGroup,
+        imported: Option<&ImportedGenesis>,
+        admitted_member: bool,
+    ) -> Result<StoredGroup, LogError> {
         let history = mapping.history()?;
+        if let Some(previous) = self.member_status(history)? {
+            if !admitted_member
+                || !previous
+                    .record
+                    .permits_mapping(history, mapping.birth_digest, mapping.member)
+            {
+                return Err(LogError::WrongIdentity);
+            }
+        }
         if self
             .engine
             .get(0, &super::cell_groups::source_reclaim::key(history.group))
@@ -2054,6 +2149,205 @@ impl Worker {
         }))
     }
 
+    fn member_status(&self, history: GroupHistory) -> Result<Option<MemberReclaimAck>, LogError> {
+        use super::cell_groups::{member_reclaim, source_reclaim};
+        let Some(bytes) = self.engine.get(0, &member_reclaim::key(history.group)) else {
+            return Ok(None);
+        };
+        if bytes.len() > source_reclaim::MAX_RECORD_BYTES || self.source_budget()? == 0 {
+            return Err(records::corrupt("member fence size or budget"));
+        }
+        let record: member_reclaim::Record = records::decode(&bytes)?;
+        record
+            .validate(
+                self.root.identity.storage_instance,
+                self.options.node,
+                self.options.disk,
+            )
+            .map_err(|_| records::corrupt("invalid member fence"))?;
+        if record.member.scope()? != history {
+            return Err(LogError::WrongIdentity);
+        }
+        if record.old_key >= self.root.next_key
+            || record.sequence > self.root.sequence
+            || self.engine.get(record.old_key, GROUP_KEY).is_some()
+            || self.engine.last_index(record.old_key).is_some()
+            || self
+                .engine
+                .get(0, &source_reclaim::key(history.group))
+                .is_some()
+        {
+            return Err(records::corrupt("member fence disagrees with engine"));
+        }
+        Ok(Some(MemberReclaimAck {
+            owner: self.owner.clone(),
+            record,
+        }))
+    }
+
+    fn reclaim_member(
+        &mut self,
+        permit: super::cell_groups::member_reclaim::Permit,
+    ) -> Result<MemberReclaimAck, LogError> {
+        use super::cell_groups::{member_reclaim, source_reclaim};
+        permit.check(
+            &self.owner,
+            self.root.identity.storage_instance,
+            self.options.node,
+            self.options.disk,
+        )?;
+        let history = permit.member.scope()?;
+        let previous = self.member_status(history)?;
+        if let Some(previous) = &previous {
+            if previous.record.member == permit.member {
+                return Ok(previous.clone());
+            }
+            if !previous
+                .record
+                .permits_mapping(history, permit.member.birth, permit.member.member)
+            {
+                return Err(LogError::WrongIdentity);
+            }
+        }
+        if self
+            .engine
+            .get(0, &source_reclaim::key(history.group))
+            .is_some()
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        let group = self
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .get(&history)
+            .ok_or(LogError::NotFound)?
+            .as_cells()?
+            .clone();
+        permit.check_group(&group)?;
+        let mapping = self
+            .mappings
+            .get(&group.key)
+            .ok_or(LogError::WrongIdentity)?
+            .clone();
+        let bytes = group.read()?.bytes();
+        let record = member_reclaim::Record {
+            format: 1,
+            member: permit.member,
+            engine: self.root.identity.storage_instance,
+            node: self.options.node.bytes(),
+            disk: self.options.disk.bytes(),
+            old_key: group.key,
+            sequence: self
+                .root
+                .sequence
+                .checked_add(1)
+                .ok_or(LogError::Overloaded)?,
+            complete: false,
+        };
+        // One bounded high-water fence per group. Repeated removals replace it;
+        // all earlier member IDs remain forbidden without growing metadata.
+        let extra = u32::from(previous.is_none());
+        let count = self
+            .source_budget()?
+            .checked_add(extra)
+            .ok_or(LogError::Overloaded)?;
+        if count > self.options.max_source_tombstones {
+            return Err(LogError::Overloaded);
+        }
+        let cache_bytes = self
+            .cache_bytes
+            .checked_sub(bytes)
+            .and_then(|n| n.checked_add(extra as usize * source_reclaim::CACHE_BYTES))
+            .ok_or_else(|| records::corrupt("member fence cache accounting"))?;
+        if cache_bytes > self.options.max_cache_bytes {
+            return Err(LogError::Overloaded);
+        }
+        let encoded = records::encode(&record)?;
+        if encoded.len() > source_reclaim::MAX_RECORD_BYTES {
+            return Err(LogError::Overloaded);
+        }
+        let retention = group.log_retention().ok_or(LogError::WrongIdentity)?;
+        let mut batch = LogBatch::default();
+        batch
+            .put(
+                0,
+                source_reclaim::BUDGET_KEY.to_vec(),
+                records::encode(&source_reclaim::Budget { format: 1, count })?,
+            )
+            .map_err(engine_error)?;
+        batch.add_command(group.key, Command::Clean);
+        batch.delete(0, mapping.catalog_key()?);
+        batch
+            .put(0, member_reclaim::key(history.group), encoded)
+            .map_err(engine_error)?;
+        retention.freeze_reclamation()?;
+        group.reclaimed.store(true, Ordering::Release);
+        self.fence(&mut batch)?;
+        retention
+            .finish_reclamation()
+            .map_err(|_| records::corrupt("reclaimed member retention ledger"))?;
+        Self::clear_reclaimed_cache(&group)?;
+        self.groups
+            .write()
+            .map_err(|_| records::corrupt("reclaimed member catalog lock"))?
+            .remove(&history);
+        self.mappings.remove(&group.key);
+        self.cache_bytes = cache_bytes;
+        Ok(MemberReclaimAck {
+            owner: self.owner.clone(),
+            record,
+        })
+    }
+
+    fn finish_member(&mut self, ack: MemberReclaimAck) -> Result<MemberReclaimAck, LogError> {
+        if !Arc::ptr_eq(&ack.owner, &self.owner) {
+            return Err(LogError::WrongIdentity);
+        }
+        let mut current = self
+            .member_status(ack.record.member.scope()?)?
+            .ok_or(LogError::NotFound)?;
+        if current.record.member != ack.record.member {
+            return Err(LogError::WrongIdentity);
+        }
+        if !current.record.complete {
+            current.record.complete = true;
+            current.record.sequence = self
+                .root
+                .sequence
+                .checked_add(1)
+                .ok_or(LogError::Overloaded)?;
+            let mut batch = LogBatch::default();
+            batch
+                .put(
+                    0,
+                    super::cell_groups::member_reclaim::key(current.record.member.scope()?.group),
+                    records::encode(&current.record)?,
+                )
+                .map_err(engine_error)?;
+            self.fence(&mut batch)?;
+        }
+        Ok(current)
+    }
+
+    fn clear_reclaimed_cache(group: &GroupLog<GroupHistory>) -> Result<(), LogError> {
+        let mut cache = group
+            .cache
+            .write()
+            .map_err(|_| records::corrupt("reclaimed cache lock"))?;
+        cache.manifest_pins.take();
+        cache.group_manifest.take();
+        cache.checkpoint_manifest.take();
+        cache.recovery_genesis.take();
+        cache.entries.clear();
+        cache.snapshot = ::raft::prelude::Snapshot::default();
+        cache.conf_state = ConfState::default();
+        cache.membership = super::member_state::GroupMembership::initial(&cache.conf_state);
+        cache.local_park.take();
+        cache.applied.image.take();
+        Ok(())
+    }
+
     fn reclaim_source(
         &mut self,
         permit: super::cell_groups::source_reclaim::Permit,
@@ -2102,14 +2396,28 @@ impl Worker {
             complete: false,
         };
         let retention = group.log_retention().ok_or(LogError::WrongIdentity)?;
-        let count = self.source_budget()?;
-        if count >= self.options.max_source_tombstones {
+        // A permanent history tombstone subsumes a completed member fence.
+        let previous = self.member_status(history)?;
+        if previous.as_ref().is_some_and(|ack| {
+            !ack.record
+                .permits_mapping(history, mapping.birth_digest, mapping.member)
+        }) {
+            return Err(LogError::WrongIdentity);
+        }
+        let extra = u32::from(previous.is_none());
+        let count = self
+            .source_budget()?
+            .checked_add(extra)
+            .ok_or(LogError::Overloaded)?;
+        if count > self.options.max_source_tombstones {
             return Err(LogError::Overloaded);
         }
         let cache_bytes = self
             .cache_bytes
             .checked_sub(bytes)
-            .and_then(|n| n.checked_add(super::cell_groups::source_reclaim::CACHE_BYTES))
+            .and_then(|n| {
+                n.checked_add(extra as usize * super::cell_groups::source_reclaim::CACHE_BYTES)
+            })
             .ok_or_else(|| records::corrupt("source cache accounting"))?;
         if cache_bytes > self.options.max_cache_bytes {
             return Err(LogError::Overloaded);
@@ -2123,12 +2431,10 @@ impl Worker {
             .put(
                 0,
                 super::cell_groups::source_reclaim::BUDGET_KEY.to_vec(),
-                records::encode(&super::cell_groups::source_reclaim::Budget {
-                    format: 1,
-                    count: count + 1,
-                })?,
+                records::encode(&super::cell_groups::source_reclaim::Budget { format: 1, count })?,
             )
             .map_err(engine_error)?;
+        batch.delete(0, super::cell_groups::member_reclaim::key(history.group));
         batch.add_command(group.key, Command::Clean);
         batch.delete(0, mapping.catalog_key()?);
         batch
@@ -2145,22 +2451,7 @@ impl Worker {
         retention
             .finish_reclamation()
             .map_err(|_| records::corrupt("reclaimed retention ledger"))?;
-        {
-            let mut cache = group
-                .cache
-                .write()
-                .map_err(|_| records::corrupt("reclaimed cache lock"))?;
-            cache.manifest_pins.take();
-            cache.group_manifest.take();
-            cache.checkpoint_manifest.take();
-            cache.recovery_genesis.take();
-            cache.entries.clear();
-            cache.snapshot = ::raft::prelude::Snapshot::default();
-            cache.conf_state = ConfState::default();
-            cache.membership = super::member_state::GroupMembership::initial(&cache.conf_state);
-            cache.local_park.take();
-            cache.applied.image.take();
-        }
+        Self::clear_reclaimed_cache(&group)?;
         self.groups
             .write()
             .map_err(|_| records::corrupt("reclaimed group catalog lock"))?
@@ -2349,6 +2640,33 @@ impl Worker {
                 }
                 Work::ReclaimSource(permit, reply) => {
                     let result = self.reclaim_source(*permit);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::ReclaimMember(permit, reply) => {
+                    let result = self.reclaim_member(*permit);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::MemberStatus(history, reply) => {
+                    let result = self.member_status(history);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::FinishMember(ack, reply) => {
+                    let result = self.finish_member(*ack);
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

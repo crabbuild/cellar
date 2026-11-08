@@ -2,7 +2,7 @@
 
 //! Real shared histories through the rooted topology owner and movement worker.
 use super::*;
-use cellar::application::consensus::verification::cell_groups::RangeDirectory;
+use cellar::application::consensus::verification::{cell_groups::RangeDirectory, RuntimeError};
 use cellar::sdk::{NodeOutcome, ShutdownMode};
 use std::{future::Future, pin::Pin, sync::Arc};
 
@@ -157,6 +157,14 @@ async fn start(cluster: &ManagedCluster, evidence: Arc<Evidence>) -> Result<Flee
 }
 
 pub async fn exercise(cluster: &mut ManagedCluster) -> Result<()> {
+    exercise_inner(cluster, false).await
+}
+
+pub async fn exercise_member_return(cluster: &mut ManagedCluster) -> Result<()> {
+    exercise_inner(cluster, true).await
+}
+
+async fn exercise_inner(cluster: &mut ManagedCluster, collect: bool) -> Result<()> {
     let f = &cluster.fixtures[0];
     let evidence = Arc::new(Evidence {
         hosts: cluster.hosts.clone(),
@@ -194,11 +202,14 @@ pub async fn exercise(cluster: &mut ManagedCluster) -> Result<()> {
         })?;
     }
     let mut service = Some(start(cluster, evidence.clone()).await?);
-    let result = run(cluster, &control, &evidence, &mut service).await;
+    let result = run(cluster, &control, &evidence, &mut service, collect).await;
     if let Some(service) = service.take() {
         service.shutdown().await;
     }
     let seed = result?;
+    if collect {
+        return movement::verify_cells(&cluster.hosts[2], &seed, 4).await;
+    }
     // Placement completion is not a deletion certificate. The obsolete copies
     // stay on disk, while closing both former voters must leave a serving RF3.
     for index in [1, 0] {
@@ -222,17 +233,24 @@ async fn run(
     control: &RaftFleetControl,
     evidence: &Arc<Evidence>,
     service: &mut Option<FleetMovementService>,
+    collect: bool,
 ) -> Result<SeededCells> {
     // Admit the larger fleet before changing the keep set. A single RF3 group
     // needs no balancing move merely because three empty nodes are available.
     let mut seed = None;
-    for (leg, first) in [0usize, 1, 2].into_iter().enumerate() {
+    let mut outgoing = None;
+    let keeps = if collect {
+        [0..6, 1..6, 0..3]
+    } else {
+        [0..6, 1..6, 2..6]
+    };
+    for (leg, keep) in keeps.into_iter().enumerate() {
         let status = control.status(TIMEOUT).await?;
         let request = RaftFleetBegin {
             catalog_id: status.catalog_id,
             operation_id: hex::encode([220 + leg as u8; 16]),
             expected_revision: status.observed_revision,
-            keep: cluster.fixtures[first..]
+            keep: cluster.fixtures[keep]
                 .iter()
                 .map(|f| hex::encode(f.spec.node.bytes()))
                 .collect(),
@@ -270,6 +288,14 @@ async fn run(
                     "observe committed Joint before polling topology completion";
                     _ = evidence.joint_ready.notified(), if leg == 1 && !restarted => {
                         ensure!(evidence.committed_joint(TIMEOUT).await?, "restart must occur in committed Joint");
+                        if collect {
+                            let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+                            let pending = cluster.fixtures[0].catalog.pending_movements(&cut, TIMEOUT).await?;
+                            ensure!(pending.len() == 1);
+                            ensure!(cluster.hosts[0].reclaim_removed_member(pending[0].reservation, TIMEOUT).await.is_err(), "Joint consensus cannot authorize old-member GC");
+                            ensure!(cluster.hosts[0].observe_node(TIMEOUT).await?.node.groups == 1);
+                        }
+
                         let refused = start(cluster, evidence.clone()).await;
                         ensure!(matches!(refused, Err(ref error) if matches!(error.downcast_ref::<FleetCatalogError>(), Some(FleetCatalogError::Overloaded))), "second worker must not bypass node ownership");
                         evidence.pause_joint.store(false, Ordering::Release);
@@ -311,7 +337,12 @@ async fn run(
             ensure!(
                 entry.group == hex::encode(cluster.history.group.bytes())
                     && entry.incarnation == hex::encode(cluster.history.incarnation.bytes())
-                    && entry.source == hex::encode(cluster.fixtures[first - 1].spec.node.bytes())
+                    && entry.source
+                        == if collect && leg == 2 {
+                            outgoing.clone().context("return source")?
+                        } else {
+                            hex::encode(cluster.fixtures[leg - 1].spec.node.bytes())
+                        }
                     && request.keep.contains(&entry.target)
             );
         }
@@ -337,10 +368,101 @@ async fn run(
             .quorum_membership(TIMEOUT)
             .await?;
         ensure!(membership.root().route().history == cluster.history);
+        if collect && leg != 0 {
+            let entry = page.entries.first().context("completed movement")?;
+            let reservation: [u8; 16] = hex::decode(&entry.reservation)?
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("reservation length"))?;
+            let source = cluster
+                .fixtures
+                .iter()
+                .position(|f| hex::encode(f.spec.node.bytes()) == entry.source)
+                .context("obsolete source")?;
+            ensure!(
+                cluster.hosts[2]
+                    .reclaim_removed_member(reservation, TIMEOUT)
+                    .await
+                    .is_err(),
+                "surviving voter cannot collect itself from another member's completion"
+            );
+            let before = cluster.hosts[source].observe_node(TIMEOUT).await?;
+            ensure!(before.node.groups == 1);
+            let deadline = tokio::time::Instant::now() + TIMEOUT;
+            tokio::time::timeout_at(deadline, async {
+                loop {
+                    match cluster.hosts[source]
+                        .reclaim_removed_member(
+                            reservation,
+                            deadline.saturating_duration_since(tokio::time::Instant::now()),
+                        )
+                        .await
+                    {
+                        Ok(true) => return Ok::<_, anyhow::Error>(()),
+                        Ok(false)
+                        | Err(CellGroupControllerError::Runtime(
+                            RuntimeError::NotReady | RuntimeError::Overloaded,
+                        )) => tokio::time::sleep(Duration::from_millis(10)).await,
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+            })
+            .await
+            .context("joined member reclamation budget")??;
+            ensure!(
+                cluster.hosts[source]
+                    .reclaim_removed_member(reservation, TIMEOUT)
+                    .await?,
+                "exact physical reclamation replay"
+            );
+            let after = cluster.hosts[source].observe_node(TIMEOUT).await?;
+            ensure!(
+                after.node.groups == 0,
+                "obsolete engine mapping survived GC"
+            );
+            ensure!(
+                cluster.hosts[source]
+                    .start_managed_first_group(cluster.history, TIMEOUT)
+                    .await
+                    .is_err(),
+                "member fence allowed old genesis resurrection"
+            );
+            ensure!(
+                cluster.hosts[source]
+                    .observe_node(TIMEOUT)
+                    .await?
+                    .node
+                    .groups
+                    == 0
+            );
+            if leg == 1 {
+                outgoing = Some(entry.target.clone());
+            }
+            if leg == 2 {
+                let physical = cluster.hosts[2]
+                    .inspect_peer_physical_inventory(
+                        cluster.fixtures[0].spec.node,
+                        cut.revision(),
+                        TIMEOUT,
+                    )
+                    .await?;
+                let inventory = physical.inventory.context("returned member inventory")?;
+                let returned = inventory
+                    .group_history(&cluster.history)
+                    .context("returned shared history")?;
+                ensure!(
+                    returned.in_configuration() && returned.member().get() > 4,
+                    "return reused an obsolete member ID"
+                );
+            }
+        }
+
         ensure!(
             membership.configuration().voters.len() == 3
                 && membership.configuration().voters_outgoing.is_empty()
         );
+    }
+    if collect {
+        return seed.context("seeded logical cells");
     }
     let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
     for index in [0, 1] {

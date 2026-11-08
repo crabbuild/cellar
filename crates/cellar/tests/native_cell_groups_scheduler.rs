@@ -22,6 +22,43 @@ use managed_fixture::{
 use std::{sync::atomic::Ordering, time::Duration};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn removed_member_reclaimed_and_returns_with_fresh_id() -> Result<()> {
+    for rooted in [false, true] {
+        let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7, 8, 9])).await?;
+        let result = Box::pin(topology::exercise_member_return(&mut cluster)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| format!("removed member GC and return, extents={rooted}"))?;
+        joined?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_removed_member_reclaimed_and_returns_with_fresh_id() -> Result<()> {
+    for rooted in [false, true] {
+        let store = std::sync::Arc::new(catalog_fault::Store::around(rustfs::store(
+            "member-reclamation",
+            rooted,
+        )?));
+        let mut cluster = Box::pin(ManagedCluster::start_with_store(
+            rooted,
+            &[7, 8, 9],
+            managed_fixture::ArchiveSetup::Initialized,
+            store,
+        ))
+        .await?;
+        let result = Box::pin(topology::exercise_member_return(&mut cluster)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| format!("RustFS removed member GC and return, extents={rooted}"))?;
+        joined?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn whole_group_scale_out_in() -> Result<()> {
     for rooted in [false, true] {
         let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7, 8, 9])).await?;

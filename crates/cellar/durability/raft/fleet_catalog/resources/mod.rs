@@ -10,6 +10,7 @@ mod execution;
 mod intent;
 mod ledger;
 mod maintenance;
+mod member_reclamation;
 mod membership;
 mod repair;
 pub use completion::{

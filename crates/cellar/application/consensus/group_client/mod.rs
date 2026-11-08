@@ -117,6 +117,7 @@ mod drain;
 mod fleet;
 mod hibernation;
 mod learner;
+mod member_reclamation;
 mod membership;
 mod node;
 mod observation;

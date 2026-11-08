@@ -364,13 +364,27 @@ impl RootRetentions {
         group: &GroupLog<cellar_logic::cell_group::GroupHistory>,
         source: &super::source_reclaim::Source,
     ) -> Result<(), ManifestError> {
+        self.prepare_reclamation(group, |marker| source.check_marker(marker))
+    }
+
+    pub(super) fn prepare_member_reclamation(
+        &self,
+        group: &GroupLog<cellar_logic::cell_group::GroupHistory>,
+        member: &super::member_reclaim::Member,
+    ) -> Result<(), ManifestError> {
+        self.prepare_reclamation(group, |marker| member.check_marker(marker))
+    }
+
+    fn prepare_reclamation(
+        &self,
+        group: &GroupLog<cellar_logic::cell_group::GroupHistory>,
+        check: impl FnOnce(&GroupManifest) -> Result<(), crate::raft::storage::LogError>,
+    ) -> Result<(), ManifestError> {
         let marker = group
             .group_manifest()
             .map_err(|_| ManifestError::Conflict)?
             .ok_or(ManifestError::Conflict)?;
-        source
-            .check_marker(&marker)
-            .map_err(|_| ManifestError::Conflict)?;
+        check(&marker).map_err(|_| ManifestError::Conflict)?;
         self.require_selected(group, &marker)?;
         if !self.state()?.retained.is_empty() {
             return Err(ManifestError::Conflict);
@@ -383,6 +397,23 @@ impl RootRetentions {
         group: &GroupLog<cellar_logic::cell_group::GroupHistory>,
         source: &super::source_reclaim::Source,
     ) -> Result<(), ManifestError> {
+        self.detach_reclaimed(group, source.history, |marker| source.check_marker(marker))
+    }
+
+    pub(super) fn detach_reclaimed_member(
+        &self,
+        group: &GroupLog<cellar_logic::cell_group::GroupHistory>,
+        member: &super::member_reclaim::Member,
+    ) -> Result<(), ManifestError> {
+        self.detach_reclaimed(group, member.history, |marker| member.check_marker(marker))
+    }
+
+    fn detach_reclaimed(
+        &self,
+        group: &GroupLog<cellar_logic::cell_group::GroupHistory>,
+        history: [[u8; 16]; 4],
+        check: impl FnOnce(&GroupManifest) -> Result<(), crate::raft::storage::LogError>,
+    ) -> Result<(), ManifestError> {
         if !group.reclaimed.load(Ordering::Acquire) || group.closed.load(Ordering::Acquire) {
             return Err(ManifestError::Conflict);
         }
@@ -390,7 +421,7 @@ impl RootRetentions {
         if !state.retained.is_empty() {
             return Err(ManifestError::Conflict);
         }
-        if let Some(selected) = state.groups.get(&source.history) {
+        if let Some(selected) = state.groups.get(&history) {
             if !Arc::ptr_eq(&selected.engine, &group.owner)
                 || selected.pending.is_some()
                 || selected.pending_checkpoint
@@ -404,10 +435,8 @@ impl RootRetentions {
                 .as_ref()
                 .ok_or(ManifestError::Conflict)?
                 .marker;
-            source
-                .check_marker(marker)
-                .map_err(|_| ManifestError::Conflict)?;
-            state.groups.remove(&source.history);
+            check(marker).map_err(|_| ManifestError::Conflict)?;
+            state.groups.remove(&history);
         }
         state.reconciled = true;
         Ok(())

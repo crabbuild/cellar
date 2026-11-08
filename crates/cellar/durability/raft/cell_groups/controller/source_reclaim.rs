@@ -8,8 +8,96 @@ use crate::raft::cell_groups::{
 use cellar_logic::cell_group::GroupHistory;
 use tokio::sync::oneshot;
 
+#[derive(Clone)]
+enum Reclamation {
+    Source(Permit),
+    Member(super::super::member_reclaim::Permit),
+}
+
+enum Ack {
+    Source(crate::raft::storage::SourceReclaimAck),
+    Member(crate::raft::storage::MemberReclaimAck),
+}
+
+impl Reclamation {
+    fn history(&self) -> Result<GroupHistory, crate::raft::storage::LogError> {
+        match self {
+            Self::Source(p) => p.source.scope(),
+            Self::Member(p) => p.member.scope(),
+        }
+    }
+
+    async fn status(
+        &self,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Option<Ack>, crate::raft::storage::LogError> {
+        let history = self.history()?;
+        match self {
+            Self::Source(_) => log
+                .source_reclamation(history)
+                .await
+                .map(|ack| ack.map(Ack::Source)),
+            Self::Member(_) => log
+                .member_reclamation(history)
+                .await
+                .map(|ack| ack.map(Ack::Member)),
+        }
+    }
+
+    fn matches(&self, ack: &Ack) -> bool {
+        match (self, ack) {
+            (Self::Source(p), Ack::Source(a)) => p.source == a.record().source,
+            (Self::Member(p), Ack::Member(a)) => p.member == a.record().member,
+            _ => false,
+        }
+    }
+
+    async fn reclaim(
+        &self,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Ack, crate::raft::storage::LogError> {
+        match self {
+            Self::Source(p) => log.reclaim_source(p.clone()).await.map(Ack::Source),
+            Self::Member(p) => log.reclaim_member(p.clone()).await.map(Ack::Member),
+        }
+    }
+
+    fn prepare_physical(&self, applier: &CellGroupApplier) -> Result<(), ExecutionError> {
+        match self {
+            Self::Source(p) => super::super::source_reclaim::prepare_physical(applier, &p.source),
+            Self::Member(p) => super::super::member_reclaim::prepare_physical(applier, &p.member),
+        }
+    }
+
+    fn reclaim_physical(&self, applier: &CellGroupApplier) -> Result<bool, ExecutionError> {
+        match self {
+            Self::Source(p) => super::super::source_reclaim::reclaim_physical(applier, &p.source),
+            Self::Member(p) => super::super::member_reclaim::reclaim_physical(applier, &p.member),
+        }
+    }
+}
+
+impl Ack {
+    fn complete(&self) -> bool {
+        match self {
+            Self::Source(a) => a.record().complete,
+            Self::Member(a) => a.record().complete,
+        }
+    }
+
+    async fn finish(
+        self,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<(), crate::raft::storage::LogError> {
+        match self {
+            Self::Source(a) => log.finish_source_reclamation(a).await.map(|_| ()),
+            Self::Member(a) => log.finish_member_reclamation(a).await.map(|_| ()),
+        }
+    }
+}
+
 pub(super) struct Request {
-    permit: Permit,
+    permit: Reclamation,
     config: Arc<provision::Config>,
     preparation: Arc<crate::raft::budget::Permit>,
     parallel: Arc<tokio::sync::OwnedSemaphorePermit>,
@@ -59,6 +147,83 @@ impl CellGroupController {
             .prepare_managed_source_reclamation(plan, history, shared.runtime.log())
             .await
             .map_err(|error| CellGroupControllerError::Catalog(Arc::new(error)))?;
+        self.submit_reclamation(
+            Reclamation::Source(permit),
+            config,
+            preparation,
+            parallel,
+            memory,
+        )
+        .await
+    }
+
+    pub(crate) async fn reclaim_removed_member(
+        &self,
+        permit: super::super::member_reclaim::Permit,
+    ) -> Result<bool, CellGroupControllerError> {
+        let shared = &self.handle.0;
+        if shared.closing.load(Ordering::Acquire) {
+            return Err(CellGroupControllerError::Closed);
+        }
+        let history = permit.member.scope().map_err(RuntimeError::from)?;
+        if shared
+            .runtime
+            .log()
+            .member_reclamation(history)
+            .await
+            .map_err(RuntimeError::from)?
+            .is_none_or(|ack| ack.record().member != permit.member)
+        {
+            self.quiesce_removed_member(permit.member.clone()).await?;
+        }
+        let memory = Arc::new(
+            shared
+                .commands
+                .acquire(32 * 1024)
+                .ok_or(RuntimeError::Overloaded)?,
+        );
+        let config = shared
+            .provisioning
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .clone()
+            .ok_or(CellGroupControllerError::Invalid(
+                "reclamation provisioning",
+            ))?;
+        let preparation = Arc::new(
+            config
+                .preparations
+                .acquire(config.bytes)
+                .ok_or(RuntimeError::Overloaded)?,
+        );
+        // Same-group page paths cannot be reused until bounded physical GC is
+        // complete. Take the existing node preparation lane exclusively.
+        let parallel = Arc::new(
+            config
+                .parallel
+                .clone()
+                .try_acquire_many_owned(config.settings.max_parallel_preparations as u32)
+                .map_err(|_| RuntimeError::Overloaded)?,
+        );
+        self.submit_reclamation(
+            Reclamation::Member(permit),
+            config,
+            preparation,
+            parallel,
+            memory,
+        )
+        .await
+    }
+
+    async fn submit_reclamation(
+        &self,
+        permit: Reclamation,
+        config: Arc<provision::Config>,
+        preparation: Arc<crate::raft::budget::Permit>,
+        parallel: Arc<tokio::sync::OwnedSemaphorePermit>,
+        memory: Arc<crate::raft::budget::Permit>,
+    ) -> Result<bool, CellGroupControllerError> {
+        let shared = &self.handle.0;
         let (reply, response) = oneshot::channel();
         shared
             .requests
@@ -87,10 +252,10 @@ pub(super) async fn drive(
     request: &Request,
 ) -> Result<bool, CellGroupControllerError> {
     let log = shared.runtime.log();
-    let source = request.permit.source.clone();
-    let history = source.scope().map_err(RuntimeError::from)?;
-    let previous = log
-        .source_reclamation(history)
+    let history = request.permit.history().map_err(RuntimeError::from)?;
+    let previous = request
+        .permit
+        .status(log)
         .await
         .map_err(RuntimeError::from)?;
     shared
@@ -98,11 +263,11 @@ pub(super) async fn drive(
         .require_reclaimable(&history, previous.is_some())?;
     if previous
         .as_ref()
-        .is_some_and(|ack| ack.record().source != source)
+        .is_some_and(|ack| !request.permit.matches(ack))
     {
         return Err(RuntimeError::StaleCompletion.into());
     }
-    if previous.as_ref().is_some_and(|ack| ack.record().complete) {
+    if previous.as_ref().is_some_and(|ack| ack.complete()) {
         shared.groups.finish_reclamation(&history)?;
         shared
             .retired_sources
@@ -130,14 +295,14 @@ pub(super) async fn drive(
     }
     if previous.is_none() {
         let applier = applier.clone().ok_or(RuntimeError::NotReady)?;
-        let source = source.clone();
+        let permit = request.permit.clone();
         let memory = request.preparation.clone();
         let parallel = request.parallel.clone();
         log.domain()
             .blocking(move || {
                 let _memory = memory;
                 let _parallel = parallel;
-                super::super::source_reclaim::prepare_physical(&applier, &source)
+                permit.prepare_physical(&applier)
             })
             .map_err(|_| CellGroupControllerError::Closed)?
             .await
@@ -146,10 +311,12 @@ pub(super) async fn drive(
     }
     // The queue owns this operation until physical work returns, even if its
     // caller times out. A durable incomplete receipt is sufficient for recovery.
-    let ack = log
-        .reclaim_source(request.permit.clone())
+    let ack = request
+        .permit
+        .reclaim(log)
         .await
         .map_err(RuntimeError::from)?;
+    let permit = request.permit.clone();
     let config = request.config.clone();
     let memory = request.preparation.clone();
     let parallel = request.parallel.clone();
@@ -159,7 +326,7 @@ pub(super) async fn drive(
             let _memory = memory;
             let _parallel = parallel;
             if let Some(applier) = applier {
-                return super::super::source_reclaim::reclaim_physical(&applier, &source);
+                return permit.reclaim_physical(&applier);
             }
             // A retained restart already adopted every remaining engine-selected
             // image. Reopen only this tombstoned history's private page inventory.
@@ -196,9 +363,7 @@ pub(super) async fn drive(
     if !done {
         return Ok(false);
     }
-    log.finish_source_reclamation(ack)
-        .await
-        .map_err(RuntimeError::from)?;
+    ack.finish(log).await.map_err(RuntimeError::from)?;
     shared.groups.finish_reclamation(&history)?;
     shared
         .retired_sources
