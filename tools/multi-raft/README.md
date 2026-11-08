@@ -609,3 +609,26 @@ mutation. Generic queue deletion refuses and original SQL, receipts, versions
 and subsequent S3 writes remain intact. Original resource/deadline bounds apply.
 Successor boots, daemon startup wiring, failure-domain/reserve/fanout and load
 qualification remain open.
+
+
+## Retained cleanup and configured startup
+
+Set `RaftHostOptions::member_cleanup` to `Some(FleetMovementServiceOptions::default())`
+to start a cleanup worker with the managed host. The node registry owns its stop
+and join; no external service handle is required. This consumes the movement-worker
+slot. Applications starting a combined movement/topology worker should use that
+worker's `reclaim_removed_members` option instead.
+
+Before replacing a rooted boot, startup preserves the original source witness for
+both active movements and queued completed cleanup. A retained successor must keep
+the exact catalog/fleet/node/disk/engine, advance the boot epoch, change process and
+join identity, and qualify fresh rooted capacity. Cleanup and settlement revalidate
+this authority. Already committed cleanup receipts replay without another refund.
+Unqualified capacity, missing original witnesses and stale processes refuse.
+
+Use `--suite managed-retained-cleanup` against an owned RustFS backend. Its case
+runs both image modes and restarts before GC, after GC/before settlement, and after
+committed settlement. It checks automatic startup ownership, duplicate-worker
+refusal, joined stop, stale-capacity and missing-witness refusal, and receipt replay
+on a later qualified boot. Original SQL, receipts, versions and S3 writes persist.
+Independent-domain, load and measured-resource qualification remain open gates.
