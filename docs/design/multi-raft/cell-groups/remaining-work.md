@@ -99,7 +99,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | At `2bd87acf`, rooted full-request cursors resume on another controller without caller-held IDs; protected terminal receipts prevent re-enqueue. The extended native/RustFS case passes both image modes through actual staging, birth and settlement CAS ambiguity. Nine native transition and six scheduler cases pass. Retained cleanup/startup remains implemented. | Deliver the node-owned automatic scheduling loop, placement/consent policy, selection-race handling and staged cancellation/recovery. Finish adaptive placement, failure-domain/reserve and bounded fanout. Resolve concurrency readiness; qualify late faults, mixed load, larger inventories and peaks. Full acceptance remains pending. |
+| CG-11 | At `67f6727d`, a node-owned automatic partition service restores rooted work before planning, admits original child identities and runs an embedded transition worker with explicit execution policy. The new native and real RustFS case passes both image modes through lost selection replies, cross-node recovery, consent refusals, joined callbacks and SQL/receipt/version/S3 integrity. Retained cleanup/startup and protected partition settlement remain implemented. | Resolve the two reproduced child-replay NotReady failures and obtain a clean regression gate. Qualify competing selections and safe staged cancellation/recovery. Deliver adaptive whole-group placement and configured deployment startup; finish failure-domain/reserve and bounded fanout. Resolve concurrency readiness; qualify late faults, mixed load, larger inventories and peaks. Full acceptance remains pending. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | The daemon harness retains scoped real-voter/RustFS evidence. The focused native occupancy-128 case passes; the original three-occupancy matrix still times out at 128. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
@@ -115,13 +115,15 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Finish CG-11 adaptive placement.** Durable partition admission now survives
-   coordinator replacement without caller-held IDs. Next deliver the node-owned
-   automatic scheduling loop and placement/consent policy, including competing
-   selections and cancellation/recovery of staged work. Complete adaptive whole-
-   group balancing and the missing failure-domain/reserve and bounded-fanout
-   cases. Resolve concurrency readiness; qualify late faults, mixed load, larger
-   inventories and measured peaks. Keep CG-11 open until all gates close.
+1. **Finish CG-11 adaptive placement.** The automatic node owner now runs local
+   sampling, deployment planning and rooted admission with explicit execution
+   policy; its native and RustFS case passes both image modes. First resolve the
+   two reproduced child-replay NotReady failures and obtain a clean regression
+   gate. Then qualify competing selections and safe cancellation/recovery of
+   staged work. Deliver adaptive whole-group placement and configured deployment startup, then the
+   missing failure-domain/reserve and bounded-fanout cases. Resolve concurrency
+   readiness; qualify late faults, mixed load, larger inventories and measured
+   peaks. Keep CG-11 open until all gates close.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
    wake eligibility and retained lifecycle, then S3 recovery of interrupted
    transitions. CG-13 requires the CG-14 infrastructure harness and the permanent

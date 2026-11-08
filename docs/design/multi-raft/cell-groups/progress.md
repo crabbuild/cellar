@@ -12,6 +12,62 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 node-owned automatic partition service
+
+At `67f6727d`, `RaftFleetControl::start_partition_service` owns automatic local
+sampling, deployment planning, rooted admission and an embedded transition worker.
+It uses the managed node's installed catalog backend and execution domain, an
+exclusive registry slot, a 2-MiB workspace and the existing bounded sampler bank.
+The original node control limits are unchanged. Stop cancels an entered callback;
+shutdown joins both workers before releasing their slots. Durable work and
+physical debt survive stop.
+
+Cold startup discovers the selected request before pressure or placement
+callbacks. The planner supplies fresh identities and RF3 placement against an
+exact recommendation and catalog/directory basis; existing owners revalidate
+capacity, membership and serving authority. A fresh turn stages selection before
+child admission. If selection fails, only its unadmitted volatile candidate is
+discarded; the next turn first discovers any committed Root cursor. Once selected,
+partial admission retains the original request and every child identity.
+
+Execution defaults to `AdmissionOnly`. Explicit `Complete` policy grants seal
+and execution consent only for the configured principal and namespace scopes,
+including restored work. A foreign principal refuses. Existing exact consent is
+reconciled after ambiguity; the original operator consent API and all archive,
+quorum, seal, activation and physical-release checks remain authoritative.
+The embedded and standalone transition workers share one exclusive node slot.
+
+The new public integration case passes natively and against real RustFS in both
+image modes. It joins a blocked planner and reuses the node slots; refuses a
+duplicate service; loses the actual selection CAS reply while both child histories
+remain absent; and recovers on another node without caller-held IDs or new
+callbacks. Admission-only and foreign-principal modes leave the plan Planned.
+Explicit Complete policy then executes the original split through live retirement
+and verified child archives, preserving original receipts, minimum-version reads
+and fresh S3 writes. Native and RustFS runs use the same executable.
+
+All six native scheduler cases, strict all-target Clippy and repository checks
+pass. The broader native transition
+run records seven passes and two failures: child 1 receipt replay returns
+`Runtime(NotReady)` in the colocated-child extent case and the materialized
+source-reclamation case. Both failures join shutdown successfully. This reproduces
+the previously recorded readiness issue; its cause and relation to this change
+are not established. No retry-to-green result replaces the failed run.
+
+Evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-partition-service-67f6727d-01/record.json` (CHECKPOINT).
+- `.cellar/cell-groups-evidence/CG-11-partition-service-67f6727d-rustfs-01/record.json`.
+
+CG-11 remains IN_PROGRESS. First resolve the reproduced child-replay readiness
+failure and obtain a clean regression gate. Then qualify competing automatic
+selections and safe cancellation/recovery of refused staged work, implement
+adaptive whole-group placement and finish the named failure-domain/reserve and
+bounded-fanout cases.
+Configured deployment startup, late faults, mixed load, larger inventories and
+measured peaks remain open. Host-native TLS voters and one-CPU/two-GiB RustFS do
+not qualify independent voter domains or performance.
+
 ## CG-11 durable partition admission and coordinator recovery
 
 At `2bd87acf`, scheduled split/merge admission owns one Fleet-root cursor before
