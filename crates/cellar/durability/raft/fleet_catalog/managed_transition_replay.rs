@@ -426,7 +426,7 @@ impl FleetCatalog {
             &transition,
             directory,
             verifier.archives(),
-            verifier.tails(),
+            &verifier.tails().for_transition_sources(),
             sources,
             deadline.remaining()?,
         )
@@ -573,7 +573,7 @@ pub(super) async fn transfer_inputs(
     }
     Ok(CellGroupTransitionPreparationInputs {
         archives: verifier.archives().clone(),
-        tails: verifier.tails().clone(),
+        tails: verifier.tails().for_transition_sources(),
         restore,
         sources,
         targets,

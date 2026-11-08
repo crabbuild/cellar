@@ -1781,5 +1781,6 @@ membership and configuration charged in the same tail byte bank, while returning
 the active replay slot. The next parent still needs its full replay workspace in
 that bank. This permits a two-parent merge with one active replay operation;
 neither byte capacity nor concurrency is increased. Shared coverage or an entered
-worker cannot release the slot. Ordinary archive publication and recovery retain
-their original admission policy.
+worker cannot release the slot. Only the managed verifier's private pool view
+selects this policy. Caller-supplied transition sources, ordinary archive
+publication and recovery retain their original admission policy.

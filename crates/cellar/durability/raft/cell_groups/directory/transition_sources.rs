@@ -533,8 +533,12 @@ impl RangeDirectory {
             };
             let coverage = registry
                 .verify_hold(domain, &source.hold, tails, source.receiver)
-                .await?
-                .retain_transition_source()?;
+                .await?;
+            let coverage = if tails.sequential_sources() {
+                coverage.retain_transition_source()?
+            } else {
+                coverage
+            };
             self.check_source_marker(
                 mutation,
                 &journal,
