@@ -109,6 +109,7 @@ async fn qualify(rooted: bool, reserve: u32, store: Arc<catalog_fault::Store>) -
         configuration(reserve),
     ))
     .await?;
+    eprintln!("automatic RF3: extents={rooted}, reserve={reserve}, startup complete");
     let result = cluster.fixtures[0]
         .domain
         .run(Box::pin(exercise(&cluster, reserve)))
@@ -157,7 +158,8 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     // No test callback supplies a child identity, destination or operator plan.
     ensure!(statuses(cluster).iter().all(Option::is_some));
     cluster.hosts[3].suspend_automatic_partitions().await;
-    let seed = seed_cells(&cluster.hosts, cluster.history).await?;
+    let seed = seed_cells(&cluster.hosts, cluster.history).await.context("seed original cells")?;
+    eprintln!("automatic RF3: original cells seeded");
     let initial = cluster.directory.observe().await?;
     let first = leader(&cluster.hosts[..3], cluster.history).await?;
     let handle = cluster.hosts[first].cell(seed.cells[0].clone())?;
@@ -220,6 +222,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     .await
     .with_context(|| format!("automatic selection: {:?}", statuses(cluster)))??;
     ensure!(acknowledged.iter().all(|receipts| !receipts.is_empty()));
+    eprintln!("automatic RF3: load reached selection or reserve refusal");
     let original_operation = statuses(cluster)
         .into_iter()
         .flatten()
@@ -329,6 +332,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
             .is_none_or(|work| work == &selected),
         "merge selected before leader separation"
     );
+    eprintln!("automatic RF3: split retired after controller replacement");
     let histories: Vec<_> = children.iter().copied().collect();
     let left = current_leader(cluster, histories[0]).await?;
     let right = current_leader(cluster, histories[1]).await?;
@@ -401,6 +405,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     })
     .await
     .with_context(|| format!("configured quiet merge: {:?}", statuses(cluster)))??;
+    eprintln!("automatic RF3: different-leader merge retired");
     ensure!(
         statuses(cluster)
             .iter()
@@ -423,26 +428,19 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         .all(|cell| cell.namespace == merged_history.namespace));
     for (i, cell) in seed.cells.iter().enumerate() {
         let handle = cluster.hosts[0].cell(cell.clone())?;
-        let original = &seed.receipts[i];
-        let replay = handle
-            .command(
-                &handle.contract("Add")?,
-                [7i64, 11][i].to_be_bytes().to_vec(),
-                CommandOptions::new(original.id, seed.retry),
-            )
-            .await?;
-        ensure!(replay.result == original.result && replay.version == original.version);
-        for original in &acknowledged[i] {
-            let replay = handle
-                .command(
-                    &handle.contract("Add")?,
-                    1i64.to_be_bytes().to_vec(),
-                    CommandOptions::new(original.id, seed.retry),
-                )
-                .await?;
-            ensure!(replay.result == original.result && replay.version == original.version);
-        }
         let expected = acknowledged[i].last().context("last write")?;
+        replay_acknowledged(
+            &handle,
+            &seed.receipts[i],
+            [7i64, 11][i],
+            seed.retry,
+            merged_history,
+            expected,
+        )
+        .await?;
+        for original in &acknowledged[i] {
+            replay_acknowledged(&handle, original, 1, seed.retry, merged_history, expected).await?;
+        }
         let read = handle
             .query(
                 ProposalId::new([214 + i as u8; 16])?,
@@ -458,12 +456,15 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
                 1i64.to_be_bytes().to_vec(),
                 CommandOptions::new(
                     CommandId::new(ClientId::new([215; 16])?, i as u64 + 1)?,
-                    seed.retry,
+                    retry_horizon()?,
                 ),
             )
             .await?;
         ensure!(write.version.sequence.get() == expected.version.sequence.get() + 1);
+        let previous = i64::from_be_bytes(expected.result.as_slice().try_into()?);
+        ensure!(write.result == (previous + 1).to_be_bytes());
     }
+    eprintln!("automatic RF3: full receipt ledger, SQL state and fresh quorum writes verified");
     Ok(())
 }
 
@@ -551,5 +552,89 @@ async fn sampling_retains_fractional_write_pressure() -> Result<()> {
         result?;
         joined?;
     }
+    Ok(())
+}
+
+// A late new identity owns a fresh retry horizon. Replaying a stored command
+// below always retains that original command's horizon and input.
+fn retry_horizon() -> Result<u64> {
+    cellar::asyncrt::wall_ms()
+        .checked_add(60_000)
+        .context("new command retry horizon")
+}
+
+async fn replay_acknowledged(
+    handle: &RaftCellHandle,
+    original: &CommandReceipt,
+    delta: i64,
+    retry: u64,
+    history: GroupHistory,
+    latest: &CommandReceipt,
+) -> Result<()> {
+    use cellar::application::consensus::verification::TransportError;
+    use cellar::application::consensus::{CellDispatchError, CellReceiptRequest};
+    let started = std::time::Instant::now();
+    let remaining = || {
+        TIMEOUT
+            .checked_sub(started.elapsed())
+            .filter(|d| !d.is_zero())
+            .context("receipt replay deadline")
+    };
+    let contract = handle.contract("Add")?;
+    let input = delta.to_be_bytes().to_vec();
+    let mut options = CommandOptions::new(original.id, retry);
+    options.timeout = remaining()?;
+    let replay = match handle
+        .command(&contract, input.clone(), options.clone())
+        .await
+    {
+        Ok(receipt) => receipt,
+        Err(error)
+            if error.ambiguous
+                && matches!(
+                    error.cause.as_ref(),
+                    CellDispatchError::Transport(TransportError::Io(_))
+                ) =>
+        {
+            // The SDK never repeats a transmitted mutation automatically. This
+            // caller knows its original acknowledgement and first proves the
+            // exact stored result through the current group's quorum path.
+            ensure!(error.command == original.id);
+            let observed = handle
+                .receipt(
+                    CellReceiptRequest {
+                        id: original.id,
+                        contract: contract.clone(),
+                        input: input.clone(),
+                        durability: Durability::Quorum,
+                    },
+                    remaining()?,
+                )
+                .await?;
+            let stored = observed
+                .receipt()
+                .context("acknowledged receipt missing after handoff")?;
+            ensure!(
+                stored.command() == original.id && stored.result() == original.result.as_slice()
+            );
+            ensure!(
+                observed.durability() == Durability::Quorum
+                    && observed.observation().version == latest.version
+                    && observed.observation().witness.group == history
+            );
+            eprintln!(
+                "quorum reconciled acknowledged command {:?} after connection handoff",
+                original.id
+            );
+            options.timeout = remaining()?;
+            handle.command(&contract, input, options).await?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    ensure!(replay.id == original.id && replay.result == original.result);
+    ensure!(
+        replay.version == latest.version && replay.version.covers(&original.version) == Ok(true)
+    );
+    ensure!(replay.witness.group == history && replay.durability == Durability::Quorum);
     Ok(())
 }
