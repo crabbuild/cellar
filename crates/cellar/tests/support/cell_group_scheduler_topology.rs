@@ -205,7 +205,14 @@ async fn exercise_inner(
     });
     let control = RaftFleetControl::new(
         &f.domain,
-        f.catalog.clone(),
+        // An external controller shares the backend, not the voters' single
+        // client turn. Continuous S3 status reads must not monopolize the
+        // installed catalog used by authenticated membership actions.
+        managed_fixture::Fixture::open_catalog(
+            &f.domain,
+            f.store.clone(),
+            cluster.history.cluster,
+        )?,
         vec![cluster.directory.clone()],
     )?
     .with_node_observer(cluster.hosts[2].clone());
@@ -317,7 +324,11 @@ async fn run(
         // including its original revision, rather than inventing a new intent.
         let replacement = RaftFleetControl::new(
             &cluster.fixtures[0].domain,
-            cluster.fixtures[0].catalog.clone(),
+            managed_fixture::Fixture::open_catalog(
+                &cluster.fixtures[0].domain,
+                cluster.fixtures[0].store.clone(),
+                cluster.history.cluster,
+            )?,
             vec![cluster.directory.clone()],
         )?;
         let replay = replacement
