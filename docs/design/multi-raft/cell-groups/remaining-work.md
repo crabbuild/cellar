@@ -97,7 +97,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | Bounded local selection/admission, consented execution, live drainage and pre-seal capacity have scoped records. At `1154e5f1`, selected retired sources gain permanent engine refusal, bounded joined local collection, slot release and retained replay. Three storage tests, eight native transition cases, both scheduler cases, the full merge regression and real RustFS pass; integration cases cover both image modes. See progress.md. | Add rooted, idempotent capacity-floor settlements and qualify repeated movement cycles. Deliver deployment placement/identity policy and durable request ownership; then whole-group scale out/in, failure-domain repair/reserve and control-plane fanout. Late destination faults, larger inventory/quota profiles and actual peaks remain open. The complete task gate remains open. |
+| CG-11 | At `8e94cd67`, rooted cleanup captures source occupancy and holds transition ownership through exact node slot settlements. A split then merge reuses unchanged capacity after a lost settlement response and service replacement; original results, latest versions, old-token reads and S3 writes pass in both image modes. Native regressions, budget/storage tests and the real RustFS case pass. See progress.md. | Deliver deployment placement/identity policy and durable request ownership; complete same-group scale-out/in, obsolete live-member cleanup, failure-domain repair/reserve and bounded control-plane fanout. Byte/memory floors stay conservative. Late destination faults, larger inventory/quota profiles and measured peaks remain open. Full task acceptance remains open. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | The daemon harness retains scoped real-voter/RustFS evidence. The focused native occupancy-128 case passes; the original three-occupancy matrix still times out at 128. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
@@ -113,16 +113,14 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Finish CG-11 adaptive placement.** Local discovery/selection, exact persisted-plan
-   admission recovery, consented execution and safe local source collection have
-   native and real RustFS checkpoints. Add a rooted cleanup intent and idempotent
-   node settlements before releasing transition ownership. Refund slots/bytes/memory
-   only from their corresponding physical proof; a smaller inventory or logical
-   Clean cannot release floors. Qualify another movement cycle under unchanged
-   limits. Deliver deployment placement/identity policy and durable request ownership,
-   then whole-group scale out/in, failure-domain repair/reserve and bounded targeted
-   fanout. Qualify late destination faults, larger inventory/quota profiles and
-   measured peaks. Stay on CG-11 until its complete gates close.
+1. **Finish CG-11 adaptive placement.** Rooted source cleanup and exact slot
+   settlements now qualify a repeated split/merge cycle with lost confirmation
+   and service replacement, natively and on real RustFS. Deliver deployment
+   placement/identity policy and durable request ownership; then qualify same-group
+   scale-out/in and obsolete live-member cleanup, failure-domain repair/reserve and
+   bounded targeted fanout. Retain byte/memory floors until their owning barriers
+   prove release. Qualify late destination failures, larger inventory/quota profiles
+   and measured physical peaks. Stay on CG-11 until its complete gates close.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
    wake eligibility and retained lifecycle, then S3 recovery of interrupted
    transitions. CG-13 requires the CG-14 infrastructure harness and the permanent

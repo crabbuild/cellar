@@ -80,20 +80,30 @@ cases, both scheduler cases, the full merge regression and the fixed real RustFS
 reclamation suite pass. Integrations cover both modes. See progress.md for hashes
 and the concurrent startup timeout retained as a development attempt.
 
-Keep work on CG-11 until every gap closes. Next persist a cleanup intent while
-holding the transition disruption, require all engine-bound node settlements
-before completion, and refund each capacity floor exactly once from actual
-physical proof. Current local collection leaves Fleet floors conservative.
-Logical Clean does not prove segment bytes reclaimed; retain byte/memory charges
-until their owning barriers prove release. Qualify another movement cycle under
-the unchanged slot/disk profile. Distinguish permanent source-history retirement
-from obsolete-member cleanup of a live group, which needs current join authority.
+At `8e94cd67`, rooted cleanup captures complete qualified occupancy before
+physical collection, keeps the original disruption through all node settlements,
+and refunds exact source slots once from local engine receipts. Byte and memory
+floors stay conservative. Two-parent verification returns the actual joined replay
+lane while immutable proof metadata remains charged in the same byte bank. The
+one-operation ceiling is unchanged; ordinary archive/recovery admission is unchanged.
 
-Then supply deployment placement, stable operation identities and durable request
-ownership to the sampler. Qualify whole-group scale out/in, failure-domain
-repair/reserve and bounded fanout, plus late destination failures, larger
-inventory/quota profiles and actual physical peaks. The three exact required
-scheduler cases remain absent, so CG-11 is IN_PROGRESS with no full acceptance.
+All nine native transition cases, both scheduler cases, the full merge regression,
+source-storage and budget tests, and the fixed real RustFS settlement case pass.
+Integrations cover both modes. The new split-to-merge cycle retains the unchanged
+two-slot/1-GiB profile, loses the last actual settlement CAS response and same-task
+confirmation, replaces services, and preserves exact results/latest versions,
+old-token reads and S3 writes. It is not same-group membership balancing or a
+voter-process restart drill. See progress.md for source, hashes and development
+attempts, including the corrected new receipt-test version expectation.
+
+Keep work on CG-11 until every gap closes. Next deliver deployment placement and
+stable operation identity policy with durable request ownership. Complete same-group
+scale-out/in and obsolete live-member cleanup, failure-domain repair/reserve and
+bounded fanout. Qualify late destination failures, larger inventory/quota profiles
+and measured physical peaks. Source-history refusal cannot collect an obsolete
+member of a still-live group; that needs current membership/join authority.
+The three remaining required scheduler cases are absent, so CG-11 is IN_PROGRESS
+with no full acceptance. Byte/memory refunds require corresponding physical proof.
 Consent remains explicit and irreversible sealing requires the recorded authority.
 After CG-11 closes, continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all

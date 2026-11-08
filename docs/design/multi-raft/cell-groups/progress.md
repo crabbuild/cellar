@@ -12,6 +12,89 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 rooted source slot settlement checkpoint
+
+At `8e94cd6725dc078e192c99f356b244e39e10b008`, the managed transition service selects an immutable cleanup intent
+and captures conservative qualified node floors before deleting source histories.
+Each local participant presents its engine-bound completed receipt, then one Fleet
+CAS marks that node settled and refunds its exact source slots. Another disk or
+engine cannot spend the receipt. Unexplained pre-existing slot debt remains charged.
+Byte and memory floors keep their high-water values. The original transition
+holds disruption ownership until every participant settles; generic operations
+cannot forge the cleanup intent or complete a pending settlement.
+
+The new split-to-merge schedule exposed a replay ownership refusal: the first
+verified parent retained the only active tail-replay permit, preventing the
+second parent from entering. After its actual worker joins, transition-only
+verification can retain conservative immutable proof metadata charges and return
+the active lane. The next parent still needs its full workspace in the same byte
+bank. The original one-operation concurrency and byte ceilings stay unchanged;
+caller-owned transition proofs, ordinary archive publication and recovery keep
+their previous admission policy. The full merge regression exposed overly broad
+lane release at the first source; the successor restricts it to the managed
+verifier's owned source receiver and preserves the original retention assertion.
+
+The current-source serial campaign passes all nine original native transition
+cases in fresh processes, both
+scheduler cases and the full merge regression. Seven budget and three source-storage
+unit tests passed at `7d131d77`; their owning production/test files are unchanged
+and that qualification is reused. These unit checks are not claimed as a successor
+rerun. The fixed `managed-source-settlement` real RustFS case passes both image
+modes on the same executable. It checks pending-participant completion refusal,
+forged intent refusal, loss of the actual last settlement CAS response and its
+same-task confirmation read, service replacement and exact replay. A split then
+merge reuses the original voters under the unchanged two-slot and 1-GiB profile.
+Both movements preserve original command results, exact latest logical versions
+and witnesses, old-token reads and new S3 writes. This is a new-history split/merge
+cycle; it does not accept the same-group membership scale-out/in gate.
+
+A successor combined run also retained a startup transport timeout and a stale
+retry deadline on the new post-merge mutation. That mutation now has its own
+original 60-second duration, created when the new command is issued; original
+retries retain their original deadline. The final campaign runs each original
+native transition case in a fresh process, serially. Case bodies, assertions and
+all original bounds remain intact. Combined-run failures remain retained. The
+isolated retired-source case also first refused a receipt retry with pre-admission
+`NotReady` (`ambiguous=false`) after observing a ready leader. Its failed log and
+unchanged rerun are retained. A passing rerun does not close that readiness race.
+
+The unoptimized combined development campaign finishes with six passes and three
+failures at node startup, seed lease expiry and retry-window expiry. The final
+campaign uses the repository's SDK CI test profile: opt-level 1, debug assertions
+and overflow checks enabled. The unoptimized campaign remains failed and retained.
+Development attempts also retain the pre-fix replay refusal and a startup trust timeout.
+The newly written duplicate-receipt assertion initially compared against an older
+version despite intervening writes. The documented API returns a current covering
+version. The final assertion requires the exact latest pre-merge version/witness,
+the original result and an old-token read of the latest value. Existing assertions
+and original operation, capacity and stack/compiler bounds remain unchanged.
+Builds precede the serial runtime campaign and their writeback is flushed.
+Strict all-target Clippy, formatting/layout of 2,087 Rust files, native dependency
+checks, 37 original plan tests and evidence/preflight validation pass.
+
+Retained local evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-settlement-8e94cd67-01/record.json`,
+  SHA-256 `2792e22ff1fe5d3c537672423bb7a972952bae53b5c7b3e26ec0e24ef6e91c8e`; CHECKPOINT, not full CG-11 acceptance.
+  It pins 3,354 Git-blob inputs, commands and development attempts.
+- `.cellar/cell-groups-evidence/CG-11-settlement-8e94cd67-rustfs-01/record.json`,
+  SHA-256 `8b905e6aa4500c0101aaa8a2100066b76e6dc43107d3a8f986c2477a2d0a8f25`.
+- Shared native/RustFS executable SHA-256
+  `d2d11270486bd003551ce9a3aa848435abf5c0ca8d2d8640afbb7c08b336370a`.
+
+The RF3 TLS voters are host-native fixtures. This schedule replaces services,
+not voter processes or disks. The owned RustFS VM container has one CPU, 2 GiB and
+no additional swap; it is stopped with objects retained. No independent-voter,
+load, measured RSS/disk-peak or performance qualification is claimed.
+
+Keep work on CG-11. Next supply deployment placement/identity policy and durable
+request ownership, then complete same-group scale-out/in and obsolete live-member
+cleanup, failure-domain repair/reserve and bounded control-plane fanout. Late
+destination failures, larger inventory/quota profiles and measured peaks remain
+open. Byte/memory refunds require their own physical proof. The three remaining
+required scheduler cases are absent, so CG-11 stays IN_PROGRESS with no full
+acceptance record.
+
 ## CG-11 retired-source reclamation checkpoint
 
 At `1154e5f1d0183b949f90138a801e47de71968051`, the public operator API
