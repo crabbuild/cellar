@@ -288,8 +288,17 @@ impl MovementServiceWork {
                         return Err(FleetCatalogError::Conflict);
                     }
                     let active = if host.state() == FleetNodeState::Active {
-                        let capacity = self.catalog.capacity_from(&cut, host.node()).await?;
-                        capacity.receive_replicas() && capacity.attestation().boot == expected
+                        match self.catalog.capacity_from(&cut, host.node()).await {
+                            Ok(capacity) => {
+                                capacity.receive_replicas()
+                                    && capacity.attestation().boot == expected
+                            }
+                            // A retained node may remain Active while its rooted
+                            // capacity still describes the previous boot. Waiting
+                            // grants no movement or capacity authority.
+                            Err(FleetCatalogError::Conflict) => false,
+                            Err(error) => return Err(error),
+                        }
                     } else {
                         false
                     };

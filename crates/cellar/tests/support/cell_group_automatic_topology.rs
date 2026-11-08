@@ -241,7 +241,10 @@ async fn exercise(
         loop {
             let status = host.automatic_topology_status().context("startup status")?;
             if let Some(status) = status.automatic_topology {
-                ensure!(status.selected_operations == 0, "unqualified origin selected work");
+                ensure!(
+                    status.selected_operations == 0,
+                    "unqualified origin selected work"
+                );
                 if status.wait == FleetAutomaticTopologyWait::OriginUnqualified {
                     return Ok::<_, anyhow::Error>(());
                 }
