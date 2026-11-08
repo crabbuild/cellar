@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "032a8962ce3ea3afbcfee2a622cb2d3ed381fc85",
-  "runtime_revision": "6ae2c3f01dcdabd3ff6b96d88da594addb17d1a4",
-  "review_note": "Reviewed successor 6ae2c3f01dcdabd3ff6b96d88da594addb17d1a4: all architecture anchors and excerpts are byte-identical to 67f6727d. Owned commands wait on actual committed apply progress before SQL entry and obtain fresh execution authority. The owner applied-prefix, leader, route, original deadline and exact-producer checks remain authoritative; no storage marker, routing attempt, compiler, stack or resource limit changes. Test-harness successor 7e75a45f476c2ef24164a1928de826b49d5b6740 preserves every architecture anchor and production Rust byte. Its bounded waits require actual follower proofs, ordinary Raft packet admission defers overload, and recent-source tests deliver a generated heartbeat before capture. Freshness, deadlines and final state assertions are unchanged. Snapshot-clock successor 032a8962ce3ea3afbcfee2a622cb2d3ed381fc85 also changes only execution-test fixtures. Manually driven retry ticks now use the unchanged production 100-ms cadence only after actual snapshot failure, preserving the original 20-second drive timeout and all final restoration assertions.",
+  "source_revision": "7b80d08817ed1a4d920d7b08c2b2a49f38b3a6e1",
+  "runtime_revision": "7b80d08817ed1a4d920d7b08c2b2a49f38b3a6e1",
+  "review_note": "Reviewed 7b80d088: private staged-cancellation and managed birth-decision observation APIs preserve execution-domain deadlines and exact namespace, request and owner bindings. Root cancellation precedes namespace cleanup; operation and owned-child fences prevent delayed admission while reserved identity and capacity debt remain. Historical completion cannot clear newer selected work. Generic opaque catalog rows remain valid; typed before/after history projections preserve group fences. The codec and fleet architecture excerpts are unchanged; their whole-file hashes and source lines were reviewed after partition-cancellation-1. Other anchors are unchanged from 032a8962. The protocol requires fresh namespaces, fleet roots and engine directories with matching binaries, with numeric markers at 1. Tests use the existing resource, compiler, stack and deadline bounds. An unselected reservation is not materializable: fixtures independently inspect the immutable birth winner and verify an unrelated operation can still perform a fresh root update.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -13,7 +13,7 @@
     },
     "codec": {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "a2796d1c2af263cf5c8ccd80f98da54121016a91daf2f0bf60064f421d498aca",
+      "sha256": "4c0776fc98e45704df01c353b486ebcf7b3fe26c186e7d993f8e3f4e7c321f91",
       "line": 160,
       "excerpt": "pub struct CellUpdate {\n    pub scope: GroupScope,\n    pub application_digest: [u8; 32],\n    pub proposal: ProposalId,\n    pub base: LtxImage,\n    pub result: LtxImage,\n    pub files: Vec<LtxUpdate>,\n}\n"
     },
@@ -115,8 +115,8 @@
     },
     "fleet": {
       "path": "crates/cellar/durability/raft/fleet_catalog/mod.rs",
-      "sha256": "feedacd93808353198ed8d90f2f0ff02abf9bd46c71ffbe698dad939faa55fe9",
-      "line": 25,
+      "sha256": "9f573672cd6b27fd0b9dab9951816b5b62b7cf1391b0f98178f43ecf921829f4",
+      "line": 26,
       "excerpt": "mod managed_transition_admission;\npub(crate) use managed_transition_admission::TransitionOperatorStep;\nmod managed_source_quiescence;\nmod managed_source_settlement;\nmod managed_transition_capacity;\nmod managed_transition_execution;\npub(crate) use managed_transition_execution::ManagedTransitionExecution;\nmod managed_recovery_fence;\npub(crate) use managed_recovery_fence::PreparedManagedRecoveryFence;\npub use managed_recovery_fence::{\n    FleetFencedTransitionRecovery, FleetTransitionRecoveryFenceRequest,\n};\nmod managed_recovery_intent;\npub use managed_recovery_intent::{FleetTransitionRecoveryBarrier, FleetTransitionRecoveryIntent};\npub(crate) use managed_recovery_intent::{ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput};"
     },
     "public": {

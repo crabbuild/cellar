@@ -23,12 +23,20 @@ helpers ignored; strict all-target Clippy and repository checks pass.
 See [progress](progress.md) for exact source limits and retained predecessor
 failures. Do not reopen the resolved pre-SQL readiness investigation.
 
-Keep work on CG-11. Next implement safe cancellation/recovery of selected work
-before and after partial child reservation, and qualify competing controllers.
-A cancellation must fence delayed admission before releasing the Root cursor;
-immutable birth identities and physical debt remain accounted. Reuse the current
-transition journal, disruption slot and exact receipts; selection or a scheduler
-receipt cannot grant serving authority or physical refunds.
+Keep work on CG-11. Pre-admission staged cancellation is implemented at
+`7b80d088`: root the permanent fence before namespace birth decisions, retain
+immutable identities and capacity debt, and settle the cursor only after exact
+cancellation winners. Cold continuation and old-operation replay keep the original
+request and plan. Existing admitted transitions retain their cancellation owner;
+a live birth winner refuses staged completion. At this source, all 32 affected
+native cases pass (13 transition, 6 scheduler, 13 catalog), and the four fixed
+RustFS cases pass both image modes with the same executable. The owned backend
+is stopped. Strict Clippy and repository checks pass; see progress.md for exact
+records and limits. This does not qualify background cancellation fault schedules
+or independent voter processes.
+Next qualify competing automatic controllers and finish unified handoff/recovery
+of admitted or live work. Selection and scheduler receipts grant no
+serving authority or physical refunds.
 
 Then deliver deployment placement and configured startup. The existing automatic
 service delegates fresh identities and RF3 destination planning to a trusted

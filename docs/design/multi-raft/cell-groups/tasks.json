@@ -2479,7 +2479,9 @@
         "crates/cellar/fleet/management/raft/partition_service/mod.rs",
         "crates/cellar/fleet/management/raft/partition_service/worker.rs",
         "crates/cellar/tests/support/cell_group_partition_service.rs",
-        "crates/cellar/tests/support/cell_group_command_readiness.rs"
+        "crates/cellar/tests/support/cell_group_command_readiness.rs",
+        "crates/cellar/durability/raft/fleet_catalog/managed_partition_cancel.rs",
+        "crates/cellar/tests/support/cell_group_partition_cancellation.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [

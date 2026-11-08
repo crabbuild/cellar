@@ -12,6 +12,64 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 staged partition cancellation
+
+At `7b80d088`, a controller can cancel rooted partition work before managed
+transition admission through `cancel_staged_partition` or scheduler
+`cancel_pending`. The first root CAS records a permanent operation fence and
+protects already reserved children. Delayed child reservation and transition
+admission cannot win after that fence. Proposed children owned by another
+operation remain untouched.
+
+Cancellation then resolves every owned child's original immutable namespace
+birth-decision key. Missing confirmations retain the cursor; cold schedulers and
+the node-owned service resume the same intent before admission or new planning.
+Only permanent cancellation winners permit cursor completion. Historical replay
+cannot erase newer selected work. Reserved identities and capacity charges remain;
+this API grants no physical release. An already admitted transition keeps its
+existing pre-seal cancellation owner, and a live birth winner refuses completion.
+The read-only `fleet_group_birth_disposition` API observes exact managed winners,
+including unselected reservations, without granting serving authority.
+
+The protocol adds `/partition-cancellation-1`: use fresh namespaces, fleet roots
+and engine directories with matching binaries. Numeric markers remain 1. An old
+binary must refuse the new root rather than ignore the fences.
+
+Qualification at `7b80d088` passes all 32 affected native cases: 13 transition,
+6 scheduler and 13 fleet-catalog tests. The four fixed real RustFS cases pass both
+materialized and extent modes using the same transition executable
+(`1cdca0b189dc3548205c2e40d1f57cfc77e2790e4267b17248f88dfa7ace44ca`).
+They cover zero, one and two reserved children, actual delayed reservation and
+transition-slot CAS writes, lost fence/birth/completion confirmations, cold SDK
+scheduler recovery, historical replay beside newer work, unchanged directory,
+retained capacity debt, original receipts and continued quorum writes/linearizable
+reads. Another operation's reservation remains undecided and accepts a fresh root
+update. The existing automatic-selection/execution case also passes RustFS.
+
+Tests inspect the exact Cancelled birth winner independently. An unselected birth
+may refuse materialization at its route check before reading that winner; route
+refusal alone is not treated as cancellation proof. The predecessor's opaque-index
+regression and earlier fixture failures are retained, with corrected assertions
+and operation context. No production limits or test deadlines were raised.
+Strict all-target Clippy, format, layout, native dependency checks, plan preflight
+and 37 plan tests pass. The backend is stopped with its objects retained.
+
+Source, binaries, logs and predecessor evidence are bound in
+`.cellar/cell-groups-evidence/CG-11-cancel-7b80d088-01/record.json` and the fixed
+RustFS record at
+`.cellar/cell-groups-evidence/CG-11-cancel-7b80d088-rustfs-01/record.json`.
+This is a CHECKPOINT. Host-native TLS voters and fixture capacity do not qualify
+independent voter processes, sustained load or physical peaks. The background
+cancellation continuation is implemented; these cancellation fault cases use
+fresh SDK schedulers. The prior 187-test execution gate remains pinned to
+`032a8962`, rather than the new protocol. The earlier protocol unit pass at
+`553209c9` covers only byte-identical protocol/catalog-wire modules.
+
+The next gap is competing automatic controllers and unified handoff/recovery of
+admitted or live work, then deployment placement, configured startup and the
+missing reserve/failure-domain and bounded-fanout acceptance cases. CG-11 remains
+IN_PROGRESS; CG-12–16 retain their existing gates.
+
 ## CG-11 command admission waits for committed apply
 
 At `6ae2c3f0`, owned commands wait for a committed group prefix to finish physical
