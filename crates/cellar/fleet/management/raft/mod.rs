@@ -3,6 +3,11 @@
 //! Typed operator access to rooted topology and node operations. Configure
 //! namespace handles and any live observer on the trusted server. Placement
 //! proofs remain host-owned; capacity-granted operators explicitly attest limits.
+mod automatic_partition;
+pub(crate) use automatic_partition::ConfiguredPartition;
+pub use automatic_partition::{
+    RaftFleetAutomaticPartitionOptions, RaftFleetPartitionPlacementPolicy,
+};
 mod connection;
 mod failure;
 mod first_group;
@@ -127,6 +132,17 @@ impl RaftFleetControl {
             .services()
             .domain_token()
             .ok_or(FleetCatalogError::Closed)?;
+        Self::from_domain(domain, catalog, namespaces)
+    }
+
+    pub(crate) fn from_domain(
+        domain: DomainToken,
+        catalog: FleetCatalog,
+        namespaces: Vec<RangeDirectory>,
+    ) -> Result<Self> {
+        if namespaces.len() > 64 {
+            return Err(RaftFleetFailure::invalid("too many managed namespaces"));
+        }
         let catalog_id = hex::encode(catalog.catalog_id()?);
         Ok(Self {
             catalog,
@@ -139,6 +155,11 @@ impl RaftFleetControl {
             transition_preparation: None,
             removal_verification: None,
         })
+    }
+
+    pub(crate) fn with_archive_pool(mut self, pool: CellGroupArchivePool) -> Self {
+        self.archive_pool = pool;
+        self
     }
 
     fn managed_namespace(&self, namespace: &str) -> Result<&RangeDirectory> {

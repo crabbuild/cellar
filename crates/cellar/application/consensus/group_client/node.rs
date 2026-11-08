@@ -344,6 +344,10 @@ pub(super) fn startup_bounds(
         r.max_read_pin_bytes,
         l.max_pending_bytes,
         l.max_cache_bytes,
+        options
+            .automatic_partitions
+            .as_ref()
+            .map_or(0, |p| p.recovery.max_retained_bytes),
     ];
     let bounded_buffer_bytes = bytes
         .into_iter()

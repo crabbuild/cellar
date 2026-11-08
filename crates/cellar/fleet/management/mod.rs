@@ -19,6 +19,7 @@ pub use kv::{EditExpiration, KvEdit, RevisionCondition};
 mod nodes;
 mod operations;
 mod raft;
+pub(crate) use raft::ConfiguredPartition;
 mod raft_stop;
 pub use nodes::NodeAction;
 pub(crate) use nodes::NodeRequest;
@@ -26,25 +27,26 @@ pub(crate) use operations::receipt_key;
 pub use operations::{StopMode, StopProof, StopReceipt};
 pub use raft::{
     FleetRestartService, FleetRestartServiceOptions, FleetRestartServiceStatus,
-    RaftFleetAcceptance, RaftFleetBegin, RaftFleetBirthResolution, RaftFleetCancel,
-    RaftFleetCapacityAttestation, RaftFleetConnection, RaftFleetControl,
-    RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
-    RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetFailure, RaftFleetFailureCode,
-    RaftFleetFirstGroupAcceptance, RaftFleetFirstGroupMutation, RaftFleetFirstGroupPlan,
-    RaftFleetFirstGroupPublish, RaftFleetFirstGroupStage, RaftFleetFirstGroupStandby,
-    RaftFleetFirstGroupVoter, RaftFleetMaintenanceAcceptance, RaftFleetMaintenanceAction,
-    RaftFleetMaintenanceCancel, RaftFleetMaintenancePhase, RaftFleetMaintenancePrepare,
-    RaftFleetMaintenanceReturnContext, RaftFleetMaintenanceStatus, RaftFleetMovement,
-    RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetNodeAcceptance,
-    RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCancel, RaftFleetNodeCapacity,
-    RaftFleetNodeDescriptor, RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeState,
-    RaftFleetNodeStatus, RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome,
-    RaftFleetParkPhase, RaftFleetParkRequest, RaftFleetParkStatus,
-    RaftFleetPartitionExecutionPolicy, RaftFleetPartitionPlanContext, RaftFleetPartitionPlanner,
-    RaftFleetPartitionPoll, RaftFleetPartitionPressure, RaftFleetPartitionRecommendation,
-    RaftFleetPartitionScheduler, RaftFleetPartitionService, RaftFleetPartitionServiceOptions,
-    RaftFleetPartitionServiceStatus, RaftFleetPreparedRecoveryRange, RaftFleetRegisterNode,
-    RaftFleetStatus, RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
+    RaftFleetAcceptance, RaftFleetAutomaticPartitionOptions, RaftFleetBegin,
+    RaftFleetBirthResolution, RaftFleetCancel, RaftFleetCapacityAttestation, RaftFleetConnection,
+    RaftFleetControl, RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt,
+    RaftFleetEvacuationPhase, RaftFleetEvacuationProgress, RaftFleetEvacuationStatus,
+    RaftFleetFailure, RaftFleetFailureCode, RaftFleetFirstGroupAcceptance,
+    RaftFleetFirstGroupMutation, RaftFleetFirstGroupPlan, RaftFleetFirstGroupPublish,
+    RaftFleetFirstGroupStage, RaftFleetFirstGroupStandby, RaftFleetFirstGroupVoter,
+    RaftFleetMaintenanceAcceptance, RaftFleetMaintenanceAction, RaftFleetMaintenanceCancel,
+    RaftFleetMaintenancePhase, RaftFleetMaintenancePrepare, RaftFleetMaintenanceReturnContext,
+    RaftFleetMaintenanceStatus, RaftFleetMovement, RaftFleetMovements, RaftFleetNamespace,
+    RaftFleetNamespaceScope, RaftFleetNodeAcceptance, RaftFleetNodeAction, RaftFleetNodeAdmission,
+    RaftFleetNodeCancel, RaftFleetNodeCapacity, RaftFleetNodeDescriptor, RaftFleetNodeOperation,
+    RaftFleetNodeRemove, RaftFleetNodeState, RaftFleetNodeStatus, RaftFleetNodeStop,
+    RaftFleetOperation, RaftFleetOutcome, RaftFleetParkPhase, RaftFleetParkRequest,
+    RaftFleetParkStatus, RaftFleetPartitionExecutionPolicy, RaftFleetPartitionPlacementPolicy,
+    RaftFleetPartitionPlanContext, RaftFleetPartitionPlanner, RaftFleetPartitionPoll,
+    RaftFleetPartitionPressure, RaftFleetPartitionRecommendation, RaftFleetPartitionScheduler,
+    RaftFleetPartitionService, RaftFleetPartitionServiceOptions, RaftFleetPartitionServiceStatus,
+    RaftFleetPreparedRecoveryRange, RaftFleetRegisterNode, RaftFleetStatus,
+    RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
     RaftFleetTransitionActivationRequest, RaftFleetTransitionAdmission,
     RaftFleetTransitionAdmissionRequest, RaftFleetTransitionArchiveVerification,
     RaftFleetTransitionBasis, RaftFleetTransitionChild, RaftFleetTransitionChildSetup,

@@ -101,6 +101,9 @@ pub struct RaftHostOptions {
     /// Uses the sole movement-worker slot; leave None when starting a combined
     /// movement/topology worker with reclaim_removed_members enabled instead.
     pub member_cleanup: Option<super::fleet_catalog::FleetMovementServiceOptions>,
+    /// Standard RF3 split/merge planning and execution owned by this node. Uses
+    /// compiled managed namespaces and the existing archive verifier resources.
+    pub automatic_partitions: Option<crate::management::RaftFleetAutomaticPartitionOptions>,
     /// Enable native snapshot recovery and its larger image admission floor.
     pub enable_snapshots: bool,
     /// Applied entries between automatic checkpoints. Shared log-cache pressure
@@ -146,6 +149,7 @@ impl Default for RaftHostOptions {
             node_profile: None,
             managed: None,
             member_cleanup: None,
+            automatic_partitions: None,
             enable_snapshots: true,
             checkpoint_entries: 256,
             archive_checkpoint_ms: 1000,
@@ -170,6 +174,25 @@ impl Default for RaftHostOptions {
 impl RaftHostOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         self.close_report.validate()?;
+        if let Some(partition) = &self.automatic_partitions {
+            partition.validate().map_err(anyhow::Error::new)?;
+            anyhow::ensure!(
+                self.managed.is_some(),
+                "automatic partitions require managed enrollment"
+            );
+            anyhow::ensure!(
+                self.max_control_bytes
+                    >= 15 * 1024 * 1024
+                        + partition.service.max_groups * 32 * 1024
+                        + 64 * 1024
+                        + self
+                            .member_cleanup
+                            .as_ref()
+                            .map_or(0, |c| c.control_reservation_bytes())
+                    && self.max_control_requests >= 6,
+                "automatic partition management requires bounded control headroom"
+            );
+        }
         if let Some(cleanup) = &self.member_cleanup {
             anyhow::ensure!(
                 self.managed.is_some(),

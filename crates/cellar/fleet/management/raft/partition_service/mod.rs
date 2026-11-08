@@ -57,7 +57,7 @@ pub struct RaftFleetPartitionServiceOptions {
 }
 
 impl RaftFleetPartitionServiceOptions {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if self.principal.is_empty()
             || self.principal.len() > 128
             || self.principal.chars().any(char::is_control)

@@ -566,3 +566,153 @@ impl WriteHeat {
 #[cfg(test)]
 #[path = "cell_group_placement_tests.rs"]
 mod tests;
+
+/// Deployment policy for fresh RF3 children. Recovery slots remain unassigned
+/// across the inspected pool, including while source groups retain their disks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PartitionPlacementPolicy {
+    pub pool: String,
+    pub distinct_regions: bool,
+    pub distinct_zones: bool,
+    pub recovery_slots: u32,
+}
+
+impl PartitionPlacementPolicy {
+    pub fn valid(&self) -> bool {
+        !self.pool.is_empty()
+            && self.pool.len() <= 64
+            && self
+                .pool
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+            && (1..=32_768).contains(&self.recovery_slots)
+    }
+}
+
+/// Advisory projection of fully charged physical and pending occupancy. The
+/// adapter computes available slots with both storage and memory constraints.
+#[derive(Clone, Debug)]
+pub struct PartitionDestination {
+    pub node: crate::consensus::NodeId,
+    pub physical_host: crate::consensus::IncarnationId,
+    pub region: String,
+    pub zone: String,
+    pub occupied: u32,
+    pub capacity: u32,
+    pub available: u32,
+}
+
+/// Search the bounded six-target window for one merge child or two split
+/// children. Both are charged together, sources remain occupied, and a spare
+/// pool is retained. Selection grants no reservation or membership permission.
+pub fn select_partition_voters(
+    nodes: &[PartitionDestination],
+    policy: &PartitionPlacementPolicy,
+    children: usize,
+    physical_separation: bool,
+) -> Option<Vec<[crate::consensus::NodeId; 3]>> {
+    use std::collections::BTreeSet;
+    if !policy.valid()
+        || !(1..=2).contains(&children)
+        || !(3..=6).contains(&nodes.len())
+        || nodes.iter().map(|n| n.node).collect::<BTreeSet<_>>().len() != nodes.len()
+        || nodes.iter().any(|n| {
+            n.capacity == 0
+                || n.capacity > 32_768
+                || n.occupied > 32_768
+                || n.available > n.capacity.saturating_sub(n.occupied)
+        })
+    {
+        return None;
+    }
+    let mut triples = Vec::new();
+    for a in 0..nodes.len() {
+        for b in (a + 1)..nodes.len() {
+            for c in (b + 1)..nodes.len() {
+                let indices = [a, b, c];
+                if indices.iter().any(|i| nodes[*i].available == 0)
+                    || physical_separation
+                        && indices
+                            .iter()
+                            .map(|i| nodes[*i].physical_host)
+                            .collect::<BTreeSet<_>>()
+                            .len()
+                            != 3
+                    || policy.distinct_regions
+                        && indices
+                            .iter()
+                            .map(|i| &nodes[*i].region)
+                            .collect::<BTreeSet<_>>()
+                            .len()
+                            != 3
+                    || policy.distinct_zones
+                        && indices
+                            .iter()
+                            .map(|i| (&nodes[*i].region, &nodes[*i].zone))
+                            .collect::<BTreeSet<_>>()
+                            .len()
+                            != 3
+                {
+                    continue;
+                }
+                triples.push(indices);
+            }
+        }
+    }
+    let mut best = None;
+    for left in &triples {
+        let right: Vec<_> = if children == 1 {
+            vec![None]
+        } else {
+            triples.iter().map(Some).collect()
+        };
+        for right in right {
+            let mut counts = [0u32; 6];
+            for i in left.iter().chain(right.into_iter().flatten()) {
+                counts[*i] += 1;
+            }
+            if nodes
+                .iter()
+                .enumerate()
+                .any(|(i, n)| counts[i] > n.available)
+            {
+                continue;
+            }
+            if nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| u64::from(n.available - counts[i]))
+                .sum::<u64>()
+                < u64::from(policy.recovery_slots)
+            {
+                continue;
+            }
+            let score = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| u128::from(n.occupied + counts[i]) * 10_000 / u128::from(n.capacity))
+                .max()?;
+            let mut voters = vec![left.map(|i| nodes[i].node)];
+            if let Some(right) = right {
+                voters.push(right.map(|i| nodes[i].node));
+            }
+            for group in &mut voters {
+                group.sort();
+            }
+            let retained_load: u128 = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    u128::from(counts[i]) * u128::from(n.occupied) * 10_000 / u128::from(n.capacity)
+                })
+                .sum();
+            if best
+                .as_ref()
+                .is_none_or(|(old, load, ids)| (score, retained_load, &voters) < (*old, *load, ids))
+            {
+                best = Some((score, retained_load, voters));
+            }
+        }
+    }
+    best.map(|(_, _, voters)| voters)
+}

@@ -308,3 +308,62 @@ fn scheduler_isolates_a_writer_independently_of_image_size() {
         }
     );
 }
+
+fn destinations() -> Vec<PartitionDestination> {
+    (1..=6)
+        .map(|id| PartitionDestination {
+            node: crate::consensus::NodeId::new([id; 16]).unwrap(),
+            physical_host: IncarnationId::new([id; 16]).unwrap(),
+            region: "r".into(),
+            zone: format!("z{id}"),
+            occupied: u32::from(id <= 3),
+            capacity: 2,
+            available: if id <= 3 { 1 } else { 2 },
+        })
+        .collect()
+}
+
+fn placement() -> PartitionPlacementPolicy {
+    PartitionPlacementPolicy {
+        pool: "test".into(),
+        distinct_regions: false,
+        distinct_zones: true,
+        recovery_slots: 3,
+    }
+}
+
+#[test]
+fn partition_destinations_charge_both_children_and_reserve() {
+    let nodes = destinations();
+    let selected = select_partition_voters(&nodes, &placement(), 2, true).unwrap();
+    assert_eq!(selected.len(), 2);
+    assert!(
+        selected.iter().flatten().all(|id| id.bytes()[0] > 3),
+        "retained sources must not displace equally loaded empty destinations"
+    );
+    let mut policy = placement();
+    policy.recovery_slots = 4;
+    assert!(
+        select_partition_voters(&nodes, &policy, 2, true).is_none(),
+        "a split consumes six slots before its sources can retire"
+    );
+    assert!(select_partition_voters(&nodes, &policy, 1, true).is_some());
+}
+
+#[test]
+fn partition_destinations_preserve_failure_domains_and_capacity() {
+    let mut nodes = destinations();
+    for node in &mut nodes {
+        node.physical_host = IncarnationId::new([1; 16]).unwrap();
+    }
+    assert!(select_partition_voters(&nodes, &placement(), 2, true).is_none());
+    assert!(select_partition_voters(&nodes, &placement(), 2, false).is_some());
+    for node in &mut nodes {
+        node.zone = "one".into();
+    }
+    assert!(select_partition_voters(&nodes, &placement(), 2, false).is_none());
+    let mut policy = placement();
+    policy.distinct_zones = false;
+    nodes[5].available = 0;
+    assert!(select_partition_voters(&nodes, &policy, 2, false).is_none());
+}
