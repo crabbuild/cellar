@@ -151,7 +151,7 @@ impl MappingRecord {
         }
     }
 
-    fn seed_anchor(&self) -> Option<&GroupManifest> {
+    pub(crate) fn seed_anchor(&self) -> Option<&GroupManifest> {
         match &self.application {
             MappingApplication::SeededCellGroup { anchor, .. } => Some(anchor),
             _ => None,

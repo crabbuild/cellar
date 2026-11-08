@@ -1455,6 +1455,7 @@ impl Worker {
         scope: S,
     ) -> Result<GroupLog<S>, LogError> {
         cache.recovery_genesis = mapping.recovery_genesis().cloned().map(Arc::new);
+        cache.seed_anchor = mapping.seed_anchor().cloned().map(Arc::new);
         let log_retention = if mapping.is_cells() {
             Some(
                 self.log_retention
@@ -1641,11 +1642,19 @@ impl Worker {
             .get(&bootstrap.route.history)
         {
             let group = group.as_cells()?;
-            let expected = MappingRecord::new_cells(group.key, &bootstrap, &conf)?;
-            if self.mappings.get(&group.key) != Some(&expected) {
+            let mapping = self
+                .mappings
+                .get(&group.key)
+                .ok_or(LogError::LostStableState)?;
+            let mut expected = MappingRecord::new_cells(group.key, &bootstrap, &conf)?;
+            if let Some(anchor) = mapping.seed_anchor() {
+                expected = expected.with_seed_anchor(anchor)?;
+            }
+            if mapping != &expected {
                 return Err(LogError::WrongIdentity);
             }
             let cache = group.read()?;
+            mapping.validate_cache(&cache)?;
             let binding = managed
                 .as_ref()
                 .map(|m| &m.binding)
