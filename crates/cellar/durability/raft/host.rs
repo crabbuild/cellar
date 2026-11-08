@@ -96,6 +96,11 @@ pub struct RaftHostOptions {
     /// Explicit rooted node enrollment and compiled namespace capabilities.
     /// Capacity readiness/activation and complete inventory are separate proofs.
     pub managed: Option<RaftManagedHostOptions>,
+    /// Start a node-owned cleanup worker after managed boot binding. It waits
+    /// for any retained boot's fresh capacity qualification before collecting.
+    /// Uses the sole movement-worker slot; leave None when starting a combined
+    /// movement/topology worker with reclaim_removed_members enabled instead.
+    pub member_cleanup: Option<super::fleet_catalog::FleetMovementServiceOptions>,
     /// Enable native snapshot recovery and its larger image admission floor.
     pub enable_snapshots: bool,
     /// Applied entries between automatic checkpoints. Shared log-cache pressure
@@ -140,6 +145,7 @@ impl Default for RaftHostOptions {
             node_directory: None,
             node_profile: None,
             managed: None,
+            member_cleanup: None,
             enable_snapshots: true,
             checkpoint_entries: 256,
             archive_checkpoint_ms: 1000,
@@ -164,6 +170,22 @@ impl Default for RaftHostOptions {
 impl RaftHostOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         self.close_report.validate()?;
+        if let Some(cleanup) = &self.member_cleanup {
+            anyhow::ensure!(
+                self.managed.is_some(),
+                "member cleanup requires managed enrollment"
+            );
+            cleanup.validate()?;
+            anyhow::ensure!(
+                self.max_control_bytes
+                    >= 4 * 1024 * 1024
+                        + super::inspection::RESPONSE_RESERVATION
+                        + 4096
+                        + cleanup.control_reservation_bytes()
+                    && self.max_control_requests >= 4,
+                "node-owned member cleanup requires bounded control headroom"
+            );
+        }
         if let Some(managed) = &self.managed {
             managed.validate()?;
             anyhow::ensure!(

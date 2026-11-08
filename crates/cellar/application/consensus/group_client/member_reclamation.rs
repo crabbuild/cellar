@@ -5,7 +5,7 @@ use super::*;
 use crate::raft::{catalog::CatalogError, completion::RuntimeError};
 
 impl RaftCells {
-    /// Drain and collect this boot's obsolete replica after a completed Fleet
+    /// Drain and collect this engine's obsolete replica after a completed Fleet
     /// membership move. Returns false when bounded page collection needs another
     /// turn. Retry the same reservation after uncertainty. The synced fence
     /// rejects old member IDs while allowing a later managed learner seed.
@@ -13,7 +13,8 @@ impl RaftCells {
     /// A joined local receipt settles its engine slot and known group disk
     /// reservation exactly once. Unknown debt and installed memory stay charged.
     /// FleetCatalog::start_member_cleanup_service discovers queued work for this
-    /// node and resumes it after worker replacement. Successor boots still refuse.
+    /// node and resumes it after worker replacement. Retained successor boots
+    /// require the original source witness and fresh rooted capacity qualification.
     pub fn reclaim_removed_member(
         &self,
         reservation: [u8; 16],

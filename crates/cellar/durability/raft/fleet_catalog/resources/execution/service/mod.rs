@@ -88,7 +88,11 @@ impl Default for FleetMovementServiceOptions {
 }
 
 impl FleetMovementServiceOptions {
-    fn validate(&self) -> Result<()> {
+    pub(in crate::raft) fn control_reservation_bytes(&self) -> usize {
+        2 * ROOT_LIMIT
+    }
+
+    pub(in crate::raft) fn validate(&self) -> Result<()> {
         if !(Duration::from_millis(50)..=Duration::from_secs(60)).contains(&self.interval)
             || !(self.interval..=Duration::from_secs(60)).contains(&self.retry_max_interval)
             || !(Duration::from_millis(1)..=Duration::from_secs(60)).contains(&self.turn_timeout)
@@ -256,6 +260,32 @@ enum ServiceMode {
 }
 
 impl FleetCatalog {
+    /// Startup transfers the complete worker lifetime to the node registry.
+    /// No external handle must be leaked or retained to keep this job alive.
+    pub(crate) async fn start_node_member_cleanup(
+        &self,
+        observer: &RaftCells,
+        options: FleetMovementServiceOptions,
+    ) -> Result<()> {
+        options.validate()?;
+        let timeout = options.turn_timeout;
+        let (stop, wait) = watch::channel(false);
+        let (done, _finished) = watch::channel(false);
+        let (status, _view) = watch::channel(FleetMovementServiceStatus::default());
+        let mut work = MovementServiceWork::new(
+            self.clone(),
+            observer.clone(),
+            None,
+            options,
+            wait,
+            done,
+            status,
+        );
+        work.set_member_cleanup();
+        work.own_stop(stop);
+        observer.start_movement_worker(work, timeout).await
+    }
+
     /// Start one paced worker on this enrolled origin. A second service on the
     /// same RaftCells is refused, including through a different catalog adapter.
     /// No new reservation, optional balance or failure-driven repair is admitted.
@@ -273,7 +303,8 @@ impl FleetCatalog {
     /// supplies histories or reservation IDs. One bounded queue point read and
     /// at most one physical cleanup run per turn; replacing the worker resumes
     /// from the selected root. This uses the node's sole movement-worker slot.
-    /// Original source boots are supported; successor boots remain fenced out.
+    /// Retained successor boots require the original source witness and fresh
+    /// capacity qualification. Erased/replaced engines remain refused.
     pub async fn start_member_cleanup_service(
         &self,
         observer: RaftCells,

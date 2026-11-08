@@ -160,7 +160,7 @@ async fn start(cluster: &ManagedCluster, evidence: Arc<Evidence>) -> Result<Flee
 }
 
 pub async fn exercise(cluster: &mut ManagedCluster) -> Result<()> {
-    exercise_inner(cluster, false, false).await
+    exercise_inner(cluster, false, false, false).await
 }
 
 pub async fn exercise_member_return(cluster: &mut ManagedCluster) -> Result<()> {
@@ -171,17 +171,22 @@ pub async fn exercise_member_return(cluster: &mut ManagedCluster) -> Result<()> 
         .with_ansi(false)
         .with_test_writer()
         .try_init();
-    exercise_inner(cluster, true, false).await
+    exercise_inner(cluster, true, false, false).await
 }
 
 pub async fn exercise_cleanup_service(cluster: &mut ManagedCluster) -> Result<()> {
-    exercise_inner(cluster, false, true).await
+    exercise_inner(cluster, false, true, false).await
+}
+
+pub async fn exercise_retained_cleanup(cluster: &mut ManagedCluster) -> Result<()> {
+    exercise_inner(cluster, false, true, true).await
 }
 
 async fn exercise_inner(
     cluster: &mut ManagedCluster,
     collect: bool,
     managed_cleanup: bool,
+    retained_cleanup: bool,
 ) -> Result<()> {
     let f = &cluster.fixtures[0];
     let evidence = Arc::new(Evidence {
@@ -229,7 +234,12 @@ async fn exercise_inner(
         return movement::verify_cells(&cluster.hosts[2], &seed, 5).await;
     }
     if managed_cleanup {
-        Box::pin(super::cleanup::exercise(cluster, evidence)).await?;
+        Box::pin(super::cleanup::exercise(
+            cluster,
+            evidence,
+            retained_cleanup,
+        ))
+        .await?;
         return movement::verify_cells(&cluster.hosts[2], &seed, 4).await;
     }
     // Placement completion is not a deletion certificate. The obsolete copies

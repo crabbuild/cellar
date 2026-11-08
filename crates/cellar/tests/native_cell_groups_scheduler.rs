@@ -25,6 +25,46 @@ use managed_fixture::{
 use std::{sync::atomic::Ordering, time::Duration};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_member_cleanup_resumes_on_qualified_boot() -> Result<()> {
+    for rooted in [false, true] {
+        let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7, 8, 9])).await?;
+        let result = Box::pin(topology::exercise_retained_cleanup(&mut cluster)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result
+            .with_context(|| format!("retained cleanup and startup ownership, extents={rooted}"))?;
+        joined?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_retained_member_cleanup_resumes_on_qualified_boot() -> Result<()> {
+    for rooted in [false, true] {
+        let store = std::sync::Arc::new(catalog_fault::Store::around(rustfs::store(
+            "retained-member-cleanup",
+            rooted,
+        )?));
+        let mut cluster = Box::pin(ManagedCluster::start_with_store(
+            rooted,
+            &[7, 8, 9],
+            managed_fixture::ArchiveSetup::Initialized,
+            store,
+        ))
+        .await?;
+        let result = Box::pin(topology::exercise_retained_cleanup(&mut cluster)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| {
+            format!("RustFS retained cleanup and startup ownership, extents={rooted}")
+        })?;
+        joined?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_member_cleanup_resumes_after_worker_restart() -> Result<()> {
     for rooted in [false, true] {
         let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7, 8, 9])).await?;

@@ -588,6 +588,19 @@ pub(crate) async fn start(
         if let Some(collection) = collection {
             collection.start(&service, options.poll_ms)?;
         }
+        if let Some(cleanup) = &options.member_cleanup {
+            let managed = options
+                .managed
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("member cleanup requires managed enrollment"))?;
+            Box::pin(
+                managed
+                    .authorization
+                    .stop_catalog()
+                    .start_node_member_cleanup(&service, cleanup.clone()),
+            )
+            .await?;
+        }
         startup.public.take();
         startup.service.take();
         startup.sql.take();

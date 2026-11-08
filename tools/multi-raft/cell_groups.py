@@ -51,6 +51,16 @@ CASES = (
 )
 
 SUITES = {
+    "managed-retained-cleanup": (
+        "native_cell_groups_scheduler",
+        ("rustfs_retained_member_cleanup_resumes_on_qualified_boot",),
+        "retained-engine cleanup resumes across qualified boots with node-owned startup",
+        "Both image modes, original fixture bounds. Restart before GC and after GC/before settlement. "
+        "Fresh capacity and original boot witness are mandatory; stale process and missing-witness attempts refuse. "
+        "Configured startup owns automatic cleanup without an external handle, duplicate workers refuse, "
+        "and a later boot replays the committed receipt without another refund. SQL/receipts/versions/S3 persist. "
+        "Independent voter processes, domain-loss, mixed load and measured resource peaks remain separate gates.",
+    ),
     "managed-member-cleanup": (
         "native_cell_groups_scheduler",
         ("rustfs_managed_member_cleanup_resumes_after_worker_restart",),

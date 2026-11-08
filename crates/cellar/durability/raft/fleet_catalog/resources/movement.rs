@@ -183,13 +183,28 @@ impl FleetCatalog {
         let digest = MovementOwner::digest(boot)?;
         let book = self.resource_book(snapshot).await?;
         let rows = self.resource_rows(snapshot, &book).await?;
-        if rows.iter().any(|row| {
+        let mut needed = rows.iter().any(|row| {
             row.seed_owners.as_ref().is_some_and(|owners| {
                 owners
                     .iter()
                     .any(|owner| owner.node == boot.node && owner.boot == digest)
             })
-        }) {
+        });
+        if !needed {
+            let node = NodeId::new(boot.node).map_err(|_| invalid())?;
+            for reservation in self.pending_member_cleanup(snapshot, node).await? {
+                let row = self.admitted_resource(snapshot, reservation).await?;
+                if row.seed_owners.as_ref().is_some_and(|owners| {
+                    owners
+                        .iter()
+                        .any(|owner| owner.node == boot.node && owner.boot == digest)
+                }) {
+                    needed = true;
+                    break;
+                }
+            }
+        }
+        if needed {
             let bytes = encode(SOURCE_BOOT_KIND, boot, SOURCE_BOOT_LIMIT)?;
             self.inner
                 .create_exact(&MovementOwner::boot_key(&digest), &bytes, SOURCE_BOOT_LIMIT)

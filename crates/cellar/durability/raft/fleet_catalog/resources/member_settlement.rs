@@ -144,7 +144,8 @@ impl FleetHostAuthorization {
                     previous.validate()?;
                     if previous.fence != fence
                         || previous.reservation != permit.id()
-                        || previous.attestation.boot != boot
+                        || !(previous.attestation.boot == boot
+                            || boot.is_retained_successor_of(&previous.attestation.boot))
                     {
                         return Err(FleetCatalogError::Conflict);
                     }
@@ -389,9 +390,12 @@ impl FleetCatalog {
         ) || permit.operation() != mutation.operation
             || plan.obsolete.get() != settlement.member
             || current.boot_binding()? != settlement.attestation.boot
-            || !owner.matches(&settlement.attestation.boot)?
         {
             return Err(FleetCatalogError::Conflict);
+        }
+        if !owner.matches(&settlement.attestation.boot)? {
+            self.confirm_retained_movement_source(snapshot, owner, &settlement.attestation.boot)
+                .await?;
         }
         let history = self.history_inner(snapshot, &row.request.group).await?;
         if settlement.birth != history.birth_digest() {

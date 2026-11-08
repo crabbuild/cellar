@@ -24,6 +24,7 @@ pub(crate) struct MovementServiceWork {
     isolated: Option<super::isolated::IsolatedRepairService>,
     recovery: Option<super::recovery::Recovery>,
     _registration: Option<ControlServiceLease>,
+    _node_owned_stop: Option<watch::Sender<bool>>,
     _completion: ControlServiceCompletion,
 }
 
@@ -55,6 +56,7 @@ impl MovementServiceWork {
             isolated: None,
             recovery: None,
             _registration: None,
+            _node_owned_stop: None,
             _completion: ControlServiceCompletion::new(done),
         }
     }
@@ -62,6 +64,10 @@ impl MovementServiceWork {
     pub(super) fn set_member_cleanup(&mut self) {
         self.member_cleanup = true;
         self.member_cleanup_only = true;
+    }
+
+    pub(super) fn own_stop(&mut self, stop: watch::Sender<bool>) {
+        self._node_owned_stop = Some(stop);
     }
 
     pub(super) fn set_topology(
@@ -113,9 +119,10 @@ impl MovementServiceWork {
         if let Some(recovery) = &mut self.recovery {
             recovery.admit_origin(host)?;
         }
-        let registration = self
-            .observer
-            .register_control_service(ControlServiceKind::Movement, 2 * ROOT_LIMIT)?;
+        let registration = self.observer.register_control_service(
+            ControlServiceKind::Movement,
+            self.options.control_reservation_bytes(),
+        )?;
         // Use the enrolled node's installed client, never a caller's alternate
         // backend with the same descriptive fleet identity. Periodic I/O has a
         // private turn under the node's domain, so it cannot occupy foreground

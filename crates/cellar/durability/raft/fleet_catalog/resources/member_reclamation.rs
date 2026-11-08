@@ -58,10 +58,12 @@ impl FleetHostAuthorization {
                         owner.member == obsolete.get() && owner.node == self.node().bytes()
                     })
                     .ok_or(FleetCatalogError::Conflict)?;
-                // A replacement boot needs independent retained-owner qualification.
-                // This API currently requires the original physical boot exactly.
+                // A new process must prove the retained disk/engine lineage and
+                // freshly qualify its rooted boot; node identity alone is no GC grant.
                 if !owner.matches(&boot)? {
-                    return Err(FleetCatalogError::Conflict);
+                    catalog
+                        .confirm_retained_movement_source(&snapshot, owner, &boot)
+                        .await?;
                 }
                 // Later moves cannot resurrect this obsolete member ID. The exact
                 // local Complete marker and immutable completion bind its removal;
