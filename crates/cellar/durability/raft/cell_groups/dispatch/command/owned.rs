@@ -155,7 +155,10 @@ impl CellCommandInvocation {
         self.dispatched = true;
         // Unlike the response-facing phase API, do not drop this SQL waiter at
         // the response deadline. It carries the exact preparation or refusal.
-        match self.prepare_at(&attempt, runtime, sql, options).await {
+        match self
+            .prepare_when_applied(&attempt, runtime, sql, options, progress)
+            .await
+        {
             Ok(CellCommandPreparation::Committed(response)) => return Ok(response),
             Ok(CellCommandPreparation::Prepared) => (),
             Err(error) if self.output.is_some() && output_retryable(&error) => {
@@ -243,6 +246,76 @@ impl CellCommandInvocation {
                 Err(error) => return Err(error),
             }
             progress.changed().await.map_err(|_| closed())?;
+        }
+    }
+
+    // A sampled ready leader can commit another cell's entry before this
+    // command asks for execution authority. Wait for that durable apply prefix
+    // without minting a SQL producer, spending another routing attempt or
+    // weakening the owner's applied == committed check. Once physical SQL may
+    // have entered, the existing exact-producer reconciliation owns the result.
+    async fn prepare_when_applied(
+        &mut self,
+        attempt: &CellRouteAttempt,
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        options: CellSqlOptions,
+        progress: &mut watch::Receiver<()>,
+    ) -> Result<CellCommandPreparation, CellDispatchError> {
+        let mut observed_cut = None;
+        loop {
+            if self.expired()? {
+                return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+            }
+            // Subscribe before the authority request. Apply may finish while
+            // that request or its subsequent read-only status reply is in flight.
+            progress.borrow_and_update();
+            match self
+                .prepare_at(attempt, runtime, sql, options.clone())
+                .await
+            {
+                Err(CellDispatchError::Runtime(RuntimeError::NotReady))
+                    if !self.ambiguous && self.origin.is_none() && self.output.is_none() =>
+                {
+                    let status = runtime
+                        .status(attempt.route().history)
+                        .await
+                        .map_err(CellDispatchError::Runtime)?;
+                    let cut = (
+                        status.term.get(),
+                        status.applied.index.get(),
+                        status.committed.get(),
+                    );
+                    if status.applied.index >= status.committed {
+                        // The failed request may have raced the final apply.
+                        // Retry a newly observed ready cut once; a stable fence,
+                        // sealed source or inactive history must still refuse.
+                        if status.ready && observed_cut != Some(cut) {
+                            observed_cut = Some(cut);
+                            continue;
+                        }
+                        return Err(CellDispatchError::Runtime(RuntimeError::NotReady));
+                    }
+                    observed_cut = Some(cut);
+                    tracing::debug!(
+                        target: "cellar::raft::execution_readiness",
+                        history = ?attempt.route().history,
+                        applied = ?status.applied,
+                        committed = ?status.committed,
+                        "command waits for committed apply before SQL"
+                    );
+                    let timer = self
+                        .dispatcher
+                        .domain
+                        .sleep_until(self.session.deadline_ms())
+                        .map_err(|_| closed())?;
+                    crate::asyncrt::select! {
+                        result = progress.changed() => result.map_err(|_| closed())?,
+                        _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+                    }
+                }
+                result => return result,
+            }
         }
     }
 

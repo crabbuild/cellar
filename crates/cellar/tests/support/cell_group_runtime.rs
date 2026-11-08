@@ -894,8 +894,8 @@ pub(super) use sql::{
     s3_remote_slow_delivery, s3_replays_from_peer_archive,
 };
 pub(super) use sql::{
-    background_admission, command_admission_starts_before_poll, owned_command_failure,
-    owned_commands,
+    background_admission, command_admission_starts_before_poll, command_waits_for_apply,
+    owned_command_failure, owned_commands,
 };
 pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,

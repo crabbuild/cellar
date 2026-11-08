@@ -11,6 +11,9 @@ use std::sync::{
 #[path = "cell_group_background_admission.rs"]
 mod background;
 pub(crate) use background::run as background_admission;
+#[path = "cell_group_command_readiness.rs"]
+mod readiness;
+pub(crate) use readiness::run as command_waits_for_apply;
 
 async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(15), async {

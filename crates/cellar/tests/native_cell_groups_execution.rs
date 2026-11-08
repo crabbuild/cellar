@@ -19,6 +19,16 @@ mod runtime_fixture;
 #[path = "support/cell_group_checkpoint.rs"]
 mod checkpoint_fixture;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn command_waits_for_committed_group_apply() -> Result<()> {
+    Box::pin(runtime_fixture::command_waits_for_apply(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn command_readiness_wait_keeps_original_deadline() -> Result<()> {
+    Box::pin(runtime_fixture::command_waits_for_apply(true)).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn background_sql_admits_one_pending_command() -> Result<()> {
     Box::pin(runtime_fixture::background_admission(false)).await

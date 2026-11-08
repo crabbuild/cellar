@@ -288,7 +288,9 @@ async fn qualify_scenario(
     scenario: Scenario,
 ) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("off,cellar::raft::transition_setup=debug")
+        .with_env_filter(
+            "off,cellar::raft::transition_setup=debug,cellar::raft::execution_readiness=debug",
+        )
         .with_test_writer()
         .try_init();
     let mut cluster = Box::pin(ManagedCluster::start_with_catalog_clients(
