@@ -116,6 +116,9 @@ impl Context<'_> {
                     &observed.view,
                     mode == ResumeMode::Paused,
                 )?;
+                let mut profile = observed.view.node.profile.clone();
+                profile.draining = false;
+                self.catalog.retain_capacity_profile(&profile).await?;
                 if observed.view.seed_workers != 0
                     || observed.view.pending_history_registrations != 0
                     || inventory.initializing().is_some()

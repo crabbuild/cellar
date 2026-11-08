@@ -14,6 +14,21 @@ pub(crate) async fn prepare(
     keys: &VersionKeys,
 ) -> anyhow::Result<Prepared> {
     config.host.validate()?;
+    if let Some(partition) = &config.host.automatic_partitions {
+        anyhow::ensure!(
+            config.shared.archive.is_some() && config.shared.checkpoints.is_some(),
+            "automatic partitions require shared archives and checkpoints"
+        );
+        anyhow::ensure!(
+            partition.service.max_groups <= config.host.max_groups
+                && partition.recovery.max_operations == 1
+                && partition.recovery.max_retained_bytes
+                    <= config.shared.provisioning.max_preparation_bytes
+                && partition.recovery.max_cells <= config.shared.manifest.max_cells
+                && partition.recovery.max_image_bytes <= config.host.images.max_bytes,
+            "automatic partition resources exceed this node's installed bounds"
+        );
+    }
     if let Some(managed) = &config.host.managed {
         anyhow::ensure!(
             managed.authorization.node() == config.infrastructure.log.node

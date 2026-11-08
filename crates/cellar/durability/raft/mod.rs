@@ -32,6 +32,7 @@ mod node_inspection_wire;
 pub(crate) mod object_metrics;
 pub(crate) mod operations;
 pub(crate) mod options;
+mod partition_observation_wire;
 pub(crate) mod performance;
 pub(crate) mod physical_inventory;
 pub(crate) mod restart_leadership;

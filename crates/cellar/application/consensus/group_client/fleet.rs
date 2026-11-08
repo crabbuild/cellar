@@ -25,6 +25,31 @@ impl RaftCells {
         timeout: Duration,
     ) -> impl Future<Output = Result<RaftPeerFleetMembershipObservation, InspectionError>> + Send + 'static
     {
+        self.observe_peer_fleet_mode(node, authorization, minimum_revision, timeout, false)
+    }
+
+    /// Read the actual leader's bounded partition counters and geometry through
+    /// the existing rooted group inspection channel. This is advisory telemetry.
+    pub fn observe_peer_fleet_partition(
+        &self,
+        node: NodeId,
+        authorization: FleetGroupAuthorization,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<RaftPeerFleetMembershipObservation, InspectionError>> + Send + 'static
+    {
+        self.observe_peer_fleet_mode(node, authorization, minimum_revision, timeout, true)
+    }
+
+    fn observe_peer_fleet_mode(
+        &self,
+        node: NodeId,
+        authorization: FleetGroupAuthorization,
+        minimum_revision: u64,
+        timeout: Duration,
+        partition: bool,
+    ) -> impl Future<Output = Result<RaftPeerFleetMembershipObservation, InspectionError>> + Send + 'static
+    {
         let admitted = (|| {
             if minimum_revision == 0
                 || minimum_revision >= u64::MAX - 2
@@ -49,12 +74,21 @@ impl RaftCells {
             let remote = if local {
                 None
             } else {
-                Some(self.handle.core.transport.inspect_fleet_membership(
-                    node,
-                    &authorization,
-                    minimum_revision,
-                    deadline,
-                )?)
+                Some(if partition {
+                    self.handle.core.transport.inspect_fleet_partition(
+                        node,
+                        &authorization,
+                        minimum_revision,
+                        deadline,
+                    )?
+                } else {
+                    self.handle.core.transport.inspect_fleet_membership(
+                        node,
+                        &authorization,
+                        minimum_revision,
+                        deadline,
+                    )?
+                })
             };
             Ok((deadline, started, memory, remote))
         })();
@@ -66,11 +100,22 @@ impl RaftCells {
                 delivery.receive().await?.observation
             } else {
                 owner
-                    .local_fleet_at(History::new(&authorization), minimum_revision, deadline)
+                    .local_fleet_at(
+                        if partition {
+                            History::for_partition(&authorization)
+                        } else {
+                            History::new(&authorization)
+                        },
+                        minimum_revision,
+                        deadline,
+                    )
                     .await
                     .map_err(inspection_error)?
             };
             owner.metadata_live(deadline).map_err(inspection_error)?;
+            if partition && local.snapshot.partition.is_none() {
+                return Err(InspectionError::Refused);
+            }
             owner
                 .handle
                 .core
@@ -159,6 +204,28 @@ impl RaftCells {
                 _ => CommandFailure::Unavailable,
             })?;
         let mut snapshot = GroupSnapshot::capture(&selected);
+        if history.requests_partition() {
+            let remaining = deadline
+                .checked_sub(
+                    self.handle
+                        .domain
+                        .mono_ms()
+                        .map_err(|_| CommandFailure::Unavailable)?,
+                )
+                .filter(|n| *n > 0)
+                .map(Duration::from_millis)
+                .ok_or(CommandFailure::Unavailable)?;
+            let partition = self
+                .group(scope)
+                .map_err(|_| CommandFailure::Unavailable)?
+                .observe_partition(remaining)
+                .await
+                .map_err(|_| CommandFailure::Unavailable)?;
+            if !partition.stable_leader {
+                return Err(CommandFailure::Unavailable);
+            }
+            snapshot.partition = Some(Box::new(partition));
+        }
         // This descriptor contains no image/page pins. Release the temporary
         // metadata read reservation before sampling unrelated physical work.
         drop(selected);

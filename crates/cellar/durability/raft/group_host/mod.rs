@@ -7,6 +7,7 @@ mod collection;
 mod directory;
 mod router_refresh;
 pub(crate) use router_refresh::{RouterRefreshClient, RouterRefreshRequest};
+mod partition;
 mod provisioning;
 mod recovery;
 mod registration;
@@ -473,6 +474,20 @@ pub(crate) async fn start(
         let archive_io = archive_provisioning
             .as_ref()
             .map(|archive| archive.io.clone());
+        let automatic = if options.automatic_partitions.is_some() {
+            partition::prepare(
+                &prepared,
+                archive_provisioning.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("automatic partitions require archive resources")
+                })?,
+                &log,
+                &directory,
+                limits,
+                &options,
+            )?
+        } else {
+            None
+        };
         controller.configure_provisioning_with_archives(
             CellGroupProvisioning {
                 directory: directory.clone(),
@@ -601,6 +616,10 @@ pub(crate) async fn start(
                     .start_node_member_cleanup(&service, cleanup.clone()),
             )
             .await?;
+        }
+        if let (Some(control), Some(config)) = (automatic, &options.automatic_partitions) {
+            service.configure_automatic_partitions(control, config.clone())?;
+            Box::pin(service.resume_automatic_partitions(config.service.turn_timeout)).await?;
         }
         startup.public.take();
         startup.service.take();

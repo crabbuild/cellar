@@ -6,45 +6,77 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current CG-11 delivery
 
-The durable request cursor (`2bd87acf`) and node-owned automatic partition service
-(`67f6727d`) are implemented. Cold recovery restores selected work before planner
-callbacks, retains child identities and requires explicit execution consent.
-Joined stop retains durable work and physical debt.
+Stay on CG-11 feature delivery. Its five product outcomes are:
 
-The command-readiness fix (`6ae2c3f0`) waits for a committed prefix to finish apply
-before entering SQL. It retains the original deadline and acquires fresh owner
-authority; entered producers keep their exact reconciliation owner. Two new
-regressions pass both image modes, including expiry without late SQL and exact
-receipt replay. The original transition failures now pass: ten native transition
-cases and four real RustFS cases pass both image modes. Test-fixture successors
-`7e75a45f` and `032a8962` preserve production Rust, capacity and deadline limits.
-The final execution target passes 187 tests with zero failures and two process
-helpers ignored; strict all-target Clippy and repository checks pass.
-See [progress](progress.md) for exact source limits and retained predecessor
-failures. Do not reopen the resolved pre-SQL readiness investigation.
+1. Automatic RF3 destinations from rooted capacity, failure domains and recovery reserve.
+2. Adaptive split/merge, including adjacent groups with different leaders.
+3. Durable operation continuation after controller replacement and joined stop.
+4. Automatic whole-group balance and repair, without remapping individual cells.
+5. Bounded control-plane inventory and targeted updates under the planned load.
 
-Keep work on CG-11. Pre-admission staged cancellation is implemented at
-`7b80d088`: root the permanent fence before namespace birth decisions, retain
-immutable identities and capacity debt, and settle the cursor only after exact
-cancellation winners. Cold continuation and old-operation replay keep the original
-request and plan. Existing admitted transitions retain their cancellation owner;
-a live birth winner refuses staged completion. At this source, all 32 affected
-native cases pass (13 transition, 6 scheduler, 13 catalog), and the four fixed
-RustFS cases pass both image modes with the same executable. The owned backend
-is stopped. Strict Clippy and repository checks pass; see progress.md for exact
-records and limits. This does not qualify background cancellation fault schedules
-or independent voter processes.
-Next qualify competing automatic controllers and finish unified handoff/recovery
-of admitted or live work. Selection and scheduler receipts grant no
-serving authority or physical refunds.
+The standard planner, generated identities, joint child placement and configured
+host startup are implemented at `93bbbcd0`/`fb91205e`. Applications supply explicit
+policy rather than a destination callback. The node owns suspend/resume and joins
+its controllers; recovery shares existing private verifier stores and pools.
+Authenticated leader telemetry supports different sibling leaders. CPU-only
+pressure and alignment across disjoint replica sets remain outside this slice.
 
-Then deliver deployment placement and configured startup. The existing automatic
-service delegates fresh identities and RF3 destination planning to a trusted
-application callback; it does not yet provide the complete deployment planner or
-adaptive whole-group balancing. Finish failure-domain/reserve and bounded-fanout
-acceptance, then late faults, larger inventories, mixed load and measured peaks.
-CG-11 remains IN_PROGRESS. Host-native TLS/RustFS cases do not qualify independent
-voter processes, sustained load or the CG-12–16 release gates.
+At `61516bd1`, advisory lag retains a matching complete archive cut through a
+retryable upload failure. Reproduced `Archive(Expired)` errors had hidden that
+cut and reset split hysteresis under real SQL load. Missing, stopped and foreign
+owners still refuse. Archive, seal, quorum and reclamation proofs are unchanged.
+At `38f2ac26`, the complete configured load → split → controller replacement →
+cross-leader merge workflow and reserve refusal pass natively and against real
+RustFS in both image modes. SQL state, every acknowledged receipt, fresh quorum
+writes and joined shutdown are verified. The successor also preserves fractional
+scheduling pressure and reconciles exact admission/consent winners, including
+consent after slot settlement. This is controller replacement on live voters;
+independent voter-process and sustained-load qualification remain open.
+
+At `edf7d28a`, the independent SDK controller uses its own clock consistently
+for freshness and recommendations. The two previously failing scheduler cases,
+configured cycle, reserve refusal and public authority pass in both native image
+modes. The RustFS result remains pinned to `38f2ac26`.
+
+Next implement automatic whole-group balancing/repair and disjoint-placement
+alignment, close the exact failure-domain/reserve and fanout gates, and qualify
+larger inventories, mixed load, physical peaks and independent domains. CG-11
+remains IN_PROGRESS.
+Earlier command-readiness, cancellation and operator checkpoints retain their
+own source boundaries in [progress](progress.md); they are not current workflow
+acceptance and should not displace this feature sequence.
+
+### Delivery order and completion criteria
+
+Finish one feature before opening another implementation track:
+
+1. **Delivered configured adaptive execution (`38f2ac26`):** a public SQL
+   workload triggers automatic placement and split; replacement controllers resume the persisted operation;
+   quiet adjacent groups merge across different leaders. Original receipts, SQL
+   state, fresh quorum writes, reserve refusal and joined shutdown pass in
+   both image modes with real RustFS. Preserve this source-pinned qualification.
+2. **Next feature — automatic whole-group balancing and repair:** adding
+   capacity or draining a node selects and durably executes replica movement using the existing
+   learner/Joint/removal owner. Resume interrupted movement without remapping
+   individual cells. Align disjoint sibling placements before merging. Failure
+   detection cannot replace fencing or establish physical resource release.
+3. **CG-11 acceptance:** finish the exact
+   `repair_preserves_failure_domains_and_reserve` and
+   `control_plane_fanout_bounded` cases, then run the complete scheduler gate.
+   One-domain loss must preserve separation and recovery headroom; a second loss
+   must refuse unavailable quorum. Inventory and targeted updates must stay
+   bounded as the cell and group inventory grows.
+
+The recorded `scheduler_hysteresis_and_hot_isolation`,
+`scheduler_cannot_grant_authority` and `whole_group_scale_out_in` checkpoints are
+useful foundations. They do not prove that configured automatic balancing,
+repair or the two missing cases are delivered. Keep CG-11 `IN_PROGRESS` until
+the complete task evidence passes. Do not substitute formatter runs, auxiliary
+checks or unrelated lifecycle work for these feature outcomes.
+
+Hard cutover: `partition-placement-1` requires fresh namespaces, fleet roots,
+engine directories and matching binaries; numeric markers remain 1. CG-12–16
+lifecycle and release gates remain open.
 
 ## Current accepted boundary
 
@@ -141,10 +173,13 @@ attempts, including the corrected new receipt-test version expectation.
 Keep work on CG-11 until every gap closes. Durable partition request discovery,
 cross-controller replay, terminal cursor settlement, retained member cleanup and
 configured cleanup startup and the automatic scheduling owner are implemented
-above. Next deliver competing selections and staged-work cancellation/recovery,
-deployment placement and configured partition startup. Complete adaptive
-placement, failure-domain/reserve and bounded fanout. Qualify late faults, larger
-inventories, mixed load and measured peaks before task acceptance.
+above. Staged-work cancellation/recovery, standard deployment placement and
+configured partition startup now have successor implementations; do not restart
+those completed tracks from this historical checkpoint. Follow the delivery
+order at the top of this handoff: configured execution qualification, automatic
+whole-group balancing/repair and disjoint-placement alignment, then the missing
+failure-domain/reserve and bounded-fanout acceptance. Qualify larger inventories,
+mixed load and measured peaks before task acceptance.
 Consent remains explicit and irreversible sealing requires the recorded authority.
 After CG-11 closes, continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all

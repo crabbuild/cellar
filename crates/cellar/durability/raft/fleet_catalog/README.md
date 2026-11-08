@@ -153,6 +153,48 @@ protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
 Numeric format markers remain 1.
 
+## Automatic group sizing and placement
+
+Set `RaftHostOptions::automatic_partitions` to explicit
+`RaftFleetAutomaticPartitionOptions` on managed voters. This starts the standard
+RF3 planner and existing transition worker with the node, using compiled
+namespaces and their rooted class declarations. Applications supply sizing,
+placement, execution and recovery policies; they supply no child identities or
+placement callback. `Complete` explicitly consents to irreversible execution.
+The node owns startup failure cleanup, stop and joined shutdown.
+
+The planner discovers Active capacity-qualified nodes in the declared pool.
+Qualification and retained resume persist immutable profile descriptions pinned
+by the existing capacity digest. Missing or mismatched descriptions refuse
+planning. At most six selected nodes receive physical inventory requests per
+attempt. The planner includes unmaterialized reservations, retained sources,
+resource floors, installed limits and separation constraints. It allocates both
+split children together and retains the configured aggregate recovery slots.
+Empty destinations win equal-load ties before sharing retained source nodes.
+Selection remains advisory; existing admission and seal owners revalidate it.
+
+Sampling rotates over locally hosted active groups. A follower obtains the
+actual leader's counters and geometry through authenticated, scope-bound Fleet
+inspection. Rate calculation uses that owner's counter clock; freshness and
+cooldown use receiver-local request-start time. Different leader clocks are never
+compared. Adjacent groups hosted on the same node can therefore merge with
+different leaders. Global placement alignment for disjoint replica sets and
+adaptive whole-group balancing remain CG-11 work.
+
+`RaftCells::partition_service_status` reports bounded progress, failures and
+remote sample counts. `suspend_automatic_partitions` joins the configured owner;
+`resume_automatic_partitions` rebuilds it from configuration and restores rooted
+work before planning. Identity and physical debt remain with their journals.
+Replay shares the existing private archive inventory, archive/checkpoint/tail
+pools and bounded scratch. The configured recovery memory quota is included in
+the reported startup buffer bound. No separate verifier inventory is opened.
+CPU-only scheduling hints remain outside the built-in planner; it uses the
+measured group bytes, cell count, write/apply rates, queues and archive lag.
+
+The required Fleet inspection fields add `/partition-placement-1` to the
+protocol digest. Use fresh namespaces, fleet roots and engine directories with
+matching binaries. Numeric markers remain 1; there is no earlier-format reader.
+
 ## Cancelling selected partition work
 
 `RaftFleetControl::cancel_staged_partition` and

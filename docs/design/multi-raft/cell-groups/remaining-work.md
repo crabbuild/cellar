@@ -101,7 +101,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | At `6ae2c3f0`, owned commands wait for committed apply before SQL under their original deadlines. Deterministic deadline/receipt cases pass both images. Ten native transition cases and RustFS retirement, colocated-child, reclamation and automatic-service cases pass both modes; the same transition executable is used at fixture successor `7e75a45f`. Execution-fixture successor `032a8962` passes 187 tests with zero failures and two process helpers ignored. At `7b80d088`, staged cancellation fences delayed admission and resumes lost confirmations while retaining debt; all 32 affected native cases and four fixed RustFS cases pass, the latter in both image modes. | Qualify competing automatic controllers and finish unified admitted/live-work handoff/recovery. Deliver adaptive whole-group placement and configured deployment startup; finish failure-domain/reserve and bounded fanout. Qualify late faults, mixed load, larger inventories, peaks and independent domains. Full acceptance remains pending. |
+| CG-11 | Three named cases and earlier checkpoints retain their recorded sources. At `38f2ac26`, configured RF3 placement, SQL-load split, persisted continuation after controller replacement, cross-leader quiet merge and reserve refusal pass natively and against real RustFS in both image modes. Original receipts, SQL state, fresh quorum writes and joined shutdown are verified. | Next implement automatic whole-group balancing/repair and disjoint replica-set alignment. Close the exact failure-domain/reserve and bounded-fanout acceptance cases; qualify larger inventories, mixed load, physical peaks and independent domains. Full acceptance remains pending. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | The campaign CLI and all five named component cases pass. Four real-RustFS S3 cohorts verify both image modes and occupancies 1/2; see the [checkpoint](progress.md#cg-14-executable-campaign-mvp). The earlier occupancy-128 matrix miss remains open. | Complete bounded disk provisioning, historical controls, measured safety/lag/close evidence and the remaining lifecycle/deployment adapters; retain the full profile gates. |
@@ -117,20 +117,19 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Finish CG-11 operation recovery and placement.** Command admission now waits for actual
-   committed apply before SQL; deterministic deadline and receipt cases and the
-   original transition/RustFS cases pass. The earlier execution fixture at
-   `032a8962` passes 187 tests.
-   Pre-admission staged cancellation at `7b80d088` fences delayed admission,
-   resumes lost confirmations and preserves immutable identities and capacity
-   debt. All 32 affected native tests and four fixed RustFS cases pass; the latter
-   run both image modes. Next qualify competing automatic controllers and finish
-   unified admitted/live-work handoff/recovery. A cleared cursor grants no
-   physical release.
-   Deliver adaptive whole-group placement and configured deployment startup, then
-   the missing failure-domain/reserve and bounded-fanout cases. Qualify late
-   faults, mixed load, larger inventories and measured peaks. Keep CG-11 open
-   until all gates close.
+1. **Deliver and close CG-11.** Its five product outcomes are automatic RF3
+   destination selection, adaptive split/merge, durable operation continuation,
+   whole-group balancing/repair, and bounded control-plane work with recovery
+   reserve. The standard planner now generates identities and selects both split
+   children jointly from rooted capacity and physical inventories. Configured host
+   startup owns suspend/resume and joined stop; sibling leaders can differ.
+   The complete configured SQL workflow and reserve refusal pass against real
+   RustFS in both image modes at `38f2ac26`. Next finish automatic whole-group
+   movement/balancing/repair and alignment of adjacent groups on disjoint replica
+   sets, followed by the missing exact reserve,
+   failure-domain and fanout gates. Keep the full task open until its planned load,
+   larger-inventory, peak and domain qualifications pass. Earlier cancellation,
+   request-readiness and operator checkpoints remain scoped to their own sources.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
    wake eligibility and retained lifecycle, then S3 recovery of interrupted
    transitions. CG-13 requires the CG-14 infrastructure harness and the permanent

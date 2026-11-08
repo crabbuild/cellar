@@ -93,19 +93,11 @@ impl RaftGroupHandle {
                     .observe_partition(group.history),
             )
             .await?;
-            sample.archive_lag_entries = group.archive_status()?.and_then(|status| {
-                if status.stopped || status.error.is_some() {
-                    return None;
-                }
-                let archived = status
-                    .published
-                    .filter(|cut| cut.route() == &sample.route)?;
-                sample
-                    .status
-                    .committed
-                    .get()
-                    .checked_sub(archived.position().index.get())
-            });
+            sample.archive_lag_entries = partition_archive_lag(
+                &sample.route,
+                sample.status.committed,
+                group.archive_status()?,
+            );
             group.control_live(deadline)?;
             Ok(sample)
         }
@@ -125,3 +117,25 @@ impl RaftGroupHandle {
             .archive_status(self.history)
     }
 }
+
+// A retryable upload failure does not erase the owner's previous complete cut.
+// These independently sampled counters are advisory; the transition preparer
+// still needs a retained, verified archive closure before seal authorization.
+fn partition_archive_lag(
+    route: &cellar_logic::cell_group::GroupRoute,
+    committed: cellar_logic::consensus::LogIndex,
+    status: Option<CellGroupArchiveStatus>,
+) -> Option<u64> {
+    let status = status.filter(|s| !s.stopped)?;
+    let archived = status.published.filter(|cut| cut.route() == route)?;
+    // The archive owner can advance between the Raft sample and this read.
+    Some(
+        committed
+            .get()
+            .saturating_sub(archived.position().index.get()),
+    )
+}
+
+#[cfg(test)]
+#[path = "observation_tests.rs"]
+mod tests;

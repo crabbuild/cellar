@@ -221,7 +221,8 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         .sample_since(&before_writes, context)
         .context("same-owner workload sample")?;
     let elapsed = after_writes.workload.sampled_at_ms - before_writes.workload.sampled_at_ms;
-    ensure!(rates.load.cells == 2 && rates.load.writes_per_second == 2_000 / elapsed);
+    let upper_rate = 2_000u64.div_ceil(elapsed);
+    ensure!(rates.load.cells == 2 && rates.load.writes_per_second == upper_rate);
     ensure!(rates.applies_per_second == rates.load.writes_per_second);
     ensure!(after_writes.sample_since(&after_writes, context).is_none());
     for index in 0..3 {

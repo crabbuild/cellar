@@ -46,6 +46,8 @@ struct State {
     closing: bool,
     next: u64,
     slots: [Option<Entry>; 8],
+    partition: Option<crate::management::RaftFleetPartitionService>,
+    partition_config: Option<crate::management::ConfiguredPartition>,
 }
 
 pub(super) struct Services {
@@ -158,6 +160,114 @@ impl Services {
 }
 
 impl RaftCells {
+    /// Advisory status for partition management started by host configuration.
+    pub fn partition_service_status(
+        &self,
+    ) -> Option<crate::management::RaftFleetPartitionServiceStatus> {
+        self.handle
+            .core
+            .services
+            .state
+            .lock()
+            .ok()?
+            .partition
+            .as_ref()
+            .map(|service| service.status())
+    }
+
+    /// Join the configured controller. Persisted operations and physical debt
+    /// remain owned by their original journals for a subsequent resume.
+    pub async fn suspend_automatic_partitions(&self) {
+        let service = self
+            .handle
+            .core
+            .services
+            .state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .partition
+            .take();
+        if let Some(service) = service {
+            service.shutdown().await;
+        }
+    }
+
+    /// Resume the configured owner without supplying placement callbacks,
+    /// operation IDs or private replay stores. Restored work takes priority.
+    pub async fn resume_automatic_partitions(
+        &self,
+        timeout: Duration,
+    ) -> Result<(), crate::management::RaftFleetFailure> {
+        let config = {
+            let state = self
+                .handle
+                .core
+                .services
+                .state
+                .lock()
+                .map_err(|_| FleetCatalogError::Closed)?;
+            if state.closing {
+                return Err(FleetCatalogError::Closed.into());
+            }
+            if state.partition.is_some() {
+                return Err(FleetCatalogError::Overloaded.into());
+            }
+            state
+                .partition_config
+                .clone()
+                .ok_or(FleetCatalogError::Invalid(
+                    "no automatic partition configuration",
+                ))?
+        };
+        let service = Box::pin(config.control.start_automatic_partition_service(
+            self,
+            config.options.sizing,
+            config.options.placement,
+            config.options.service,
+            timeout,
+        ))
+        .await?;
+        self.retain_partition_service(service)?;
+        Ok(())
+    }
+
+    pub(crate) fn configure_automatic_partitions(
+        &self,
+        control: crate::management::RaftFleetControl,
+        options: crate::management::RaftFleetAutomaticPartitionOptions,
+    ) -> Result<(), FleetCatalogError> {
+        let mut state = self
+            .handle
+            .core
+            .services
+            .state
+            .lock()
+            .map_err(|_| FleetCatalogError::Closed)?;
+        if state.closing || state.partition_config.is_some() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        state.partition_config = Some(crate::management::ConfiguredPartition { control, options });
+        Ok(())
+    }
+
+    pub(crate) fn retain_partition_service(
+        &self,
+        service: crate::management::RaftFleetPartitionService,
+    ) -> Result<(), FleetCatalogError> {
+        let mut state = self
+            .handle
+            .core
+            .services
+            .state
+            .lock()
+            .map_err(|_| FleetCatalogError::Closed)?;
+        if state.closing || state.partition.is_some() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        state.partition = Some(service);
+        Ok(())
+    }
+
     /// Node installs its existing stop owner from the actual bound boot, after
     /// startup has synced the lifecycle guard. No caller-provided preboot clone.
     pub(crate) fn fleet_stop_services(

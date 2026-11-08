@@ -28,12 +28,12 @@ struct Preparation {
     targets: BTreeMap<NodeId, (FleetHostAuthorization, FleetCapacityAttestation)>,
 }
 
-struct Node {
-    capacity: FleetCapacityAttestation,
-    physical: RaftPeerNodeObservation,
-    started: u64,
-    known: usize,
-    missing: u32,
+pub(super) struct Node {
+    pub(super) capacity: FleetCapacityAttestation,
+    pub(super) physical: RaftPeerNodeObservation,
+    pub(super) started: u64,
+    pub(super) known: usize,
+    pub(super) missing: u32,
 }
 
 impl FleetCatalog {
@@ -228,7 +228,7 @@ impl FleetCatalog {
         .await
     }
 
-    async fn charge_transition_births(
+    pub(super) async fn charge_transition_births(
         &self,
         snapshot: &FleetSnapshot,
         nodes: &mut BTreeMap<NodeId, Node>,
@@ -309,7 +309,9 @@ impl FleetCatalog {
     }
 }
 
-fn resource_attestation(capacity: &FleetCapacityAttestation) -> FleetResourceAttestation {
+pub(super) fn resource_attestation(
+    capacity: &FleetCapacityAttestation,
+) -> FleetResourceAttestation {
     FleetResourceAttestation {
         boot: capacity.boot.clone(),
         profile_revision: capacity.profile_revision,
@@ -324,21 +326,30 @@ fn resource_attestation(capacity: &FleetCapacityAttestation) -> FleetResourceAtt
 }
 
 fn require_room(input: &Node, floor: FleetResourceBounds) -> Result<()> {
+    require_projected_room(input, floor, 0)
+}
+
+pub(super) fn require_projected_room(
+    input: &Node,
+    floor: FleetResourceBounds,
+    additional: u32,
+) -> Result<()> {
     let view = &input.physical.view;
     let qualified = &input.capacity;
     let overflow = || FleetCatalogError::Resource(LedgerError::ArithmeticOverflow);
     let full = |kind| FleetCatalogError::Resource(LedgerError::CapacityExceeded(kind));
+    let missing = input.missing.checked_add(additional).ok_or_else(overflow)?;
     let slots = view
         .node
         .groups
         .max(floor.engine_slots)
-        .checked_add(input.missing)
+        .checked_add(missing)
         .ok_or_else(overflow)?;
     let registrations = view
         .registered_histories
         .checked_add(view.unattached_engine_histories)
         .map(|count| count.max(view.node.groups).max(floor.engine_slots))
-        .and_then(|count| count.checked_add(input.missing))
+        .and_then(|count| count.checked_add(missing))
         .ok_or_else(overflow)?;
     let bound = &view.startup_bounds;
     if slots
@@ -363,7 +374,7 @@ fn require_room(input: &Node, floor: FleetResourceBounds) -> Result<()> {
         .node
         .profile
         .bytes_per_group
-        .checked_mul(u64::from(input.missing))
+        .checked_mul(u64::from(missing))
         .ok_or_else(overflow)?;
     let bytes = view
         .node

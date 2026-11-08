@@ -24,6 +24,33 @@ fn key(operation: [u8; 16]) -> String {
 }
 
 impl FleetCatalog {
+    /// Reconcile immutable consent even after the disruption slot is released.
+    /// A historical record grants no current slot, seal or serving authority.
+    pub(crate) async fn transition_execution(
+        &self,
+        operation: [u8; 16],
+        timeout: Duration,
+    ) -> Result<Option<ManagedTransitionExecution>> {
+        self.run(
+            timeout,
+            Box::pin(async {
+                let Some((record, _)) = self
+                    .inner
+                    .read::<ManagedTransitionExecution>(&key(operation), KIND, LIMIT)
+                    .await?
+                else {
+                    return Ok(None);
+                };
+                validate_request(&record.identity)?;
+                if record.catalog != self.catalog_id()? || record.identity.operation != operation {
+                    return Err(FleetCatalogError::Corrupt("transition execution consent"));
+                }
+                Ok(Some(record))
+            }),
+        )
+        .await
+    }
+
     pub(crate) async fn consent_transition_execution(
         &self,
         directory: &RangeDirectory,

@@ -78,6 +78,7 @@ impl RaftFleetPartitionRecommendation {
 
 struct Tracked {
     previous: CellGroupPartitionObservation,
+    origin: NodeId,
     directory_digest: [u8; 32],
     placement_class: [u8; 32],
     topology_at: u64,
@@ -118,6 +119,7 @@ pub struct RaftFleetPartitionScheduler {
     pending: Option<Pending>,
     inventory_cursor: Option<GroupHistory>,
     selection_cursor: Option<GroupHistory>,
+    remote_samples: u64,
     _memory: crate::raft::budget::Permit,
 }
 
@@ -152,6 +154,7 @@ impl RaftFleetPartitionScheduler {
             inventory_cursor: None,
             selection_cursor: None,
             _memory: memory,
+            remote_samples: 0,
         })
     }
 
@@ -232,6 +235,11 @@ impl RaftFleetPartitionScheduler {
         })
     }
 
+    /// Successfully delivered leader observations; an advisory counter only.
+    pub fn remote_samples(&self) -> u64 {
+        self.remote_samples
+    }
+
     pub fn tracked_groups(&self) -> usize {
         self.groups.len()
     }
@@ -295,11 +303,85 @@ impl RaftFleetPartitionScheduler {
                 Ok::<_, RaftFleetFailure>((view.digest(), birth.route().clone()))
             })
             .await??;
+        let receiver_sampled_at = self
+            .control
+            .domain
+            .mono_ms()
+            .map_err(|_| FleetCatalogError::Closed)?;
         let group = observer.group(history).map_err(observation_failure)?;
-        let current = group
+        let mut current = group
             .observe_partition(turn.remaining()?)
             .await
             .map_err(observation_failure)?;
+        let mut origin = observer.identity().node;
+        if !current.stable_leader {
+            let snapshot = self.control.catalog.read(turn.remaining()?).await?;
+            let authorization = self
+                .control
+                .catalog
+                .authorize_group(&snapshot, &history, turn.remaining()?)
+                .await?;
+            let cached = self
+                .groups
+                .get(&history)
+                .filter(|t| {
+                    t.previous.membership == current.membership
+                        && t.previous.status.term == current.status.term
+                        && t.previous.status.leader == current.status.leader
+                })
+                .map(|t| t.origin);
+            let node = if let Some(node) = cached {
+                node
+            } else {
+                let known = observer
+                    .observe_peer_fleet_membership(
+                        observer.identity().node,
+                        authorization.clone(),
+                        snapshot.revision(),
+                        turn.remaining()?,
+                    )
+                    .await
+                    .map_err(|_| RaftFleetFailure::from(FleetCatalogError::Unconfirmed))?;
+                let leader = known
+                    .progress()
+                    .member
+                    .as_ref()
+                    .and_then(|m| m.leader)
+                    .ok_or(FleetCatalogError::Unconfirmed)?;
+                authorization
+                    .router_voters(known.membership())?
+                    .into_iter()
+                    .find(|v| v.member == leader)
+                    .ok_or(FleetCatalogError::Unconfirmed)?
+                    .node
+            };
+            let remote = match observer
+                .observe_peer_fleet_partition(
+                    node,
+                    authorization,
+                    snapshot.revision(),
+                    turn.remaining()?,
+                )
+                .await
+            {
+                Ok(remote) => remote,
+                Err(_) => {
+                    self.groups.remove(&history);
+                    return Err(FleetCatalogError::Unconfirmed.into());
+                }
+            };
+            current = remote
+                .partition()
+                .ok_or(FleetCatalogError::Unconfirmed)?
+                .clone();
+            self.remote_samples = self.remote_samples.saturating_add(1);
+            origin = node;
+        }
+        let receiver_now = self
+            .control
+            .domain
+            .mono_ms()
+            .map_err(|_| FleetCatalogError::Closed)?;
         if current.route != route {
             self.groups.remove(&history);
             return Err(FleetCatalogError::Conflict.into());
@@ -309,7 +391,8 @@ impl RaftFleetPartitionScheduler {
             previous: current.clone(),
             directory_digest: digest,
             placement_class: pressure.placement_class,
-            topology_at: now,
+            topology_at: receiver_sampled_at,
+            origin,
             tracker: PartitionTracker::default(),
         };
         let Some(tracked) = self.groups.get_mut(&history) else {
@@ -335,7 +418,7 @@ impl RaftFleetPartitionScheduler {
             failure_domain_load_bps: pressure.failure_domain_load_bps,
             active_and_stable: current.stable_leader,
         };
-        let Some(sample) = current.sample_since(&tracked.previous, context) else {
+        let Some(mut sample) = current.sample_since(&tracked.previous, context) else {
             *tracked = reset();
             return Ok(None);
         };
@@ -347,7 +430,14 @@ impl RaftFleetPartitionScheduler {
             *tracked = reset();
             return Ok(None);
         }
-        tracked.tracker.observe(self.policy, sample.clone(), now);
+        // Rates use the source owner's clock/counters; freshness and cooldown
+        // use this receiver's conservative request-start time. Remote clock
+        // origins are never compared with one another or with the receiver.
+        sample.sampled_at_ms = receiver_sampled_at;
+        tracked
+            .tracker
+            .observe(self.policy, sample.clone(), receiver_now);
+        tracked.origin = origin;
         tracked.previous = current;
         Ok(Some(sample))
     }
@@ -658,11 +748,9 @@ impl RaftFleetPartitionScheduler {
     }
 
     fn now(&self) -> Result<u64> {
+        // observe() rebases sample freshness and cooldown to this controller.
+        // A voter may have a different monotonic origin, even when local.
         self.control
-            .node_observer
-            .as_ref()
-            .ok_or_else(RaftFleetFailure::unsupported)?
-            .handle
             .domain
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed.into())

@@ -54,7 +54,18 @@ impl RaftTransport {
         minimum_revision: u64,
         deadline: u64,
     ) -> Result<Delivery<Received>, InspectionError> {
-        self.begin_fleet_inspection(node, authorization, minimum_revision, deadline)
+        self.begin_fleet_inspection(node, authorization, false, minimum_revision, deadline)
+            .map_err(|error| classify(error, 0))
+    }
+
+    pub(crate) fn inspect_fleet_partition(
+        &self,
+        node: NodeId,
+        authorization: &FleetGroupAuthorization,
+        minimum_revision: u64,
+        deadline: u64,
+    ) -> Result<Delivery<Received>, InspectionError> {
+        self.begin_fleet_inspection(node, authorization, true, minimum_revision, deadline)
             .map_err(|error| classify(error, 0))
     }
 
@@ -62,6 +73,7 @@ impl RaftTransport {
         &self,
         node: NodeId,
         authorization: &FleetGroupAuthorization,
+        partition: bool,
         minimum_revision: u64,
         deadline: u64,
     ) -> Result<Delivery<Received>, TransportError> {
@@ -71,7 +83,11 @@ impl RaftTransport {
             return Err(TransportError::Timeout);
         }
         let (peer, route, peer_budget) = state.node_metadata_route(node, minimum_revision)?;
-        let history = History::new(authorization);
+        let history = if partition {
+            History::for_partition(authorization)
+        } else {
+            History::new(authorization)
+        };
         validate_history_route(&route, &history)?;
         let epoch = state.seed_peer_epoch(&peer)?;
         let node = state

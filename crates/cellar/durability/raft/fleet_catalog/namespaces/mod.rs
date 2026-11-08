@@ -207,6 +207,17 @@ impl FleetCatalog {
         Ok(())
     }
 
+    pub(super) async fn declared_class(
+        &self,
+        snapshot: &FleetSnapshot,
+        namespace: &NamespaceCatalog,
+    ) -> Result<String> {
+        Ok(self
+            .namespace_declaration(snapshot, namespace, None)
+            .await?
+            .class)
+    }
+
     async fn namespace_declaration(
         &self,
         snapshot: &FleetSnapshot,

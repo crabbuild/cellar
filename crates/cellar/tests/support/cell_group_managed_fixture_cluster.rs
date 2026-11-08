@@ -258,6 +258,46 @@ impl ManagedCluster {
         applications: Option<Vec<Arc<dyn Application>>>,
         first_group: FirstGroupSetup,
     ) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            first,
+            spares,
+            archives,
+            independent,
+            applications,
+            first_group,
+            None,
+        ))
+        .await
+    }
+
+    pub async fn start_with_partitions(
+        rooted: bool,
+        spares: &[u8],
+        store: Arc<fault::Store>,
+        partitions: cellar::sdk::fleet_operations::RaftFleetAutomaticPartitionOptions,
+    ) -> Result<Self> {
+        let first = Fixture::with_store(rooted, counter_class()?, store).await?;
+        Box::pin(Self::start_configured(
+            first,
+            spares,
+            ArchiveSetup::Initialized,
+            true,
+            None,
+            FirstGroupSetup::Normal,
+            Some(partitions),
+        ))
+        .await
+    }
+
+    async fn start_configured(
+        first: Fixture,
+        spares: &[u8],
+        archives: ArchiveSetup,
+        independent: bool,
+        applications: Option<Vec<Arc<dyn Application>>>,
+        first_group: FirstGroupSetup,
+        partitions: Option<cellar::sdk::fleet_operations::RaftFleetAutomaticPartitionOptions>,
+    ) -> Result<Self> {
         let second = peer_fixture(&first, 5).await?;
         let third = peer_fixture(&first, 6).await?;
         let mut fixtures = vec![first, second, third];
@@ -361,6 +401,15 @@ impl ManagedCluster {
             if archives != ArchiveSetup::Disabled {
                 archives::configure(&mut config);
             }
+            config.host.automatic_partitions = partitions.clone().map(|mut options| {
+                options.service.transition.coordinate = i == 3;
+                options.service.execution = if i == 3 {
+                    cellar::sdk::fleet_operations::RaftFleetPartitionExecutionPolicy::Complete
+                } else {
+                    cellar::sdk::fleet_operations::RaftFleetPartitionExecutionPolicy::AdmissionOnly
+                };
+                options
+            });
             peers.push(config.peers[0].clone());
             let host = node.start_raft_cells(config, services).await?;
             ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
