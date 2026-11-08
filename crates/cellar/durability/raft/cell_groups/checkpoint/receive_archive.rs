@@ -72,9 +72,10 @@ impl CellGroupCheckpointPool {
         scratch: ScratchPool,
         directory: PathBuf,
     ) -> Result<CellGroupArchiveCheckpointReceiver> {
-        Ok(CellGroupArchiveCheckpointReceiver(State::new(
-            self, store, scratch, directory,
-        )?))
+        Ok(CellGroupArchiveCheckpointReceiver(
+            State::new(self, store, scratch, directory)?,
+            false,
+        ))
     }
 }
 
@@ -90,19 +91,16 @@ impl PreparedArchiveReceive {
         scratch: ScratchPool,
         directory: PathBuf,
     ) -> Result<CellGroupArchiveCheckpointReceiver> {
-        Ok(CellGroupArchiveCheckpointReceiver(State::with_reservation(
-            &self.pool,
-            store,
-            scratch,
-            directory,
-            self.reservation,
-        )?))
+        Ok(CellGroupArchiveCheckpointReceiver(
+            State::with_reservation(&self.pool, store, scratch, directory, self.reservation)?,
+            false,
+        ))
     }
 }
 
 /// Physical archive receiver. It cannot produce the engine-bound checkpoint
 /// capability accepted by SnapshotChange or the Raft owner.
-pub struct CellGroupArchiveCheckpointReceiver(State<CellGroupArchiveStore>);
+pub struct CellGroupArchiveCheckpointReceiver(State<CellGroupArchiveStore>, bool);
 
 impl WireReceiver for CellGroupArchiveCheckpointReceiver {
     fn wire_extent(
@@ -121,6 +119,17 @@ impl WireReceiver for CellGroupArchiveCheckpointReceiver {
 }
 
 impl CellGroupArchiveCheckpointReceiver {
+    /// Only private managed replay selects immutable source retention. Public
+    /// receivers preserve their original full replay admission.
+    pub(in crate::raft) fn for_transition_source(mut self) -> Self {
+        self.1 = true;
+        self
+    }
+
+    pub(in crate::raft) fn transition_source(&self) -> bool {
+        self.1
+    }
+
     pub fn append(&mut self, chunk: CellGroupCheckpointChunk<'_>) -> Result<()> {
         self.0.append(chunk)
     }

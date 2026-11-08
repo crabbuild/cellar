@@ -426,7 +426,7 @@ impl FleetCatalog {
             &transition,
             directory,
             verifier.archives(),
-            &verifier.tails().for_transition_sources(),
+            verifier.tails(),
             sources,
             deadline.remaining()?,
         )
@@ -545,7 +545,10 @@ async fn open_sources_for_holds(
         if birth.route() != &route || hold.marker().route() != &route {
             return Err(FleetCatalogError::Conflict);
         }
-        let receiver = verifier.receiver(domain, &route, storage).await?;
+        let receiver = verifier
+            .receiver(domain, &route, storage)
+            .await?
+            .for_transition_source();
         sources.push(CellGroupTransitionSource {
             birth,
             hold,
@@ -573,7 +576,7 @@ pub(super) async fn transfer_inputs(
     }
     Ok(CellGroupTransitionPreparationInputs {
         archives: verifier.archives().clone(),
-        tails: verifier.tails().for_transition_sources(),
+        tails: verifier.tails().clone(),
         restore,
         sources,
         targets,

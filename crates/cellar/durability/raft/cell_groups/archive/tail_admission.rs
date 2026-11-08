@@ -35,23 +35,9 @@ pub struct CellGroupArchiveTailPool {
     pub(super) limits: CellGroupArchiveTailLimits,
     budget: Arc<Budget>,
     workspace: usize,
-    sequential_sources: bool,
 }
 
 impl CellGroupArchiveTailPool {
-    /// Private verifier view for immutable transition source closures. It
-    /// shares this exact byte bank and keeps every configured limit.
-    pub(in crate::raft) fn for_transition_sources(&self) -> Self {
-        Self {
-            sequential_sources: true,
-            ..self.clone()
-        }
-    }
-
-    pub(in crate::raft) fn sequential_sources(&self) -> bool {
-        self.sequential_sources
-    }
-
     pub fn new(limits: CellGroupArchiveTailLimits) -> Result<Self> {
         if !(1..=4096).contains(&limits.max_operations)
             || !(1..=65_536).contains(&limits.max_entries)
@@ -83,7 +69,6 @@ impl CellGroupArchiveTailPool {
             limits,
             budget: Budget::new(limits.max_retained_bytes, limits.max_operations),
             workspace,
-            sequential_sources: false,
         })
     }
 

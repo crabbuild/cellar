@@ -531,10 +531,11 @@ impl RangeDirectory {
                 self.open_group_archive(domain, archives, &source.birth)
                     .await?
             };
+            let transition_source = source.receiver.transition_source();
             let coverage = registry
                 .verify_hold(domain, &source.hold, tails, source.receiver)
                 .await?;
-            let coverage = if tails.sequential_sources() {
+            let coverage = if transition_source {
                 coverage.retain_transition_source()?
             } else {
                 coverage
