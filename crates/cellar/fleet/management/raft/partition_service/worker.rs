@@ -262,7 +262,14 @@ async fn consent(
         status: &RaftFleetTransitionStatus,
         timeout: Duration,
     ) -> Result<bool> {
-        let Some(consent) = control.catalog.active_transition_execution(timeout).await? else {
+        // The executor may settle the slot after this turn sampled its status.
+        // Reconcile this operation's immutable consent, rather than treating
+        // the absent active slot as permission to recreate its request.
+        let Some(consent) = control
+            .catalog
+            .transition_execution(records::id(&request.operation_id)?, timeout)
+            .await?
+        else {
             return Ok(false);
         };
         let directory = control.managed_namespace(&request.namespace_id)?;
