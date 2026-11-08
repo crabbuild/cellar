@@ -24,7 +24,6 @@ class ArchiveObserver:
         self.lock = threading.Lock()
         self.pending = {}
         self.phase = 'seed'
-        self.failure = None
 
     def acknowledge(self, cell, reply, started_ns):
         group = self.layout.group(cell)['ordinal']
@@ -133,8 +132,8 @@ def joined_owners(rows, planned, ownership):
         if healthy:
             report = row['reports'][0]
             healthy = (all(type(report[key]) is int and report[key] >= 0 for key in (
-                    'node', 'groups_total', 'omitted_groups', 'failed_groups')) and report['node'] == node and report['groups_total'] == placement['replica_groups']
-                and report['omitted_groups'] == 0 and report['failed_groups'] == 0
+                    'node', 'groups_total', 'omitted_groups', 'failed_groups', 'retained_calls_at_shutdown')) and report['node'] == node and report['groups_total'] == placement['replica_groups']
+                and report['omitted_groups'] == 0 and report['failed_groups'] == 0 and report['retained_calls_at_shutdown'] == 0
                 and report['mutation_outcomes'] == 'no_unresolved_local_producers')
         failures += int(not healthy)
     return failures

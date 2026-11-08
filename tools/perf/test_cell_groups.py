@@ -258,7 +258,7 @@ class Evidence(existing.IndependentReport, existing.Freshness):
             for n, row in enumerate(acknowledgements + [observed], 1)))
         joins = []
         for n in range(1, 4):
-            closed = {'node': n, 'groups_total': 1, 'omitted_groups': 0, 'failed_groups': 0,
+            closed = {'node': n, 'groups_total': 1, 'omitted_groups': 0, 'failed_groups': 0, 'retained_calls_at_shutdown': 0,
                       'mutation_outcomes': 'no_unresolved_local_producers'}
             identity = containers[prefix + f'-node{n}']['id']
             joins.append({'node': n, 'id': identity, 'state': {'id': identity, 'running': False, 'paused': False, 'exit_code': 0},
@@ -268,9 +268,11 @@ class Evidence(existing.IndependentReport, existing.Freshness):
         settings['storage'] = {'node_bytes': 1024**3, 'object_store_bytes': 1024**3}
         volumes, raw_disks = {}, []
         for n, name in enumerate(list(containers)[:-1]):
-            volumes[name] = {'volume': name, 'device': f'/dev/loop{n}', 'uuid': 'u', 'bytes': 1024**3, 'available_bytes': 1024**3}
-            raw_disks.append({'Name': name, 'Labels': {'io.cellar.mr14.run': plan['owner']},
-                'Options': {'type': 'ext4', 'device': f'/dev/loop{n}', 'o': 'rw,nodiscard'}})
+            volumes[name] = {'volume': name, 'device': f'/dev/loop{n}', 'uuid': 'u', 'backing': '/owned/' + name + '.img', 'bytes': 1024**3, 'available_bytes': 1024**3}
+            raw_disks.append({'volume': {'Name': name, 'Labels': {'io.cellar.mr14.run': plan['owner']},
+                'Options': {'type': 'ext4', 'device': f'/dev/loop{n}', 'o': 'rw,nodiscard'}},
+                'uuid': 'u', 'device_bytes': 1024**3, 'loop_binding': {'loopdevices': [
+                    {'name': f'/dev/loop{n}', 'back-file': '/owned/' + name + '.img'}]}})
         save(directory / 'disks.json', {'owner': plan['owner'], 'engine_id': ENGINE, 'volumes': volumes})
         save(directory / 'disk-verification.json', raw_disks)
         save(directory / 'resources.json', {'campaign': CAMPAIGN, 'owner': plan['owner'],
@@ -349,9 +351,9 @@ class Evidence(existing.IndependentReport, existing.Freshness):
                 if fault == 'missing':
                     rows.pop()
                 elif fault == 'device':
-                    rows[0]['Options']['device'] = '/dev/loop999'
+                    rows[0]['volume']['Options']['device'] = '/dev/loop999'
                 else:
-                    rows[0]['Labels']['io.cellar.mr14.run'] = 'foreign'
+                    rows[0]['volume']['Labels']['io.cellar.mr14.run'] = 'foreign'
                 save(directory / 'disk-verification.json', rows)
                 with self.subTest(fault=fault), self.assertRaises(ValueError):
                     verify_evidence(directory, owner, policy, 3)

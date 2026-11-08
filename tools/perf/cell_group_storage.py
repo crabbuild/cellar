@@ -114,14 +114,16 @@ class Disks:
     def verify(self):
         result = []
         for name, row in self.volumes.items():
-            loop_binding(json.loads(self.guest('sudo', 'losetup', '--list', '--json', '--output', 'NAME,BACK-FILE', row['device'])),
-                         row['device'], row['backing'])
-            require(self.guest('sudo', 'blkid', '-s', 'UUID', '-o', 'value', row['device']) == row['uuid'], 'bounded disk identity changed')
+            binding = json.loads(self.guest('sudo', 'losetup', '--list', '--json', '--output', 'NAME,BACK-FILE', row['device']))
+            loop_binding(binding, row['device'], row['backing'])
+            identity = self.guest('sudo', 'blkid', '-s', 'UUID', '-o', 'value', row['device'])
+            size = int(self.guest('sudo', 'blockdev', '--getsize64', row['device']))
+            require(identity == row['uuid'] and size == row['bytes'], 'bounded disk identity or size changed')
             volume = json.loads(self.docker('volume', 'inspect', name))[0]
             require(volume['Name'] == name and volume.get('Labels', {}).get(LABEL) == self.owner
                     and volume['Driver'] == 'local' and volume['Options'] == {'type': 'ext4', 'device': row['device'], 'o': 'rw,nodiscard'},
                     'bounded volume options changed')
-            result.append(volume)
+            result.append({'volume': volume, 'loop_binding': binding, 'uuid': identity, 'device_bytes': size})
         save(self.root / 'disk-verification.json', result)
 
 
@@ -132,9 +134,13 @@ def verify_evidence(root, ownership, policy, nodes):
     expected = {f"cellar-mr14-{ownership['owner']}-node{n}" for n in range(1, nodes + 1)} | {f"cellar-mr14-{ownership['owner']}-store"}
     require(set(record['volumes']) == expected, 'incomplete bounded disk inventory')
     observations = read_json(root / 'disk-verification.json')
-    require(len(observations) == len(expected) and {row['Name'] for row in observations} == expected, 'disk verification inventory differs')
-    for raw in observations:
+    require(len(observations) == len(expected) and {row['volume']['Name'] for row in observations} == expected, 'disk verification inventory differs')
+    for observed in observations:
+        raw = observed['volume']
         row = record['volumes'][raw['Name']]
+        loop_binding(observed['loop_binding'], row['device'], row['backing'])
+        require(observed['uuid'] == row['uuid'] and type(observed['device_bytes']) is int
+                and observed['device_bytes'] == row['bytes'], 'raw bounded device size or identity differs')
         size = policy['object_store_bytes' if raw['Name'].endswith('-store') else 'node_bytes']
         require(row['bytes'] == size and raw['Labels'][LABEL] == ownership['owner']
                 and raw['Options'] == {'type': 'ext4', 'device': row['device'], 'o': 'rw,nodiscard'}
