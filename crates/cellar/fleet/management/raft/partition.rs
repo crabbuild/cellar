@@ -748,11 +748,9 @@ impl RaftFleetPartitionScheduler {
     }
 
     fn now(&self) -> Result<u64> {
+        // observe() rebases sample freshness and cooldown to this controller.
+        // A voter may have a different monotonic origin, even when local.
         self.control
-            .node_observer
-            .as_ref()
-            .ok_or_else(RaftFleetFailure::unsupported)?
-            .handle
             .domain
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed.into())
