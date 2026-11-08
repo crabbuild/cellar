@@ -163,6 +163,13 @@ pub async fn exercise(cluster: &mut ManagedCluster) -> Result<()> {
 }
 
 pub async fn exercise_member_return(cluster: &mut ManagedCluster) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            "off,cellar::raft::fleet_catalog::resources::execution::service::worker=debug",
+        )
+        .with_ansi(false)
+        .with_test_writer()
+        .try_init();
     exercise_inner(cluster, true).await
 }
 

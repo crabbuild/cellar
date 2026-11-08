@@ -145,7 +145,7 @@ impl FleetCatalog {
             if self.inner.current().await?.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
             }
-            self.check_resource_birth_debt(snapshot, target.node(), &observation)
+            self.check_resource_birth_debt(snapshot, &target, &observation)
                 .await?;
             let inventory = observation
                 .inventory
@@ -385,9 +385,10 @@ impl FleetCatalog {
     async fn check_resource_birth_debt(
         &self,
         snapshot: &FleetSnapshot,
-        target: NodeId,
+        host: &FleetHostAuthorization,
         observation: &RaftPeerNodeObservation,
     ) -> Result<()> {
+        let target = host.node();
         let inventory = observation
             .inventory
             .as_ref()
@@ -428,15 +429,68 @@ impl FleetCatalog {
                         .binding()
                         .scope()
                         .map_err(|_| FleetCatalogError::Corrupt("resource genesis scope"))?;
-                    let occupied = inventory
-                        .group_history(&scope)
-                        .ok_or(resource_error(LedgerError::Incomplete))?;
-                    if occupied.birth_digest() != history.birth_digest()
-                        || !history.voters.iter().chain(&history.learners).any(|m| {
-                            m.node == target.bytes() && m.member == occupied.member().get()
-                        })
+                    let occupied = inventory.group_history(&scope);
+                    if let Some(physical) = occupied {
+                        if physical.birth_digest() != history.birth_digest() {
+                            return Err(FleetCatalogError::Corrupt("resource genesis binding"));
+                        }
+                        if history.voters.iter().chain(&history.learners).any(|m| {
+                            m.node == target.bytes() && m.member == physical.member().get()
+                        }) {
+                            continue;
+                        }
+                    }
+                    // The immutable birth is not a permanent physical owner.
+                    // Only an indexed, locally proved collection closes its
+                    // debt; presence of a later member still needs a rooted binding.
+                    let group = history
+                        .binding()
+                        .key()
+                        .map_err(|_| FleetCatalogError::Corrupt("resource genesis key"))?;
+                    for birth in history
+                        .voters
+                        .iter()
+                        .chain(&history.learners)
+                        .filter(|m| m.node == target.bytes())
                     {
-                        return Err(FleetCatalogError::Corrupt("resource genesis binding"));
+                        let member = cellar_logic::consensus::MemberId::new(birth.member)
+                            .map_err(|_| FleetCatalogError::Corrupt("resource birth member"))?;
+                        if !self
+                            .collected_member_prefix(
+                                snapshot,
+                                &group,
+                                history.birth_digest(),
+                                host,
+                                member,
+                            )
+                            .await?
+                        {
+                            return Err(if occupied.is_some() {
+                                FleetCatalogError::Corrupt("resource genesis binding")
+                            } else {
+                                resource_error(LedgerError::Incomplete)
+                            });
+                        }
+                    }
+                    if let Some(physical) = occupied {
+                        if !self
+                            .retained_resource_binding(
+                                snapshot,
+                                &group,
+                                physical.member(),
+                                &host.boot_binding()?,
+                            )
+                            .await?
+                        {
+                            return Err(FleetCatalogError::Corrupt(
+                                "resource returning member binding",
+                            ));
+                        }
+                    } else {
+                        let (current, _) = self.settled_group_voters(snapshot, &history).await?;
+                        if current.contains_key(&target) {
+                            return Err(resource_error(LedgerError::Incomplete));
+                        }
                     }
                 }
             }
