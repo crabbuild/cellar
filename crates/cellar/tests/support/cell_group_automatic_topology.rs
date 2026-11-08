@@ -237,12 +237,20 @@ async fn exercise(
     cluster.hosts.insert(0, host.clone());
     // Until explicit activation, the configured controller must not append
     // topology intent or compete with the foreground qualification CAS.
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    let status = host.automatic_topology_status().context("startup status")?;
-    ensure!(status
-        .automatic_topology
-        .is_some_and(|s| s.wait == FleetAutomaticTopologyWait::OriginUnqualified
-            && s.selected_operations == 0));
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let status = host.automatic_topology_status().context("startup status")?;
+            if let Some(status) = status.automatic_topology {
+                ensure!(status.selected_operations == 0, "unqualified origin selected work");
+                if status.wait == FleetAutomaticTopologyWait::OriginUnqualified {
+                    return Ok::<_, anyhow::Error>(());
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("automatic startup waits for qualification")??;
     let cut = observer.read(TIMEOUT).await?;
     ensure!(observer
         .active_topology_operation(&cut, TIMEOUT)
