@@ -206,7 +206,9 @@ impl RuntimeCluster {
                 let transport = &self.transports[message.from as usize - 1];
                 let delivery = match transport.submit_physical(&history, message.clone()) {
                     Ok(delivery) => delivery,
-                    Err(TransportError::Overloaded) if self.retry_snapshot && snapshot => {
+                    Err(TransportError::Overloaded) if !snapshot || self.retry_snapshot => {
+                        // No transport owner accepted this exact protocol
+                        // packet. Preserve it for the next bounded pump turn.
                         self.network.push_back((history, message));
                         continue;
                     }
@@ -244,6 +246,14 @@ impl RuntimeCluster {
                         );
                         // Do not requeue this failed snapshot. Raft must create
                         // another after its delivery failure is consumed.
+                        continue;
+                    }
+                    if !snapshot && matches!(result, Err(TransportError::Overloaded)) {
+                        // Ordinary Raft packets tolerate duplicate delivery.
+                        // Match the bounded in-process step path below; a
+                        // receiver's temporary mailbox refusal is not a fatal
+                        // snapshot retry or an application acknowledgement.
+                        self.network.push_back((history, message));
                         continue;
                     }
                     result.with_context(|| {

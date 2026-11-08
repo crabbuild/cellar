@@ -528,9 +528,17 @@ async fn run_image(
     if mode != Mode::Shutdown {
         controller::wait_for(async || {
             for runtime in &fixture.runtimes {
-                let selected = runtime
+                let selected = match runtime
                     .reconciliation_authority(route.history, source.clone())
-                    .await?;
+                    .await
+                {
+                    Ok(selected) => selected,
+                    // This is a bounded observation wait, including followers
+                    // applying the new leader's term barrier. Only an actual
+                    // reconciliation proof can satisfy the unchanged oracle.
+                    Err(RuntimeError::NotReady) => return Ok(false),
+                    Err(error) => return Err(error.into()),
+                };
                 if selected.cell().effects.pending_outbox != 0 {
                     return Ok(false);
                 }

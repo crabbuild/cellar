@@ -479,13 +479,34 @@ pub(crate) async fn recent_source_reads(rooted: bool) -> Result<()> {
     let (mut fixture, route, a, _) = enrolled_sql_cells(rooted).await?;
     let pool = pool(&fixture, 1)?;
     let options = fixture.cell_options_at(&a, 1).await?;
-    // A fresh actual leader heartbeat, not an advisory catalog refresh.
+    // Generate and deliver a real leader heartbeat before capture. drive()
+    // observes applied roots and can finish before the asynchronous message
+    // event appears. Do not pump after capture: a later current-term heartbeat
+    // would change the observation used by the stale-term refusal below.
     for _ in 0..2 {
         fixture.runtimes[0].tick().await?;
-        fixture.drive(None).await?;
     }
-    // This read needs no network round. The generic selected() helper pumps
-    // peer traffic concurrently and may admit another heartbeat after capture.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let mut delivered = false;
+            fixture
+                .pump_with_network(&[], &mut BTreeMap::new(), |_, message| {
+                    let selected = message.from == 1
+                        && message.to == 2
+                        && message.get_msg_type() == MessageType::MsgHeartbeat;
+                    delivered |= selected;
+                    selected
+                })
+                .await?;
+            if delivered {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .context("deliver actual leader heartbeat before recent-source capture")??;
+    // No peer traffic runs during this capture or its physical SQL hold.
     let authority = fixture.runtimes[1]
         .read_authority(
             route.history,
