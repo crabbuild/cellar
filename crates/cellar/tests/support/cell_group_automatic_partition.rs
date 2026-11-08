@@ -426,6 +426,8 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         .await?
         .history;
     ensure!(merged_history != cluster.history && !children.contains(&merged_history));
+    let elected = current_leader(cluster, merged_history, &observer).await?;
+    cluster.hosts[elected].group(merged_history)?.quorum_membership(TIMEOUT).await?;
     ensure!(seed
         .cells
         .iter()
@@ -626,7 +628,7 @@ async fn replay_acknowledged(
             ensure!(
                 observed.durability() == Durability::Quorum
                     && observed.observation().version == latest.version
-                    && observed.observation().witness.group == history,
+                    && observed.observation().witness == latest.witness,
                 "receipt durability={:?}; observation={:?}; latest={:?}; group={:?}",
                 observed.durability(),
                 observed.observation(),
@@ -647,6 +649,8 @@ async fn replay_acknowledged(
     ensure!(
         replay.version == latest.version && replay.version.covers(&original.version) == Ok(true)
     );
-    ensure!(replay.witness.group == history && replay.durability == Durability::Quorum);
+    // Decision locators remain historical across transfer. The merged owner
+    // independently supplies fresh quorum before this ledger verification.
+    ensure!(replay.witness == latest.witness && replay.durability == Durability::Quorum);
     Ok(())
 }
