@@ -339,12 +339,15 @@ def run(args, profile, build, docker, cpus, memory):
     sampler = None
     fault = None
     try:
-        # Let Docker allocate a private subnet; avoid overlapping a retained run.
-        network = json.loads(docker('network', 'inspect', docker('network', 'create', '--label', owner, prefix)))
+        # Campaigns reserve an explicit CIDR; standalone invocations can retain
+        # Docker allocation. Neither path prunes retained networks.
+        subnet_option = ['--subnet', args.subnet] if getattr(args, 'subnet', None) else []
+        network = json.loads(docker('network', 'inspect', docker('network', 'create', '--label', owner, *subnet_option, prefix)))
         subnet = network[0]['IPAM']['Config'][0]['Subnet']
         import ipaddress
         net = ipaddress.ip_network(subnet)
         require(net.version == 4 and net.prefixlen <= 24, 'unsupported Docker subnet')
+        require(not getattr(args, 'subnet', None) or str(net) == args.subnet, 'Engine allocated a different explicit subnet')
         network_prefix = '.'.join(str(net.network_address).split('.')[:3])
         report['network'] = subnet
         # Copy through an owned, never-started helper. Host paths on external

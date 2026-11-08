@@ -192,7 +192,7 @@ class Evidence(existing.IndependentReport, existing.Freshness):
         report, replicas = self.fixture(workload)
         build = {'binary_sha256': 'c' * 64}
         report.update(profile=plan['workload'], profile_sha256=input_digest(plan['workload']),
-                      build=build, run_id=plan['owner'], context=CONTEXT)
+                      build=build, run_id=plan['owner'], context=CONTEXT, network=plan['subnet'])
         kernel = read_json(workload / 'kernel-measurements.json')
         for phase in kernel.values():
             for rows in phase.values():
@@ -279,7 +279,8 @@ class Profiles(unittest.TestCase):
         from test_raft_run import Profiles as ExistingProfiles
         path = root / 'profiles.json'
         save(path, {'format': 1, 'profiles': [self.frozen()]})
-        return {'profiles_file': str(path), 'run_id': CAMPAIGN, 'workload': ExistingProfiles().profile()}
+        return {'profiles_file': str(path), 'run_id': CAMPAIGN, 'workload': ExistingProfiles().profile(),
+                'network_cidr': '10.246.0.0/19'}
 
     def private(self, root):
         settings = self.settings(root)
@@ -333,6 +334,27 @@ class Profiles(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     campaign.preflight(settings, 'mixed_quorum', engine)
                 self.assertEqual(engine.mock_calls, [])
+
+    def test_network_matrix_is_explicit_and_nonoverlapping(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = self.settings(Path(temporary))
+            rows = campaign.cohorts(settings, self.frozen())
+            self.assertEqual(len({row['subnet'] for row in rows}), len(rows))
+            for pool in ('0.0.0.0/16', '10.246.0.0/25', '8.8.0.0/16', '10.246.1.0/19'):
+                with self.subTest(pool=pool), self.assertRaises(ValueError):
+                    campaign.network_pool(pool)
+            with self.assertRaisesRegex(ValueError, 'every fresh cohort'):
+                campaign.cohorts({**settings, 'network_cidr': '10.246.0.0/24'}, self.frozen())
+
+    def test_retained_network_overlap_refuses_before_image_or_provisioning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = self.private(Path(temporary).resolve())
+            engine = Mock()
+            engine.invoke.side_effect = [json.dumps({'os': 'linux', 'cpus': 8, 'memory': 24 * 1024**3,
+                'memory_limit': True, 'cpu_quota': True}), '', 'network-id', '[{"Subnet":"10.246.1.0/24"}]']
+            with self.assertRaisesRegex(ValueError, 'overlaps'):
+                campaign.preflight(settings, 'mixed_quorum', engine)
+            self.assertEqual(engine.invoke.call_count, 4)
 
     def test_frozen_matrix_uses_equal_cells_and_same_trace_at_every_occupancy(self):
         with tempfile.TemporaryDirectory() as temporary:

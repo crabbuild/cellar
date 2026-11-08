@@ -8,6 +8,7 @@ are separate results; unfinished lifecycle adapters fail before provisioning.
 """
 import copy
 import hashlib
+import ipaddress
 import math
 from pathlib import Path
 import re
@@ -25,7 +26,7 @@ from raft_docker import BoundContainer, discover
 
 SUPPORTED = {'idle_density', 'mixed_quorum', 'mixed_s3'}
 FIELDS = {'format', 'run_id', 'source_revision', 'context', 'engine_id', 'image',
-          'rustfs_image', 'data_root', 'port_base', 'profiles_file', 'profiles_sha256', 'workload'}
+          'rustfs_image', 'data_root', 'port_base', 'network_cidr', 'profiles_file', 'profiles_sha256', 'workload'}
 
 
 def digest(path):
@@ -61,8 +62,17 @@ def config(path):
     require(re.fullmatch(r'[0-9a-f]{64}', value['profiles_sha256']) is not None
             and digest(value['profiles_file']) == value['profiles_sha256'], 'changed frozen profile catalog')
     validate_profile(value['workload'])
+    network_pool(value['network_cidr'])
     Engine(value['context'], value['engine_id'])  # Validate without invoking Docker.
     return value
+
+
+def network_pool(cidr):
+    pool = ipaddress.ip_network(cidr, strict=True)
+    require(pool.version == 4 and 16 <= pool.prefixlen <= 24
+            and any(pool.subnet_of(ipaddress.ip_network(private)) for private in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')),
+            'network_cidr must reserve an explicit RFC1918 IPv4 pool of /16 through /24')
+    return pool
 
 
 def selected_profile(settings, identifier):
@@ -102,6 +112,9 @@ def selected_profile(settings, identifier):
 
 def cohorts(settings, profile):
     result = []
+    subnets = list(network_pool(settings['network_cidr']).subnets(new_prefix=24))
+    require(len(subnets) >= profile['repetitions'] * len(profile['image_modes']) * len(profile['occupancies']),
+            'network pool cannot cover every fresh cohort')
     # Repeat ordering is fixed and recorded. Every cohort gets fresh state, equal
     # logical population and the same phase/seed trace regardless of occupancy.
     for repetition in range(profile['repetitions']):
@@ -121,7 +134,7 @@ def cohorts(settings, profile):
                 local_placement(workload)
                 owner = hashlib.sha256(f"{settings['run_id']}:{len(result)}".encode()).hexdigest()[:24]
                 result.append({'ordinal': len(result), 'repetition': repetition, 'image_mode': image,
-                               'occupancy': occupancy, 'owner': owner, 'workload': workload})
+                               'occupancy': occupancy, 'owner': owner, 'subnet': str(subnets[len(result)]), 'workload': workload})
     return result
 
 
@@ -146,6 +159,15 @@ def preflight(settings, identifier, engine=None):
             'dedicated VM has insufficient CPU or memory; resource bounds are unchanged')
     require(not engine.invoke('ps', '-q', '--filter', 'label=io.cellar.mr14.run'),
             'another workload is active; stop only its recorded owner')
+    identifiers = engine.invoke('network', 'ls', '--format', '{{.ID}}').splitlines()
+    if identifiers:
+        allocated = engine.invoke('network', 'inspect', '--format', '{{json .IPAM.Config}}', *identifiers)
+        pool = network_pool(settings['network_cidr'])
+        for line in allocated.splitlines():
+            for row in read_json_text(line) or []:
+                existing = ipaddress.ip_network(row['Subnet'], strict=True)
+                require(existing.version != 4 or not pool.overlaps(existing),
+                        'configured network pool overlaps a retained Engine network')
     build = verify_image(settings['image'], engine.invoke)
     build['source_revision'] = settings['source_revision']
     build['compiler'] = engine.invoke('run', '--rm', '--network', 'none', '--entrypoint', 'cat',
@@ -279,6 +301,7 @@ def verify(root):
         require(report['profile'] == expected['workload'] and report['run_id'] == expected['owner']
                 and report['context'] == settings['context'] and report['build'] == record['preflight']['build'],
                 'workload source, binary, identity or profile differs')
+        require(report.get('network') == expected['subnet'], 'actual network differs from the frozen cohort')
         schedule = record['preflight'].get('fault_schedule', {'scenario': 'healthy', 'config': None})
         require(report['scenario'] == schedule['scenario'] and report['fault_profile'] == schedule['config'],
                 'replayed fault schedule differs from the frozen campaign')
@@ -339,7 +362,7 @@ def run(settings, identifier, output):
                 context=settings['context'], port_base=settings['port_base'],
                 scenario=checked['fault_schedule']['scenario'], fault_config=checked['fault_schedule']['config'],
                 fault_capability=checked['fault_capability'], fault_engine=checked['fault_engine'],
-                observe_log_reclamation=False, run_id=plan['owner'])
+                observe_log_reclamation=False, run_id=plan['owner'], subnet=plan['subnet'])
             try:
                 run_workload(arguments, plan['workload'], checked['build'], owned,
                              checked['vm']['cpus'], checked['vm']['memory'])

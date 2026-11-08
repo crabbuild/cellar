@@ -33,6 +33,7 @@ The JSON configuration contains exactly these required fields:
 | `rustfs_image` | The pinned `RUSTFS` value in `raft_run.py` |
 | `data_root` | Existing dedicated external directory, with symlinks resolved |
 | `port_base` | Explicit loopback port allocation for RustFS and every voter |
+| `network_cidr` | An unused RFC1918 pool, /16 through /24, with one /24 per cohort |
 | `profiles_file`, `profiles_sha256` | Absolute frozen profile catalog and its file SHA-256 |
 | `workload` | Complete workload template accepted by `raft_run.validate_profile` |
 
@@ -66,8 +67,10 @@ python3 tools/perf/cell_groups.py verify --run /dedicated/root/RUN_UUID
 python3 tools/perf/cell_groups.py stop --run /dedicated/root/RUN_UUID
 ```
 
-The output must be exactly the fresh `data_root/run_id` directory. Supported
-campaigns are `idle_density`, `mixed_quorum` and `mixed_s3`. Every configured
+The output must be exactly the fresh `data_root/run_id` directory. Campaign
+networks use the explicit CIDR pool; preflight refuses overlaps with retained
+Engine networks. This also works when Docker's default pools are exhausted.
+Supported campaigns are `idle_density`, `mixed_quorum` and `mixed_s3`. Every configured
 occupancy, repetition and image mode runs serially. Stop joins each cohort before
 the next one starts. It validates the exact Engine, run UUID, directory, container
 name, label and immutable ID before signalling any process. Lost creation replies
