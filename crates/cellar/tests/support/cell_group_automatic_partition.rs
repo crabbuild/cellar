@@ -225,6 +225,15 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
                     .context("last acknowledged write")?
                     .result
         );
+        let next = handle
+            .command(
+                &handle.contract("Add")?,
+                1i64.to_be_bytes().to_vec(),
+                CommandOptions::new(CommandId::new(client, sequence)?, seed.retry),
+            )
+            .await?;
+        let last = acknowledged.last().context("last acknowledged write")?;
+        ensure!(next.version.sequence.get() == last.version.sequence.get() + 1);
         return Ok(());
     }
     let selected = active(cluster)
@@ -295,8 +304,8 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         "merge selected before leader separation"
     );
     let histories: Vec<_> = children.iter().copied().collect();
-    let left = leader(&cluster.hosts, histories[0]).await?;
-    let right = leader(&cluster.hosts, histories[1]).await?;
+    let left = current_leader(cluster, histories[0]).await?;
+    let right = current_leader(cluster, histories[1]).await?;
     if left == right {
         let cut = f.catalog.read(TIMEOUT).await?;
         let placement = f
@@ -328,7 +337,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
             .await?;
         tokio::time::timeout(TIMEOUT, async {
             loop {
-                if leader(&cluster.hosts, histories[1]).await? == expected {
+                if current_leader(cluster, histories[1]).await? == expected {
                     return Ok::<_, anyhow::Error>(());
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -338,7 +347,8 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         .context("separate child leaders")??;
     }
     ensure!(
-        leader(&cluster.hosts, histories[0]).await? != leader(&cluster.hosts, histories[1]).await?,
+        current_leader(cluster, histories[0]).await?
+            != current_leader(cluster, histories[1]).await?,
         "merge must work across different leaders"
     );
     for host in &cluster.hosts {
@@ -435,4 +445,41 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         ensure!(write.version.sequence.get() == expected.version.sequence.get() + 1);
     }
     Ok(())
+}
+
+// Child member numbers belong to their own fresh RF3 placement, not the
+// fixture's global host-vector indices. Resolve that actual persisted map.
+async fn current_leader(cluster: &ManagedCluster, history: GroupHistory) -> Result<usize> {
+    let f = &cluster.fixtures[0];
+    let cut = f.catalog.read(TIMEOUT).await?;
+    let placement = f
+        .catalog
+        .history(&cut, &history, TIMEOUT)
+        .await?
+        .initial_placement()?;
+    let members = placement
+        .voters
+        .into_iter()
+        .map(|v| {
+            let index = cluster
+                .fixtures
+                .iter()
+                .position(|f| f.spec.node == v.node)
+                .context("mapped voter node")?;
+            Ok((index, v.member))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            for (index, member) in &members {
+                let status = cluster.hosts[*index].group(history)?.status().await?;
+                if status.ready && status.leader == Some(member.get()) {
+                    return Ok::<_, anyhow::Error>(*index);
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("automatic child leader")?
 }
