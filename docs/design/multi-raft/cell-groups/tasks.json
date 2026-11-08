@@ -2481,7 +2481,13 @@
         "crates/cellar/tests/support/cell_group_partition_service.rs",
         "crates/cellar/tests/support/cell_group_command_readiness.rs",
         "crates/cellar/durability/raft/fleet_catalog/managed_partition_cancel.rs",
-        "crates/cellar/tests/support/cell_group_partition_cancellation.rs"
+        "crates/cellar/tests/support/cell_group_partition_cancellation.rs",
+        "crates/cellar/fleet/management/raft/automatic_partition.rs",
+        "crates/cellar/durability/raft/fleet_catalog/partition_placement.rs",
+        "crates/cellar/durability/raft/group_host/partition.rs",
+        "crates/cellar/durability/raft/partition_observation_wire.rs",
+        "crates/cellar/tests/support/cell_group_automatic_partition.rs",
+        "crates/cellar/application/consensus/group_client/observation_tests.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [

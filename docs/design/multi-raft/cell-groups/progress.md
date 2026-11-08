@@ -12,6 +12,60 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 configured automatic placement and execution
+
+At `38f2ac26`, a standard RF3 planner selects child destinations from rooted
+capacity and physical inventories without application callbacks. Configured
+startup owns the controller, its stored-policy suspend/resume and joined stop.
+Actual SQL load triggers a split; replacement controllers recover the selected
+operation. Quiet children then merge across different leaders using authenticated
+leader observations. Both native and real RustFS cases verify every acknowledged
+receipt, SQL state, fresh quorum writes and joined shutdown in materialized and
+extent modes. Reserve refusal preserves the directory and continued reads/writes.
+
+The native cycle passes in 104.581 seconds; reserve refusal passes in 38.731
+seconds and retired-source reclamation in 61.346 seconds. The fixed real RustFS
+suite passes both named cases in both image modes, using transition executable
+`2a06b1993eb10e7ebc3575ee6cf39b03aa623cf60e93ca4e6c979bf7b7a3df92`.
+The backend has been stopped with archive objects retained.
+
+Runtime successors preserve published archive lag through retryable errors and
+fractional aggregate scheduling pressure. Admission reconciles only a concurrent
+winner with the exact canonical intent. Execution consent is reconciled by the
+exact persisted operation after its active slot is settled, without recreating
+its request or granting current serving, seal or release authority.
+
+The broader scheduler run at `38f2ac26` records four passes, two failures and six
+RustFS skips. The two failures time out in `ready`: SDK sampling uses the
+controller clock, while recommendation freshness used a different voter clock.
+The configured controller shares that voter domain, so its successful native and
+RustFS workflow does not establish the independent SDK path. `edf7d28a` fixes the
+mismatch by using the controller clock consistently. Both exact SDK regressions
+now pass in both image modes (20.350 and 33.613 seconds). The configured cycle,
+reserve refusal and public authority case also pass on that successor (83.919,
+38.827 and 107.575 seconds). Strict all-target/all-feature Clippy and formatting
+pass. The full predecessor run and its two failures remain recorded; this is
+not a current-source whole-target scheduler pass.
+
+This is a CHECKPOINT, not CG-11 acceptance. Native TLS voters with fixture
+capacity and a real RustFS container in one local VM do not qualify independent
+voter processes, sustained load or measured physical peaks. The RustFS pass is
+pinned to `38f2ac26`; it is not relabeled as the clock successor. Numeric markers
+remain 1 and the `partition-placement-1` hard-cutover requirements still apply.
+
+Exact source inputs, executables, successful commands, predecessor failures and
+backend shutdown are recorded in
+`.cellar/cell-groups-evidence/CG-11-auto-edf7d28a-01/record.json`. The fixed RustFS
+record is
+`.cellar/cell-groups-evidence/CG-11-auto-38f2ac26-rustfs-01/record.json`.
+
+Next implement automatic whole-group balancing/repair and disjoint-placement
+alignment using the existing learner, Joint and removal owners. Then close
+`repair_preserves_failure_domains_and_reserve` and
+`control_plane_fanout_bounded` and the complete scheduler acceptance gate. Do not
+restart configured startup or staged cancellation from older handoff paragraphs.
+CG-11 remains `IN_PROGRESS`; CG-12–16 retain their existing gates.
+
 ## CG-11 staged partition cancellation
 
 At `7b80d088`, a controller can cancel rooted partition work before managed
