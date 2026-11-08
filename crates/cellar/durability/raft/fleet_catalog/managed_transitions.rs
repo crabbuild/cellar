@@ -1790,7 +1790,10 @@ impl FleetCatalog {
     ) -> Result<()> {
         if authority != resources::Authority::MemberSettlement
             && mutation.changes.iter().any(|change| {
-                change.table == FleetTable::Operations && change.key.starts_with("member-cleanup/")
+                change.table == FleetTable::Operations
+                    && change.key.starts_with("member-cleanup/")
+                    && !(authority == resources::Authority::Completion
+                        && change.key.starts_with(resources::member_cleanup::PREFIX))
             })
         {
             return Err(FleetCatalogError::Invalid("member settlement authority"));

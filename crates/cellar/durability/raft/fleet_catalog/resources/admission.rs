@@ -195,6 +195,8 @@ impl FleetCatalog {
                 self.resource_permit(snapshot, &canonical, source.as_ref())
                     .await?,
             )?;
+            self.check_member_cleanup_room(snapshot, &record, &rows)
+                .await?;
             let row_bytes = record.encode()?;
             if let Some((_, old)) = &previous {
                 if old.encode()? != row_bytes {

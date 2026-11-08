@@ -402,6 +402,12 @@ impl FleetCatalog {
                 .ok_or(FleetCatalogError::Invalid("resource book deletion"))?,
         )?;
         let previous = self.resource_book(snapshot).await?;
+        self.check_member_cleanup_room(
+            snapshot,
+            &record,
+            &self.resource_rows(snapshot, &previous).await?,
+        )
+        .await?;
         let added = Reference {
             id: mutation.id,
             digest: hash(row_bytes),

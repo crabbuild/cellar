@@ -10,6 +10,9 @@ pub mod managed_fixture;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
 
+#[path = "support/cell_group_member_cleanup.rs"]
+mod cleanup;
+
 #[path = "support/cell_group_scheduler_topology.rs"]
 mod topology;
 
@@ -20,6 +23,43 @@ use managed_fixture::{
     leader, movement, request, seed_cells, ManagedCluster, SeededCells, TIMEOUT,
 };
 use std::{sync::atomic::Ordering, time::Duration};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_member_cleanup_resumes_after_worker_restart() -> Result<()> {
+    for rooted in [false, true] {
+        let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7, 8, 9])).await?;
+        let result = Box::pin(topology::exercise_cleanup_service(&mut cluster)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| format!("managed cleanup restart, extents={rooted}"))?;
+        joined?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_managed_member_cleanup_resumes_after_worker_restart() -> Result<()> {
+    for rooted in [false, true] {
+        let store = std::sync::Arc::new(catalog_fault::Store::around(rustfs::store(
+            "member-cleanup-service",
+            rooted,
+        )?));
+        let mut cluster = Box::pin(ManagedCluster::start_with_store(
+            rooted,
+            &[7, 8, 9],
+            managed_fixture::ArchiveSetup::Initialized,
+            store,
+        ))
+        .await?;
+        let result = Box::pin(topology::exercise_cleanup_service(&mut cluster)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| format!("RustFS managed cleanup restart, extents={rooted}"))?;
+        joined?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn removed_member_reclaimed_and_returns_with_fresh_id() -> Result<()> {

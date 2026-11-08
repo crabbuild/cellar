@@ -152,7 +152,10 @@ impl FleetHostAuthorization {
                 }
                 // No older unresolved reservation may later spend a stale captured
                 // floor. Concurrent new admission changes the root and loses this CAS.
-                if !catalog.resource_book(&snapshot).await?.rows.is_empty() {
+                if catalog
+                    .node_has_resource_reservations(&snapshot, self.node())
+                    .await?
+                {
                     return Err(FleetCatalogError::SettlementInProgress {
                         admission: permit.id(),
                     });
@@ -247,7 +250,7 @@ impl FleetHostAuthorization {
                 let floor = settlement.floor_change(catalog, &snapshot).await?;
                 let group = permit.binding().key().map_err(|_| invalid())?;
                 let encoded = encode(KIND, &settlement, LIMIT)?;
-                let changes = vec![
+                let mut changes = vec![
                     FleetChange {
                         table: FleetTable::Operations,
                         key: key(permit.id()),
@@ -260,6 +263,11 @@ impl FleetHostAuthorization {
                         value: Some(encoded),
                     },
                 ];
+                changes.push(
+                    catalog
+                        .dequeue_member_cleanup(&snapshot, self.node(), permit.id())
+                        .await?,
+                );
                 let digest = hash(&encode(
                     KIND,
                     &(snapshot.revision(), &changes),
@@ -329,7 +337,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,
     ) -> Result<()> {
-        if mutation.changes.len() != 3 {
+        if mutation.changes.len() != 4 {
             return Err(invalid());
         }
         let first = &mutation.changes[0];
@@ -346,7 +354,12 @@ impl FleetCatalog {
                 )
                 .await?
                 .is_some()
-            || !self.resource_book(snapshot).await?.rows.is_empty()
+            || self
+                .node_has_resource_reservations(
+                    snapshot,
+                    NodeId::new(settlement.attestation.boot.node).map_err(|_| invalid())?,
+                )
+                .await?
         {
             return Err(FleetCatalogError::Conflict);
         }
@@ -408,6 +421,13 @@ impl FleetCatalog {
             {
                 return Err(FleetCatalogError::Conflict);
             }
+        }
+        if mutation.changes[3]
+            != self
+                .dequeue_member_cleanup(snapshot, current.node(), settlement.reservation)
+                .await?
+        {
+            return Err(invalid());
         }
         let expected = settlement.floor_change(self, snapshot).await?;
         if mutation.changes[1] != expected {

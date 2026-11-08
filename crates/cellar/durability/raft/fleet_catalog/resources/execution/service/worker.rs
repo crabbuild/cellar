@@ -10,11 +10,14 @@ use crate::raft::fleet_catalog::deadline::Deadline;
 pub(crate) struct MovementServiceWork {
     catalog: FleetCatalog,
     observer: RaftCells,
-    evidence: Arc<dyn FleetMovementEvidence>,
+    evidence: Option<Arc<dyn FleetMovementEvidence>>,
     options: FleetMovementServiceOptions,
     stop: watch::Receiver<bool>,
     status: watch::Sender<FleetMovementServiceStatus>,
     schedule: schedule::Schedule,
+    member_cleanup: bool,
+    member_cleanup_only: bool,
+    cleanup_cursor: usize,
     node_stop: Option<watch::Receiver<bool>>,
     topology: Option<super::topology::TopologyService>,
     detection: Option<super::detection::Detection>,
@@ -28,12 +31,13 @@ impl MovementServiceWork {
     pub(super) fn new(
         catalog: FleetCatalog,
         observer: RaftCells,
-        evidence: Arc<dyn FleetMovementEvidence>,
+        evidence: Option<Arc<dyn FleetMovementEvidence>>,
         options: FleetMovementServiceOptions,
         stop: watch::Receiver<bool>,
         done: watch::Sender<bool>,
         status: watch::Sender<FleetMovementServiceStatus>,
     ) -> Self {
+        let member_cleanup = options.reclaim_removed_members;
         Self {
             catalog,
             observer: observer.internal_observer(),
@@ -42,6 +46,9 @@ impl MovementServiceWork {
             stop,
             status,
             schedule: schedule::Schedule::default(),
+            member_cleanup,
+            member_cleanup_only: false,
+            cleanup_cursor: 0,
             node_stop: None,
             topology: None,
             detection: None,
@@ -50,6 +57,11 @@ impl MovementServiceWork {
             _registration: None,
             _completion: ControlServiceCompletion::new(done),
         }
+    }
+
+    pub(super) fn set_member_cleanup(&mut self) {
+        self.member_cleanup = true;
+        self.member_cleanup_only = true;
     }
 
     pub(super) fn set_topology(
@@ -226,6 +238,9 @@ impl MovementServiceWork {
     async fn round(&mut self) -> Result<()> {
         let deadline = Deadline::new(&self.catalog, self.options.turn_timeout)?;
         let cut = self.catalog.read(deadline.remaining()?).await?;
+        if self.member_cleanup_only {
+            return self.cleanup_round(&cut, &deadline).await.map(|_| ());
+        }
         let pending = self
             .catalog
             .pending_movements(&cut, deadline.remaining()?)
@@ -253,6 +268,8 @@ impl MovementServiceWork {
             let result = async {
                 let request = self
                     .evidence
+                    .as_ref()
+                    .ok_or(FleetCatalogError::Invalid("missing movement evidence"))?
                     .refresh(movement, deadline.remaining()?)
                     .await?;
                 if request.reservation != movement.reservation {
@@ -299,6 +316,9 @@ impl MovementServiceWork {
                 }
             }
         } else {
+            if self.member_cleanup && self.cleanup_round(&cut, &deadline).await? {
+                return Ok(());
+            }
             // Due admitted effects always run first. A retry/backoff window
             // may advance one independent repair while a local slot is free;
             // its fresh root admission still counts every durable debit.
@@ -357,6 +377,63 @@ impl MovementServiceWork {
         }
         self.publish_work();
         Ok(())
+    }
+
+    async fn cleanup_round(
+        &mut self,
+        cut: &FleetSnapshot,
+        deadline: &Deadline<'_>,
+    ) -> Result<bool> {
+        let pending = self
+            .catalog
+            .run(
+                deadline.remaining()?,
+                self.catalog
+                    .pending_member_cleanup(cut, self.observer.identity().node),
+            )
+            .await?;
+        self.status.send_modify(|status| {
+            status.last_revision = Some(cut.revision());
+            status.pending_member_cleanups = pending.len() as u32;
+        });
+        if pending.is_empty() {
+            return Ok(false);
+        }
+        let reservation = pending[self.cleanup_cursor % pending.len()];
+        self.cleanup_cursor = self.cleanup_cursor.wrapping_add(1);
+        self.status.send_modify(|status| {
+            status.member_cleanup_attempts = status.member_cleanup_attempts.saturating_add(1)
+        });
+        match self
+            .observer
+            .reclaim_removed_member(reservation, deadline.remaining()?)
+            .await
+        {
+            Ok(complete) => {
+                self.status.send_modify(|status| {
+                    status.last_member_cleanup_failure = None;
+                    if complete {
+                        status.reclaimed_members = status.reclaimed_members.saturating_add(1);
+                    }
+                });
+                Ok(true)
+            }
+            Err(error) => {
+                use crate::raft::cell_groups::CellGroupControllerError;
+                let error = match error {
+                    CellGroupControllerError::Catalog(error) => match Arc::try_unwrap(error) {
+                        Ok(error) => FleetCatalogError::from(error),
+                        Err(error) => FleetCatalogError::Storage(anyhow::anyhow!("{error}")),
+                    },
+                    CellGroupControllerError::Closed => FleetCatalogError::Closed,
+                    error => FleetCatalogError::Storage(error.into()),
+                };
+                self.status.send_modify(|status| {
+                    status.last_member_cleanup_failure = Some(schedule::classify(&error))
+                });
+                Err(error)
+            }
+        }
     }
 
     fn publish_work(&self) {

@@ -181,6 +181,7 @@ impl FleetMovementEvidence for Inputs {
 
 fn options() -> FleetMovementServiceOptions {
     FleetMovementServiceOptions {
+        reclaim_removed_members: false,
         interval: Duration::from_millis(50),
         retry_max_interval: Duration::from_millis(500),
         turn_timeout: TIMEOUT,

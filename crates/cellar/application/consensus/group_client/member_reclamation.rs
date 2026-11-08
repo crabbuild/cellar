@@ -11,8 +11,9 @@ impl RaftCells {
     /// rejects old member IDs while allowing a later managed learner seed.
     ///
     /// A joined local receipt settles its engine slot and known group disk
-    /// reservation exactly once. Unknown debt and installed memory stay charged. Automatic cleanup
-    /// discovery and retained successor boots require managed ownership.
+    /// reservation exactly once. Unknown debt and installed memory stay charged.
+    /// FleetCatalog::start_member_cleanup_service discovers queued work for this
+    /// node and resumes it after worker replacement. Successor boots still refuse.
     pub fn reclaim_removed_member(
         &self,
         reservation: [u8; 16],

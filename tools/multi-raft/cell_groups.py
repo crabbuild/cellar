@@ -51,6 +51,16 @@ CASES = (
 )
 
 SUITES = {
+    "managed-member-cleanup": (
+        "native_cell_groups_scheduler",
+        ("rustfs_managed_member_cleanup_resumes_after_worker_restart",),
+        "node-owned targeted cleanup resumes durable work after worker replacement",
+        "Both image modes and unchanged fixture capacity. Two completed moves leave the first removal historical. "
+        "A real settlement CAS is paused after local GC and cancelled by joined worker shutdown. "
+        "The replacement discovers the node queue without caller-supplied reservations and settles once. "
+        "Generic queue deletion refuses, empty restart makes no root mutation, and SQL/receipt/version/S3 checks persist. "
+        "Successor boots, managed daemon startup, independent failure domains, load and measured peaks remain separate gates.",
+    ),
     "managed-member-reclamation": (
         "native_cell_groups_scheduler",
         ("rustfs_removed_member_reclaimed_and_returns_with_fresh_id",),

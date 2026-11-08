@@ -505,7 +505,7 @@ impl FleetCatalog {
                 .position(|r| r == &reference)
                 .ok_or(FleetCatalogError::Conflict)?;
             book.rows.remove(index);
-            let mutation = FleetMutation {
+            let mut mutation = FleetMutation {
                 id: request.identity.id,
                 operation: request.identity.operation,
                 principal: request.identity.principal.clone(),
@@ -528,6 +528,11 @@ impl FleetCatalog {
                     },
                 ],
             };
+            if record.needs_cleanup() {
+                mutation
+                    .changes
+                    .push(self.enqueue_member_cleanup(snapshot, &row).await?);
+            }
             if previous.as_ref().is_some_and(|(old, _)| old != &mutation) {
                 return Err(FleetCatalogError::Conflict);
             }

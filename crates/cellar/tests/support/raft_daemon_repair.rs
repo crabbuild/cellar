@@ -592,6 +592,7 @@ async fn recover_on_voter(
             resources,
             Arc::new(platform),
             FleetMovementServiceOptions {
+                reclaim_removed_members: false,
                 interval: Duration::from_millis(50),
                 retry_max_interval: Duration::from_millis(500),
                 turn_timeout: TIMEOUT,

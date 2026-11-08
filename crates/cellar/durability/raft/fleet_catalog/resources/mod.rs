@@ -10,6 +10,7 @@ mod execution;
 mod intent;
 mod ledger;
 mod maintenance;
+pub(super) mod member_cleanup;
 mod member_reclamation;
 mod member_settlement;
 mod membership;

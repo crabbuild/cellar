@@ -150,6 +150,7 @@ async fn start(cluster: &ManagedCluster, evidence: Arc<Evidence>) -> Result<Flee
             evidence.clone(),
             evidence,
             FleetMovementServiceOptions {
+                reclaim_removed_members: false,
                 interval: Duration::from_millis(50),
                 retry_max_interval: Duration::from_millis(200),
                 turn_timeout: TIMEOUT,
@@ -159,7 +160,7 @@ async fn start(cluster: &ManagedCluster, evidence: Arc<Evidence>) -> Result<Flee
 }
 
 pub async fn exercise(cluster: &mut ManagedCluster) -> Result<()> {
-    exercise_inner(cluster, false).await
+    exercise_inner(cluster, false, false).await
 }
 
 pub async fn exercise_member_return(cluster: &mut ManagedCluster) -> Result<()> {
@@ -170,10 +171,18 @@ pub async fn exercise_member_return(cluster: &mut ManagedCluster) -> Result<()> 
         .with_ansi(false)
         .with_test_writer()
         .try_init();
-    exercise_inner(cluster, true).await
+    exercise_inner(cluster, true, false).await
 }
 
-async fn exercise_inner(cluster: &mut ManagedCluster, collect: bool) -> Result<()> {
+pub async fn exercise_cleanup_service(cluster: &mut ManagedCluster) -> Result<()> {
+    exercise_inner(cluster, false, true).await
+}
+
+async fn exercise_inner(
+    cluster: &mut ManagedCluster,
+    collect: bool,
+    managed_cleanup: bool,
+) -> Result<()> {
     let f = &cluster.fixtures[0];
     let evidence = Arc::new(Evidence {
         hosts: cluster.hosts.clone(),
@@ -218,6 +227,10 @@ async fn exercise_inner(cluster: &mut ManagedCluster, collect: bool) -> Result<(
     let seed = result?;
     if collect {
         return movement::verify_cells(&cluster.hosts[2], &seed, 5).await;
+    }
+    if managed_cleanup {
+        Box::pin(super::cleanup::exercise(cluster, evidence)).await?;
+        return movement::verify_cells(&cluster.hosts[2], &seed, 4).await;
     }
     // Placement completion is not a deletion certificate. The obsolete copies
     // stay on disk, while closing both former voters must leave a serving RF3.

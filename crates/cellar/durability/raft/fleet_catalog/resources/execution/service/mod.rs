@@ -66,6 +66,9 @@ pub struct FleetTopologyServiceStatus {
 
 #[derive(Clone, Debug)]
 pub struct FleetMovementServiceOptions {
+    /// Explicitly authorize this worker to collect completed removed replicas
+    /// on its own node during movement backoff/idle turns. Default false.
+    pub reclaim_removed_members: bool,
     /// Minimum delay after a completed round. No missed-tick catch-up occurs.
     pub interval: Duration,
     pub retry_max_interval: Duration,
@@ -76,6 +79,7 @@ pub struct FleetMovementServiceOptions {
 impl Default for FleetMovementServiceOptions {
     fn default() -> Self {
         Self {
+            reclaim_removed_members: false,
             interval: Duration::from_millis(500),
             retry_max_interval: Duration::from_secs(10),
             turn_timeout: Duration::from_secs(5),
@@ -168,6 +172,11 @@ pub struct FleetIsolatedRepairServiceStatus {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FleetMovementServiceStatus {
+    /// Local queue diagnostics; only the rooted receipt proves settlement.
+    pub pending_member_cleanups: u32,
+    pub member_cleanup_attempts: u64,
+    pub reclaimed_members: u64,
+    pub last_member_cleanup_failure: Option<FleetMovementServiceFailure>,
     pub failure_detection: Option<FleetFailureDetectionStatus>,
     pub failure_recovery: Option<FleetFailureRecoveryStatus>,
     pub isolated_repair: Option<FleetIsolatedRepairServiceStatus>,
@@ -229,6 +238,7 @@ impl Drop for FleetMovementService {
 
 enum ServiceMode {
     Admitted,
+    MemberCleanup,
     Topology(
         Arc<dyn FleetTopologyEvidence>,
         FleetTopologyCollectionOptions,
@@ -255,7 +265,21 @@ impl FleetCatalog {
         evidence: Arc<dyn FleetMovementEvidence>,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
-        self.start_fleet_service(observer, evidence, ServiceMode::Admitted, options)
+        self.start_fleet_service(observer, Some(evidence), ServiceMode::Admitted, options)
+            .await
+    }
+
+    /// Resume this node's durable removed-member cleanup queue. No caller
+    /// supplies histories or reservation IDs. One bounded queue point read and
+    /// at most one physical cleanup run per turn; replacing the worker resumes
+    /// from the selected root. This uses the node's sole movement-worker slot.
+    /// Original source boots are supported; successor boots remain fenced out.
+    pub async fn start_member_cleanup_service(
+        &self,
+        observer: RaftCells,
+        options: FleetMovementServiceOptions,
+    ) -> Result<FleetMovementService> {
+        self.start_fleet_service(observer, None, ServiceMode::MemberCleanup, options)
             .await
     }
 
@@ -300,7 +324,7 @@ impl FleetCatalog {
         collection.validate()?;
         self.start_fleet_service(
             observer,
-            movement_evidence,
+            Some(movement_evidence),
             ServiceMode::Topology(topology_evidence, collection),
             options,
         )
@@ -321,7 +345,7 @@ impl FleetCatalog {
     ) -> Result<FleetMovementService> {
         self.start_fleet_service(
             observer,
-            movement_evidence,
+            Some(movement_evidence),
             ServiceMode::Isolated(operation, repair_evidence),
             options,
         )
@@ -343,7 +367,7 @@ impl FleetCatalog {
         detection.validate()?;
         self.start_fleet_service(
             observer,
-            movement_evidence,
+            Some(movement_evidence),
             ServiceMode::Detection(detection),
             options,
         )
@@ -371,7 +395,7 @@ impl FleetCatalog {
         recovery.validate()?;
         self.start_fleet_service(
             observer,
-            movement_evidence,
+            Some(movement_evidence),
             ServiceMode::Recovery(platform, repair_evidence, recovery),
             options,
         )
@@ -381,7 +405,7 @@ impl FleetCatalog {
     async fn start_fleet_service(
         &self,
         observer: RaftCells,
-        evidence: Arc<dyn FleetMovementEvidence>,
+        evidence: Option<Arc<dyn FleetMovementEvidence>>,
         mode: ServiceMode,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
@@ -414,6 +438,7 @@ impl FleetCatalog {
         );
         match mode {
             ServiceMode::Admitted => (),
+            ServiceMode::MemberCleanup => work.set_member_cleanup(),
             ServiceMode::Topology(evidence, collection) => {
                 work.set_topology(Some((evidence, collection)))
             }

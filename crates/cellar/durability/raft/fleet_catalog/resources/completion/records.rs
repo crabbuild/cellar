@@ -48,6 +48,10 @@ pub(super) struct Completion {
 }
 
 impl Completion {
+    pub fn needs_cleanup(&self) -> bool {
+        self.settlement == Settlement::Complete && self.isolated_sources.is_empty()
+    }
+
     pub fn encode(&self) -> Result<Vec<u8>> {
         encode(COMPLETE_KIND, self, 8192)
     }
@@ -249,7 +253,7 @@ impl FleetCatalog {
             || mutation.operation != request.identity.operation
             || mutation.principal != request.identity.principal
             || mutation.expected_revision != request.identity.expected_revision
-            || mutation.changes.len() != 3
+            || !(3..=4).contains(&mutation.changes.len())
             || mutation.changes[0].table != FleetTable::Operations
             || mutation.changes[0].key != completion_key(request.reservation)
             || mutation.changes[1].table != FleetTable::Operations
@@ -261,7 +265,10 @@ impl FleetCatalog {
         }
         let completion =
             Completion::decode(mutation.changes[0].value.as_deref().ok_or_else(invalid)?)?;
-        if completion.request != *request || completion.settlement != settlement {
+        if mutation.changes.len() != if completion.needs_cleanup() { 4 } else { 3 }
+            || completion.request != *request
+            || completion.settlement != settlement
+        {
             return Err(FleetCatalogError::PayloadConflict);
         }
         let floor = Floor::decode(
@@ -300,7 +307,7 @@ impl FleetCatalog {
                 .await?;
             return Ok(true);
         }
-        if authority != Authority::Completion || mutation.changes.len() != 3 {
+        if authority != Authority::Completion || !(3..=4).contains(&mutation.changes.len()) {
             return Err(FleetCatalogError::Invalid("resource completion authority"));
         }
         let completion =
@@ -327,6 +334,15 @@ impl FleetCatalog {
             .admitted_resource(snapshot, request.reservation)
             .await?;
         completion.matches(&row)?;
+        if completion.needs_cleanup() {
+            if mutation.changes.len() != 4
+                || mutation.changes[3] != self.enqueue_member_cleanup(snapshot, &row).await?
+            {
+                return Err(invalid());
+            }
+        } else if mutation.changes.len() != 3 {
+            return Err(invalid());
+        }
         if self
             .inner
             .lookup(

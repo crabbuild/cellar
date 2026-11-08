@@ -63,16 +63,9 @@ impl FleetHostAuthorization {
                 if !owner.matches(&boot)? {
                     return Err(FleetCatalogError::Conflict);
                 }
-                let latest = catalog
-                    .inner
-                    .lookup(
-                        snapshot.head.tables[FleetTable::Admissions.slot()],
-                        &row.request.group,
-                    )
-                    .await?;
-                if latest.as_deref() != Some(permit.encode().map_err(|_| invalid())?.as_slice()) {
-                    return Err(FleetCatalogError::Conflict);
-                }
+                // Later moves cannot resurrect this obsolete member ID. The exact
+                // local Complete marker and immutable completion bind its removal;
+                // a newer local member fails Member::from_group instead.
                 let member = if let Some(previous) = log
                     .member_reclamation(scope)
                     .await
