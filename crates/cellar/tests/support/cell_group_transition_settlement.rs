@@ -225,13 +225,22 @@ pub(super) async fn repeat_merge(
                 && read.witness == latest[i].witness
                 && read.served_by_node == cluster.hosts[elected].identity()
         );
+        // This is a new mutation after both moves, with its own original
+        // 60-second retry window. The duplicate above keeps the seed deadline.
+        let retry = u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis(),
+        )?
+        .checked_add(60_000)
+        .context("new post-merge command retry deadline")?;
         let latest = handle
             .command(
                 &handle.contract("Add")?,
                 1i64.to_be_bytes().to_vec(),
                 CommandOptions {
                     durability: Durability::S3,
-                    ..CommandOptions::new(CommandId::new(ClientId::new([207; 16])?, 1)?, seed.retry)
+                    ..CommandOptions::new(CommandId::new(ClientId::new([207; 16])?, 1)?, retry)
                 },
             )
             .await?;
