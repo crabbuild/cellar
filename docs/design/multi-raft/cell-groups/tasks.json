@@ -2474,7 +2474,8 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/member_reclamation.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/member_settlement.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/member_cleanup.rs",
-        "crates/cellar/tests/support/cell_group_member_cleanup.rs"
+        "crates/cellar/tests/support/cell_group_member_cleanup.rs",
+        "crates/cellar/durability/raft/fleet_catalog/managed_partition_work.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [

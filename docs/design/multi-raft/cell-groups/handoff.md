@@ -6,26 +6,33 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current CG-11 delivery
 
-At `a352f77d`, retained successor boots resume removed-member cleanup with the
-original source witness, exact disk/engine lineage and fresh rooted capacity.
-Removed replicas start parked without serving or voting; physical debt remains
-charged until collection and atomic settlement. `RaftHostOptions.member_cleanup`
-starts a node-owned cleanup worker with exclusive ownership and joined stop.
-Combined movement workers instead enable `reclaim_removed_members`.
+At `2bd87acf`, a protected Fleet cursor persists the complete scheduled request
+before child reservations. `stage` freezes it; cold `poll` and `resume_pending`
+discover it without caller-retained IDs, including on another controller node.
+`settle` atomically records terminal completion and clears the cursor. Historical
+completion precedes newer active work. Selection grants no execution consent,
+seal, serving authority or physical refund. Earlier retained member-cleanup and
+configured startup delivery remains implemented.
 
-The retained-restart case passes both native and real RustFS image modes,
-including restart before GC, restart after GC/before settlement, stale-process
-and missing-witness refusals, no serving attachment and later receipt replay
-without a second refund. Background cleanup owns a private catalog client;
-external status controllers likewise use independent clients to the same backend.
-See [progress](progress.md) for qualification and retained failures.
+Nine native transition-service cases and six scheduler cases pass. The extended
+cold-recovery case passes both real RustFS image modes on the same executable
+as the native transition target. It preserves actual staging/birth/settlement
+CAS ambiguity, metadata refusal, explicit consent and original SQL/receipt/version/
+S3 checks. See [progress](progress.md) for evidence, failures and qualification
+limits. Source/plan anchors and the new module's creation contract are updated.
 
-CG-11 stays IN_PROGRESS. Complete durable automatic partition execution and
-adaptive placement, combined-worker deployment policy, the missing failure-domain/
-reserve and bounded-fanout cases, concurrent child-receipt readiness, late faults,
-larger inventories, mixed load and measured peaks. Configured SDK startup does
-not select a daemon's combined-worker deployment policy. Independent voter
-failure domains remain unqualified.
+Next implement the node-owned scheduling owner around these durable primitives:
+use the existing control-service registry for exclusive lifetime and joined stop;
+resume selected work before producing new IDs; supply explicit placement and
+irreversible-execution policy; reconcile competing or permanently refused staged
+plans with proved cancellation/recovery. Never discard uncertain child debits or
+refund physical debt from a scheduler receipt. Existing transition workers still
+own quorum, archive, seal, publication, retirement and collection.
+
+CG-11 remains IN_PROGRESS. Adaptive whole-group placement, the named failure-domain/
+reserve and bounded-fanout cases, concurrency readiness, late faults, larger
+inventories, mixed load and measured peaks remain. Independent voter processes
+and full release qualification are separate gates.
 
 ## Current accepted boundary
 
@@ -119,13 +126,13 @@ old-token reads and S3 writes. It is not same-group membership balancing or a
 voter-process restart drill. See progress.md for source, hashes and development
 attempts, including the corrected new receipt-test version expectation.
 
-Keep work on CG-11 until every gap closes. Durable cleanup discovery,
-historical/retained-successor cleanup and configured node startup are implemented
-above. Next complete durable automatic partition ownership, adaptive placement
-and combined-worker deployment policy, then failure-domain repair/reserve and
-bounded fanout. Resolve concurrent child-receipt readiness and qualify late
-failures, larger inventories/quotas, mixed load and measured peaks. Task-level
-acceptance remains open.
+Keep work on CG-11 until every gap closes. Durable partition request discovery,
+cross-controller replay, terminal cursor settlement, retained member cleanup and
+configured cleanup startup are implemented above. Next deliver the automatic
+scheduling owner and placement/consent policy, including competing selections and
+staged-work cancellation/recovery. Complete adaptive placement, failure-domain/
+reserve and bounded fanout. Resolve concurrency readiness and qualify late faults,
+larger inventories, mixed load and measured peaks before task acceptance.
 Consent remains explicit and irreversible sealing requires the recorded authority.
 After CG-11 closes, continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all

@@ -99,7 +99,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | At `a352f77d`, bounded durable cleanup resumes across qualified retained boots. Completed removed replicas start parked without serving/voting; configured SDK startup owns cleanup and joined shutdown. The new native and real RustFS retained-restart case passes both image modes, including pre-GC/post-GC restart, missing-witness refusal and exactly-once settlement/replay. | Deliver durable automatic partition execution, adaptive placement and combined-worker deployment policy. Implement failure-domain repair/reserve and bounded fanout. Resolve concurrent child receipt readiness; qualify late faults, mixed load, larger inventories and measured peaks. Full task acceptance remains pending. |
+| CG-11 | At `2bd87acf`, rooted full-request cursors resume on another controller without caller-held IDs; protected terminal receipts prevent re-enqueue. The extended native/RustFS case passes both image modes through actual staging, birth and settlement CAS ambiguity. Nine native transition and six scheduler cases pass. Retained cleanup/startup remains implemented. | Deliver the node-owned automatic scheduling loop, placement/consent policy, selection-race handling and staged cancellation/recovery. Finish adaptive placement, failure-domain/reserve and bounded fanout. Resolve concurrency readiness; qualify late faults, mixed load, larger inventories and peaks. Full acceptance remains pending. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | The daemon harness retains scoped real-voter/RustFS evidence. The focused native occupancy-128 case passes; the original three-occupancy matrix still times out at 128. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
@@ -115,13 +115,13 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Finish CG-11 adaptive placement.** Durable node-targeted cleanup, qualified
-   retained-successor restart and configured SDK startup are implemented. Next
-   deliver durable automatic partition execution, adaptive placement and the
-   combined-worker deployment policy. Complete the missing failure-domain
-   repair/reserve and bounded-fanout cases. Resolve child receipt readiness under
-   concurrency; qualify late faults, mixed load, larger inventories and measured
-   peaks. Keep CG-11 open until all gates close.
+1. **Finish CG-11 adaptive placement.** Durable partition admission now survives
+   coordinator replacement without caller-held IDs. Next deliver the node-owned
+   automatic scheduling loop and placement/consent policy, including competing
+   selections and cancellation/recovery of staged work. Complete adaptive whole-
+   group balancing and the missing failure-domain/reserve and bounded-fanout
+   cases. Resolve concurrency readiness; qualify late faults, mixed load, larger
+   inventories and measured peaks. Keep CG-11 open until all gates close.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
    wake eligibility and retained lifecycle, then S3 recovery of interrupted
    transitions. CG-13 requires the CG-14 infrastructure harness and the permanent

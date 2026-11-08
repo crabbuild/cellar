@@ -12,6 +12,53 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 durable partition admission and coordinator recovery
+
+At `2bd87acf`, scheduled split/merge admission owns one Fleet-root cursor before
+reserving children. Its immutable full request binds the original operator plan,
+principal, namespace and every operation/child ID. A cold `poll` restores selected
+work before sampling. `resume_pending` continues it on another controller node
+without caller-retained IDs. Missing request bodies or plans and changed payloads
+refuse without falling back to fresh admission.
+
+`stage` records this durable boundary; `admit` stages before canonical child
+reservation. Selection grants no execution consent, seal or serving authority.
+`settle` clears the cursor and writes its protected completion receipt atomically
+after Retired/Cancelled and Fleet-slot release. Historical completion is checked
+before newer active work; late replies cannot erase or re-enqueue another request.
+No physical capacity is refunded. Discovery is one Fleet point lookup, matching
+the existing single active disruption contract. The request payload/body limits
+are 16/32 KiB; the Root locator fits the existing 4-KiB mutation-value limit.
+
+The extended RF3 case passes materialized and extent images natively and against
+real RustFS. It loses actual cursor-selection, child-reservation and terminal
+settlement CAS replies; reconstructs the sampler on another node; refuses
+missing body/plan and generic deletion; and preserves original SQL, receipts,
+versions and subsequent child S3 writes through the consented execution service.
+Staging leaves both child histories absent; the lost birth reply leaves exactly
+one Reserved history. The movement reservation book is not used as a birth proof.
+The complete transition-service target passes nine native tests and the scheduler
+target passes six. The nine-case native run and RustFS use the same executable.
+Strict all-target Clippy, formatting/layout, dependencies and plan checks pass.
+
+Initial compiles caught missing ID and test-history imports. Candidate builds
+superseded during coordinator/late-replay review are retained without a pass
+claim. No assertion, resource, compiler, stack or deadline limit was relaxed.
+The full transition target also passes reclamation in this run; the earlier
+concurrent child-receipt NotReady failure still lacks a causal resolution.
+
+Evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-partition-2bd87acf-01/record.json` (CHECKPOINT).
+- `.cellar/cell-groups-evidence/CG-11-partition-2bd87acf-rustfs-01/record.json`.
+
+CG-11 remains IN_PROGRESS. Next integrate a node-owned automatic scheduling loop
+with placement/consent policy, competing selections and managed cancellation or
+recovery of staged work. Then finish adaptive whole-group balancing, the named
+failure-domain/reserve and bounded-fanout cases, late faults, mixed load and
+measured peaks. These are host-native TLS voters with one-CPU/two-GiB RustFS;
+independent voter failure domains and performance are not qualified.
+
 ## CG-11 retained cleanup and configured startup delivery
 
 At `a352f77d`, retained successor processes resume removed-member collection on

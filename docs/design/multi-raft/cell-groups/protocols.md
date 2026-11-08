@@ -1425,6 +1425,29 @@ pressure. The resulting recommendation goes through managed transition
 admission. The Fleet owner rechecks the source routes, membership and term
 with quorum observations before staging new reservations.
 
+
+Scheduled partition admission selects one bounded Fleet cursor before reserving
+any child. The immutable request binds the catalog, namespace, original operator
+plan, principal, operation and all child identities. Its content-addressed body
+is limited to 32 KiB with a 16-KiB payload; the Root index stores only its digest
+inside the existing 4-KiB mutation-value limit. Selection alone grants no
+execution consent, seal, membership or serving authority.
+
+`RaftFleetPartitionScheduler::stage` freezes that cursor. `admit` stages it before
+canonical child admission. A cold `poll` restores pending work before sampling;
+`resume_pending` needs no caller-retained IDs. A surviving controller may resume
+the same request: the first coordinator is provenance, and the selected plan
+continues to bind every actual admission and durability proof. Missing request
+bodies, original plans or changed payloads refuse without fresh fallback.
+
+`settle` clears the cursor and records completion atomically only after observing
+Retired or Cancelled and release of the original Fleet disruption slot. It never
+refunds physical debt. Historical completion wins over newer active work, so late
+replies cannot erase or re-enqueue another operation. Generic catalog mutations
+cannot change the cursor or its completion records. Placement identities and
+irreversible execution consent remain explicit; automatic deployment policy is
+separate from these durable admission primitives.
+
 ## Coordinated hibernation
 
 Closing an execution cache is independent from parking the Raft group. For the
