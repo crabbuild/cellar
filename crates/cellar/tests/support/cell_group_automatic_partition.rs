@@ -2,7 +2,7 @@
 
 //! Configured RF3 placement drives actual SQL, archives, split and merge.
 use super::*;
-use cellar::application::consensus::verification::FleetTable;
+use cellar::application::consensus::verification::{FleetCatalog, FleetTable};
 use cellar_logic::cell_group::CellId;
 
 fn configuration(reserve: u32) -> RaftFleetAutomaticPartitionOptions {
@@ -140,10 +140,9 @@ fn statuses(cluster: &ManagedCluster) -> Vec<Option<RaftFleetPartitionServiceSta
         .collect()
 }
 
-async fn active(cluster: &ManagedCluster) -> Result<Option<Vec<u8>>> {
-    let f = &cluster.fixtures[0];
-    let cut = f.catalog.read(TIMEOUT).await?;
-    Ok(f.catalog
+async fn active(catalog: &FleetCatalog) -> Result<Option<Vec<u8>>> {
+    let cut = catalog.read(TIMEOUT).await?;
+    Ok(catalog
         .get(
             &cut,
             FleetTable::Operations,
@@ -154,11 +153,21 @@ async fn active(cluster: &ManagedCluster) -> Result<Option<Vec<u8>>> {
 }
 
 async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
+    let f = &cluster.fixtures[0];
+    // Status reads own a client; they must not compete for a voter's single
+    // catalog turn with its trust and authenticated membership requests.
+    let observer = managed_fixture::Fixture::open_catalog(
+        &f.domain,
+        f.store.clone(),
+        cluster.history.cluster,
+    )?;
     // Pause execution, leaving automatic sizing/placement on the source voters.
     // No test callback supplies a child identity, destination or operator plan.
     ensure!(statuses(cluster).iter().all(Option::is_some));
     cluster.hosts[3].suspend_automatic_partitions().await;
-    let seed = seed_cells(&cluster.hosts, cluster.history).await.context("seed original cells")?;
+    let seed = seed_cells(&cluster.hosts, cluster.history)
+        .await
+        .context("seed original cells")?;
     eprintln!("automatic RF3: original cells seeded");
     let initial = cluster.directory.observe().await?;
     let first = leader(&cluster.hosts[..3], cluster.history).await?;
@@ -178,7 +187,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
                 "{status:?}"
             );
             let done = if reserve == 3 {
-                active(cluster).await?.is_some()
+                active(&observer).await?.is_some()
                     && status.iter().flatten().any(|s| s.operation_id.is_some())
             } else {
                 status.iter().flatten().any(|s| {
@@ -232,7 +241,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     }
     if reserve == 4 {
         ensure!(
-            active(cluster).await?.is_none(),
+            active(&observer).await?.is_none(),
             "reserve refusal admitted work"
         );
         ensure!(cluster.directory.observe().await?.digest() == initial.digest());
@@ -265,23 +274,19 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         ensure!(next.version.sequence.get() == last.version.sequence.get() + 1);
         return Ok(());
     }
-    let selected = active(cluster)
+    let selected = active(&observer)
         .await?
         .context("durable automatic selection")?;
     let original_operation = original_operation.context("selected operation status")?;
-    let f = &cluster.fixtures[0];
-    let control = RaftFleetControl::new(
-        &f.domain,
-        f.catalog.clone(),
-        vec![cluster.directory.clone()],
-    )?;
+    let control =
+        RaftFleetControl::new(&f.domain, observer.clone(), vec![cluster.directory.clone()])?;
     ensure!(cluster.directory.observe().await?.groups() == 1);
     // Rebuild every configured controller with fresh volatile state. Neither
     // request IDs nor private verifier stores are passed to the resume API.
     cluster.hosts[0]
         .resume_automatic_partitions(TIMEOUT)
         .await?;
-    ensure!(active(cluster).await?.as_ref() == Some(&selected));
+    ensure!(active(&observer).await?.as_ref() == Some(&selected));
     for host in cluster.hosts.iter().skip(1) {
         host.resume_automatic_partitions(TIMEOUT).await?;
     }
@@ -326,7 +331,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         host.suspend_automatic_partitions().await;
     }
     ensure!(
-        active(cluster)
+        active(&observer)
             .await?
             .as_ref()
             .is_none_or(|work| work == &selected),
@@ -334,12 +339,11 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     );
     eprintln!("automatic RF3: split retired after controller replacement");
     let histories: Vec<_> = children.iter().copied().collect();
-    let left = current_leader(cluster, histories[0]).await?;
-    let right = current_leader(cluster, histories[1]).await?;
+    let left = current_leader(cluster, histories[0], &observer).await?;
+    let right = current_leader(cluster, histories[1], &observer).await?;
     if left == right {
-        let cut = f.catalog.read(TIMEOUT).await?;
-        let placement = f
-            .catalog
+        let cut = observer.read(TIMEOUT).await?;
+        let placement = observer
             .history(&cut, &histories[1], TIMEOUT)
             .await?
             .initial_placement()?;
@@ -367,7 +371,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
             .await?;
         tokio::time::timeout(TIMEOUT, async {
             loop {
-                if current_leader(cluster, histories[1]).await? == expected {
+                if current_leader(cluster, histories[1], &observer).await? == expected {
                     return Ok::<_, anyhow::Error>(());
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -377,8 +381,8 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         .context("separate child leaders")??;
     }
     ensure!(
-        current_leader(cluster, histories[0]).await?
-            != current_leader(cluster, histories[1]).await?,
+        current_leader(cluster, histories[0], &observer).await?
+            != current_leader(cluster, histories[1], &observer).await?,
         "merge must work across different leaders"
     );
     for host in &cluster.hosts {
@@ -396,7 +400,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
             let view = cluster.directory.observe().await?;
             if view.groups() == 1
                 && view.revision() > split.revision()
-                && active(cluster).await?.is_none()
+                && active(&observer).await?.is_none()
             {
                 return Ok::<_, anyhow::Error>(view);
             }
@@ -470,11 +474,13 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
 
 // Child member numbers belong to their own fresh RF3 placement, not the
 // fixture's global host-vector indices. Resolve that actual persisted map.
-async fn current_leader(cluster: &ManagedCluster, history: GroupHistory) -> Result<usize> {
-    let f = &cluster.fixtures[0];
-    let cut = f.catalog.read(TIMEOUT).await?;
-    let placement = f
-        .catalog
+async fn current_leader(
+    cluster: &ManagedCluster,
+    history: GroupHistory,
+    catalog: &FleetCatalog,
+) -> Result<usize> {
+    let cut = catalog.read(TIMEOUT).await?;
+    let placement = catalog
         .history(&cut, &history, TIMEOUT)
         .await?
         .initial_placement()?;
@@ -626,6 +632,7 @@ async fn replay_acknowledged(
                 "quorum reconciled acknowledged command {:?} after connection handoff",
                 original.id
             );
+            drop(observed);
             options.timeout = remaining()?;
             handle.command(&contract, input, options).await?
         }
