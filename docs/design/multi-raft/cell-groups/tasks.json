@@ -2467,7 +2467,8 @@
         "crates/cellar/durability/raft/cell_groups/controller/source_reclaim.rs",
         "crates/cellar/tests/support/cell_group_transition_reclamation.rs",
         "crates/cellar/durability/raft/fleet_catalog/managed_source_settlement.rs",
-        "crates/cellar/tests/support/cell_group_transition_settlement.rs"
+        "crates/cellar/tests/support/cell_group_transition_settlement.rs",
+        "crates/cellar/tests/support/cell_group_scheduler_topology.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [

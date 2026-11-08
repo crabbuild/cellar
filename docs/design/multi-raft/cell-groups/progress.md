@@ -12,6 +12,75 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 live-group topology checkpoint
+
+At `d0a48aa41f0e2c372ac8f5a3e2b737ff56492157`, all three implemented scheduler cases pass natively, and the fixed
+`managed-group-placement` RustFS case passes both image formats on the same
+executable. `whole_group_scale_out_in` now exercises public rooted operation
+admission and replay, followed by the existing node-owned movement service.
+The public admission path previously panicked outside an ambient execution
+domain. Its complete namespace inventory now runs in the catalog's own domain,
+matching the existing inventory and verification boundaries.
+
+The fixture starts with six qualified hosts, then converges keep sets of six,
+five and four. The first needs no move; each subsequent operation moves one
+replica of the original RF3 group. Group and cell histories stay unchanged.
+A fresh quorum proves committed Joint before a read-only evidence callback gates
+the worker. A duplicate worker refuses, the original callback and worker join,
+and a replacement resumes the same rooted operation. Both former voters then
+close with no unresolved producers. Original receipts, old-token reads and new
+S3 writes continue through the surviving quorum. Namespace/process read and write
+grants are explicit and follow verified peer discovery; membership grants neither.
+
+The unchanged two-slot/1-GiB profile reserves one slot per host. Old member copies
+remain physically present and charged. This is configured keep-set convergence,
+not old-copy deletion, return to an occupied engine or measured load balancing.
+The workers are replaced within the host process; voter-process crash and
+independent-domain loss are not qualified here.
+
+Strict all-target Clippy, formatting/layout of 2,088 Rust files, native dependency
+checks, the 11 runner tests (one explicit configuration skip), 37 original plan
+tests and evidence/preflight checks pass. The SDK CI profile keeps opt-level 1,
+debug assertions and overflow checks. Calls retain their five-second limits,
+each topology leg retains its 60-second bound, and resource/stack/compiler limits
+and existing result assertions are unchanged.
+
+Development failures remain retained. The new fixture initially lacked explicit
+forwarded-command grants; diagnostics showed a healthy quorum/archive and denied
+namespace forwarding. The grants were added after peer verification, and the
+command-retry workaround and diagnostic quorum fallback were removed. Read-only
+Busy polling stays within the original operation budget. A timing-dependent Joint
+sample was replaced by the actual committed-Joint gate. The first RustFS run
+completed both moves but rejected new sequence 3 using an expired seed deadline.
+New mutations now receive their own original 60-second retry duration at issuance;
+original command retries retain their original deadline. The required domain
+select facade replaces raw Tokio select without suppressing Clippy.
+
+Retained local evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-placement-d0a48aa4-01/record.json`,
+  SHA-256 `ed8194e884b8c86c21ab2da26a39640028d6cb90996218c5a2091f7a3b207d0e`; CHECKPOINT, not full CG-11 acceptance.
+  It pins 3,355 Git-blob inputs, commands and development attempts.
+- `.cellar/cell-groups-evidence/CG-11-placement-d0a48aa4-rustfs-01/record.json`,
+  SHA-256 `4c8686f3ad137d1b34039daa8ece014495e7cd3542c79fc85c817dad4e40abc3`.
+- Shared native/RustFS executable SHA-256
+  `b627268657144d78277526aacf421e5dd137d693e24a5fb7d070173c653eb7ca`.
+
+The RF3 TLS voters are host-native fixtures with one shared group and two cells.
+RustFS runs in the owned one-CPU/2-GiB container without extra swap; it is stopped
+with objects retained. No independent-voter, mixed-load, measured peak or
+performance qualification is claimed.
+
+CG-11 remains IN_PROGRESS. Three of its five named cases now have passing scoped
+executions; `repair_preserves_failure_domains_and_reserve` and
+`control_plane_fanout_bounded` are still absent. Full task acceptance stays open.
+Next implement obsolete live-member quiescence, a member-specific durable fence,
+physical collection and exact resource settlement so a fresh member can return
+to the old engine. The retired-history refusal cannot serve that purpose because
+it permanently refuses the whole group ID. Automatic partition request ownership,
+deployment/adaptive placement policy, failure-domain repair/reserve, bounded fanout,
+late faults, larger quotas and measured peaks remain open.
+
 ## CG-11 rooted source slot settlement checkpoint
 
 At `8e94cd6725dc078e192c99f356b244e39e10b008`, the managed transition service selects an immutable cleanup intent

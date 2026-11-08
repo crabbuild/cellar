@@ -4,6 +4,25 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current CG-11 delivery
+
+At `d0a48aa4`, public rooted topology admission works without an ambient domain.
+Configured keep sets of six, five and four execute two consecutive moves of the
+same RF3 group, with original receipt replay, old-token reads and S3 writes.
+A committed-Joint callback gates actual joined worker replacement; both obsolete
+voters then stop while the surviving quorum continues. All three implemented
+scheduler cases and the fixed real RustFS placement case pass both image modes.
+Original receipt deadlines and request/resource limits remain unchanged; fresh
+mutation sequences get their own original retry duration. See progress.md for
+source, executable and artifact hashes and retained development failures.
+
+This does not collect old member copies or permit return to an occupied engine.
+Prioritize member-specific quiescence/fencing, physical collection and exact
+settlement. Permanent whole-history refusal cannot reclaim a still-live group
+member. Automatic partition request ownership, deployment/adaptive policy,
+failure-domain repair/reserve and bounded fanout remain open. Only the latter two
+named scheduler cases remain absent; CG-11 is still IN_PROGRESS.
+
 ## Current accepted boundary
 
 CG-01–10 have complete scoped task records. CG-07's public SQL/native/Axum/
@@ -96,14 +115,13 @@ old-token reads and S3 writes. It is not same-group membership balancing or a
 voter-process restart drill. See progress.md for source, hashes and development
 attempts, including the corrected new receipt-test version expectation.
 
-Keep work on CG-11 until every gap closes. Next deliver deployment placement and
-stable operation identity policy with durable request ownership. Complete same-group
-scale-out/in and obsolete live-member cleanup, failure-domain repair/reserve and
-bounded fanout. Qualify late destination failures, larger inventory/quota profiles
-and measured physical peaks. Source-history refusal cannot collect an obsolete
-member of a still-live group; that needs current membership/join authority.
-The three remaining required scheduler cases are absent, so CG-11 is IN_PROGRESS
-with no full acceptance. Byte/memory refunds require corresponding physical proof.
+Keep work on CG-11 until every gap closes. The current delivery above supersedes
+its previous next-step ordering. Implement obsolete live-member collection with
+member-specific durable refusal and exact resource settlement; then complete the
+automatic partition work owner and deployment/adaptive policy, failure-domain
+repair/reserve and bounded fanout. Qualify return moves, late failures, larger
+inventories/quotas and measured peaks. The required reserve and fanout cases are
+absent, so task-level acceptance remains open.
 Consent remains explicit and irreversible sealing requires the recorded authority.
 After CG-11 closes, continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all
