@@ -246,12 +246,14 @@ async fn exercise(
         &request,
         TIMEOUT,
     ));
-    tokio::time::timeout(TIMEOUT, async {
-        cellar::asyncrt::select! {
-            result = &mut delayed => anyhow::bail!("admission returned before actual CAS: {result:?}"),
-            _ = async { while !f.store.fleet_cas_waiting.load(Ordering::Acquire) { tokio::time::sleep(Duration::from_millis(5)).await; } } => Ok(()),
-        }
-    }).await??;
+    f.domain.run(async {
+        tokio::time::timeout(TIMEOUT, async {
+            cellar::asyncrt::select! {
+                result = &mut delayed => anyhow::bail!("admission returned before actual CAS: {result:?}"),
+                _ = async { while !f.store.fleet_cas_waiting.load(Ordering::Acquire) { tokio::time::sleep(Duration::from_millis(5)).await; } } => Ok(()),
+            }
+        }).await
+    }).await???;
     ensure!(f.catalog.read(TIMEOUT).await?.revision() == before.revision());
     f.store
         .fail_fleet_confirmation

@@ -102,7 +102,12 @@ impl FleetCatalog {
                 .into_iter()
                 .flatten()
             {
-                let history = FleetHistory::decode(bytes)?;
+                // The low-level index also admits opaque metadata. It grants
+                // no group authority. Protect both valid typed projections so
+                // an opaque replacement cannot erase an existing group fence.
+                let Ok(history) = FleetHistory::decode(bytes) else {
+                    continue;
+                };
                 let scope = history
                     .binding()
                     .scope()
