@@ -267,6 +267,14 @@ async fn main() -> Result<()> {
         String::new(),
     )?;
     let store = bucket.raft_store();
+    let image_storage = match std::env::var("RAFT_IMAGE_STORAGE")
+        .unwrap_or_else(|_| "extents".into())
+        .as_str()
+    {
+        "extents" => RaftImageStorage::Extents,
+        "materialized" => RaftImageStorage::Materialized,
+        _ => anyhow::bail!("invalid RAFT_IMAGE_STORAGE"),
+    };
     let namespace = NamespaceId::new([2; 16])?;
     let cluster = ClusterId::new([1; 16])?;
     let label = format!("raft-node{i}");
@@ -325,7 +333,7 @@ async fn main() -> Result<()> {
         raft_setup::prepare(
             &root,
             store.clone(),
-            raft_setup::namespace(&layout, schema)?,
+            raft_setup::namespace_with_storage(&layout, schema, image_storage)?,
             &layout,
             &peers,
             true,
@@ -402,7 +410,7 @@ async fn main() -> Result<()> {
         raft_setup::prepare(
             &root,
             store.clone(),
-            raft_setup::namespace(&layout, schema)?,
+            raft_setup::namespace_with_storage(&layout, schema, image_storage)?,
             &layout,
             &peers,
             false,
@@ -524,7 +532,7 @@ async fn main() -> Result<()> {
             },
         },
         catalog: raft_setup::catalog_options(),
-        namespaces: vec![raft_setup::namespace(&layout, schema)?],
+        namespaces: vec![raft_setup::namespace_with_storage(&layout, schema, image_storage)?],
         groups,
         peers,
         host,

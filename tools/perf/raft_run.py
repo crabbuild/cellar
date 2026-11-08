@@ -60,7 +60,8 @@ def read_json(path):
 def validate_profile(profile):
     required = {'topology', 'cells', 'database_bytes', 'write_bytes', 'read_fraction', 'read_consistency',
                 'skew', 'arrival', 'timing', 'durability', 'resources', 'tick_ms', 'seed', 'slo', 'qualification'}
-    require(required <= set(profile) <= required | {'payload_pattern'}, 'missing or unknown workload fields')
+    require(required <= set(profile) <= required | {'payload_pattern', 'image_mode'}, 'missing or unknown workload fields')
+    require(profile.get('image_mode', 'extents') in ('extents', 'materialized'), 'invalid image mode')
     require(profile.get('payload_pattern', 'repeated') in ('repeated', 'random_ascii'), 'invalid payload pattern')
     def integer(value, minimum, maximum, name):
         require(type(value) is int and minimum <= value <= maximum, f'invalid {name}')
@@ -87,7 +88,7 @@ def validate_profile(profile):
     for value in profile['skew'].values():
         number(value, 0, 1, 'skew')
     fields(profile['arrival'], 'rate_per_second max_inflight max_lateness_ms', 'arrival')
-    number(profile['arrival']['rate_per_second'], .01, 100000, 'offered rate')
+    number(profile['arrival']['rate_per_second'], 0, 100000, 'offered rate')
     integer(profile['arrival']['max_inflight'], 1, 256, 'inflight limit')
     integer(profile['arrival']['max_lateness_ms'], 1, 60000, 'lateness')
     fields(profile['timing'], 'warmup_seconds measurement_seconds soak_seconds request_timeout_ms retry_window_ms startup_seconds', 'timing')
@@ -304,10 +305,11 @@ def run(args, profile, build, docker, cpus, memory):
     root.mkdir(parents=True, mode=0o700, exist_ok=False)
     config = root / 'config'
     config.mkdir(mode=0o700)
-    run_id = secrets.token_hex(12)
+    run_id = getattr(args, 'run_id', None) or secrets.token_hex(12)
+    require(re.fullmatch(r'[0-9a-f]{24}', run_id) is not None, 'invalid run identity')
     prefix = f'cellar-mr14-{run_id}'
     owner = f'{LABEL}={run_id}'
-    token, access, secret = [secrets.token_hex(32) for _ in range(3)]
+    token, access, secret = secrets.token_hex(32), secrets.token_hex(10), secrets.token_hex(32)
     (config / 'token').write_text(token)
     for index in range(1, node_count + 1):
         (config / f'process{index}').write_bytes(secrets.token_bytes(16))
@@ -345,8 +347,17 @@ def run(args, profile, build, docker, cpus, memory):
         require(net.version == 4 and net.prefixlen <= 24, 'unsupported Docker subnet')
         network_prefix = '.'.join(str(net.network_address).split('.')[:3])
         report['network'] = subnet
+        # Copy through an owned, never-started helper. Host paths on external
+        # workspace volumes need not be mounted into the selected Colima VM.
+        config_volume = prefix + '-config'
+        docker('volume', 'create', '--label', owner, config_volume)
+        helper = docker('create', '--name', prefix + '-config-copy', '--label', owner,
+                        '--network', 'none', '-v', config_volume + ':/config',
+                        '--entrypoint', '/bin/true', args.image)
+        report['config_helper'] = helper
+        docker('cp', str(config) + '/.', helper + ':/config')
         docker('volume', 'create', '--label', owner, prefix + '-store')
-        docker('run', '--rm', '--network', 'none', '--label', owner, '-v', prefix + '-store:/data', 'alpine:3.22', 'chown', '10001:10001', '/data')
+        docker('run', '--rm', '--network', 'none', '--label', owner, '-v', prefix + '-store:/data', '--entrypoint', 'chown', args.image, '10001:10001', '/data')
         docker('run', '-d', '--name', prefix + '-store', '--label', owner, '--network', prefix, '--network-alias', 'rustfs',
                '--cpus', '2', '--cpuset-cpus', f'{node_count},{node_count+1}', '--memory', '4g', '--memory-swap', '4g',
                '-p', f'127.0.0.1:{args.port_base}:9000', '-v', prefix + '-store:/data',
@@ -365,10 +376,11 @@ def run(args, profile, build, docker, cpus, memory):
             docker('volume', 'create', '--label', owner, node)
         report['initialization'] = json.loads(docker('run', '--rm', '--label', owner, '--network', prefix,
             '--cpus', '1', '--cpuset-cpus', '0', '--memory', '3g', '--memory-swap', '3g',
-            '-v', nodes[0] + ':/data', '-v', str(config) + ':/config:ro',
+            '-v', nodes[0] + ':/data', '-v', config_volume + ':/config:ro',
             '-e', 'RAFT_INITIALIZE=1', '-e', 'RAFT_NODE=1', '-e', f'RAFT_NODES={node_count}',
             '-e', f"RAFT_CELLS={layout.total}", '-e', f"RAFT_CELLS_PER_GROUP={layout.occupancy}",
-            '-e', 'RAFT_WORKLOAD=reference', '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
+            '-e', 'RAFT_WORKLOAD=reference', '-e', f"RAFT_IMAGE_STORAGE={profile.get('image_mode', 'extents')}",
+            '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
             '-e', 'AWS_ACCESS_KEY_ID=' + access, '-e', 'AWS_SECRET_ACCESS_KEY=' + secret, args.image))
         require(report['initialization'] == {'initialized_groups':len(layout.groups), 'cells':layout.total,
             'cells_per_group':layout.occupancy}, 'shared setup population differs')
@@ -377,12 +389,13 @@ def run(args, profile, build, docker, cpus, memory):
             docker('run', '-d', '--name', node, '--label', owner, '--network', prefix, '--ip', f'{network_prefix}.{10+index}',
                    '--cpus', '1', '--cpuset-cpus', str(index-1), '--memory', '3g', '--memory-swap', '3g',
                    '--ulimit', 'nofile=65536:65536', '-p', f'127.0.0.1:{args.port_base+index}:8082',
-                   '-v', node + ':/data', '-v', str(config) + ':/config:ro',
+                   '-v', node + ':/data', '-v', config_volume + ':/config:ro',
                    '-e', f'RAFT_NODE={index}', '-e', f'RAFT_NODES={node_count}', '-e', f"RAFT_CELLS={profile['cells']['total']}",
                    '-e', f"RAFT_CELLS_PER_GROUP={layout.occupancy}",
                    '-e', f"RAFT_STARTUP_TIMEOUT_MS={profile['timing']['startup_seconds']*1000}",
                    '-e', f"RAFT_TICK_MS={profile['tick_ms']}", '-e', 'RAFT_QUEUE_ITEMS=4096',
                    '-e', 'RAFT_WORKLOAD=reference', '-e', f"RAFT_DURABILITY={profile['durability']}",
+                   '-e', f"RAFT_IMAGE_STORAGE={profile.get('image_mode', 'extents')}",
                    '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
                    '-e', 'AWS_ACCESS_KEY_ID=' + access, '-e', 'AWS_SECRET_ACCESS_KEY=' + secret, args.image)
         print(f'Created {prefix} in {args.context}; waiting for actual group leadership.', flush=True)
