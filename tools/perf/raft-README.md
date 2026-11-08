@@ -2,6 +2,9 @@
 
 # Native multi-Raft on Colima and RustFS
 
+The [shared-group campaign driver](cell_groups.md) adds source-pinned, serial
+occupancy matrices and independent verification over this workload owner.
+
 This fixture records failed attempts and requires complete replica/archive
 checks before marking a run complete. Its independent analyzer selects the
 highest observed error-free throughput with p99 below 200 ms by default. Use

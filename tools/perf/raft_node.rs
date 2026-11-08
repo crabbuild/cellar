@@ -135,6 +135,15 @@ async fn resource_snapshot(service: &RaftCells) -> Result<serde_json::Value> {
     Ok(resources)
 }
 
+async fn bind_raft_listeners(peer: &RaftPeerNode) -> Result<NodeRaftListeners> {
+    // Shared transport registers the exact bound endpoint as physical identity.
+    Ok(NodeRaftListeners {
+        control: tokio::net::TcpListener::bind(peer.control_address).await?,
+        data: tokio::net::TcpListener::bind(peer.data_address).await?,
+        query: tokio::net::TcpListener::bind(peer.query_address).await?,
+    })
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -267,6 +276,14 @@ async fn main() -> Result<()> {
         String::new(),
     )?;
     let store = bucket.raft_store();
+    let image_storage = match std::env::var("RAFT_IMAGE_STORAGE")
+        .unwrap_or_else(|_| "extents".into())
+        .as_str()
+    {
+        "extents" => RaftImageStorage::Extents,
+        "materialized" => RaftImageStorage::Materialized,
+        _ => anyhow::bail!("invalid RAFT_IMAGE_STORAGE"),
+    };
     let namespace = NamespaceId::new([2; 16])?;
     let cluster = ClusterId::new([1; 16])?;
     let label = format!("raft-node{i}");
@@ -325,7 +342,7 @@ async fn main() -> Result<()> {
         raft_setup::prepare(
             &root,
             store.clone(),
-            raft_setup::namespace(&layout, schema)?,
+            raft_setup::namespace_with_storage(&layout, schema, image_storage)?,
             &layout,
             &peers,
             true,
@@ -402,7 +419,7 @@ async fn main() -> Result<()> {
         raft_setup::prepare(
             &root,
             store.clone(),
-            raft_setup::namespace(&layout, schema)?,
+            raft_setup::namespace_with_storage(&layout, schema, image_storage)?,
             &layout,
             &peers,
             false,
@@ -503,7 +520,7 @@ async fn main() -> Result<()> {
     } else {
         LogOpenMode::Resume
     };
-    let peer = &peers[i as usize - 1];
+    let peer = peers[i as usize - 1].clone();
     let mut raft_config = RaftCellsConfig {
         query_origins: vec![],
         command_origins: vec![],
@@ -524,7 +541,7 @@ async fn main() -> Result<()> {
             },
         },
         catalog: raft_setup::catalog_options(),
-        namespaces: vec![raft_setup::namespace(&layout, schema)?],
+        namespaces: vec![raft_setup::namespace_with_storage(&layout, schema, image_storage)?],
         groups,
         peers,
         host,
@@ -549,11 +566,7 @@ async fn main() -> Result<()> {
             raft_config,
             RaftCellsServices {
                 recovery: None,
-                listeners: NodeRaftListeners {
-                    control: tokio::net::TcpListener::bind("0.0.0.0:9100").await?,
-                    data: tokio::net::TcpListener::bind("0.0.0.0:9101").await?,
-                    query: tokio::net::TcpListener::bind("0.0.0.0:9102").await?,
-                },
+                listeners: bind_raft_listeners(&peer).await?,
                 tls,
                 store,
                 application,
@@ -801,6 +814,17 @@ async fn main() -> Result<()> {
         .close()
         .await
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!(
+        "CELLAR_CG14_CLOSE {}",
+        serde_json::json!({
+            "node": i, "groups_total": report.groups_total, "reported_groups": report.groups.len(), "omitted_groups": report.omitted_groups,
+            "failed_groups": report.groups.iter().filter(|group| group.failed).count(),
+            "groups_with_archive_lag": report.groups_with_archive_lag,
+            "groups_with_unknown_archive": report.groups_with_unknown_archive,
+            "retained_calls_at_shutdown": report.retained_calls_at_shutdown,
+            "mutation_outcomes": report.mutation_outcomes,
+        })
+    ))?;
     cellar::note!("raft_perf_closed {:?}", report);
     Ok(())
 }

@@ -82,11 +82,22 @@ def verify_resources(report, nodes):
     require(report['vm']['cpus'] >= minimum['cpus'] and report['vm']['memory_bytes'] >= minimum['memory_bytes'],
             'insufficient recorded VM resources')
     require(len(report['limits']) == nodes, 'missing container resource limits')
+    tmpfs = {'/tmp': 'rw,noexec,nosuid,size=67108864'} if report.get('bounded_storage') else {}
+    if report.get('bounded_storage'):
+        require(len(report['storage_host_configs']) == nodes + 1, 'missing storage enforcement observations')
+        for index, raw in enumerate(report['storage_host_configs']):
+            expected = dict(tmpfs)
+            if index == nodes:
+                expected['/logs'] = 'rw,nosuid,nodev,size=33554432,uid=10001,gid=10001'
+            require(raw['ReadonlyRootfs'] is True and raw['Tmpfs'] == expected
+                    and raw['LogConfig'] == {'Type': 'json-file', 'Config': {'max-size': '5m', 'max-file': '2'}},
+                    'readonly root, scratch or log bounds differ')
     for index, limits in enumerate(report['limits']):
         require(limits == {'NanoCpus': 10**9, 'CpusetCpus': str(index), 'Memory': 3 * 1024**3,
-                           'MemorySwap': 3 * 1024**3, 'Tmpfs': {}}, 'node resource limits differ')
+                           'MemorySwap': 3 * 1024**3, 'Tmpfs': tmpfs}, 'node resource limits differ')
+    store_tmpfs = {**tmpfs, '/logs': 'rw,nosuid,nodev,size=33554432,uid=10001,gid=10001'} if tmpfs else {}
     require(report['store_limits'] == {'NanoCpus': 2 * 10**9, 'CpusetCpus': f'{nodes},{nodes+1}',
-                                      'Memory': 4 * 1024**3, 'MemorySwap': 4 * 1024**3, 'Tmpfs': {}},
+                                      'Memory': 4 * 1024**3, 'MemorySwap': 4 * 1024**3, 'Tmpfs': store_tmpfs},
             'object-store resource limits differ')
 
 

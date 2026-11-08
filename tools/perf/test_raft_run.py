@@ -135,6 +135,15 @@ class Profiles(unittest.TestCase):
 
 
 class SeedDiagnostics(unittest.TestCase):
+    def test_exited_or_foreign_voters_refuse_startup_without_waiting_for_elections(self):
+        from raft_run import startup_processes
+        for state in ({'owner': 'owned', 'running': False, 'exit_code': 1},
+                      {'owner': 'foreign', 'running': True, 'exit_code': 0}):
+            docker = Mock(return_value=json.dumps(state))
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                startup_processes(docker, ['node-1', 'node-2'], 'owned')
+            self.assertEqual(docker.call_count, 1)
+
     def test_failed_seed_inspects_all_assigned_peers_and_preserves_partial_errors(self):
         from raft_run import observe_failed_seed
         layout = Layout(1000, 32, 'Workload')

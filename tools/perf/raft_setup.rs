@@ -20,7 +20,16 @@ pub fn catalog_options() -> CatalogOptions {
     }
 }
 
+#[cfg(test)]
 pub fn namespace(layout: &raft_groups::Layout, schema: [u8; 32]) -> Result<RaftNamespaceConfig> {
+    namespace_with_storage(layout, schema, RaftImageStorage::Extents)
+}
+
+pub fn namespace_with_storage(
+    layout: &raft_groups::Layout,
+    schema: [u8; 32],
+    image_storage: RaftImageStorage,
+) -> Result<RaftNamespaceConfig> {
     let mut namespace = NamespaceConfig::new(
         ClusterId::new([1; 16])?,
         NamespaceId::new([2; 16])?,
@@ -28,7 +37,7 @@ pub fn namespace(layout: &raft_groups::Layout, schema: [u8; 32]) -> Result<RaftN
         schema,
     );
     namespace.voters = VoterPolicy::ThreeVoters;
-    namespace.image_storage = RaftImageStorage::Extents;
+    namespace.image_storage = image_storage;
     Ok(RaftNamespaceConfig {
         namespace,
         class: layout.class.clone(),

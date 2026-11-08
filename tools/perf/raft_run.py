@@ -60,7 +60,8 @@ def read_json(path):
 def validate_profile(profile):
     required = {'topology', 'cells', 'database_bytes', 'write_bytes', 'read_fraction', 'read_consistency',
                 'skew', 'arrival', 'timing', 'durability', 'resources', 'tick_ms', 'seed', 'slo', 'qualification'}
-    require(required <= set(profile) <= required | {'payload_pattern'}, 'missing or unknown workload fields')
+    require(required <= set(profile) <= required | {'payload_pattern', 'image_mode'}, 'missing or unknown workload fields')
+    require(profile.get('image_mode', 'extents') in ('extents', 'materialized'), 'invalid image mode')
     require(profile.get('payload_pattern', 'repeated') in ('repeated', 'random_ascii'), 'invalid payload pattern')
     def integer(value, minimum, maximum, name):
         require(type(value) is int and minimum <= value <= maximum, f'invalid {name}')
@@ -87,7 +88,7 @@ def validate_profile(profile):
     for value in profile['skew'].values():
         number(value, 0, 1, 'skew')
     fields(profile['arrival'], 'rate_per_second max_inflight max_lateness_ms', 'arrival')
-    number(profile['arrival']['rate_per_second'], .01, 100000, 'offered rate')
+    number(profile['arrival']['rate_per_second'], 0, 100000, 'offered rate')
     integer(profile['arrival']['max_inflight'], 1, 256, 'inflight limit')
     integer(profile['arrival']['max_lateness_ms'], 1, 60000, 'lateness')
     fields(profile['timing'], 'warmup_seconds measurement_seconds soak_seconds request_timeout_ms retry_window_ms startup_seconds', 'timing')
@@ -248,6 +249,16 @@ def observe_failed_seed(cell, bases, token, docker, nodes, run_id, layout):
     return {'replicas': replicas, 'kernel': kernel}
 
 
+def startup_processes(docker, nodes, owner):
+    template = ('{"owner":{{json (index .Config.Labels "' + LABEL + '")}},'
+                '"running":{{json .State.Running}},"exit_code":{{json .State.ExitCode}}}')
+    for node in nodes:
+        state = decode_json(docker('inspect', '--format', template, node))
+        require(state['owner'] == owner, 'startup voter ownership changed')
+        require(state['running'] is True,
+                f"voter exited during startup: {node} (exit {state['exit_code']}); inspect retained node log")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image')
@@ -304,10 +315,11 @@ def run(args, profile, build, docker, cpus, memory):
     root.mkdir(parents=True, mode=0o700, exist_ok=False)
     config = root / 'config'
     config.mkdir(mode=0o700)
-    run_id = secrets.token_hex(12)
+    run_id = getattr(args, 'run_id', None) or secrets.token_hex(12)
+    require(re.fullmatch(r'[0-9a-f]{24}', run_id) is not None, 'invalid run identity')
     prefix = f'cellar-mr14-{run_id}'
     owner = f'{LABEL}={run_id}'
-    token, access, secret = [secrets.token_hex(32) for _ in range(3)]
+    token, access, secret = secrets.token_hex(32), secrets.token_hex(10), secrets.token_hex(32)
     (config / 'token').write_text(token)
     for index in range(1, node_count + 1):
         (config / f'process{index}').write_bytes(secrets.token_bytes(16))
@@ -337,17 +349,35 @@ def run(args, profile, build, docker, cpus, memory):
     sampler = None
     fault = None
     try:
-        # Let Docker allocate a private subnet; avoid overlapping a retained run.
-        network = json.loads(docker('network', 'inspect', docker('network', 'create', '--label', owner, prefix)))
+        # Campaigns reserve an explicit CIDR; standalone invocations can retain
+        # Docker allocation. Neither path prunes retained networks.
+        subnet_option = ['--subnet', args.subnet] if getattr(args, 'subnet', None) else []
+        network = json.loads(docker('network', 'inspect', docker('network', 'create', '--label', owner, *subnet_option, prefix)))
         subnet = network[0]['IPAM']['Config'][0]['Subnet']
         import ipaddress
         net = ipaddress.ip_network(subnet)
         require(net.version == 4 and net.prefixlen <= 24, 'unsupported Docker subnet')
+        require(not getattr(args, 'subnet', None) or str(net) == args.subnet, 'Engine allocated a different explicit subnet')
         network_prefix = '.'.join(str(net.network_address).split('.')[:3])
         report['network'] = subnet
-        docker('volume', 'create', '--label', owner, prefix + '-store')
-        docker('run', '--rm', '--network', 'none', '--label', owner, '-v', prefix + '-store:/data', 'alpine:3.22', 'chown', '10001:10001', '/data')
-        docker('run', '-d', '--name', prefix + '-store', '--label', owner, '--network', prefix, '--network-alias', 'rustfs',
+        # Copy through an owned, never-started helper. Host paths on external
+        # workspace volumes need not be mounted into the selected Colima VM.
+        config_volume = prefix + '-config'
+        docker('volume', 'create', '--label', owner, config_volume)
+        helper = docker('create', '--name', prefix + '-config-copy', '--label', owner,
+                        '--network', 'none', '-v', config_volume + ':/config',
+                        '--entrypoint', '/bin/true', args.image)
+        report['config_helper'] = helper
+        docker('cp', str(config) + '/.', helper + ':/config')
+        disks = getattr(args, 'disks', None)
+        runtime_bounds = getattr(args, 'runtime_bounds', [])
+        if disks is not None:
+            disks.prepare()
+            disks.create(prefix + '-store')
+        else:
+            docker('volume', 'create', '--label', owner, prefix + '-store')
+        docker('run', '--rm', '--network', 'none', '--label', owner, '-v', prefix + '-store:/data', '--entrypoint', 'chown', args.image, '10001:10001', '/data')
+        docker('run', '-d', *getattr(args, 'store_runtime_bounds', runtime_bounds), '--name', prefix + '-store', '--label', owner, '--network', prefix, '--network-alias', 'rustfs',
                '--cpus', '2', '--cpuset-cpus', f'{node_count},{node_count+1}', '--memory', '4g', '--memory-swap', '4g',
                '-p', f'127.0.0.1:{args.port_base}:9000', '-v', prefix + '-store:/data',
                '-e', 'RUSTFS_ACCESS_KEY=' + access, '-e', 'RUSTFS_SECRET_KEY=' + secret,
@@ -362,27 +392,32 @@ def run(args, profile, build, docker, cpus, memory):
                     raise RuntimeError('disposable RustFS startup failed') from None
                 time.sleep(1)
         for node in nodes:
-            docker('volume', 'create', '--label', owner, node)
-        report['initialization'] = json.loads(docker('run', '--rm', '--label', owner, '--network', prefix,
+            if disks is not None:
+                disks.create(node)
+            else:
+                docker('volume', 'create', '--label', owner, node)
+        report['initialization'] = json.loads(docker('run', '--rm', *runtime_bounds, '--label', owner, '--network', prefix,
             '--cpus', '1', '--cpuset-cpus', '0', '--memory', '3g', '--memory-swap', '3g',
-            '-v', nodes[0] + ':/data', '-v', str(config) + ':/config:ro',
+            '-v', nodes[0] + ':/data', '-v', config_volume + ':/config:ro',
             '-e', 'RAFT_INITIALIZE=1', '-e', 'RAFT_NODE=1', '-e', f'RAFT_NODES={node_count}',
             '-e', f"RAFT_CELLS={layout.total}", '-e', f"RAFT_CELLS_PER_GROUP={layout.occupancy}",
-            '-e', 'RAFT_WORKLOAD=reference', '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
+            '-e', 'RAFT_WORKLOAD=reference', '-e', f"RAFT_IMAGE_STORAGE={profile.get('image_mode', 'extents')}",
+            '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
             '-e', 'AWS_ACCESS_KEY_ID=' + access, '-e', 'AWS_SECRET_ACCESS_KEY=' + secret, args.image))
         require(report['initialization'] == {'initialized_groups':len(layout.groups), 'cells':layout.total,
             'cells_per_group':layout.occupancy}, 'shared setup population differs')
         save()
         for index, node in enumerate(nodes, 1):
-            docker('run', '-d', '--name', node, '--label', owner, '--network', prefix, '--ip', f'{network_prefix}.{10+index}',
+            docker('run', '-d', *runtime_bounds, '--name', node, '--label', owner, '--network', prefix, '--ip', f'{network_prefix}.{10+index}',
                    '--cpus', '1', '--cpuset-cpus', str(index-1), '--memory', '3g', '--memory-swap', '3g',
                    '--ulimit', 'nofile=65536:65536', '-p', f'127.0.0.1:{args.port_base+index}:8082',
-                   '-v', node + ':/data', '-v', str(config) + ':/config:ro',
+                   '-v', node + ':/data', '-v', config_volume + ':/config:ro',
                    '-e', f'RAFT_NODE={index}', '-e', f'RAFT_NODES={node_count}', '-e', f"RAFT_CELLS={profile['cells']['total']}",
                    '-e', f"RAFT_CELLS_PER_GROUP={layout.occupancy}",
                    '-e', f"RAFT_STARTUP_TIMEOUT_MS={profile['timing']['startup_seconds']*1000}",
                    '-e', f"RAFT_TICK_MS={profile['tick_ms']}", '-e', 'RAFT_QUEUE_ITEMS=4096',
                    '-e', 'RAFT_WORKLOAD=reference', '-e', f"RAFT_DURABILITY={profile['durability']}",
+                   '-e', f"RAFT_IMAGE_STORAGE={profile.get('image_mode', 'extents')}",
                    '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
                    '-e', 'AWS_ACCESS_KEY_ID=' + access, '-e', 'AWS_SECRET_ACCESS_KEY=' + secret, args.image)
         print(f'Created {prefix} in {args.context}; waiting for actual group leadership.', flush=True)
@@ -396,7 +431,10 @@ def run(args, profile, build, docker, cpus, memory):
                 return state['ready'] and state['leader'] == layout.members(cell, node_count)[0]
             except (OSError, ValueError):
                 return False
-        wait_for_placement(profile['cells']['total'], balance, time.monotonic() + profile['timing']['startup_seconds'], lambda text: print(text, flush=True))
+        def placement_progress(message):
+            startup_processes(docker, nodes, run_id)
+            print(message, flush=True)
+        wait_for_placement(profile['cells']['total'], balance, time.monotonic() + profile['timing']['startup_seconds'], placement_progress)
         topology = {}
         def capture_topology(edge):
             rows = []
@@ -412,9 +450,14 @@ def run(args, profile, build, docker, cpus, memory):
         capture_topology('before')
         report['limits'] = [captured_node_limits(json.loads(docker('inspect', '--format', '{{json .HostConfig}}', node))) for node in nodes]
         report['store_limits'] = captured_node_limits(json.loads(docker('inspect', '--format', '{{json .HostConfig}}', prefix + '-store')))
+        if disks is not None:
+            report['bounded_storage'] = True
+            report['storage_host_configs'] = [json.loads(docker('inspect', '--format', '{{json .HostConfig}}', node))
+                                            for node in nodes + [prefix + '-store']]
+            # Retain only resource fields; Env contains private credentials.
         verify_resources(report, node_count)
-        for node, limits in zip(nodes, report['limits']):
-            require(limits['NanoCpus'] == 10**9 and limits['Memory'] == 3 * 1024**3 and limits['MemorySwap'] == 3 * 1024**3 and not limits['Tmpfs'], 'resource limit mismatch')
+        # Resource quotas, bounded scratch and log caps are checked together above.
+        for node in nodes:
             require(docker('exec', node, 'sha256sum', '/proc/1/exe').split()[0] == build['binary_sha256'], 'deployed executable differs from verified image')
         def send(cell, operation, body, headers, member=None):
             node = layout.members(cell, node_count)[0 if operation == 'command' else 1] - 1
@@ -422,7 +465,12 @@ def run(args, profile, build, docker, cpus, memory):
                 node = member
             extra = {'x-command-id': headers['command_id'], 'x-retry-until-ms': str(headers['retry_until_ms'])} if operation == 'command' else {
                 'x-read-consistency': body['consistency'], 'x-min-version': headers.get('min_version', '')}
-            return request(bases[node], f'/cells/{cell}', token, method='POST' if operation == 'command' else 'GET', body=body if operation == 'command' else None, headers=extra)
+            began = time.monotonic_ns()
+            code, reply = request(bases[node], f'/cells/{cell}', token, method='POST' if operation == 'command' else 'GET', body=body if operation == 'command' else None, headers=extra)
+            observer = getattr(args, 'archive_observer', None)
+            if observer is not None and operation == 'command' and code == 200:
+                observer.acknowledge(cell, reply, began)
+            return code, reply
         def capture():
             rows = []
             for node, base in enumerate(bases, 1):
@@ -454,6 +502,9 @@ def run(args, profile, build, docker, cpus, memory):
                             with (root / 'log-files-periodic.jsonl').open('a') as census:
                                 census.write(json.dumps(observed) + '\n')
                             next_log_sample = time.monotonic() + 5
+                        observer = getattr(args, 'archive_observer', None)
+                        if observer is not None:
+                            observer.capture(lambda cell: request(bases[layout.members(cell, node_count)[0]-1], f'/admin/{cell}', token))
                         stats = docker('stats', '--no-stream', '--format', '{{json .}}', *nodes, prefix + '-store')
                         for row in stats.splitlines():
                             stream.write(json.dumps({'monotonic': time.monotonic(), 'stats': json.loads(row)}) + '\n')
@@ -504,7 +555,7 @@ def run(args, profile, build, docker, cpus, memory):
             began = time.monotonic()
             while True:
                 observations = [request(bases[layout.members(cell, node_count)[0]-1], f'/admin/{cell}', token) for cell in state]
-                if all(code == 200 and item['archived'] >= state[cell]['index'] for cell, (code, item) in enumerate(observations)):
+                if all(code == 200 and item['archived'] is not None and item['archived'] >= state[cell]['index'] for cell, (code, item) in enumerate(observations)):
                     return observations, time.monotonic() - began
                 require(time.monotonic() - began < profile['slo']['max_archive_lag_seconds'], 'archive drain exceeded declared SLO')
                 time.sleep(.5)
@@ -524,6 +575,8 @@ def run(args, profile, build, docker, cpus, memory):
             if seconds:
                 print(f'{phase}: {seconds}s, {profile["arrival"]["rate_per_second"]} offered operations/sec', flush=True)
                 boundary(phase, 'before')
+                if getattr(args, 'archive_observer', None) is not None:
+                    args.archive_observer.phase = phase
                 report[phase] = run_load(profile, phase, seconds, state, ledger, send, run_id,
                                         on_start=fault.start if fault and phase == 'measurement' else None)
                 if fault and phase == 'measurement':
@@ -549,6 +602,8 @@ def run(args, profile, build, docker, cpus, memory):
         (root / 'replicas.json').write_text(json.dumps(replicas) + '\n')
         report['replicas_verified_monotonic_seconds'] = time.monotonic()
         report['final_archive'], report['final_archive_seconds'] = wait_archive()
+        if getattr(args, 'archive_observer', None) is not None:
+            args.archive_observer.capture(lambda cell: request(bases[layout.members(cell, node_count)[0]-1], f'/admin/{cell}', token))
         report['store_recovery_verified_monotonic_seconds'] = time.monotonic()
         if args.observe_log_reclamation:
             # Same fixed quiet window on both binaries; no workload is added.
