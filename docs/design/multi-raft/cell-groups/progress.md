@@ -12,6 +12,90 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 removed-member collection and return checkpoint
+
+At `5bc999c334bb500d0ea8699867c83206d17d25a6`, the new public
+`RaftCells::reclaim_removed_member` path and the `managed-member-reclamation` RustFS
+drill pass both image formats. The four implemented native scheduler cases pass,
+together with the existing retired-source collection regression in isolation. Its
+concurrent run failed before collection: child 1 receipt retry in extent mode returned
+`ambiguous=false Runtime(NotReady)`. The unchanged executable passed both modes in
+isolation. Both logs are retained; readiness under concurrency is unresolved, with no
+assertion/retry/deadline change. This is a scoped checkpoint, not full CG-11 acceptance.
+
+A completed Fleet movement and the exact removed replica's committed Complete
+configuration authorize local quiescence. The existing controller joins SQL, effects,
+archive/seed discovery, provisioning and runtime owners, then detaches transport
+dispatch. One synced engine batch removes the mapping/log and writes a member-specific
+high-water fence. Joined page/image collection precedes physical completion. Only a
+later authenticated managed seed with a higher member ID and the same history/birth can
+return; initial genesis and imported histories cannot bypass the fence. Repeated removal
+replaces one fence in the shared bounded refusal bank. Permanent retired-history refusal
+still reserves the whole group ID.
+
+A process-local completed engine receipt authorizes one rooted slot settlement. The
+preparation lane stays held through its physical observation/root-CAS handoff. Pending
+reservations, initializing/incomplete inventory and changed boots refuse. Unknown
+occupancy and disk debt, the deployment baseline and installed memory stay charged. The
+local receipt also captures the immutable process profile's per-group disk reservation;
+one known reservation can be released only when the pre-GC group count fully covers the
+captured disk floor. A changed process profile refuses settlement. A durable cleanup
+receipt prevents duplicate refunds; generic mutations cannot create, change or delete
+that receipt. No serialized peer inventory can spend this authority. A targeted root
+index of the collected member prefix is published in the same CAS. Topology can close an
+old birth-copy debt only on the exact engine/history/birth covered by that index;
+current voters still require physical presence and fresh quorum proof.
+
+The fixture keeps at least four hosts and retains its two engine slots, one reserved
+slot, 1-GiB platform profile (512-MiB effective placement cap), five-second calls and
+sixty-second operation bounds. It moves a shared RF3 replica away, collects it, returns
+it with a fresh ID, then returns to the previously joined node. The final removal
+replaces the first node's earlier fence. Collected nodes have zero group slots, their
+original 1-MiB declared disk baseline, and their installed buffer charge. Original SQL
+histories, receipts, old-token reads and new S3 writes remain intact. Joint collection
+and a surviving voter's attempt to collect itself refuse. The actual slot-settlement CAS
+loses confirmation: the root advances once and the mapping is absent before exact retry;
+replay makes no second root change. Old genesis refuses after every collection. No
+assertions or resource, stack, compiler or request limits were raised.
+
+Strict all-target Clippy, formatting/layout of 2,092 Rust files, native dependency
+checks, runner tests and original plan/evidence checks pass. Development failures are
+retained: the injected catalog fault returns a typed ambiguous Storage error, not only
+Unconfirmed; its oracle now checks the actual successful root CAS. An initial three-host
+keep set violated the existing RF3-plus-recovery-candidate minimum and was corrected to
+four. Repeated removal required distinguishing an older completed member fence from the
+current removal's receipt. The verifier previously required every birth copy forever,
+rejecting a safely collected node. The atomic collected-prefix index closes that
+obsolete birth debt without excusing absent current voters. Returned nodes also serve
+local linearizable SQL reads from their fresh member identities. A later return exposed
+a 256-MiB disk floor retained on an empty joined engine. The local receipt now captures
+its immutable process profile reservation and releases one known group charge, retaining
+unattributed debt, current occupancy, the qualified deployment baseline and installed
+memory. The disk-floor unit oracle covers those lower bounds and overflow; the public
+cycle checks the actual catalog result.
+
+Retained local evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-members-5bc999c3-01/record.json`,
+  SHA-256 `edf39ad63de3ab961bc343ba13782046c3f03e51faa6b8f4cb91bf76c157f685`; CHECKPOINT, not task acceptance.
+- `.cellar/cell-groups-evidence/CG-11-members-5bc999c3-rustfs-01/record.json`,
+  SHA-256 `78342be339ede03eb9d3af9c042458168ba106f6092ac33ee85bf7a6750d06e0`.
+- Shared native/RustFS executable SHA-256
+  `67c74aaf017a8c65b51d49f233254316e8f74abce3bb5a91c188719704ec95f1`.
+
+RustFS runs in the owned one-CPU/2-GiB container without extra swap, stopped with
+objects retained. Voters are host-native TLS fixtures, not independent constrained
+processes. Timings are correctness observations, not benchmarks.
+
+CG-11 remains IN_PROGRESS. This is explicit original-boot SDK cleanup while its
+completed movement remains selected. Next integrate bounded durable cleanup work and
+targeted dispatch into the movement owner, including delayed historical and
+retained-successor cleanup, restart/replay and contention. Complete automatic partition
+request ownership and deployment/adaptive policy. The required
+`repair_preserves_failure_domains_and_reserve` and `control_plane_fanout_bounded` cases
+remain absent; three of five named cases have scoped passing runs. Late faults, mixed
+load, larger inventories/quotas and measured peaks remain open.
+
 ## CG-11 live-group topology checkpoint
 
 At `d0a48aa41f0e2c372ac8f5a3e2b737ff56492157`, all three implemented scheduler cases pass natively, and the fixed

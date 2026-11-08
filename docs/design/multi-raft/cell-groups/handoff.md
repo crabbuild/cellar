@@ -6,22 +6,26 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current CG-11 delivery
 
-At `d0a48aa4`, public rooted topology admission works without an ambient domain.
-Configured keep sets of six, five and four execute two consecutive moves of the
-same RF3 group, with original receipt replay, old-token reads and S3 writes.
-A committed-Joint callback gates actual joined worker replacement; both obsolete
-voters then stop while the surviving quorum continues. All three implemented
-scheduler cases and the fixed real RustFS placement case pass both image modes.
-Original receipt deadlines and request/resource limits remain unchanged; fresh
-mutation sequences get their own original retry duration. See progress.md for
-source, executable and artifact hashes and retained development failures.
+At `5bc999c3`, explicit `RaftCells::reclaim_removed_member` joins the removed owner,
+collects its mapping/log/private pages, persists a high-water member fence, and settles
+its slot and known disk reservation once from its local engine receipt. SQL/archive
+admission can then accept a fresh member of the same group. The native and real RustFS
+cases return to the original node and the previously joined node, then replace the
+earlier fence on another removal. An actual settlement CAS loses confirmation; exact
+retry changes no second root. Joint/survivor/generic cleanup and old-genesis attempts
+refuse. Original receipt replay, token reads and S3 writes persist. Four implemented
+scheduler cases and strict Clippy pass. Source GC passes in isolation; its concurrent
+extent run failed before collection with a child receipt `NotReady` refusal. Preserve
+both logs and investigate readiness under concurrency. See progress.md for exact source,
+executable, artifacts and development failures.
 
-This does not collect old member copies or permit return to an occupied engine.
-Prioritize member-specific quiescence/fencing, physical collection and exact
-settlement. Permanent whole-history refusal cannot reclaim a still-live group
-member. Automatic partition request ownership, deployment/adaptive policy,
-failure-domain repair/reserve and bounded fanout remain open. Only the latter two
-named scheduler cases remain absent; CG-11 is still IN_PROGRESS.
+This is explicit original-boot cleanup while the completed movement is selected. Keep
+work on CG-11. Investigate the child receipt readiness failure under concurrent
+qualification. Next add bounded durable cleanup ownership/targeted dispatch, delayed
+historical and retained-successor cleanup and restart/replay. Finish the automatic
+partition work owner and deployment/adaptive policy. The required failure-domain
+repair/reserve and fanout cases remain absent. No installed-memory or unknown-debt
+refund, independent voter-process, load or measured peak claim.
 
 ## Current accepted boundary
 
@@ -115,13 +119,13 @@ old-token reads and S3 writes. It is not same-group membership balancing or a
 voter-process restart drill. See progress.md for source, hashes and development
 attempts, including the corrected new receipt-test version expectation.
 
-Keep work on CG-11 until every gap closes. The current delivery above supersedes
-its previous next-step ordering. Implement obsolete live-member collection with
-member-specific durable refusal and exact resource settlement; then complete the
-automatic partition work owner and deployment/adaptive policy, failure-domain
-repair/reserve and bounded fanout. Qualify return moves, late failures, larger
-inventories/quotas and measured peaks. The required reserve and fanout cases are
-absent, so task-level acceptance remains open.
+Keep work on CG-11 until every gap closes. The delivery above supersedes its
+previous next-step ordering. Integrate bounded durable member-cleanup work and
+targeted dispatch, delayed historical and retained-successor cleanup, restart and
+contention. Complete automatic partition ownership and deployment/adaptive policy,
+then the required failure-domain repair/reserve and bounded fanout cases. Qualify
+late failures, larger inventories/quotas, mixed load and measured peaks. Task-level
+acceptance remains open.
 Consent remains explicit and irreversible sealing requires the recorded authority.
 After CG-11 closes, continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all
