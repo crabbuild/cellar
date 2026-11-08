@@ -1748,6 +1748,11 @@ and rooted resource floors are checked independently. Missing capacity or proof
 refuses admission. A newly registered, unqualified spare supplies no capacity;
 a missing live voter's evidence still blocks verification.
 
+Managed startup installs the controller before capacity qualification finishes.
+It remains in `OriginUnqualified` until its exact installed boot is Active with
+matching activated capacity; it cannot create intents or execute moves during
+that interval. A replaced boot cannot satisfy this gate.
+
 The controller waits for unresolved births and node disruptions. It records a
 new desired operation after relevant node, history or admission changes. It
 retains the exact operation across controller replacement and does not append
