@@ -152,7 +152,7 @@ pub(super) async fn admit(
     drop(replacement);
 
     // Select the full request durably before reserving either child, then lose
-    // the actual journal CAS response. A cold poll discovers only this node's
+    // the actual journal CAS response. A cold poll discovers the Fleet's
     // work and never samples a replacement operation.
     cluster.fixtures[0]
         .store
@@ -170,10 +170,7 @@ pub(super) async fn admit(
             .is_empty(),
         "scheduler journal created child reservations"
     );
-    let key = format!(
-        "partition-work/{}",
-        hex::encode(observer.identity().node.bytes())
-    );
+    let key = "partition-work/active".to_string();
     ensure!(cluster.fixtures[0]
         .catalog
         .get(&selected, FleetTable::Operations, &key, TIMEOUT)
@@ -201,10 +198,22 @@ pub(super) async fn admit(
         matches!(refusal, Some(FleetCatalogError::Invalid(_))),
         "generic work deletion: {refusal:?}"
     );
-    let mut cold = cold_scheduler(cluster, &observer)?;
-    let missing =
-        catalog_fault::missing_read(plan.clone(), Box::pin(cold.resume_pending(TIMEOUT))).await;
+    let mut cold = cold_scheduler(cluster, &cluster.hosts[4])?;
+    let (missing, discovery_reads) = catalog_fault::count_reads(catalog_fault::missing_read(
+        plan.clone(),
+        Box::pin(cold.resume_pending(TIMEOUT)),
+    ))
+    .await;
     ensure!(matches!(missing, Err(error) if error.code == RaftFleetFailureCode::Conflict));
+    ensure!(cold.pending_request().is_none());
+    let body = discovery_reads
+        .keys()
+        .find(|key| key.contains("/partition-work-requests/"))
+        .context("immutable scheduled request read")?
+        .clone();
+    ensure!(discovery_reads.get(&body) == Some(&1));
+    let missing = catalog_fault::missing_read(body, Box::pin(cold.resume_pending(TIMEOUT))).await;
+    ensure!(matches!(missing, Err(error) if error.code == RaftFleetFailureCode::Unavailable));
     ensure!(cold.pending_request().is_none());
     let poll = cold.poll(pressure(), TIMEOUT).await?;
     ensure!(poll.sampled.is_none() && poll.recommendation.is_none());
@@ -246,7 +255,7 @@ pub(super) async fn admit(
     let busy = Box::pin(scheduler.admit("automatic-test", &changed, TIMEOUT)).await;
     ensure!(matches!(busy, Err(error) if error.code == RaftFleetFailureCode::Busy));
     drop(scheduler);
-    let mut replacement = cold_scheduler(cluster, &observer)?;
+    let mut replacement = cold_scheduler(cluster, &cluster.hosts[3])?;
     let changed_plan = Box::pin(replacement.resume("automatic-test", &changed, TIMEOUT)).await;
     ensure!(
         matches!(changed_plan, Err(error) if error.code == RaftFleetFailureCode::PayloadConflict)
@@ -266,6 +275,7 @@ pub(super) async fn verify_discovery(
     coordinator: &RaftFleetControl,
     children: &[cellar::application::consensus::verification::cell_groups::GroupRoute],
 ) -> Result<()> {
+    Box::pin(settle_cursor(cluster)).await?;
     let revision = cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision();
     let target = coordinator
         .clone()
@@ -302,56 +312,7 @@ pub(super) async fn verify_discovery(
         empty.sampled.is_none() && empty.recommendation.is_none() && retired.tracked_groups() == 0
     );
     ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == revision);
-    let mut settled = 0;
-    for host in &cluster.hosts {
-        let node = host.identity().node;
-        let key = format!("partition-work/{}", hex::encode(node.bytes()));
-        let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
-        if cluster.fixtures[0]
-            .catalog
-            .get(&cut, FleetTable::Operations, &key, TIMEOUT)
-            .await?
-            .is_none()
-        {
-            continue;
-        }
-        let mut cleaner = cold_scheduler(cluster, host)?;
-        cluster.fixtures[0]
-            .store
-            .fail_fleet_confirmation
-            .store(true, Ordering::Release);
-        let lost = cleaner.settle(TIMEOUT).await;
-        ensure!(matches!(lost, Err(error) if error.code == RaftFleetFailureCode::Unavailable));
-        let request = cleaner
-            .pending_request()
-            .context("pending terminal work")?
-            .clone();
-        let completed = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
-        ensure!(completed.revision() == cut.revision() + 1);
-        ensure!(cluster.fixtures[0]
-            .catalog
-            .get(&completed, FleetTable::Operations, &key, TIMEOUT)
-            .await?
-            .is_none());
-        // Replaying the old stage cannot re-enqueue a completed operation.
-        cleaner.stage("automatic-test", &request, TIMEOUT).await?;
-        ensure!(
-            cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == completed.revision()
-        );
-        ensure!(cleaner.settle(TIMEOUT).await? && cleaner.pending_request().is_none());
-        ensure!(
-            cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == completed.revision()
-        );
-        drop(cleaner);
-        let mut empty = cold_scheduler(cluster, host)?;
-        ensure!(empty.resume_pending(TIMEOUT).await?.is_none());
-        settled += 1;
-    }
-    ensure!(
-        settled == 1,
-        "the node-targeted cursor must settle exactly once"
-    );
-    ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == revision + 1);
+
     Ok(())
 }
 
@@ -380,5 +341,43 @@ async fn rustfs_automatic_selection_resumes_partial_admission_and_executes() -> 
         )?));
         Box::pin(qualify_with_selection(rooted, store, true, false, true)).await?;
     }
+    Ok(())
+}
+
+async fn settle_cursor(cluster: &ManagedCluster) -> Result<()> {
+    let catalog = &cluster.fixtures[0].catalog;
+    let key = "partition-work/active";
+    let cut = catalog.read(TIMEOUT).await?;
+    ensure!(catalog
+        .get(&cut, FleetTable::Operations, key, TIMEOUT)
+        .await?
+        .is_some());
+    // The original coordinator was a source voter. Another node owns this
+    // continuation using only the rooted request, without caller-supplied IDs.
+    let mut cleaner = cold_scheduler(cluster, &cluster.hosts[3])?;
+    cluster.fixtures[0]
+        .store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    let lost = cleaner.settle(TIMEOUT).await;
+    ensure!(matches!(lost, Err(error) if error.code == RaftFleetFailureCode::Unavailable));
+    let request = cleaner
+        .pending_request()
+        .context("pending terminal work")?
+        .clone();
+    let completed = catalog.read(TIMEOUT).await?;
+    ensure!(completed.revision() == cut.revision() + 1);
+    ensure!(catalog
+        .get(&completed, FleetTable::Operations, key, TIMEOUT)
+        .await?
+        .is_none());
+    cleaner.stage("automatic-test", &request, TIMEOUT).await?;
+    ensure!(catalog.read(TIMEOUT).await?.revision() == completed.revision());
+    ensure!(cleaner.settle(TIMEOUT).await? && cleaner.pending_request().is_none());
+    ensure!(catalog.read(TIMEOUT).await?.revision() == completed.revision());
+    drop(cleaner);
+    let mut empty = cold_scheduler(cluster, &cluster.hosts[4])?;
+    ensure!(empty.resume_pending(TIMEOUT).await?.is_none());
+    ensure!(catalog.read(TIMEOUT).await?.revision() == completed.revision());
     Ok(())
 }

@@ -90,8 +90,8 @@ struct Pending {
     recommendation: Option<RaftFleetPartitionRecommendation>,
 }
 
-/// One bounded local sampling turn. A recommendation is advisory; the caller
-/// journals exact operation/placement identities before admission and consent.
+/// One bounded local sampling turn. Recommendations are advisory; staging
+/// journals the caller's exact operation/placement identities before admission.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftFleetPartitionPoll {
     pub sampled: Option<GroupHistory>,
@@ -103,8 +103,8 @@ pub struct RaftFleetPartitionPoll {
 /// per-cell task. Call observation at the policy's interval and use the
 /// existing managed transition steps after admission.
 ///
-/// At most one operation is pending per scheduler node. The exact request and
-/// plan are selected in the Fleet root before child admission. Errors and lost
+/// One scheduled operation is pending in the Fleet cursor. The exact request
+/// and plan are selected in the Fleet root before child admission. Errors and lost
 /// responses retain that work. A replacement discovers it with resume_pending;
 /// it needs no caller-retained request IDs and cannot fall back to fresh work.
 ///
@@ -377,7 +377,7 @@ impl RaftFleetPartitionScheduler {
         ))
     }
 
-    /// Freeze the selected recommendation in the node's rooted work slot before
+    /// Freeze the selected recommendation in the Fleet's rooted work slot before
     /// reserving children. This creates no execution or irreversible-seal consent.
     /// A lost reply must be reconciled with the same request or resume_pending.
     pub async fn stage(
@@ -476,7 +476,7 @@ impl RaftFleetPartitionScheduler {
         .await
     }
 
-    /// Discover and resume this node's durable request with no caller-supplied
+    /// Discover and resume the Fleet's durable request with no caller-supplied
     /// operation or reservation IDs. A missing original plan refuses admission.
     pub async fn resume_pending(
         &mut self,
@@ -500,17 +500,10 @@ impl RaftFleetPartitionScheduler {
             return Ok(());
         }
         let turn = Turn::new(&self.control.domain, timeout)?;
-        let node = self
-            .control
-            .node_observer
-            .as_ref()
-            .ok_or_else(RaftFleetFailure::unsupported)?
-            .identity()
-            .node;
         let Some(work) = self
             .control
             .catalog
-            .pending_partition_work(node, turn.remaining()?)
+            .pending_partition_work(turn.remaining()?)
             .await?
         else {
             return Ok(());
@@ -549,8 +542,8 @@ impl RaftFleetPartitionScheduler {
         Ok(())
     }
 
-    /// Restore the exact operator-journal request after controller loss. Only
-    /// an already persisted operator plan may resume; absent or changed plans
+    /// Resume an explicitly retained request. Use resume_pending for discovery.
+    /// Only an already persisted operator plan may resume; absent or changed plans
     /// refuse without falling back to fresh unsampled admission.
     pub async fn resume(
         &mut self,
@@ -584,7 +577,7 @@ impl RaftFleetPartitionScheduler {
         Box::pin(self.admit(principal, request, turn.remaining()?)).await
     }
 
-    /// Release the local operation slot only after observing its rooted terminal
+    /// Release the rooted cursor and local slot after observing its terminal
     /// phase. Absence, refusal, timeout and a lost reply all retain the slot.
     /// Physical reservations and archive holds are settled by their own owners.
     pub async fn settle(&mut self, timeout: Duration) -> Result<bool> {
@@ -631,17 +624,10 @@ impl RaftFleetPartitionScheduler {
         {
             return Ok(false);
         }
-        let node = self
-            .control
-            .node_observer
-            .as_ref()
-            .ok_or_else(RaftFleetFailure::unsupported)?
-            .identity()
-            .node;
         if !self
             .control
             .catalog
-            .finish_partition_work(directory, node, operation, digest, turn.remaining()?)
+            .finish_partition_work(directory, operation, digest, turn.remaining()?)
             .await?
         {
             return Ok(false);

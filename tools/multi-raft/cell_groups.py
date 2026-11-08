@@ -159,8 +159,11 @@ SUITES = {
         ("selection::rustfs_automatic_selection_resumes_partial_admission_and_executes",),
         "automatic local group discovery resumes partial admission and executes a consented split",
         "Both image modes, host-native RF3 TLS voters and fixture capacity. The sampler discovers "
-        "the group, waits for hysteresis and chooses a whole-cell split. Lost reservation confirmation, "
-        "cold sampler recovery, absent/changed-plan refusal and frozen pending discovery are checked. "
+        "the group, waits for hysteresis and chooses a whole-cell split. A rooted cursor persists "
+        "the full request before child reservations. Lost staging/reservation replies, recovery on "
+        "another coordinator without caller-supplied IDs, missing payload/plan and changed-plan "
+        "refusal, generic deletion refusal and frozen pending discovery are checked. Terminal cursor "
+        "settlement loses its real CAS reply and replays once without re-enqueueing the operation. "
         "Both live local children are discovered in turn; a one-tracker profile refuses and "
         "retained retired parents are excluded. "
         "The existing node-owned worker then runs through coordinator replacement, live source "

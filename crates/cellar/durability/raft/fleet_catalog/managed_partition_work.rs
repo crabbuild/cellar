@@ -1,10 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! One root-selected admission cursor per scheduler node. The full request is
-//! immutable; the small index value stays inside the normal mutation bounds.
+//! One fleet-root-selected cursor, recoverable by another controller. The full
+//! request is immutable; its index value stays inside normal mutation bounds.
 use super::{histories::history_mutation, managed_transition_admission::TransitionOperatorStep, *};
 use crate::raft::{catalog::RangeDirectory, cell_groups::TransitionPhase};
-use cellar_logic::consensus::ProposalId;
+use cellar_logic::consensus::{NodeId, ProposalId};
 use serde::Deserialize;
 
 const BODY_KIND: u8 = 239;
@@ -17,7 +17,7 @@ pub(super) const PREFIX: &str = "partition-work/";
 #[serde(deny_unknown_fields)]
 pub(crate) struct ManagedPartitionWork {
     catalog: [u8; 32],
-    node: [u8; 16],
+    origin: [u8; 16],
     pub(crate) namespace: [u8; 32],
     pub(crate) operation: [u8; 16],
     pub(crate) request: [u8; 32],
@@ -32,16 +32,10 @@ struct Locator {
     body: [u8; 32],
 }
 
-fn key(node: NodeId) -> String {
-    format!("{PREFIX}{}", hex::encode(node.bytes()))
-}
+const ACTIVE_KEY: &str = "partition-work/active";
 
-fn finished_key(node: NodeId, operation: ProposalId) -> String {
-    format!(
-        "{PREFIX}finished/{}/{}",
-        hex::encode(node.bytes()),
-        hex::encode(operation.bytes())
-    )
+fn finished_key(operation: ProposalId) -> String {
+    format!("{PREFIX}finished/{}", hex::encode(operation.bytes()))
 }
 
 fn body_key(digest: [u8; 32]) -> String {
@@ -49,9 +43,9 @@ fn body_key(digest: [u8; 32]) -> String {
 }
 
 impl ManagedPartitionWork {
-    fn validate(&self, catalog: &FleetCatalog, node: NodeId) -> Result<()> {
+    fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         if self.catalog != catalog.catalog_id()?
-            || self.node != node.bytes()
+            || NodeId::new(self.origin).is_err()
             || [self.namespace, self.request, self.plan].contains(&[0; 32])
             || self.operation == [0; 16]
             || self.principal.is_empty()
@@ -66,9 +60,21 @@ impl ManagedPartitionWork {
         Ok(())
     }
 
+    // The first coordinator is provenance, not a process lease. A surviving
+    // controller continues the selected request without rebinding its origin.
+    fn matches_request(&self, other: &Self) -> bool {
+        self.catalog == other.catalog
+            && self.namespace == other.namespace
+            && self.operation == other.operation
+            && self.request == other.request
+            && self.plan == other.plan
+            && self.principal == other.principal
+            && self.payload == other.payload
+    }
+
     fn identity(&self, revision: u64, finish: bool) -> Result<FleetRequestIdentity> {
         let mut bytes = Vec::from(b"cellar-partition-work-step-1".as_slice());
-        bytes.extend(self.node);
+        bytes.extend(self.origin);
         bytes.push(u8::from(finish));
         let mut step = [0; 16];
         step.copy_from_slice(&hash(&bytes)[..16]);
@@ -87,15 +93,13 @@ impl FleetCatalog {
     async fn partition_work_at(
         &self,
         snapshot: &FleetSnapshot,
-        node: NodeId,
     ) -> Result<Option<ManagedPartitionWork>> {
-        self.partition_work_value(snapshot, node, &key(node)).await
+        self.partition_work_value(snapshot, ACTIVE_KEY).await
     }
 
     async fn partition_work_value(
         &self,
         snapshot: &FleetSnapshot,
-        node: NodeId,
         key: &str,
     ) -> Result<Option<ManagedPartitionWork>> {
         let Some(bytes) = self
@@ -114,20 +118,19 @@ impl FleetCatalog {
         if hash(&encode(BODY_KIND, &work, BODY_LIMIT)?) != locator.body {
             return Err(FleetCatalogError::Corrupt("partition work request digest"));
         }
-        work.validate(self, node)?;
+        work.validate(self)?;
         Ok(Some(work))
     }
 
-    /// A node point lookup, independent of the number of cells and histories.
+    /// One fleet point lookup, independent of the number of cells and histories.
     /// The locator is advisory; restoring it still requires its original plan.
     pub(crate) async fn pending_partition_work(
         &self,
-        node: NodeId,
         timeout: Duration,
     ) -> Result<Option<ManagedPartitionWork>> {
         self.run(timeout, async {
             let current = self.inner.current().await?;
-            self.partition_work_at(&current, node).await
+            self.partition_work_at(&current).await
         })
         .await
     }
@@ -138,7 +141,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         directory: &RangeDirectory,
-        node: NodeId,
+        origin: NodeId,
         step: &TransitionOperatorStep,
         payload: String,
         timeout: Duration,
@@ -152,7 +155,7 @@ impl FleetCatalog {
                 .ok_or(FleetCatalogError::Conflict)?;
             let work = ManagedPartitionWork {
                 catalog: self.catalog_id()?,
-                node: node.bytes(),
+                origin: origin.bytes(),
                 namespace: directory.namespace().root_digest(),
                 operation: step.operation.bytes(),
                 request: step.request_digest,
@@ -160,19 +163,19 @@ impl FleetCatalog {
                 principal: step.principal.clone(),
                 payload,
             };
-            work.validate(self, node)?;
+            work.validate(self)?;
             if let Some(finished) = self
-                .partition_work_value(&current, node, &finished_key(node, step.operation))
+                .partition_work_value(&current, &finished_key(step.operation))
                 .await?
             {
-                return if finished == work {
+                return if finished.matches_request(&work) {
                     Ok(())
                 } else {
                     Err(FleetCatalogError::PayloadConflict)
                 };
             }
-            if let Some(previous) = self.partition_work_at(&current, node).await? {
-                return if previous == work {
+            if let Some(previous) = self.partition_work_at(&current).await? {
+                return if previous.matches_request(&work) {
                     Ok(())
                 } else {
                     Err(FleetCatalogError::DisruptionInProgress {
@@ -183,9 +186,12 @@ impl FleetCatalog {
             if current.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
             }
-            // Origin identity is a discovery address, never a capacity proof.
-            // The ordinary admission path revalidates every destination boot.
-            self.host_from(&current, node).await?;
+            // Coordinator identity is provenance, never a capacity proof.
+            // Ordinary admission revalidates every destination boot.
+            let host = self.host_from(&current, origin).await?;
+            if !host.state().permits_admitted_movement() {
+                return Err(FleetCatalogError::Conflict);
+            }
             let body = encode(BODY_KIND, &work, BODY_LIMIT)?;
             let locator = Locator { body: hash(&body) };
             self.inner
@@ -195,7 +201,7 @@ impl FleetCatalog {
                 &work.identity(current.revision(), false)?,
                 vec![FleetChange {
                     table: FleetTable::Operations,
-                    key: key(node),
+                    key: ACTIVE_KEY.into(),
                     value: Some(encode(LOCATOR_KIND, &locator, 1024)?),
                 }],
             );
@@ -218,16 +224,15 @@ impl FleetCatalog {
     pub(crate) async fn finish_partition_work(
         &self,
         directory: &RangeDirectory,
-        node: NodeId,
         operation: ProposalId,
         request: [u8; 32],
         timeout: Duration,
     ) -> Result<bool> {
         self.run(timeout, async {
             let current = self.inner.current().await?;
-            let Some(work) = self.partition_work_at(&current, node).await? else {
+            let Some(work) = self.partition_work_at(&current).await? else {
                 let finished = self
-                    .partition_work_value(&current, node, &finished_key(node, operation))
+                    .partition_work_value(&current, &finished_key(operation))
                     .await?
                     .ok_or(FleetCatalogError::Conflict)?;
                 return if finished.operation == operation.bytes()
@@ -270,12 +275,12 @@ impl FleetCatalog {
                 vec![
                     FleetChange {
                         table: FleetTable::Operations,
-                        key: key(node),
+                        key: ACTIVE_KEY.into(),
                         value: None,
                     },
                     FleetChange {
                         table: FleetTable::Operations,
-                        key: finished_key(node, operation),
+                        key: finished_key(operation),
                         value: Some(encode(LOCATOR_KIND, &locator, 1024)?),
                     },
                 ],
