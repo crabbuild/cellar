@@ -86,7 +86,9 @@ impl MappingRecord {
     pub fn application_scope(&self) -> Result<GroupScope, LogError> {
         let cell = match &self.application {
             MappingApplication::SingleCell(cell) => cell.clone(),
-            MappingApplication::CellGroup(_) => return Err(LogError::WrongIdentity),
+            MappingApplication::CellGroup(_) | MappingApplication::SeededCellGroup { .. } => {
+                return Err(LogError::WrongIdentity)
+            }
         };
         let history = self.history()?;
         let scope = GroupScope {
@@ -149,8 +151,47 @@ impl MappingRecord {
         }
     }
 
+    fn seed_anchor(&self) -> Option<&GroupManifest> {
+        match &self.application {
+            MappingApplication::SeededCellGroup { anchor, .. } => Some(anchor),
+            _ => None,
+        }
+    }
+
+    // Descriptive value only. The engine invokes this after checking the exact
+    // authenticated grant, and fences mapping, seed receipt and snapshot together.
+    pub(crate) fn with_seed_anchor(&self, anchor: &GroupManifest) -> Result<Self, LogError> {
+        if let Some(installed) = self.seed_anchor() {
+            return if installed == anchor {
+                Ok(self.clone())
+            } else {
+                Err(LogError::WrongIdentity)
+            };
+        }
+        let MappingApplication::CellGroup(genesis) = &self.application else {
+            return Err(LogError::WrongIdentity);
+        };
+        let expected = GroupManifest::genesis(genesis.route().clone()).map_err(corrupt)?;
+        if genesis.as_ref() != &expected
+            || anchor.route() != genesis.route()
+            || anchor.position().index.get() <= 1
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        anchor.check().map_err(corrupt)?;
+        let mut next = self.clone();
+        next.application = MappingApplication::SeededCellGroup {
+            genesis: genesis.clone(),
+            anchor: Box::new(anchor.clone()),
+        };
+        Ok(next)
+    }
+
     pub fn is_cells(&self) -> bool {
-        matches!(&self.application, MappingApplication::CellGroup(_))
+        matches!(
+            &self.application,
+            MappingApplication::CellGroup(_) | MappingApplication::SeededCellGroup { .. }
+        )
     }
 
     pub fn validate_cache(&self, cache: &CachedGroup) -> Result<(), LogError> {
@@ -164,7 +205,10 @@ impl MappingRecord {
         }) {
             return Err(LogError::WrongIdentity);
         }
-        if cache.recovery_genesis.as_deref() != self.recovery_genesis() {
+        if cache.recovery_genesis.as_deref() != self.recovery_genesis()
+            || cache.seed_anchor.as_deref() != self.seed_anchor()
+            || cache.group_seed.is_some() != self.seed_anchor().is_some()
+        {
             return Err(LogError::WrongIdentity);
         }
         if let Some(marker) = &cache.group_manifest {
@@ -176,7 +220,8 @@ impl MappingRecord {
             MappingApplication::SingleCell(_) => {
                 cache.membership.validate_scope(&self.application_scope()?)
             }
-            MappingApplication::CellGroup(genesis) => {
+            MappingApplication::CellGroup(genesis)
+            | MappingApplication::SeededCellGroup { genesis, .. } => {
                 let expected = GroupManifest::genesis(genesis.route().clone()).map_err(corrupt)?;
                 if !genesis.matches_group(&history, self.birth_digest)
                     || cache
@@ -192,8 +237,21 @@ impl MappingRecord {
                     .group_manifest
                     .as_ref()
                     .ok_or(LogError::WrongIdentity)?;
-                if !current.preserves_transfer(genesis) {
+                let origin = self.seed_anchor().unwrap_or(genesis);
+                if !current.preserves_transfer(origin) || !current.preserves_recovery(origin) {
                     return Err(LogError::WrongIdentity);
+                }
+                if let Some(anchor) = self.seed_anchor() {
+                    anchor.check().map_err(corrupt)?;
+                    if genesis.as_ref() != &expected
+                        || anchor.route() != genesis.route()
+                        || anchor.position().index.get() <= 1
+                        || cache.group_seed != Some(anchor.position().index.get())
+                        || anchor.position().index > current.position().index
+                        || anchor.position().term > current.position().term
+                    {
+                        return Err(LogError::WrongIdentity);
+                    }
                 }
                 if genesis.recovery_request().is_some() {
                     if !genesis.is_recovery_genesis()
@@ -229,6 +287,11 @@ enum MappingApplication {
     SingleCell(String),
     #[serde(rename = "cell-group-1")]
     CellGroup(Box<GroupManifest>),
+    #[serde(rename = "seeded-cell-group-1")]
+    SeededCellGroup {
+        genesis: Box<GroupManifest>,
+        anchor: Box<GroupManifest>,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -391,6 +454,7 @@ impl GroupRecord {
                 .cloned()
                 .map(std::sync::Arc::new),
             group_seed,
+            seed_anchor: self.mapping.seed_anchor().cloned().map(std::sync::Arc::new),
             local_park: match &self.application {
                 ApplicationRecord::Group(application) => application.local_park.clone(),
                 ApplicationRecord::Image(_) => None,
@@ -428,3 +492,7 @@ pub(crate) fn decode<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, Lo
 pub(crate) fn corrupt(error: impl std::fmt::Display) -> LogError {
     LogError::Corrupt(error.to_string())
 }
+
+#[cfg(test)]
+#[path = "records_seed_tests.rs"]
+mod seed_tests;

@@ -520,6 +520,9 @@ pub(crate) struct CachedGroup {
     pub checkpoint_manifest: Option<GroupManifest>,
     /// Local receipt; never imported from another node's checkpoint.
     pub group_seed: Option<u64>,
+    /// Immutable first-seed lineage, recovered from the atomic local mapping.
+    /// Historical metadata only: no image pins, serving or archive authority.
+    pub seed_anchor: Option<Arc<GroupManifest>>,
     pub(crate) local_park: Option<super::cell_groups::LocalParkRecord>,
 }
 
@@ -567,7 +570,8 @@ impl CachedGroup {
                 )
         }) + self.checkpoint_manifest.as_ref().map_or(0, |m| {
             16 * 1024 + ManifestPins::maximum_bytes(m.root().cells())
-        }) + self.membership.reserved_bytes()
+        }) + self.seed_anchor.as_ref().map_or(0, |_| 32 * 1024)
+            + self.membership.reserved_bytes()
             + self
                 .local_park
                 .as_ref()
@@ -592,6 +596,29 @@ impl CachedGroup {
             index <= 1 || index > self.applied.position.index.get() || self.group_manifest.is_none()
         }) {
             return Err(LogError::Corrupt("invalid local group seed receipt".into()));
+        }
+        if self.group_seed != self.seed_anchor.as_ref().map(|a| a.position().index.get()) {
+            return Err(LogError::Corrupt(
+                "group seed lacks immutable lineage anchor".into(),
+            ));
+        }
+        if let Some(anchor) = &self.seed_anchor {
+            anchor
+                .check()
+                .map_err(|e| LogError::Corrupt(e.to_string()))?;
+            let current = self
+                .group_manifest
+                .as_ref()
+                .ok_or_else(|| LogError::Corrupt("seed anchor without group root".into()))?;
+            if anchor.route() != current.route()
+                || anchor.position().index > current.position().index
+                || anchor.position().term > current.position().term
+                || self.snapshot.get_metadata().index < anchor.position().index.get()
+                || !current.preserves_transfer(anchor)
+                || !current.preserves_recovery(anchor)
+            {
+                return Err(LogError::Corrupt("seed lineage changed".into()));
+            }
         }
         validate_conf(&self.conf_state)?;
         self.membership
@@ -681,6 +708,9 @@ impl CachedGroup {
                 return Err(LogError::WrongIdentity);
             }
             next.group_seed = Some(prepared.marker().position().index.get());
+            if self.group_seed.is_none() {
+                next.seed_anchor = Some(Arc::new(prepared.marker().clone()));
+            }
         }
         let group_install = matches!(&write.snapshot, Some(SnapshotChange::CellGroup(_)));
         let group_checkpoint = matches!(
@@ -1099,6 +1129,7 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
         manifest_pins: None,
         checkpoint_manifest: None,
         group_seed: None,
+        seed_anchor: None,
         local_park: None,
         applied: DurableApply {
             position: LogPosition {

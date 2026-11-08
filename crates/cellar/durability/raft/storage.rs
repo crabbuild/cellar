@@ -1928,6 +1928,23 @@ impl Worker {
                 self.options.max_entries_per_group,
                 mapping.history()?,
             )?;
+            let persisted_mapping = if let Some(anchor) = &next.seed_anchor {
+                if old.group_seed.is_none() && write.seed_grant.is_none() {
+                    return Err(LogError::WrongIdentity);
+                }
+                mapping.with_seed_anchor(anchor)?
+            } else {
+                mapping.clone()
+            };
+            if persisted_mapping != *mapping {
+                batch
+                    .put(
+                        0,
+                        persisted_mapping.catalog_key()?,
+                        records::encode(&persisted_mapping)?,
+                    )
+                    .map_err(engine_error)?;
+            }
             let mut leases = Vec::new();
             if let Some(retention) = write.group.log_retention() {
                 let indices: BTreeSet<_> = write.entries.iter().map(|e| e.index).collect();
@@ -1984,10 +2001,10 @@ impl Worker {
                 .put(
                     write.group.key,
                     GROUP_KEY.to_vec(),
-                    records::encode(&GroupRecord::from_cache(mapping.clone(), &next)?)?,
+                    records::encode(&GroupRecord::from_cache(persisted_mapping.clone(), &next)?)?,
                 )
                 .map_err(engine_error)?;
-            candidates.push(next);
+            candidates.push((persisted_mapping, next));
         }
         // Retain both closures before any engine I/O. Failed preflight drops
         // unarmed reservations; once armed, an unknown outcome keeps both roots
@@ -2029,13 +2046,14 @@ impl Worker {
         let sequence = self.fence(&mut batch)?;
         // No cache write lock is held during engine I/O. Readers may continue
         // to observe the previous durable prefix while a sync is stalled.
-        for (write, next) in writes.iter().zip(candidates) {
+        for (write, (mapping, next)) in writes.iter().zip(candidates) {
             let mut cache = write
                 .group
                 .cache
                 .write()
                 .map_err(|_| LogError::Corrupt("cache publication lock poisoned".into()))?;
             *cache = next;
+            self.mappings.insert(write.group.key, mapping);
             // Publish invalidation while still holding the cache write lock.
             // A reader observing this revision can only acquire the new cache;
             // an older revision observed before this publication is refreshed
