@@ -65,7 +65,9 @@ impl FleetAutomaticTopologyOptions {
         }
         keep.sort_unstable();
         if keep.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(FleetCatalogError::Invalid("duplicate automatic topology node"));
+            return Err(FleetCatalogError::Invalid(
+                "duplicate automatic topology node",
+            ));
         }
         let id = policy::intent_id(catalog, revision, &self.principal, &self.policy, &keep)?;
         let request = FleetTopologyIntentRequest {
@@ -111,6 +113,8 @@ impl FleetAutomaticTopologyOptions {
 /// Local diagnostics only. No phase proves convergence, fencing or release.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FleetAutomaticTopologyWait {
+    /// The installed origin boot has not completed capacity activation.
+    OriginUnqualified,
     Changed,
     Unchanged,
     OperatorPolicy,

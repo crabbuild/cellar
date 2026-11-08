@@ -5,10 +5,10 @@ use super::*;
 use cellar::application::consensus::verification::FleetTable;
 use cellar_logic::consensus::{MemberId, ProposalId};
 
-fn configuration() -> FleetAutomaticTopologyOptions {
+fn configuration(durable_bytes: u64) -> FleetAutomaticTopologyOptions {
     let resident = FleetResourceBounds {
         engine_slots: 1,
-        durable_bytes: 32 * 1024 * 1024,
+        durable_bytes,
         memory_bytes: 8 * 1024 * 1024,
     };
     FleetAutomaticTopologyOptions {
@@ -212,6 +212,8 @@ async fn exercise(
 
     // Retained restart with no local group exercises normal configured startup,
     // including fresh boot qualification before automatic placement can run.
+    let profile = cluster.hosts[0].observe_node(TIMEOUT).await?.node.profile;
+    let topology = configuration(profile.bytes_per_group);
     let node = cluster.nodes.remove(0);
     let old = cluster.hosts.remove(0);
     ensure!(matches!(
@@ -228,12 +230,27 @@ async fn exercise(
     .await?;
     let (mut config, services) = fixture.config(&node, LogOpenMode::Resume, 91).await?;
     managed_fixture::archives::configure(&mut config);
-    config.host.automatic_topology = Some(configuration());
+    config.host.automatic_topology = Some(topology.clone());
     cluster.peers[0] = config.peers[0].clone();
     let host = node.start_raft_cells(config, services).await?;
     cluster.nodes.insert(0, node);
     cluster.hosts.insert(0, host.clone());
-    managed_fixture::admit_capacity(fixture, &host, &cluster.directory, 180).await?;
+    // Until explicit activation, the configured controller must not append
+    // topology intent or compete with the foreground qualification CAS.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let status = host.automatic_topology_status().context("startup status")?;
+    ensure!(status
+        .automatic_topology
+        .is_some_and(|s| s.wait == FleetAutomaticTopologyWait::OriginUnqualified
+            && s.selected_operations == 0));
+    let cut = observer.read(TIMEOUT).await?;
+    ensure!(observer
+        .active_topology_operation(&cut, TIMEOUT)
+        .await?
+        .is_none());
+    managed_fixture::admit_capacity(fixture, &host, &cluster.directory, 180)
+        .await
+        .context("activate restarted automatic topology origin")?;
     ensure!(host.automatic_topology_status().is_some());
     eprintln!("automatic topology: extents={rooted}, configured startup on retained empty voter");
 
@@ -415,16 +432,16 @@ async fn exercise(
                 identity: FleetRequestIdentity {
                     id: [223; 16],
                     operation: explicit.bytes(),
-                    principal: configuration().principal,
+                    principal: topology.principal.clone(),
                     expected_revision: cut.revision(),
                 },
                 keep: completed.keep.clone(),
                 policy: FleetTopologyPolicy {
                     revision: 2,
-                    ..configuration().policy
+                    ..topology.policy.clone()
                 },
             },
-            &[cluster.directory.clone()],
+            std::slice::from_ref(&cluster.directory),
             TIMEOUT,
         )
         .await?;
@@ -452,10 +469,14 @@ async fn exercise(
     .await
     .context("explicit operator policy precedence")??;
     let cut = observer.read(TIMEOUT).await?;
-    let automatic =
-        configuration().intent(observer.catalog_id()?, cut.revision(), completed.keep)?;
+    let automatic = topology.intent(observer.catalog_id()?, cut.revision(), completed.keep)?;
     observer
-        .begin_topology(&cut, &automatic, &[cluster.directory.clone()], TIMEOUT)
+        .begin_topology(
+            &cut,
+            &automatic,
+            std::slice::from_ref(&cluster.directory),
+            TIMEOUT,
+        )
         .await?;
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {

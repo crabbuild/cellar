@@ -27,7 +27,7 @@ pub(crate) struct MovementServiceWork {
     detection: Option<super::detection::Detection>,
     isolated: Option<super::isolated::IsolatedRepairService>,
     recovery: Option<super::recovery::Recovery>,
-    automatic_recovery_boot: Option<crate::raft::fleet_stop::BootBinding>,
+    automatic_startup_boot: Option<crate::raft::fleet_stop::BootBinding>,
     _registration: Option<ControlServiceLease>,
     _node_owned_stop: Option<watch::Sender<bool>>,
     _completion: ControlServiceCompletion,
@@ -61,7 +61,7 @@ impl MovementServiceWork {
             detection: None,
             isolated: None,
             recovery: None,
-            automatic_recovery_boot: None,
+            automatic_startup_boot: None,
             _registration: None,
             _node_owned_stop: None,
             _completion: ControlServiceCompletion::new(done),
@@ -161,12 +161,12 @@ impl MovementServiceWork {
                 self.set_recovery(recovery.platform, evidence, recovery.recovery);
             }
         }
-        if let Some(recovery) = &mut self.recovery {
-            if configured_automatic && !host.state().permits_admitted_movement() {
-                self.automatic_recovery_boot = Some(host.boot_binding()?);
-            } else {
-                recovery.admit_origin(host)?;
-            }
+        if configured_automatic {
+            // Node startup installs services before capacity activation. No
+            // automatic work may compete with qualification of this exact boot.
+            self.automatic_startup_boot = Some(host.boot_binding()?);
+        } else if let Some(recovery) = &mut self.recovery {
+            recovery.admit_origin(host)?;
         }
         self.node_stop = Some(registration.stop_receiver());
         self._registration = Some(registration);
@@ -276,6 +276,42 @@ impl MovementServiceWork {
         let catalog = self.catalog.clone();
         let deadline = Deadline::new(&catalog, self.options.turn_timeout)?;
         let cut = self.catalog.read(deadline.remaining()?).await?;
+        if let Some(expected) = self.automatic_startup_boot.clone() {
+            let (host, active) = self
+                .catalog
+                .run(deadline.remaining()?, async {
+                    let host = self
+                        .catalog
+                        .host_from(&cut, self.observer.identity().node)
+                        .await?;
+                    if host.boot_binding()? != expected {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    let active = if host.state() == FleetNodeState::Active {
+                        let capacity = self.catalog.capacity_from(&cut, host.node()).await?;
+                        capacity.receive_replicas() && capacity.attestation().boot == expected
+                    } else {
+                        false
+                    };
+                    Ok((host, active))
+                })
+                .await?;
+            if !active {
+                self.status.send_modify(|s| {
+                    s.automatic_topology
+                        .get_or_insert(FleetAutomaticTopologyStatus {
+                            wait: FleetAutomaticTopologyWait::OriginUnqualified,
+                            selected_operations: 0,
+                        })
+                        .wait = FleetAutomaticTopologyWait::OriginUnqualified;
+                });
+                return Ok(());
+            }
+            if let Some(recovery) = self.recovery.as_mut() {
+                recovery.admit_origin(&host)?;
+            }
+            self.automatic_startup_boot = None;
+        }
         if self.member_cleanup_only {
             return self.cleanup_round(&cut, &deadline).await.map(|_| ());
         }
@@ -379,30 +415,7 @@ impl MovementServiceWork {
             // Detection and isolation may unblock already-admitted work even
             // when every movement slot is occupied. Repair admission checks
             // the durable resource book independently before adding any debt.
-            if let Some(expected) = self.automatic_recovery_boot.clone() {
-                let host = self
-                    .catalog
-                    .run(
-                        deadline.remaining()?,
-                        self.catalog.host_from(&cut, self.observer.identity().node),
-                    )
-                    .await?;
-                if host.boot_binding()? != expected {
-                    return Err(FleetCatalogError::Conflict);
-                }
-                if host.state().permits_admitted_movement() {
-                    self.recovery
-                        .as_mut()
-                        .ok_or(FleetCatalogError::Closed)?
-                        .admit_origin(&host)?;
-                    self.automatic_recovery_boot = None;
-                }
-            }
-            if let Some(recovery) = self
-                .recovery
-                .as_mut()
-                .filter(|_| self.automatic_recovery_boot.is_none())
-            {
+            if let Some(recovery) = self.recovery.as_mut() {
                 recovery
                     .round(
                         &self.catalog,
