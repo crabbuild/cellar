@@ -103,12 +103,10 @@ pub struct RaftFleetPartitionPoll {
 /// per-cell task. Call observation at the policy's interval and use the
 /// existing managed transition steps after admission.
 ///
-/// At most one operation can be pending here. It is frozen *before* dispatch,
-/// including across cancellation of the admission future. Errors and timeouts
-/// never release it or allocate new identities. Persist the exact request in
-/// the operator's work journal before dispatch; after controller restart the
-/// existing managed transition API resumes its rooted reservations. This
-/// ephemeral sampler is not a replacement for that durable journal.
+/// At most one operation is pending per scheduler node. The exact request and
+/// plan are selected in the Fleet root before child admission. Errors and lost
+/// responses retain that work. A replacement discovers it with resume_pending;
+/// it needs no caller-retained request IDs and cannot fall back to fresh work.
 ///
 /// No background work is started. The caller owns polling and shutdown; all
 /// physical work remains with the existing node and managed-transition owners.
@@ -172,6 +170,7 @@ impl RaftFleetPartitionScheduler {
         validate_pressure(pressure)?;
         let domain = self.control.domain.clone();
         let turn = Turn::new(&domain, timeout)?;
+        self.restore_pending(turn.remaining()?).await?;
         if self.pending.is_some() {
             return Ok(RaftFleetPartitionPoll {
                 sampled: None,
@@ -378,20 +377,18 @@ impl RaftFleetPartitionScheduler {
         ))
     }
 
-    /// Submit one recommendation through canonical operator admission. The
-    /// caller supplies stable operation, child, creation and reservation IDs
-    /// and proposed voters. Scheduling never invents capacity or membership.
-    ///
-    /// An exact retry uses the original frozen recommendation. If its plan was
-    /// rooted, admission resumes that plan; otherwise live source checks still
-    /// have to succeed. A changed payload cannot replace uncertain work.
-    pub async fn admit(
+    /// Freeze the selected recommendation in the node's rooted work slot before
+    /// reserving children. This creates no execution or irreversible-seal consent.
+    /// A lost reply must be reconciled with the same request or resume_pending.
+    pub async fn stage(
         &mut self,
         principal: &str,
         request: &RaftFleetTransitionAdmissionRequest,
         timeout: Duration,
-    ) -> Result<RaftFleetTransitionAdmission> {
-        let turn = Turn::new(&self.control.domain, timeout)?;
+    ) -> Result<()> {
+        let domain = self.control.domain.clone();
+        let turn = Turn::new(&domain, timeout)?;
+        self.restore_pending(turn.remaining()?).await?;
         if let Some(pending) = &self.pending {
             if pending.principal != principal || pending.request != *request {
                 return Err(RaftFleetFailure {
@@ -446,25 +443,110 @@ impl RaftFleetPartitionScheduler {
             });
         }
         let pending = self.pending.as_ref().ok_or(FleetCatalogError::Closed)?;
-        match &pending.recommendation {
-            Some(recommendation) => {
-                Box::pin(self.control.admit_recommended_partition(
-                    &pending.principal,
-                    &pending.request,
-                    recommendation.decision(),
-                    turn.remaining()?,
-                ))
-                .await
-            }
-            None => {
-                Box::pin(self.control.resume_partition_admission(
-                    &pending.principal,
-                    &pending.request,
-                    turn.remaining()?,
-                ))
-                .await
-            }
+        Box::pin(
+            self.control.stage_scheduled_partition(
+                &pending.principal,
+                &pending.request,
+                pending
+                    .recommendation
+                    .as_ref()
+                    .map(RaftFleetPartitionRecommendation::decision),
+                turn.remaining()?,
+            ),
+        )
+        .await
+    }
+
+    /// Select durable work, then use canonical admission to resume its exact
+    /// reservations. The scheduler never allocates replacement identities after
+    /// uncertainty and never treats staging as execution consent.
+    pub async fn admit(
+        &mut self,
+        principal: &str,
+        request: &RaftFleetTransitionAdmissionRequest,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionAdmission> {
+        let domain = self.control.domain.clone();
+        let turn = Turn::new(&domain, timeout)?;
+        self.stage(principal, request, turn.remaining()?).await?;
+        Box::pin(
+            self.control
+                .resume_partition_admission(principal, request, turn.remaining()?),
+        )
+        .await
+    }
+
+    /// Discover and resume this node's durable request with no caller-supplied
+    /// operation or reservation IDs. A missing original plan refuses admission.
+    pub async fn resume_pending(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<RaftFleetTransitionAdmission>> {
+        let domain = self.control.domain.clone();
+        let turn = Turn::new(&domain, timeout)?;
+        self.restore_pending(turn.remaining()?).await?;
+        let Some(pending) = &self.pending else {
+            return Ok(None);
+        };
+        let principal = pending.principal.clone();
+        let request = pending.request.clone();
+        Box::pin(self.admit(&principal, &request, turn.remaining()?))
+            .await
+            .map(Some)
+    }
+
+    async fn restore_pending(&mut self, timeout: Duration) -> Result<()> {
+        if self.pending.is_some() {
+            return Ok(());
         }
+        let turn = Turn::new(&self.control.domain, timeout)?;
+        let node = self
+            .control
+            .node_observer
+            .as_ref()
+            .ok_or_else(RaftFleetFailure::unsupported)?
+            .identity()
+            .node;
+        let Some(work) = self
+            .control
+            .catalog
+            .pending_partition_work(node, turn.remaining()?)
+            .await?
+        else {
+            return Ok(());
+        };
+        let (principal, request): (String, RaftFleetTransitionAdmissionRequest) =
+            serde_json::from_str(&work.payload)
+                .map_err(|_| FleetCatalogError::Corrupt("partition work payload"))?;
+        request.validate(&request.namespace_id, &request.operation_id)?;
+        self.control.check_catalog(&request.catalog_id)?;
+        let directory = self.control.managed_namespace(&request.namespace_id)?;
+        if directory.namespace().root_digest() != work.namespace
+            || principal != work.principal
+            || records::id(&request.operation_id)? != work.operation
+            || serde_json::to_string(&(&principal, &request))
+                .map_err(|_| FleetCatalogError::Corrupt("partition work payload"))?
+                != work.payload
+        {
+            return Err(FleetCatalogError::Corrupt("partition work request binding").into());
+        }
+        let operation = ProposalId::new(work.operation)
+            .map_err(|_| FleetCatalogError::Corrupt("partition work operation"))?;
+        let plan = self
+            .control
+            .catalog
+            .reopen_transition_operator_plan(directory, operation, work.request, turn.remaining()?)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        if plan.digest() != work.plan {
+            return Err(FleetCatalogError::PayloadConflict.into());
+        }
+        self.pending = Some(Pending {
+            principal,
+            request,
+            recommendation: None,
+        });
+        Ok(())
     }
 
     /// Restore the exact operator-journal request after controller loss. Only
@@ -506,10 +588,12 @@ impl RaftFleetPartitionScheduler {
     /// phase. Absence, refusal, timeout and a lost reply all retain the slot.
     /// Physical reservations and archive holds are settled by their own owners.
     pub async fn settle(&mut self, timeout: Duration) -> Result<bool> {
+        let domain = self.control.domain.clone();
+        let turn = Turn::new(&domain, timeout)?;
+        self.restore_pending(turn.remaining()?).await?;
         let Some(pending) = &self.pending else {
             return Ok(true);
         };
-        let turn = Turn::new(&self.control.domain, timeout)?;
         let directory = self
             .control
             .managed_namespace(&pending.request.namespace_id)?;
@@ -544,6 +628,21 @@ impl RaftFleetPartitionScheduler {
                 status.phase,
                 Some(TransitionPhase::Retired | TransitionPhase::Cancelled)
             )
+        {
+            return Ok(false);
+        }
+        let node = self
+            .control
+            .node_observer
+            .as_ref()
+            .ok_or_else(RaftFleetFailure::unsupported)?
+            .identity()
+            .node;
+        if !self
+            .control
+            .catalog
+            .finish_partition_work(directory, node, operation, digest, turn.remaining()?)
+            .await?
         {
             return Ok(false);
         }

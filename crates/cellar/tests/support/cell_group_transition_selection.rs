@@ -2,6 +2,8 @@
 
 //! Automatic discovery and rooted admission recovery feed the actual worker.
 use super::*;
+use cellar::application::consensus::verification::{FleetChange, FleetMutation, FleetTable};
+use sha2::Digest as _;
 
 fn policy() -> PartitionPolicy {
     PartitionPolicy::new(PartitionLimits {
@@ -149,6 +151,69 @@ pub(super) async fn admit(
     ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == before.revision());
     drop(replacement);
 
+    // Select the full request durably before reserving either child, then lose
+    // the actual journal CAS response. A cold poll discovers only this node's
+    // work and never samples a replacement operation.
+    cluster.fixtures[0]
+        .store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    let lost_journal = Box::pin(scheduler.stage("automatic-test", &request, TIMEOUT)).await;
+    ensure!(matches!(lost_journal, Err(error) if error.code == RaftFleetFailureCode::Unavailable));
+    let selected = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+    ensure!(selected.revision() == before.revision() + 1);
+    ensure!(
+        cluster.fixtures[0]
+            .catalog
+            .pending_reservations(&selected, TIMEOUT)
+            .await?
+            .is_empty(),
+        "scheduler journal created child reservations"
+    );
+    let key = format!(
+        "partition-work/{}",
+        hex::encode(observer.identity().node.bytes())
+    );
+    ensure!(cluster.fixtures[0]
+        .catalog
+        .get(&selected, FleetTable::Operations, &key, TIMEOUT)
+        .await?
+        .is_some());
+    let mut id = [0; 16];
+    id.copy_from_slice(&sha2::Sha256::digest(b"partition-work-test-forged-delete")[..16]);
+    let forged = FleetMutation {
+        id,
+        operation: id,
+        principal: "automatic-test".into(),
+        expected_revision: selected.revision(),
+        changes: vec![FleetChange {
+            table: FleetTable::Operations,
+            key,
+            value: None,
+        }],
+    };
+    let refusal = cluster.fixtures[0]
+        .catalog
+        .commit(&selected, &forged, TIMEOUT)
+        .await
+        .err();
+    ensure!(
+        matches!(refusal, Some(FleetCatalogError::Invalid(_))),
+        "generic work deletion: {refusal:?}"
+    );
+    let mut cold = cold_scheduler(cluster, &observer)?;
+    let missing =
+        catalog_fault::missing_read(plan.clone(), Box::pin(cold.resume_pending(TIMEOUT))).await;
+    ensure!(matches!(missing, Err(error) if error.code == RaftFleetFailureCode::Conflict));
+    ensure!(cold.pending_request().is_none());
+    let poll = cold.poll(pressure(), TIMEOUT).await?;
+    ensure!(poll.sampled.is_none() && poll.recommendation.is_none());
+    ensure!(cold.pending_request() == Some(&request) && cold.tracked_groups() == 0);
+    drop(cold);
+    ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == selected.revision());
+    // Preserve the original child-reservation fault oracle at its own boundary.
+    let before = selected;
+
     // Now lose confirmation after a real reservation CAS. Another cold owner
     // must reconcile the original partial reservations without fresh samples.
     cluster.fixtures[0]
@@ -163,6 +228,15 @@ pub(super) async fn admit(
     ensure!(scheduler.pending_request() == Some(&request));
     let partial = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
     ensure!(partial.revision() == before.revision() + 1);
+    ensure!(
+        cluster.fixtures[0]
+            .catalog
+            .pending_reservations(&partial, TIMEOUT)
+            .await?
+            .len()
+            == 1,
+        "the failed confirmation must follow the real child reservation"
+    );
     let (poll, reads) = catalog_fault::count_reads(scheduler.poll(pressure(), TIMEOUT)).await;
     let poll = poll?;
     ensure!(poll.sampled.is_none() && poll.recommendation.is_none() && reads.is_empty());
@@ -179,7 +253,9 @@ pub(super) async fn admit(
     );
     ensure!(replacement.pending_request().is_none());
     ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == partial.revision());
-    let admitted = Box::pin(replacement.resume("automatic-test", &request, TIMEOUT)).await?;
+    let admitted = Box::pin(replacement.resume_pending(TIMEOUT))
+        .await?
+        .context("discovered scheduled admission")?;
     ensure!(replacement.tracked_groups() == 0 && replacement.pending_request() == Some(&request));
     ensure!(admitted.phase == TransitionPhase::Planned);
     Ok((request, admitted))
@@ -226,6 +302,56 @@ pub(super) async fn verify_discovery(
         empty.sampled.is_none() && empty.recommendation.is_none() && retired.tracked_groups() == 0
     );
     ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == revision);
+    let mut settled = 0;
+    for host in &cluster.hosts {
+        let node = host.identity().node;
+        let key = format!("partition-work/{}", hex::encode(node.bytes()));
+        let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+        if cluster.fixtures[0]
+            .catalog
+            .get(&cut, FleetTable::Operations, &key, TIMEOUT)
+            .await?
+            .is_none()
+        {
+            continue;
+        }
+        let mut cleaner = cold_scheduler(cluster, host)?;
+        cluster.fixtures[0]
+            .store
+            .fail_fleet_confirmation
+            .store(true, Ordering::Release);
+        let lost = cleaner.settle(TIMEOUT).await;
+        ensure!(matches!(lost, Err(error) if error.code == RaftFleetFailureCode::Unavailable));
+        let request = cleaner
+            .pending_request()
+            .context("pending terminal work")?
+            .clone();
+        let completed = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+        ensure!(completed.revision() == cut.revision() + 1);
+        ensure!(cluster.fixtures[0]
+            .catalog
+            .get(&completed, FleetTable::Operations, &key, TIMEOUT)
+            .await?
+            .is_none());
+        // Replaying the old stage cannot re-enqueue a completed operation.
+        cleaner.stage("automatic-test", &request, TIMEOUT).await?;
+        ensure!(
+            cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == completed.revision()
+        );
+        ensure!(cleaner.settle(TIMEOUT).await? && cleaner.pending_request().is_none());
+        ensure!(
+            cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == completed.revision()
+        );
+        drop(cleaner);
+        let mut empty = cold_scheduler(cluster, host)?;
+        ensure!(empty.resume_pending(TIMEOUT).await?.is_none());
+        settled += 1;
+    }
+    ensure!(
+        settled == 1,
+        "the node-targeted cursor must settle exactly once"
+    );
+    ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == revision + 1);
     Ok(())
 }
 

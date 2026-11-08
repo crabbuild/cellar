@@ -400,10 +400,17 @@ fn group(history: GroupHistory) -> RaftFleetTransitionGroup {
 async fn exercise_admission(cluster: &ManagedCluster) -> Result<()> {
     let (control, mut scheduler, original, seed, index) = Box::pin(ready(cluster)).await?;
     let f = &cluster.fixtures[0];
-    let before = f.catalog.read(TIMEOUT).await?;
     let invalid = scheduler.admit("", &original, TIMEOUT).await;
     ensure!(matches!(invalid, Err(error) if error.code == RaftFleetFailureCode::InvalidInput));
     ensure!(scheduler.pending_request().is_none());
+
+    scheduler.stage("scheduler", &original, TIMEOUT).await?;
+    let before = f.catalog.read(TIMEOUT).await?;
+    ensure!(f
+        .catalog
+        .pending_reservations(&before, TIMEOUT)
+        .await?
+        .is_empty());
 
     // A real CAS writes the first child reservation but loses confirmation.
     // The scheduling owner must not issue another operation or choose new IDs.
@@ -418,6 +425,14 @@ async fn exercise_admission(cluster: &ManagedCluster) -> Result<()> {
     ensure!(scheduler.pending_request() == Some(&original));
     let partial = f.catalog.read(TIMEOUT).await?;
     ensure!(partial.revision() == before.revision() + 1);
+    ensure!(
+        f.catalog
+            .pending_reservations(&partial, TIMEOUT)
+            .await?
+            .len()
+            == 1,
+        "the failed confirmation must follow the real child reservation"
+    );
     let mut different = original.clone();
     different.operation_id = hex::encode([250; 16]);
     let refused = scheduler.admit("scheduler", &different, TIMEOUT).await;

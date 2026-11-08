@@ -88,31 +88,41 @@ impl FleetCatalog {
         request: [u8; 32],
         timeout: Duration,
     ) -> Result<Option<DirectoryMutation>> {
-        self.run(timeout, async {
-            let Some((record, _)) = self
-                .inner
-                .read::<OperatorPlan>(&operator_plan_key(operation), ADMISSION, ADMISSION_LIMIT)
-                .await?
-            else {
-                return Ok(None);
-            };
-            if record.catalog != self.catalog_id()?
-                || record.namespace != directory.namespace().root_digest()
-                || record.request != request
-            {
-                return Err(FleetCatalogError::PayloadConflict);
-            }
-            let plan = directory
-                .decode_mutation(&record.plan)
-                .map_err(catalog_error)?;
-            if plan.operation() != operation {
-                return Err(FleetCatalogError::Corrupt(
-                    "operator transition plan operation",
-                ));
-            }
-            Ok(Some(plan))
-        })
+        self.run(
+            timeout,
+            self.transition_operator_plan_at(directory, operation, request),
+        )
         .await
+    }
+
+    pub(super) async fn transition_operator_plan_at(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        request: [u8; 32],
+    ) -> Result<Option<DirectoryMutation>> {
+        let Some((record, _)) = self
+            .inner
+            .read::<OperatorPlan>(&operator_plan_key(operation), ADMISSION, ADMISSION_LIMIT)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if record.catalog != self.catalog_id()?
+            || record.namespace != directory.namespace().root_digest()
+            || record.request != request
+        {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        let plan = directory
+            .decode_mutation(&record.plan)
+            .map_err(catalog_error)?;
+        if plan.operation() != operation {
+            return Err(FleetCatalogError::Corrupt(
+                "operator transition plan operation",
+            ));
+        }
+        Ok(Some(plan))
     }
 
     /// Reopen a child reservation only when the indexed history and its

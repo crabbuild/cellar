@@ -5,7 +5,7 @@
 use super::*;
 use crate::raft::{
     catalog::{CatalogError, InitialMember},
-    cell_groups::{CellGroupBirthSpec, TransitionPhase},
+    cell_groups::{CellGroupBirthSpec, DirectoryMutation, TransitionPhase},
     fleet_catalog::TransitionOperatorStep,
 };
 use cellar_logic::{
@@ -20,6 +20,13 @@ use std::collections::BTreeSet;
 enum Admission<'a> {
     Fresh(&'a [&'a PartitionBasis]),
     Rooted,
+}
+
+struct PreparedOperator {
+    snapshot: crate::raft::fleet_catalog::FleetSnapshot,
+    step: TransitionOperatorStep,
+    plan: DirectoryMutation,
+    proposals: Vec<CellGroupBirthSpec>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -303,23 +310,7 @@ impl RaftFleetControl {
         recommendation: PartitionDecision<'_>,
         timeout: Duration,
     ) -> Result<RaftFleetTransitionAdmission> {
-        crate::raft::cell_groups::partition::validate_recommendation(&recommendation)
-            .map_err(directory_failure)?;
-        let sources = match (&request.partition, recommendation) {
-            (
-                RaftFleetTransitionPartition::Split { pivot_cell, .. },
-                PartitionDecision::Split { basis, pivot, .. },
-            ) if pivot.cell().as_str() == pivot_cell => vec![basis],
-            (
-                RaftFleetTransitionPartition::Merge { .. },
-                PartitionDecision::Merge { left, right },
-            ) => vec![left, right],
-            _ => {
-                return Err(RaftFleetFailure::invalid(
-                    "partition recommendation mismatch",
-                ))
-            }
-        };
+        let sources = recommended_sources(request, recommendation)?;
         Box::pin(self.admit_transition_inner(
             principal,
             &request.namespace_id,
@@ -359,6 +350,112 @@ impl RaftFleetControl {
         admission: Admission<'_>,
         timeout: Duration,
     ) -> Result<RaftFleetTransitionAdmission> {
+        let turn = Turn::new(&self.domain, timeout)?;
+        let PreparedOperator {
+            mut snapshot,
+            step,
+            plan,
+            proposals,
+        } = self
+            .prepare_transition_operator(
+                principal,
+                namespace,
+                operation,
+                request,
+                admission,
+                turn.remaining()?,
+            )
+            .await?;
+        let directory = self.managed_namespace(namespace)?;
+        let operation = step.operation;
+        let digest = step.request_digest;
+
+        let identity = if let Some(admitted) = self
+            .catalog
+            .reopen_managed_transition(directory, operation, turn.remaining()?)
+            .await?
+        {
+            if admitted.request != step.identity(admitted.request.expected_revision)
+                || admitted.plan.digest() != plan.digest()
+            {
+                return Err(FleetCatalogError::PayloadConflict.into());
+            }
+            admitted.request
+        } else {
+            let (_, children) = directory
+                .transition_routes(&plan)
+                .map_err(directory_failure)?;
+            self.domain
+                .run(crate::asyncrt::timeout(
+                    turn.remaining()?,
+                    directory.validate_managed_transition_input(&plan),
+                ))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(|_| FleetCatalogError::Unconfirmed)?
+                .map_err(directory_failure)?;
+            for ((child, proposal), route) in request.children.iter().zip(proposals).zip(children) {
+                let child_step = TransitionOperatorStep {
+                    operation,
+                    principal: principal.into(),
+                    request_digest: digest,
+                    step: records::id(&child.request_id)?,
+                };
+                if self
+                    .catalog
+                    .reopen_transition_operator_child(
+                        &snapshot,
+                        directory,
+                        &route,
+                        &child_step,
+                        turn.remaining()?,
+                    )
+                    .await?
+                {
+                    continue;
+                }
+                let identity = child_step.identity(snapshot.revision());
+                let reserved = self
+                    .catalog
+                    .reserve_birth(
+                        &snapshot,
+                        &identity,
+                        directory,
+                        proposal,
+                        &request.class,
+                        turn.remaining()?,
+                    )
+                    .await?;
+                if reserved.authorization.route() != &route {
+                    return Err(
+                        FleetCatalogError::Corrupt("operator child reservation route").into(),
+                    );
+                }
+                snapshot = reserved.commit.snapshot;
+            }
+            step.identity(snapshot.revision())
+        };
+        let journal = self
+            .catalog
+            .plan_managed_transition(&identity, directory, &plan, turn.remaining()?)
+            .await?;
+        Ok(RaftFleetTransitionAdmission {
+            request_id: request.request_id.clone(),
+            operation_id: request.operation_id.clone(),
+            plan_digest: hex::encode(plan.digest()),
+            phase: journal.phase(),
+        })
+    }
+
+    async fn prepare_transition_operator(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionAdmissionRequest,
+        admission: Admission<'_>,
+        timeout: Duration,
+    ) -> Result<PreparedOperator> {
         request.validate(namespace, operation)?;
         self.check_catalog(&request.catalog_id)?;
         let directory = self.managed_namespace(namespace)?;
@@ -374,7 +471,7 @@ impl RaftFleetControl {
             step: records::id(&request.request_id)?,
         };
         let turn = Turn::new(&self.domain, timeout)?;
-        let mut snapshot = self.catalog.read(turn.remaining()?).await?;
+        let snapshot = self.catalog.read(turn.remaining()?).await?;
         let (plan, proposals) = if let Some(plan) = self
             .catalog
             .reopen_transition_operator_plan(directory, operation, digest, turn.remaining()?)
@@ -484,81 +581,59 @@ impl RaftFleetControl {
             (plan, proposals)
         };
 
-        let identity = if let Some(admitted) = self
-            .catalog
-            .reopen_managed_transition(directory, operation, turn.remaining()?)
-            .await?
-        {
-            if admitted.request != step.identity(admitted.request.expected_revision)
-                || admitted.plan.digest() != plan.digest()
-            {
-                return Err(FleetCatalogError::PayloadConflict.into());
-            }
-            admitted.request
-        } else {
-            let (_, children) = directory
-                .transition_routes(&plan)
-                .map_err(directory_failure)?;
-            self.domain
-                .run(crate::asyncrt::timeout(
-                    turn.remaining()?,
-                    directory.validate_managed_transition_input(&plan),
-                ))
-                .await
-                .map_err(|_| FleetCatalogError::Closed)?
-                .map_err(|_| FleetCatalogError::Unconfirmed)?
-                .map_err(directory_failure)?;
-            for ((child, proposal), route) in request.children.iter().zip(proposals).zip(children) {
-                let child_step = TransitionOperatorStep {
-                    operation,
-                    principal: principal.into(),
-                    request_digest: digest,
-                    step: records::id(&child.request_id)?,
-                };
-                if self
-                    .catalog
-                    .reopen_transition_operator_child(
-                        &snapshot,
-                        directory,
-                        &route,
-                        &child_step,
-                        turn.remaining()?,
-                    )
-                    .await?
-                {
-                    continue;
-                }
-                let identity = child_step.identity(snapshot.revision());
-                let reserved = self
-                    .catalog
-                    .reserve_birth(
-                        &snapshot,
-                        &identity,
-                        directory,
-                        proposal,
-                        &request.class,
-                        turn.remaining()?,
-                    )
-                    .await?;
-                if reserved.authorization.route() != &route {
-                    return Err(
-                        FleetCatalogError::Corrupt("operator child reservation route").into(),
-                    );
-                }
-                snapshot = reserved.commit.snapshot;
-            }
-            step.identity(snapshot.revision())
-        };
-        let journal = self
-            .catalog
-            .plan_managed_transition(&identity, directory, &plan, turn.remaining()?)
-            .await?;
-        Ok(RaftFleetTransitionAdmission {
-            request_id: request.request_id.clone(),
-            operation_id: request.operation_id.clone(),
-            plan_digest: hex::encode(plan.digest()),
-            phase: journal.phase(),
+        Ok(PreparedOperator {
+            snapshot,
+            step,
+            plan,
+            proposals,
         })
+    }
+
+    /// Persist the exact scheduler request after live plan validation and before
+    /// reserving either child. This record supplies no irreversible consent.
+    pub(super) async fn stage_scheduled_partition(
+        &self,
+        principal: &str,
+        request: &RaftFleetTransitionAdmissionRequest,
+        recommendation: Option<PartitionDecision<'_>>,
+        timeout: Duration,
+    ) -> Result<()> {
+        let turn = Turn::new(&self.domain, timeout)?;
+        let sources = recommendation
+            .map(|decision| recommended_sources(request, decision))
+            .transpose()?;
+        let admission = sources
+            .as_ref()
+            .map_or(Admission::Rooted, |sources| Admission::Fresh(sources));
+        let prepared = self
+            .prepare_transition_operator(
+                principal,
+                &request.namespace_id,
+                &request.operation_id,
+                request,
+                admission,
+                turn.remaining()?,
+            )
+            .await?;
+        let node = self
+            .node_observer
+            .as_ref()
+            .ok_or_else(RaftFleetFailure::unsupported)?
+            .identity()
+            .node;
+        let payload = serde_json::to_string(&(principal, request))
+            .map_err(|_| RaftFleetFailure::invalid("partition work request"))?;
+        self.catalog
+            .stage_partition_work(
+                &prepared.snapshot,
+                self.managed_namespace(&request.namespace_id)?,
+                node,
+                &prepared.step,
+                payload,
+                turn.remaining()?,
+            )
+            .await?;
+        Ok(())
     }
 }
 
@@ -568,4 +643,27 @@ pub(super) fn directory_failure(error: CatalogError) -> FleetCatalogError {
         CatalogError::Conflict(_) | CatalogError::Fenced => FleetCatalogError::Conflict,
         error => FleetCatalogError::from(error),
     }
+}
+
+fn recommended_sources<'a>(
+    request: &RaftFleetTransitionAdmissionRequest,
+    recommendation: PartitionDecision<'a>,
+) -> Result<Vec<&'a PartitionBasis>> {
+    crate::raft::cell_groups::partition::validate_recommendation(&recommendation)
+        .map_err(directory_failure)?;
+    let sources = match (&request.partition, recommendation) {
+        (
+            RaftFleetTransitionPartition::Split { pivot_cell, .. },
+            PartitionDecision::Split { basis, pivot, .. },
+        ) if pivot.cell().as_str() == pivot_cell => vec![basis],
+        (RaftFleetTransitionPartition::Merge { .. }, PartitionDecision::Merge { left, right }) => {
+            vec![left, right]
+        }
+        _ => {
+            return Err(RaftFleetFailure::invalid(
+                "partition recommendation mismatch",
+            ))
+        }
+    };
+    Ok(sources)
 }

@@ -1788,6 +1788,16 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         authority: resources::Authority,
     ) -> Result<()> {
+        if authority != resources::Authority::PartitionWork
+            && mutation.changes.iter().any(|change| {
+                change.table == FleetTable::Operations
+                    && change
+                        .key
+                        .starts_with(super::managed_partition_work::PREFIX)
+            })
+        {
+            return Err(FleetCatalogError::Invalid("partition work authority"));
+        }
         if authority != resources::Authority::MemberSettlement
             && mutation.changes.iter().any(|change| {
                 change.table == FleetTable::Operations
