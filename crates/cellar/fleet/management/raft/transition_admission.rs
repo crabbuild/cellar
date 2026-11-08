@@ -487,10 +487,32 @@ impl RaftFleetControl {
             }
             step.identity(snapshot.revision())
         };
-        let journal = self
+        let journal = match self
             .catalog
             .plan_managed_transition(&identity, directory, &plan, turn.remaining()?)
-            .await?;
+            .await
+        {
+            Ok(journal) => journal,
+            Err(FleetCatalogError::PayloadConflict) => {
+                // Another controller may select a different root-bound attempt
+                // after our initial read. Adopt only the exact operator intent
+                // and plan, then replay its canonical admission identity.
+                let selected = self
+                    .catalog
+                    .reopen_managed_transition(directory, operation, turn.remaining()?)
+                    .await?
+                    .ok_or(FleetCatalogError::PayloadConflict)?;
+                if selected.request != step.identity(selected.request.expected_revision)
+                    || selected.plan.digest() != plan.digest()
+                {
+                    return Err(FleetCatalogError::PayloadConflict.into());
+                }
+                self.catalog
+                    .plan_managed_transition(&selected.request, directory, &plan, turn.remaining()?)
+                    .await?
+            }
+            Err(error) => return Err(error.into()),
+        };
         Ok(RaftFleetTransitionAdmission {
             request_id: request.request_id.clone(),
             operation_id: request.operation_id.clone(),
