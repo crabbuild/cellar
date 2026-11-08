@@ -369,9 +369,15 @@ def run(args, profile, build, docker, cpus, memory):
                         '--entrypoint', '/bin/true', args.image)
         report['config_helper'] = helper
         docker('cp', str(config) + '/.', helper + ':/config')
-        docker('volume', 'create', '--label', owner, prefix + '-store')
+        disks = getattr(args, 'disks', None)
+        runtime_bounds = getattr(args, 'runtime_bounds', [])
+        if disks is not None:
+            disks.prepare()
+            disks.create(prefix + '-store')
+        else:
+            docker('volume', 'create', '--label', owner, prefix + '-store')
         docker('run', '--rm', '--network', 'none', '--label', owner, '-v', prefix + '-store:/data', '--entrypoint', 'chown', args.image, '10001:10001', '/data')
-        docker('run', '-d', '--name', prefix + '-store', '--label', owner, '--network', prefix, '--network-alias', 'rustfs',
+        docker('run', '-d', *getattr(args, 'store_runtime_bounds', runtime_bounds), '--name', prefix + '-store', '--label', owner, '--network', prefix, '--network-alias', 'rustfs',
                '--cpus', '2', '--cpuset-cpus', f'{node_count},{node_count+1}', '--memory', '4g', '--memory-swap', '4g',
                '-p', f'127.0.0.1:{args.port_base}:9000', '-v', prefix + '-store:/data',
                '-e', 'RUSTFS_ACCESS_KEY=' + access, '-e', 'RUSTFS_SECRET_KEY=' + secret,
@@ -386,8 +392,11 @@ def run(args, profile, build, docker, cpus, memory):
                     raise RuntimeError('disposable RustFS startup failed') from None
                 time.sleep(1)
         for node in nodes:
-            docker('volume', 'create', '--label', owner, node)
-        report['initialization'] = json.loads(docker('run', '--rm', '--label', owner, '--network', prefix,
+            if disks is not None:
+                disks.create(node)
+            else:
+                docker('volume', 'create', '--label', owner, node)
+        report['initialization'] = json.loads(docker('run', '--rm', *runtime_bounds, '--label', owner, '--network', prefix,
             '--cpus', '1', '--cpuset-cpus', '0', '--memory', '3g', '--memory-swap', '3g',
             '-v', nodes[0] + ':/data', '-v', config_volume + ':/config:ro',
             '-e', 'RAFT_INITIALIZE=1', '-e', 'RAFT_NODE=1', '-e', f'RAFT_NODES={node_count}',
@@ -399,7 +408,7 @@ def run(args, profile, build, docker, cpus, memory):
             'cells_per_group':layout.occupancy}, 'shared setup population differs')
         save()
         for index, node in enumerate(nodes, 1):
-            docker('run', '-d', '--name', node, '--label', owner, '--network', prefix, '--ip', f'{network_prefix}.{10+index}',
+            docker('run', '-d', *runtime_bounds, '--name', node, '--label', owner, '--network', prefix, '--ip', f'{network_prefix}.{10+index}',
                    '--cpus', '1', '--cpuset-cpus', str(index-1), '--memory', '3g', '--memory-swap', '3g',
                    '--ulimit', 'nofile=65536:65536', '-p', f'127.0.0.1:{args.port_base+index}:8082',
                    '-v', node + ':/data', '-v', config_volume + ':/config:ro',
@@ -441,6 +450,11 @@ def run(args, profile, build, docker, cpus, memory):
         capture_topology('before')
         report['limits'] = [captured_node_limits(json.loads(docker('inspect', '--format', '{{json .HostConfig}}', node))) for node in nodes]
         report['store_limits'] = captured_node_limits(json.loads(docker('inspect', '--format', '{{json .HostConfig}}', prefix + '-store')))
+        if disks is not None:
+            report['bounded_storage'] = True
+            report['storage_host_configs'] = [json.loads(docker('inspect', '--format', '{{json .HostConfig}}', node))
+                                            for node in nodes + [prefix + '-store']]
+            # Retain only resource fields; Env contains private credentials.
         verify_resources(report, node_count)
         for node, limits in zip(nodes, report['limits']):
             require(limits['NanoCpus'] == 10**9 and limits['Memory'] == 3 * 1024**3 and limits['MemorySwap'] == 3 * 1024**3 and not limits['Tmpfs'], 'resource limit mismatch')
@@ -451,7 +465,12 @@ def run(args, profile, build, docker, cpus, memory):
                 node = member
             extra = {'x-command-id': headers['command_id'], 'x-retry-until-ms': str(headers['retry_until_ms'])} if operation == 'command' else {
                 'x-read-consistency': body['consistency'], 'x-min-version': headers.get('min_version', '')}
-            return request(bases[node], f'/cells/{cell}', token, method='POST' if operation == 'command' else 'GET', body=body if operation == 'command' else None, headers=extra)
+            began = time.monotonic_ns()
+            code, reply = request(bases[node], f'/cells/{cell}', token, method='POST' if operation == 'command' else 'GET', body=body if operation == 'command' else None, headers=extra)
+            observer = getattr(args, 'archive_observer', None)
+            if observer is not None and operation == 'command' and code == 200:
+                observer.acknowledge(cell, reply, began)
+            return code, reply
         def capture():
             rows = []
             for node, base in enumerate(bases, 1):
@@ -483,6 +502,9 @@ def run(args, profile, build, docker, cpus, memory):
                             with (root / 'log-files-periodic.jsonl').open('a') as census:
                                 census.write(json.dumps(observed) + '\n')
                             next_log_sample = time.monotonic() + 5
+                        observer = getattr(args, 'archive_observer', None)
+                        if observer is not None:
+                            observer.capture(lambda cell: request(bases[layout.members(cell, node_count)[0]-1], f'/admin/{cell}', token))
                         stats = docker('stats', '--no-stream', '--format', '{{json .}}', *nodes, prefix + '-store')
                         for row in stats.splitlines():
                             stream.write(json.dumps({'monotonic': time.monotonic(), 'stats': json.loads(row)}) + '\n')
@@ -533,7 +555,7 @@ def run(args, profile, build, docker, cpus, memory):
             began = time.monotonic()
             while True:
                 observations = [request(bases[layout.members(cell, node_count)[0]-1], f'/admin/{cell}', token) for cell in state]
-                if all(code == 200 and item['archived'] >= state[cell]['index'] for cell, (code, item) in enumerate(observations)):
+                if all(code == 200 and item['archived'] is not None and item['archived'] >= state[cell]['index'] for cell, (code, item) in enumerate(observations)):
                     return observations, time.monotonic() - began
                 require(time.monotonic() - began < profile['slo']['max_archive_lag_seconds'], 'archive drain exceeded declared SLO')
                 time.sleep(.5)
@@ -553,6 +575,8 @@ def run(args, profile, build, docker, cpus, memory):
             if seconds:
                 print(f'{phase}: {seconds}s, {profile["arrival"]["rate_per_second"]} offered operations/sec', flush=True)
                 boundary(phase, 'before')
+                if getattr(args, 'archive_observer', None) is not None:
+                    args.archive_observer.phase = phase
                 report[phase] = run_load(profile, phase, seconds, state, ledger, send, run_id,
                                         on_start=fault.start if fault and phase == 'measurement' else None)
                 if fault and phase == 'measurement':
@@ -578,6 +602,8 @@ def run(args, profile, build, docker, cpus, memory):
         (root / 'replicas.json').write_text(json.dumps(replicas) + '\n')
         report['replicas_verified_monotonic_seconds'] = time.monotonic()
         report['final_archive'], report['final_archive_seconds'] = wait_archive()
+        if getattr(args, 'archive_observer', None) is not None:
+            args.archive_observer.capture(lambda cell: request(bases[layout.members(cell, node_count)[0]-1], f'/admin/{cell}', token))
         report['store_recovery_verified_monotonic_seconds'] = time.monotonic()
         if args.observe_log_reclamation:
             # Same fixed quiet window on both binaries; no workload is added.

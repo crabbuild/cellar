@@ -36,6 +36,18 @@ The JSON configuration contains exactly these required fields:
 | `network_cidr` | An unused RFC1918 pool, /16 through /24, with one /24 per cohort |
 | `profiles_file`, `profiles_sha256` | Absolute frozen profile catalog and its file SHA-256 |
 | `workload` | Complete workload template accepted by `raft_run.validate_profile` |
+| `storage` | Explicit Colima home/profile/backing disk and per-voter/object-store byte bounds |
+
+`storage` has exactly `colima_home`, `profile`, `backing_disk`, `node_bytes` and
+`object_store_bytes`. The profile must identify the configured Engine context,
+and its data disk must resolve to `colima_home/_lima/_disks/CONTEXT/datadisk`.
+Keep the data disk on the writable workspace volume. Bounds are MiB-aligned
+integers from 128 MiB to 64 GiB. Preflight reserves the complete matrix's retained
+backing plus 4 GiB on both host and guest; it refuses an undersized campaign
+before provisioning. Every `/data` is a separate prewritten ext4 loop device.
+The root is read-only; scratch and Docker logs have explicit finite limits.
+Disk-full errors remain failed attempts. The harness never expands a disk or
+raises a request/resource budget to obtain a pass.
 
 Start the workload template from `raft_profiles.json`'s `local-five` entry. The
 campaign takes cell population, occupancies, image modes, repetitions, offered
@@ -77,8 +89,21 @@ name, label and immutable ID before signalling any process. Lost creation replie
 retain their original intents. Stop never deletes containers, networks, volumes,
 logs or voter data; it cannot erase a disk. A wrong/missing owner refuses cleanup.
 
+After physical stop, each native voter must supply its actual `RaftCells.close`
+record: full group counts, omitted/failed groups and local producer quiescence.
+Joined process logs and immutable IDs are retained separately. Exit zero alone
+cannot establish `unjoined_owners=0`. Missing reports, SIGKILL and unobserved
+producer outcomes fail the join gate.
+
+`archive-observations.jsonl` joins every successful command to a subsequent
+observed archive frontier in the same group incarnation. Lag is an upper bound
+from command send to observed coverage, including seed and warmup. Failed polls
+retain outstanding debt; final archive coverage alone cannot establish zero lag.
+The observer retains only one pending frontier per group and preserves the
+highest index when replies arrive out of order.
+
 `campaign.json` retains cohort plans, failures and cleanup outcomes. `receipt.json`
-binds every public artifact to its file digest. Verify refuses changed source,
+binds every public artifact to its file digest. Verify checks the recorded Git revision and executable-input manifest, so a later documentation-only commit can still verify the same runtime. It refuses changed source,
 binaries, profile catalog, topology, operations, replica results or missing raw
 logs. An explicit later stop updates only ownership-artifact hashes; it cannot
 recertify a changed operation ledger. Failed attempts remain separate runs.
@@ -93,14 +118,26 @@ unmatched controls cannot pass. A reduced private smoke catalog can exercise the
 driver, but cannot become release evidence. Verify/run return a nonzero status
 when release gates remain unmeasured or fail, while retaining the complete report.
 
-The current driver retains control socket bytes below TLS, engine/API write and
-sync operations, S3 request/body observations, CPU intervals, cgroup lifetime
-memory peak, process RSS and descriptors. These do not imply physical device
-write attribution or independently enforced disk quotas. Docker's ordinary data
-volumes and one shared VM do not establish independent hosts/failure domains.
-Application owner-join proofs, double-writer observation, continuous archive-lag
-gates, historical executable cohorts and bounded disk provisioning remain open.
-Those metrics are deliberately not inferred from successful SQL replies.
+The driver retains control socket bytes below TLS, engine/API write and sync
+operations, file-size/allocated-block censuses, S3 request/body observations,
+archive-lag upper bounds, CPU intervals, cgroup lifetime memory peak, process RSS
+and descriptors. The serial independent model and all assigned replica reads
+establish lost-effect, duplicate-mutation and stale-read checks within that
+serialized workload scope. They do not establish concurrent double-writer safety,
+physical device write attribution or independent failure domains. A
+`double_writers` gate without a separate authority witness remains unmeasured.
+
+Optional `historical_controls` is a list of `checkout`, `run`, `repetition`,
+`image_mode`, and `artifacts_sha256` objects. The digest is `input_digest(artifacts(run))`;
+repetition is zero-based. Import reads a clean checkout at the frozen historical
+pin, verifies its executable-input and runner hashes, matches the complete
+workload, and executes that revision's independent oracle against its retained
+raw run. It never parses old per-cell topology as shared-group topology. Keep the
+historical checkout and evidence available for re-verification. The pinned
+historical app supports materialized images only; an extents label refuses.
+The frozen release matrix currently requires both modes, so its historical
+control gate remains open for CG-15 to resolve. Missing controls and missing
+historical safety measurements cannot qualify a release profile.
 
 Hot-cell adaptation, movement, hibernation, managed disaster recovery,
 independent-host loss and soak profiles refuse until their lifecycle/deployment

@@ -219,7 +219,42 @@ class Evidence(existing.IndependentReport, existing.Freshness):
         save(workload / 'replicas.json', replicas)
         for name in ('resources.jsonl', 'probe-timings.jsonl'):
             (workload / name).write_text('{}\n')
-        containers = {f'node-{i}': {'id': f'{i:064x}'} for i in range(1, 6)}
+        prefix = 'cellar-mr14-' + plan['owner']
+        containers = {prefix + '-' + suffix: {'id': f'{i:064x}'} for i, suffix in enumerate(
+            ['node1', 'node2', 'node3', 'store', 'config-copy'], 1)}
+        from cell_group_observations import CLOSE
+        from raft_groups import profile_layout
+        layout = profile_layout(plan['workload'])
+        acknowledgements = []
+        for line in (workload / 'operations.jsonl').read_text().splitlines():
+            event = json.loads(line)
+            if event['event'] in ('seed_complete', 'complete') and event.get('status') == 200 and (
+                    event['event'] == 'seed_complete' or event['operation'] == 'command'):
+                acknowledgements.append({'event': 'ack', 'cell': event['cell'], 'group': layout.group(event['cell'])['ordinal'],
+                    'index': event['response']['index'], 'phase': event.get('phase', 'seed'),
+                    'started_ns': 1, 'finished_ns': 2})
+        observed = {'event': 'archive', 'cell': 0, 'group': 0, 'started_ns': 3, 'finished_ns': 4,
+            'status': 200, 'response': {'cell': 0, 'registered': True, 'group': layout.group(0)['group'],
+                'group_incarnation': layout.group(0)['incarnation'], 'archived': 1000}}
+        (directory / 'archive-observations.jsonl').write_text(''.join(json.dumps({**row, 'order': n}) + '\n'
+            for n, row in enumerate(acknowledgements + [observed], 1)))
+        joins = []
+        for n in range(1, 4):
+            closed = {'node': n, 'groups_total': 1, 'omitted_groups': 0, 'failed_groups': 0,
+                      'mutation_outcomes': 'no_unresolved_local_producers'}
+            identity = containers[prefix + f'-node{n}']['id']
+            joins.append({'node': n, 'id': identity, 'state': {'id': identity, 'running': False, 'paused': False, 'exit_code': 0},
+                          'reports': [closed]})
+            (directory / f'joined-node{n}.log').write_text(CLOSE + json.dumps(closed) + '\n')
+        save(directory / 'joins.json', joins)
+        settings['storage'] = {'node_bytes': 1024**3, 'object_store_bytes': 1024**3}
+        volumes, raw_disks = {}, []
+        for n, name in enumerate(list(containers)[:-1]):
+            volumes[name] = {'volume': name, 'device': f'/dev/loop{n}', 'uuid': 'u', 'bytes': 1024**3, 'available_bytes': 1024**3}
+            raw_disks.append({'Name': name, 'Labels': {'io.cellar.mr14.run': plan['owner']},
+                'Options': {'type': 'ext4', 'device': f'/dev/loop{n}', 'o': 'rw,nodiscard'}})
+        save(directory / 'disks.json', {'owner': plan['owner'], 'engine_id': ENGINE, 'volumes': volumes})
+        save(directory / 'disk-verification.json', raw_disks)
         save(directory / 'resources.json', {'campaign': CAMPAIGN, 'owner': plan['owner'],
             'context': CONTEXT, 'engine_id': ENGINE, 'directory': str(directory), 'containers': containers,
             'stops': [{'after': {'id': item['id'], 'running': False, 'paused': False}} for item in containers.values()]})
@@ -229,11 +264,85 @@ class Evidence(existing.IndependentReport, existing.Freshness):
         save(root / 'receipt.json', {'format': 1, 'artifacts': campaign.artifacts(root)})
         return root
 
+    def test_archive_lag_retains_debt_and_refuses_missing_ack_or_wrong_history(self):
+        from cell_group_observations import archive_lag
+        from raft_groups import profile_layout
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.campaign_fixture(Path(temporary).resolve())
+            directory = root / 'cohort-000'
+            layout = profile_layout(read_json(directory / 'workload/report.json')['profile'])
+            path = directory / 'archive-observations.jsonl'
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            valid = archive_lag(path, directory / 'workload/operations.jsonl', layout)
+            self.assertGreater(valid['acknowledged_commands'], 0)
+            # Delayed coverage increases the reported upper bound. A final
+            # snapshot never turns the unobserved outage into a measured zero.
+            rows[-1]['finished_ns'] = 80_000_000_000
+            path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            self.assertGreater(archive_lag(path, directory / 'workload/operations.jsonl', layout)['max_archive_lag_seconds'], 60)
+            original = copy.deepcopy(rows)
+            for fault in ('missing', 'ack', 'history', 'frontier'):
+                rows = copy.deepcopy(original)
+                if fault == 'missing':
+                    rows.pop()
+                elif fault == 'ack':
+                    rows[0]['index'] += 1
+                elif fault == 'history':
+                    rows[-1]['response']['group_incarnation'] = 'bad'
+                else:
+                    rows[-1]['response']['archived'] = None
+                path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+                with self.subTest(fault=fault), self.assertRaises(ValueError):
+                    archive_lag(path, directory / 'workload/operations.jsonl', layout)
+
+    def test_join_requires_native_close_after_exact_physical_exit(self):
+        from cell_group_observations import joined_owners
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.campaign_fixture(Path(temporary).resolve()) / 'cohort-000'
+            rows, owner = read_json(root / 'joins.json'), read_json(root / 'resources.json')
+            planned = read_json(root / 'workload/report.json')['placement']
+            self.assertEqual(joined_owners(rows, planned, owner), 0)
+            for fault in ('killed', 'absent', 'omitted', 'unobserved'):
+                changed = copy.deepcopy(rows)
+                if fault == 'killed':
+                    changed[0]['state']['exit_code'] = 137
+                elif fault == 'absent':
+                    changed[0]['reports'] = []
+                elif fault == 'omitted':
+                    changed[0]['reports'][0]['omitted_groups'] = 1
+                else:
+                    changed[0]['reports'][0]['mutation_outcomes'] = 'unobserved'
+                self.assertEqual(joined_owners(changed, planned, owner), 1)
+            rows[0]['id'] = 'foreign'
+            with self.assertRaises(ValueError):
+                joined_owners(rows, planned, owner)
+
+    def test_bounded_disks_refuse_missing_swapped_or_inflated_evidence(self):
+        from cell_group_storage import verify_evidence
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.campaign_fixture(Path(temporary).resolve())
+            directory = root / 'cohort-000'
+            owner = read_json(directory / 'resources.json')
+            policy = read_json(root / 'campaign.json')['settings']['storage']
+            self.assertEqual(verify_evidence(directory, owner, policy, 3)['bounded_volumes'], 4)
+            original = read_json(directory / 'disk-verification.json')
+            for fault in ('missing', 'device', 'owner'):
+                rows = copy.deepcopy(original)
+                if fault == 'missing':
+                    rows.pop()
+                elif fault == 'device':
+                    rows[0]['Options']['device'] = '/dev/loop999'
+                else:
+                    rows[0]['Labels']['io.cellar.mr14.run'] = 'foreign'
+                save(directory / 'disk-verification.json', rows)
+                with self.subTest(fault=fault), self.assertRaises(ValueError):
+                    verify_evidence(directory, owner, policy, 3)
+
     def test_complete_campaign_replays_raw_evidence_without_claiming_release(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = self.campaign_fixture(Path(temporary).resolve())
             with patch.object(campaign, 'source_manifest', return_value={'fixture': 'source'}), \
-                 patch.object(campaign, 'revision', return_value='a' * 40):
+                 patch.object(campaign, 'committed_manifest', return_value={'fixture': 'source'}):
                 result = campaign.verify(root)
         self.assertTrue(result['verified'])
         self.assertFalse(result['qualified'])
@@ -254,7 +363,7 @@ class Evidence(existing.IndependentReport, existing.Freshness):
                     report['build']['binary_sha256'] = 'd' * 64
                     save(root / 'cohort-000/workload/report.json', report)
                 with patch.object(campaign, 'source_manifest', return_value=manifest), \
-                     patch.object(campaign, 'revision', return_value='a' * 40), \
+                     patch.object(campaign, 'committed_manifest', return_value={'fixture': 'source'}), \
                      self.assertRaises(ValueError):
                     campaign.verify(root)
 
@@ -300,6 +409,11 @@ class Profiles(unittest.TestCase):
 
     def private(self, root):
         settings = self.settings(root)
+        disk = root / '_lima/_disks' / CONTEXT / 'datadisk'
+        disk.parent.mkdir(parents=True, exist_ok=True)
+        disk.touch()
+        settings['storage'] = {'colima_home': str(root), 'profile': CONTEXT.removeprefix('colima-'),
+                               'backing_disk': str(disk), 'node_bytes': 1024**3, 'object_store_bytes': 1024**3}
         settings.update(format=1, source_revision='a' * 40, context=CONTEXT, engine_id=ENGINE,
                         image='sha256:' + 'c' * 64, rustfs_image=campaign.RUSTFS,
                         data_root=str(root), port_base=22000, profiles_sha256=campaign.digest(root / 'profiles.json'))
@@ -401,6 +515,25 @@ class Profiles(unittest.TestCase):
             save(root / 'profiles.json', {'format': 1, 'profiles': [profile]})
             with self.assertRaisesRegex(ValueError, 'independent'):
                 campaign.selected_profile(settings, 'mixed_quorum')
+
+    def test_historical_control_cannot_relabel_materialized_as_extents(self):
+        from cell_group_controls import validate
+        profile = self.frozen()
+        control = {'checkout': '/absent', 'run': '/absent', 'repetition': 0,
+                   'image_mode': 'extents', 'artifacts_sha256': 'a' * 64}
+        with self.assertRaisesRegex(ValueError, 'extent'):
+            validate(control, profile, {})
+
+    def test_storage_requires_exact_profile_disk_and_finite_integer_bounds(self):
+        from cell_group_storage import validate
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = self.private(Path(temporary).resolve())
+            policy = settings['storage']
+            validate(policy, CONTEXT)
+            for key, value in [('profile', 'default'), ('backing_disk', '/dev/null'),
+                               ('node_bytes', True), ('object_store_bytes', 0)]:
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    validate({**policy, key: value}, CONTEXT)
 
     def test_numeric_gates_do_not_accept_booleans_missing_metrics_or_nan(self):
         profile = {'checks': {'p99_ms': {'max': 200}, 'samples': {'min': 2}}}

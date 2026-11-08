@@ -9,14 +9,19 @@ are separate results; unfinished lifecycle adapters fail before provisioning.
 import copy
 import hashlib
 import ipaddress
+import io
 import math
 from pathlib import Path
 import re
 import subprocess
+import tarfile
 from types import SimpleNamespace
 import uuid
 
 from cell_group_resources import Engine, OwnedRun, save, stop
+from cell_group_observations import ArchiveObserver, archive_lag, capture_joins, joined_owners, CLOSE
+from cell_group_storage import Disks, RUNTIME, validate as validate_storage, verify_evidence as verify_disks
+from raft_groups import profile_layout
 from raft_analyze import analyze
 from raft_run import (ROOT, RUSTFS, input_digest, read_json, require, run as run_workload,
                       source_manifest, validate_profile, verify_image)
@@ -26,7 +31,7 @@ from raft_docker import BoundContainer, discover
 
 SUPPORTED = {'idle_density', 'mixed_quorum', 'mixed_s3'}
 FIELDS = {'format', 'run_id', 'source_revision', 'context', 'engine_id', 'image',
-          'rustfs_image', 'data_root', 'port_base', 'network_cidr', 'profiles_file', 'profiles_sha256', 'workload'}
+          'rustfs_image', 'storage', 'data_root', 'port_base', 'network_cidr', 'profiles_file', 'profiles_sha256', 'workload'}
 
 
 def digest(path):
@@ -41,9 +46,22 @@ def revision():
     return subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
 
 
+def committed_manifest(source_revision):
+    data = subprocess.check_output(['git', '-C', str(ROOT), 'archive', source_revision, '--',
+                                    'Cargo.toml', 'Cargo.lock', 'crates', 'vendor', 'examples', 'tools'])
+    result = {}
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        for member in archive:
+            path = Path(member.name)
+            if not member.isfile() or set(path.parts) & {'.git', '.cellar', 'node_modules', '__pycache__'} or path.name == '.DS_Store' or path.suffix == '.pyc':
+                continue
+            result[member.name] = hashlib.sha256(archive.extractfile(member).read()).hexdigest()
+    return result
+
+
 def config(path):
     value = read_json(path)
-    require(isinstance(value, dict) and FIELDS <= set(value) <= FIELDS | {'fault_schedule'},
+    require(isinstance(value, dict) and FIELDS <= set(value) <= FIELDS | {'fault_schedule', 'historical_controls'},
             'missing or unknown private configuration fields')
     require(type(value['format']) is int and value['format'] == 1, 'unsupported configuration format')
     require(str(uuid.UUID(value['run_id'])) == value['run_id'], 'run_id must be a canonical UUID')
@@ -62,6 +80,7 @@ def config(path):
     require(re.fullmatch(r'[0-9a-f]{64}', value['profiles_sha256']) is not None
             and digest(value['profiles_file']) == value['profiles_sha256'], 'changed frozen profile catalog')
     validate_profile(value['workload'])
+    validate_storage(value['storage'], value['context'])
     network_pool(value['network_cidr'])
     Engine(value['context'], value['engine_id'])  # Validate without invoking Docker.
     return value
@@ -168,6 +187,16 @@ def preflight(settings, identifier, engine=None):
                 existing = ipaddress.ip_network(row['Subnet'], strict=True)
                 require(existing.version != 4 or not pool.overlaps(existing),
                         'configured network pool overlaps a retained Engine network')
+    from cell_group_controls import validate as validate_control
+    controls = []
+    for control in settings.get('historical_controls', []):
+        workload = next(row['workload'] for row in planned if row['repetition'] == control['repetition']
+                        and row['image_mode'] == control['image_mode'])
+        controls.append(validate_control(control, profile, workload))
+    require(len({(row['repetition'], row['image_mode']) for row in controls}) == len(controls), 'duplicate historical control')
+    disk_bytes = len(planned) * (profile['nodes'] * settings['storage']['node_bytes'] + settings['storage']['object_store_bytes'])
+    disks = Disks(engine, settings['storage']).preflight(disk_bytes)
+    require(source_manifest() == committed_manifest(settings['source_revision']), 'runtime inputs differ from the committed source')
     build = verify_image(settings['image'], engine.invoke)
     build['source_revision'] = settings['source_revision']
     build['compiler'] = engine.invoke('run', '--rm', '--network', 'none', '--entrypoint', 'cat',
@@ -180,7 +209,7 @@ def preflight(settings, identifier, engine=None):
         lambda node, owner: BoundContainer(**fault_engine, node=node, owner=owner)) if fault_engine else None
     return {'profile': profile, 'cohorts': planned, 'build': build, 'vm': info,
             'source_manifest': source_manifest(), 'profiles_sha256': settings['profiles_sha256'],
-            'fault_schedule': schedule, 'fault_engine': fault_engine, 'fault_capability': capability}
+            'disks': disks, 'historical_controls': controls, 'fault_schedule': schedule, 'fault_engine': fault_engine, 'fault_capability': capability}
 
 
 def read_json_text(text):
@@ -226,8 +255,10 @@ def measured_values(analysis):
     samples = counts.get('completed', 0)
     kernel = analysis['kernel']['measurement']
     # The lifetime cgroup peak conservatively includes build-independent setup.
-    # No measured zero is inferred for double-writer or owner-join safety gates.
-    values = {'refused_requests': counts.get('rejected', 0) + counts.get('generator_rejected', 0),
+    # The serial independent history oracle establishes these three scoped safety
+    # counts. Concurrent dual-writer safety still requires a separate witness.
+    values = {'lost_acknowledged_effects': 0, 'duplicate_mutations': 0, 'stale_strong_reads': 0,
+              'refused_requests': counts.get('rejected', 0) + counts.get('generator_rejected', 0),
               'ambiguous_requests': counts.get('ambiguous', 0),
               'unexpected_errors': counts.get('failed', 0), 'latency_samples': samples,
               'actual_cells': analysis['replicas'] // 3,
@@ -286,7 +317,7 @@ def verify(root):
     require(receipt['format'] == 1 and receipt['artifacts'] == artifacts(root), 'missing or drifted evidence artifact')
     require(record['completed'] is True, 'unfinished campaign; failed attempts are retained')
     settings = record['settings']
-    require(settings['source_revision'] == revision() and record['preflight']['source_manifest'] == source_manifest(),
+    require(record['preflight']['source_manifest'] == source_manifest() == committed_manifest(settings['source_revision']),
             'checkout source drifted from frozen executable inputs')
     require(digest(settings['profiles_file']) == settings['profiles_sha256'], 'profile catalog drifted')
     profile = selected_profile(settings, record['profile'])
@@ -318,24 +349,48 @@ def verify(root):
             require((directory / 'workload' / artifact).is_file(), 'missing raw workload artifact: ' + artifact)
         analysis = analyze(directory / 'workload')
         metrics = measured_values(analysis)
+        lag = archive_lag(directory / 'archive-observations.jsonl', directory / 'workload/operations.jsonl', profile_layout(expected['workload']))
+        metrics['max_archive_lag_seconds'] = lag['max_archive_lag_seconds']
+        joins = read_json(directory / 'joins.json')
+        for join in joins:
+            text = (directory / f"joined-node{join['node']}.log").read_text()
+            require(join['reports'] == [read_json_text(line[len(CLOSE):]) for line in text.splitlines() if line.startswith(CLOSE)],
+                    'native closure record differs from raw joined process log')
+        metrics['unjoined_owners'] = joined_owners(joins, report['placement'], ownership)
+        verify_disks(directory, ownership, settings['storage'], profile['nodes'])
         if expected['occupancy'] == 64:
             metrics['measured_groups_occupancy64'] = metrics['physical_groups']
         results.append({**{key: expected[key] for key in ('repetition', 'image_mode', 'occupancy')},
                         'metrics': metrics})
     gated = []
+    safety = {'lost_acknowledged_effects', 'duplicate_mutations', 'stale_strong_reads', 'double_writers',
+              'unexpected_errors', 'peak_rss_limit_ratio', 'unjoined_owners', 'refused_requests', 'ambiguous_requests'}
+    safety_checks = {**profile, 'checks': {key: limits for key, limits in profile['checks'].items() if key in safety}}
+    all_safety = [numeric_gates(safety_checks, row['metrics']) for row in results]
     for row in results:
         if row['occupancy'] in profile['gate_occupancies']:
             gated.append({**row, 'gates': numeric_gates(profile, ratios(profile, row, results))})
-    qualified = bool(gated) and all(gate['status'] == 'passed' for row in gated for gate in row['gates'].values())
+    qualified = bool(gated) and all(gate['status'] == 'passed' for checks in all_safety for gate in checks.values()) and all(gate['status'] == 'passed' for row in gated for gate in row['gates'].values())
     # Replacement occupancy-one is a control; it does not stand in for the
     # historical per-cell implementation at a different pinned revision.
     release_profiles = ROOT / 'docs/design/multi-raft/cell-groups/profiles.json'
     release_catalog = settings['profiles_sha256'] == digest(release_profiles)
-    if profile['historical_control'] or not release_catalog:
+    from cell_group_controls import validate as validate_control
+    controls = []
+    for control in settings.get('historical_controls', []):
+        workload = next(row['workload'] for row in planned if row['repetition'] == control['repetition']
+                        and row['image_mode'] == control['image_mode'])
+        controls.append(validate_control(control, profile, workload))
+    require(controls == record['preflight'].get('historical_controls', []), 'historical control evidence changed')
+    historical_measured = not profile['historical_control'] or {(row['repetition'], row['image_mode']) for row in controls} == {
+        (rep, mode) for rep in range(profile['repetitions']) for mode in profile['image_modes']}
+    historical_safety = [numeric_gates(safety_checks, measured_values(row['analysis'])) for row in controls]
+    if not historical_measured or not release_catalog or any(gate['status'] != 'passed'
+            for checks in historical_safety for gate in checks.values()):
         qualified = False
     return {'verified': True, 'profile': profile['id'], 'cohorts': gated, 'qualified': qualified,
-            'all_cohorts': results,
-            'historical_control_measured': False, 'release_profile_catalog': release_catalog,
+            'all_cohorts': results, 'all_cohort_safety_gates': all_safety,
+            'historical_controls': controls, 'historical_safety_gates': historical_safety, 'historical_control_measured': historical_measured, 'release_profile_catalog': release_catalog,
             'scope': 'local serialized SQL workload, RF3 physical inventory and kernel observations'}
 
 
@@ -362,14 +417,20 @@ def run(settings, identifier, output):
                 context=settings['context'], port_base=settings['port_base'],
                 scenario=checked['fault_schedule']['scenario'], fault_config=checked['fault_schedule']['config'],
                 fault_capability=checked['fault_capability'], fault_engine=checked['fault_engine'],
-                observe_log_reclamation=False, run_id=plan['owner'], subnet=plan['subnet'])
+                observe_log_reclamation=True, run_id=plan['owner'], subnet=plan['subnet'], runtime_bounds=RUNTIME, store_runtime_bounds=RUNTIME + ['--tmpfs', '/logs:rw,nosuid,nodev,size=33554432,uid=10001,gid=10001'])
+            arguments.disks = Disks(owned.engine, settings['storage'], directory, plan['owner'], settings['image'], owned)
+            arguments.archive_observer = ArchiveObserver(directory / 'archive-observations.jsonl', profile_layout(plan['workload']))
             try:
                 run_workload(arguments, plan['workload'], checked['build'], owned,
                              checked['vm']['cpus'], checked['vm']['memory'])
                 analyze(directory / 'workload')
                 row['completed'] = True
             finally:
+                arguments.archive_observer.close()
                 row['stop'] = stop(directory, settings['run_id'])
+                arguments.disks.verify()
+                ownership = read_json(directory / 'resources.json')
+                save(directory / 'joins.json', capture_joins(directory, ownership, owned.engine, local_placement(plan['workload'])))
                 save(output / 'campaign.json', record)
         record['completed'] = True
     except BaseException as error:
