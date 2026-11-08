@@ -546,7 +546,7 @@ class Profiles(unittest.TestCase):
     def test_bounded_scratch_keeps_exact_cpu_memory_and_log_limits(self):
         from raft_topology import verify_resources
         with tempfile.TemporaryDirectory() as temporary:
-            report, _ = existing.Evidence().fixture(Path(temporary))
+            report, _ = Evidence().fixture(Path(temporary))
             tmpfs = {'/tmp': 'rw,noexec,nosuid,size=67108864'}
             report['bounded_storage'] = True
             for limits in report['limits']:
