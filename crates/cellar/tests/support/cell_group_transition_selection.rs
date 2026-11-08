@@ -2,7 +2,9 @@
 
 //! Automatic discovery and rooted admission recovery feed the actual worker.
 use super::*;
-use cellar::application::consensus::verification::{FleetChange, FleetMutation, FleetTable};
+use cellar::application::consensus::verification::{
+    FleetChange, FleetHistoryState, FleetMutation, FleetTable,
+};
 use sha2::Digest as _;
 
 fn policy() -> PartitionPolicy {
@@ -170,6 +172,18 @@ pub(super) async fn admit(
             .is_empty(),
         "scheduler journal created child reservations"
     );
+    for child in &request.children {
+        ensure!(
+            matches!(
+                cluster.fixtures[0]
+                    .catalog
+                    .history(&selected, &child_history(cluster.history, child)?, TIMEOUT)
+                    .await,
+                Err(FleetCatalogError::Conflict)
+            ),
+            "staging must not reserve a child history"
+        );
+    }
     let key = "partition-work/active".to_string();
     ensure!(cluster.fixtures[0]
         .catalog
@@ -237,14 +251,25 @@ pub(super) async fn admit(
     ensure!(scheduler.pending_request() == Some(&request));
     let partial = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
     ensure!(partial.revision() == before.revision() + 1);
+    let first = child_history(cluster.history, &request.children[0])?;
+    let second = child_history(cluster.history, &request.children[1])?;
     ensure!(
-        cluster.fixtures[0]
+        *cluster.fixtures[0]
             .catalog
-            .pending_reservations(&partial, TIMEOUT)
+            .history(&partial, &first, TIMEOUT)
             .await?
-            .len()
-            == 1,
-        "the failed confirmation must follow the real child reservation"
+            .state()
+            == FleetHistoryState::Reserved
+    );
+    ensure!(
+        matches!(
+            cluster.fixtures[0]
+                .catalog
+                .history(&partial, &second, TIMEOUT)
+                .await,
+            Err(FleetCatalogError::Conflict)
+        ),
+        "the second child must remain unreserved"
     );
     let (poll, reads) = catalog_fault::count_reads(scheduler.poll(pressure(), TIMEOUT)).await;
     let poll = poll?;
@@ -380,4 +405,18 @@ async fn settle_cursor(cluster: &ManagedCluster) -> Result<()> {
     ensure!(empty.resume_pending(TIMEOUT).await?.is_none());
     ensure!(catalog.read(TIMEOUT).await?.revision() == completed.revision());
     Ok(())
+}
+
+fn child_history(scope: GroupHistory, child: &RaftFleetTransitionChild) -> Result<GroupHistory> {
+    Ok(GroupHistory {
+        group: cellar_logic::consensus::GroupId::new(
+            hex::decode(&child.group.group_id)?.as_slice().try_into()?,
+        )?,
+        incarnation: cellar_logic::consensus::IncarnationId::new(
+            hex::decode(&child.group.incarnation_id)?
+                .as_slice()
+                .try_into()?,
+        )?,
+        ..scope
+    })
 }

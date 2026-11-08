@@ -17,7 +17,9 @@ mod cleanup;
 mod topology;
 
 use anyhow::{ensure, Context as _, Result};
-use cellar::application::consensus::verification::cell_groups::TransitionPhase;
+use cellar::application::consensus::verification::{
+    cell_groups::TransitionPhase, FleetHistoryState,
+};
 use cellar::sdk::{consensus::*, fleet_operations::*};
 use managed_fixture::{
     leader, movement, request, seed_cells, ManagedCluster, SeededCells, TIMEOUT,
@@ -412,6 +414,18 @@ async fn exercise_admission(cluster: &ManagedCluster) -> Result<()> {
         .await?
         .is_empty());
 
+    for child in &original.children {
+        ensure!(
+            matches!(
+                f.catalog
+                    .history(&before, &child_history(cluster.history, child)?, TIMEOUT)
+                    .await,
+                Err(FleetCatalogError::Conflict)
+            ),
+            "staging must not reserve a child history"
+        );
+    }
+
     // A real CAS writes the first child reservation but loses confirmation.
     // The scheduling owner must not issue another operation or choose new IDs.
     f.store
@@ -425,13 +439,17 @@ async fn exercise_admission(cluster: &ManagedCluster) -> Result<()> {
     ensure!(scheduler.pending_request() == Some(&original));
     let partial = f.catalog.read(TIMEOUT).await?;
     ensure!(partial.revision() == before.revision() + 1);
+    let first = child_history(cluster.history, &original.children[0])?;
+    let second = child_history(cluster.history, &original.children[1])?;
     ensure!(
-        f.catalog
-            .pending_reservations(&partial, TIMEOUT)
-            .await?
-            .len()
-            == 1,
-        "the failed confirmation must follow the real child reservation"
+        *f.catalog.history(&partial, &first, TIMEOUT).await?.state() == FleetHistoryState::Reserved
+    );
+    ensure!(
+        matches!(
+            f.catalog.history(&partial, &second, TIMEOUT).await,
+            Err(FleetCatalogError::Conflict)
+        ),
+        "the second child must remain unreserved"
     );
     let mut different = original.clone();
     different.operation_id = hex::encode([250; 16]);
@@ -645,4 +663,18 @@ async fn verify_original_cells(
         ensure!(read.result == receipt.result);
     }
     Ok(())
+}
+
+fn child_history(scope: GroupHistory, child: &RaftFleetTransitionChild) -> Result<GroupHistory> {
+    Ok(GroupHistory {
+        group: cellar_logic::consensus::GroupId::new(
+            hex::decode(&child.group.group_id)?.as_slice().try_into()?,
+        )?,
+        incarnation: cellar_logic::consensus::IncarnationId::new(
+            hex::decode(&child.group.incarnation_id)?
+                .as_slice()
+                .try_into()?,
+        )?,
+        ..scope
+    })
 }
