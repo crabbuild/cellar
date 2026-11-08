@@ -87,6 +87,16 @@ def selected_profile(settings, identifier):
     require((rate == 0) is (identifier == 'idle_density'), 'idle and mixed traffic profiles differ')
     require(rate * profile['duration_seconds'] <= 1000000, 'offline ledger bound is one million arrivals')
     require(set(profile['gate_occupancies']) <= set(profile['occupancies']), 'gated cohort is absent')
+    require(profile['gate_occupancies'] and profile['checks'], 'profile must retain nonempty acceptance gates')
+    numeric_gates(profile, {})  # Validate numeric contracts before provisioning.
+    require(set(profile['ratios']) <= set(profile['checks']), 'ratio must name a required metric')
+    for spec in profile['ratios'].values():
+        require(isinstance(spec, dict) and {'numerator', 'denominator'} <= set(spec)
+                <= {'numerator', 'denominator', 'control_occupancy'}
+                and all(isinstance(spec[key], str) and spec[key] for key in ('numerator', 'denominator')),
+                'invalid matched-control ratio')
+        require('control_occupancy' not in spec or spec['control_occupancy'] in profile['occupancies'],
+                'ratio control occupancy is missing')
     return profile
 
 

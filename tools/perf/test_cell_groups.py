@@ -320,6 +320,20 @@ class Profiles(unittest.TestCase):
                 campaign.preflight(settings, 'mixed_quorum', engine)
             self.assertEqual(engine.invoke.call_count, 1)
 
+    def test_invalid_numeric_gate_contracts_refuse_before_any_engine_call(self):
+        for checks, ratios, occupancies in [({}, {}, [64]), ({'p99_ms': {'max': True}}, {}, [64]),
+                ({'ratio': {'max': 2}}, {'ratio': {'numerator': 'p99_ms', 'denominator': 'p99_ms', 'control_occupancy': 1}}, [64])]:
+            with self.subTest(checks=checks), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                settings = self.settings(root)
+                profile = self.frozen()
+                profile.update(checks=checks, ratios=ratios, occupancies=occupancies, gate_occupancies=occupancies)
+                save(root / 'profiles.json', {'format': 1, 'profiles': [profile]})
+                engine = Mock()
+                with self.assertRaises(ValueError):
+                    campaign.preflight(settings, 'mixed_quorum', engine)
+                self.assertEqual(engine.mock_calls, [])
+
     def test_frozen_matrix_uses_equal_cells_and_same_trace_at_every_occupancy(self):
         with tempfile.TemporaryDirectory() as temporary:
             settings = self.settings(Path(temporary))
