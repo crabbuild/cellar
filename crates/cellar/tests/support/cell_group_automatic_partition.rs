@@ -558,7 +558,7 @@ async fn sampling_retains_fractional_write_pressure() -> Result<()> {
 // A late new identity owns a fresh retry horizon. Replaying a stored command
 // below always retains that original command's horizon and input.
 fn retry_horizon() -> Result<u64> {
-    cellar::asyncrt::wall_ms()
+    u64::try_from(cellar::asyncrt::wall_ms())?
         .checked_add(60_000)
         .context("new command retry horizon")
 }
