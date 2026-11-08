@@ -236,7 +236,8 @@ impl MovementServiceWork {
     }
 
     async fn round(&mut self) -> Result<()> {
-        let deadline = Deadline::new(&self.catalog, self.options.turn_timeout)?;
+        let catalog = self.catalog.clone();
+        let deadline = Deadline::new(&catalog, self.options.turn_timeout)?;
         let cut = self.catalog.read(deadline.remaining()?).await?;
         if self.member_cleanup_only {
             return self.cleanup_round(&cut, &deadline).await.map(|_| ());
