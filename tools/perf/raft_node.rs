@@ -135,6 +135,15 @@ async fn resource_snapshot(service: &RaftCells) -> Result<serde_json::Value> {
     Ok(resources)
 }
 
+async fn bind_raft_listeners(peer: &RaftPeerNode) -> Result<NodeRaftListeners> {
+    // Shared transport registers the exact bound endpoint as physical identity.
+    Ok(NodeRaftListeners {
+        control: tokio::net::TcpListener::bind(peer.control_address).await?,
+        data: tokio::net::TcpListener::bind(peer.data_address).await?,
+        query: tokio::net::TcpListener::bind(peer.query_address).await?,
+    })
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -511,7 +520,7 @@ async fn main() -> Result<()> {
     } else {
         LogOpenMode::Resume
     };
-    let peer = &peers[i as usize - 1];
+    let peer = peers[i as usize - 1].clone();
     let mut raft_config = RaftCellsConfig {
         query_origins: vec![],
         command_origins: vec![],
@@ -557,11 +566,7 @@ async fn main() -> Result<()> {
             raft_config,
             RaftCellsServices {
                 recovery: None,
-                listeners: NodeRaftListeners {
-                    control: tokio::net::TcpListener::bind("0.0.0.0:9100").await?,
-                    data: tokio::net::TcpListener::bind("0.0.0.0:9101").await?,
-                    query: tokio::net::TcpListener::bind("0.0.0.0:9102").await?,
-                },
+                listeners: bind_raft_listeners(&peer).await?,
                 tls,
                 store,
                 application,

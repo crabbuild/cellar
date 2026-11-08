@@ -23,6 +23,40 @@ fn tls() -> Result<RaftTls> {
     )?)
 }
 
+#[tokio::test]
+async fn shared_runner_binds_concrete_peer_endpoints() -> Result<()> {
+    let endpoint = "127.0.0.1:0".parse()?;
+    let peer = RaftPeerNode {
+        node: NodeId::new([1; 16])?,
+        disk: DiskLineage::new([2; 16])?,
+        process: ProcessGeneration::new([3; 16])?,
+        label: "fixture-peer".into(),
+        server_name: "localhost".into(),
+        control_address: endpoint,
+        data_address: endpoint,
+        query_address: endpoint,
+    };
+    // Ephemeral ports avoid a racy port reservation. The bind owner retains the
+    // concrete IP; production registration additionally checks exact ports.
+    let bound = crate::bind_raft_listeners(&peer).await?;
+    let addresses = [
+        bound.control.local_addr()?,
+        bound.data.local_addr()?,
+        bound.query.local_addr()?,
+    ];
+    for address in addresses {
+        ensure!(address.ip() == endpoint.ip() && address.port() != 0);
+    }
+    ensure!(
+        addresses
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            == 3
+    );
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shared_runner_owns_rf3_enrollment_archives_and_follower_reads() -> Result<()> {
     for (total, occupancy) in [(3, 1), (33, 32), (129, 128)] {

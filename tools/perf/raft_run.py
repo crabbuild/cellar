@@ -249,6 +249,16 @@ def observe_failed_seed(cell, bases, token, docker, nodes, run_id, layout):
     return {'replicas': replicas, 'kernel': kernel}
 
 
+def startup_processes(docker, nodes, owner):
+    template = ('{"owner":{{json (index .Config.Labels "' + LABEL + '")}},'
+                '"running":{{json .State.Running}},"exit_code":{{json .State.ExitCode}}}')
+    for node in nodes:
+        state = decode_json(docker('inspect', '--format', template, node))
+        require(state['owner'] == owner, 'startup voter ownership changed')
+        require(state['running'] is True,
+                f"voter exited during startup: {node} (exit {state['exit_code']}); inspect retained node log")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image')
@@ -412,7 +422,10 @@ def run(args, profile, build, docker, cpus, memory):
                 return state['ready'] and state['leader'] == layout.members(cell, node_count)[0]
             except (OSError, ValueError):
                 return False
-        wait_for_placement(profile['cells']['total'], balance, time.monotonic() + profile['timing']['startup_seconds'], lambda text: print(text, flush=True))
+        def placement_progress(message):
+            startup_processes(docker, nodes, run_id)
+            print(message, flush=True)
+        wait_for_placement(profile['cells']['total'], balance, time.monotonic() + profile['timing']['startup_seconds'], placement_progress)
         topology = {}
         def capture_topology(edge):
             rows = []
