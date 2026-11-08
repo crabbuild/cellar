@@ -201,7 +201,7 @@ async fn exercise(
         TIMEOUT,
     ));
     tokio::time::timeout(TIMEOUT, async {
-        tokio::select! {
+        cellar::asyncrt::select! {
             result = &mut delayed => anyhow::bail!("admission returned before actual CAS: {result:?}"),
             _ = async { while !f.store.fleet_cas_waiting.load(Ordering::Acquire) { tokio::time::sleep(Duration::from_millis(5)).await; } } => Ok(()),
         }
