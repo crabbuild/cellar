@@ -52,6 +52,17 @@ impl Reclamation {
         }
     }
 
+    fn replaces(&self, previous: &Ack) -> Result<bool, crate::raft::storage::LogError> {
+        match (self, previous) {
+            (Self::Member(permit), Ack::Member(previous)) => Ok(previous.record().permits_mapping(
+                permit.member.scope()?,
+                permit.member.birth,
+                permit.member.member,
+            )),
+            _ => Ok(false),
+        }
+    }
+
     async fn reclaim(
         &self,
         log: &crate::raft::storage::ReplicaLog,
@@ -273,15 +284,24 @@ pub(super) async fn drive(
         .status(log)
         .await
         .map_err(RuntimeError::from)?;
+    let previous = match previous {
+        Some(previous) if request.permit.matches(&previous) => Some(previous),
+        Some(previous)
+            if request
+                .permit
+                .replaces(&previous)
+                .map_err(RuntimeError::from)? =>
+        {
+            None
+        }
+        Some(_) => return Err(RuntimeError::StaleCompletion.into()),
+        None => None,
+    };
+    // A completed older fence is not a receipt for the freshly removed member.
+    // Join and collect the current owner before replacing its high-water record.
     shared
         .groups
         .require_reclaimable(&history, previous.is_some())?;
-    if previous
-        .as_ref()
-        .is_some_and(|ack| !request.permit.matches(ack))
-    {
-        return Err(RuntimeError::StaleCompletion.into());
-    }
     if previous.as_ref().is_some_and(|ack| ack.complete()) {
         shared.groups.finish_reclamation(&history)?;
         shared

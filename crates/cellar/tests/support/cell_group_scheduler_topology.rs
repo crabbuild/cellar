@@ -242,7 +242,7 @@ async fn run(
     let mut seed = None;
     let mut outgoing = None;
     let keeps: Vec<Vec<usize>> = if collect {
-        vec![(0..6).collect(), (1..6).collect(), (0..3).collect(), vec![]]
+        vec![(0..6).collect(), (1..6).collect(), vec![0, 1, 2, 5], vec![]]
     } else {
         vec![(0..6).collect(), (1..6).collect(), (2..6).collect()]
     };
@@ -254,7 +254,7 @@ async fn run(
                 .iter()
                 .position(|f| hex::encode(f.spec.node.bytes()) == *target)
                 .context("original target index")?;
-            vec![1, 2, index]
+            vec![1, 2, index, 5]
         } else {
             keep
         };
@@ -437,7 +437,8 @@ async fn run(
                 }
             })
             .await
-            .context("joined member reclamation budget")??;
+            .context("joined member reclamation budget")?
+            .with_context(|| format!("member reclamation leg {leg}, source {source}"))?;
             ensure!(
                 leg != 1 || lost_settlement,
                 "actual root CAS confirmation loss was not observed"
@@ -494,6 +495,7 @@ async fn run(
                     .groups
                     == 0
             );
+            eprintln!("CG11 collected obsolete source {source}, leg {leg}; groups=0; settlement revision={}", settled.revision());
             if leg == 1 {
                 outgoing = Some(entry.target.clone());
             }
