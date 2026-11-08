@@ -244,8 +244,8 @@ async fn exercise(
 
     // Retained restart with no local group exercises normal configured startup,
     // including fresh boot qualification before automatic placement can run.
-    let profile = cluster.hosts[0].observe_node(TIMEOUT).await?.node.profile;
-    let topology = configuration(profile.bytes_per_group);
+    let node_profile = cluster.hosts[0].observe_node(TIMEOUT).await?.node.profile;
+    let topology = configuration(node_profile.bytes_per_group);
     let node = cluster.nodes.remove(0);
     let old = cluster.hosts.remove(0);
     ensure!(matches!(
