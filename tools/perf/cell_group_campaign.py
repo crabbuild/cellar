@@ -138,7 +138,7 @@ def preflight(settings, identifier, engine=None):
     engine.bind()
     info = read_json_text(engine.invoke('info', '--format',
         '{"os":{{json .OSType}},"cpus":{{.NCPU}},"memory":{{.MemTotal}},'
-        '"memory_limit":{{json .MemoryLimit}},"cpu_quota":{{json .CpuCfsQuota}}}'))
+        '"memory_limit":{{json .MemoryLimit}},"cpu_quota":{{json .CPUCfsQuota}}}'))
     minimum = vm_requirements(profile['nodes'])
     require(info['os'] == 'linux' and info['memory_limit'] is True and info['cpu_quota'] is True,
             'CPU and memory limits must be enforced by Linux')
