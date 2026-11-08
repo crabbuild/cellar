@@ -161,6 +161,26 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         f.store.clone(),
         cluster.history.cluster,
     )?;
+    // Node zero is the fixed public ingress, including when it is a follower
+    // or has no local child. Membership grants no application-origin rights.
+    let cut = observer.read(TIMEOUT).await?;
+    let origin = cluster.peers[0].clone();
+    for host in cluster.hosts.iter().skip(1) {
+        managed_fixture::inspect_current(host, origin.node, cut.revision()).await?;
+        host.grant_command_origin(NamespaceCommandOrigin {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            revision: cut.revision(),
+            peer: origin.clone(),
+        })?;
+        host.grant_query_origin(NamespaceQueryOrigin {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            revision: cut.revision(),
+            peer: origin.clone(),
+        })?;
+    }
+    drop(cut);
     // Pause execution, leaving automatic sizing/placement on the source voters.
     // No test callback supplies a child identity, destination or operator plan.
     ensure!(statuses(cluster).iter().all(Option::is_some));
@@ -170,12 +190,11 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         .context("seed original cells")?;
     eprintln!("automatic RF3: original cells seeded");
     let initial = cluster.directory.observe().await?;
-    let first = leader(&cluster.hosts[..3], cluster.history).await?;
-    let handle = cluster.hosts[first].cell(seed.cells[0].clone())?;
+    let handle = cluster.hosts[0].cell(seed.cells[0].clone())?;
     let handles = seed
         .cells
         .iter()
-        .map(|c| cluster.hosts[first].cell(c.clone()))
+        .map(|c| cluster.hosts[0].cell(c.clone()))
         .collect::<Result<Vec<_>, _>>()?;
     let mut acknowledged = [Vec::new(), Vec::new()];
     let mut sequence = 1;
@@ -427,7 +446,10 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         .history;
     ensure!(merged_history != cluster.history && !children.contains(&merged_history));
     let elected = current_leader(cluster, merged_history, &observer).await?;
-    cluster.hosts[elected].group(merged_history)?.quorum_membership(TIMEOUT).await?;
+    cluster.hosts[elected]
+        .group(merged_history)?
+        .quorum_membership(TIMEOUT)
+        .await?;
     ensure!(seed
         .cells
         .iter()
