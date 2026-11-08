@@ -134,9 +134,10 @@ pin, verifies its executable-input and runner hashes, matches the complete
 workload, and executes that revision's independent oracle against its retained
 raw run. It never parses old per-cell topology as shared-group topology. Keep the
 historical checkout and evidence available for re-verification. The pinned
-historical app supports materialized images only; an extents label refuses.
-The frozen release matrix currently requires both modes, so its historical
-control gate remains open for CG-15 to resolve. Missing controls and missing
+standalone historical runner measures materialized images; an extents label
+refuses. Its managed extent mode still needs a matched control adapter. The
+frozen release matrix requires both modes, so its historical control gate
+remains open for CG-15 to resolve. Missing controls and missing
 historical safety measurements cannot qualify a release profile.
 
 Hot-cell adaptation, movement, hibernation, managed disaster recovery,

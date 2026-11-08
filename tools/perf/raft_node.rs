@@ -814,17 +814,17 @@ async fn main() -> Result<()> {
         .close()
         .await
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    println!(
+    cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!(
         "CELLAR_CG14_CLOSE {}",
         serde_json::json!({
-            "node": i, "groups_total": report.groups_total, "omitted_groups": report.omitted_groups,
+            "node": i, "groups_total": report.groups_total, "reported_groups": report.groups.len(), "omitted_groups": report.omitted_groups,
             "failed_groups": report.groups.iter().filter(|group| group.failed).count(),
             "groups_with_archive_lag": report.groups_with_archive_lag,
             "groups_with_unknown_archive": report.groups_with_unknown_archive,
             "retained_calls_at_shutdown": report.retained_calls_at_shutdown,
             "mutation_outcomes": report.mutation_outcomes,
         })
-    );
+    ))?;
     cellar::note!("raft_perf_closed {:?}", report);
     Ok(())
 }

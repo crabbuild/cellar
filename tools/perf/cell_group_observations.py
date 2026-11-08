@@ -132,8 +132,9 @@ def joined_owners(rows, planned, ownership):
         if healthy:
             report = row['reports'][0]
             healthy = (all(type(report[key]) is int and report[key] >= 0 for key in (
-                    'node', 'groups_total', 'omitted_groups', 'failed_groups', 'retained_calls_at_shutdown')) and report['node'] == node and report['groups_total'] == placement['replica_groups']
-                and report['omitted_groups'] == 0 and report['failed_groups'] == 0 and report['retained_calls_at_shutdown'] == 0
+                    'node', 'groups_total', 'reported_groups', 'omitted_groups', 'failed_groups', 'retained_calls_at_shutdown')) and report['node'] == node and report['groups_total'] == placement['replica_groups']
+                and report['reported_groups'] + report['omitted_groups'] == report['groups_total']
+                and report['failed_groups'] == 0 and report['retained_calls_at_shutdown'] == 0
                 and report['mutation_outcomes'] == 'no_unresolved_local_producers')
         failures += int(not healthy)
     return failures

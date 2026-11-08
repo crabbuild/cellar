@@ -258,7 +258,7 @@ class Evidence(existing.IndependentReport, existing.Freshness):
             for n, row in enumerate(acknowledgements + [observed], 1)))
         joins = []
         for n in range(1, 4):
-            closed = {'node': n, 'groups_total': 1, 'omitted_groups': 0, 'failed_groups': 0, 'retained_calls_at_shutdown': 0,
+            closed = {'node': n, 'groups_total': 1, 'reported_groups': 1, 'omitted_groups': 0, 'failed_groups': 0, 'retained_calls_at_shutdown': 0,
                       'mutation_outcomes': 'no_unresolved_local_producers'}
             identity = containers[prefix + f'-node{n}']['id']
             joins.append({'node': n, 'id': identity, 'state': {'id': identity, 'running': False, 'paused': False, 'exit_code': 0},
@@ -333,6 +333,13 @@ class Evidence(existing.IndependentReport, existing.Freshness):
                 else:
                     changed[0]['reports'][0]['mutation_outcomes'] = 'unobserved'
                 self.assertEqual(joined_owners(changed, planned, owner), 1)
+            # The SDK keeps complete aggregate counts when bounded detail rows
+            # are omitted. Producer quiescence is independently downgraded by
+            # any failed group, including a group outside that detail window.
+            rows[0]['reports'][0].update(reported_groups=0, omitted_groups=1)
+            self.assertEqual(joined_owners(rows, planned, owner), 0)
+            rows[0]['reports'][0]['mutation_outcomes'] = 'unobserved'
+            self.assertEqual(joined_owners(rows, planned, owner), 1)
             rows[0]['id'] = 'foreign'
             with self.assertRaises(ValueError):
                 joined_owners(rows, planned, owner)

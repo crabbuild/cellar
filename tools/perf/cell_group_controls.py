@@ -2,8 +2,9 @@
 
 """Read-only import of exact, pinned historical per-cell control evidence.
 
-The historical executable only implements materialized images. An extents label
-cannot be manufactured for it; the frozen release matrix keeps that gap visible.
+The pinned standalone historical runner measures materialized images. Its
+managed extent mode needs a separate matched adapter; an extents label cannot
+be manufactured for a standalone run; the frozen release matrix keeps that gap visible.
 The historical oracle runs from its own clean source, never through the new
 shared-group topology parser.
 """
@@ -23,7 +24,7 @@ def validate(control, profile, expected_workload):
     require(profile['historical_control'] is True and profile['historical_revision'] == PIN,
             'unsupported historical control revision')
     require(control['image_mode'] == 'materialized' and 'materialized' in profile['image_modes'],
-            'pinned historical executable cannot establish extent image measurements')
+            'pinned historical standalone adapter cannot establish extent image measurements')
     require(type(control['repetition']) is int and 0 <= control['repetition'] < profile['repetitions'], 'unmatched historical repetition')
     source, run = Path(control['checkout']), Path(control['run'])
     require(source.is_absolute() and run.is_absolute() and source.is_dir() and run.is_dir(), 'historical inputs must exist')
