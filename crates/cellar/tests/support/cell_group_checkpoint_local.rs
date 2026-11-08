@@ -339,7 +339,10 @@ async fn publication(rooted: bool, transfer: Transfer) -> Result<()> {
     }
     fixture.drop_snapshot_delivery = matches!(transfer, Transfer::Cancelled);
     fixture.runtimes[0].campaign(route.history).await?;
-    fixture.drive(None).await?;
+    fixture.drive(None).await.with_context(|| format!(
+        "checkpoint catch-up: failed_delivery={}, transfers={}, queued_packets={}, next_retry_tick={}",
+        fixture.failed_snapshot, fixture.snapshot_transfers, fixture.network.len(), fixture.snapshot_retry_tick_at
+    ))?;
     assert!(
         fixture.snapshot_transfers >= 1,
         "Raft must generate a snapshot after compaction"

@@ -55,6 +55,7 @@ struct RuntimeCluster {
     drop_snapshot_delivery: bool,
     retry_snapshot: bool,
     failed_snapshot: bool,
+    snapshot_retry_tick_at: u64,
     retry_checkpoint: Option<CellGroupCheckpointRegistration>,
     transports: Vec<RaftTransport>,
     appliers: BTreeMap<(usize, GroupHistory), (CellGroupSqlPool, CellGroupApplier)>,
@@ -122,6 +123,7 @@ impl RuntimeCluster {
             drop_snapshot_delivery: false,
             retry_snapshot: false,
             failed_snapshot: false,
+            snapshot_retry_tick_at: 0,
             retry_checkpoint: None,
             transports: Vec::new(),
             appliers: BTreeMap::new(),
@@ -269,8 +271,23 @@ impl RuntimeCluster {
                     self.snapshot_transfers += 1;
                 }
             }
-            if self.retry_snapshot && self.snapshot_transfers == 0 {
-                self.runtimes[0].tick().await?;
+            if self.failed_snapshot && self.snapshot_transfers == 0 {
+                // These fixture runtimes deliberately have no automatic clock.
+                // Drive retry heartbeats at the production tick cadence after
+                // the actual failed delivery. A tick per pump turn can expire
+                // election/check-quorum clocks before physical replies arrive.
+                let now = self
+                    .cluster
+                    .domain
+                    .run(async { cellar::asyncrt::mono_ms() })
+                    .await?;
+                let interval = RaftRuntimeOptions::default()
+                    .tick_interval_ms
+                    .context("production Raft tick cadence")?;
+                if now >= self.snapshot_retry_tick_at {
+                    self.runtimes[0].tick().await?;
+                    self.snapshot_retry_tick_at = now.saturating_add(interval);
+                }
             }
             return Ok(());
         }

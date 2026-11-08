@@ -432,6 +432,7 @@ async fn reopen_voters(
         drop_snapshot_delivery: false,
         retry_snapshot: false,
         failed_snapshot: false,
+        snapshot_retry_tick_at: 0,
         retry_checkpoint: None,
         transports: Vec::new(),
         appliers,
