@@ -2844,7 +2844,7 @@
     {
       "id": "CG-14",
       "title": "Build reproducible shared-group workload and RustFS harnesses",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "effort": "M",
       "risk": "HIGH",
@@ -2945,7 +2945,9 @@
         "I12",
         "I14"
       ],
-      "evidence": [],
+      "evidence": [
+        ".cellar/qualification/cg14-23414b470dd2/evidence.json"
+      ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
         "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",

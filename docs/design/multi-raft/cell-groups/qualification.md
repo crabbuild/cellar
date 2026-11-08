@@ -169,8 +169,12 @@ Five-second calls and eight reconciliation turns remain unchanged. See
 CG-14 provides `tools/perf/cell_groups.py` with source-pinned SQL/RustFS campaigns,
 independent raw-evidence verification and owned process stop. The
 [campaign guide](../../../../tools/perf/cell_groups.md) defines the implemented
-private configuration and its remaining acceptance boundaries. All five named
-component cases pass; this does not establish full CG-14 or release acceptance.
+private configuration and acceptance boundaries. CG-14's five named cases are
+accepted at `23414b47`, with constrained five-process RF3/RustFS coverage and
+bounded disks, archive-lag and logical-closure evidence. This closes the harness
+feature task. Full release profiles remain CG-15/16 gates. The private S3 matrix
+retains three ambiguous five-second writes; its passing minimized reproduction
+is not a replacement for that failed matrix. See the latest [progress](progress.md).
 
 The available CLI is:
 

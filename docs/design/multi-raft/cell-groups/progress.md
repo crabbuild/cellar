@@ -10623,3 +10623,59 @@ profile requires 20 GiB; the current VM exposes about 15.6 GiB and correctly
 refuses preflight. The earlier occupancy-128 matrix miss and all frozen
 release gates remain open. See the [campaign guide](../../../../tools/perf/cell_groups.md)
 for commands, supported scenarios and artifact ownership.
+
+## CG-14 harness feature acceptance
+
+CG-14 is **DONE: all five required cases accepted** at
+`23414b470dd229f763beada42bfdf595c6747391`. The record is
+`.cellar/qualification/cg14-23414b470dd2/evidence.json`; it binds 967 source inputs,
+all required command logs and the actual native test executable. Locked all-target
+check, five exact cases, formatting, layout and strict all-target Clippy pass.
+The CG-14 Python suite has 46 passing cases. The broader perf suite runs 315
+cases with one opt-in Docker-freshness skip; the 37 plan tests pass.
+
+This is the defined harness task, separate from CG-15's complete release-profile
+campaign. Disk bounds, source/artifact validation, serial cohorts, complete
+outcome ledgers, archive-lag upper bounds and joined native-owner witnesses are
+implemented. File censuses are explicit and refuse follower-pause combinations.
+Unsupported lifecycle/independent-host profiles and missing historical/safety
+measurements cannot qualify a release.
+
+The old VM-capacity block is resolved: a dedicated eight-CPU VM exposes
+23,036,624,896 bytes of guest memory, above the unchanged 20-GiB minimum.
+All five voter processes retain 1 CPU/3 GiB and no swap; RustFS retains
+2 CPUs/4 GiB. Prewritten ext4 devices enforce 1 GiB per voter and 2 GiB for
+RustFS. Roots are read-only and scratch/logs have finite limits. The separate
+128-MiB filesystem helper observed ENOSPC; its original ten-second observation
+deadline miss remains recorded. No voter call/startup/retry/CPU/memory budget
+was raised.
+
+The native Linux binary was compiled at `974fe607`; every native/build input is
+byte-identical at `23414b47`. Only four host orchestration/test/guide files changed.
+The packaged immutable image retains the compiled-source manifest and an explicit
+artifact-reuse receipt; current full source hashes, compiler and deployed binary
+hashes are verified. The source-equivalence receipt and command are retained with
+the qualification artifacts.
+
+Real RustFS results (eight logical SQLite cells per cohort, RF3 across five
+processes, occupancies 1/2, materialized/extents):
+
+- All four Quorum cohorts pass independent model, all assigned replica, physical
+  population, archive-lag, kernel/file and joined-close verification. They contain
+  40 measured requests with no refusals, ambiguities or unexpected errors.
+- The original S3 matrix completes its materialized occupancy-one cohort, then
+  **fails** occupancy two during warmup: 30 offered, 23 completed, 3 ambiguous
+  writes and 4 generator refusals. The same five-second deadline remains. Voters
+  exit zero; ambiguous commands and quarantined cells remain in the ledger.
+- The single-cohort, same-budget S3 occupancy-two reproduction passes. This
+  establishes intermittency; it does not resolve or replace the failed matrix.
+- The two previously unrun S3 extent cohorts pass independent functional gates
+  in a separate catalog. The original complete S3 matrix remains unqualified.
+
+S3 HTTP histograms in the failed run were bounded by 50 ms; three voter fsync
+histograms included calls in the 1–5 second bucket. CPU/RSS were low. Tail local
+sync is a hypothesis, not a proven cause. CG-15 must reproduce/trace the failure
+and pass the unchanged full matrix. No stable S3 latency, density, concurrent
+writer, independent-domain, lifecycle or release claim follows from these small
+functional runs. All failures, original catalogs, ledgers, logs and voter/store
+disks remain retained; no original result was rewritten as passed.
