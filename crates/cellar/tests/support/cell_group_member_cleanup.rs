@@ -36,9 +36,11 @@ pub(super) async fn exercise(
                 .is_some(),
             "completion did not persist targeted cleanup"
         );
+        let mut mutation_id = [219; 16];
+        mutation_id[15] = source as u8;
         let forged = FleetMutation {
-            id: [220 + source as u8; 16],
-            operation: [220 + source as u8; 16],
+            id: mutation_id,
+            operation: mutation_id,
             principal: "fixture".into(),
             expected_revision: before.revision(),
             changes: vec![FleetChange {
@@ -47,12 +49,10 @@ pub(super) async fn exercise(
                 value: None,
             }],
         };
+        let refused = catalog.commit(&before, &forged, TIMEOUT).await.err();
         ensure!(
-            matches!(
-                catalog.commit(&before, &forged, TIMEOUT).await,
-                Err(FleetCatalogError::Invalid(_))
-            ),
-            "generic queue deletion allowed"
+            matches!(&refused, Some(FleetCatalogError::Invalid(_))),
+            "generic queue deletion did not return the expected refusal: {refused:?}"
         );
         if source == 0 {
             // This is the FIRST removed member, after a later completed move.
