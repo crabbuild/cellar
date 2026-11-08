@@ -210,7 +210,7 @@ async fn exercise_inner(cluster: &mut ManagedCluster, collect: bool) -> Result<(
     }
     let seed = result?;
     if collect {
-        return movement::verify_cells(&cluster.hosts[2], &seed, 4).await;
+        return movement::verify_cells(&cluster.hosts[2], &seed, 5).await;
     }
     // Placement completion is not a deletion certificate. The obsolete copies
     // stay on disk, while closing both former voters must leave a serving RF3.
@@ -241,20 +241,31 @@ async fn run(
     // needs no balancing move merely because three empty nodes are available.
     let mut seed = None;
     let mut outgoing = None;
-    let keeps = if collect {
-        [0..6, 1..6, 0..3]
+    let keeps: Vec<Vec<usize>> = if collect {
+        vec![(0..6).collect(), (1..6).collect(), (0..3).collect(), vec![]]
     } else {
-        [0..6, 1..6, 2..6]
+        vec![(0..6).collect(), (1..6).collect(), (2..6).collect()]
     };
     for (leg, keep) in keeps.into_iter().enumerate() {
+        let keep = if collect && leg == 3 {
+            let target = outgoing.as_ref().context("original joined target")?;
+            let index = cluster
+                .fixtures
+                .iter()
+                .position(|f| hex::encode(f.spec.node.bytes()) == *target)
+                .context("original target index")?;
+            vec![1, 2, index]
+        } else {
+            keep
+        };
         let status = control.status(TIMEOUT).await?;
         let request = RaftFleetBegin {
             catalog_id: status.catalog_id,
             operation_id: hex::encode([220 + leg as u8; 16]),
             expected_revision: status.observed_revision,
-            keep: cluster.fixtures[keep]
+            keep: keep
                 .iter()
-                .map(|f| hex::encode(f.spec.node.bytes()))
+                .map(|index| hex::encode(cluster.fixtures[*index].spec.node.bytes()))
                 .collect(),
             policy: FleetTopologyPolicy {
                 revision: leg as u64 + 1,
@@ -342,6 +353,8 @@ async fn run(
                     && entry.source
                         == if collect && leg == 2 {
                             outgoing.clone().context("return source")?
+                        } else if collect && leg == 3 {
+                            hex::encode(cluster.fixtures[0].spec.node.bytes())
                         } else {
                             hex::encode(cluster.fixtures[leg - 1].spec.node.bytes())
                         }
@@ -389,6 +402,7 @@ async fn run(
             );
             let before = cluster.hosts[source].observe_node(TIMEOUT).await?;
             ensure!(before.node.groups == 1);
+            let before_root = cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision();
             if leg == 1 {
                 cluster.fixtures[0]
                     .store
@@ -412,9 +426,10 @@ async fn run(
                             RuntimeError::NotReady | RuntimeError::Overloaded,
                         )) => tokio::time::sleep(Duration::from_millis(10)).await,
                         Err(CellGroupControllerError::Catalog(error)) if leg == 1 && !cluster.fixtures[0].store.fail_fleet_confirmation.load(Ordering::Acquire)
-                            && matches!(error.as_ref(), cellar::application::consensus::verification::CatalogError::FleetAuthority(error) if matches!(error.as_ref(), FleetCatalogError::Unconfirmed)) => {
+                            && matches!(error.as_ref(), cellar::application::consensus::verification::CatalogError::FleetAuthority(error) if matches!(error.as_ref(), FleetCatalogError::Unconfirmed | FleetCatalogError::Storage(_))) => {
                             ensure!(!lost_settlement, "only the injected settlement confirmation may be lost");
                             ensure!(cluster.hosts[source].observe_node(TIMEOUT).await?.node.groups == 0);
+                            ensure!(cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == before_root + 1, "fault must follow the successful slot-settlement CAS");
                             lost_settlement = true;
                         }
                         Err(error) => return Err(error.into()),
@@ -482,10 +497,19 @@ async fn run(
             if leg == 1 {
                 outgoing = Some(entry.target.clone());
             }
-            if leg == 2 {
+            if leg == 2 || leg == 3 {
+                let returned_index = if leg == 2 {
+                    0
+                } else {
+                    cluster
+                        .fixtures
+                        .iter()
+                        .position(|f| hex::encode(f.spec.node.bytes()) == entry.target)
+                        .context("returned joined target")?
+                };
                 let physical = cluster.hosts[2]
                     .inspect_peer_physical_inventory(
-                        cluster.fixtures[0].spec.node,
+                        cluster.fixtures[returned_index].spec.node,
                         cut.revision(),
                         TIMEOUT,
                     )
@@ -495,7 +519,7 @@ async fn run(
                     .group_history(&cluster.history)
                     .context("returned shared history")?;
                 ensure!(
-                    returned.in_configuration() && returned.member().get() > 4,
+                    returned.in_configuration() && returned.member().get() > leg as u64 + 2,
                     "return reused an obsolete member ID"
                 );
             }
