@@ -559,3 +559,26 @@ minimum-version reads and S3 writes through the original ingress. A retained
 restart must preserve the refusal and exact replay. Both image modes run.
 Fleet floor refunds and repeated movement cycles, process fault injection,
 independent voter containers, measured disk/RSS peaks and load remain open gates.
+
+
+## Removed live-member collection and return
+
+Use `--suite managed-member-reclamation` with an owned RustFS backend and fresh
+output directory. `RaftCells::reclaim_removed_member` requires the latest completed
+Fleet replacement and the exact obsolete local member. It joins the group owners,
+fences the removed member prefix, collects private pages/images in bounded turns,
+and settles the known engine slot and group disk reservation once. Unknown disk
+debt, the deployment baseline and installed memory remain charged. Reuse requires
+an authenticated managed seed with the same history/birth and a higher member ID.
+
+The case moves a replica out and back to the original node, then back to the
+previously joined node. It checks repeated fence replacement, local linearizable
+SQL on returned members, original receipts, token reads and subsequent S3 writes.
+An actual successful settlement CAS loses confirmation; retry must not refund
+again. Joint/surviving-member cleanup, generic receipt/index mutation and old
+genesis must refuse. Both image modes retain the original resource/deadline bounds.
+
+This is explicit original-boot cleanup while its completion remains selected.
+Automatic cleanup ownership/dispatch, historical and successor-boot cleanup,
+crash/restart schedules, domain loss/reserve, large-inventory fanout, independent
+voter processes, load and measured resource peaks remain separate gates.
