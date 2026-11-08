@@ -3,7 +3,8 @@
 //! Root cancellation competes with actual delayed child reservation CAS writes.
 use super::*;
 use cellar::application::consensus::verification::{
-    cell_groups::CellGroupBirthSpec, InitialMember,
+    cell_groups::{CellGroupBirthDisposition, CellGroupBirthSpec},
+    InitialMember,
 };
 use cellar::application::consensus::verification::{
     FleetChange, FleetHistoryState, FleetMutation, FleetTable,
@@ -373,11 +374,21 @@ async fn exercise(
             .await?
             .is_some());
         ensure!(matches!(
+            cluster.directory.fleet_group_birth_disposition(
+                authorization.as_ref().context("reserved child")?
+            ).await?,
+            Some(CellGroupBirthDisposition::Cancelled { history, operation })
+                if history == first && hex::encode(operation.bytes()) == request.operation_id
+        ));
+        ensure!(matches!(
             cluster
                 .directory
                 .materialize_fleet_group_birth(authorization.as_ref().context("reserved child")?)
                 .await,
-            Err(cellar::application::consensus::verification::CatalogError::BirthCancelled)
+            Err(
+                cellar::application::consensus::verification::CatalogError::Fenced
+                    | cellar::application::consensus::verification::CatalogError::BirthCancelled
+            )
         ));
     }
     let cold = Box::pin(control(cluster, rooted, roots)).await?;
@@ -424,11 +435,21 @@ async fn exercise(
             "cancellation refunded or rewrote original birth debt"
         );
         ensure!(matches!(
+            cluster.directory.fleet_group_birth_disposition(
+                authorization.as_ref().context("reserved child")?
+            ).await?,
+            Some(CellGroupBirthDisposition::Cancelled { history, operation })
+                if history == first && hex::encode(operation.bytes()) == request.operation_id
+        ));
+        ensure!(matches!(
             cluster
                 .directory
                 .materialize_fleet_group_birth(authorization.as_ref().context("reserved child")?)
                 .await,
-            Err(cellar::application::consensus::verification::CatalogError::BirthCancelled)
+            Err(
+                cellar::application::consensus::verification::CatalogError::Fenced
+                    | cellar::application::consensus::verification::CatalogError::BirthCancelled
+            )
         ));
         let proposal = f
             .catalog
@@ -471,11 +492,19 @@ async fn exercise(
             .recover_birth_reservation(&completed, &cluster.directory, &second, TIMEOUT)
             .await?;
         ensure!(matches!(
+            cluster.directory.fleet_group_birth_disposition(&authorization).await?,
+            Some(CellGroupBirthDisposition::Cancelled { history, operation })
+                if history == second && hex::encode(operation.bytes()) == request.operation_id
+        ));
+        ensure!(matches!(
             cluster
                 .directory
                 .materialize_fleet_group_birth(&authorization)
                 .await,
-            Err(cellar::application::consensus::verification::CatalogError::BirthCancelled)
+            Err(
+                cellar::application::consensus::verification::CatalogError::Fenced
+                    | cellar::application::consensus::verification::CatalogError::BirthCancelled
+            )
         ));
     }
     let current = leader(&cluster.hosts[..3], cluster.history).await?;
@@ -507,9 +536,24 @@ async fn exercise(
             .await?;
         ensure!(read.result == fresh.result && read.version == fresh.version);
     }
-    // A proposed identity is not ownership. A later selected plan may be
-    // permanently inadmissible because another operation owns a child name.
-    // Cancelling that plan must leave the other operation and its debt intact.
+    let (mut next, mut new_request) = recommend(cluster, &endpoint)
+        .await
+        .context("recommend work after cancellation")?;
+    new_request.operation_id = hex::encode([241; 16]);
+    new_request.request_id = hex::encode([242; 16]);
+    for (i, child) in new_request.children.iter_mut().enumerate() {
+        let id = 243 + i as u8;
+        child.group.group_id = hex::encode([id; 16]);
+        child.group.incarnation_id = hex::encode([id; 16]);
+        child.creation_id = hex::encode([id; 16]);
+        child.request_id = hex::encode([id; 16]);
+    }
+    next.stage("automatic-test", &new_request, TIMEOUT)
+        .await
+        .context("stage newer work before the competing child reservation")?;
+    // A proposed identity is not ownership. After selection, another operation
+    // wins a child name before this plan reserves it. Cancellation must leave
+    // that operation and its debt intact.
     let cut = f.catalog.read(TIMEOUT).await?;
     let unrelated = f
         .catalog
@@ -547,19 +591,10 @@ async fn exercise(
             TIMEOUT,
         )
         .await?;
-    let (mut next, mut new_request) = recommend(cluster, &endpoint).await?;
-    new_request.operation_id = hex::encode([241; 16]);
-    new_request.request_id = hex::encode([242; 16]);
-    for (i, child) in new_request.children.iter_mut().enumerate() {
-        let id = 243 + i as u8;
-        child.group.group_id = hex::encode([id; 16]);
-        child.group.incarnation_id = hex::encode([id; 16]);
-        child.creation_id = hex::encode([id; 16]);
-        child.request_id = hex::encode([id; 16]);
-    }
-    next.stage("automatic-test", &new_request, TIMEOUT).await?;
     let selected = f.catalog.read(TIMEOUT).await?;
-    Box::pin(endpoint.cancel_staged_partition("automatic-test", &request, TIMEOUT)).await?;
+    Box::pin(endpoint.cancel_staged_partition("automatic-test", &request, TIMEOUT))
+        .await
+        .context("replay historical cancellation while newer work is selected")?;
     ensure!(f.catalog.read(TIMEOUT).await?.revision() == selected.revision());
     let restored = Box::pin(control(cluster, rooted, roots)).await?;
     let mut restored = RaftFleetPartitionScheduler::new(restored, selection::policy(), 1)?;
@@ -572,12 +607,15 @@ async fn exercise(
             },
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("restore newer selected work")?;
     ensure!(
         restored.pending_request() == Some(&new_request),
         "historical cancellation erased newer work"
     );
-    Box::pin(restored.cancel_pending("automatic-test", TIMEOUT)).await?;
+    Box::pin(restored.cancel_pending("automatic-test", TIMEOUT))
+        .await
+        .context("cancel newer work without touching another operation's child")?;
     let cut = f.catalog.read(TIMEOUT).await?;
     ensure!(
         *f.catalog
@@ -586,36 +624,69 @@ async fn exercise(
             .state()
             == FleetHistoryState::Reserved
     );
-    cluster
-        .directory
-        .materialize_fleet_group_birth(&unrelated.authorization)
-        .await?;
+    ensure!(
+        cluster
+            .directory
+            .fleet_group_birth_disposition(&unrelated.authorization)
+            .await?
+            .is_none(),
+        "cancellation decided another operation's birth"
+    );
+    ensure!(matches!(
+        cluster
+            .directory
+            .materialize_fleet_group_birth(&unrelated.authorization)
+            .await,
+        Err(cellar::application::consensus::verification::CatalogError::Fenced)
+    ));
+    let original = f
+        .catalog
+        .history(&selected, unrelated.authorization.scope(), TIMEOUT)
+        .await?
+        .encode()?;
+    ensure!(
+        f.catalog
+            .history(&cut, unrelated.authorization.scope(), TIMEOUT)
+            .await?
+            .encode()?
+            == original,
+        "cancellation changed another operation's retained identity or debt"
+    );
+    // A fresh root mutation proves that the other operation's identity was not
+    // fenced. The unselected reservation remains Reserved; this grants no birth.
     let confirmed = f
         .catalog
-        .confirm_birth(
+        .commit(
             &cut,
-            &FleetRequestIdentity {
+            &FleetMutation {
                 id: [250; 16],
                 operation: [249; 16],
                 principal: "other-owner".into(),
                 expected_revision: cut.revision(),
+                changes: vec![FleetChange {
+                    table: FleetTable::Histories,
+                    key: f
+                        .catalog
+                        .group_binding(unrelated.authorization.scope())?
+                        .key()?,
+                    value: Some(original.clone()),
+                }],
             },
-            &cluster.directory,
-            &unrelated.authorization,
             TIMEOUT,
         )
         .await?;
+    ensure!(confirmed.applied_revision > cut.revision());
     ensure!(
-        *f.catalog
+        f.catalog
             .history(
                 &confirmed.snapshot,
                 unrelated.authorization.scope(),
                 TIMEOUT
             )
             .await?
-            .state()
-            == FleetHistoryState::Live,
-        "cancellation fenced another operation's child"
+            .encode()?
+            == original,
+        "cancellation fenced or changed another operation's child"
     );
     Ok(())
 }

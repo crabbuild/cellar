@@ -28,6 +28,25 @@ pub enum CellGroupBirthDisposition {
 }
 
 impl RangeDirectory {
+    /// Observe the immutable decision for an exact managed reservation, including
+    /// an unselected birth. `None` means no decision was observed; it grants no
+    /// materialization, serving or resource-release authority. Retry observation
+    /// after an unknown mutation result instead of inferring cancellation.
+    pub async fn fleet_group_birth_disposition(
+        &self,
+        authorization: &crate::raft::fleet_catalog::FleetBirthAuthorization,
+    ) -> Result<Option<CellGroupBirthDisposition>, CatalogError> {
+        authorization.check_namespace(&self.namespace)?;
+        self.bounded(async {
+            if self.namespace.cell_group_owner().await?.as_ref() != Some(authorization.owner()) {
+                return Err(CatalogError::ManagedAdmissionRequired);
+            }
+            self.group_birth_disposition(&authorization.proposal())
+                .await
+        })
+        .await
+    }
+
     /// Settle an unselected managed reservation at the same immutable decision
     /// key as materialization. A selected or already live birth remains Live;
     /// cancellation never erases a possible replica or releases its resources.

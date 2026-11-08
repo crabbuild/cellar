@@ -172,6 +172,10 @@ existing admitted transitions require their pre-seal transition cancellation
 owner. Reserved histories, identity references and physical charges remain.
 The existing restart settlement owner may later reconcile a proved Cancelled
 birth without changing its metadata or claiming physical release.
+`RangeDirectory::fleet_group_birth_disposition` observes the exact immutable
+Live or Cancelled winner for a managed reservation, including an unselected
+child. An absent decision is only an observation; it grants no materialization,
+serving or resource-release authority.
 
 This adds `/partition-cancellation-1` to the immutable protocol digest. Numeric
 markers remain 1. Use fresh namespaces, fleet roots, engine directories and
