@@ -456,8 +456,8 @@ def run(args, profile, build, docker, cpus, memory):
                                             for node in nodes + [prefix + '-store']]
             # Retain only resource fields; Env contains private credentials.
         verify_resources(report, node_count)
-        for node, limits in zip(nodes, report['limits']):
-            require(limits['NanoCpus'] == 10**9 and limits['Memory'] == 3 * 1024**3 and limits['MemorySwap'] == 3 * 1024**3 and not limits['Tmpfs'], 'resource limit mismatch')
+        # Resource quotas, bounded scratch and log caps are checked together above.
+        for node in nodes:
             require(docker('exec', node, 'sha256sum', '/proc/1/exe').split()[0] == build['binary_sha256'], 'deployed executable differs from verified image')
         def send(cell, operation, body, headers, member=None):
             node = layout.members(cell, node_count)[0 if operation == 'command' else 1] - 1

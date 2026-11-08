@@ -543,6 +543,29 @@ class Profiles(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'independent'):
                 campaign.selected_profile(settings, 'mixed_quorum')
 
+    def test_bounded_scratch_keeps_exact_cpu_memory_and_log_limits(self):
+        from raft_topology import verify_resources
+        with tempfile.TemporaryDirectory() as temporary:
+            report, _ = existing.Evidence().fixture(Path(temporary))
+            tmpfs = {'/tmp': 'rw,noexec,nosuid,size=67108864'}
+            report['bounded_storage'] = True
+            for limits in report['limits']:
+                limits['Tmpfs'] = dict(tmpfs)
+            report['store_limits']['Tmpfs'] = {**tmpfs, '/logs': 'rw,nosuid,nodev,size=33554432,uid=10001,gid=10001'}
+            report['storage_host_configs'] = [{'ReadonlyRootfs': True, 'Tmpfs': dict(limits['Tmpfs']),
+                'LogConfig': {'Type': 'json-file', 'Config': {'max-size': '5m', 'max-file': '2'}}}
+                for limits in report['limits'] + [report['store_limits']]]
+            verify_resources(report, 3)
+            for field in ('cpu', 'memory', 'scratch', 'root', 'logs'):
+                changed = copy.deepcopy(report)
+                if field == 'cpu': changed['limits'][0]['NanoCpus'] *= 2
+                elif field == 'memory': changed['limits'][0]['MemorySwap'] *= 2
+                elif field == 'scratch': changed['limits'][0]['Tmpfs']['/tmp'] = 'rw'
+                elif field == 'root': changed['storage_host_configs'][0]['ReadonlyRootfs'] = False
+                else: changed['storage_host_configs'][0]['LogConfig']['Config']['max-size'] = '50m'
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    verify_resources(changed, 3)
+
     def test_file_census_refuses_paused_voters_before_provisioning(self):
         with tempfile.TemporaryDirectory() as temporary:
             settings = self.settings(Path(temporary))
