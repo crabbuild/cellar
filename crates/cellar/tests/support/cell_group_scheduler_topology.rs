@@ -179,6 +179,13 @@ pub async fn exercise_cleanup_service(cluster: &mut ManagedCluster) -> Result<()
 }
 
 pub async fn exercise_retained_cleanup(cluster: &mut ManagedCluster) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            "off,cellar::raft::fleet_catalog::resources::execution::service::worker=debug",
+        )
+        .with_ansi(false)
+        .with_test_writer()
+        .try_init();
     exercise_inner(cluster, false, true, true).await
 }
 
