@@ -163,6 +163,24 @@ class Ownership(unittest.TestCase):
             stop(root, CAMPAIGN, fake.engine)
             self.assertEqual(sum(call[0] == 'run' for call in fake.calls), 1)
 
+    def test_existing_foreign_volume_cannot_be_adopted_or_mounted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fake = FakeEngine()
+            name = 'cellar-mr14-' + OWNER + '-node1'
+            def invoke(*args):
+                if args[:2] == ('volume', 'create'):
+                    return name
+                if args[:2] == ('volume', 'inspect'):
+                    return json.dumps([{'Name': name, 'Driver': 'local', 'Options': None,
+                                        'Labels': {'io.cellar.mr14.run': 'foreign'}}])
+                return fake.invoke(*args)
+            owned = OwnedRun(Engine(CONTEXT, ENGINE, invoke), Path(temporary).resolve(), OWNER, CAMPAIGN)
+            with self.assertRaisesRegex(ValueError, 'foreign'):
+                owned('volume', 'create', '--label', 'io.cellar.mr14.run=' + OWNER, name)
+            self.assertEqual(owned.state['volumes'], [])
+            with self.assertRaises(ValueError):
+                owned('run', '--rm', '--label', 'io.cellar.mr14.run=' + OWNER, '-v', name + ':/data', 'image')
+
     def test_default_context_is_refused_before_external_call(self):
         for context in ('default', '', 'colima', 'colima-cellar-multi-raft; rm'):
             invoke = Mock()

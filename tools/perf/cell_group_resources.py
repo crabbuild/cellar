@@ -142,6 +142,13 @@ class OwnedRun:
                                       'name': name, 'at_ns': time.monotonic_ns()})
         save(self.path, self.state)
         result = self.engine.invoke(*args)
+        if args[:2] == ('volume', 'create'):
+            volume = json.loads(self.engine.invoke('volume', 'inspect', args[-1]))
+            expected_options = dict(args[index + 1].split('=', 1) for index, arg in enumerate(args[:-1]) if arg == '--opt')
+            require(result == args[-1] and len(volume) == 1 and volume[0]['Name'] == args[-1]
+                    and volume[0]['Driver'] == 'local' and volume[0].get('Labels', {}).get(LABEL) == self.owner
+                    and (volume[0].get('Options') or {}) == expected_options,
+                    'volume creation returned a foreign or differently configured resource')
         if args[:2] in (('volume', 'create'), ('network', 'create')):
             self.state['volumes' if args[0] == 'volume' else 'networks'].append(args[-1])
             save(self.path, self.state)
