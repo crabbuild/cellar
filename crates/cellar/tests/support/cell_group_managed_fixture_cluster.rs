@@ -55,6 +55,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         effects: f.effects,
         max_input_bytes: f.max_input_bytes,
         image_bytes: f.image_bytes,
+        logical_byte_capacity: f.logical_byte_capacity,
         spec,
     })
 }

@@ -30,6 +30,8 @@ pub struct Fixture {
     pub effects: Option<RaftEffectOptions>,
     pub max_input_bytes: usize,
     pub image_bytes: u64,
+    /// Logical admission only; physical attestations and engine/image limits stay unchanged.
+    pub logical_byte_capacity: Option<u64>,
     pub spec: FleetNodeSpec,
 }
 
@@ -134,6 +136,7 @@ impl Fixture {
             effects: None,
             max_input_bytes: 1024,
             image_bytes: 256 * 1024 * 1024,
+            logical_byte_capacity: None,
             spec,
         })
     }
@@ -209,7 +212,7 @@ impl Fixture {
             region: "local".into(),
             zone: "node".into(),
             group_capacity: 2,
-            byte_capacity: host.images.max_bytes * 2,
+            byte_capacity: self.logical_byte_capacity.unwrap_or(host.images.max_bytes * 2),
             bytes_per_group: host.images.max_bytes,
             leader_capacity: 2,
             draining: false,

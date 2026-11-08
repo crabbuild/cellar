@@ -4,6 +4,13 @@
 use super::*;
 use cellar::application::consensus::verification::FleetTable;
 use cellar_logic::consensus::{MemberId, ProposalId};
+use managed_fixture::SeededCells;
+
+#[derive(Clone, Copy)]
+enum CapacityProfile {
+    Original,
+    RecoveryRoom,
+}
 
 fn configuration(durable_bytes: u64) -> FleetAutomaticTopologyOptions {
     let resident = FleetResourceBounds {
@@ -43,7 +50,7 @@ fn configuration(durable_bytes: u64) -> FleetAutomaticTopologyOptions {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn configured_topology_balances_groups_and_resumes() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(qualify(rooted, Arc::new(catalog_fault::Store::default()))).await?;
+        Box::pin(qualify(rooted, Arc::new(catalog_fault::Store::default()), CapacityProfile::RecoveryRoom)).await?;
     }
     Ok(())
 }
@@ -58,13 +65,33 @@ async fn rustfs_configured_topology_balances_groups_and_resumes() -> Result<()> 
                 "automatic-topology",
                 rooted,
             )?)),
+            CapacityProfile::RecoveryRoom,
         ))
         .await?;
     }
     Ok(())
 }
 
-async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn configured_topology_preserves_recovery_room() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify(rooted, Arc::new(catalog_fault::Store::default()), CapacityProfile::Original)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_configured_topology_preserves_recovery_room() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify(rooted, Arc::new(catalog_fault::Store::around(rustfs::store(
+            "automatic-topology-reserve", rooted,
+        )?)), CapacityProfile::Original)).await?;
+    }
+    Ok(())
+}
+
+async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>, profile: CapacityProfile) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             "off,cellar::raft::fleet_catalog::resources::execution::service::worker=debug",
@@ -72,14 +99,17 @@ async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         .with_ansi(false)
         .with_test_writer()
         .try_init();
-    let mut cluster = Box::pin(ManagedCluster::start_with_catalog_clients(
-        rooted,
-        &[7, 8, 9],
-        ArchiveSetup::Initialized,
-        store.clone(),
-        true,
-    ))
-    .await?;
+    let mut first = managed_fixture::Fixture::with_store(rooted, managed_fixture::counter_class()?, store).await?;
+    if matches!(profile, CapacityProfile::RecoveryRoom) {
+        // Declare recovery headroom within the SAME existing 1-GiB deployment
+        // attestation, two engine slots and image/memory bounds. Original 512-MiB
+        // logical admission is separately required to refuse the same topology.
+        first.logical_byte_capacity = Some(1024 * 1024 * 1024);
+    }
+    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+        first, &[7, 8, 9], ArchiveSetup::Initialized, true, None,
+        managed_fixture::FirstGroupSetup::Normal,
+    )).await?;
     let mut workers: Vec<RaftFleetTransitionService> = Vec::new();
     let mut roots = Vec::new();
     let domain = cluster.fixtures[0].domain.clone();
@@ -87,6 +117,7 @@ async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         .run(Box::pin(exercise(
             &mut cluster,
             rooted,
+            profile,
             &mut workers,
             &mut roots,
         )))
@@ -108,6 +139,7 @@ async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
 async fn exercise(
     cluster: &mut ManagedCluster,
     rooted: bool,
+    profile: CapacityProfile,
     workers: &mut Vec<RaftFleetTransitionService>,
     roots: &mut Vec<tempfile::TempDir>,
 ) -> Result<()> {
@@ -308,6 +340,27 @@ async fn exercise(
             == FleetTopologyPhase::Running
     );
     host.resume_automatic_topology().await?;
+    if matches!(profile, CapacityProfile::Original) {
+        // The positive case uses the identical path with declared recovery
+        // room. This paired case must retain all debt and refuse every move.
+        tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                let cut = observer.read(TIMEOUT).await?;
+                let operation = observer.topology_operation(&cut, ProposalId::new(operation)?, TIMEOUT).await?;
+                ensure!(operation.phase == FleetTopologyPhase::Running && operation.admitted_movements == 0);
+                let status = host.automatic_topology_status().context("reserve status")?;
+                if status.last_round_failure == Some(FleetMovementServiceFailure::Rejected)
+                    && status.consecutive_round_failures >= 3 {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }).await.context("refuse balance without recovery room")??;
+        ensure!(cluster.directory.observe().await?.digest() == directory.digest());
+        verify_cells(&host, &seed).await?;
+        eprintln!("automatic topology: extents={rooted}, original 512-MiB logical profile refused all moves; SQL/receipts/quorum continue");
+        return Ok(());
+    }
     let completed = tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             let cut = observer.read(TIMEOUT).await?;
@@ -375,45 +428,7 @@ async fn exercise(
         copies == vec![1; 6],
         "whole-group copies are not balanced: {copies:?}"
     );
-    for (i, cell) in seed.cells.iter().enumerate() {
-        let cell = host.cell(cell.clone())?;
-        let replay = cell
-            .command(
-                &cell.contract("Add")?,
-                [7i64, 11][i].to_be_bytes().to_vec(),
-                CommandOptions::new(seed.receipts[i].id, seed.retry),
-            )
-            .await?;
-        ensure!(replay.result == seed.receipts[i].result && replay.id == seed.receipts[i].id);
-        ensure!(replay.version.covers(&seed.receipts[i].version) == Ok(true));
-        let query = cell
-            .query(
-                ProposalId::new([215 + i as u8; 16])?,
-                &cell.contract("Get")?,
-                vec![],
-                QueryOptions {
-                    consistency: QueryConsistency::Linearizable,
-                    ..Default::default()
-                },
-            )
-            .await?;
-        ensure!(query.result == seed.receipts[i].result && query.version == replay.version);
-        let retry = u64::try_from(cellar::asyncrt::wall_ms())?
-            .checked_add(60_000)
-            .context("fresh retry horizon")?;
-        let write = cell
-            .command(
-                &cell.contract("Add")?,
-                1i64.to_be_bytes().to_vec(),
-                CommandOptions::new(CommandId::new(ClientId::new([219; 16])?, 1)?, retry),
-            )
-            .await?;
-        ensure!(
-            write.version.sequence.get() == replay.version.sequence.get() + 1
-                && write.durability == Durability::Quorum
-        );
-        ensure!(write.result == ([7i64, 11][i] + 1).to_be_bytes());
-    }
+    verify_cells(&host, &seed).await?;
     eprintln!("automatic topology: extents={rooted}, three persisted moves, same cells/receipts, fresh quorum writes");
     // An unchanged completed topology must not append another empty operation.
     let operations = host
@@ -511,5 +526,48 @@ async fn exercise(
     })
     .await
     .context("explicit handover to automatic policy")??;
+    Ok(())
+}
+
+async fn verify_cells(host: &RaftCells, seed: &SeededCells) -> Result<()> {
+    for (i, cell) in seed.cells.iter().enumerate() {
+        let cell = host.cell(cell.clone())?;
+        let replay = cell
+            .command(
+                &cell.contract("Add")?,
+                [7i64, 11][i].to_be_bytes().to_vec(),
+                CommandOptions::new(seed.receipts[i].id, seed.retry),
+            )
+            .await?;
+        ensure!(replay.result == seed.receipts[i].result && replay.id == seed.receipts[i].id);
+        ensure!(replay.version.covers(&seed.receipts[i].version) == Ok(true));
+        let query = cell
+            .query(
+                ProposalId::new([215 + i as u8; 16])?,
+                &cell.contract("Get")?,
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::Linearizable,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        ensure!(query.result == seed.receipts[i].result && query.version == replay.version);
+        let retry = u64::try_from(cellar::asyncrt::wall_ms())?
+            .checked_add(60_000)
+            .context("fresh retry horizon")?;
+        let write = cell
+            .command(
+                &cell.contract("Add")?,
+                1i64.to_be_bytes().to_vec(),
+                CommandOptions::new(CommandId::new(ClientId::new([219; 16])?, 1)?, retry),
+            )
+            .await?;
+        ensure!(
+            write.version.sequence.get() == replay.version.sequence.get() + 1
+                && write.durability == Durability::Quorum
+        );
+        ensure!(write.result == ([7i64, 11][i] + 1).to_be_bytes());
+    }
     Ok(())
 }

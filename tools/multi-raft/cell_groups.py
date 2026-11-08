@@ -53,9 +53,12 @@ CASES = (
 SUITES = {
     "managed-automatic-topology": (
         "native_cell_groups_transition_service",
-        ("automatic_topology::rustfs_configured_topology_balances_groups_and_resumes",),
+        ("automatic_topology::rustfs_configured_topology_balances_groups_and_resumes",
+         "automatic_topology::rustfs_configured_topology_preserves_recovery_room"),
         "configured whole-group balancing resumes its durable intent after controller replacement",
         "Both image modes, six host-native TLS voters and two engine slots per node. "
+        "The positive case declares 1-GiB logical admission within the unchanged 1-GiB disk/3-GiB memory fixture attestation; "
+        "the original 512-MiB logical profile must refuse all moves and continue quorum SQL. "
         "Startup waits for its exact boot capacity activation. Two occupied shared groups rebalance "
         "with unchanged cell routing, receipt replay, linearizable SQL reads and fresh quorum writes. "
         "Explicit operator policy takes precedence and hands back through a canonical request. "
