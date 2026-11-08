@@ -483,7 +483,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
                 &handle.contract("Add")?,
                 1i64.to_be_bytes().to_vec(),
                 CommandOptions::new(
-                    CommandId::new(ClientId::new([215; 16])?, i as u64 + 1)?,
+                    CommandId::new(ClientId::new([215; 16])?, 1)?,
                     retry_horizon()?,
                 ),
             )
