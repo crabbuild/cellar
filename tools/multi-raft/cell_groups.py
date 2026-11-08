@@ -158,10 +158,11 @@ SUITES = {
         "native_cell_groups_transition_service",
         ("cancellation::rustfs_staged_partition_cancellation_fences_delayed_admission",
          "cancellation::rustfs_partial_partition_cancellation_recovers_birth_and_settlement",
+         "cancellation::rustfs_staged_cancellation_fences_transition_slot_admission",
          "selection::rustfs_automatic_selection_resumes_partial_admission_and_executes"),
         "staged cancellation fences actual delayed child CAS writes and recovers permanent birth decisions",
         "Both image modes, host-native RF3 TLS voters and unchanged fixture bounds. Cancellation "
-        "wins before or after the first child reservation, loses actual root/birth/settlement "
+        "wins with zero, one or two reserved children, races transition-slot admission and loses root/birth/settlement "
         "confirmations and resumes on another controller without replacement identities. Old "
         "authorization cannot materialize a cancelled birth; reserved debt remains. Foreign "
         "principals, payload changes and generic deletion refuse. Historical completion cannot "

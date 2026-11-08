@@ -27,7 +27,7 @@ async fn staged_partition_cancellation_fences_delayed_admission() -> Result<()> 
     for rooted in [false, true] {
         Box::pin(qualify(
             rooted,
-            false,
+            0,
             Arc::new(catalog_fault::Store::default()),
         ))
         .await?;
@@ -40,8 +40,38 @@ async fn partial_partition_cancellation_recovers_birth_and_settlement() -> Resul
     for rooted in [false, true] {
         Box::pin(qualify(
             rooted,
-            true,
+            1,
             Arc::new(catalog_fault::Store::default()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn staged_cancellation_fences_transition_slot_admission() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify(
+            rooted,
+            2,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_staged_cancellation_fences_transition_slot_admission() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify(
+            rooted,
+            2,
+            Arc::new(catalog_fault::Store::around(rustfs::store(
+                "slot-cancellation",
+                rooted,
+            )?)),
         ))
         .await?;
     }
@@ -54,7 +84,7 @@ async fn rustfs_staged_partition_cancellation_fences_delayed_admission() -> Resu
     for rooted in [false, true] {
         Box::pin(qualify(
             rooted,
-            false,
+            0,
             Arc::new(catalog_fault::Store::around(rustfs::store(
                 "staged-cancellation",
                 rooted,
@@ -71,7 +101,7 @@ async fn rustfs_partial_partition_cancellation_recovers_birth_and_settlement() -
     for rooted in [false, true] {
         Box::pin(qualify(
             rooted,
-            true,
+            1,
             Arc::new(catalog_fault::Store::around(rustfs::store(
                 "partial-cancellation",
                 rooted,
@@ -82,7 +112,11 @@ async fn rustfs_partial_partition_cancellation_recovers_birth_and_settlement() -
     Ok(())
 }
 
-async fn qualify(rooted: bool, partial: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+async fn qualify(
+    rooted: bool,
+    reservations: usize,
+    store: Arc<catalog_fault::Store>,
+) -> Result<()> {
     let cluster = Box::pin(ManagedCluster::start_with_catalog_clients(
         rooted,
         &[7, 8, 9],
@@ -92,11 +126,13 @@ async fn qualify(rooted: bool, partial: bool, store: Arc<catalog_fault::Store>) 
     ))
     .await?;
     let mut roots = Vec::new();
-    let result = Box::pin(exercise(&cluster, rooted, partial, &mut roots)).await;
+    let result = Box::pin(exercise(&cluster, rooted, reservations, &mut roots)).await;
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
     result.with_context(|| {
-        format!("staged cancellation extents={rooted}, partial={partial}, joined={joined:?}")
+        format!(
+            "staged cancellation extents={rooted}, reservations={reservations}, joined={joined:?}"
+        )
     })?;
     joined
 }
@@ -155,9 +191,10 @@ fn history(scope: GroupHistory, child: &RaftFleetTransitionChild) -> Result<Grou
 async fn exercise(
     cluster: &ManagedCluster,
     rooted: bool,
-    partial: bool,
+    reservations: usize,
     roots: &mut Vec<tempfile::TempDir>,
 ) -> Result<()> {
+    let partial = reservations > 0;
     let seed = seed_cells(&cluster.hosts, cluster.history).await?;
     let endpoint = Box::pin(control(cluster, rooted, roots)).await?;
     let delayed_endpoint = Box::pin(control(cluster, rooted, roots)).await?;
@@ -166,12 +203,14 @@ async fn exercise(
     let f = &cluster.fixtures[0];
     let first = history(cluster.history, &request.children[0])?;
     let second = history(cluster.history, &request.children[1])?;
-    let authorization = if partial {
+    for _ in 0..reservations {
         f.store
             .fail_fleet_confirmation
             .store(true, Ordering::Release);
         let lost = Box::pin(scheduler.admit("automatic-test", &request, TIMEOUT)).await;
         ensure!(matches!(lost, Err(error) if error.code == RaftFleetFailureCode::Unavailable));
+    }
+    let authorization = if partial {
         let cut = f.catalog.read(TIMEOUT).await?;
         ensure!(
             *f.catalog.history(&cut, &first, TIMEOUT).await?.state() == FleetHistoryState::Reserved
@@ -186,10 +225,17 @@ async fn exercise(
     };
     let before = f.catalog.read(TIMEOUT).await?;
     let waiting = if partial { second } else { first };
-    ensure!(matches!(
-        f.catalog.history(&before, &waiting, TIMEOUT).await,
-        Err(FleetCatalogError::Conflict)
-    ));
+    if reservations < 2 {
+        ensure!(matches!(
+            f.catalog.history(&before, &waiting, TIMEOUT).await,
+            Err(FleetCatalogError::Conflict)
+        ));
+    } else {
+        ensure!(
+            *f.catalog.history(&before, &second, TIMEOUT).await?.state()
+                == FleetHistoryState::Reserved
+        );
+    }
     f.store.fleet_cas_hang.store(true, Ordering::Release);
     f.store.hold_next_fleet_cas.store(true, Ordering::Release);
     let resume = Resume(&f.store);
@@ -246,10 +292,17 @@ async fn exercise(
     .await;
     ensure!(matches!(fresh, Err(error) if error.code == RaftFleetFailureCode::Conflict));
     ensure!(f.catalog.read(TIMEOUT).await?.revision() == fenced.revision());
-    ensure!(matches!(
-        f.catalog.history(&fenced, &waiting, TIMEOUT).await,
-        Err(FleetCatalogError::Conflict)
-    ));
+    if reservations < 2 {
+        ensure!(matches!(
+            f.catalog.history(&fenced, &waiting, TIMEOUT).await,
+            Err(FleetCatalogError::Conflict)
+        ));
+    } else {
+        ensure!(
+            *f.catalog.history(&fenced, &second, TIMEOUT).await?.state()
+                == FleetHistoryState::Reserved
+        );
+    }
     let foreign = Box::pin(endpoint.cancel_staged_partition("foreign", &request, TIMEOUT)).await;
     ensure!(matches!(foreign, Err(error) if error.code == RaftFleetFailureCode::Forbidden));
     let mut changed = request.clone();
@@ -395,6 +448,26 @@ async fn exercise(
         hex::encode(cluster.directory.observe().await?.digest())
             == request.expected_directory_digest
     );
+    if reservations == 2 {
+        ensure!(
+            *f.catalog
+                .history(&completed, &second, TIMEOUT)
+                .await?
+                .state()
+                == FleetHistoryState::Reserved
+        );
+        let authorization = f
+            .catalog
+            .recover_birth_reservation(&completed, &cluster.directory, &second, TIMEOUT)
+            .await?;
+        ensure!(matches!(
+            cluster
+                .directory
+                .materialize_fleet_group_birth(&authorization)
+                .await,
+            Err(cellar::application::consensus::verification::CatalogError::BirthCancelled)
+        ));
+    }
     let current = leader(&cluster.hosts[..3], cluster.history).await?;
     for (cell, original) in seed.cells.iter().zip(&seed.receipts) {
         let handle = cluster.hosts[current].cell(cell.clone())?;
@@ -448,7 +521,7 @@ async fn exercise(
                 range: CellRange::all(),
                 epoch: RouteEpoch::new(2)?,
                 creation: ProposalId::new([243; 16])?,
-                voters: cluster.fixtures[3..]
+                voters: cluster.fixtures[..3]
                     .iter()
                     .enumerate()
                     .map(|(i, fixture)| {
