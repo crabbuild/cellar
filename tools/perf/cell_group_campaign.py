@@ -61,7 +61,7 @@ def committed_manifest(source_revision):
 
 def config(path):
     value = read_json(path)
-    require(isinstance(value, dict) and FIELDS <= set(value) <= FIELDS | {'fault_schedule', 'historical_controls'},
+    require(isinstance(value, dict) and FIELDS <= set(value) <= FIELDS | {'fault_schedule', 'historical_controls', 'observe_log_reclamation'},
             'missing or unknown private configuration fields')
     require(type(value['format']) is int and value['format'] == 1, 'unsupported configuration format')
     require(str(uuid.UUID(value['run_id'])) == value['run_id'], 'run_id must be a canonical UUID')
@@ -79,6 +79,7 @@ def config(path):
             'data_root must be an existing external dedicated directory')
     require(re.fullmatch(r'[0-9a-f]{64}', value['profiles_sha256']) is not None
             and digest(value['profiles_file']) == value['profiles_sha256'], 'changed frozen profile catalog')
+    require(type(value.get('observe_log_reclamation', False)) is bool, 'log census selection must be boolean')
     validate_profile(value['workload'])
     validate_storage(value['storage'], value['context'])
     network_pool(value['network_cidr'])
@@ -164,6 +165,8 @@ def preflight(settings, identifier, engine=None):
     require(isinstance(schedule, dict) and set(schedule) == {'scenario', 'config'}, 'invalid fault schedule')
     require(schedule['scenario'] in ('healthy', 'slow-follower', 's3-outage', 's3-recovery'),
             'fault capability is unavailable; no resources created')
+    require(not settings.get('observe_log_reclamation', False) or schedule['scenario'] != 'slow-follower',
+            'file census requires running voters; disable census for the follower-pause schedule')
     for row in planned:
         validate_scenario(schedule['scenario'], schedule['config'], row['workload'])
     engine = engine or Engine(settings['context'], settings['engine_id'])
@@ -417,7 +420,7 @@ def run(settings, identifier, output):
                 context=settings['context'], port_base=settings['port_base'],
                 scenario=checked['fault_schedule']['scenario'], fault_config=checked['fault_schedule']['config'],
                 fault_capability=checked['fault_capability'], fault_engine=checked['fault_engine'],
-                observe_log_reclamation=True, run_id=plan['owner'], subnet=plan['subnet'], runtime_bounds=RUNTIME, store_runtime_bounds=RUNTIME + ['--tmpfs', '/logs:rw,nosuid,nodev,size=33554432,uid=10001,gid=10001'])
+                observe_log_reclamation=settings.get('observe_log_reclamation', False), run_id=plan['owner'], subnet=plan['subnet'], runtime_bounds=RUNTIME, store_runtime_bounds=RUNTIME + ['--tmpfs', '/logs:rw,nosuid,nodev,size=33554432,uid=10001,gid=10001'])
             arguments.disks = Disks(owned.engine, settings['storage'], directory, plan['owner'], settings['image'], owned)
             arguments.archive_observer = ArchiveObserver(directory / 'archive-observations.jsonl', profile_layout(plan['workload']))
             try:

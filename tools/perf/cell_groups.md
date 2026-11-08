@@ -58,6 +58,12 @@ concurrency and tick settings remain explicit in the template. Each repetition
 uses a stable seed shared by every occupancy and both image modes. Every cohort
 has fresh state and a separate immutable offered-operation ledger.
 
+Optional boolean `observe_log_reclamation` enables periodic physical engine-file
+censuses and the existing fixed quiet window. Engine/API log-write counters are
+always collected. File censuses require running voters, so combining this option
+with a follower-pause schedule refuses before provisioning; it cannot silently
+lose physical log observations during the fault.
+
 Optional `fault_schedule` contains exactly `scenario` and `config`. Supported
 scenarios are `healthy` with null config, `slow-follower`, `s3-outage` and
 `s3-recovery`, using the existing checked fault configuration formats. The entire

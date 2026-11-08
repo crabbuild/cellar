@@ -543,6 +543,16 @@ class Profiles(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'independent'):
                 campaign.selected_profile(settings, 'mixed_quorum')
 
+    def test_file_census_refuses_paused_voters_before_provisioning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = self.settings(Path(temporary))
+            settings['observe_log_reclamation'] = True
+            settings['fault_schedule'] = {'scenario': 'slow-follower', 'config': {}}
+            engine = Mock()
+            with self.assertRaisesRegex(ValueError, 'file census'):
+                campaign.preflight(settings, 'mixed_quorum', engine)
+            self.assertEqual(engine.mock_calls, [])
+
     def test_historical_control_cannot_relabel_materialized_as_extents(self):
         from cell_group_controls import validate
         profile = self.frozen()
