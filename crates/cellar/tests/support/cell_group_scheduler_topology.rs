@@ -266,8 +266,8 @@ async fn run(
         let mut restarted = false;
         tokio::time::timeout(Duration::from_secs(60), async {
             loop {
-                let current = tokio::select! {
-                    biased;
+                let current = cellar::asyncrt::select_biased! {
+                    "observe committed Joint before polling topology completion";
                     _ = evidence.joint_ready.notified(), if leg == 1 && !restarted => {
                         ensure!(evidence.committed_joint(TIMEOUT).await?, "restart must occur in committed Joint");
                         let refused = start(cluster, evidence.clone()).await;

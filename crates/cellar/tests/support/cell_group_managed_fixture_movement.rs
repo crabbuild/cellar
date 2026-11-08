@@ -440,8 +440,17 @@ pub async fn verify_cells(host: &RaftCells, seed: &SeededCells, sequence: u64) -
             query.result == (delta + sequence as i64 - 2).to_be_bytes(),
             "duplicate changed the installed image"
         );
+        // A new sequence is a new mutation with its own original retry window.
+        // The duplicate above keeps the seed command's original deadline.
+        let retry_until = u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis(),
+        )?
+        .checked_add(60_000)
+        .context("new command retry deadline")?;
         let mut write_options =
-            CommandOptions::new(CommandId::new(original.id.client, sequence)?, seed.retry);
+            CommandOptions::new(CommandId::new(original.id.client, sequence)?, retry_until);
         write_options.durability = Durability::S3;
         let result = handle
             .command(
