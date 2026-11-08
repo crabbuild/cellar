@@ -503,3 +503,53 @@ async fn current_leader(cluster: &ManagedCluster, history: GroupHistory) -> Resu
     .await
     .context("automatic child leader")?
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sampling_retains_fractional_write_pressure() -> Result<()> {
+    use cellar::application::consensus::CellGroupPartitionContext;
+    for rooted in [false, true] {
+        let cluster = Box::pin(ManagedCluster::start(rooted, &[])).await?;
+        let result = async {
+            let _seed = seed_cells(&cluster.hosts, cluster.history).await?;
+            let first = leader(&cluster.hosts, cluster.history).await?;
+            let mut current = cluster.hosts[first]
+                .group(cluster.history)?
+                .observe_partition(TIMEOUT)
+                .await?;
+            ensure!(current.stable_leader);
+            let mut earlier = current.clone();
+            earlier.workload.sampled_at_ms = 1_000;
+            earlier.workload.admitted_writes = 2;
+            earlier.workload.applied_writes = 2;
+            current.workload.sampled_at_ms = 2_500;
+            current.workload.admitted_writes = 4;
+            current.workload.applied_writes = 4;
+            let context = CellGroupPartitionContext {
+                directory_digest: [1; 32],
+                topology_changed_at_ms: 0,
+                durability: Durability::Quorum,
+                placement_class: [2; 32],
+                leader_cpu_bps: 0,
+                failure_domain_load_bps: 0,
+                active_and_stable: true,
+            };
+            let sample = current
+                .sample_since(&earlier, context)
+                .context("same owner sample")?;
+            ensure!(sample.load.writes_per_second == 2 && sample.applies_per_second == 2);
+            earlier = current.clone();
+            current.workload.sampled_at_ms += 1_500;
+            let quiet = current
+                .sample_since(&earlier, context)
+                .context("quiet sample")?;
+            ensure!(quiet.load.writes_per_second == 0 && quiet.applies_per_second == 0);
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result?;
+        joined?;
+    }
+    Ok(())
+}

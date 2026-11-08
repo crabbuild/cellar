@@ -108,7 +108,8 @@ impl CellGroupPartitionObservation {
 
     /// Convert two samples from the same stable local owner into a policy
     /// observation. The context's topology time uses this owner's monotonic
-    /// clock. Sample and recommendation carry no authority to change routes.
+    /// clock. Aggregate rates round up to preserve fractional pressure;
+    /// hot-writer lower bounds round down. Samples grant no route authority.
     pub fn sample_since(
         &self,
         earlier: &Self,
@@ -121,20 +122,33 @@ impl CellGroupPartitionObservation {
             .workload
             .sampled_at_ms
             .checked_sub(earlier.workload.sampled_at_ms)?;
-        let rate = |current: u64, previous| {
+        let rate = |current: u64, previous, round_up| {
             if current == u64::MAX || elapsed_ms == 0 {
                 return None;
             }
             let count = current.checked_sub(previous)?;
-            u64::try_from(u128::from(count) * 1_000 / u128::from(elapsed_ms)).ok()
+            let numerator = u128::from(count) * 1_000;
+            let denominator = u128::from(elapsed_ms);
+            u64::try_from(if round_up {
+                numerator.div_ceil(denominator)
+            } else {
+                numerator / denominator
+            })
+            .ok()
         };
+        // Scheduling ceilings need a conservative integer upper bound. A
+        // genuine 1.9 writes/s must exceed a configured ceiling of 1. Equal
+        // admission/apply counts keep equal rates; hot-writer lower bounds
+        // still round down.
         let writes_per_second = rate(
             self.workload.admitted_writes,
             earlier.workload.admitted_writes,
+            true,
         )?;
         let applies_per_second = rate(
             self.workload.applied_writes,
             earlier.workload.applied_writes,
+            true,
         )?;
         let hot_writer = self.hot_writer.as_ref().and_then(|writer| {
             // Include only a complete window contained in this interval.
@@ -145,7 +159,7 @@ impl CellGroupPartitionObservation {
             {
                 return None;
             }
-            let writes = rate(writer.admitted_writes, 0)?;
+            let writes = rate(writer.admitted_writes, 0, false)?;
             Some(writer.cell.hot(writes.min(writes_per_second)))
         });
         Some(PartitionSample {
