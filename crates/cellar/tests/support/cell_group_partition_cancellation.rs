@@ -126,14 +126,24 @@ async fn qualify(
     ))
     .await?;
     let mut roots = Vec::new();
-    let result = Box::pin(exercise(&cluster, rooted, reservations, &mut roots)).await;
+    let result = cluster.fixtures[0]
+        .domain
+        .run(Box::pin(exercise(
+            &cluster,
+            rooted,
+            reservations,
+            &mut roots,
+        )))
+        .await;
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
-    result.with_context(|| {
-        format!(
+    result
+        .context("cancellation verification domain")?
+        .with_context(|| {
+            format!(
             "staged cancellation extents={rooted}, reservations={reservations}, joined={joined:?}"
         )
-    })?;
+        })?;
     joined
 }
 
@@ -246,14 +256,12 @@ async fn exercise(
         &request,
         TIMEOUT,
     ));
-    f.domain.run(async {
-        tokio::time::timeout(TIMEOUT, async {
-            cellar::asyncrt::select! {
-                result = &mut delayed => anyhow::bail!("admission returned before actual CAS: {result:?}"),
-                _ = async { while !f.store.fleet_cas_waiting.load(Ordering::Acquire) { tokio::time::sleep(Duration::from_millis(5)).await; } } => Ok(()),
-            }
-        }).await
-    }).await???;
+    tokio::time::timeout(TIMEOUT, async {
+        cellar::asyncrt::select! {
+            result = &mut delayed => anyhow::bail!("admission returned before actual CAS: {result:?}"),
+            _ = async { while !f.store.fleet_cas_waiting.load(Ordering::Acquire) { tokio::time::sleep(Duration::from_millis(5)).await; } } => Ok(()),
+        }
+    }).await??;
     ensure!(f.catalog.read(TIMEOUT).await?.revision() == before.revision());
     f.store
         .fail_fleet_confirmation
