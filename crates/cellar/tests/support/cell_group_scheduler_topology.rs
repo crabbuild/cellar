@@ -502,6 +502,41 @@ async fn run(
                 "settlement replay refunded twice"
             );
             let after = cluster.hosts[source].observe_node(TIMEOUT).await?;
+            let floor = cluster.fixtures[0]
+                .catalog
+                .get(
+                    &settled,
+                    FleetTable::Operations,
+                    &format!(
+                        "resource-floor/{}",
+                        hex::encode(cluster.fixtures[source].spec.node.bytes())
+                    ),
+                    TIMEOUT,
+                )
+                .await?
+                .context("settled member resource floor")?;
+            ensure!(floor.len() >= 45 && &floor[..8] == b"CLRCAT01" && floor[8] == 64);
+            let size = u32::from_be_bytes(floor[9..13].try_into()?) as usize;
+            ensure!(size + 45 == floor.len());
+            use sha2::Digest as _;
+            ensure!(sha2::Sha256::digest(&floor[..13 + size]).as_slice() == &floor[13 + size..]);
+            let floor: serde_json::Value = serde_json::from_slice(&floor[13..13 + size])?;
+
+            ensure!(
+                floor["physical"]["engine_slots"] == 0,
+                "collected member slot remains charged"
+            );
+            ensure!(
+                floor["physical"]["durable_bytes"] == 1024 * 1024,
+                "collected member disk reservation remains charged"
+            );
+            ensure!(
+                floor["physical"]["memory_bytes"]
+                    .as_u64()
+                    .is_some_and(|bytes| bytes >= after.startup_bounds.bounded_buffer_bytes),
+                "installed memory was refunded"
+            );
+
             ensure!(
                 after.node.groups == 0,
                 "obsolete engine mapping survived GC"

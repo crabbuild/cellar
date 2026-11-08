@@ -16,6 +16,7 @@ impl FleetHostAuthorization {
         &self,
         reservation: [u8; 16],
         log: &ReplicaLog,
+        bytes_per_group: u64,
         timeout: Duration,
     ) -> Result<Permit> {
         let catalog = &self.catalog;
@@ -102,7 +103,8 @@ impl FleetHostAuthorization {
                 if member.member != obsolete.get() {
                     return Err(FleetCatalogError::Conflict);
                 }
-                Permit::new(log, member).map_err(|_| FleetCatalogError::Unconfirmed)
+                Permit::new(log, member, bytes_per_group)
+                    .map_err(|_| FleetCatalogError::Unconfirmed)
             })
             .await
     }

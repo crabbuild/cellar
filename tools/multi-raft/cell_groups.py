@@ -57,10 +57,10 @@ SUITES = {
         "completed live-member removal drains and collects the old copy before return with a fresh member ID",
         "Both image modes, host-native RF3 voters and unchanged fixture capacity. "
         "A surviving member cannot spend another member's completion. Local GC is joined, "
-        "bounded and exactly replayable; an actual slot-settlement CAS loses confirmation "
+        "bounded and exactly replayable; an actual slot/disk-settlement CAS loses confirmation "
         "and replays once. Generic cleanup mutation refuses, old genesis refuses, and the original node returns "
         "to the same shared group with a higher member ID. Receipts, token reads and S3 writes "
-        "remain intact. Byte/memory refunds, unknown occupancy, automatic cleanup discovery, retained "
+        "remain intact. Known group disk reservations settle once; unknown disk debt and installed memory remain charged. Automatic cleanup discovery, retained "
         "successor cleanup, crash injection, failure domains/reserve/fanout, independent "
         "voter processes and measured peaks remain separate gates.",
     ),

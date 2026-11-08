@@ -19,6 +19,7 @@ struct Settlement {
     birth: [u8; 32],
     before: u32,
     floor: u32,
+    bytes_per_group: u64,
     physical: FleetResourceBounds,
     attestation: FleetResourceAttestation,
 }
@@ -45,11 +46,53 @@ impl Settlement {
             || self.high_water < self.member
             || self.birth == [0; 32]
             || self.before == 0
+            || self.bytes_per_group == 0
+            || self
+                .bytes_per_group
+                .checked_mul(u64::from(self.before))
+                .is_none()
             || self.attestation.used.engine_slots != 0
         {
             return Err(invalid());
         }
         Ok(())
+    }
+
+    async fn floor_change(
+        &self,
+        catalog: &FleetCatalog,
+        snapshot: &FleetSnapshot,
+    ) -> Result<FleetChange> {
+        let old = catalog.resource_floor(snapshot, &self.attestation).await?;
+        let mut change = catalog
+            .source_slot_floor_change(snapshot, &self.attestation, &self.release())
+            .await?;
+        let mut physical = old
+            .high_water(self.attestation.used)
+            .high_water(self.physical);
+        physical.engine_slots = if self.before >= old.engine_slots {
+            old.engine_slots
+                .saturating_sub(1)
+                .max(self.physical.engine_slots)
+        } else {
+            old.engine_slots.max(self.physical.engine_slots)
+        };
+        physical.durable_bytes = released_disk_floor(
+            old.durable_bytes,
+            self.attestation.used.durable_bytes,
+            self.physical.durable_bytes,
+            self.before,
+            self.bytes_per_group,
+        );
+        change.value = Some(
+            completion::Floor {
+                format: 1,
+                boot: self.attestation.boot.clone(),
+                physical,
+            }
+            .encode()?,
+        );
+        Ok(change)
     }
 
     fn release(&self) -> SlotRelease {
@@ -170,7 +213,8 @@ impl FleetHostAuthorization {
             .as_ref()
             .ok_or(FleetCatalogError::InventoryIncomplete)?;
         let history = record.member.scope().map_err(|_| invalid())?;
-        if inventory.initializing().is_some()
+        if sample.view.node.profile.bytes_per_group != record.bytes_per_group
+            || inventory.initializing().is_some()
             || inventory.histories().len() != sample.view.node.groups as usize
             || inventory.group_history(&history).is_some()
         {
@@ -189,6 +233,7 @@ impl FleetHostAuthorization {
             birth: record.member.birth,
             before: record.before_groups,
             floor,
+            bytes_per_group: record.bytes_per_group,
             physical: FleetResourceBounds {
                 engine_slots: sample.view.node.groups,
                 durable_bytes: sample.view.node.reserved_bytes,
@@ -199,13 +244,7 @@ impl FleetHostAuthorization {
         settlement.validate()?;
         catalog
             .run(deadline.remaining()?, async {
-                let floor = catalog
-                    .source_slot_floor_change(
-                        &snapshot,
-                        &settlement.attestation,
-                        &settlement.release(),
-                    )
-                    .await?;
+                let floor = settlement.floor_change(catalog, &snapshot).await?;
                 let group = permit.binding().key().map_err(|_| invalid())?;
                 let encoded = encode(KIND, &settlement, LIMIT)?;
                 let changes = vec![
@@ -370,12 +409,40 @@ impl FleetCatalog {
                 return Err(FleetCatalogError::Conflict);
             }
         }
-        let expected = self
-            .source_slot_floor_change(snapshot, &settlement.attestation, &settlement.release())
-            .await?;
+        let expected = settlement.floor_change(self, snapshot).await?;
         if mutation.changes[1] != expected {
             return Err(invalid());
         }
         Ok(())
+    }
+}
+
+// This is a logical placement reservation, not a claim about engine file sizes.
+// Only a floor fully covered by the receipt's captured physical group count can
+// lose one group reservation. Qualified baseline and post-GC occupancy survive.
+fn released_disk_floor(old: u64, baseline: u64, observed: u64, before: u32, per_group: u64) -> u64 {
+    let reduced = if per_group
+        .checked_mul(u64::from(before))
+        .is_some_and(|known| known >= old)
+    {
+        old.saturating_sub(per_group)
+    } else {
+        old
+    };
+    reduced.max(baseline).max(observed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::released_disk_floor;
+
+    #[test]
+    fn disk_release_preserves_unattributed_debt_and_observed_baselines() {
+        assert_eq!(released_disk_floor(256, 1, 0, 1, 256), 1);
+        assert_eq!(released_disk_floor(512, 1, 256, 2, 256), 256);
+        assert_eq!(released_disk_floor(513, 1, 0, 2, 256), 513);
+        assert_eq!(released_disk_floor(256, 300, 0, 1, 256), 300);
+        assert_eq!(released_disk_floor(256, 1, 400, 1, 256), 400);
+        assert_eq!(released_disk_floor(u64::MAX, 0, 0, 2, u64::MAX), u64::MAX);
     }
 }

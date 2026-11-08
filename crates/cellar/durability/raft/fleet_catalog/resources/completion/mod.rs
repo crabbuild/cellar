@@ -9,7 +9,8 @@ use super::*;
 use crate::application::consensus::RaftCells;
 use crate::raft::host::RaftPeerNodeObservation;
 use cellar_logic::consensus::ProposalId;
-use records::{Completion, Floor};
+use records::Completion;
+pub(super) use records::Floor;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

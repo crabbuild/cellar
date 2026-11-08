@@ -159,6 +159,7 @@ impl Member {
 #[derive(Clone)]
 pub(crate) struct Permit {
     pub(crate) member: Member,
+    pub(crate) bytes_per_group: u64,
     owner: Arc<()>,
     engine: EngineInstanceId,
     node: NodeId,
@@ -166,10 +167,18 @@ pub(crate) struct Permit {
 }
 
 impl Permit {
-    pub(in crate::raft) fn new(log: &ReplicaLog, member: Member) -> Result<Self, LogError> {
+    pub(in crate::raft) fn new(
+        log: &ReplicaLog,
+        member: Member,
+        bytes_per_group: u64,
+    ) -> Result<Self, LogError> {
         member.scope()?;
+        if bytes_per_group == 0 {
+            return Err(LogError::WrongIdentity);
+        }
         Ok(Self {
             member,
+            bytes_per_group,
             owner: log.owner(),
             engine: log.storage_instance()?,
             node: log.limits().node,
@@ -213,6 +222,7 @@ pub(crate) struct Record {
     pub(crate) disk: [u8; 16],
     pub(crate) old_key: u64,
     pub(crate) before_groups: u32,
+    pub(crate) bytes_per_group: u64,
     pub(crate) sequence: u64,
     pub(crate) complete: bool,
 }
@@ -230,6 +240,11 @@ impl Record {
             || self.node != node.bytes()
             || self.disk != disk.bytes()
             || self.before_groups == 0
+            || self.bytes_per_group == 0
+            || self
+                .bytes_per_group
+                .checked_mul(u64::from(self.before_groups))
+                .is_none()
             || self.old_key == 0
             || self.sequence == 0
         {

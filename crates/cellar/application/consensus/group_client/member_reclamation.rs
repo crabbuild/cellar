@@ -10,8 +10,8 @@ impl RaftCells {
     /// turn. Retry the same reservation after uncertainty. The synced fence
     /// rejects old member IDs while allowing a later managed learner seed.
     ///
-    /// A joined local receipt settles its engine slot exactly once. Unknown
-    /// occupancy and byte/memory floors remain charged. Automatic cleanup
+    /// A joined local receipt settles its engine slot and known group disk
+    /// reservation exactly once. Unknown debt and installed memory stay charged. Automatic cleanup
     /// discovery and retained successor boots require managed ownership.
     pub fn reclaim_removed_member(
         &self,
@@ -44,6 +44,10 @@ impl RaftCells {
                             .prepare_member_reclamation(
                                 reservation,
                                 &core.log,
+                                core.node_profile
+                                    .as_ref()
+                                    .ok_or(CellGroupControllerError::Closed)?
+                                    .bytes_per_group,
                                 Duration::from_millis(deadline.saturating_sub(now)),
                             )
                             .await

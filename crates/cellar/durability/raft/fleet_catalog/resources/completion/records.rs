@@ -5,7 +5,7 @@ use super::*;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Floor {
+pub(in super::super) struct Floor {
     pub format: u8,
     pub boot: BootBinding,
     pub physical: FleetResourceBounds,
