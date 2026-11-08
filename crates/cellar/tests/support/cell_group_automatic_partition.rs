@@ -8,9 +8,10 @@ use cellar_logic::cell_group::CellId;
 fn configuration(reserve: u32) -> RaftFleetAutomaticPartitionOptions {
     let mut sizing = selection::policy().limits();
     sizing.split_ceiling.cells = 8;
-    sizing.split_ceiling.writes_per_second = 4;
+    sizing.split_ceiling.writes_per_second = 1;
     sizing.merge_ceiling.cells = 4;
-    sizing.merge_ceiling.writes_per_second = 2;
+    sizing.merge_ceiling.writes_per_second = 0;
+    sizing.sample_interval_ms = 1_000;
     sizing.cooldown_ms = 5_000;
     RaftFleetAutomaticPartitionOptions {
         placement: RaftFleetPartitionPlacementPolicy {
@@ -160,8 +161,12 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     let initial = cluster.directory.observe().await?;
     let first = leader(&cluster.hosts[..3], cluster.history).await?;
     let handle = cluster.hosts[first].cell(seed.cells[0].clone())?;
-    let mut acknowledged = Vec::new();
-    let client = ClientId::new([212; 16])?;
+    let handles = seed
+        .cells
+        .iter()
+        .map(|c| cluster.hosts[first].cell(c.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut acknowledged = [Vec::new(), Vec::new()];
     let mut sequence = 1;
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
@@ -183,21 +188,38 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
             if done {
                 return Ok::<_, anyhow::Error>(());
             }
-            let receipt = handle
-                .command(
-                    &handle.contract("Add")?,
-                    1i64.to_be_bytes().to_vec(),
-                    CommandOptions::new(CommandId::new(client, sequence)?, seed.retry),
-                )
-                .await?;
-            acknowledged.push(receipt);
+            // Each cell admits one mutation owner. Load both cells in parallel
+            // within the installed two-command bound and retain every receipt.
+            let writes = handles
+                .iter()
+                .enumerate()
+                .map(|(slot, handle)| {
+                    Ok(handle.command(
+                        &handle.contract("Add")?,
+                        1i64.to_be_bytes().to_vec(),
+                        CommandOptions::new(
+                            CommandId::new(ClientId::new([212 + slot as u8; 16])?, sequence)?,
+                            seed.retry,
+                        ),
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            for (slot, result) in futures_util::future::join_all(writes)
+                .await
+                .into_iter()
+                .enumerate()
+            {
+                acknowledged[slot].push(
+                    result.with_context(|| format!("automatic load: {:?}", statuses(cluster)))?,
+                );
+            }
             sequence += 1;
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await
     .with_context(|| format!("automatic selection: {:?}", statuses(cluster)))??;
-    ensure!(!acknowledged.is_empty());
+    ensure!(acknowledged.iter().all(|receipts| !receipts.is_empty()));
     let original_operation = statuses(cluster)
         .into_iter()
         .flatten()
@@ -221,7 +243,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
             .await?;
         ensure!(
             read.result
-                == acknowledged
+                == acknowledged[0]
                     .last()
                     .context("last acknowledged write")?
                     .result
@@ -230,10 +252,13 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
             .command(
                 &handle.contract("Add")?,
                 1i64.to_be_bytes().to_vec(),
-                CommandOptions::new(CommandId::new(client, sequence)?, seed.retry),
+                CommandOptions::new(
+                    CommandId::new(ClientId::new([212; 16])?, sequence)?,
+                    seed.retry,
+                ),
             )
             .await?;
-        let last = acknowledged.last().context("last acknowledged write")?;
+        let last = acknowledged[0].last().context("last acknowledged write")?;
         ensure!(next.version.sequence.get() == last.version.sequence.get() + 1);
         return Ok(());
     }
@@ -407,23 +432,17 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
             )
             .await?;
         ensure!(replay.result == original.result && replay.version == original.version);
-        if i == 0 {
-            for original in &acknowledged {
-                let replay = handle
-                    .command(
-                        &handle.contract("Add")?,
-                        1i64.to_be_bytes().to_vec(),
-                        CommandOptions::new(original.id, seed.retry),
-                    )
-                    .await?;
-                ensure!(replay.result == original.result && replay.version == original.version);
-            }
+        for original in &acknowledged[i] {
+            let replay = handle
+                .command(
+                    &handle.contract("Add")?,
+                    1i64.to_be_bytes().to_vec(),
+                    CommandOptions::new(original.id, seed.retry),
+                )
+                .await?;
+            ensure!(replay.result == original.result && replay.version == original.version);
         }
-        let expected = if i == 0 {
-            acknowledged.last().context("last write")?
-        } else {
-            original
-        };
+        let expected = acknowledged[i].last().context("last write")?;
         let read = handle
             .query(
                 ProposalId::new([214 + i as u8; 16])?,
