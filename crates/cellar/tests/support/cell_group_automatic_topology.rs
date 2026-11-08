@@ -50,7 +50,12 @@ fn configuration(durable_bytes: u64) -> FleetAutomaticTopologyOptions {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn configured_topology_balances_groups_and_resumes() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(qualify(rooted, Arc::new(catalog_fault::Store::default()), CapacityProfile::RecoveryRoom)).await?;
+        Box::pin(qualify(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+            CapacityProfile::RecoveryRoom,
+        ))
+        .await?;
     }
     Ok(())
 }
@@ -75,7 +80,12 @@ async fn rustfs_configured_topology_balances_groups_and_resumes() -> Result<()> 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn configured_topology_preserves_recovery_room() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(qualify(rooted, Arc::new(catalog_fault::Store::default()), CapacityProfile::Original)).await?;
+        Box::pin(qualify(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+            CapacityProfile::Original,
+        ))
+        .await?;
     }
     Ok(())
 }
@@ -84,14 +94,24 @@ async fn configured_topology_preserves_recovery_room() -> Result<()> {
 #[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
 async fn rustfs_configured_topology_preserves_recovery_room() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(qualify(rooted, Arc::new(catalog_fault::Store::around(rustfs::store(
-            "automatic-topology-reserve", rooted,
-        )?)), CapacityProfile::Original)).await?;
+        Box::pin(qualify(
+            rooted,
+            Arc::new(catalog_fault::Store::around(rustfs::store(
+                "automatic-topology-reserve",
+                rooted,
+            )?)),
+            CapacityProfile::Original,
+        ))
+        .await?;
     }
     Ok(())
 }
 
-async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>, profile: CapacityProfile) -> Result<()> {
+async fn qualify(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    profile: CapacityProfile,
+) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             "off,cellar::raft::fleet_catalog::resources::execution::service::worker=debug",
@@ -99,7 +119,9 @@ async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>, profile: Capaci
         .with_ansi(false)
         .with_test_writer()
         .try_init();
-    let mut first = managed_fixture::Fixture::with_store(rooted, managed_fixture::counter_class()?, store).await?;
+    let mut first =
+        managed_fixture::Fixture::with_store(rooted, managed_fixture::counter_class()?, store)
+            .await?;
     if matches!(profile, CapacityProfile::RecoveryRoom) {
         // Declare recovery headroom within the SAME existing 1-GiB deployment
         // attestation, two engine slots and image/memory bounds. Original 512-MiB
@@ -107,9 +129,14 @@ async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>, profile: Capaci
         first.logical_byte_capacity = Some(1024 * 1024 * 1024);
     }
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
-        first, &[7, 8, 9], ArchiveSetup::Initialized, true, None,
+        first,
+        &[7, 8, 9],
+        ArchiveSetup::Initialized,
+        true,
+        None,
         managed_fixture::FirstGroupSetup::Normal,
-    )).await?;
+    ))
+    .await?;
     let mut workers: Vec<RaftFleetTransitionService> = Vec::new();
     let mut roots = Vec::new();
     let domain = cluster.fixtures[0].domain.clone();
@@ -346,23 +373,38 @@ async fn exercise(
         tokio::time::timeout(Duration::from_secs(60), async {
             loop {
                 let cut = observer.read(TIMEOUT).await?;
-                let operation = observer.topology_operation(&cut, ProposalId::new(operation)?, TIMEOUT).await?;
-                ensure!(operation.phase == FleetTopologyPhase::Running && operation.admitted_movements == 0);
+                let operation = observer
+                    .topology_operation(&cut, ProposalId::new(operation)?, TIMEOUT)
+                    .await?;
+                ensure!(
+                    operation.phase == FleetTopologyPhase::Running
+                        && operation.admitted_movements == 0
+                );
                 let status = host.automatic_topology_status().context("reserve status")?;
                 if status.last_round_failure == Some(FleetMovementServiceFailure::Rejected)
-                    && status.consecutive_round_failures >= 3 {
+                    && status.consecutive_round_failures >= 3
+                {
                     return Ok::<_, anyhow::Error>(());
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-        }).await.context("refuse balance without recovery room")??;
+        })
+        .await
+        .context("refuse balance without recovery room")??;
         ensure!(cluster.directory.observe().await?.digest() == directory.digest());
         verify_cells(&host, &seed).await?;
         eprintln!("automatic topology: extents={rooted}, original 512-MiB logical profile refused all moves; SQL/receipts/quorum continue");
         return Ok(());
     }
     let completed = tokio::time::timeout(Duration::from_secs(60), async {
+        let mut previous = Vec::new();
         loop {
+            let progress = host.automatic_topology_status().context("balance worker status")?;
+            let phases = progress.work.iter().map(|w| (w.reservation, w.phase, w.last_failure)).collect::<Vec<_>>();
+            if phases != previous {
+                eprintln!("automatic balance progress: {progress:?}");
+                previous = phases;
+            }
             let cut = observer.read(TIMEOUT).await?;
             let status = observer
                 .topology_operation(&cut, ProposalId::new(operation)?, TIMEOUT)
@@ -374,7 +416,7 @@ async fn exercise(
         }
     })
     .await
-    .context("resume and complete automatic balance")??;
+    .with_context(|| format!("resume and complete automatic balance; worker={:?}", host.automatic_topology_status()))??;
     ensure!(completed.admitted_movements == 3 && completed.keep.len() == 6);
     ensure!(
         cluster.directory.observe().await?.digest() == directory.digest(),

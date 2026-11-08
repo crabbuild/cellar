@@ -212,7 +212,9 @@ impl Fixture {
             region: "local".into(),
             zone: "node".into(),
             group_capacity: 2,
-            byte_capacity: self.logical_byte_capacity.unwrap_or(host.images.max_bytes * 2),
+            byte_capacity: self
+                .logical_byte_capacity
+                .unwrap_or(host.images.max_bytes * 2),
             bytes_per_group: host.images.max_bytes,
             leader_capacity: 2,
             draining: false,
