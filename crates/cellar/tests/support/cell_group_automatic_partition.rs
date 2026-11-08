@@ -626,7 +626,12 @@ async fn replay_acknowledged(
             ensure!(
                 observed.durability() == Durability::Quorum
                     && observed.observation().version == latest.version
-                    && observed.observation().witness.group == history
+                    && observed.observation().witness.group == history,
+                "receipt durability={:?}; observation={:?}; latest={:?}; group={:?}",
+                observed.durability(),
+                observed.observation(),
+                latest.version,
+                history
             );
             eprintln!(
                 "quorum reconciled acknowledged command {:?} after connection handoff",
