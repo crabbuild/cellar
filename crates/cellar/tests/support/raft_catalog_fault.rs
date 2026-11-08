@@ -31,6 +31,25 @@ tokio::task_local! {
     static GATED_STORE_READ: (std::sync::Arc<()>, String, std::sync::Arc<RegistryGate>);
     static DENIED_ARCHIVE_CREATION: (&'static str, std::cell::Cell<bool>);
     static DIRECTORY_CONFIRMATION: std::cell::Cell<DirectoryConfirmation>;
+    static GROUP_BIRTH_CONFIRMATION: std::cell::Cell<DirectoryConfirmation>;
+}
+
+/// Lose this caller's confirmation after a real group birth-decision create.
+#[allow(dead_code)]
+pub async fn lose_group_birth_confirmation<T>(
+    work: impl std::future::Future<Output = T>,
+) -> (T, bool) {
+    GROUP_BIRTH_CONFIRMATION
+        .scope(
+            std::cell::Cell::new(DirectoryConfirmation::WaitingForWrite),
+            async {
+                let result = work.await;
+                let delivered = GROUP_BIRTH_CONFIRMATION
+                    .with(|state| state.get() == DirectoryConfirmation::Delivered);
+                (result, delivered)
+            },
+        )
+        .await
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -544,6 +563,18 @@ impl ObjectStore for Store {
         }
         if group_birth {
             self.first_group_birth_after.pause().await;
+            if GROUP_BIRTH_CONFIRMATION
+                .try_with(|state| {
+                    if state.get() != DirectoryConfirmation::WaitingForWrite {
+                        return false;
+                    }
+                    state.set(DirectoryConfirmation::WaitingForRead);
+                    true
+                })
+                .unwrap_or(false)
+            {
+                return Err(failure());
+            }
         }
         if range_genesis {
             self.range_genesis_after.pause().await;
@@ -665,6 +696,19 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if path.as_ref().contains("/cell-groups/births/")
+            && GROUP_BIRTH_CONFIRMATION
+                .try_with(|state| {
+                    if state.get() != DirectoryConfirmation::WaitingForRead {
+                        return false;
+                    }
+                    state.set(DirectoryConfirmation::Delivered);
+                    true
+                })
+                .unwrap_or(false)
+        {
+            return Err(failure());
+        }
         let denied = self
             .denied_prefix
             .lock()

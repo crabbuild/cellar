@@ -1788,6 +1788,8 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         authority: resources::Authority,
     ) -> Result<()> {
+        self.check_partition_cancellation(snapshot, mutation, authority)
+            .await?;
         if authority != resources::Authority::PartitionWork
             && mutation.changes.iter().any(|change| {
                 change.table == FleetTable::Operations

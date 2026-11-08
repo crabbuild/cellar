@@ -491,6 +491,7 @@ impl RaftFleetPartitionScheduler {
 
     /// Discover and resume the Fleet's durable request with no caller-supplied
     /// operation or reservation IDs. A missing original plan refuses admission.
+    /// A selected cancellation is completed before any admission and returns None.
     pub async fn resume_pending(
         &mut self,
         timeout: Duration,
@@ -498,6 +499,9 @@ impl RaftFleetPartitionScheduler {
         let domain = self.control.domain.clone();
         let turn = Turn::new(&domain, timeout)?;
         self.restore_pending(turn.remaining()?).await?;
+        if Box::pin(self.resume_cancellation(turn.remaining()?)).await? {
+            return Ok(None);
+        }
         let Some(pending) = &self.pending else {
             return Ok(None);
         };
@@ -597,6 +601,9 @@ impl RaftFleetPartitionScheduler {
         let domain = self.control.domain.clone();
         let turn = Turn::new(&domain, timeout)?;
         self.restore_pending(turn.remaining()?).await?;
+        if Box::pin(self.resume_cancellation(turn.remaining()?)).await? {
+            return Ok(true);
+        }
         let Some(pending) = &self.pending else {
             return Ok(true);
         };
@@ -659,6 +666,60 @@ impl RaftFleetPartitionScheduler {
             .domain
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed.into())
+    }
+
+    /// Permanently fence this selected request before resolving its undecided
+    /// child births. Unknown replies retain the same pending request for replay.
+    /// Already admitted transitions require their existing cancellation owner.
+    pub async fn cancel_pending(&mut self, principal: &str, timeout: Duration) -> Result<()> {
+        let domain = self.control.domain.clone();
+        let turn = Turn::new(&domain, timeout)?;
+        self.restore_pending(turn.remaining()?).await?;
+        let Some(pending) = &self.pending else {
+            return Ok(());
+        };
+        if pending.principal != principal {
+            return Err(RaftFleetFailure {
+                code: RaftFleetFailureCode::Forbidden,
+                outcome: RaftFleetOutcome::NotSubmitted,
+                message: "Selected partition belongs to another operator principal.".into(),
+            });
+        }
+        Box::pin(self.control.cancel_staged_partition(
+            principal,
+            &pending.request,
+            turn.remaining()?,
+        ))
+        .await?;
+        self.pending = None;
+        self.groups.clear();
+        Ok(())
+    }
+
+    pub(super) async fn resume_cancellation(&mut self, timeout: Duration) -> Result<bool> {
+        let domain = self.control.domain.clone();
+        let turn = Turn::new(&domain, timeout)?;
+        let Some(pending) = &self.pending else {
+            return Ok(false);
+        };
+        let operation = ProposalId::new(records::id(&pending.request.operation_id)?)
+            .map_err(|_| RaftFleetFailure::invalid("transition operation ID"))?;
+        let digest = sha2::Sha256::digest(
+            serde_json::to_vec(&(&pending.principal, &pending.request))
+                .map_err(|_| RaftFleetFailure::invalid("transition admission payload"))?,
+        )
+        .into();
+        if !self
+            .control
+            .catalog
+            .partition_cancellation_requested(operation, digest, turn.remaining()?)
+            .await?
+        {
+            return Ok(false);
+        }
+        let principal = pending.principal.clone();
+        Box::pin(self.cancel_pending(&principal, turn.remaining()?)).await?;
+        Ok(true)
     }
 }
 

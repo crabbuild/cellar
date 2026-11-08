@@ -32,9 +32,9 @@ struct Locator {
     body: [u8; 32],
 }
 
-const ACTIVE_KEY: &str = "partition-work/active";
+pub(super) const ACTIVE_KEY: &str = "partition-work/active";
 
-fn finished_key(operation: ProposalId) -> String {
+pub(super) fn finished_key(operation: ProposalId) -> String {
     format!("{PREFIX}finished/{}", hex::encode(operation.bytes()))
 }
 
@@ -62,7 +62,7 @@ impl ManagedPartitionWork {
 
     // The first coordinator is provenance, not a process lease. A surviving
     // controller continues the selected request without rebinding its origin.
-    fn matches_request(&self, other: &Self) -> bool {
+    pub(super) fn matches_request(&self, other: &Self) -> bool {
         self.catalog == other.catalog
             && self.namespace == other.namespace
             && self.operation == other.operation
@@ -72,10 +72,20 @@ impl ManagedPartitionWork {
             && self.payload == other.payload
     }
 
-    fn identity(&self, revision: u64, finish: bool) -> Result<FleetRequestIdentity> {
+    pub(super) fn locator_value(&self) -> Result<Vec<u8>> {
+        encode(
+            LOCATOR_KIND,
+            &Locator {
+                body: hash(&encode(BODY_KIND, self, BODY_LIMIT)?),
+            },
+            1024,
+        )
+    }
+
+    pub(super) fn identity(&self, revision: u64, phase: u8) -> Result<FleetRequestIdentity> {
         let mut bytes = Vec::from(b"cellar-partition-work-step-1".as_slice());
         bytes.extend(self.origin);
-        bytes.push(u8::from(finish));
+        bytes.push(phase);
         let mut step = [0; 16];
         step.copy_from_slice(&hash(&bytes)[..16]);
         Ok(TransitionOperatorStep {
@@ -90,14 +100,14 @@ impl ManagedPartitionWork {
 }
 
 impl FleetCatalog {
-    async fn partition_work_at(
+    pub(super) async fn partition_work_at(
         &self,
         snapshot: &FleetSnapshot,
     ) -> Result<Option<ManagedPartitionWork>> {
         self.partition_work_value(snapshot, ACTIVE_KEY).await
     }
 
-    async fn partition_work_value(
+    pub(super) async fn partition_work_value(
         &self,
         snapshot: &FleetSnapshot,
         key: &str,
@@ -149,6 +159,13 @@ impl FleetCatalog {
         self.check_snapshot(snapshot)?;
         self.run(timeout, async {
             let current = self.inner.current().await?;
+            if self
+                .partition_cancellation_at(&current, step.operation.bytes())
+                .await?
+                .is_some()
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
             let staged = self
                 .transition_operator_plan_at(directory, step.operation, step.request_digest)
                 .await?
@@ -198,7 +215,7 @@ impl FleetCatalog {
                 .create_exact(&body_key(locator.body), &body, BODY_LIMIT)
                 .await?;
             let mutation = history_mutation(
-                &work.identity(current.revision(), false)?,
+                &work.identity(current.revision(), 0)?,
                 vec![FleetChange {
                     table: FleetTable::Operations,
                     key: ACTIVE_KEY.into(),
@@ -276,7 +293,7 @@ impl FleetCatalog {
                 body: hash(&encode(BODY_KIND, &work, BODY_LIMIT)?),
             };
             let mutation = history_mutation(
-                &work.identity(current.revision(), true)?,
+                &work.identity(current.revision(), 1)?,
                 vec![
                     FleetChange {
                         table: FleetTable::Operations,

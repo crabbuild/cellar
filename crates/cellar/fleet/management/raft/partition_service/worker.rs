@@ -153,6 +153,10 @@ impl Work {
                 message: "Selected partition belongs to another operator principal.".into(),
             });
         }
+        if Box::pin(self.scheduler.resume_cancellation(turn.remaining()?)).await? {
+            self.action("cancelled");
+            return Ok(());
+        }
         let request = self
             .scheduler
             .pending_request()

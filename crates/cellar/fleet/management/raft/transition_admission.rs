@@ -252,6 +252,58 @@ pub struct RaftFleetTransitionAdmission {
 }
 
 impl RaftFleetControl {
+    /// Cancel selected work before managed transition admission. The durable
+    /// fence wins before any birth cleanup. Original child identities and all
+    /// reserved physical debt remain retained; an admitted or already live
+    /// child refuses completion rather than erasing possible ownership.
+    pub async fn cancel_staged_partition(
+        &self,
+        principal: &str,
+        request: &RaftFleetTransitionAdmissionRequest,
+        timeout: Duration,
+    ) -> Result<()> {
+        request.validate(&request.namespace_id, &request.operation_id)?;
+        self.check_catalog(&request.catalog_id)?;
+        let turn = Turn::new(&self.domain, timeout)?;
+        let directory = self.managed_namespace(&request.namespace_id)?;
+        let operation = ProposalId::new(records::id(&request.operation_id)?)
+            .map_err(|_| RaftFleetFailure::invalid("transition operation ID"))?;
+        if self
+            .catalog
+            .pending_partition_work(turn.remaining()?)
+            .await?
+            .is_some_and(|work| work.operation == operation.bytes() && work.principal != principal)
+        {
+            return Err(RaftFleetFailure {
+                code: RaftFleetFailureCode::Forbidden,
+                outcome: RaftFleetOutcome::NotSubmitted,
+                message: "Selected partition belongs to another operator principal.".into(),
+            });
+        }
+        let digest = Sha256::digest(
+            serde_json::to_vec(&(principal, request))
+                .map_err(|_| RaftFleetFailure::invalid("transition admission payload"))?,
+        )
+        .into();
+        let plan = self
+            .catalog
+            .reopen_transition_operator_plan(directory, operation, digest, turn.remaining()?)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        directory
+            .transition_routes(&plan)
+            .map_err(directory_failure)?;
+        Box::pin(self.catalog.cancel_partition_work(
+            directory,
+            operation,
+            digest,
+            principal,
+            turn.remaining()?,
+        ))
+        .await?;
+        Ok(())
+    }
+
     pub async fn transition_basis(
         &self,
         namespace: &str,

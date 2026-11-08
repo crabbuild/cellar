@@ -80,6 +80,21 @@ uses both image modes and keeps the obsolete member's physical debt through
 repair. It verifies a guarded handoff, joined stop, paused retained return
 and fresh resume before the returning member serves both cells.
 
+## Staged partition cancellation
+
+Use `--suite managed-partition-cancellation` with an owned RustFS backend and a
+fresh output directory. Both image modes race a held physical child-reservation
+CAS against a rooted cancellation, before and after partial reservation. The
+cases lose the actual cancellation, namespace birth-decision and settlement
+confirmations, then recover on another controller. Original reserved debt and
+permanent identities remain retained. Old capabilities cannot materialize a
+cancelled child; historical completion cannot erase newer selected work or fence
+another operation's group. Parent receipt retries, fresh quorum writes and reads
+continue. The existing automatic-selection case also proves that staged
+cancellation refuses an already admitted transition without preventing its
+normal execution. Host-native voters do not qualify independent failure domains,
+sustained load or cleanup of a child whose live birth already won.
+
 ## Shared-group effect handoff through a split
 
 Use `--suite managed-effect-transfer` with the same owned RustFS backend and a

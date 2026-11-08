@@ -153,6 +153,30 @@ protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
 Numeric format markers remain 1.
 
+## Cancelling selected partition work
+
+`RaftFleetControl::cancel_staged_partition` and
+`RaftFleetPartitionScheduler::cancel_pending` cancel a rooted request before
+managed transition admission. One root CAS selects a permanent operation fence
+and protects its existing reserved children. A delayed child reservation or
+transition admission loses its original root CAS; a fresh attempt still observes
+the fence. Exact historical receipts remain readable. Proposed children belonging
+to another operation are neither fenced nor cancelled.
+
+The original namespace birth-decision key arbitrates cancellation against a
+saved birth capability. The cursor clears only after every owned child has a
+permanent cancellation winner. Unknown replies retain the original work, and a
+cold scheduler or node-owned partition service resumes it before admission or
+planning. A live birth winner refuses completion and retains the fenced cursor;
+existing admitted transitions require their pre-seal transition cancellation
+owner. Reserved histories, identity references and physical charges remain.
+The existing restart settlement owner may later reconcile a proved Cancelled
+birth without changing its metadata or claiming physical release.
+
+This adds `/partition-cancellation-1` to the immutable protocol digest. Numeric
+markers remain 1. Use fresh namespaces, fleet roots, engine directories and
+matching binaries; older binaries cannot attach and ignore the new fences.
+
 ## Inventory-consuming evacuation admission
 
 `begin_evacuation` admits exclusion of one Active, engine-pinned node. It scans the

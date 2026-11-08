@@ -154,6 +154,22 @@ SUITES = {
         "quiescence proof before holds release. Live per-group quiescence, automatic plan "
         "selection, independent processes, permanent fencing and load are separate gates.",
     ),
+    "managed-partition-cancellation": (
+        "native_cell_groups_transition_service",
+        ("cancellation::rustfs_staged_partition_cancellation_fences_delayed_admission",
+         "cancellation::rustfs_partial_partition_cancellation_recovers_birth_and_settlement",
+         "selection::rustfs_automatic_selection_resumes_partial_admission_and_executes"),
+        "staged cancellation fences actual delayed child CAS writes and recovers permanent birth decisions",
+        "Both image modes, host-native RF3 TLS voters and unchanged fixture bounds. Cancellation "
+        "wins before or after the first child reservation, loses actual root/birth/settlement "
+        "confirmations and resumes on another controller without replacement identities. Old "
+        "authorization cannot materialize a cancelled birth; reserved debt remains. Foreign "
+        "principals, payload changes and generic deletion refuse. Historical completion cannot "
+        "erase newer work or cancel another operation's child. Original SQL receipts, fresh quorum "
+        "writes and reads survive. An admitted transition refuses staged cancellation and proceeds "
+        "through its existing execution owner. Already materialized births, competing automatic "
+        "selection races, independent voter processes and sustained load remain separate gates.",
+    ),
     "managed-partition-service": (
         "native_cell_groups_transition_service",
         ("partition_service::rustfs_owned_partition_service_recovers_and_executes",),
@@ -378,7 +394,7 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
+                     or (suite in ("managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
                                    "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()

@@ -292,6 +292,23 @@ pub(super) async fn admit(
         .context("discovered scheduled admission")?;
     ensure!(replacement.tracked_groups() == 0 && replacement.pending_request() == Some(&request));
     ensure!(admitted.phase == TransitionPhase::Planned);
+    let before_cancel = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+    let refused =
+        Box::pin(coordinator.cancel_staged_partition("automatic-test", &request, TIMEOUT)).await;
+    ensure!(matches!(refused, Err(error) if error.code == RaftFleetFailureCode::Conflict));
+    ensure!(
+        cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == before_cancel.revision()
+    );
+    ensure!(cluster.fixtures[0]
+        .catalog
+        .get(
+            &before_cancel,
+            FleetTable::Operations,
+            &format!("partition-work/cancellation/{}", request.operation_id),
+            TIMEOUT
+        )
+        .await?
+        .is_none());
     Ok((request, admitted))
 }
 

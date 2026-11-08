@@ -2,6 +2,8 @@
 
 //! Automatic split execution uses rooted consent and real voter owners.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/cell_group_partition_cancellation.rs"]
+mod cancellation;
 #[path = "support/cell_group_transition_capacity.rs"]
 mod capacity;
 #[path = "support/raft_catalog_fault.rs"]
