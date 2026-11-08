@@ -100,14 +100,20 @@ async fn exercise(
     workers: &mut Vec<RaftFleetTransitionService>,
     roots: &mut Vec<tempfile::TempDir>,
 ) -> Result<()> {
-    let seed = seed_cells(&cluster.hosts, cluster.history).await?;
+    let seed = seed_cells(&cluster.hosts, cluster.history)
+        .await
+        .context("seed cells before balance")?;
     let endpoint = Box::pin(control(cluster, rooted, roots)).await?;
-    let (request, admitted) = admit_split(cluster, &endpoint, [3, 3]).await?;
+    let (request, admitted) = admit_split(cluster, &endpoint, [3, 3])
+        .await
+        .context("admit preparation split")?;
     for (i, host) in cluster.hosts.iter().enumerate() {
+        let worker = Box::pin(control(cluster, rooted, roots)).await?;
         workers.push(
-            endpoint
+            worker
                 .start_transition_service(host, options(i == 3, true, true), TIMEOUT)
-                .await?,
+                .await
+                .with_context(|| format!("start setup worker {i}"))?,
         );
     }
     let observer = managed_fixture::Fixture::open_catalog(
@@ -129,7 +135,8 @@ async fn exercise(
             },
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("authorize preparation split")?;
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             let status = endpoint
