@@ -230,11 +230,12 @@ impl FleetCatalog {
     ) -> Result<bool> {
         self.run(timeout, async {
             let current = self.inner.current().await?;
-            let Some(work) = self.partition_work_at(&current).await? else {
-                let finished = self
-                    .partition_work_value(&current, &finished_key(operation))
-                    .await?
-                    .ok_or(FleetCatalogError::Conflict)?;
+            // Historical completion wins even after another controller selected
+            // new work. Replaying the old receipt cannot clear that new cursor.
+            if let Some(finished) = self
+                .partition_work_value(&current, &finished_key(operation))
+                .await?
+            {
                 return if finished.operation == operation.bytes()
                     && finished.request == request
                     && finished.namespace == directory.namespace().root_digest()
@@ -243,7 +244,11 @@ impl FleetCatalog {
                 } else {
                     Err(FleetCatalogError::PayloadConflict)
                 };
-            };
+            }
+            let work = self
+                .partition_work_at(&current)
+                .await?
+                .ok_or(FleetCatalogError::Conflict)?;
             if work.operation != operation.bytes()
                 || work.request != request
                 || work.namespace != directory.namespace().root_digest()
