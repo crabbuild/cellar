@@ -32,7 +32,7 @@ impl fmt::Debug for FleetAutomaticRecoveryOptions {
 /// Bounds are conservative deployment contracts for every compiled namespace;
 /// physical inventories, rooted floors and exact permits are checked separately.
 /// Retained obsolete copies cannot fund moves. An operator's governing topology
-/// takes precedence over automatic selection until that policy is cancelled.
+/// takes precedence until an explicit automatic intent supersedes that policy.
 #[derive(Clone, Debug)]
 pub struct FleetAutomaticTopologyOptions {
     pub principal: String,
@@ -48,6 +48,40 @@ pub struct FleetAutomaticTopologyOptions {
 }
 
 impl FleetAutomaticTopologyOptions {
+    /// Build an explicit handover to automatic policy at a caller-observed
+    /// root. Submit through `FleetCatalog::begin_topology`; retain this exact
+    /// request for retries after an unknown result. This grants no placement,
+    /// membership, convergence or release proof. Ordinary configured selection
+    /// discovers the eligible keep-set itself.
+    pub fn intent(
+        &self,
+        catalog: [u8; 32],
+        revision: u64,
+        mut keep: Vec<cellar_logic::consensus::NodeId>,
+    ) -> Result<FleetTopologyIntentRequest> {
+        self.validate()?;
+        if catalog == [0; 32] || revision == 0 || !(4..=64).contains(&keep.len()) {
+            return Err(FleetCatalogError::Invalid("automatic topology intent"));
+        }
+        keep.sort_unstable();
+        if keep.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(FleetCatalogError::Invalid("duplicate automatic topology node"));
+        }
+        let id = policy::intent_id(catalog, revision, &self.principal, &self.policy, &keep)?;
+        let request = FleetTopologyIntentRequest {
+            identity: FleetRequestIdentity {
+                id,
+                operation: id,
+                principal: self.principal.clone(),
+                expected_revision: revision,
+            },
+            keep,
+            policy: self.policy.clone(),
+        };
+        crate::raft::fleet_catalog::histories::validate_request(&request.identity)?;
+        Ok(request)
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         crate::raft::fleet_catalog::histories::validate_request(&FleetRequestIdentity {
             id: [1; 16],

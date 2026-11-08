@@ -12,6 +12,35 @@ pub(in super::super) struct Automatic {
 }
 
 impl Automatic {
+    fn owns(&self, operation: &FleetTopologyOperation) -> Result<bool> {
+        // A principal identifies the caller, not the operation's mode. The
+        // immutable generated request distinguishes automatic from operator
+        // intent, including when both use the same authenticated principal.
+        if operation.identity.principal != self.evidence.options.principal {
+            return Ok(false);
+        }
+        let id = intent_id(
+            self.evidence.catalog.catalog_id()?,
+            operation.identity.expected_revision,
+            &operation.identity.principal,
+            &operation.policy,
+            &operation.keep,
+        )?;
+        Ok(operation.identity.id == id && operation.identity.operation == id)
+    }
+
+    async fn operator_policy(&self, cut: &FleetSnapshot, deadline: &Deadline<'_>) -> Result<bool> {
+        match self
+            .evidence
+            .catalog
+            .placement_topology_operation(cut, deadline.remaining()?)
+            .await?
+        {
+            Some(operation) => Ok(!self.owns(&operation)?),
+            None => Ok(false),
+        }
+    }
+
     pub fn new(evidence: Arc<Evidence>) -> Self {
         Self {
             evidence,
@@ -32,9 +61,7 @@ impl Automatic {
         cut: &FleetSnapshot,
         deadline: &Deadline<'_>,
     ) -> Result<bool> {
-        if operation.identity.principal != self.evidence.options.principal
-            || operation.phase != FleetTopologyPhase::Running
-        {
+        if !self.owns(operation)? || operation.phase != FleetTopologyPhase::Running {
             return Ok(false);
         }
         let nodes: [u8; 32] = Sha256::digest(
@@ -74,11 +101,7 @@ impl Automatic {
             FleetAutomaticTopologyWait::InventoryPending
         } else if cut.head.disruption.is_some() {
             FleetAutomaticTopologyWait::Disruption
-        } else if catalog
-            .placement_topology_operation(cut, deadline.remaining()?)
-            .await?
-            .is_some_and(|op| op.identity.principal != self.evidence.options.principal)
-        {
+        } else if self.operator_policy(cut, deadline).await? {
             FleetAutomaticTopologyWait::OperatorPolicy
         } else if self.last_complete
             == Some(self.evidence.signature(cut, deadline.remaining()?).await?)
@@ -115,33 +138,10 @@ impl Automatic {
             });
             return Ok(());
         }
-        let mut hash = Sha256::new();
-        hash.update(b"cellar-automatic-topology-intent-1");
-        hash.update(catalog.catalog_id()?);
-        hash.update(cut.revision().to_be_bytes());
-        let encoded_keep: Vec<_> = keep.iter().map(|node| node.bytes()).collect();
-        hash.update(
-            serde_json::to_vec(&(
-                &self.evidence.options.principal,
-                &self.evidence.options.policy,
-                &encoded_keep,
-            ))
-            .map_err(|_| FleetCatalogError::Limit)?,
-        );
-        let digest: [u8; 32] = hash.finalize().into();
-        let id = digest[..16]
-            .try_into()
-            .map_err(|_| FleetCatalogError::Limit)?;
-        let request = FleetTopologyIntentRequest {
-            identity: FleetRequestIdentity {
-                id,
-                operation: id,
-                principal: self.evidence.options.principal.clone(),
-                expected_revision: cut.revision(),
-            },
-            keep,
-            policy: self.evidence.options.policy.clone(),
-        };
+        let request = self
+            .evidence
+            .options
+            .intent(catalog.catalog_id()?, cut.revision(), keep)?;
         catalog
             .begin_topology(
                 cut,
@@ -157,4 +157,26 @@ impl Automatic {
         });
         Ok(())
     }
+}
+
+pub(super) fn intent_id(
+    catalog: [u8; 32],
+    revision: u64,
+    principal: &str,
+    policy: &FleetTopologyPolicy,
+    keep: &[cellar_logic::consensus::NodeId],
+) -> Result<[u8; 16]> {
+    let mut hash = Sha256::new();
+    hash.update(b"cellar-automatic-topology-intent-1");
+    hash.update(catalog);
+    hash.update(revision.to_be_bytes());
+    let encoded_keep: Vec<_> = keep.iter().map(|node| node.bytes()).collect();
+    hash.update(
+        serde_json::to_vec(&(principal, policy, &encoded_keep))
+            .map_err(|_| FleetCatalogError::Limit)?,
+    );
+    let digest: [u8; 32] = hash.finalize().into();
+    digest[..16]
+        .try_into()
+        .map_err(|_| FleetCatalogError::Limit)
 }

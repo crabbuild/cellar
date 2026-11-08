@@ -32,7 +32,7 @@ async fn operations(cluster: &ManagedCluster) -> Result<BTreeMap<String, Vec<u8>
     Ok(values)
 }
 
-fn record(bytes: &[u8], kind: u8) -> Result<serde_json::Value> {
+pub(super) fn record(bytes: &[u8], kind: u8) -> Result<serde_json::Value> {
     ensure!(bytes.len() >= 45 && &bytes[..8] == b"CLRCAT01" && bytes[8] == kind);
     let length = u32::from_be_bytes(bytes[9..13].try_into()?) as usize;
     ensure!(length + 45 == bytes.len());

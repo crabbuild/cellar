@@ -2,6 +2,7 @@
 
 //! Configured placement moves existing shared groups, retaining every cell.
 use super::*;
+use cellar::application::consensus::verification::FleetTable;
 use cellar_logic::consensus::{MemberId, ProposalId};
 
 fn configuration() -> FleetAutomaticTopologyOptions {
@@ -81,15 +82,25 @@ async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     .await?;
     let mut workers: Vec<RaftFleetTransitionService> = Vec::new();
     let mut roots = Vec::new();
-    let result = Box::pin(exercise(&mut cluster, rooted, &mut workers, &mut roots)).await;
+    let domain = cluster.fixtures[0].domain.clone();
+    let result = domain
+        .run(Box::pin(exercise(
+            &mut cluster,
+            rooted,
+            &mut workers,
+            &mut roots,
+        )))
+        .await;
     for worker in workers {
         worker.shutdown().await;
     }
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
-    result.with_context(|| {
-        format!("configured whole-group balance, extents={rooted}; joined={joined:?}")
-    })?;
+    result
+        .context("scenario execution domain")?
+        .with_context(|| {
+            format!("configured whole-group balance, extents={rooted}; joined={joined:?}")
+        })?;
     joined?;
     Ok(())
 }
@@ -173,6 +184,31 @@ async fn exercise(
         );
     }
     ensure!(histories.len() == 2);
+    let cut = observer.read(TIMEOUT).await?;
+    for owner in &cluster.hosts {
+        let profile = owner.observe_node(TIMEOUT).await?.node.profile;
+        let floor = observer
+            .get(
+                &cut,
+                FleetTable::Operations,
+                &format!(
+                    "resource-floor/{}",
+                    hex::encode(owner.identity().node.bytes())
+                ),
+                TIMEOUT,
+            )
+            .await?;
+        let floor = floor
+            .map(|bytes| settlement::record(&bytes, 64))
+            .transpose()?;
+        eprintln!(
+            "automatic topology capacity: slots={}, bytes={}, floor={:?}",
+            profile.group_capacity,
+            profile.byte_capacity,
+            floor.as_ref().map(|v| &v["physical"])
+        );
+    }
+    drop(cut);
 
     // Retained restart with no local group exercises normal configured startup,
     // including fresh boot qualification before automatic placement can run.
@@ -367,5 +403,81 @@ async fn exercise(
             .selected_operations
             == operations
     );
+    // A deliberate operator policy remains authoritative even when it uses
+    // this controller's principal. Only generated immutable identities are
+    // automatic work; a label alone never authorizes replacing this intent.
+    let cut = observer.read(TIMEOUT).await?;
+    let explicit = ProposalId::new([224; 16])?;
+    observer
+        .begin_topology(
+            &cut,
+            &FleetTopologyIntentRequest {
+                identity: FleetRequestIdentity {
+                    id: [223; 16],
+                    operation: explicit.bytes(),
+                    principal: configuration().principal,
+                    expected_revision: cut.revision(),
+                },
+                keep: completed.keep.clone(),
+                policy: FleetTopologyPolicy {
+                    revision: 2,
+                    ..configuration().policy
+                },
+            },
+            &[cluster.directory.clone()],
+            TIMEOUT,
+        )
+        .await?;
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let cut = observer.read(TIMEOUT).await?;
+            let explicit = observer.topology_operation(&cut, explicit, TIMEOUT).await?;
+            ensure!(
+                !matches!(
+                    explicit.phase,
+                    FleetTopologyPhase::Cancelled | FleetTopologyPhase::Cancelling
+                ),
+                "operator policy was cancelled"
+            );
+            let waiting = host
+                .automatic_topology_status()
+                .and_then(|s| s.automatic_topology)
+                .is_some_and(|s| s.wait == FleetAutomaticTopologyWait::OperatorPolicy);
+            if explicit.phase == FleetTopologyPhase::Complete && waiting {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("explicit operator policy precedence")??;
+    let cut = observer.read(TIMEOUT).await?;
+    let automatic =
+        configuration().intent(observer.catalog_id()?, cut.revision(), completed.keep)?;
+    observer
+        .begin_topology(&cut, &automatic, &[cluster.directory.clone()], TIMEOUT)
+        .await?;
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let cut = observer.read(TIMEOUT).await?;
+            let status = observer
+                .topology_operation(
+                    &cut,
+                    ProposalId::new(automatic.identity.operation)?,
+                    TIMEOUT,
+                )
+                .await?;
+            let waiting = host
+                .automatic_topology_status()
+                .and_then(|s| s.automatic_topology)
+                .is_some_and(|s| s.wait == FleetAutomaticTopologyWait::Unchanged);
+            if status.phase == FleetTopologyPhase::Complete && waiting {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("explicit handover to automatic policy")??;
     Ok(())
 }

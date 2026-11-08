@@ -1755,6 +1755,10 @@ empty operations for unchanged completed input. Changes to its own eligible
 node set cancel the old definition through the ordinary durable fence before
 re-planning. An operator's governing topology takes precedence over automatic
 selection; its existing explicit intent can still be executed by this worker.
+A principal label does not distinguish modes. Use
+`FleetAutomaticTopologyOptions::intent` and the existing `begin_topology` API
+for an explicit handover back to automatic policy. Retain the complete generated
+request for exact retries after an unknown mutation outcome.
 
 Optional `FleetAutomaticRecoveryOptions` installs the permanent exact-boot
 fencing contract and the existing failure-recovery executor in the same worker.
