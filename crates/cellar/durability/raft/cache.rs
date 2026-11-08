@@ -749,7 +749,24 @@ impl CachedGroup {
                             "snapshot recovery lineage changed".into(),
                         ));
                     }
-                    if !marker.preserves_transfer(previous) {
+                    // A fresh learner starts with an empty, unserved birth
+                    // marker. Its first authenticated seed installs the live
+                    // child's transfer provenance as part of the exact granted
+                    // snapshot. No ordinary snapshot or established history may
+                    // introduce, replace or discard that provenance.
+                    let initial_child_seed = write.seed_grant.is_some()
+                        && self.group_seed.is_none()
+                        && self.entries.is_empty()
+                        && self.hard_state.commit == 1
+                        && self.applied.position.index.get() == 1
+                        && previous.position().index.get() == 1
+                        && previous.position().term.get() == 1
+                        && previous.membership_revision() == 1
+                        && previous.root().cells() == 0
+                        && previous.recovery_request().is_none()
+                        && previous.transfer_origin().is_none()
+                        && marker.transfer_activation().is_some();
+                    if !marker.preserves_transfer(previous) && !initial_child_seed {
                         return Err(LogError::Invalid("snapshot child transfer changed".into()));
                     }
                     if !marker.preserves_source_seal(previous) {

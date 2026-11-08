@@ -399,8 +399,14 @@ async fn exercise(
     let completed = tokio::time::timeout(Duration::from_secs(60), async {
         let mut previous = Vec::new();
         loop {
-            let progress = host.automatic_topology_status().context("balance worker status")?;
-            let phases = progress.work.iter().map(|w| (w.reservation, w.phase, w.last_failure)).collect::<Vec<_>>();
+            let progress = host
+                .automatic_topology_status()
+                .context("balance worker status")?;
+            let phases = progress
+                .work
+                .iter()
+                .map(|w| (w.reservation, w.phase, w.last_failure))
+                .collect::<Vec<_>>();
             if phases != previous {
                 eprintln!("automatic balance progress: {progress:?}");
                 previous = phases;
@@ -414,7 +420,8 @@ async fn exercise(
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-    }).await;
+    })
+    .await;
     if completed.is_err() {
         let progress = host.automatic_topology_status();
         host.suspend_automatic_topology().await;
@@ -625,9 +632,16 @@ async fn diagnose_learner(cluster: &ManagedCluster, observer: &FleetCatalog) -> 
     let cut = observer.read(TIMEOUT).await?;
     let pending = observer.pending_movements(&cut, TIMEOUT).await?;
     let pending = pending.first().context("no pending movement")?;
-    let birth = observer.history(&cut, &pending.group, TIMEOUT).await?.initial_placement()?;
+    let birth = observer
+        .history(&cut, &pending.group, TIMEOUT)
+        .await?
+        .initial_placement()?;
     for voter in birth.voters {
-        let Some(source) = cluster.hosts.iter().find(|h| h.identity().node == voter.node) else {
+        let Some(source) = cluster
+            .hosts
+            .iter()
+            .find(|h| h.identity().node == voter.node)
+        else {
             continue;
         };
         let group = source.group(pending.group)?;
@@ -635,16 +649,30 @@ async fn diagnose_learner(cluster: &ManagedCluster, observer: &FleetCatalog) -> 
         if !status.ready || status.leader != Some(voter.member.get()) {
             continue;
         }
-        let target = cluster.hosts.iter().find(|h| h.identity().node == pending.plan.replacement.node).context("movement target")?;
-        let history = observer.authorize_group(&cut, &pending.group, TIMEOUT).await?;
-        let authorization = observer.authorize_membership(&cut, &pending.group, TIMEOUT).await?;
-        let result = target.activate_managed_learner_group(history, authorization, LearnerActivation {
-            member: pending.plan.replacement.member,
-            source: voter.member,
-            source_node: voter.node,
-            from_s3: true,
-            timeout: TIMEOUT,
-        }).await;
+        let target = cluster
+            .hosts
+            .iter()
+            .find(|h| h.identity().node == pending.plan.replacement.node)
+            .context("movement target")?;
+        let history = observer
+            .authorize_group(&cut, &pending.group, TIMEOUT)
+            .await?;
+        let authorization = observer
+            .authorize_membership(&cut, &pending.group, TIMEOUT)
+            .await?;
+        let result = target
+            .activate_managed_learner_group(
+                history,
+                authorization,
+                LearnerActivation {
+                    member: pending.plan.replacement.member,
+                    source: voter.member,
+                    source_node: voter.node,
+                    from_s3: true,
+                    timeout: TIMEOUT,
+                },
+            )
+            .await;
         return Ok(format!("{result:?}"));
     }
     anyhow::bail!("no ready birth-voter leader for diagnostic")
