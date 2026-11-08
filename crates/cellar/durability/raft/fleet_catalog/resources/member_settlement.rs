@@ -15,6 +15,8 @@ struct Settlement {
     reservation: [u8; 16],
     fence: [u8; 32],
     member: u64,
+    high_water: u64,
+    birth: [u8; 32],
     before: u32,
     floor: u32,
     physical: FleetResourceBounds,
@@ -23,6 +25,10 @@ struct Settlement {
 
 fn key(reservation: [u8; 16]) -> String {
     format!("member-cleanup/{}", hex::encode(reservation))
+}
+
+fn index_key(group: &str, node: [u8; 16]) -> String {
+    format!("member-cleanup/index/{group}/{}", hex::encode(node))
 }
 
 fn invalid() -> FleetCatalogError {
@@ -36,6 +42,8 @@ impl Settlement {
             || self.reservation == [0; 16]
             || self.fence == [0; 32]
             || self.member == 0
+            || self.high_water < self.member
+            || self.birth == [0; 32]
             || self.before == 0
             || self.attestation.used.engine_slots != 0
         {
@@ -177,6 +185,8 @@ impl FleetHostAuthorization {
             reservation: permit.id(),
             fence,
             member: record.member.member,
+            high_water: record.member.high_water,
+            birth: record.member.birth,
             before: record.before_groups,
             floor,
             physical: FleetResourceBounds {
@@ -196,13 +206,20 @@ impl FleetHostAuthorization {
                         &settlement.release(),
                     )
                     .await?;
+                let group = permit.binding().key().map_err(|_| invalid())?;
+                let encoded = encode(KIND, &settlement, LIMIT)?;
                 let changes = vec![
                     FleetChange {
                         table: FleetTable::Operations,
                         key: key(permit.id()),
-                        value: Some(encode(KIND, &settlement, LIMIT)?),
+                        value: Some(encoded.clone()),
                     },
                     floor,
+                    FleetChange {
+                        table: FleetTable::Operations,
+                        key: index_key(&group, settlement.attestation.boot.node),
+                        value: Some(encoded),
+                    },
                 ];
                 let digest = hash(&encode(
                     KIND,
@@ -235,12 +252,45 @@ impl FleetHostAuthorization {
 }
 
 impl FleetCatalog {
+    /// A selected root receipt closes only the collected member prefix on this
+    /// exact retained engine. An empty physical inventory alone proves no GC.
+    pub(in crate::raft::fleet_catalog) async fn collected_member_prefix(
+        &self,
+        snapshot: &FleetSnapshot,
+        group: &str,
+        birth: [u8; 32],
+        host: &FleetHostAuthorization,
+        member: cellar_logic::consensus::MemberId,
+    ) -> Result<bool> {
+        let Some(bytes) = self
+            .inner
+            .lookup(
+                snapshot.head.tables[FleetTable::Operations.slot()],
+                &index_key(group, host.node().bytes()),
+            )
+            .await?
+        else {
+            return Ok(false);
+        };
+        let receipt: Settlement = decode(KIND, &bytes, LIMIT)?;
+        receipt.validate()?;
+        let current = host.boot_binding()?;
+        let previous = &receipt.attestation.boot;
+        Ok(receipt.birth == birth
+            && receipt.high_water >= member.get()
+            && previous.catalog == current.catalog
+            && previous.fleet == current.fleet
+            && previous.node == current.node
+            && previous.disk == current.disk
+            && previous.engine == current.engine)
+    }
+
     pub(in crate::raft::fleet_catalog) async fn check_member_settlement_mutation(
         &self,
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,
     ) -> Result<()> {
-        if mutation.changes.len() != 2 {
+        if mutation.changes.len() != 3 {
             return Err(invalid());
         }
         let first = &mutation.changes[0];
@@ -290,6 +340,35 @@ impl FleetCatalog {
             || !owner.matches(&settlement.attestation.boot)?
         {
             return Err(FleetCatalogError::Conflict);
+        }
+        let history = self.history_inner(snapshot, &row.request.group).await?;
+        if settlement.birth != history.birth_digest() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let index = &mutation.changes[2];
+        if index.table != FleetTable::Operations
+            || index.key != index_key(&row.request.group, settlement.attestation.boot.node)
+            || index.value != first.value
+        {
+            return Err(invalid());
+        }
+        if let Some(bytes) = self
+            .inner
+            .lookup(
+                snapshot.head.tables[FleetTable::Operations.slot()],
+                &index.key,
+            )
+            .await?
+        {
+            let previous: Settlement = decode(KIND, &bytes, LIMIT)?;
+            previous.validate()?;
+            if previous.birth != settlement.birth
+                || previous.attestation.boot.disk != settlement.attestation.boot.disk
+                || previous.attestation.boot.engine != settlement.attestation.boot.engine
+                || previous.high_water >= settlement.member
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
         }
         let expected = self
             .source_slot_floor_change(snapshot, &settlement.attestation, &settlement.release())

@@ -444,27 +444,46 @@ async fn run(
                 "actual root CAS confirmation loss was not observed"
             );
             let settled = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
-            let forged = FleetMutation {
-                id: [245 + leg as u8; 16],
-                operation: [245 + leg as u8; 16],
-                principal: "fixture".into(),
-                expected_revision: settled.revision(),
-                changes: vec![FleetChange {
-                    table: FleetTable::Operations,
-                    key: format!("member-cleanup/{}", entry.reservation),
-                    value: None,
-                }],
-            };
-            ensure!(
-                matches!(
-                    cluster.fixtures[0]
-                        .catalog
-                        .commit(&settled, &forged, TIMEOUT)
-                        .await,
-                    Err(FleetCatalogError::Invalid(_))
+            let binding = membership
+                .membership()
+                .fleet_status()
+                .context("current fleet membership")?
+                .binding
+                .key()?;
+            for (ordinal, key) in [
+                format!("member-cleanup/{}", entry.reservation),
+                format!(
+                    "member-cleanup/index/{binding}/{}",
+                    hex::encode(cluster.fixtures[source].spec.node.bytes())
                 ),
-                "generic mutation changed cleanup authority"
-            );
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let mut id = [245 + leg as u8; 16];
+                id[0] ^= (ordinal as u8) << 7;
+                let forged = FleetMutation {
+                    id,
+                    operation: [245 + leg as u8; 16],
+                    principal: "fixture".into(),
+                    expected_revision: settled.revision(),
+                    changes: vec![FleetChange {
+                        table: FleetTable::Operations,
+                        key,
+                        value: None,
+                    }],
+                };
+                ensure!(
+                    matches!(
+                        cluster.fixtures[0]
+                            .catalog
+                            .commit(&settled, &forged, TIMEOUT)
+                            .await,
+                        Err(FleetCatalogError::Invalid(_))
+                    ),
+                    "generic mutation changed cleanup receipt/index authority"
+                );
+            }
             ensure!(
                 cluster.hosts[source]
                     .reclaim_removed_member(reservation, TIMEOUT)
@@ -524,6 +543,31 @@ async fn run(
                     returned.in_configuration() && returned.member().get() > leg as u64 + 2,
                     "return reused an obsolete member ID"
                 );
+                let seed = seed.as_ref().context("returned cells")?;
+                for (i, (cell, original)) in seed.cells.iter().zip(&seed.receipts).enumerate() {
+                    let handle = cluster.hosts[returned_index].cell(cell.clone())?;
+                    let read = handle
+                        .query(
+                            ProposalId::new([200 + (leg * 2 + i) as u8; 16])?,
+                            &handle.contract("Get")?,
+                            vec![],
+                            QueryOptions {
+                                consistency: QueryConsistency::Linearizable,
+                                routing: QueryRouting::Local,
+                                timeout: TIMEOUT,
+                                ..Default::default()
+                            },
+                        )
+                        .await?;
+                    ensure!(
+                        read.result == ([7i64, 11][i] + leg as i64).to_be_bytes()
+                            && read.version.history == original.version.history
+                            && read.served_by == returned.member()
+                            && read.served_by_node.node
+                                == cluster.fixtures[returned_index].spec.node,
+                        "returned member did not serve its own current SQL state"
+                    );
+                }
             }
         }
 

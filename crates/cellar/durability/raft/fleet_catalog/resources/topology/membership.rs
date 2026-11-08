@@ -29,23 +29,43 @@ impl FleetTopologyVerification {
         if scope != resources.group {
             return Err(FleetCatalogError::Conflict);
         }
-        // Unmaterialized genesis remains debt even if the namespace has already
-        // committed its birth. Detect it before probing a not-yet-running group.
+        // Unmaterialized genesis remains debt. A privately settled collection
+        // can close an obsolete birth member; current voters must still exist.
         for input in &self.nodes {
             let inventory = input
                 .physical
                 .inventory
                 .as_ref()
                 .ok_or(FleetCatalogError::InventoryIncomplete)?;
-            if (history
+            if inventory.group_history(&scope).is_some() {
+                continue;
+            }
+            if voters.contains_key(&input.host.node()) {
+                return Err(FleetCatalogError::InventoryIncomplete);
+            }
+            for birth in history
                 .voters
                 .iter()
                 .chain(&history.learners)
-                .any(|m| m.node == input.host.node().bytes())
-                || voters.contains_key(&input.host.node()))
-                && inventory.group_history(&scope).is_none()
+                .filter(|m| m.node == input.host.node().bytes())
             {
-                return Err(FleetCatalogError::InventoryIncomplete);
+                let member = cellar_logic::consensus::MemberId::new(birth.member)
+                    .map_err(|_| FleetCatalogError::Corrupt("topology birth member"))?;
+                if !catalog
+                    .run(
+                        deadline.remaining()?,
+                        catalog.collected_member_prefix(
+                            &self.snapshot,
+                            &key,
+                            history.birth_digest(),
+                            &input.host,
+                            member,
+                        ),
+                    )
+                    .await?
+                {
+                    return Err(FleetCatalogError::InventoryIncomplete);
+                }
             }
         }
         let authorization = catalog
@@ -161,14 +181,9 @@ impl FleetTopologyVerification {
                     .as_ref()
                     .ok_or(FleetCatalogError::InventoryIncomplete)?;
                 let physical = inventory.group_history(&scope);
-                if (history
-                    .voters
-                    .iter()
-                    .chain(&history.learners)
-                    .any(|m| m.node == input.host.node().bytes())
-                    || voters.contains_key(&input.host.node()))
-                    && physical.is_none()
-                {
+                // Birth absence was verified once against the same immutable
+                // inventory above. Never excuse an absent current voter.
+                if voters.contains_key(&input.host.node()) && physical.is_none() {
                     return Err(FleetCatalogError::InventoryIncomplete);
                 }
                 if let Some(physical) = physical {
