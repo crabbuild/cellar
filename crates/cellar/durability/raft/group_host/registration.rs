@@ -275,6 +275,7 @@ fn assignment_from_birth(
 pub(super) struct RetainedPlacements {
     pub(super) parked: Vec<(usize, crate::raft::cache::GroupLog<GroupHistory>)>,
     pub(super) retired_sources: Vec<GroupHistory>,
+    pub(super) removed_members: Vec<GroupHistory>,
 }
 
 pub(super) async fn discover_retained_placements(
@@ -405,6 +406,14 @@ pub(super) async fn discover_retained_placements(
                 prepared.groups.push(assignment);
                 continue;
             }
+        }
+        if fleet
+            .parked_removed_member(log, &retained, std::time::Duration::from_secs(5))
+            .await?
+        {
+            placements.removed_members.push(history);
+            placements.parked.push((namespace()?, retained));
+            continue;
         }
         let group = select_assignment(
             &prepared.namespaces,

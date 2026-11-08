@@ -294,6 +294,11 @@ async fn restart_and_qualify(
     cluster.peers[index] = peer;
     cluster.hosts[index] = host.clone();
     let observed = host.observe_node(TIMEOUT).await?;
+    ensure!(
+        observed.registered_histories == 0
+            && observed.unattached_engine_histories == observed.node.groups,
+        "removed replica acquired a serving runtime during retained startup"
+    );
     let boot = observed.fleet_boot.context("retained boot")?;
     ensure!(
         boot.engine == original.engine

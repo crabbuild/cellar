@@ -9,11 +9,13 @@ use crate::raft::transport::{GroupRoute, PhysicalRegistration};
 use cellar_logic::cell_group::GroupHistory;
 use tokio::sync::{mpsc, oneshot};
 
+#[derive(Clone)]
 enum GroupState {
     Pending,
     Active,
     Retiring,
     ParkedRetired,
+    ParkedRemoved,
     Quarantined(CellGroupControllerError),
 }
 
@@ -52,9 +54,12 @@ impl GroupRoster {
 
     pub(super) fn producers_quiesced(&self) -> bool {
         self.groups.lock().is_ok_and(|groups| {
-            groups
-                .values()
-                .all(|state| matches!(state, GroupState::Active | GroupState::ParkedRetired))
+            groups.values().all(|state| {
+                matches!(
+                    state,
+                    GroupState::Active | GroupState::ParkedRetired | GroupState::ParkedRemoved
+                )
+            })
         })
     }
 
@@ -85,7 +90,7 @@ impl GroupRoster {
     ) -> Result<(), RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
         let state = groups.get_mut(&group).ok_or(RuntimeError::NotFound)?;
-        if matches!(state, GroupState::ParkedRetired) {
+        if matches!(state, GroupState::ParkedRetired | GroupState::ParkedRemoved) {
             return Err(RuntimeError::NotFound);
         }
         if !matches!(state, GroupState::Quarantined(_)) {
@@ -151,7 +156,7 @@ impl GroupRoster {
                 *state = GroupState::Retiring;
                 Ok(false)
             }
-            Some(GroupState::ParkedRetired) => Ok(true),
+            Some(GroupState::ParkedRetired | GroupState::ParkedRemoved) => Ok(true),
             Some(GroupState::Quarantined(_)) => Err(RuntimeError::GroupQuarantined),
             _ => Err(RuntimeError::NotReady),
         }
@@ -175,7 +180,7 @@ impl GroupRoster {
     ) -> Result<(), RuntimeError> {
         let groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
         match groups.get(group) {
-            Some(GroupState::ParkedRetired) => Ok(()),
+            Some(GroupState::ParkedRetired | GroupState::ParkedRemoved) => Ok(()),
             None if tombstoned => Ok(()),
             _ => Err(RuntimeError::NotReady),
         }
@@ -184,7 +189,7 @@ impl GroupRoster {
     pub(super) fn finish_reclamation(&self, group: &GroupHistory) -> Result<(), RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
         match groups.get(group) {
-            Some(GroupState::ParkedRetired) | None => {
+            Some(GroupState::ParkedRetired | GroupState::ParkedRemoved) | None => {
                 groups.remove(group);
                 Ok(())
             }
@@ -347,6 +352,23 @@ impl CellGroupController {
         &self,
         histories: Vec<GroupHistory>,
     ) -> Result<(), RuntimeError> {
+        self.retain_parked(histories, GroupState::ParkedRetired)
+    }
+
+    /// Removed members own retained images but have no voting or route owner.
+    /// Their storage remains capacity debt until authorized physical collection.
+    pub(crate) fn retain_parked_removed_members(
+        &self,
+        histories: Vec<GroupHistory>,
+    ) -> Result<(), RuntimeError> {
+        self.retain_parked(histories, GroupState::ParkedRemoved)
+    }
+
+    fn retain_parked(
+        &self,
+        histories: Vec<GroupHistory>,
+        state: GroupState,
+    ) -> Result<(), RuntimeError> {
         let roster = &self.handle.0.groups;
         let mut groups = roster.groups.lock().map_err(|_| RuntimeError::Closed)?;
         if groups.len().saturating_add(histories.len()) > roster.limit {
@@ -360,7 +382,7 @@ impl CellGroupController {
         groups.extend(
             histories
                 .into_iter()
-                .map(|history| (history, GroupState::ParkedRetired)),
+                .map(|history| (history, state.clone())),
         );
         Ok(())
     }
@@ -388,6 +410,9 @@ impl CellGroupController {
                 GroupState::Pending => inventory.pending += 1,
                 GroupState::Active | GroupState::Retiring => inventory.attached.push(*history),
                 GroupState::ParkedRetired => inventory.retired_sources.push(*history),
+                // Engine inventory counts this retained physical debt. It is
+                // neither an attached owner nor a retired whole-group source.
+                GroupState::ParkedRemoved => (),
                 GroupState::Quarantined(_) => {
                     inventory.attached.push(*history);
                     inventory.quarantined += 1;

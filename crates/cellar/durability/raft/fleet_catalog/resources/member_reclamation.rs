@@ -104,3 +104,54 @@ impl FleetHostAuthorization {
             .await
     }
 }
+
+impl FleetCatalog {
+    /// Retain a removed copy without attaching a voter. This grants no erase,
+    /// serving or capacity credit; collection still checks the current boot.
+    pub(crate) async fn parked_removed_member(
+        &self,
+        log: &ReplicaLog,
+        group: &crate::raft::cache::GroupLog<cellar_logic::cell_group::GroupHistory>,
+        timeout: Duration,
+    ) -> Result<bool> {
+        self.run(timeout, async {
+            let snapshot = self.inner.current().await?;
+            let node = log.limits().node;
+            let host = self.host_from(&snapshot, node).await?;
+            if host.storage_instance() != Some(log.storage_instance().map_err(|_| invalid())?)
+                || host.disk() != log.limits().disk
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+            for reservation in self.pending_member_cleanup(&snapshot, node).await? {
+                let row = self.admitted_resource(&snapshot, reservation).await?;
+                let permit = row.permit.as_ref().ok_or_else(invalid)?;
+                if permit.binding().scope().map_err(|_| invalid())? != group.identity().scope {
+                    continue;
+                }
+                if !row.seed_owners.as_ref().is_some_and(|owners| {
+                    owners.iter().any(|owner| {
+                        owner.node == node.bytes() && owner.member == group.identity().member.get()
+                    })
+                }) {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                if !matches!(
+                    self.resource_settlement(&snapshot, &row).await?,
+                    Some((completion::Settlement::Complete, _))
+                ) {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let member = Member::from_group(group, permit)
+                    .map_err(|_| FleetCatalogError::Unconfirmed)?;
+                let history = self.history_inner(&snapshot, &row.request.group).await?;
+                if member.birth != history.birth_digest() {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .await
+    }
+}

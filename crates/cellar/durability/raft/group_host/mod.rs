@@ -444,6 +444,7 @@ pub(crate) async fn start(
         .await?;
         startup.controller = Some(controller.clone());
         controller.retain_parked_retired_sources(retained.retired_sources)?;
+        controller.retain_parked_removed_members(retained.removed_members)?;
         let admission = Arc::new(crate::application::consensus::admission::Admission::default());
         controller.bind_public_admission(
             admission.clone(),
