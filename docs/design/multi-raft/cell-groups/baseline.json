@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "edf7d28a6bda449725621dacafbaa5c4a27de970",
-  "runtime_revision": "edf7d28a6bda449725621dacafbaa5c4a27de970",
-  "review_note": "Reviewed automatic RF3 placement, configured startup/resume and authenticated cross-leader telemetry from 93bbbcd0/fb91205e through edf7d28a. Existing rooted capacity, boot, route, membership, archive, seal, quorum and reclamation owners remain authoritative; observations and immutable execution consent are advisory. Successors retain published archive lag through retryable errors, round aggregate scheduling pressure upward while keeping hot-writer lower bounds, reconcile a concurrent admission winner only for the same canonical intent, and reconcile exact historical consent after active-slot settlement. At predecessor 38f2ac26, the configured SQL split/controller-replacement/cross-leader-merge workflow and recovery-reserve refusal pass natively and against real RustFS in both image modes; this is a scoped checkpoint, not task acceptance. Unchanged architecture anchors retain their reviewed excerpts and hashes. Protocol partition-placement-1 requires fresh namespaces, fleet roots and engines with matching binaries; numeric markers remain 1. No resource, compiler, stack or request deadline was raised. CG-11 remains IN_PROGRESS: automatic whole-group balancing/repair, disjoint placement alignment and the missing failure-domain/reserve and bounded-fanout gates remain. Successor edf7d28a fixes an SDK scheduler clock-domain mismatch: sample freshness, cooldown and recommendation checks now use the controller clock. The configured controller already shares the voter domain; independent SDK controller domains exposed two ready-timeout regressions. At edf7d28a, the two exact SDK regressions, configured cycle, reserve refusal and public authority pass natively in both image modes. Strict all-target/all-feature Clippy and formatting pass. The predecessor RustFS result retains source 38f2ac26; no current-source whole scheduler target or full task acceptance is claimed.",
+  "source_revision": "c2b6d20273205b40844f49a113a1f40f87c9cd1f",
+  "runtime_revision": "c2b6d20273205b40844f49a113a1f40f87c9cd1f",
+  "review_note": "Reviewed configured automatic whole-group topology, exact-boot capacity activation and authenticated immutable seed lineage. At c2b6d202, native and real RustFS balancing and reserve-refusal cases pass in both image modes. Three durable replica moves preserve SQL, receipts and fresh quorum writes; controller replacement, explicit operator handover and joined stop pass. The original 512-MiB logical profile refuses all movement with BalanceUnproven; the positive case explicitly declares 1-GiB logical admission within the unchanged 1-GiB disk/3-GiB memory/two-engine deployment attestation. First-seed adoption, immutable seeded-cell-group-1 mapping, local receipt and complete snapshot persist in one engine fence. Cold decoding and retained open verify the original scope, receipt and provenance; three codec tests and the existing learner/Joint/crash/reopen regression pass. The anchor grants no serving, image-retention or archive authority and charges 32 KiB to cache. The seed-lineage-1 hard cutover requires fresh namespaces, fleet roots and engine directories with matching binaries; numeric markers remain 1. Merged CG-14 harness acceptance is preserved; its unresolved S3 load deadline remains a release gate. Native fixtures and one local RustFS VM do not qualify independent domains, physical peaks, sustained load or optional fenced recovery. Failed and interrupted development attempts remain recorded. No default, physical resource or deadline increase; CG-11 remains IN_PROGRESS for automatic fenced failure-domain repair, disjoint-placement alignment and exact reserve/fanout acceptance.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -13,15 +13,15 @@
     },
     "codec": {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "01cef3c1be55dad603931747069bc6dabc80dc52b349ec3ad5ed0e641d204294",
+      "sha256": "39197ea0186510129f8de3de1e42f97bb90f00c6a37b1186435fabbddfb112b9",
       "line": 160,
       "excerpt": "pub struct CellUpdate {\n    pub scope: GroupScope,\n    pub application_digest: [u8; 32],\n    pub proposal: ProposalId,\n    pub base: LtxImage,\n    pub result: LtxImage,\n    pub files: Vec<LtxUpdate>,\n}\n"
     },
     "manifest": {
       "path": "crates/cellar/durability/raft/cache.rs",
-      "sha256": "da2ef258c00278a8df3c43d82d49e2fe0e873820a8a90146fdb76d7a4952951a",
+      "sha256": "915b6538f4e19a966d588f1941568d96e5a404f7372e7e17b2cd5d52f2b3c017",
       "line": 508,
-      "excerpt": "pub(crate) struct CachedGroup {\n    pub archive_required: bool,\n    pub hard_state: HardState,\n    pub conf_state: ConfState,\n    pub membership: GroupMembership,\n    pub snapshot: Snapshot,\n    pub entries: BTreeMap<u64, Entry>,\n    pub applied: DurableApply,\n    pub group_manifest: Option<GroupManifest>,\n    /// Derived from the immutable mapping; never supplied by a write/snapshot.\n    pub recovery_genesis: Option<Arc<GroupManifest>>,\n    pub manifest_pins: Option<ManifestPins>,\n    pub checkpoint_manifest: Option<GroupManifest>,\n    /// Local receipt; never imported from another node's checkpoint.\n    pub group_seed: Option<u64>,\n    pub(crate) local_park: Option<super::cell_groups::LocalParkRecord>,\n}"
+      "excerpt": "pub(crate) struct CachedGroup {\n    pub archive_required: bool,\n    pub hard_state: HardState,\n    pub conf_state: ConfState,\n    pub membership: GroupMembership,\n    pub snapshot: Snapshot,\n    pub entries: BTreeMap<u64, Entry>,\n    pub applied: DurableApply,\n    pub group_manifest: Option<GroupManifest>,\n    /// Derived from the immutable mapping; never supplied by a write/snapshot.\n    pub recovery_genesis: Option<Arc<GroupManifest>>,\n    pub manifest_pins: Option<ManifestPins>,\n    pub checkpoint_manifest: Option<GroupManifest>,\n    /// Local receipt; never imported from another node's checkpoint.\n    pub group_seed: Option<u64>,\n    /// Immutable first-seed lineage, recovered from the atomic local mapping.\n    /// Historical metadata only: no image pins, serving or archive authority.\n    pub seed_anchor: Option<Arc<GroupManifest>>,\n    pub(crate) local_park: Option<super::cell_groups::LocalParkRecord>,\n}"
     },
     "apply": {
       "path": "crates/cellar/durability/raft/apply.rs",
@@ -37,7 +37,7 @@
     },
     "host": {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "c5ea839c1bb3d752494294d5b0f3970b4dd9a5c0d26386e3fa8459053914452b",
+      "sha256": "2f073b103af3ff2af92e7fd0b1483e1599d64d55210bcae0bca0da55bbeaa42e",
       "line": 76,
       "excerpt": "pub struct RaftHostOptions {\n    /// Shared inventory and caches for namespaces selecting extent images.\n    pub extents: Option<RaftExtentOptions>,\n    pub close_report: super::operations::RaftCloseReportLimits,\n    /// Explicit committed alarm/outbox scheduling. Definitions refuse activation when\n    /// this capability is absent; ordinary classes do not start a scheduler.\n    pub effects: Option<super::effects::RaftEffectOptions>,\n    /// Opt in to bounded automatic repair and optional leadership balancing.\n    pub controller: Option<RaftControllerOptions>,\n    /// Bounded complete node-wide resource scans. Peer inspection still requires\n    /// its independent explicit profile and grants.\n    pub inspection_scan: RaftInspectionScanOptions,"
     },
@@ -115,7 +115,7 @@
     },
     "fleet": {
       "path": "crates/cellar/durability/raft/fleet_catalog/mod.rs",
-      "sha256": "661372bf4c94ace18766ef37990d0ecc71e5174383902b53b92c5c3373417003",
+      "sha256": "fa328d2cd88202c1b91961639165b8e430becda6b042d75338d7d2481e43e37b",
       "line": 26,
       "excerpt": "mod managed_transition_admission;\npub(crate) use managed_transition_admission::TransitionOperatorStep;\nmod managed_source_quiescence;\nmod managed_source_settlement;\nmod managed_transition_capacity;\nmod managed_transition_execution;\npub(crate) use managed_transition_execution::ManagedTransitionExecution;\nmod managed_recovery_fence;\npub(crate) use managed_recovery_fence::PreparedManagedRecoveryFence;\npub use managed_recovery_fence::{\n    FleetFencedTransitionRecovery, FleetTransitionRecoveryFenceRequest,\n};\nmod managed_recovery_intent;\npub use managed_recovery_intent::{FleetTransitionRecoveryBarrier, FleetTransitionRecoveryIntent};\npub(crate) use managed_recovery_intent::{ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput};"
     },

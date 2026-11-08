@@ -2487,7 +2487,12 @@
         "crates/cellar/durability/raft/group_host/partition.rs",
         "crates/cellar/durability/raft/partition_observation_wire.rs",
         "crates/cellar/tests/support/cell_group_automatic_partition.rs",
-        "crates/cellar/application/consensus/group_client/observation_tests.rs"
+        "crates/cellar/application/consensus/group_client/observation_tests.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/automatic/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/automatic/evidence.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/automatic/policy.rs",
+        "crates/cellar/tests/support/cell_group_automatic_topology.rs",
+        "crates/cellar/durability/raft/records_seed_tests.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [

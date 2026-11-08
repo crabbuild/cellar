@@ -8,9 +8,67 @@ The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
 CG-01 through CG-10 have passed their scoped native gates.
-CG-11 through CG-15 are in progress. CG-16 remains pending
+CG-11–13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
+CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-11 automatic whole-group balancing
+
+At `c2b6d20273205b40844f49a113a1f40f87c9cd1f`, configured topology selects
+RF3 destinations from complete rooted capacity and physical inventory, generates
+canonical durable intents and executes three actual replica moves across two
+occupied groups on six managed TLS nodes. Controller replacement resumes the
+persisted intent. Exact-boot capacity activation gates startup; an Active record
+from the previous boot cannot authorize new work. Explicit operator policy wins
+until canonical handback. Idle rounds do not continually append empty operations.
+
+The public test verifies both materialized and extent modes: unchanged cell
+histories and directory, original receipt replay, linearizable SQL, fresh quorum
+writes, final three-voter membership without learners/Joint, and joined shutdown.
+Native balancing passes in 62.693 seconds and paired recovery-room refusal in
+43.590 seconds. The fixed real RustFS suite passes both cases in both modes in
+139.861 seconds. Transition executable SHA-256:
+`86507c2515143ac046face40bcf0ff63c7c0667dfc2b69f3343e06025973ef1c`.
+The earlier `9faa2162` run also passes; its source and logs remain separate.
+
+The original 512-MiB logical admission profile refuses every move with
+`BalanceUnproven` while receipts, reads and quorum writes continue. The positive
+case explicitly declares 1-GiB logical admission within the unchanged 1-GiB disk,
+3-GiB memory and two-engine deployment attestation. This is a paired profile,
+not a default capacity, physical limit or deadline increase. RustFS uses one
+CPU/2-GiB container in an owned eight-CPU/16-GiB VM; TLS voters are host-native.
+The backend and owned VM are stopped, with archive objects retained.
+
+This feature exposed first-seed child provenance and retained-mapping identity
+failures. Authenticated first-seed adoption now persists an immutable lineage
+anchor with the mapping, receipt and complete snapshot in the same engine fence.
+Cold decoding and retained open verify the original scope, receipt and provenance;
+ordinary or established snapshots cannot introduce or replace lineage. The anchor
+conveys no serving, image-retention or archive authority and charges 32 KiB to
+cache. All three codec cases pass. The existing learner/Joint/crash/reopen
+regression passes in 16.849 seconds. The `seed-lineage-1` hard cutover requires
+fresh namespaces, fleet roots and engine directories with matching binaries;
+numeric markers remain 1. Retained restarts use current-protocol data.
+
+The merged source preserves accepted CG-14 harness work: all six native harness
+checks and 315 perf Python checks pass (one explicit opt-in skip). Strict
+all-target/all-feature Clippy, formatting, layout and native dependency checks
+pass. CG-14's retained S3 load deadline failure remains a CG-15/release gate.
+
+Records:
+`.cellar/cell-groups-evidence/CG-11-topology-c2b6d202-01/record.json`,
+`.cellar/cell-groups-evidence/CG-11-topology-c2b6d202-rustfs-01/record.json`, and
+`.cellar/cell-groups-evidence/CG-11-topology-9faa2162-rustfs-01/record.json`.
+Development failures, interrupted builds and an explicitly invalidated diagnostic
+run remain recorded separately and are not qualification passes.
+
+This is a feature CHECKPOINT. CG-11 remains `IN_PROGRESS` for automatic fenced
+failure-domain repair, merge alignment across disjoint placements, the exact
+`repair_preserves_failure_domains_and_reserve` and
+`control_plane_fanout_bounded` cases, and complete scheduler qualification.
+Larger inventories, mixed load, physical peaks and independent domains remain
+required. The optional fenced-recovery bridge is not qualified by these cases.
 
 ## CG-11 configured automatic placement and execution
 
@@ -59,8 +117,10 @@ backend shutdown are recorded in
 record is
 `.cellar/cell-groups-evidence/CG-11-auto-38f2ac26-rustfs-01/record.json`.
 
-Next implement automatic whole-group balancing/repair and disjoint-placement
-alignment using the existing learner, Joint and removal owners. Then close
+This earlier checkpoint left automatic whole-group balancing/repair and
+disjoint-placement alignment open. Balancing is delivered by the checkpoint
+above; automatic repair and alignment still use the existing learner, Joint
+and removal owners. Then close
 `repair_preserves_failure_domains_and_reserve` and
 `control_plane_fanout_bounded` and the complete scheduler acceptance gate. Do not
 restart configured startup or staged cancellation from older handoff paragraphs.

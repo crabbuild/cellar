@@ -14,6 +14,35 @@ Stay on CG-11 feature delivery. Its five product outcomes are:
 4. Automatic whole-group balance and repair, without remapping individual cells.
 5. Bounded control-plane inventory and targeted updates under the planned load.
 
+Configured whole-group topology now selects and executes durable intents from
+rooted fleet evidence through the existing learner/Joint/removal owner. Managed
+startup waits for the exact current boot and activated capacity. Suspend/resume
+rediscovers the persisted operation; explicit operator policy and handback preserve
+ownership. The optional recovery bridge shares the existing verifier pools and
+fencing contract; this checkpoint does not qualify that bridge.
+
+At `c2b6d202`, the native and real RustFS cases pass in both materialized and
+extent modes. Two occupied groups on six managed TLS nodes complete three
+persisted replica moves. SQL, original receipts, fresh quorum writes, controller
+replacement, operator handover and joined shutdown pass. The original 512-MiB
+logical admission profile correctly refuses every move to preserve recovery room.
+The positive case explicitly declares 1-GiB logical admission within the same
+1-GiB disk/3-GiB memory/two-engine deployment attestation. Neither case measures
+independent voter-process isolation or physical peaks.
+
+The positive case exposed child-transfer provenance and retained mapping failures.
+Authenticated first-seed adoption now records an immutable lineage anchor in the
+same engine fence as the mapping, local receipt and complete snapshot. Cold decode
+and retained open verify that original lineage. Three codec cases and the existing
+learner/Joint/crash/reopen regression pass. The `seed-lineage-1` hard cutover
+requires fresh namespaces, fleet roots and engine directories with matching
+binaries; numeric markers remain 1. Retained restarts use current-protocol data.
+
+The checkpoint and fixed RustFS records are listed at the top of
+[progress](progress.md). Full CG-11 acceptance remains open. The merged source
+also preserves the independently accepted CG-14 harness and its unresolved S3
+load-matrix release gate.
+
 The standard planner, generated identities, joint child placement and configured
 host startup are implemented at `93bbbcd0`/`fb91205e`. Applications supply explicit
 policy rather than a destination callback. The node owns suspend/resume and joins
@@ -38,8 +67,8 @@ for freshness and recommendations. The two previously failing scheduler cases,
 configured cycle, reserve refusal and public authority pass in both native image
 modes. The RustFS result remains pinned to `38f2ac26`.
 
-Next implement automatic whole-group balancing/repair and disjoint-placement
-alignment, close the exact failure-domain/reserve and fanout gates, and qualify
+Next implement automatic fenced failure-domain repair and disjoint-placement
+alignment. Close the exact failure-domain/reserve and fanout gates, then qualify
 larger inventories, mixed load, physical peaks and independent domains. CG-11
 remains IN_PROGRESS.
 Earlier command-readiness, cancellation and operator checkpoints retain their
@@ -55,11 +84,13 @@ Finish one feature before opening another implementation track:
    quiet adjacent groups merge across different leaders. Original receipts, SQL
    state, fresh quorum writes, reserve refusal and joined shutdown pass in
    both image modes with real RustFS. Preserve this source-pinned qualification.
-2. **Next feature — automatic whole-group balancing and repair:** adding
-   capacity or draining a node selects and durably executes replica movement using the existing
-   learner/Joint/removal owner. Resume interrupted movement without remapping
-   individual cells. Align disjoint sibling placements before merging. Failure
-   detection cannot replace fencing or establish physical resource release.
+2. **Delivered balancing; next repair and alignment:** configured startup
+   selects and completes whole-group replica movement, resumes its durable intent
+   and supports operator handover. Automatic failed-domain repair must use the
+   existing fencing and membership owners. Align disjoint sibling placements
+   before merging. Failure detection cannot replace fencing or establish physical
+   resource release. Preserve the original refusal profile beside the declared
+   positive capacity profile.
 3. **CG-11 acceptance:** finish the exact
    `repair_preserves_failure_domains_and_reserve` and
    `control_plane_fanout_bounded` cases, then run the complete scheduler gate.
@@ -69,8 +100,8 @@ Finish one feature before opening another implementation track:
 
 The recorded `scheduler_hysteresis_and_hot_isolation`,
 `scheduler_cannot_grant_authority` and `whole_group_scale_out_in` checkpoints are
-useful foundations. They do not prove that configured automatic balancing,
-repair or the two missing cases are delivered. Keep CG-11 `IN_PROGRESS` until
+useful foundations. The new balancing checkpoint extends this coverage; it does not establish
+automatic repair or the two missing cases. Keep CG-11 `IN_PROGRESS` until
 the complete task evidence passes. Do not substitute formatter runs, auxiliary
 checks or unrelated lifecycle work for these feature outcomes.
 

@@ -64,7 +64,8 @@ namespace and physical group requests through the admin API. Valid retries
 preserve the original receipt after those refusals. The named public authority
 and occupancy-one cases pass their recorded native scope.
 
-CG-11 through CG-15 are in progress. CG-16 is pending the combined
+CG-11–13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
+CG-16 is pending the combined
 release gate. Individual checkpoints cover operator-driven split and merge,
 placement recommendations, fenced parking and wake, managed recovery and
 parts of the qualification matrix. The task-level evidence remains open.
@@ -82,8 +83,8 @@ their own qualification.
 
 ## Open case audit
 
-The [implementation index](implementation-plan.md) records ten accepted
-tasks and 132 of 163 required cases. CG-07 has a complete acceptance record
+The [implementation index](implementation-plan.md) records eleven accepted
+tasks and 137 of 163 required cases. CG-07 has a complete acceptance record
 for its five public cases and all required commands at `84942c4e`.
 Each remaining task still needs the exact target, case oracles and evidence
 specified by `plan.py show <task>`. The index counts acceptance through complete
@@ -101,7 +102,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | Three named cases and earlier checkpoints retain their recorded sources. At `38f2ac26`, configured RF3 placement, SQL-load split, persisted continuation after controller replacement, cross-leader quiet merge and reserve refusal pass natively and against real RustFS in both image modes. Original receipts, SQL state, fresh quorum writes and joined shutdown are verified. | Next implement automatic whole-group balancing/repair and disjoint replica-set alignment. Close the exact failure-domain/reserve and bounded-fanout acceptance cases; qualify larger inventories, mixed load, physical peaks and independent domains. Full acceptance remains pending. |
+| CG-11 | At `38f2ac26`, configured RF3 placement, SQL-load split, controller replacement, cross-leader merge and reserve refusal pass natively and against real RustFS in both image modes. At `c2b6d202`, automatic balancing completes three persisted replica moves; exact-boot startup, operator handover, SQL, receipts, fresh quorum writes and paired recovery-room refusal also pass both modes natively and against RustFS. | Automatic fenced failure-domain repair and disjoint replica-set alignment. Close the exact failure-domain/reserve and bounded-fanout cases and complete scheduler acceptance. Qualify larger inventories, mixed load, physical peaks and independent domains. The optional recovery bridge is not yet qualified. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
@@ -124,9 +125,11 @@ through the shared backend and preserve typed refusals for the rest.
    children jointly from rooted capacity and physical inventories. Configured host
    startup owns suspend/resume and joined stop; sibling leaders can differ.
    The complete configured SQL workflow and reserve refusal pass against real
-   RustFS in both image modes at `38f2ac26`. Next finish automatic whole-group
-   movement/balancing/repair and alignment of adjacent groups on disjoint replica
-   sets, followed by the missing exact reserve,
+   RustFS in both image modes at `38f2ac26`. Configured whole-group balancing
+   and paired recovery-room refusal also pass both modes at `c2b6d202`,
+   including three persisted moves, controller replacement and operator handover.
+   Next deliver automatic fenced failure-domain repair and alignment of adjacent
+   groups on disjoint replica sets, followed by the missing exact reserve,
    failure-domain and fanout gates. Keep the full task open until its planned load,
    larger-inventory, peak and domain qualifications pass. Earlier cancellation,
    request-readiness and operator checkpoints remain scoped to their own sources.
@@ -161,7 +164,7 @@ an unresolved matrix gap; they do not qualify the load profiles.
 CG-10's full operator correctness gate is accepted at `8b410f25`, including
 complete write/effect/receipt reconciliation and physical pre-copy admission.
 Its real RustFS drills pass both image modes. Continue with the CG-11 placement
-controller and preserve the open CG-14 performance failure. Preparation uses
+controller and preserve the retained S3 load failure as a CG-15 release gate. Preparation uses
 private staging and complete sealed-archive replay; incremental transfer
 performance and sustained load remain qualification work.
 
