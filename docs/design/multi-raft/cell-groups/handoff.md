@@ -6,41 +6,26 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current CG-11 delivery
 
-At `cf2699bb38d115cf4e0720db39fc6b468edb2b81`, completed live-source movements atomically enqueue bounded cleanup
-work for the obsolete node. `start_member_cleanup_service` discovers it without
-caller-supplied reservation IDs. Existing movement/topology workers can opt in
-with `reclaim_removed_members`; admitted work keeps priority. The node owns the
-exclusive control-service lease, stop and join.
+At `a352f77d`, retained successor boots resume removed-member cleanup with the
+original source witness, exact disk/engine lineage and fresh rooted capacity.
+Removed replicas start parked without serving or voting; physical debt remains
+charged until collection and atomic settlement. `RaftHostOptions.member_cleanup`
+starts a node-owned cleanup worker with exclusive ownership and joined stop.
+Combined movement workers instead enable `reclaim_removed_members`.
 
-Admission reserves queue room for active and completed removals. A same-group
-return to the node refuses until physical completion and the receipt, resource
-floor, member index and dequeue commit together. Other nodes' reservations do
-not block settlement. Permanently isolated sources retain offline retirement
-ownership and are not queued for a fenced process to execute. Original boot,
-exact disk/engine/member, history/birth and opaque local physical proofs remain
-mandatory. Historical completion no longer needs to remain the latest permit.
-Discovery is a bounded node point read and each turn runs one physical cleanup.
+The retained-restart case passes both native and real RustFS image modes,
+including restart before GC, restart after GC/before settlement, stale-process
+and missing-witness refusals, no serving attachment and later receipt replay
+without a second refund. Background cleanup owns a private catalog client;
+external status controllers likewise use independent clients to the same backend.
+See [progress](progress.md) for qualification and retained failures.
 
-The new native `managed_member_cleanup_resumes_after_worker_restart` case passes
-both image modes: two moves, historical cleanup, actual settlement CAS paused
-after GC, joined cancellation, replacement discovery and exact-once settlement.
-Normal movement-worker cleanup and empty restart also pass. Original SQL,
-receipts, versions and S3 writes persist with unchanged resource/deadline bounds.
-The full scheduler target passes five native tests (five explicit RustFS cases
-are ignored in that command). The fixed RustFS cleanup suite passes both image
-modes on the same executable. Strict all-target Clippy, formatting/layout, native
-dependencies, runner, plan and documentation checks pass.
-
-The initial build caught a deadline/self borrow; the deadline now retains its
-catalog independently. The refusal test initially reused a topology request ID
-and hit PayloadConflict; a fresh ID now exercises the unchanged Invalid oracle.
-No assertion, timeout, resource or compiler limit was relaxed.
-
-CG-11 remains IN_PROGRESS. Deliver retained-successor cleanup and deployment
-startup wiring next, then automatic partition execution and adaptive policy.
-The failure-domain/reserve and bounded-fanout cases, concurrent child receipt
-readiness, late faults, mixed load and measured peaks remain open. The prior
-pre-collection readiness failure is not retested by this membership scenario.
+CG-11 stays IN_PROGRESS. Complete durable automatic partition execution and
+adaptive placement, combined-worker deployment policy, the missing failure-domain/
+reserve and bounded-fanout cases, concurrent child-receipt readiness, late faults,
+larger inventories, mixed load and measured peaks. Configured SDK startup does
+not select a daemon's combined-worker deployment policy. Independent voter
+failure domains remain unqualified.
 
 ## Current accepted boundary
 
@@ -134,12 +119,12 @@ old-token reads and S3 writes. It is not same-group membership balancing or a
 voter-process restart drill. See progress.md for source, hashes and development
 attempts, including the corrected new receipt-test version expectation.
 
-Keep work on CG-11 until every gap closes. The delivery above supersedes its
-previous next-step ordering. Integrate bounded durable member-cleanup work and
-targeted dispatch, delayed historical and retained-successor cleanup, restart and
-contention. Complete automatic partition ownership and deployment/adaptive policy,
-then the required failure-domain repair/reserve and bounded fanout cases. Qualify
-late failures, larger inventories/quotas, mixed load and measured peaks. Task-level
+Keep work on CG-11 until every gap closes. Durable cleanup discovery,
+historical/retained-successor cleanup and configured node startup are implemented
+above. Next complete durable automatic partition ownership, adaptive placement
+and combined-worker deployment policy, then failure-domain repair/reserve and
+bounded fanout. Resolve concurrent child-receipt readiness and qualify late
+failures, larger inventories/quotas, mixed load and measured peaks. Task-level
 acceptance remains open.
 Consent remains explicit and irreversible sealing requires the recorded authority.
 After CG-11 closes, continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for

@@ -12,6 +12,49 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 retained cleanup and configured startup delivery
+
+At `a352f77d`, retained successor processes resume removed-member collection on
+the same disk and engine. Boot replacement preserves the original source witness
+while the bounded cleanup queue references it. Collection and settlement require
+that witness, retained lineage and fresh rooted capacity. Old process handles and
+missing-witness attempts refuse without physical release.
+
+Startup parks completed removed replicas without serving or voting attachment;
+their physical storage stays charged. `RaftHostOptions.member_cleanup` transfers
+cleanup lifetime to the node, including exclusive movement-slot ownership and
+joined stop. A deployment using a combined movement worker leaves this option
+unset and enables its `reclaim_removed_members` policy. Background collection uses
+a private catalog client so foreground capacity qualification can proceed.
+
+The retained-restart case passes both native and real RustFS image modes. It
+restarts before GC and after GC/before settlement, checks unqualified-boot and
+missing-witness refusals, proves no serving attachment, then settles once. Another
+boot replays the receipt without another refund. SQL values, receipts, versions
+and S3 writes persist. Strict all-target Clippy, formatting/layout and native
+dependency checks pass. Final scheduler and plan/documentation results are
+retained with the checkpoint below.
+
+Development failures exposed foreground catalog contention and obsolete-voter
+attachment; private catalog turns and parked ownership address those paths. The
+first RustFS extent run stalled in Reserved membership work while external status
+polling shared the voters' single-client turn. Independent controller clients use
+the same backend with unchanged polling rates, deadlines, resource bounds and
+assertions. Failed runs are retained with the passing rerun.
+
+Evidence:
+
+- `.cellar/cell-groups-evidence/CG-11-retained-a352f77d-01/record.json` (CHECKPOINT).
+- `.cellar/cell-groups-evidence/CG-11-retained-a352f77d-rustfs-02/record.json`.
+- Initial RustFS failure: `.cellar/cell-groups-evidence/CG-11-retained-fda3db08-rustfs-01/record.json`.
+
+CG-11 remains IN_PROGRESS. Next deliver durable automatic partition execution,
+adaptive placement and combined-worker deployment policy, then failure-domain/
+reserve and bounded-fanout cases. The separate concurrent child-receipt readiness
+failure, late faults, larger inventories, mixed load and measured peaks remain
+open. Voters are host-native TLS fixtures; RustFS uses one CPU and two GiB.
+Independent voter failure domains and performance/load are not qualified.
+
 ## CG-11 durable cleanup ownership delivery
 
 At `cf2699bb38d115cf4e0720db39fc6b468edb2b81`, completed live-source movements atomically enqueue bounded cleanup
