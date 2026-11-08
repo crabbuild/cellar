@@ -82,6 +82,19 @@ class OwnedRun:
     def __call__(self, *args):
         mutation = args[0] in ('run', 'create') or args[:2] in (('volume', 'create'), ('network', 'create'))
         if not mutation:
+            if args[0] == 'stats':
+                require(args[1:4] == ('--no-stream', '--format', '{{json .}}')
+                        and 1 <= len(args[4:]) <= 6 and len(set(args[4:])) == len(args[4:]),
+                        'stats requires bounded nonstreaming owned targets')
+                require(all(name in self.state['containers'] and self.state['containers'][name]['kind'] == 'process'
+                            for name in args[4:]), 'stats cannot observe an unowned process')
+                self.engine.bind()
+                identities = []
+                for name in args[4:]:
+                    row = self.state['containers'][name]
+                    self.engine.inspect(name, self.owner, row['id'])
+                    identities.append(row['id'])
+                return self.engine.invoke(*args[:4], *identities)
             if args[0] == 'cp':
                 require(len(args) == 3, 'unsupported config copy')
                 source, destination = Path(args[1]).resolve(), args[2]

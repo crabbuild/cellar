@@ -46,6 +46,8 @@ class FakeEngine:
             row = next(row for row in self.containers.values() if row['id'] == args[-1])
             row.update(running=False, paused=False, finished='joined')
             return IDENTITY
+        if args[0] == 'stats':
+            return 'owned-stats'
         raise AssertionError('unexpected fake Engine operation')
 
     def engine(self, context=CONTEXT, identity=ENGINE):
@@ -53,6 +55,20 @@ class FakeEngine:
 
 
 class Ownership(unittest.TestCase):
+    def test_sampler_observes_only_exact_owned_process_ids(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fake = FakeEngine()
+            owned = self.owned(Path(temporary).resolve(), fake)
+            name = self.launch(owned)
+            self.assertEqual(owned('stats', '--no-stream', '--format', '{{json .}}', name), 'owned-stats')
+            self.assertEqual(fake.calls[-1], ('stats', '--no-stream', '--format', '{{json .}}', IDENTITY))
+            for args in [('stats', name), ('stats', '--no-stream', '--format', '{{json .}}', 'unowned')]:
+                with self.subTest(args=args), self.assertRaises(ValueError):
+                    owned(*args)
+            fake.containers[name]['owner'] = 'foreign'
+            with self.assertRaises(ValueError):
+                owned('stats', '--no-stream', '--format', '{{json .}}', name)
+
     def owned(self, root, fake):
         return OwnedRun(fake.engine(), root, OWNER, CAMPAIGN)
 
