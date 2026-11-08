@@ -164,19 +164,25 @@ run; later passes cannot establish a fixed failover SLA or waive that failure.
 Five-second calls and eight reconciliation turns remain unchanged. See
 [progress](progress.md) for source-bound results and unresolved qualification.
 
-## Planned harness interface
+## Shared-group workload harness
 
-CG-14 implements `tools/perf/cell_groups.py`; it does not exist at plan delivery.
-The following is its required CLI, not a command claimed to work today:
+CG-14 provides `tools/perf/cell_groups.py` with source-pinned SQL/RustFS campaigns,
+independent raw-evidence verification and owned process stop. The
+[campaign guide](../../../../tools/perf/cell_groups.md) defines the implemented
+private configuration and its remaining acceptance boundaries. All five named
+component cases pass; this does not establish full CG-14 or release acceptance.
+
+The available CLI is:
 
 ```text
-python3 tools/perf/cell_groups.py preflight --config PRIVATE_CONFIG
+python3 tools/perf/cell_groups.py preflight --profile PROFILE --config PRIVATE_CONFIG
 python3 tools/perf/cell_groups.py run --profile PROFILE --config PRIVATE_CONFIG --output FRESH_RUN_DIRECTORY
 python3 tools/perf/cell_groups.py verify --run RUN_DIRECTORY
 python3 tools/perf/cell_groups.py stop --run RUN_DIRECTORY
 ```
 
-The private configuration must bind a run UUID, explicit Docker context or process
+The complete harness configuration contract below also covers the remaining
+deployment and recovery adapters. The private configuration must bind a run UUID, explicit Docker context or process
 host inventory, immutable Cellar/RustFS image digests or executable manifest,
 source revision, dedicated data roots, credentials-file paths, port allocation,
 node CPU/memory/swap/disk limits, failure domains and fencing-authority endpoint.

@@ -10520,3 +10520,52 @@ older default compiler and a command naming a nonexistent test target are retain
 as non-qualifying attempts. Final checks use Rust 1.98.1 and actual test targets.
 These results do not qualify the shared host, new group member claims, RustFS
 recovery, hibernation, performance or the final hard cutover.
+
+## CG-14 executable campaign MVP
+
+Runtime source `164966dc142e9b700359ba48f13885643959582f` implements the planned
+`tools/perf/cell_groups.py` CLI and `native_cell_groups_harness` target.
+All five required cases pass individually; the zero-selected-test refusal
+and concrete peer-listener regression also pass. The affected-target strict
+Clippy, formatting, module layout, native-dependency and documentation checks
+pass. All 104 Python regressions and 37 plan-validator tests pass. This is a
+component checkpoint, not complete task acceptance.
+
+The real RustFS S3 smoke verifies four serial cohorts on three distinct Linux
+voter processes, each constrained to one CPU and 3 GiB without swap. RustFS
+has two CPUs and 4 GiB in the same VM. Every cohort uses four independent
+SQLite cells, 30 seconds of warmup and a four-second measurement at one
+request per second. The stable trace mixes SQL commands and AtLeast reads.
+
+| Image mode | Cells per group | Actual physical groups | Actual Raft voter replicas | Verified cell replicas |
+| --- | ---: | ---: | ---: | ---: |
+| Materialized | 1 | 4 | 12 | 12 |
+| Materialized | 2 | 2 | 6 | 12 |
+| Extents | 1 | 4 | 12 | 12 |
+| Extents | 2 | 2 | 6 | 12 |
+
+All 120 warmup and 16 measured requests complete without refusals,
+ambiguities or unexpected errors. The independent verifier checks complete
+per-cell histories, all 48 final cell-replica observations, archive coverage,
+physical group counts and raw engine/kernel/periodic observations. All voter
+and RustFS processes stop with exit code zero; disks and evidence remain.
+The tiny smoke does not establish throughput, density or a latency SLA.
+Its custom catalog remains explicitly non-release; CLI release gating exits
+nonzero even though component verification succeeds.
+
+The campaign exposed and retains three failed deployment attempts: exhausted
+Docker default address pools, benchmark wildcard listeners rejected by exact
+physical transport identity, and a denied periodic stats operation. Explicit
+nonoverlapping CIDRs, concrete peer-address binding, early exited-voter
+reporting and immutable-ID-bound stats fix those boundaries. The ownership
+and config-transfer adapter also passes direct Engine probes. No failed run
+was rewritten as a pass. The successful smoke record SHA-256 is
+`b52e02318cb805050743b1371ced7576c18724389b024d4932fedb8ba4662894`.
+
+CG-14 remains IN_PROGRESS for bounded disk provisioning, historical executable
+controls, complete safety/archive-lag/logical-close measurements and the
+remaining lifecycle/deployment adapters. The unchanged five-node release
+profile requires 20 GiB; the current VM exposes about 15.6 GiB and correctly
+refuses preflight. The earlier occupancy-128 matrix miss and all frozen
+release gates remain open. See the [campaign guide](../../../../tools/perf/cell_groups.md)
+for commands, supported scenarios and artifact ownership.
