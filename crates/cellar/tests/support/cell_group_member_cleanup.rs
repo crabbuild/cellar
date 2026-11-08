@@ -17,7 +17,12 @@ pub(super) async fn exercise(
     cluster: &ManagedCluster,
     evidence: std::sync::Arc<dyn FleetMovementEvidence>,
 ) -> Result<()> {
-    let catalog = &cluster.fixtures[0].catalog;
+    // Observe the paused writer through an independent catalog turn.
+    let catalog = managed_fixture::Fixture::open_catalog(
+        &cluster.fixtures[0].domain,
+        cluster.fixtures[0].store.clone(),
+        cluster.history.cluster,
+    )?;
     for source in [0, 1] {
         let host = &cluster.hosts[source];
         let node = host.identity().node;
