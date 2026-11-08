@@ -409,12 +409,19 @@ impl MovementServiceWork {
         }
         let reservation = pending[self.cleanup_cursor % pending.len()];
         self.cleanup_cursor = self.cleanup_cursor.wrapping_add(1);
+        let authority = self
+            .catalog
+            .run(
+                deadline.remaining()?,
+                self.catalog.host_from(cut, self.observer.identity().node),
+            )
+            .await?;
         self.status.send_modify(|status| {
             status.member_cleanup_attempts = status.member_cleanup_attempts.saturating_add(1)
         });
         match self
             .observer
-            .reclaim_removed_member(reservation, deadline.remaining()?)
+            .reclaim_removed_member_owned(reservation, deadline.remaining()?, Some(authority))
             .await
         {
             Ok(complete) => {

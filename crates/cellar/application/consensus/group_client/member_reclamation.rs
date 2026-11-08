@@ -20,6 +20,17 @@ impl RaftCells {
         reservation: [u8; 16],
         timeout: Duration,
     ) -> impl Future<Output = Result<bool, CellGroupControllerError>> + Send + 'static {
+        self.reclaim_removed_member_owned(reservation, timeout, None)
+    }
+
+    /// The node-owned worker supplies its installed catalog's private turn.
+    /// Boot identity is still checked against this engine's lifecycle guard.
+    pub(crate) fn reclaim_removed_member_owned(
+        &self,
+        reservation: [u8; 16],
+        timeout: Duration,
+        authority: Option<crate::raft::fleet_catalog::FleetHostAuthorization>,
+    ) -> impl Future<Output = Result<bool, CellGroupControllerError>> + Send + 'static {
         let admitted = self
             .metadata_admission(timeout, 4096)
             .map_err(super::startup::admission_error);
@@ -27,9 +38,12 @@ impl RaftCells {
         async move {
             let (deadline, _memory) = admitted?;
             let core = &owner.handle.core;
-            let host = core.managed.as_ref().ok_or_else(|| {
-                super::startup::catalog_error(CatalogError::ManagedAdmissionRequired)
-            })?;
+            let host = authority
+                .as_ref()
+                .or(core.managed.as_ref())
+                .ok_or_else(|| {
+                    super::startup::catalog_error(CatalogError::ManagedAdmissionRequired)
+                })?;
             owner
                 .handle
                 .domain
