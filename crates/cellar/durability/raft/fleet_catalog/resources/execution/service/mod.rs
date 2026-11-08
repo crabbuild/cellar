@@ -3,6 +3,7 @@
 //! One node-owned worker resumes admitted work. Explicit topology mode also
 //! collects and admits rooted desired placement. No timeout or local hint can
 //! release a reservation or establish convergence.
+mod automatic;
 mod detection;
 mod isolated;
 mod recovery;
@@ -11,6 +12,11 @@ mod schedule;
 mod topology;
 mod worker;
 use super::*;
+pub(crate) use automatic::ConfiguredAutomaticTopology;
+pub use automatic::{
+    FleetAutomaticRecoveryOptions, FleetAutomaticTopologyOptions, FleetAutomaticTopologyStatus,
+    FleetAutomaticTopologyWait,
+};
 pub use detection::{
     FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetNodeFailureStatus,
     FleetNodeHealth,
@@ -176,6 +182,7 @@ pub struct FleetIsolatedRepairServiceStatus {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FleetMovementServiceStatus {
+    pub automatic_topology: Option<FleetAutomaticTopologyStatus>,
     /// Local queue diagnostics; only the rooted receipt proves settlement.
     pub pending_member_cleanups: u32,
     pub member_cleanup_attempts: u64,
@@ -241,6 +248,10 @@ impl Drop for FleetMovementService {
 }
 
 enum ServiceMode {
+    Automatic(
+        Box<FleetAutomaticTopologyOptions>,
+        Vec<crate::raft::catalog::RangeDirectory>,
+    ),
     Admitted,
     MemberCleanup,
     Topology(
@@ -260,6 +271,26 @@ enum ServiceMode {
 }
 
 impl FleetCatalog {
+    /// Select whole-group placement from current enrolled capacity and resume
+    /// it through this node's sole movement worker. Bounds and optional fencing
+    /// are explicit configuration; callers supply no destination or plan IDs.
+    pub async fn start_automatic_topology_service(
+        &self,
+        observer: RaftCells,
+        namespaces: Vec<crate::raft::catalog::RangeDirectory>,
+        options: FleetAutomaticTopologyOptions,
+    ) -> Result<FleetMovementService> {
+        options.validate()?;
+        let movement = options.movement.clone();
+        self.start_fleet_service(
+            observer,
+            None,
+            ServiceMode::Automatic(Box::new(options), namespaces),
+            movement,
+        )
+        .await
+    }
+
     /// Startup transfers the complete worker lifetime to the node registry.
     /// No external handle must be leaked or retained to keep this job alive.
     pub(crate) async fn start_node_member_cleanup(
@@ -468,6 +499,7 @@ impl FleetCatalog {
             status,
         );
         match mode {
+            ServiceMode::Automatic(options, namespaces) => work.set_automatic(*options, namespaces),
             ServiceMode::Admitted => (),
             ServiceMode::MemberCleanup => work.set_member_cleanup(),
             ServiceMode::Topology(evidence, collection) => {

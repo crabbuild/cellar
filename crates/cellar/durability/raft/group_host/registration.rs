@@ -29,6 +29,12 @@ pub(crate) async fn prepare(
             "automatic partition resources exceed this node's installed bounds"
         );
     }
+    if config.host.automatic_topology.is_some() {
+        anyhow::ensure!(
+            config.shared.archive.is_some() && config.shared.checkpoints.is_some(),
+            "automatic topology requires shared archives and checkpoints"
+        );
+    }
     if let Some(managed) = &config.host.managed {
         anyhow::ensure!(
             managed.authorization.node() == config.infrastructure.log.node

@@ -48,6 +48,8 @@ struct State {
     slots: [Option<Entry>; 8],
     partition: Option<crate::management::RaftFleetPartitionService>,
     partition_config: Option<crate::management::ConfiguredPartition>,
+    topology: Option<crate::raft::fleet_catalog::FleetMovementService>,
+    topology_config: Option<crate::raft::fleet_catalog::ConfiguredAutomaticTopology>,
 }
 
 pub(super) struct Services {
@@ -160,6 +162,100 @@ impl Services {
 }
 
 impl RaftCells {
+    /// Diagnostic status of the configured whole-group movement owner.
+    pub fn automatic_topology_status(
+        &self,
+    ) -> Option<crate::raft::fleet_catalog::FleetMovementServiceStatus> {
+        self.handle
+            .core
+            .services
+            .state
+            .lock()
+            .ok()?
+            .topology
+            .as_ref()
+            .map(|s| s.status())
+    }
+
+    /// Join the configured balancing/repair worker. Durable intents, exact
+    /// movement IDs, entered effects and physical debt remain for resume.
+    pub async fn suspend_automatic_topology(&self) {
+        let service = self
+            .handle
+            .core
+            .services
+            .state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .topology
+            .take();
+        if let Some(service) = service {
+            service.shutdown().await;
+        }
+    }
+
+    /// Rebuild the configured owner from stored configuration. Existing admitted
+    /// moves and fenced repair take priority over automatic placement selection.
+    pub async fn resume_automatic_topology(&self) -> Result<(), FleetCatalogError> {
+        let config = {
+            let state = self
+                .handle
+                .core
+                .services
+                .state
+                .lock()
+                .map_err(|_| FleetCatalogError::Closed)?;
+            if state.closing {
+                return Err(FleetCatalogError::Closed);
+            }
+            if state.topology.is_some() {
+                return Err(FleetCatalogError::Overloaded);
+            }
+            state
+                .topology_config
+                .clone()
+                .ok_or(FleetCatalogError::Invalid(
+                    "no automatic topology configuration",
+                ))?
+        };
+        let service = Box::pin(config.catalog.start_automatic_topology_service(
+            self.clone(),
+            config.namespaces,
+            config.options,
+        ))
+        .await?;
+        let mut state = self
+            .handle
+            .core
+            .services
+            .state
+            .lock()
+            .map_err(|_| FleetCatalogError::Closed)?;
+        if state.closing || state.topology.is_some() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        state.topology = Some(service);
+        Ok(())
+    }
+
+    pub(crate) fn configure_automatic_topology(
+        &self,
+        config: crate::raft::fleet_catalog::ConfiguredAutomaticTopology,
+    ) -> Result<(), FleetCatalogError> {
+        let mut state = self
+            .handle
+            .core
+            .services
+            .state
+            .lock()
+            .map_err(|_| FleetCatalogError::Closed)?;
+        if state.closing || state.topology_config.is_some() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        state.topology_config = Some(config);
+        Ok(())
+    }
+
     /// Advisory status for partition management started by host configuration.
     pub fn partition_service_status(
         &self,

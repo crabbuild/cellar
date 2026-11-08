@@ -4,6 +4,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/cell_group_automatic_partition.rs"]
 mod automatic;
+#[path = "support/cell_group_automatic_topology.rs"]
+mod automatic_topology;
 #[path = "support/cell_group_partition_cancellation.rs"]
 mod cancellation;
 #[path = "support/cell_group_transition_capacity.rs"]

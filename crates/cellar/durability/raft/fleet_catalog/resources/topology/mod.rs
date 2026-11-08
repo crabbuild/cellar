@@ -213,13 +213,26 @@ impl FleetCatalog {
                     if record.state == FleetNodeState::Removed || record.isolation.is_some() {
                         continue;
                     }
+                    let node = NodeId::new(record.node)
+                        .map_err(|_| FleetCatalogError::Corrupt("topology node"))?;
+                    let capacity = match self.capacity_from(snapshot, node).await {
+                        Ok(capacity) => capacity,
+                        // An unqualified spare supplies no capacity and cannot
+                        // fund a move. If a live voter refers to it, the later
+                        // complete group walk still refuses missing evidence.
+                        Err(FleetCatalogError::Conflict)
+                            if record.state == FleetNodeState::Registered =>
+                        {
+                            continue
+                        }
+                        Err(error) => return Err(error),
+                    };
                     let host = self.host_record(snapshot, record)?;
                     let input = request
                         .nodes
                         .iter()
                         .find(|input| input.attestation.boot.node == host.node().bytes())
                         .ok_or(FleetCatalogError::InventoryIncomplete)?;
-                    let capacity = self.capacity_from(snapshot, host.node()).await?;
                     if input.attestation.boot != capacity.attestation().boot
                         || input.attestation.profile_revision
                             != capacity.attestation().profile_revision

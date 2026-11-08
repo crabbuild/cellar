@@ -131,13 +131,14 @@ pub use resources::{
     FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 pub use resources::{
-    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
-    FleetFailureRecoveryOptions, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
-    FleetFailureRecoveryStatus, FleetIsolatedRepairContext, FleetIsolatedRepairEvidence,
-    FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus, FleetMovementEvidence,
-    FleetMovementService, FleetMovementServiceEntry, FleetMovementServiceFailure,
-    FleetMovementServiceOptions, FleetMovementServiceStatus, FleetNodeFailureStatus,
-    FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetAutomaticRecoveryOptions, FleetAutomaticTopologyOptions, FleetAutomaticTopologyStatus,
+    FleetAutomaticTopologyWait, FleetFailureDetectionOptions, FleetFailureDetectionStatus,
+    FleetFailureRecoveryContext, FleetFailureRecoveryOptions, FleetFailureRecoveryPhase,
+    FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus, FleetIsolatedRepairContext,
+    FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus,
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetNodeFailureStatus, FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
     FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use resources::{
@@ -778,3 +779,5 @@ fn convert(error: super::catalog::CatalogError) -> FleetCatalogError {
 fn hash(bytes: &[u8]) -> [u8; 32] {
     super::catalog_wire::digest(bytes)
 }
+
+pub(crate) use resources::ConfiguredAutomaticTopology;

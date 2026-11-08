@@ -19,14 +19,15 @@ pub use completion::{
     FleetAbortedMovementCompletion, FleetFencedMovementCompletion, FleetMovementCompletion,
     FleetMovementCompletionRequest,
 };
-pub(crate) use execution::MovementServiceWork;
+pub(crate) use execution::{ConfiguredAutomaticTopology, MovementServiceWork};
 pub use execution::{
-    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
-    FleetFailureRecoveryOptions, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
-    FleetFailureRecoveryStatus, FleetIsolatedRepairServiceStatus, FleetMovementEvidence,
-    FleetMovementService, FleetMovementServiceEntry, FleetMovementServiceFailure,
-    FleetMovementServiceOptions, FleetMovementServiceStatus, FleetNodeFailureStatus,
-    FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetAutomaticRecoveryOptions, FleetAutomaticTopologyOptions, FleetAutomaticTopologyStatus,
+    FleetAutomaticTopologyWait, FleetFailureDetectionOptions, FleetFailureDetectionStatus,
+    FleetFailureRecoveryContext, FleetFailureRecoveryOptions, FleetFailureRecoveryPhase,
+    FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus, FleetIsolatedRepairServiceStatus,
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetNodeFailureStatus, FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
     FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use execution::{

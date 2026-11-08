@@ -13,14 +13,15 @@ use crate::raft::host::RaftPeerFleetMembershipObservation;
 use crate::raft::member_state::FleetPermitPhase;
 use cellar_logic::consensus::ProposalId;
 use rand::RngCore;
-pub(crate) use service::MovementServiceWork;
+pub(crate) use service::{ConfiguredAutomaticTopology, MovementServiceWork};
 pub use service::{
-    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
-    FleetFailureRecoveryOptions, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
-    FleetFailureRecoveryStatus, FleetIsolatedRepairServiceStatus, FleetMovementEvidence,
-    FleetMovementService, FleetMovementServiceEntry, FleetMovementServiceFailure,
-    FleetMovementServiceOptions, FleetMovementServiceStatus, FleetNodeFailureStatus,
-    FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetAutomaticRecoveryOptions, FleetAutomaticTopologyOptions, FleetAutomaticTopologyStatus,
+    FleetAutomaticTopologyWait, FleetFailureDetectionOptions, FleetFailureDetectionStatus,
+    FleetFailureRecoveryContext, FleetFailureRecoveryOptions, FleetFailureRecoveryPhase,
+    FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus, FleetIsolatedRepairServiceStatus,
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetNodeFailureStatus, FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
     FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub(crate) use work::{MovementAction, MovementCommand};

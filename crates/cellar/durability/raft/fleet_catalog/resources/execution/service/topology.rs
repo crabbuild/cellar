@@ -68,6 +68,7 @@ struct Candidate {
 }
 
 pub(super) struct TopologyService {
+    automatic: Option<super::automatic::Automatic>,
     evidence: Arc<dyn FleetTopologyEvidence>,
     collection_options: FleetTopologyCollectionOptions,
     collection: Option<Collection>,
@@ -82,6 +83,7 @@ impl TopologyService {
         collection_options: FleetTopologyCollectionOptions,
     ) -> Self {
         Self {
+            automatic: None,
             evidence,
             collection_options,
             collection: None,
@@ -89,6 +91,15 @@ impl TopologyService {
             last_operation: None,
             terminal: false,
         }
+    }
+
+    pub fn automatic(
+        evidence: Arc<super::automatic::Evidence>,
+        collection: FleetTopologyCollectionOptions,
+    ) -> Self {
+        let mut service = Self::new(evidence.clone(), collection);
+        service.automatic = Some(super::automatic::Automatic::new(evidence));
+        service
     }
 
     pub fn collection_delay(&self) -> Option<Duration> {
@@ -146,6 +157,18 @@ impl TopologyService {
         deadline: &Deadline<'_>,
         status: &watch::Sender<FleetMovementServiceStatus>,
     ) -> Result<()> {
+        if self.automatic.is_some() && cut.head.disruption.is_some() {
+            self.interrupt();
+            status.send_modify(|s| {
+                s.automatic_topology
+                    .get_or_insert(FleetAutomaticTopologyStatus {
+                        wait: FleetAutomaticTopologyWait::Disruption,
+                        selected_operations: 0,
+                    })
+                    .wait = FleetAutomaticTopologyWait::Disruption;
+            });
+            return Ok(());
+        }
         let Some(operation) = catalog
             .active_topology_operation(cut, deadline.remaining()?)
             .await?
@@ -165,6 +188,9 @@ impl TopologyService {
                     self.publish(&finished, status);
                 }
             }
+            if let Some(automatic) = &self.automatic {
+                automatic.select(cut, deadline, status).await?;
+            }
             return Ok(());
         };
         if self
@@ -182,6 +208,12 @@ impl TopologyService {
             self.candidate = None;
         }
         self.publish(&operation, status);
+        if let Some(automatic) = &mut self.automatic {
+            if automatic.reconcile(&operation, cut, deadline).await? {
+                self.interrupt();
+                return Ok(());
+            }
+        }
         if operation.phase == FleetTopologyPhase::Cancelling {
             self.interrupt();
             let request = service_request(catalog, &operation, cut, b"cancel-complete")?;
@@ -323,11 +355,26 @@ impl TopologyService {
         let _memory = memory;
         self.collection = None;
         if preview.plan().moves.is_empty() {
+            // Bind the advisory unchanged-cache to the exact verified input
+            // root, before completion can race later node or history changes.
+            let signature = if let Some(automatic) = &self.automatic {
+                Some(
+                    automatic
+                        .evidence
+                        .signature(cut, deadline.remaining()?)
+                        .await?,
+                )
+            } else {
+                None
+            };
             let request = service_request(catalog, &operation, cut, b"complete")?;
             let completed = catalog
                 .complete_topology(cut, &request, &preview, deadline.remaining()?)
                 .await?;
             self.publish(&completed, status);
+            if let (Some(automatic), Some(signature)) = (&mut self.automatic, signature) {
+                automatic.completed(signature);
+            }
         } else {
             catalog
                 .reserve_topology_movement(

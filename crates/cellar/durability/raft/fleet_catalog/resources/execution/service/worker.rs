@@ -20,9 +20,14 @@ pub(crate) struct MovementServiceWork {
     cleanup_cursor: usize,
     node_stop: Option<watch::Receiver<bool>>,
     topology: Option<super::topology::TopologyService>,
+    automatic: Option<(
+        FleetAutomaticTopologyOptions,
+        Vec<crate::raft::catalog::RangeDirectory>,
+    )>,
     detection: Option<super::detection::Detection>,
     isolated: Option<super::isolated::IsolatedRepairService>,
     recovery: Option<super::recovery::Recovery>,
+    automatic_recovery_boot: Option<crate::raft::fleet_stop::BootBinding>,
     _registration: Option<ControlServiceLease>,
     _node_owned_stop: Option<watch::Sender<bool>>,
     _completion: ControlServiceCompletion,
@@ -52,9 +57,11 @@ impl MovementServiceWork {
             cleanup_cursor: 0,
             node_stop: None,
             topology: None,
+            automatic: None,
             detection: None,
             isolated: None,
             recovery: None,
+            automatic_recovery_boot: None,
             _registration: None,
             _node_owned_stop: None,
             _completion: ControlServiceCompletion::new(done),
@@ -64,6 +71,14 @@ impl MovementServiceWork {
     pub(super) fn set_member_cleanup(&mut self) {
         self.member_cleanup = true;
         self.member_cleanup_only = true;
+    }
+
+    pub(super) fn set_automatic(
+        &mut self,
+        options: FleetAutomaticTopologyOptions,
+        namespaces: Vec<crate::raft::catalog::RangeDirectory>,
+    ) {
+        self.automatic = Some((options, namespaces));
     }
 
     pub(super) fn own_stop(&mut self, stop: watch::Sender<bool>) {
@@ -116,9 +131,6 @@ impl MovementServiceWork {
         {
             return Err(FleetCatalogError::Closed);
         }
-        if let Some(recovery) = &mut self.recovery {
-            recovery.admit_origin(host)?;
-        }
         let registration = self.observer.register_control_service(
             ControlServiceKind::Movement,
             self.options.control_reservation_bytes(),
@@ -130,6 +142,32 @@ impl MovementServiceWork {
         self.catalog = host
             .catalog
             .owned_client(self.observer.handle.domain.clone());
+        let configured_automatic = self.automatic.is_some();
+        if let Some((options, namespaces)) = self.automatic.take() {
+            let evidence = Arc::new(super::automatic::Evidence {
+                // Share this worker's private snapshot owner, not the host's
+                // foreground turn or a separately owned catalog snapshot.
+                catalog: self.catalog.clone(),
+                namespaces,
+                options: options.clone(),
+                memory: self.observer.control_budget().clone(),
+            });
+            self.evidence = Some(evidence.clone());
+            self.topology = Some(super::topology::TopologyService::automatic(
+                evidence.clone(),
+                options.collection,
+            ));
+            if let Some(recovery) = options.recovery {
+                self.set_recovery(recovery.platform, evidence, recovery.recovery);
+            }
+        }
+        if let Some(recovery) = &mut self.recovery {
+            if configured_automatic && !host.state().permits_admitted_movement() {
+                self.automatic_recovery_boot = Some(host.boot_binding()?);
+            } else {
+                recovery.admit_origin(host)?;
+            }
+        }
         self.node_stop = Some(registration.stop_receiver());
         self._registration = Some(registration);
         if let Some(detection) = &mut self.detection {
@@ -341,7 +379,30 @@ impl MovementServiceWork {
             // Detection and isolation may unblock already-admitted work even
             // when every movement slot is occupied. Repair admission checks
             // the durable resource book independently before adding any debt.
-            if let Some(recovery) = self.recovery.as_mut() {
+            if let Some(expected) = self.automatic_recovery_boot.clone() {
+                let host = self
+                    .catalog
+                    .run(
+                        deadline.remaining()?,
+                        self.catalog.host_from(&cut, self.observer.identity().node),
+                    )
+                    .await?;
+                if host.boot_binding()? != expected {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                if host.state().permits_admitted_movement() {
+                    self.recovery
+                        .as_mut()
+                        .ok_or(FleetCatalogError::Closed)?
+                        .admit_origin(&host)?;
+                    self.automatic_recovery_boot = None;
+                }
+            }
+            if let Some(recovery) = self
+                .recovery
+                .as_mut()
+                .filter(|_| self.automatic_recovery_boot.is_none())
+            {
                 recovery
                     .round(
                         &self.catalog,

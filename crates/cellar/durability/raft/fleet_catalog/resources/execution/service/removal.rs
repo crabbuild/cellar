@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 /// Explicit replay ownership for automatic repair and terminal removal. The
 /// embedding runtime owns shared private image inventories and replay pools.
 /// These services grant no archive proof until complete physical replay succeeds.
+#[derive(Clone)]
 pub struct FleetFailureRecoveryOptions {
     pub detection: FleetFailureDetectionOptions,
     pub archive: FleetGroupArchiveVerifier,

@@ -104,6 +104,9 @@ pub struct RaftHostOptions {
     /// Standard RF3 split/merge planning and execution owned by this node. Uses
     /// compiled managed namespaces and the existing archive verifier resources.
     pub automatic_partitions: Option<crate::management::RaftFleetAutomaticPartitionOptions>,
+    /// Whole-fleet replica balancing and optional permanently fenced repair.
+    /// Shares the node's sole movement/cleanup worker and installed resources.
+    pub automatic_topology: Option<super::fleet_catalog::FleetAutomaticTopologyOptions>,
     /// Enable native snapshot recovery and its larger image admission floor.
     pub enable_snapshots: bool,
     /// Applied entries between automatic checkpoints. Shared log-cache pressure
@@ -150,6 +153,7 @@ impl Default for RaftHostOptions {
             managed: None,
             member_cleanup: None,
             automatic_partitions: None,
+            automatic_topology: None,
             enable_snapshots: true,
             checkpoint_entries: 256,
             archive_checkpoint_ms: 1000,
@@ -174,6 +178,13 @@ impl Default for RaftHostOptions {
 impl RaftHostOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         self.close_report.validate()?;
+        if let Some(topology) = &self.automatic_topology {
+            topology.validate().map_err(anyhow::Error::new)?;
+            anyhow::ensure!(
+                self.managed.is_some(),
+                "automatic topology requires managed enrollment"
+            );
+        }
         if let Some(partition) = &self.automatic_partitions {
             partition.validate().map_err(anyhow::Error::new)?;
             anyhow::ensure!(
@@ -188,6 +199,7 @@ impl RaftHostOptions {
                         + self
                             .member_cleanup
                             .as_ref()
+                            .or_else(|| self.automatic_topology.as_ref().map(|t| &t.movement))
                             .map_or(0, |c| c.control_reservation_bytes())
                     && self.max_control_requests >= 6,
                 "automatic partition management requires bounded control headroom"

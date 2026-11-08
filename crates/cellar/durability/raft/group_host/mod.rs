@@ -474,6 +474,38 @@ pub(crate) async fn start(
         let archive_io = archive_provisioning
             .as_ref()
             .map(|archive| archive.io.clone());
+        let automatic_topology = if let Some(mut config) = options.automatic_topology.clone() {
+            // Use the actual node's private replay stores and shared archive
+            // pools, including when callers supplied an external verifier.
+            if let Some(recovery) = &mut config.recovery {
+                recovery.recovery.archive = partition::archive_verifier(
+                    archive_provisioning.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("automatic topology requires archive resources")
+                    })?,
+                    &log,
+                    &directory,
+                    limits,
+                )?;
+            }
+            config.movement.reclaim_removed_members |= options.member_cleanup.is_some();
+            Some(super::fleet_catalog::ConfiguredAutomaticTopology {
+                catalog: options
+                    .managed
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("automatic topology enrollment"))?
+                    .authorization
+                    .stop_catalog()
+                    .owned_client(log.domain()),
+                namespaces: prepared
+                    .namespaces
+                    .iter()
+                    .map(|n| n.directory.clone())
+                    .collect(),
+                options: config,
+            })
+        } else {
+            None
+        };
         let automatic = if options.automatic_partitions.is_some() {
             partition::prepare(
                 &prepared,
@@ -604,7 +636,11 @@ pub(crate) async fn start(
         if let Some(collection) = collection {
             collection.start(&service, options.poll_ms)?;
         }
-        if let Some(cleanup) = &options.member_cleanup {
+        if let Some(cleanup) = options
+            .member_cleanup
+            .as_ref()
+            .filter(|_| automatic_topology.is_none())
+        {
             let managed = options
                 .managed
                 .as_ref()
@@ -616,6 +652,10 @@ pub(crate) async fn start(
                     .start_node_member_cleanup(&service, cleanup.clone()),
             )
             .await?;
+        }
+        if let Some(config) = automatic_topology {
+            service.configure_automatic_topology(config)?;
+            Box::pin(service.resume_automatic_topology()).await?;
         }
         if let (Some(control), Some(config)) = (automatic, &options.automatic_partitions) {
             service.configure_automatic_partitions(control, config.clone())?;

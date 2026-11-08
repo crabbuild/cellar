@@ -178,8 +178,8 @@ actual leader's counters and geometry through authenticated, scope-bound Fleet
 inspection. Rate calculation uses that owner's counter clock; freshness and
 cooldown use receiver-local request-start time. Different leader clocks are never
 compared. Adjacent groups hosted on the same node can therefore merge with
-different leaders. Global placement alignment for disjoint replica sets and
-adaptive whole-group balancing remain CG-11 work.
+different leaders. Global placement alignment for disjoint replica sets remains CG-11 work.
+Configured whole-group balancing uses the controller described below.
 
 `RaftCells::partition_service_status` reports bounded progress, failures and
 remote sample counts. `suspend_automatic_partitions` joins the configured owner;
@@ -1729,3 +1729,47 @@ node operation. The exact-boot monitor above supplies failure classifications;
 the automatic SDK handoff above composes it with failure admission. A production
 isolation provider, simultaneous-isolation policy, lifecycle CLI
 integration and deployed scale/performance qualification remain open.
+
+## Configured whole-group topology
+
+Set `RaftHostOptions::automatic_topology` to explicit
+`FleetAutomaticTopologyOptions` on a managed node. The standard controller
+collects qualified fleet nodes and complete shared-group inventory, selects
+eligible destinations, and roots its own immutable topology operation. It moves
+whole replicas through the existing learner, Joint and removal executor. Cell
+identities, SQLite histories and directory assignments remain unchanged. This
+is fleet-wide equal-copy balancing; workload-weighted placement is separate.
+
+Supply conservative `resident` and `peak` bounds for every compiled namespace,
+and explicit additional per-node `reserve`. Even a zero additional reserve
+requires the unchanged planner's complete RF3 restoration witness for every
+kept-node loss. Current physical inventories, retained copies, installed limits
+and rooted resource floors are checked independently. Missing capacity or proof
+refuses admission. A newly registered, unqualified spare supplies no capacity;
+a missing live voter's evidence still blocks verification.
+
+The controller waits for unresolved births and node disruptions. It records a
+new desired operation after relevant node, history or admission changes. It
+retains the exact operation across controller replacement and does not append
+empty operations for unchanged completed input. Changes to its own eligible
+node set cancel the old definition through the ordinary durable fence before
+re-planning. An operator's governing topology takes precedence over automatic
+selection; its existing explicit intent can still be executed by this worker.
+
+Optional `FleetAutomaticRecoveryOptions` installs the permanent exact-boot
+fencing contract and the existing failure-recovery executor in the same worker.
+Detection alone never proves isolation. Managed startup binds replay to the
+actual node's private image inventories and existing archive pools. Admitted
+movements and fenced recovery take priority over new balance collection.
+
+The node's sole movement-worker slot also performs explicitly enabled removed
+member cleanup. Configuring `member_cleanup` alongside automatic topology joins
+that work into this owner rather than starting a second worker. The worker
+retains two MiB of control admission; collection has its own bounded reservations.
+Co-hosted partition control must have the declared combined headroom. Defaults
+and physical resource limits are not raised to admit configuration.
+
+`RaftCells::automatic_topology_status` exposes diagnostic movement, topology and
+recovery progress. `suspend_automatic_topology` joins the configured worker;
+`resume_automatic_topology` rebuilds it from stored configuration. Neither call
+cancels durable intent, grants membership authority or releases physical debt.
