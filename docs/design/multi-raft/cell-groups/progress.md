@@ -12,6 +12,70 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 command admission waits for committed apply
+
+At `6ae2c3f0`, owned commands wait for a committed group prefix to finish physical
+apply before entering SQL. A sampled ready leader can commit another cell's entry
+between routing and execution-authority acquisition. The owner correctly refuses
+an unapplied prefix; returning that transient refusal directly made receipt
+replays fail with `NotReady` during concurrent transition work.
+
+The command now subscribes to node progress before asking for authority, retains
+its original deadline and routing ticket, and obtains fresh execution authority
+after apply. It can retry only before ambiguity, a SQL origin or buffered output
+exists. Stable fences, inactive histories, role loss and other failures still
+refuse. The owner’s applied-prefix, term, membership, route and image checks are
+unchanged. Entered producers retain their existing exact reconciliation owner.
+
+Two deterministic tests hold an actual manifest sync after quorum commit. The
+predecessor runtime fails with definite pre-SQL `NotReady`; the fix passes both
+image modes. The cases prove waiting without SQL entry, the unchanged original
+deadline, no late execution after expiry, a new retry with the same identity and
+horizon, and exact receipt/version/position replay without another callback.
+The one-worker, one-cell SQL limits and one routing attempt remain unchanged.
+Initial fixture attempts that stopped at raw-submission, content reuse or output
+budget admission are retained as non-qualifying development results.
+
+All ten native transition cases pass at this runtime, including the two previous
+child receipt-replay failures. Real RustFS live retirement, colocated children and
+source reclamation pass both image modes. The automatic partition service also
+passes both RustFS image modes at `7e75a45f`. These runs use the identical transition
+executable; the successor changes only qualification fixtures, with production
+Rust bytes unchanged. The backends are stopped with their objects retained.
+
+The first broad execution run recorded 181 passes, four failures and two ignored
+cases. Test-harness successor `7e75a45f` retains ordinary Raft packets when transport
+admission overloads, waits for actual follower reconciliation proofs after leader
+change, and delivers a generated heartbeat before capturing the 100-ms source
+proof. It then stops peer traffic through physical expiry checks. Final state,
+freshness, deadline and capacity oracles are unchanged. All four focused cases
+and strict all-target Clippy pass. That broad rerun records 186 passes, one
+checkpoint TCP retry timeout and two ignored cases. This failed run is retained.
+The snapshot fixture had advanced Raft time on every pump iteration, including
+before the failed transfer, despite using physical TCP responses. Successor
+`032a8962` drives retry ticks only after actual transfer failure and at the
+unchanged production 100-ms cadence. It preserves the original 20-second drive
+timeout, capacities and final checkpoint/cell/suffix/reopen assertions. All three
+required stability runs pass. The final execution target at `032a8962` passes
+187 tests with zero failures and two declared process-fixture helpers ignored.
+Strict all-target/all-feature Clippy, formatting/layout, native dependencies,
+plan tests, documentation and source-anchor preflight pass. The ten-case native
+transition target has ten additional RustFS-only ignores; four RustFS cases are
+qualified separately above. These results close the reproduced readiness blocker,
+not the remaining scheduler implementation or the full release matrix.
+
+Evidence is retained under:
+
+- `.cellar/cell-groups-evidence/CG-11-readiness-032a8962-01/record.json` (CHECKPOINT).
+- `.cellar/cell-groups-evidence/CG-11-readiness-6ae2c3f0-live-rustfs-01/record.json`.
+- `.cellar/cell-groups-evidence/CG-11-readiness-6ae2c3f0-reclaim-rustfs-01/record.json`.
+- `.cellar/cell-groups-evidence/CG-11-readiness-7e75a45f-service-rustfs-01/record.json`.
+
+CG-11 remains IN_PROGRESS. Next deliver competing-selection qualification and safe
+staged cancellation/recovery, adaptive whole-group placement and configured startup,
+then the named failure-domain/reserve and bounded-fanout cases. Larger inventories,
+late faults, mixed load, resource peaks and independent voter domains remain open.
+
 ## CG-11 node-owned automatic partition service
 
 At `67f6727d`, `RaftFleetControl::start_partition_service` owns automatic local

@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "67f6727d31610f4ffc7c0adc821223c1171e8ae2",
-  "runtime_revision": "67f6727d31610f4ffc7c0adc821223c1171e8ae2",
-  "review_note": "Reviewed successor for node-owned automatic partition scheduling: the fleet catalog adds a private installed-backend client with its own bounded node-domain turn; other anchored contracts and excerpts are unchanged. No authority, durability, resource or deadline checks are relaxed.",
+  "source_revision": "032a8962ce3ea3afbcfee2a622cb2d3ed381fc85",
+  "runtime_revision": "6ae2c3f01dcdabd3ff6b96d88da594addb17d1a4",
+  "review_note": "Reviewed successor 6ae2c3f01dcdabd3ff6b96d88da594addb17d1a4: all architecture anchors and excerpts are byte-identical to 67f6727d. Owned commands wait on actual committed apply progress before SQL entry and obtain fresh execution authority. The owner applied-prefix, leader, route, original deadline and exact-producer checks remain authoritative; no storage marker, routing attempt, compiler, stack or resource limit changes. Test-harness successor 7e75a45f476c2ef24164a1928de826b49d5b6740 preserves every architecture anchor and production Rust byte. Its bounded waits require actual follower proofs, ordinary Raft packet admission defers overload, and recent-source tests deliver a generated heartbeat before capture. Freshness, deadlines and final state assertions are unchanged. Snapshot-clock successor 032a8962ce3ea3afbcfee2a622cb2d3ed381fc85 also changes only execution-test fixtures. Manually driven retry ticks now use the unchanged production 100-ms cadence only after actual snapshot failure, preserving the original 20-second drive timeout and all final restoration assertions.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
