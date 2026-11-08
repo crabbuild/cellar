@@ -31,7 +31,8 @@ fn configuration(reserve: u32) -> RaftFleetAutomaticPartitionOptions {
         },
         recovery: CellGroupRecoveryLimits {
             max_retained_bytes: 32 * 1024 * 1024,
-            max_cells: 32,
+            // Two live cells; leave room for the recovery pool's three extent buffers.
+            max_cells: 16,
             max_image_bytes: 32 * 1024 * 1024,
             max_restore_bytes: 64 * 1024 * 1024,
             ..Default::default()
