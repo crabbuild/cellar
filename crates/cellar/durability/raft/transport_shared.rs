@@ -86,28 +86,20 @@ impl RaftTransport {
         client.request(history, deadline).await
     }
 
-    /// Remove dispatch only after this retired history has no consensus claim.
+    /// Remove dispatch only after the exact retired source/member loses its consensus claim.
     /// Old pools/streams retain their physical admission until their own exit.
     pub(crate) fn retire_physical_group(
         &self,
-        history: GroupHistory,
+        retired: &crate::raft::cell_groups::RetiredSource,
     ) -> Result<(), TransportError> {
         let state = &self.handle.0;
-        let group = state
-            .runtime
-            .shared()?
-            .log()
+        let log = state.runtime.shared()?.log();
+        retired.check(log).map_err(|_| TransportError::Refused)?;
+        let history = retired.history();
+        let group = log
             .cell_group(&history)
             .map_err(|_| TransportError::UnknownGroup)?;
-        if group.consensus_claimed.load(Ordering::Acquire)
-            || group
-                .group_manifest()
-                .map_err(|_| TransportError::Refused)?
-                .as_ref()
-                .and_then(|marker| marker.source_seal())
-                .and_then(|seal| seal.retirement())
-                .is_none()
-        {
+        if group.consensus_claimed.load(Ordering::Acquire) {
             return Err(TransportError::Refused);
         }
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;

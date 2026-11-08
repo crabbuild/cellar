@@ -2,7 +2,9 @@
 
 //! Real shared histories through the rooted topology owner and movement worker.
 use super::*;
-use cellar::application::consensus::verification::{cell_groups::RangeDirectory, RuntimeError};
+use cellar::application::consensus::verification::{
+    cell_groups::RangeDirectory, FleetChange, FleetMutation, FleetTable, RuntimeError,
+};
 use cellar::sdk::{NodeOutcome, ShutdownMode};
 use std::{future::Future, pin::Pin, sync::Arc};
 
@@ -387,6 +389,13 @@ async fn run(
             );
             let before = cluster.hosts[source].observe_node(TIMEOUT).await?;
             ensure!(before.node.groups == 1);
+            if leg == 1 {
+                cluster.fixtures[0]
+                    .store
+                    .fail_fleet_confirmation
+                    .store(true, Ordering::Release);
+            }
+            let mut lost_settlement = false;
             let deadline = tokio::time::Instant::now() + TIMEOUT;
             tokio::time::timeout_at(deadline, async {
                 loop {
@@ -402,6 +411,12 @@ async fn run(
                         | Err(CellGroupControllerError::Runtime(
                             RuntimeError::NotReady | RuntimeError::Overloaded,
                         )) => tokio::time::sleep(Duration::from_millis(10)).await,
+                        Err(CellGroupControllerError::Catalog(error)) if leg == 1 && !cluster.fixtures[0].store.fail_fleet_confirmation.load(Ordering::Acquire)
+                            && matches!(error.as_ref(), cellar::application::consensus::verification::CatalogError::FleetAuthority(error) if matches!(error.as_ref(), FleetCatalogError::Unconfirmed)) => {
+                            ensure!(!lost_settlement, "only the injected settlement confirmation may be lost");
+                            ensure!(cluster.hosts[source].observe_node(TIMEOUT).await?.node.groups == 0);
+                            lost_settlement = true;
+                        }
                         Err(error) => return Err(error.into()),
                     }
                 }
@@ -409,10 +424,40 @@ async fn run(
             .await
             .context("joined member reclamation budget")??;
             ensure!(
+                leg != 1 || lost_settlement,
+                "actual root CAS confirmation loss was not observed"
+            );
+            let settled = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+            let forged = FleetMutation {
+                id: [245 + leg as u8; 16],
+                operation: [245 + leg as u8; 16],
+                principal: "fixture".into(),
+                expected_revision: settled.revision(),
+                changes: vec![FleetChange {
+                    table: FleetTable::Operations,
+                    key: format!("member-cleanup/{}", entry.reservation),
+                    value: None,
+                }],
+            };
+            ensure!(
+                matches!(
+                    cluster.fixtures[0]
+                        .catalog
+                        .commit(&settled, &forged, TIMEOUT)
+                        .await,
+                    Err(FleetCatalogError::Invalid(_))
+                ),
+                "generic mutation changed cleanup authority"
+            );
+            ensure!(
                 cluster.hosts[source]
                     .reclaim_removed_member(reservation, TIMEOUT)
                     .await?,
                 "exact physical reclamation replay"
+            );
+            ensure!(
+                cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision() == settled.revision(),
+                "settlement replay refunded twice"
             );
             let after = cluster.hosts[source].observe_node(TIMEOUT).await?;
             ensure!(

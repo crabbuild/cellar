@@ -2238,6 +2238,7 @@ impl Worker {
             node: self.options.node.bytes(),
             disk: self.options.disk.bytes(),
             old_key: group.key,
+            before_groups: u32::try_from(self.mappings.len()).map_err(|_| LogError::Overloaded)?,
             sequence: self
                 .root
                 .sequence

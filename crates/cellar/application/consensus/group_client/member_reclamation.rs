@@ -10,9 +10,9 @@ impl RaftCells {
     /// turn. Retry the same reservation after uncertainty. The synced fence
     /// rejects old member IDs while allowing a later managed learner seed.
     ///
-    /// This physical-only operation retains the Fleet resource floor. Automatic
-    /// cleanup discovery, retained successor boots and exact slot settlement
-    /// require their own managed ownership boundaries.
+    /// A joined local receipt settles its engine slot exactly once. Unknown
+    /// occupancy and byte/memory floors remain charged. Automatic cleanup
+    /// discovery and retained successor boots require managed ownership.
     pub fn reclaim_removed_member(
         &self,
         reservation: [u8; 16],
@@ -49,7 +49,26 @@ impl RaftCells {
                             .await
                             .map_err(|error| super::startup::catalog_error(error.into()))?;
                         owner.startup_live(host, deadline)?;
-                        core.controller.reclaim_removed_member(permit).await
+                        let history = permit.member.scope().map_err(RuntimeError::from)?;
+                        let (done, _physical_lane) =
+                            core.controller.reclaim_removed_member(permit).await?;
+                        if !done {
+                            return Ok(false);
+                        }
+                        let proof = core.controller.member_reclamation_proof(history).await?;
+                        let now = owner
+                            .handle
+                            .domain
+                            .mono_ms()
+                            .map_err(|_| CellGroupControllerError::Closed)?;
+                        host.settle_member_reclamation(
+                            &proof,
+                            &owner,
+                            Duration::from_millis(deadline.saturating_sub(now)),
+                        )
+                        .await
+                        .map_err(|error| super::startup::catalog_error(error.into()))?;
+                        Ok(true)
                     }),
                 )))
                 .await

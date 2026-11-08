@@ -161,7 +161,7 @@ impl Worker {
         // The physical engine history stays in the log and roster. Only active
         // dispatch, page/applier and checkpoint-registration owners leave here.
         self.transport
-            .retire_physical_group(history)
+            .retire_physical_group(source)
             .map_err(CellGroupControllerError::Transport)?;
         self.routes.remove(&history);
         self._checkpoint_routes
@@ -283,7 +283,19 @@ impl Worker {
                 Some(request) = self.requests.recv() => {
                     match request {
                         requests::Request::Reclamation(request) => {
-                            let result = source_reclaim::drive(&self.shared, &request).await;
+                            let result = async {
+                                let done = source_reclaim::drive(&self.shared, &request).await?;
+                                if done {
+                                    if let Some(history) = request.member_history()? {
+                                        let log = self.runtime.log();
+                                        let proof = log.member_reclamation(history).await.map_err(RuntimeError::from)?.ok_or(RuntimeError::NotReady)?;
+                                        self.sql.resume_reclaimed_member(&proof, log).map_err(|error| CellGroupControllerError::Apply(Arc::new(error)))?;
+                                        self.shared.archive_seeds.resume_reclaimed_member(&proof, log).map_err(|error| CellGroupControllerError::Archive(Arc::new(error)))?;
+                                        self.shared.archives.lock().map_err(|_| CellGroupControllerError::Closed)?.remove(&history);
+                                    }
+                                }
+                                Ok(done)
+                            }.await;
                             let fatal = result.as_ref().err().filter(|error| failure::node_wide(error)).cloned();
                             let _ = request.reply.send(super::calls::Delivery { result: result.map_err(Arc::new), _permit: request.memory });
                             if let Some(error) = fatal { return Err(error); }

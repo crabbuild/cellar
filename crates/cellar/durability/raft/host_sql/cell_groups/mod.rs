@@ -482,6 +482,28 @@ impl CellGroupSqlPool {
         self.inner.admission.retire(history)
     }
 
+    pub(crate) fn resume_reclaimed_member(
+        &self,
+        proof: &crate::raft::storage::MemberReclaimAck,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<(), ExecutionError> {
+        proof.check(log).map_err(crate::raft::execution::storage)?;
+        let history = proof
+            .record()
+            .member
+            .scope()
+            .map_err(crate::raft::execution::storage)?;
+        if !proof.record().complete
+            || !matches!(
+                log.cell_group(&history),
+                Err(crate::raft::storage::LogError::NotFound)
+            )
+        {
+            return Err(ExecutionError::Busy);
+        }
+        self.inner.admission.resume_reclaimed_member(history)
+    }
+
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
         let (active_cells, retained_bytes, retained_operations) = self.inner.admission.usage()?;
         let resources = self.inner.resources.capture().ok_or_else(unavailable)?;

@@ -33,14 +33,11 @@ impl RetiredSource {
         })
     }
 
-    pub(in crate::raft::cell_groups) fn history(&self) -> GroupHistory {
+    pub(crate) fn history(&self) -> GroupHistory {
         self.marker.route().history
     }
 
-    pub(in crate::raft::cell_groups) fn check(
-        &self,
-        log: &crate::raft::storage::ReplicaLog,
-    ) -> Result<(), RuntimeError> {
+    pub(crate) fn check(&self, log: &crate::raft::storage::ReplicaLog) -> Result<(), RuntimeError> {
         let group = log.cell_group(&self.history())?;
         if let Some(member) = &self.member {
             member.check_group(&group)?;

@@ -105,6 +105,17 @@ pub(super) struct Request {
     pub(super) reply: oneshot::Sender<super::calls::Delivery<bool, CellGroupControllerError>>,
 }
 
+impl Request {
+    pub(super) fn member_history(&self) -> Result<Option<GroupHistory>, RuntimeError> {
+        match &self.permit {
+            Reclamation::Member(permit) => {
+                permit.member.scope().map(Some).map_err(RuntimeError::from)
+            }
+            Reclamation::Source(_) => Ok(None),
+        }
+    }
+}
+
 impl CellGroupController {
     pub(crate) async fn reclaim_retired_source(
         &self,
@@ -160,7 +171,7 @@ impl CellGroupController {
     pub(crate) async fn reclaim_removed_member(
         &self,
         permit: super::super::member_reclaim::Permit,
-    ) -> Result<bool, CellGroupControllerError> {
+    ) -> Result<(bool, Arc<tokio::sync::OwnedSemaphorePermit>), CellGroupControllerError> {
         let shared = &self.handle.0;
         if shared.closing.load(Ordering::Acquire) {
             return Err(CellGroupControllerError::Closed);
@@ -205,14 +216,18 @@ impl CellGroupController {
                 .try_acquire_many_owned(config.settings.max_parallel_preparations as u32)
                 .map_err(|_| RuntimeError::Overloaded)?,
         );
-        self.submit_reclamation(
-            Reclamation::Member(permit),
-            config,
-            preparation,
-            parallel,
-            memory,
-        )
-        .await
+        let done = self
+            .submit_reclamation(
+                Reclamation::Member(permit),
+                config,
+                preparation,
+                parallel.clone(),
+                memory,
+            )
+            .await?;
+        // The SDK holds this same lane through the local-proof/root-CAS
+        // handoff; neither new provisioning nor another GC can change occupancy.
+        Ok((done, parallel))
     }
 
     async fn submit_reclamation(
@@ -383,6 +398,35 @@ impl CellGroupController {
             .runtime
             .log()
             .source_reclamation(history)
+            .await
+            .map_err(RuntimeError::from)?
+            .ok_or(RuntimeError::NotReady)?;
+        if !ack.record().complete
+            || !shared.groups.reclaimed(&history)?
+            || shared
+                .retired_sources
+                .lock()
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .contains_key(&history)
+        {
+            return Err(RuntimeError::NotReady.into());
+        }
+        ack.check(shared.runtime.log())
+            .map_err(RuntimeError::from)?;
+        Ok(ack)
+    }
+}
+
+impl CellGroupController {
+    pub(crate) async fn member_reclamation_proof(
+        &self,
+        history: GroupHistory,
+    ) -> Result<crate::raft::storage::MemberReclaimAck, CellGroupControllerError> {
+        let shared = &self.handle.0;
+        let ack = shared
+            .runtime
+            .log()
+            .member_reclamation(history)
             .await
             .map_err(RuntimeError::from)?
             .ok_or(RuntimeError::NotReady)?;

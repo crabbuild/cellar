@@ -11,6 +11,7 @@ mod intent;
 mod ledger;
 mod maintenance;
 mod member_reclamation;
+mod member_settlement;
 mod membership;
 mod repair;
 pub use completion::{
@@ -60,6 +61,7 @@ pub(super) enum Authority {
     ManagedTransferChildren,
     ManagedTransferCompletion,
     SourceSettlement,
+    MemberSettlement,
     ManagedRecoveryReservation,
     ManagedRecoveryRetirement,
     ManagedRecoverySettlement,

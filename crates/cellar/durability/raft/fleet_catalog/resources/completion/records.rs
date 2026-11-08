@@ -290,6 +290,11 @@ impl FleetCatalog {
         }) {
             return Ok(false);
         }
+        if authority == Authority::MemberSettlement {
+            self.check_member_settlement_mutation(snapshot, mutation)
+                .await?;
+            return Ok(true);
+        }
         if authority == Authority::SourceSettlement {
             self.check_source_settlement_mutation(snapshot, mutation)
                 .await?;

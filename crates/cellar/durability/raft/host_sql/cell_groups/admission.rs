@@ -147,6 +147,23 @@ impl Admission {
             .is_none_or(|budget| budget.strong_count() == 0))
     }
 
+    pub(super) fn resume_reclaimed_member(
+        &self,
+        group: GroupHistory,
+    ) -> Result<(), ExecutionError> {
+        let mut state = self.state.lock().map_err(|_| unavailable())?;
+        if state
+            .groups
+            .get(&group)
+            .is_some_and(|budget| budget.strong_count() != 0)
+        {
+            return Err(ExecutionError::Busy);
+        }
+        state.groups.remove(&group);
+        state.retired.remove(&group);
+        Ok(())
+    }
+
     pub fn usage(&self) -> Result<(usize, usize, usize), ExecutionError> {
         let cells = self.state.lock().map_err(|_| unavailable())?.cells.len();
         let (bytes, reservations) = self.node.usage();

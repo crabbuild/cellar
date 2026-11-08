@@ -19,7 +19,7 @@ pub(crate) struct Member {
     pub(crate) root: Option<[u8; 32]>,
     pub(crate) member: u64,
     pub(crate) high_water: u64,
-    pub(crate) permit: Vec<u8>,
+    pub(crate) permit: FleetMembershipPermit,
     pub(crate) membership: u64,
     pub(crate) index: u64,
     pub(crate) term: u64,
@@ -47,7 +47,7 @@ impl Member {
             root: marker.root().digest(),
             member: group.identity().member.get(),
             high_water: cache.membership.high_water(),
-            permit: permit.encode().map_err(|_| LogError::WrongIdentity)?,
+            permit: permit.clone(),
             membership: marker.membership_revision(),
             index: marker.position().index.get(),
             term: marker.position().term.get(),
@@ -92,10 +92,10 @@ impl Member {
     }
 
     pub(crate) fn authorization(&self) -> Result<FleetMembershipPermit, LogError> {
-        if self.permit.len() > super::source_reclaim::MAX_RECORD_BYTES {
-            return Err(LogError::WrongIdentity);
-        }
-        FleetMembershipPermit::decode(&self.permit).map_err(|_| LogError::WrongIdentity)
+        // Preserve the typed permit in the bounded refusal record. Embedding
+        // its framed bytes as JSON integers would multiply retained metadata.
+        self.permit.encode().map_err(|_| LogError::WrongIdentity)?;
+        Ok(self.permit.clone())
     }
 
     pub(crate) fn check_marker(&self, marker: &GroupManifest) -> Result<(), LogError> {
@@ -154,7 +154,7 @@ impl Member {
     }
 }
 
-/// The selected Fleet cleanup must be verified before constructing this
+/// The completed Fleet replacement must be verified before constructing this
 /// process-local capability. Neither a serialized marker nor a peer claim owns it.
 #[derive(Clone)]
 pub(crate) struct Permit {
@@ -212,6 +212,7 @@ pub(crate) struct Record {
     pub(crate) node: [u8; 16],
     pub(crate) disk: [u8; 16],
     pub(crate) old_key: u64,
+    pub(crate) before_groups: u32,
     pub(crate) sequence: u64,
     pub(crate) complete: bool,
 }
@@ -228,6 +229,7 @@ impl Record {
             || self.engine != engine
             || self.node != node.bytes()
             || self.disk != disk.bytes()
+            || self.before_groups == 0
             || self.old_key == 0
             || self.sequence == 0
         {

@@ -20,8 +20,9 @@ pub struct ReplicaLogOptions {
     pub process: ProcessGeneration,
     pub mode: LogOpenMode,
     pub max_groups: usize,
-    /// Permanent retired-source refusal records. Exhaustion refuses cleanup,
-    /// preserving the old physical group; each record is at most 4096 bytes.
+    /// Shared bound for permanent retired-history and removed-member refusal
+    /// records. Exhaustion preserves the physical group. Each record is at most
+    /// 4096 bytes; repeated member removals replace one high-water fence.
     pub max_source_tombstones: u32,
     pub queue_capacity: usize,
     pub max_pending_bytes: usize,

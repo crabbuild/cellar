@@ -1788,6 +1788,13 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         authority: resources::Authority,
     ) -> Result<()> {
+        if authority != resources::Authority::MemberSettlement
+            && mutation.changes.iter().any(|change| {
+                change.table == FleetTable::Operations && change.key.starts_with("member-cleanup/")
+            })
+        {
+            return Err(FleetCatalogError::Invalid("member settlement authority"));
+        }
         if authority != resources::Authority::SourceSettlement
             && mutation.changes.iter().any(|change| {
                 change.table == FleetTable::Operations

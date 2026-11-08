@@ -165,6 +165,41 @@ impl Jobs {
             .is_none_or(|group| group.strong_count() == 0))
     }
 
+    pub(in crate::raft::cell_groups::controller) fn resume_reclaimed_member(
+        &self,
+        proof: &crate::raft::storage::MemberReclaimAck,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<()> {
+        proof
+            .check(log)
+            .map_err(|error| Error::Runtime(error.into()))?;
+        let history = proof
+            .record()
+            .member
+            .scope()
+            .map_err(|error| Error::Runtime(error.into()))?;
+        if !proof.record().complete
+            || !matches!(
+                log.cell_group(&history),
+                Err(crate::raft::storage::LogError::NotFound)
+            )
+        {
+            return Err(Error::Runtime(RuntimeError::NotReady));
+        }
+        let mut state = self.state.lock().map_err(|_| Error::Stopped)?;
+        if state
+            .groups
+            .get(&history)
+            .is_some_and(|group| group.strong_count() != 0)
+            || state.cleanup_errors.contains_key(&history)
+        {
+            return Err(Error::Runtime(RuntimeError::NotReady));
+        }
+        state.groups.remove(&history);
+        state.retired.remove(&history);
+        Ok(())
+    }
+
     pub(in crate::raft::cell_groups::controller) fn stop(&self) {
         let _gate = self.state.lock().unwrap_or_else(|e| e.into_inner());
         self.stopping.store(true, Ordering::Release);

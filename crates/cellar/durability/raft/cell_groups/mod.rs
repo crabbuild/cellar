@@ -42,7 +42,6 @@ pub use checkpoint::{
 };
 mod controller;
 pub(crate) use controller::CellGroupArchiveProvisioning;
-pub(crate) use controller::S3OutputProof;
 pub(crate) use controller::{ArchiveSeedClient, ArchiveSeedDescriptor};
 pub use controller::{
     CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,
@@ -53,6 +52,7 @@ pub use controller::{
     CellGroupProvisionNamespace, CellGroupProvisioning, CellGroupRegistration,
     CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
 };
+pub(crate) use controller::{RetiredSource, S3OutputProof};
 mod dispatch;
 mod host;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
