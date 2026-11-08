@@ -12,6 +12,56 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 durable cleanup ownership delivery
+
+At `cf2699bb38d115cf4e0720db39fc6b468edb2b81`, completed live-source movements atomically enqueue bounded cleanup
+work for the obsolete node. `start_member_cleanup_service` discovers it without
+caller-supplied reservation IDs. Existing movement/topology workers can opt in
+with `reclaim_removed_members`; admitted work keeps priority. The node owns the
+exclusive control-service lease, stop and join.
+
+Admission reserves queue room for active and completed removals. A same-group
+return to the node refuses until physical completion and the receipt, resource
+floor, member index and dequeue commit together. Other nodes' reservations do
+not block settlement. Permanently isolated sources retain offline retirement
+ownership and are not queued for a fenced process to execute. Original boot,
+exact disk/engine/member, history/birth and opaque local physical proofs remain
+mandatory. Historical completion no longer needs to remain the latest permit.
+Discovery is a bounded node point read and each turn runs one physical cleanup.
+
+The new native `managed_member_cleanup_resumes_after_worker_restart` case passes
+both image modes: two moves, historical cleanup, actual settlement CAS paused
+after GC, joined cancellation, replacement discovery and exact-once settlement.
+Normal movement-worker cleanup and empty restart also pass. Original SQL,
+receipts, versions and S3 writes persist with unchanged resource/deadline bounds.
+The full scheduler target passes five native tests (five explicit RustFS cases
+are ignored in that command). The fixed RustFS cleanup suite passes both image
+modes on the same executable. Strict all-target Clippy, formatting/layout, native
+dependencies, runner, plan and documentation checks pass.
+
+The initial build caught a deadline/self borrow; the deadline now retains its
+catalog independently. The refusal test initially reused a topology request ID
+and hit PayloadConflict; a fresh ID now exercises the unchanged Invalid oracle.
+No assertion, timeout, resource or compiler limit was relaxed.
+
+CG-11 remains IN_PROGRESS. Deliver retained-successor cleanup and deployment
+startup wiring next, then automatic partition execution and adaptive policy.
+The failure-domain/reserve and bounded-fanout cases, concurrent child receipt
+readiness, late faults, mixed load and measured peaks remain open. The prior
+pre-collection readiness failure is not retested by this membership scenario.
+
+Retained evidence for the durable cleanup delivery:
+
+- `.cellar/cell-groups-evidence/CG-11-cleanup-cf2699bb-01/record.json` (CHECKPOINT),
+  SHA-256 `8df980f16cf86026d863a156dad5f2be27136acdc4140d7c413b6dc652c1c184`.
+- `.cellar/cell-groups-evidence/CG-11-cleanup-cf2699bb-rustfs-01/record.json`,
+  SHA-256 `95f04086e7ea657633e7b5d2fb2f2cf9d2b230da7b6cc5add465914de6e9fab0`.
+- Shared native/RustFS executable SHA-256 `4ce7cebd8e95fc6627304bc36d530a6a762bf6541f7288b6c06566ba83f9a071`.
+
+RustFS used one CPU and 2 GiB without extra swap and is stopped with objects
+retained. Voters were host-native TLS fixtures. No independent-domain, load,
+performance or measured-peak qualification is claimed.
+
 ## CG-11 removed-member collection and return checkpoint
 
 At `5bc999c334bb500d0ea8699867c83206d17d25a6`, the new public

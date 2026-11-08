@@ -6,26 +6,41 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current CG-11 delivery
 
-At `5bc999c3`, explicit `RaftCells::reclaim_removed_member` joins the removed owner,
-collects its mapping/log/private pages, persists a high-water member fence, and settles
-its slot and known disk reservation once from its local engine receipt. SQL/archive
-admission can then accept a fresh member of the same group. The native and real RustFS
-cases return to the original node and the previously joined node, then replace the
-earlier fence on another removal. An actual settlement CAS loses confirmation; exact
-retry changes no second root. Joint/survivor/generic cleanup and old-genesis attempts
-refuse. Original receipt replay, token reads and S3 writes persist. Four implemented
-scheduler cases and strict Clippy pass. Source GC passes in isolation; its concurrent
-extent run failed before collection with a child receipt `NotReady` refusal. Preserve
-both logs and investigate readiness under concurrency. See progress.md for exact source,
-executable, artifacts and development failures.
+At `cf2699bb38d115cf4e0720db39fc6b468edb2b81`, completed live-source movements atomically enqueue bounded cleanup
+work for the obsolete node. `start_member_cleanup_service` discovers it without
+caller-supplied reservation IDs. Existing movement/topology workers can opt in
+with `reclaim_removed_members`; admitted work keeps priority. The node owns the
+exclusive control-service lease, stop and join.
 
-This is explicit original-boot cleanup while the completed movement is selected. Keep
-work on CG-11. Investigate the child receipt readiness failure under concurrent
-qualification. Next add bounded durable cleanup ownership/targeted dispatch, delayed
-historical and retained-successor cleanup and restart/replay. Finish the automatic
-partition work owner and deployment/adaptive policy. The required failure-domain
-repair/reserve and fanout cases remain absent. No installed-memory or unknown-debt
-refund, independent voter-process, load or measured peak claim.
+Admission reserves queue room for active and completed removals. A same-group
+return to the node refuses until physical completion and the receipt, resource
+floor, member index and dequeue commit together. Other nodes' reservations do
+not block settlement. Permanently isolated sources retain offline retirement
+ownership and are not queued for a fenced process to execute. Original boot,
+exact disk/engine/member, history/birth and opaque local physical proofs remain
+mandatory. Historical completion no longer needs to remain the latest permit.
+Discovery is a bounded node point read and each turn runs one physical cleanup.
+
+The new native `managed_member_cleanup_resumes_after_worker_restart` case passes
+both image modes: two moves, historical cleanup, actual settlement CAS paused
+after GC, joined cancellation, replacement discovery and exact-once settlement.
+Normal movement-worker cleanup and empty restart also pass. Original SQL,
+receipts, versions and S3 writes persist with unchanged resource/deadline bounds.
+The full scheduler target passes five native tests (five explicit RustFS cases
+are ignored in that command). The fixed RustFS cleanup suite passes both image
+modes on the same executable. Strict all-target Clippy, formatting/layout, native
+dependencies, runner, plan and documentation checks pass.
+
+The initial build caught a deadline/self borrow; the deadline now retains its
+catalog independently. The refusal test initially reused a topology request ID
+and hit PayloadConflict; a fresh ID now exercises the unchanged Invalid oracle.
+No assertion, timeout, resource or compiler limit was relaxed.
+
+CG-11 remains IN_PROGRESS. Deliver retained-successor cleanup and deployment
+startup wiring next, then automatic partition execution and adaptive policy.
+The failure-domain/reserve and bounded-fanout cases, concurrent child receipt
+readiness, late faults, mixed load and measured peaks remain open. The prior
+pre-collection readiness failure is not retested by this membership scenario.
 
 ## Current accepted boundary
 
