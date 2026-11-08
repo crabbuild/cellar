@@ -75,7 +75,7 @@ class OwnedRun:
         self.path = self.root / 'resources.json'
         self.state = {'format': 1, 'context': engine.context, 'engine_id': engine.identity,
                       'directory': str(self.root.resolve()), 'campaign': campaign,
-                      'owner': owner, 'containers': {}, 'intents': [], 'stops': []}
+                      'owner': owner, 'containers': {}, 'volumes': [], 'networks': [], 'intents': [], 'stops': []}
         require(not self.path.exists(), 'cohort ownership journal already exists')
         save(self.path, self.state)
 
@@ -95,6 +95,7 @@ class OwnedRun:
                     'unsupported cohort Engine operation')
             require(args[0] not in ('network', 'volume') or args[1] == 'inspect',
                     'unsupported resource mutation')
+            require(args[0] != 'image' or args[1] == 'inspect', 'unsupported image mutation')
             if args[0] in ('logs', 'exec'):
                 name = args[-1] if args[0] == 'logs' else args[1]
                 require(name in self.state['containers'], 'unowned container observation')
@@ -104,6 +105,20 @@ class OwnedRun:
         self.engine.bind()
         labels = [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == '--label']
         require(f'{LABEL}={self.owner}' in labels, 'resource creation lacks the exact cohort label')
+        if args[0] in ('run', 'create'):
+            for index, argument in enumerate(args[:-1]):
+                if argument == '-v':
+                    require(args[index + 1].split(':', 1)[0] in self.state['volumes'],
+                            'container cannot mount an unowned volume or host directory')
+                elif argument == '--mount':
+                    raise ValueError('unsupported mount syntax; use recorded owned volumes')
+                elif argument == '--network':
+                    require(args[index + 1] == 'none' or args[index + 1] in self.state['networks'],
+                            'container cannot join an unowned network')
+        else:
+            require(args[-1].startswith('cellar-mr14-' + self.owner + '-')
+                    or (args[0] == 'network' and args[-1] == 'cellar-mr14-' + self.owner),
+                    'resource name does not belong to the cohort')
         name = args[args.index('--name') + 1] if '--name' in args else None
         if args[0] == 'create' or '-d' in args or '--detach' in args:
             require(name is not None and name.startswith('cellar-mr14-' + self.owner + '-'),
@@ -114,6 +129,9 @@ class OwnedRun:
                                       'name': name, 'at_ns': time.monotonic_ns()})
         save(self.path, self.state)
         result = self.engine.invoke(*args)
+        if args[:2] in (('volume', 'create'), ('network', 'create')):
+            self.state['volumes' if args[0] == 'volume' else 'networks'].append(args[-1])
+            save(self.path, self.state)
         if name is not None:
             identity = self.engine.inspect(name, self.owner)
             require(result == identity['id'], 'creation reply differs from immutable container identity')

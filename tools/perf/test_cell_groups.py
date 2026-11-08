@@ -115,9 +115,20 @@ class Ownership(unittest.TestCase):
             owned = self.owned(Path(temporary).resolve(), fake)
             for args in [('run', '-d', '--name', 'unowned', '--label', 'foreign=x'),
                          ('volume', 'create', '--label', 'foreign=x', 'unowned'),
-                         ('rm', '-f', IDENTITY), ('system', 'prune', '-af')]:
+                         ('rm', '-f', IDENTITY), ('system', 'prune', '-af'), ('image', 'prune', '-af')]:
                 with self.subTest(args=args), self.assertRaises(ValueError):
                     owned(*args)
+            self.assertTrue(all(call[0] == 'info' for call in fake.calls))
+
+    def test_correct_label_does_not_authorize_unowned_mounts_or_networks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fake = FakeEngine()
+            owned = self.owned(Path(temporary).resolve(), fake)
+            for extra in [('-v', '/unowned:/data'), ('-v', 'someone-elses-volume:/data'),
+                          ('--mount', 'type=bind,src=/unowned,dst=/data'), ('--network', 'someone-elses-network')]:
+                with self.subTest(extra=extra), self.assertRaises(ValueError):
+                    owned('run', '--rm', '--label', 'io.cellar.mr14.run=' + OWNER,
+                          *extra, 'sha256:' + 'c' * 64)
             self.assertTrue(all(call[0] == 'info' for call in fake.calls))
 
     def test_lost_creation_response_keeps_intent_without_relaunch(self):
