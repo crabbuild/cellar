@@ -7,7 +7,7 @@ use cellar::application::consensus::verification::{
 };
 use sha2::Digest as _;
 
-fn policy() -> PartitionPolicy {
+pub(super) fn policy() -> PartitionPolicy {
     PartitionPolicy::new(PartitionLimits {
         split_ceiling: PartitionLoad {
             cells: 1,

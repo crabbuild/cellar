@@ -127,17 +127,9 @@ impl MovementServiceWork {
         // backend with the same descriptive fleet identity. Periodic I/O has a
         // private turn under the node's domain, so it cannot occupy foreground
         // catalog admission or outlive the node's joined job set.
-        let source = &host.catalog.inner;
-        self.catalog = FleetCatalog {
-            inner: Arc::new(Inner {
-                bucket: source.bucket.clone(),
-                domain: self.observer.handle.domain.clone(),
-                prefix: source.prefix.clone(),
-                cluster: source.cluster,
-                incarnation: source.incarnation,
-                turn: Mutex::new(()),
-            }),
-        };
+        self.catalog = host
+            .catalog
+            .owned_client(self.observer.handle.domain.clone());
         self.node_stop = Some(registration.stop_receiver());
         self._registration = Some(registration);
         if let Some(detection) = &mut self.detection {

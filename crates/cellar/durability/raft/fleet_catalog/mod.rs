@@ -274,6 +274,21 @@ pub struct FleetCommit {
 }
 
 impl FleetCatalog {
+    // A registered worker shares installed addressing and backend authority,
+    // with its own bounded request turn under the owning node's domain.
+    pub(crate) fn owned_client(&self, domain: DomainToken) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                bucket: self.inner.bucket.clone(),
+                domain,
+                prefix: self.inner.prefix.clone(),
+                cluster: self.inner.cluster,
+                incarnation: self.inner.incarnation,
+                turn: Mutex::new(()),
+            }),
+        }
+    }
+
     /// Immutable cluster, fleet-incarnation and addressing binding. This is a
     /// descriptive request pin, not a current-root or mutation capability.
     pub fn catalog_id(&self) -> Result<[u8; 32]> {

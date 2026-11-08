@@ -8,10 +8,12 @@ async fn close_retains_service_admission_until_the_actual_worker_exits() {
     domain
         .run(async {
             let services = Services::new(128, 1);
-            let worker = services.register(ControlServiceKind::Movement, 64).unwrap();
+            let worker = services
+                .register(ControlServiceKind::Partition, 64)
+                .unwrap();
             let stop = worker.stop_receiver();
             assert!(matches!(
-                services.register(ControlServiceKind::Movement, 64),
+                services.register(ControlServiceKind::Partition, 64),
                 Err(FleetCatalogError::Overloaded)
             ));
             assert!(matches!(

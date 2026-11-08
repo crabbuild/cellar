@@ -18,6 +18,7 @@ pub(crate) enum ControlServiceKind {
     Reclamation,
     Transfer,
     Transition,
+    Partition,
 }
 
 impl ControlServiceKind {
@@ -30,6 +31,7 @@ impl ControlServiceKind {
             Self::Reclamation => 4,
             Self::Transfer => 5,
             Self::Transition => 6,
+            Self::Partition => 7,
         }
     }
 }
@@ -43,7 +45,7 @@ struct Entry {
 struct State {
     closing: bool,
     next: u64,
-    slots: [Option<Entry>; 7],
+    slots: [Option<Entry>; 8],
 }
 
 pub(super) struct Services {

@@ -56,7 +56,7 @@ impl Default for RaftFleetTransitionServiceOptions {
 }
 
 impl RaftFleetTransitionServiceOptions {
-    fn validate(&self) -> Result<()> {
+    pub(super) fn validate(&self) -> Result<()> {
         if self.reclaim_retired_sources && !self.quiesce_retired_sources
             || !(Duration::from_millis(50)..=Duration::from_secs(60)).contains(&self.interval)
             || !(self.interval..=Duration::from_secs(60)).contains(&self.retry_max_interval)
@@ -91,6 +91,10 @@ pub struct RaftFleetTransitionService {
 }
 
 impl RaftFleetTransitionService {
+    pub(super) fn completion(&self) -> watch::Receiver<bool> {
+        self.done.clone()
+    }
+
     pub fn status(&self) -> RaftFleetTransitionServiceStatus {
         self.status.borrow().clone()
     }

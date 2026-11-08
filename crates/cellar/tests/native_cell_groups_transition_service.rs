@@ -8,6 +8,8 @@ mod capacity;
 pub mod catalog_fault;
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
+#[path = "support/cell_group_partition_service.rs"]
+mod partition_service;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
 #[path = "support/cell_group_transition_selection.rs"]

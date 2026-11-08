@@ -532,6 +532,41 @@ consent remain explicit. Whole-group balancing/reserve/fanout, physical source
 reclamation, independent voter processes and load remain separate gates.
 
 
+## Node-owned automatic partition service
+
+`RaftFleetControl::start_partition_service` owns local observation, deployment
+placement callbacks, durable admission and an embedded transition worker. Start
+it on each participating managed node. It binds catalog I/O to that node's
+installed backend and execution domain. Its exclusive registry slot, 2 MiB
+workspace and bounded sampler use the existing shared control budget. Duplicate
+services and insufficient shared capacity refuse admission. Stop cancels the
+current callback; shutdown joins both workers without cancelling durable work.
+
+The planner supplies pressure, fresh operation identities and RF3 placement for
+an observed recommendation and exact current catalog/directory basis. It cannot
+grant capacity, membership or serving authority. Cold startup restores the
+Fleet's selected request before invoking either callback. Each turn stages a
+fresh selection before any child admission, or resumes the original plan.
+Errors after selection preserve the rooted work and original birth identities.
+
+Execution defaults to `AdmissionOnly`. Explicit `Complete` policy consents to
+irreversible execution only for the configured principal and namespace scopes,
+including restored work. Another principal refuses. The existing transition
+worker still revalidates quorum, archive, seal, activation and physical release
+at every owning boundary. Existing standalone transition workers and the
+embedded worker share one exclusive node slot; configure one owner.
+
+Use `--suite managed-partition-service` with an owned RustFS backend and fresh
+output directory for the scoped automatic-owner case. Both image modes cover
+blocked-callback cancellation/join, duplicate refusal, a lost real selection CAS
+reply before child births, cold recovery on another node without new callbacks,
+admission-only and foreign-principal refusal, then explicit automatic execution
+through child archives and SQL/receipt/version/S3 checks. Competing selections,
+safe cancellation of refused staged work, adaptive whole-group placement,
+independent voter processes, reserve/fanout and sustained load remain separate
+CG-11 gates.
+
+
 ## Retired source reclamation
 
 Use `--suite managed-source-reclamation` with an owned RustFS backend and a

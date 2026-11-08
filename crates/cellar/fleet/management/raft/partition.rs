@@ -241,6 +241,19 @@ impl RaftFleetPartitionScheduler {
         self.pending.as_ref().map(|pending| &pending.request)
     }
 
+    pub(super) fn pending_principal(&self) -> Option<&str> {
+        self.pending
+            .as_ref()
+            .map(|pending| pending.principal.as_str())
+    }
+
+    // Only the service's fresh staging turn calls this, before child admission.
+    // A committed Root cursor remains authoritative and must be rediscovered.
+    pub(super) fn discard_unadmitted_candidate(&mut self) {
+        self.pending = None;
+        self.groups.clear();
+    }
+
     /// Forget advisory samples only. An admitted or uncertain request retains
     /// its own frozen basis and is unaffected by sampling-cache eviction.
     pub fn forget(&mut self, history: GroupHistory) {
@@ -495,7 +508,7 @@ impl RaftFleetPartitionScheduler {
             .map(Some)
     }
 
-    async fn restore_pending(&mut self, timeout: Duration) -> Result<()> {
+    pub(super) async fn restore_pending(&mut self, timeout: Duration) -> Result<()> {
         if self.pending.is_some() {
             return Ok(());
         }
