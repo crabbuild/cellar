@@ -104,6 +104,8 @@ impl Work {
         self.action("observe");
         let pressure = turn.run(self.planner.pressure(turn.remaining()?)).await??;
         let poll = self.scheduler.poll(pressure, turn.remaining()?).await?;
+        self.status
+            .send_modify(|s| s.remote_samples = self.scheduler.remote_samples());
         // Another controller may have selected work during the pressure call.
         if self.scheduler.pending_request().is_some() {
             return Ok(());

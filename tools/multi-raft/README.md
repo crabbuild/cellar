@@ -682,3 +682,13 @@ committed settlement. It checks automatic startup ownership, duplicate-worker
 refusal, joined stop, stale-capacity and missing-witness refusal, and receipt replay
 on a later qualified boot. Original SQL, receipts, versions and S3 writes persist.
 Independent-domain, load and measured-resource qualification remain open gates.
+
+## Configured automatic partitions
+
+The fixed `managed-automatic-partitions` suite runs actual SQL load through the
+standard configured planner, selected-work controller replacement, RF3 split,
+quiet merge with different child leaders, receipt replay and continued writes.
+A separate case refuses a split that would consume the recovery reserve while
+keeping the parent writable. Both materialized and extent images use real RustFS.
+Voters run as host-native TLS nodes with fixture capacity; this does not qualify
+independent process crashes, failure domains or sustained-load profiles.

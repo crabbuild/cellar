@@ -11,6 +11,7 @@ fn configuration(reserve: u32) -> RaftFleetAutomaticPartitionOptions {
     sizing.split_ceiling.writes_per_second = 4;
     sizing.merge_ceiling.cells = 4;
     sizing.merge_ceiling.writes_per_second = 2;
+    sizing.cooldown_ms = 5_000;
     RaftFleetAutomaticPartitionOptions {
         placement: RaftFleetPartitionPlacementPolicy {
             pool: "test".into(),
@@ -170,6 +171,7 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
             );
             let done = if reserve == 3 {
                 active(cluster).await?.is_some()
+                    && status.iter().flatten().any(|s| s.operation_id.is_some())
             } else {
                 status.iter().flatten().any(|s| {
                     s.last_failure
@@ -195,6 +197,10 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     .await
     .with_context(|| format!("automatic selection: {:?}", statuses(cluster)))??;
     ensure!(!acknowledged.is_empty());
+    let original_operation = statuses(cluster)
+        .into_iter()
+        .flatten()
+        .find_map(|s| s.operation_id);
     for host in &cluster.hosts {
         host.suspend_automatic_partitions().await;
     }
@@ -224,6 +230,13 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     let selected = active(cluster)
         .await?
         .context("durable automatic selection")?;
+    let original_operation = original_operation.context("selected operation status")?;
+    let f = &cluster.fixtures[0];
+    let control = RaftFleetControl::new(
+        &f.domain,
+        f.catalog.clone(),
+        vec![cluster.directory.clone()],
+    )?;
     ensure!(cluster.directory.observe().await?.groups() == 1);
     // Rebuild every configured controller with fresh volatile state. Neither
     // request IDs nor private verifier stores are passed to the resume API.
@@ -242,7 +255,17 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
                 "{status:?}"
             );
             let view = cluster.directory.observe().await?;
-            if view.groups() == 2 {
+            if view.groups() == 2
+                && control
+                    .transition_status(
+                        &hex::encode(cluster.history.namespace.bytes()),
+                        &original_operation,
+                        TIMEOUT,
+                    )
+                    .await?
+                    .phase
+                    == Some(TransitionPhase::Retired)
+            {
                 return Ok::<_, anyhow::Error>(view);
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -261,6 +284,66 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
         );
     }
     ensure!(children.len() == 2 && !children.contains(&cluster.history));
+    for host in &cluster.hosts {
+        host.suspend_automatic_partitions().await;
+    }
+    ensure!(
+        active(cluster)
+            .await?
+            .as_ref()
+            .is_none_or(|work| work == &selected),
+        "merge selected before leader separation"
+    );
+    let histories: Vec<_> = children.iter().copied().collect();
+    let left = leader(&cluster.hosts, histories[0]).await?;
+    let right = leader(&cluster.hosts, histories[1]).await?;
+    if left == right {
+        let cut = f.catalog.read(TIMEOUT).await?;
+        let placement = f
+            .catalog
+            .history(&cut, &histories[1], TIMEOUT)
+            .await?
+            .initial_placement()?;
+        let target = placement
+            .voters
+            .into_iter()
+            .find(|v| v.node != cluster.fixtures[left].spec.node)
+            .context("separate child leader")?;
+        let expected = cluster
+            .fixtures
+            .iter()
+            .position(|f| f.spec.node == target.node)
+            .context("target node")?;
+        let group = cluster.hosts[right].group(histories[1])?;
+        let progress = group.replication_status(TIMEOUT).await?;
+        group
+            .transfer_leadership(
+                LeadershipTransfer {
+                    target: target.member,
+                    expected_term: progress.term,
+                    expected_revision: progress.membership_revision,
+                },
+                TIMEOUT,
+            )
+            .await?;
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                if leader(&cluster.hosts, histories[1]).await? == expected {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("separate child leaders")??;
+    }
+    ensure!(
+        leader(&cluster.hosts, histories[0]).await? != leader(&cluster.hosts, histories[1]).await?,
+        "merge must work across different leaders"
+    );
+    for host in &cluster.hosts {
+        host.resume_automatic_partitions(TIMEOUT).await?;
+    }
     // Load has stopped. The same configured owner merges quiet adjacent groups
     // after its normal cooldown/hysteresis and rooted source cleanup complete.
     let merged = tokio::time::timeout(Duration::from_secs(60), async {
@@ -282,6 +365,13 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     })
     .await
     .with_context(|| format!("configured quiet merge: {:?}", statuses(cluster)))??;
+    ensure!(
+        statuses(cluster)
+            .iter()
+            .flatten()
+            .any(|s| s.remote_samples > 0),
+        "merge did not consume remote leader observations"
+    );
     for host in &cluster.hosts {
         host.suspend_automatic_partitions().await;
     }

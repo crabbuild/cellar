@@ -26,6 +26,7 @@ pub(crate) struct History {
     pub binding: FleetGroupBinding,
     birth: [u8; 32],
     schema: [u8; 32],
+    partition: bool,
 }
 
 impl History {
@@ -35,7 +36,18 @@ impl History {
             binding: authorization.binding().clone(),
             birth,
             schema,
+            partition: false,
         }
+    }
+
+    pub(crate) fn for_partition(authorization: &FleetGroupAuthorization) -> Self {
+        let mut history = Self::new(authorization);
+        history.partition = true;
+        history
+    }
+
+    pub(crate) fn requests_partition(&self) -> bool {
+        self.partition
     }
 
     pub(crate) fn scope(&self) -> Result<GroupHistory, TransportError> {
@@ -46,7 +58,9 @@ impl History {
     }
 
     pub(crate) fn matches(&self, authorization: &FleetGroupAuthorization) -> bool {
-        self == &Self::new(authorization)
+        let mut expected = Self::new(authorization);
+        expected.partition = self.partition;
+        self == &expected
     }
 }
 
@@ -60,6 +74,7 @@ pub(crate) struct GroupSnapshot {
     pub configuration: ConfState,
     pub status: CellGroupStatus,
     pub load: Option<LeaderLoad>,
+    pub partition: Option<Box<super::cell_groups::CellGroupPartitionObservation>>,
 }
 
 impl GroupSnapshot {
@@ -73,6 +88,7 @@ impl GroupSnapshot {
             configuration: selected.configuration().clone(),
             status: selected.status().clone(),
             load: None,
+            partition: None,
         }
     }
 
@@ -84,6 +100,17 @@ impl GroupSnapshot {
         self.membership
             .validate_scope(&self.replica.scope)
             .map_err(|_| TransportError::Identity)?;
+        if let Some(partition) = &self.partition {
+            if !partition.stable_leader
+                || partition.route != *self.root.route()
+                || partition.membership.get() != self.membership.revision().get()
+                || partition.status.term != self.status.term
+                || partition.status.leader != Some(self.replica.member.get())
+                || partition.status.applied.index < self.barrier.index
+            {
+                return Err(TransportError::Identity);
+            }
+        }
         let fleet = self
             .membership
             .fleet_status()
@@ -146,7 +173,8 @@ impl LocalObservation {
         sample_age_ms: u64,
     ) -> Result<RaftPeerFleetMembershipObservation, TransportError> {
         self.validate()?;
-        let s = self.snapshot;
+        let mut s = self.snapshot;
+        let partition = s.partition.take();
         let progress = GroupInspection {
             history: s.replica.scope,
             schema_digest: s.root.route().schema_digest,
@@ -184,6 +212,7 @@ impl LocalObservation {
             progress,
             published,
             sample_age_ms: 0,
+            partition,
         };
         observed
             .record_delivery_age(sample_age_ms)
@@ -214,6 +243,8 @@ struct Body {
     configuration: Vec<u8>,
     #[serde(deserialize_with = "nullable")]
     load: Option<Load>,
+    #[serde(deserialize_with = "nullable")]
+    partition: Option<super::partition_observation_wire::Sample>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -240,6 +271,11 @@ pub(crate) fn encode(observation: &LocalObservation) -> Result<Vec<u8>, Transpor
         membership: s.membership.clone(),
         configuration: super::manifest::encode_conf(&s.configuration)
             .map_err(|_| TransportError::Protocol)?,
+        partition: s
+            .partition
+            .as_ref()
+            .map(|p| super::partition_observation_wire::Sample::capture(p))
+            .transpose()?,
         load: s.load.as_ref().map(|l| Load {
             leaders: l.leaders,
             capacity: l.capacity,
@@ -290,6 +326,10 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<LocalObservation, TransportError> {
         term: Term::new(positive(&body.barrier_term)?),
     };
     let leader = body.leader.as_deref().map(positive).transpose()?;
+    let partition = body
+        .partition
+        .map(|p| p.decode(body.root.route()))
+        .transpose()?;
     let snapshot = GroupSnapshot {
         replica: ReplicaIdentity {
             scope: body.root.route().history,
@@ -307,6 +347,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<LocalObservation, TransportError> {
             ready: body.ready,
         },
         root: body.root,
+        partition,
         barrier,
         membership: body.membership,
         configuration: super::manifest::decode_conf(&body.configuration)
@@ -331,6 +372,7 @@ pub struct RaftPeerFleetMembershipObservation {
     progress: GroupInspection,
     published: FleetPublishedCut,
     sample_age_ms: u64,
+    partition: Option<Box<super::cell_groups::CellGroupPartitionObservation>>,
 }
 
 impl RaftPeerFleetMembershipObservation {
@@ -355,6 +397,11 @@ impl RaftPeerFleetMembershipObservation {
         }
         self.sample_age_ms = next;
         Ok(())
+    }
+
+    /// Advisory leader-local counters/geometry, independent of the quorum proof.
+    pub fn partition(&self) -> Option<&super::cell_groups::CellGroupPartitionObservation> {
+        self.partition.as_deref()
     }
 
     pub fn node(&self) -> &RaftHostObservation {

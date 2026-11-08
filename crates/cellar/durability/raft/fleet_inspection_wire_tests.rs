@@ -39,6 +39,7 @@ fn observation(cells: bool) -> LocalObservation {
         FleetGroupBinding::new(IncarnationId::new([80; 16]).unwrap(), &history, [81; 32]).unwrap();
     let membership = GroupMembership::managed_initial(&conf, binding).unwrap();
     let snapshot = GroupSnapshot {
+        partition: None,
         replica: ReplicaIdentity {
             scope: history,
             member: MemberId::new(1).unwrap(),

@@ -77,6 +77,8 @@ impl RaftFleetPartitionServiceOptions {
 pub struct RaftFleetPartitionServiceStatus {
     pub running: bool,
     pub rounds: u64,
+    /// Successful bounded reads from remote group leaders, not quorum proofs.
+    pub remote_samples: u64,
     pub operation_id: Option<String>,
     pub phase: Option<crate::raft::cell_groups::TransitionPhase>,
     pub last_action: Option<&'static str>,

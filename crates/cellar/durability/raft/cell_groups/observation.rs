@@ -52,7 +52,7 @@ pub struct CellGroupPartitionWriter {
 /// Cumulative work on this physical owner and its monotonic sample time.
 #[derive(Clone, Copy, Debug)]
 pub struct CellGroupWorkload {
-    pub(super) owner: [u8; 16],
+    pub(crate) owner: [u8; 16],
     pub sampled_at_ms: u64,
     /// New Raft proposals for enrollments and mutations. Reusing a proposal
     /// or serving a durable receipt does not increase this counter.

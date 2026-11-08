@@ -19,6 +19,14 @@ pub(crate) struct PartitionPlacement {
     pub deferred: Vec<NodeId>,
 }
 
+pub(crate) struct PartitionPlacementRequest<'a> {
+    pub directory: &'a RangeDirectory,
+    pub revision: u64,
+    pub policy: &'a cellar_logic::cell_group_placement::PartitionPlacementPolicy,
+    pub children: usize,
+    pub excluded: &'a BTreeSet<NodeId>,
+}
+
 struct Candidate {
     host: FleetHostAuthorization,
     capacity: FleetCapacityAttestation,
@@ -29,14 +37,17 @@ struct Candidate {
 impl FleetCatalog {
     pub(crate) async fn partition_placement(
         &self,
-        directory: &RangeDirectory,
         observer: &RaftCells,
-        revision: u64,
-        policy: &cellar_logic::cell_group_placement::PartitionPlacementPolicy,
-        children: usize,
-        excluded: &BTreeSet<NodeId>,
+        request: PartitionPlacementRequest<'_>,
         timeout: Duration,
     ) -> Result<PartitionPlacement> {
+        let PartitionPlacementRequest {
+            directory,
+            revision,
+            policy,
+            children,
+            excluded,
+        } = request;
         if !(1..=2).contains(&children) {
             return Err(FleetCatalogError::Invalid("partition child count"));
         }

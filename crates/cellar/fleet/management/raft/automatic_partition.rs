@@ -111,15 +111,17 @@ impl RaftFleetPartitionPlanner for Planner {
                 .control
                 .catalog
                 .partition_placement(
-                    directory,
                     self.control
                         .node_observer
                         .as_ref()
                         .ok_or_else(RaftFleetFailure::unsupported)?,
-                    context.basis.fleet_revision,
-                    &self.placement,
-                    children,
-                    &excluded,
+                    crate::raft::fleet_catalog::PartitionPlacementRequest {
+                        directory,
+                        revision: context.basis.fleet_revision,
+                        policy: &self.placement,
+                        children,
+                        excluded: &excluded,
+                    },
                     turn.remaining()?,
                 )
                 .await?;

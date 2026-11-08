@@ -65,6 +65,7 @@ pub(crate) use managed_transitions::{
 mod namespaces;
 mod nodes;
 mod partition_placement;
+pub(crate) use partition_placement::PartitionPlacementRequest;
 mod permits;
 mod placement;
 mod records;
