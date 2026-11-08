@@ -582,3 +582,30 @@ This is explicit original-boot cleanup while its completion remains selected.
 Automatic cleanup ownership/dispatch, historical and successor-boot cleanup,
 crash/restart schedules, domain loss/reserve, large-inventory fanout, independent
 voter processes, load and measured resource peaks remain separate gates.
+
+
+## Durable removed-member cleanup worker
+
+Use `FleetCatalog::start_member_cleanup_service` on an enrolled original source
+boot to discover its pending cleanup without caller-supplied reservation IDs.
+Alternatively set `FleetMovementServiceOptions::reclaim_removed_members` to true
+on an existing movement/topology worker; admitted effects run before idle cleanup.
+The node owns cancellation, shutdown and the single control-worker lease.
+
+A completed live-source movement atomically appends to a bounded node queue.
+Admission reserves queue room, including active movements. A same-group return
+to that node refuses until physical completion and the receipt, resource floor,
+member index and dequeue commit together. Unrelated nodes' reservations do not
+block this node's settlement. Historical completed moves remain collectible
+using the exact old local member and immutable completion, even after later moves.
+Permanently isolated sources retain their separate offline retirement authority;
+they are not queued for execution by a fenced old process.
+
+`--suite managed-member-cleanup` tests both image modes against owned RustFS.
+It executes two moves, pauses the first source's real settlement CAS after local
+GC, stops and joins the worker, then replaces it. The replacement discovers the
+saved node queue and settles once. A fresh worker on an empty queue makes no root
+mutation. Generic queue deletion refuses and original SQL, receipts, versions
+and subsequent S3 writes remain intact. Original resource/deadline bounds apply.
+Successor boots, daemon startup wiring, failure-domain/reserve/fanout and load
+qualification remain open.
