@@ -99,7 +99,11 @@ impl FleetCatalog {
                 {
                     return Err(FleetCatalogError::PayloadConflict);
                 }
-                self.check_inventory_inner(snapshot, namespaces).await?;
+                self.inner
+                    .domain
+                    .run(Box::pin(self.check_inventory_inner(snapshot, namespaces)))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)??;
                 self.require_intent_settled(snapshot).await?;
                 for node in keep {
                     if !self.capacity_from(snapshot, node).await?.receive_replicas() {

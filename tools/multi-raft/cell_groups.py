@@ -51,6 +51,18 @@ CASES = (
 )
 
 SUITES = {
+    "managed-group-placement": (
+        "native_cell_groups_scheduler",
+        ("rustfs_whole_group_scale_out_in",),
+        "rooted desired placement moves live shared-group replicas with their logical histories intact",
+        "Both image modes with host-native RF3 voters and unchanged two-slot fixture capacity. "
+        "Public operation retries recover their exact rooted intent. The node-owned movement "
+        "worker is replaced during Joint consensus and converges the original operation. "
+        "Shrinking the keep set moves replicas of the same group, preserving cell identities, "
+        "receipts, minimum-version reads and S3 writes. Obsolete copies remain retained and "
+        "charged. Their physical cleanup, node deletion, failure-domain loss/reserve, larger "
+        "inventories, load and measured peaks remain separate gates.",
+    ),
     "managed-source-settlement": (
         "native_cell_groups_transition_service",
         ("rustfs_consented_split_settles_source_capacity",),
