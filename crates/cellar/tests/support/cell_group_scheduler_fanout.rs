@@ -301,7 +301,8 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
         .map(|r| r.history)
         .collect::<std::collections::BTreeSet<_>>();
     let control =
-        RaftFleetControl::new(&f.domain, catalog.clone(), vec![cluster.directory.clone()])?;
+        RaftFleetControl::new(&f.domain, catalog.clone(), vec![cluster.directory.clone()])
+            .context("fanout standalone control admission")?;
     let mut sampled = std::collections::BTreeSet::new();
     let before = catalog.read(TIMEOUT).await?.revision();
     for host in &cluster.hosts {
@@ -314,9 +315,18 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
             control.clone().with_node_observer(host.clone()),
             configuration().sizing,
             2,
-        )?;
+        )
+        .with_context(|| {
+            format!(
+                "fanout inventory tracker admission: {:?}",
+                host.identity().node
+            )
+        })?;
         for _ in 0..local.len().max(1) {
-            let poll = scheduler.poll(pressure(), TIMEOUT).await?;
+            let poll = scheduler
+                .poll(pressure(), TIMEOUT)
+                .await
+                .with_context(|| format!("fanout inventory sample: {:?}", host.identity().node))?;
             if let Some(group) = poll.sampled {
                 ensure!(local.contains(&group));
                 sampled.insert(group);
@@ -325,7 +335,9 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
         ensure!(scheduler.local_groups() == local.len() && scheduler.inventory_pages() == 1);
         let pages = scheduler.inventory_pages();
         for _ in 0..4 {
-            scheduler.poll(pressure(), TIMEOUT).await?;
+            scheduler.poll(pressure(), TIMEOUT).await.with_context(|| {
+                format!("fanout stable inventory reuse: {:?}", host.identity().node)
+            })?;
         }
         ensure!(
             scheduler.inventory_pages() == pages && scheduler.tracked_groups() <= 4,
@@ -356,7 +368,8 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
     )?;
     capped
         .observe(current[0].history, pressure(), TIMEOUT)
-        .await?;
+        .await
+        .context("fanout tracker overflow baseline observation")?;
     let remote = capped.remote_samples();
     let (refused, reads) =
         catalog_fault::count_reads(capped.observe(current[1].history, pressure(), TIMEOUT)).await;
