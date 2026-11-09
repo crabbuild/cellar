@@ -23,7 +23,14 @@ fn retryable(error: &CellDispatchError) -> bool {
                 | RuntimeError::Overloaded
         )
     }
-    if matches!(error.refusal(), Some(CommandFailure::Unavailable | CommandFailure::NotLeader { .. } | CommandFailure::Overloaded)) {
+    if matches!(
+        error.refusal(),
+        Some(
+            CommandFailure::Unavailable
+                | CommandFailure::NotLeader { .. }
+                | CommandFailure::Overloaded
+        )
+    ) {
         return true;
     }
     match error {

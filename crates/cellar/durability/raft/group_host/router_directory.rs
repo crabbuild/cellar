@@ -95,8 +95,14 @@ impl RouterDirectory {
             namespace.next_node = (ordinal + 1) % trust.nodes().len();
         }
         match log.cell_group(&group) {
-            Ok(_) => return Ok(()),
-            Err(crate::raft::storage::LogError::NotFound) => (),
+            Ok(local)
+                if local
+                    .consensus_claimed
+                    .load(std::sync::atomic::Ordering::Acquire) =>
+            {
+                return Ok(())
+            }
+            Ok(_) | Err(crate::raft::storage::LogError::NotFound) => (),
             Err(error) => return Err(error.into()),
         }
         let Some(discovery) = reader
@@ -179,17 +185,18 @@ impl RouterDirectory {
             .materialize_selected_history(history)
             .await?;
         let route = birth.route().clone();
-        if let Ok(local) = log.cell_group(&history) {
+        if let Some(local) = log.cell_group(&history).ok().filter(|local| {
+            local
+                .consensus_claimed
+                .load(std::sync::atomic::Ordering::Acquire)
+        }) {
             anyhow::ensure!(
                 local
-                    .consensus_claimed
-                    .load(std::sync::atomic::Ordering::Acquire)
-                    && local
-                        .group_manifest()?
-                        .as_ref()
-                        .is_some_and(|marker| marker.route() == &route
-                            && marker.is_active()
-                            && marker.source_seal().is_none()),
+                    .group_manifest()?
+                    .as_ref()
+                    .is_some_and(|marker| marker.route() == &route
+                        && marker.is_active()
+                        && marker.source_seal().is_none()),
                 "selected local router target is not attached"
             );
             return Ok(());

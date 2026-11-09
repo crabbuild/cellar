@@ -51,8 +51,9 @@ impl RaftTransport {
             .collect())
     }
 
-    /// Install trusted read destinations for a physical group absent from this
-    /// node. The caller supplies discovery; each destination independently checks
+    /// Install trusted read destinations for a group without a local consensus
+    /// owner, including retained removed-member disks. The caller supplies
+    /// discovery; each destination independently checks
     /// namespace permission, live membership and the requested cell read proof.
     /// Shares node route/peer bounds with consensus and all other query routes.
     pub fn install_cell_query_group(
@@ -61,11 +62,12 @@ impl RaftTransport {
     ) -> Result<(), TransportError> {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
-        if !matches!(
-            runtime.log().cell_group(&route.scope),
-            Err(LogError::NotFound)
-        ) {
-            return Err(TransportError::Identity);
+        match runtime.log().cell_group(&route.scope) {
+            Ok(group) if group.consensus_claimed.load(Ordering::Acquire) => {
+                return Err(TransportError::Identity)
+            }
+            Ok(_) | Err(LogError::NotFound) => (),
+            Err(error) => return Err(TransportError::Runtime(error.into())),
         }
         if route.revision == 0
             || route.schema_digest == [0; 32]
@@ -175,8 +177,10 @@ impl State {
             return false;
         };
         match runtime.log().cell_group(&route.scope) {
-            Ok(_) => self.current_physical(route, peer),
-            Err(LogError::NotFound) => self.registry.lock().is_ok_and(|registry| {
+            Ok(group) if group.consensus_claimed.load(Ordering::Acquire) => {
+                self.current_physical(route, peer)
+            }
+            Ok(_) | Err(LogError::NotFound) => self.registry.lock().is_ok_and(|registry| {
                 self.admit(&registry).is_ok()
                     && registry
                         .cell_query_groups

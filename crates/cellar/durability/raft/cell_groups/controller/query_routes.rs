@@ -149,12 +149,20 @@ impl Destination<'_> {
                 next_member = 0;
                 previous = Some(history);
             }
+            // A retained obsolete log is physical debt, not a serving replica.
+            // Only the controller's active roster selects local execution.
             let result = match self.runtime.log().cell_group(&history) {
-                Ok(_) => {
+                Ok(_)
+                    if self
+                        .shared
+                        .groups
+                        .contains(&history)
+                        .map_err(Error::Runtime)? =>
+                {
                     self.local(invocation, options.clone(), permit.clone())
                         .await
                 }
-                Err(LogError::NotFound) => {
+                Ok(_) | Err(LogError::NotFound) => {
                     match self
                         .router_members(
                             route,
@@ -226,8 +234,16 @@ impl Destination<'_> {
         let route = attempt.route();
         let history = route.history;
         let (is_local, router) = match self.runtime.log().cell_group(&history) {
-            Ok(group) => (group.identity().member == member, false),
-            Err(LogError::NotFound) => (false, true),
+            Ok(group)
+                if self
+                    .shared
+                    .groups
+                    .contains(&history)
+                    .map_err(Error::Runtime)? =>
+            {
+                (group.identity().member == member, false)
+            }
+            Ok(_) | Err(LogError::NotFound) => (false, true),
             Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
         };
         if router {

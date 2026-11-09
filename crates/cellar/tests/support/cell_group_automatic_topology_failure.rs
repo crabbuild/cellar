@@ -390,7 +390,9 @@ async fn exercise(
     );
     let receipts = match (drive, requests) {
         (Ok(()), Ok(receipts)) => receipts,
-        (Err(drive), Err(requests)) => anyhow::bail!("fault drive: {drive:#}; foreground requests: {requests:#}"),
+        (Err(drive), Err(requests)) => {
+            anyhow::bail!("fault drive: {drive:#}; foreground requests: {requests:#}")
+        }
         (Err(error), _) | (_, Err(error)) => return Err(error),
     };
     load.audit(&cluster.hosts[ingress], &seed, &receipts)
@@ -412,10 +414,20 @@ async fn exercise(
     );
     ensure!(cluster.directory.observe().await?.digest() == directory.digest());
     for history in histories {
-        let proof = cluster.hosts[ingress]
-            .group(history)?
-            .quorum_membership(TIMEOUT)
-            .await?;
+        // The ingress may itself have moved out during the ordinary balance.
+        // SDK reads/writes above must still work there; physical membership is
+        // independently observed on an actual remaining replica.
+        let mut observed = None;
+        for owner in cluster.hosts.iter().filter(|host| !host.is_closed()) {
+            let Ok(group) = owner.group(history) else {
+                continue;
+            };
+            if let Ok(proof) = group.quorum_membership(TIMEOUT).await {
+                observed = Some(proof);
+                break;
+            }
+        }
+        let proof = observed.context("no fresh quorum after automatic repair and balance")?;
         let configuration = proof.configuration();
         ensure!(
             configuration.voters.len() == 3
