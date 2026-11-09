@@ -36,9 +36,10 @@ fn configuration() -> RaftFleetAutomaticPartitionOptions {
             },
         },
         recovery: CellGroupRecoveryLimits {
-            // The 64-cell campaign uses the existing 32-cell checkpoint count.
-            // Byte limits and physical per-node admission remain unchanged.
-            max_cells: 32,
+            // Batches add at most eight cells to a settled <=16-cell source.
+            // Median targets fit the original sixteen-cell recovery budget;
+            // sources fit the existing 32-cell checkpoint count.
+            max_cells: 16,
             max_retained_bytes: 32 * 1024 * 1024,
             max_image_bytes: 32 * 1024 * 1024,
             max_restore_bytes: 64 * 1024 * 1024,

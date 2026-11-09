@@ -57,8 +57,8 @@ SUITES = {
         "bounded scheduler inventory and targeted observations across actual shared groups",
         "Both image modes, 64 enrolled SQL cells and at least four RF3 groups on fifteen host-native TLS nodes. "
         "The standard planner splits during batched enrollment and writes, preserving the original two engine slots, "
-        "per-node physical/byte limits and three recovery slots. The explicit larger-cell profile uses a 32-cell "
-        "recovery count within unchanged byte bounds. Directory pages contain at most two routes; stable local "
+        "per-node physical/byte limits and three recovery slots. Recovery retains the original sixteen-cell "
+        "target count and byte bounds; batched sources fit 32-cell checkpoints. Directory pages contain at most two routes; stable local "
         "scheduler cuts are reused, every live group is sampled, overflow refuses before sampling, and metadata "
         "polls cannot mutate the topology journal. Creation/command replay, linearizable SQL and joined stop are checked. "
         "Independent processes/domains, sustained load and physical peaks remain separate qualification.",
