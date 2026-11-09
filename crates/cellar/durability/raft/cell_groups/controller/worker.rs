@@ -51,6 +51,8 @@ pub(super) struct Worker {
     late_archives: archive::late::Manager,
     effects: effects::Manager,
     _checkpoint_routes: Vec<crate::raft::transport::CellGroupCheckpointRegistration>,
+    removed_after: Option<GroupHistory>,
+    removed_at: u64,
 }
 
 impl Worker {
@@ -111,6 +113,8 @@ impl Worker {
             late_archives: archive::late::Manager::default(),
             effects,
             _checkpoint_routes: checkpoint_routes,
+            removed_after: None,
+            removed_at: 0,
         })
     }
 
@@ -174,9 +178,64 @@ impl Worker {
                 .insert(history, applier);
         }
         self.effects.remove(&history);
-        self.shared.groups.finish_retirement(history)?;
+        self.shared
+            .groups
+            .finish_retirement(history, source.is_removed_member())?;
         self.progress.send_replace(());
         Ok(())
+    }
+
+    async fn retire_removed(&mut self, now: u64) -> Result<(), CellGroupControllerError> {
+        if now < self.removed_at {
+            return Ok(());
+        }
+        self.removed_at = now.saturating_add(self.limits.retry_interval_ms);
+        // One local history per existing retry tick. No namespace/cell scan,
+        // catalog CAS, additional worker or per-group work queue is introduced.
+        let next = self
+            .removed_after
+            .and_then(|after| {
+                self.roster
+                    .range((std::ops::Bound::Excluded(after), std::ops::Bound::Unbounded))
+                    .next()
+                    .map(|(history, _)| *history)
+            })
+            .or_else(|| self.roster.keys().next().copied());
+        self.removed_after = next;
+        let Some(history) = next else {
+            return Ok(());
+        };
+        if self.quarantined.contains(&history) {
+            return Ok(());
+        }
+        let result = async {
+            if let Some(source) = super::removed_members::source(&self.runtime, history)? {
+                // Retain its applier/images, engine mapping and every physical
+                // charge. Only the joined consensus/dispatch owner is withdrawn;
+                // reclamation still needs its separate rooted authorization.
+                Box::pin(self.retire_source(&source)).await?;
+            }
+            Ok(())
+        }
+        .await;
+        match result {
+            Ok(())
+            | Err(CellGroupControllerError::Runtime(
+                RuntimeError::NotReady | RuntimeError::Overloaded | RuntimeError::StaleCompletion,
+            )) => Ok(()),
+            Err(CellGroupControllerError::Runtime(RuntimeError::Storage(
+                crate::raft::storage::LogError::WrongIdentity,
+            ))) => Ok(()),
+            Err(CellGroupControllerError::Apply(error))
+                if matches!(
+                    error.as_ref(),
+                    ExecutionError::Busy | ExecutionError::Refused(CommandFailure::Overloaded)
+                ) =>
+            {
+                Ok(())
+            }
+            Err(error) => self.quarantine(history, error).await,
+        }
     }
 
     fn launch(&mut self, now: u64) -> Result<(), CellGroupControllerError> {
@@ -264,6 +323,7 @@ impl Worker {
             let now = domain
                 .mono_ms()
                 .map_err(|_| CellGroupControllerError::Closed)?;
+            Box::pin(self.retire_removed(now)).await?;
             self.launch(now)?;
             self.late_archives.launch(&self.archives, &self.shared)?;
             self.archives.launch(&self.runtime, &self.shared, now);

@@ -29,6 +29,7 @@ mod failure;
 mod provision;
 mod registration;
 mod registration_inventory;
+mod removed_members;
 pub(crate) use registration_inventory::PartitionGroupPage;
 mod retirement;
 mod source_reclaim;

@@ -19,6 +19,10 @@ pub(crate) struct RetiredSource {
 }
 
 impl RetiredSource {
+    pub(super) fn is_removed_member(&self) -> bool {
+        self.member.is_some()
+    }
+
     pub(super) fn removed_member(
         log: &crate::raft::storage::ReplicaLog,
         member: super::super::member_reclaim::Member,

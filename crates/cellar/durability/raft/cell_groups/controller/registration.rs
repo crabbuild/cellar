@@ -183,11 +183,19 @@ impl GroupRoster {
         }
     }
 
-    pub(super) fn finish_retirement(&self, group: GroupHistory) -> Result<(), RuntimeError> {
+    pub(super) fn finish_retirement(
+        &self,
+        group: GroupHistory,
+        removed: bool,
+    ) -> Result<(), RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
         match groups.entries.get_mut(&group) {
             Some(state @ GroupState::Retiring) => {
-                *state = GroupState::ParkedRetired;
+                *state = if removed {
+                    GroupState::ParkedRemoved
+                } else {
+                    GroupState::ParkedRetired
+                };
                 Ok(())
             }
             _ => Err(RuntimeError::NotReady),
@@ -708,7 +716,7 @@ mod partition_inventory_tests {
         let roster = GroupRoster::new([a, b, foreign, retiring, parked].into_iter(), 8);
         roster.begin_retirement(retiring).unwrap();
         roster.begin_retirement(parked).unwrap();
-        roster.finish_retirement(parked).unwrap();
+        roster.finish_retirement(parked, false).unwrap();
         let mut pending = roster.reserve(history(6, 2)).unwrap();
         let quarantined = history(7, 2);
         let mut installed = roster.reserve(quarantined).unwrap();

@@ -394,7 +394,10 @@ async fn exercise(
                 owner.suspend_automatic_topology().await;
             }
         }
-        eprintln!("handoff activation diagnosis: {:?}", Box::pin(diagnose_learner(cluster, &observer)).await);
+        eprintln!(
+            "handoff activation diagnosis: {:?}",
+            Box::pin(diagnose_learner(cluster, &observer)).await
+        );
         for history in &histories {
             for (index, owner) in cluster.hosts.iter().enumerate() {
                 if owner.is_closed() {
@@ -411,7 +414,10 @@ async fn exercise(
                 eprintln!("handoff diagnosis: node={index}, ingress={}, group={history:?}, status={status:?}", index == ingress);
                 if status.is_ok() {
                     let proof = group.quorum_membership(TIMEOUT).await;
-                    eprintln!("handoff diagnosis: node={index}, group={history:?}, membership={:?}", proof.as_ref().map(|proof| proof.configuration()));
+                    eprintln!(
+                        "handoff diagnosis: node={index}, group={history:?}, membership={:?}",
+                        proof.as_ref().map(|proof| proof.configuration())
+                    );
                 }
             }
         }
