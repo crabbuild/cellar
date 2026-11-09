@@ -359,6 +359,18 @@ async fn exercise(
     // A second lost domain before repair leaves one original voter. A timeout
     // is ambiguous; retain and reconcile this exact zero-delta mutation later.
     stop(cluster, nodes, 1).await?;
+    platform.hold.store(false, Ordering::Release);
+    host.resume_automatic_topology().await?;
+    wait(&host, |status| {
+        status
+            .failure_recovery
+            .as_ref()
+            .is_some_and(|recovery| recovery.phase == FleetFailureRecoveryPhase::Repairing)
+            && status.isolated_repair.as_ref().is_some_and(|repair| {
+                repair.blocked_histories > 0 && repair.last_blocked_group == Some(cluster.history)
+            })
+    })
+    .await?;
     let minority = cluster.hosts[2].cell(seed.cells[0].clone())?;
     let command = CommandId::new(ClientId::new([242; 16])?, 1)?;
     let refused = minority
@@ -385,10 +397,20 @@ async fn exercise(
         )
         .await;
     ensure!(failed_read.is_err(), "minority served a linearizable read");
+    host.suspend_automatic_topology().await;
+    let isolation_calls = platform.contexts.lock().unwrap().len();
+    ensure!(platform.active.load(Ordering::Acquire) == 0);
+    let cut = catalog.read(TIMEOUT).await?;
     ensure!(
-        catalog.read(TIMEOUT).await?.revision() == cut.revision(),
-        "suspended repair mutated membership without quorum"
+        catalog.pending_movements(&cut, TIMEOUT).await?.is_empty()
+            && catalog
+                .isolated_removal_receipt(&cut, context.operation(), TIMEOUT)
+                .await?
+                .is_none()
+            && host.observe_node(TIMEOUT).await?.node.groups == 0,
+        "active repair fabricated a replacement without quorum"
     );
+    eprintln!("automatic repair: extents={rooted}, active controller refused replacement and strong requests without quorum");
     let fixture = &cluster.fixtures[1];
     let node = managed_fixture::start_node(
         cluster.roots[1].path(),
@@ -454,7 +476,6 @@ async fn exercise(
     .await
     .context("reconcile original minority command")??;
     ensure!(recovered.id == command && recovered.result == seed.receipts[0].result);
-    platform.hold.store(false, Ordering::Release);
     host.resume_automatic_topology().await?;
     let terminal = wait(&host, |status| {
         status.failure_recovery.as_ref().is_some_and(|recovery| {
@@ -472,6 +493,10 @@ async fn exercise(
     );
     host.suspend_automatic_topology().await;
     ensure!(platform.active.load(Ordering::Acquire) == 0);
+    ensure!(
+        platform.contexts.lock().unwrap().len() == isolation_calls,
+        "controller replacement repeated committed platform isolation"
+    );
     ensure!(platform
         .contexts
         .lock()
