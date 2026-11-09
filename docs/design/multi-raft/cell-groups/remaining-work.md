@@ -88,13 +88,13 @@ tasks and 137 of 163 required cases. CG-07 has a complete acceptance record
 for its five public cases and all required commands at `84942c4e`.
 Each remaining task still needs the exact target, case oracles and evidence
 specified by `plan.py show <task>`. The index counts acceptance through complete
-task records. All five CG-11 names have scoped native passes. Current-voter
-routing and the complete 64-cell/seven-group native workflow pass both image
-modes at `7cbc46af`. Real RustFS at `26d490b4` passes both managed-ingress cases
-and the full materialized scheduler workflow. Extent mode stalls after cell 51
-while releasing retired-parent archive holds; shutdown joins. The operation-
-scoped quiescence follow-up is awaiting qualification. This combined gate and
-remaining load/domain/accounting work prevent full task acceptance.
+task records. All five CG-11 names have scoped native passes. Current retirement
+qualification passes at `a3792fd0`: five component regressions and the complete
+64-cell/seven-group workflow pass in both native and real RustFS modes. The
+remaining functional gap is automatic failure handoff with a movement already
+admitted, plus relevant ownership accounting and the complete same-source task
+record. Full load/independent-domain/soak profiles remain CG-15/16 requirements;
+they do not gate CG-11 functional acceptance.
 The separate managed-recovery regression currently fails its registered-node
 aggregate-budget assertion before repair begins. Resolve that ownership-accounting
 gate; the scheduler/RustFS repair pass does not waive it.
@@ -108,7 +108,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | Rooted current-voter discovery, cold read/write return and complete native 64-cell workflow pass both modes at `7cbc46af`. Real RustFS ingress passes both cases/modes at `26d490b4`; materialized scheduler workflow passes. | Extent mode stalls at cell 51 during retired-parent hold release. Qualify operation-scoped quiescence, complete current native/RustFS workflows, then admitted-move handoff and journal/load/accounting/physical/domain gates. |
+| CG-11 | Rooted current-voter discovery and cold read/write return have native/RustFS coverage. Quiescence reuse and the full 64-cell/seven-group workflow pass both native/RustFS image modes at `a3792fd0`. | Automatic admitted-move failure handoff, relevant recovery ownership accounting, bounded controller/journal behavior and the complete five-case/ten-command task record. Release-scale profiles remain CG-15/16. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
@@ -127,14 +127,13 @@ through the shared backend and preserve typed refusals for the rest.
 1. **Deliver and close CG-11.** Its five product outcomes are automatic RF3
    destination selection, adaptive split/merge, durable operation continuation,
    whole-group balancing/repair, and bounded control-plane work with recovery
-   reserve. Those implementations have scoped passes. Current-voter request
-   discovery and the complete native 64-cell workflow now pass both image modes;
-   real RustFS ingress also passes both modes. The RustFS scheduler passes
-   materialized mode but extent retirement stalls after cell 51. Qualify the
-   operation-scoped quiescence follow-up and finish that original bounded
-   workflow. Then complete admitted-move failure handoff and the remaining
-   journal/load, accounting, physical-peak and domain gates. Earlier source
-   checkpoints retain their own scope in [progress](progress.md).
+   reserve. Current-voter routing and the complete 64-cell workflow now pass
+   both native and real RustFS image modes. The next feature is failure handoff
+   during an **automatically admitted** movement, preserving cancellation and
+   original debt through controller restart. Resolve relevant recovery ownership
+   accounting and record bounded controller/journal behavior, then complete the
+   five-case/ten-command same-source acceptance. Full load, independent domains,
+   physical peaks and soak stay in CG-15/16; earlier failures remain retained.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
    wake eligibility and retained lifecycle, then S3 recovery of interrupted
    transitions. CG-13 requires the CG-14 infrastructure harness and the permanent

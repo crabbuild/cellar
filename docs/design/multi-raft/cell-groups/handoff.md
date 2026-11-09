@@ -14,38 +14,33 @@ CG-11 owns five product outcomes:
 4. Whole-group balancing and fenced repair, preserving cell histories and receipts.
 5. Bounded control-plane inventory, observations and targeted updates as inventory grows.
 
-Current-voter discovery is implemented at `c45278c1`. The stronger cold-router
-read-first/write-first case and complete native 64-cell/seven-group workflow
-pass both image modes at `7cbc46af`; routing-budget and permission regressions
-also pass. Real RustFS at `26d490b4` passes both managed-ingress cases in both
-modes and the entire materialized scheduler workflow. Extent mode stalls after
-cell 51 while releasing retired-parent archive holds; its original settlement
-deadline expires, with joined shutdown. Earlier inventory and lease failures
-remain retained. See [progress](progress.md) for exact artifacts and limits.
-
-The production follow-up at `bc4e08c4` retains confirmed local source quiescence for
-the current operation/boot and skips cleanup-book reads before hold release.
-The coordinator's fresh complete-inventory checks remain mandatory. This
-follow-up is not qualified yet. CG-11 remains `IN_PROGRESS`.
+The current retirement workflow passes at `a3792fd0`: strict host/core Clippy,
+five native component regressions, and the full 64-cell/seven-group native and
+real RustFS workflows in both image modes. Quiescence reuse at `bc4e08c4` retains
+the confirmed local outcome while the coordinator still requires fresh complete
+source inventories. Original leases, request/turn and settlement budgets,
+physical limits, overflow checks and reserve assertions remain unchanged.
+The backend and VM are stopped with objects retained. Earlier failures remain
+in [progress](progress.md); this proves the tested boundary, not a failover SLA.
 
 ### Delivery order and completion criteria
 
-1. Qualify the operation-scoped quiescence follow-up and complete the original
-   native/RustFS 64-cell workflow in both image modes. Resolve the extent
-   retirement/parent-hold boundary under the unchanged one-second lease,
-   five-second request/turn budgets, 60-second settlement cap and resource bounds.
-2. Implement/qualify failure handoff with a membership move already admitted,
-   including controller replacement, original durable debt and exact-boot
-   isolation. A retained controller/learner scenario is drafted outside the
-   qualification source; it is not published or accepted. The existing repair
-   fixture starts at zero admitted moves.
-3. Resolve managed-recovery ownership accounting and complete journal contention,
-   larger-inventory, sustained mixed-load, physical-peak and independent-domain
-   gates. Full CG-11 acceptance requires its complete source-pinned qualification.
+1. Implement and qualify failure handoff while the configured automatic controller
+   has selected **and admitted** a membership movement. Require cancellation,
+   exact-boot isolation and original debt through controller restart. The manual
+   Joint/learner draft is supplementary and does not close this path. The
+   executable outline is retained with the current qualification scratch data.
+2. Resolve the relevant managed-recovery aggregate-ownership regression and prove
+   bounded controller/journal behavior. Run CG-11's five planned cases and all ten
+   required commands at one source; publish its complete acceptance record only
+   when those functional requirements pass.
+3. After CG-11, continue CG-12/13 features. Full load, physical peaks, independent
+   hosts/domains and soak remain CG-15/16 release requirements, as specified by
+   `plan.py` and `profiles.json`. They are not additional CG-11 acceptance gates.
 
-The full RustFS failure and all previous failed attempts remain in the evidence.
-The backend and VM are stopped with objects retained. The original S3 occupancy
-deadline remains unwaived.
+Native: `.cellar/cell-groups-evidence/CG-11-quiescence-a3792fd0-native-01/record.json`.
+RustFS: `.cellar/cell-groups-evidence/CG-11-quiescence-a3792fd0-rustfs-01/record.json`.
+The original S3 occupancy deadline remains unwaived.
 
 Hard cutover remains `seed-lineage-1`: fresh namespaces, fleet roots and engine
 directories with matching binaries; Docker resource policies require explicit

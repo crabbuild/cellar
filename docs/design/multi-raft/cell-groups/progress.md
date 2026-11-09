@@ -13,7 +13,42 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
-## CG-11 replacement-voter routing qualified; extent retirement still blocks
+## CG-11 retirement workflow qualified; automatic admitted-move handoff next
+
+At `a3792fd0`, the retirement follow-up passes strict host/core Clippy and all
+five native component regressions in both image modes: live source retirement,
+physical source reclamation, capacity settlement, disjoint merge and the complete
+64-cell/seven-RF3-group workflow. The same full workflow now passes real RustFS
+in both image modes, including all creation/command receipts, linearizable SQL,
+bounded inventory and reuse, overflow-before-I/O, recovery reserve and joined
+shutdown. The original one-second node lease, five-second calls/turns,
+60-second settlement cap and per-node resource limits remain unchanged.
+
+The implementation at `bc4e08c4` remembers a confirmed local source quiescence
+for the current operation and boot. It avoids repeating global retirement and
+child-route proofs after that irreversible outcome. Cleanup-book polling starts
+after parent-hold release; the coordinator still checks fresh complete source
+inventories before releasing any hold. New operations/workers revalidate local
+quiescence. This closes the current retirement qualification blocker. Earlier
+failed runs remain retained and no general failover SLA is claimed.
+
+The owned RustFS backend and VM are stopped with objects retained. Native record:
+`.cellar/cell-groups-evidence/CG-11-quiescence-a3792fd0-native-01/record.json`.
+RustFS record: `.cellar/cell-groups-evidence/CG-11-quiescence-a3792fd0-rustfs-01/record.json`.
+These are host-native TLS fixtures with declared capacity, not independent hosts
+or performance-profile qualification.
+
+CG-11 remains `IN_PROGRESS`. Its next functional delivery is failure handoff
+while the configured automatic controller has already selected and admitted a
+membership move: preserve cancellation, exact-boot isolation and original debt
+across controller restart. The manually admitted draft does not prove that
+path. Resolve relevant managed-recovery ownership accounting, record bounded
+controller/journal behavior, then run all five planned scheduler cases and ten
+required task commands at one source. The manifest assigns full load, physical
+peaks, independent-domain and soak profiles to CG-15/16; those remain required
+for the overall design and do not gate CG-11 functional acceptance.
+
+## Historical replacement-voter and retirement checkpoint
 
 At `c45278c1`, managed ingress discovers settled current voters from the rooted
 membership journal instead of depending on birth voters or fleet-wide probes.
