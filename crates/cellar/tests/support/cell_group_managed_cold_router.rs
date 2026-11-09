@@ -287,7 +287,7 @@ async fn open_router(
             // The first five-second public read must resolve current voters
             // without depending on the next periodic namespace/fleet sweep.
             config
-                .shared
+                .host
                 .node_directory
                 .as_mut()
                 .context("managed router directory")?
