@@ -7,13 +7,49 @@ Purpose: Source-pinned cell-group implementation checkpoints and qualification l
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
-CG-01 through CG-10 have passed their scoped native gates.
-CG-11–13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
+CG-01 through CG-11 have passed their scoped native gates.
+CG-12/13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 accepted: five cases, ten commands and real RustFS
+
+At `ddb545e4`, all five exact planned cases and all ten required commands pass:
+sizing hysteresis/hot isolation, stale-authority refusal, whole-group scale-out/in,
+failure-domain/reserve repair, and bounded control-plane fanout. The final case
+completes 64 cells and seven RF3 groups in both image modes. Six additional
+catch-up, monotonic-trust, authentication/scope and joined-shutdown regressions
+also pass. CG-11 is `DONE`; the index now accepts 142 of 163 cases.
+
+The final request-path fix catches up an inspection receiver's Fleet trust
+within the original incoming deadline instead of waiting for its periodic poll.
+It repeats the exact boot/process/identity checks and installs only a monotonic
+complete trust cut. An older background read adopts an already installed verified
+successor. Reads retain the existing memory bank and conservative reservation;
+no worker, lease, deadline, capacity or oracle limit was enlarged. A deterministic
+regression holds the background read and proves one original request succeeds.
+
+The same executable passes the full fanout workflow against real RustFS in both
+image modes. The observed server limits are one CPU and 2 GiB, with swap disabled.
+Voters are host-native TLS fixtures. This qualifies functional S3 integration,
+not independent Linux voters, physical failure domains, latency, load or soak.
+The owned backend and VM are stopped with objects retained.
+
+Native record: `.cellar/cell-groups-evidence/CG-11-inspection-catchup-ddb545e4-native-01/record.json`.
+RustFS record: `.cellar/cell-groups-evidence/CG-11-inspection-catchup-ddb545e4-rustfs-fanout-01/record.json`.
+The native record validates 2,820 Git source blobs, exact commands/log hashes and
+three retained executables. The RustFS run uses the same scheduler executable.
+Earlier failed controls remain retained; the occupancy-128 load failure remains
+a CG-15 gate. Next deliver CG-12 fenced hibernation/wake and CG-13 interrupted
+transition recovery, then CG-15/16 release qualification and cutover.
+
+The checkpoints below are historical; their earlier next-work lists do not
+override this acceptance or the current [delivery order](remaining-work.md).
+
 ## CG-11 recovery ownership passes; demand-driven routing implemented
+
+Historical checkpoint; current acceptance is recorded above.
 
 At `960cff49`, all nine focused recovery ownership, physical deletion/join,
 request-budget, permission and retained-router regressions pass. Recovery verifies

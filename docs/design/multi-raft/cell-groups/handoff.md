@@ -6,7 +6,12 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current CG-11 delivery
 
-CG-11 owns five product outcomes:
+CG-11 is `DONE` at `ddb545e4`: all five exact cases and ten required commands
+pass, plus six focused request-trust, authentication/scope and joined-shutdown
+regressions. The full 64-cell/seven-group workflow passes natively and against
+real RustFS in both image modes on the same scheduler executable.
+
+Its five delivered outcomes are:
 
 1. Automatic RF3 destination selection from rooted capacity, failure domains and recovery reserve.
 2. Adaptive split and merge, including adjacent groups on different voter sets.
@@ -14,54 +19,37 @@ CG-11 owns five product outcomes:
 4. Whole-group balancing and fenced repair, preserving cell histories and receipts.
 5. Bounded control-plane inventory, observations and targeted updates as inventory grows.
 
-The current retirement workflow passes at `a3792fd0`: strict host/core Clippy,
-five native component regressions, and the full 64-cell/seven-group native and
-real RustFS workflows in both image modes. Quiescence reuse at `bc4e08c4` retains
-the confirmed local outcome while the coordinator still requires fresh complete
-source inventories. Original leases, request/turn and settlement budgets,
-physical limits, overflow checks and reserve assertions remain unchanged.
-The backend and VM are stopped with objects retained. Earlier failures remain
-in [progress](progress.md); this proves the tested boundary, not a failover SLA.
+Demand-driven routing retains entered request routes. Inspection receivers now
+catch up to the required Fleet revision within the original request deadline,
+recheck exact local boots and peer identity, and reconcile delayed reads with an
+already installed verified successor. Original budgets, leases, physical limits,
+negative controls and reserve assertions remain unchanged.
 
-### Delivery order and completion criteria
+Native: `.cellar/cell-groups-evidence/CG-11-inspection-catchup-ddb545e4-native-01/record.json`.
+RustFS: `.cellar/cell-groups-evidence/CG-11-inspection-catchup-ddb545e4-rustfs-fanout-01/record.json`.
+The server is constrained to one CPU/2 GiB; voters are host-native fixtures.
+The owned backend and VM are stopped with objects retained. Earlier failures
+remain in [progress](progress.md); release-scale qualification stays in CG-15/16.
 
-The automatic admitted-move handoff is implemented and passes native and real
-RustFS qualification in both image modes at `f2694f05`. It preserves the original
-learner and debit across voter loss and retained controller restart, repeats the
-exact fencing context, restores RF3 and reconciles SQL/receipts through a former
-replica. Completed obsolete runtimes are withdrawn without collecting their disks.
+### Next feature delivery
 
-1. Qualify demand-driven router discovery and active-route retention. The
-   current source stops namespace-wide group prefetch on idle hosts and prevents
-   cache eviction of routes held by entered reads/writes. The new oracle requires
-   unused hosts to keep zero router entries. Preserve explicit revocation fences.
-2. Finish the full fanout gate, then record all five exact scheduler cases and
-   ten required commands at its source. At `960cff49`, nine recovery/routing
-   regressions and four planned cases pass. Fanout fails an ambiguous cell-36
-   command deadline; the diagnostic `38c17c26` run reaches 64 cells/seven groups
-   but fails a metadata baseline observation with Busy. Both failed runs and
-   fifteen diagnostic voter disks remain retained. Do not waive either failure.
-3. Continue CG-12/13 features, then CG-15/16 release qualification. Full load,
-   physical peaks, independent hosts/domains and soak retain their original
-   profiles and do not expand CG-11's functional acceptance requirements.
+1. Finish CG-12 all-voter hibernation eligibility, pending-work refusal,
+   partial/stale certificates, retained parked restart and leader-loss wake.
+2. Finish CG-13 recovery of interrupted transitions from S3, permanent Docker
+   revocation of every possible old writer, fresh histories/quorum and the
+   outbox ambiguity refusal. Use the accepted CG-14 infrastructure harness.
+3. Complete CG-15/16 load, reclamation, crash, partition, wake and disk-loss
+   qualification, then the public cutover and remaining legacy audit.
 
-Native: `.cellar/cell-groups-evidence/CG-11-admitted-handoff-f2694f05-native-01/record.json`.
-RustFS: `.cellar/cell-groups-evidence/CG-11-admitted-handoff-f2694f05-rustfs-01/record.json`.
-Transient request failures remain counted and reconciled with the same command
-identities; these host-native fixtures establish no failover SLA. Earlier failed
-runs and the original S3 occupancy deadline remain unwaived.
-
-Hard cutover remains `seed-lineage-1`: fresh namespaces, fleet roots and engine
-directories with matching binaries; Docker resource policies require explicit
-placement fields. Numeric format markers remain 1. After CG-11, continue CG-12/13
-managed lifecycle/recovery and CG-15/16 combined release qualification.
+Hard cutover remains `seed-lineage-1`: fresh namespaces, Fleet roots and engine
+directories with matching binaries. Numeric format markers remain 1.
 
 The source-pinned checkpoints below are historical. Their earlier next-work lists
 do not override the current delivery order above.
 
 ## Current accepted boundary
 
-CG-01–10 have complete scoped task records. CG-07's public SQL/native/Axum/
+CG-01–11 have complete scoped task records. CG-07's public SQL/native/Axum/
 daemon gates and CG-09's publication/source-fencing gates retain their recorded
 sources. CG-10 passes all five exact cases and ten required commands at
 `8b410f25bc4475f3520c2682625ead49e47ea385`. The three new RustFS movement,
@@ -69,12 +57,10 @@ pre-copy and partial-merge suites pass both image modes on that source and nativ
 executable. The backend is stopped, objects retained. See [progress](progress.md)
 for full source, executable, CLI and artifact hashes.
 
-CG-11 now has a bounded node-local sizing/admission scheduler at `d0ef46ec`.
-Its two native checks and fixed real RustFS suite pass both image modes, including
-lost reservation confirmation, actual quorum loss, retained follower return and
-exact minority-command reconciliation before joined shutdown. The checkpoint is
-not full CG-11 acceptance. Its frozen source, executable, logs and remaining case
-oracles are recorded in [progress](progress.md).
+CG-11 passes its complete functional gate at `ddb545e4`, including the full
+native and real RustFS fanout workflow. Its five planned cases, six focused
+regressions and all ten commands retain source, executable and log provenance
+in the records above. Broader load and failure-domain gates remain open.
 
 The new request-path fixes provide bounded successor-group discovery, automatic
 strong-read relocation and public remote receipt inspection. Read-only retries
