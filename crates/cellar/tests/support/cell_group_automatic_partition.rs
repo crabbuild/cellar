@@ -433,6 +433,34 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32, disjoint: bool) -> Res
             }),
             "a controller has both merge parents locally"
         );
+        let remote = cluster
+            .hosts
+            .iter()
+            .find(|host| host.group(histories[0]).is_err())
+            .context("observer without a local parent")?;
+        let mut sampling = RaftFleetPartitionScheduler::new(
+            control.clone().with_node_observer(remote.clone()),
+            configuration(reserve).sizing,
+            2,
+        )?;
+        let pressure = RaftFleetPartitionPressure {
+            placement_class: [231; 32],
+            leader_cpu_bps: 0,
+            failure_domain_load_bps: 0,
+        };
+        ensure!(sampling
+            .observe(histories[0], pressure, TIMEOUT)
+            .await?
+            .is_none());
+        let samples = sampling.remote_samples();
+        ensure!(samples == 1);
+        let (early, reads) =
+            catalog_fault::count_reads(sampling.observe(histories[0], pressure, TIMEOUT)).await;
+        ensure!(
+            early?.is_none() && reads.is_empty() && sampling.remote_samples() == samples,
+            "early policy sampling performed catalog or peer work: {reads:?}"
+        );
+        drop(sampling);
         eprintln!("automatic RF3: disjoint source voters confirmed");
     }
     let left = current_leader(cluster, histories[0], &observer).await?;

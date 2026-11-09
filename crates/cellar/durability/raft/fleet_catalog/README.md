@@ -183,6 +183,10 @@ through bounded tree paths. Each local group retains at most one remote neighbor
 the scheduler charges 64 KiB per configured local group plus 64 KiB fixed metadata
 for both tracker sets. One turn samples one local group and at most one neighbor,
 without enumerating all namespace ranges or cells.
+Service turns can run faster to resume durable operations, but repeated sampling
+within the policy interval performs no catalog or peer-inspection work for that
+group. This prevents fast service polling from flooding leader inspection and
+discarding neighbor hysteresis on retryable overload.
 
 For a remote-only neighbor, the current Fleet root locates three settled voters.
 An authenticated quorum observation identifies the actual leader, whose counters

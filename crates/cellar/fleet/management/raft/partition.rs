@@ -345,6 +345,21 @@ impl RaftFleetPartitionScheduler {
         if !self.groups.contains_key(&history) && self.groups.len() >= self.max_groups * 2 {
             return Err(FleetCatalogError::Limit.into());
         }
+        let turn = Turn::new(&self.control.domain, timeout)?;
+        let now = self.now()?;
+        if self.groups.get(&history).is_some_and(|tracked| {
+            tracked.placement_class == pressure.placement_class
+                && now
+                    .checked_sub(tracked.previous_sampled_at)
+                    .is_some_and(|elapsed| elapsed < self.policy.limits().sample_interval_ms)
+        }) {
+            // Service turns also resume durable work and may run much faster
+            // than the sampling policy. Do not flood peer inspection between
+            // rate windows: retryable overload would discard a neighbor's
+            // history before its merge cooldown can complete. Recommendations
+            // still check sample freshness, and admission revalidates authority.
+            return Ok(None);
+        }
         let namespace = hex::encode(history.namespace.bytes());
         let directory = self.control.managed_namespace(&namespace)?;
         let observer = self
@@ -352,7 +367,6 @@ impl RaftFleetPartitionScheduler {
             .node_observer
             .as_ref()
             .ok_or_else(RaftFleetFailure::unsupported)?;
-        let turn = Turn::new(&self.control.domain, timeout)?;
         let (digest, route) = turn
             .run(async {
                 let view = directory
