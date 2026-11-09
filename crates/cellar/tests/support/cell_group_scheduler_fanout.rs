@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 fn configuration() -> RaftFleetAutomaticPartitionOptions {
     let mut limits = policy(64 * 1024 * 1024).limits();
-    limits.split_ceiling.cells = 16;
+    limits.split_ceiling.cells = 8;
     limits.merge_ceiling.cells = 0;
     limits.merge_ceiling.writes_per_second = 0;
     limits.sample_interval_ms = 1_000;
@@ -36,9 +36,9 @@ fn configuration() -> RaftFleetAutomaticPartitionOptions {
             },
         },
         recovery: CellGroupRecoveryLimits {
-            // Batches add at most eight cells to a settled <=16-cell source.
-            // Median targets fit the original sixteen-cell recovery budget;
-            // sources fit the existing 32-cell checkpoint count.
+            // Batches add at most four cells to a settled <=8-cell source.
+            // The complete source and both children fit the original
+            // sixteen-cell recovery budget and 32-cell checkpoint count.
             max_cells: 16,
             max_retained_bytes: 32 * 1024 * 1024,
             max_image_bytes: 32 * 1024 * 1024,
@@ -164,7 +164,7 @@ async fn settled(cluster: &ManagedCluster, catalog: &FleetCatalog) -> Result<Vec
                         .group(route.history)?
                         .observe_partition(TIMEOUT)
                         .await?;
-                    ready &= sample.stable_leader && sample.cells <= 16 && sample.route == *route;
+                    ready &= sample.stable_leader && sample.cells <= 8 && sample.route == *route;
                 }
                 if ready {
                     return Ok::<_, anyhow::Error>(current);
@@ -231,9 +231,9 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
     .checked_add(600_000)
     .context("receipt retention horizon")?;
     let mut ledger = Vec::new();
-    for batch in 0..8 {
-        for offset in 0..8 {
-            let index = batch * 8 + offset;
+    for batch in 0..16 {
+        for offset in 0..4 {
+            let index = batch * 4 + offset;
             let history = CellHistory {
                 cluster: cluster.history.cluster,
                 namespace: cluster.history.namespace,
@@ -277,7 +277,7 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
     }
     let current = settled(cluster, &catalog).await?;
     ensure!(
-        current.len() >= 4 && current.iter().all(|r| r.history != cluster.history),
+        current.len() >= 8 && current.iter().all(|r| r.history != cluster.history),
         "64 cells did not form multiple shared groups"
     );
     for host in &cluster.hosts {
