@@ -643,7 +643,9 @@ async fn park_requires_all_voters_and_no_pending_work() -> Result<()> {
         let entered = Arc::new(Notify::new());
         let notify = entered.clone();
         let (send, receive) = std::sync::mpsc::sync_channel(1);
-        let receive = std::sync::Mutex::new(receive);
+        let receive = Arc::new(std::sync::Mutex::new(receive));
+        let effect_receive = receive.clone();
+        let effect_notify = entered.clone();
         let class = counter_class()?.command("Held", [241; 32], move |context, _| {
             notify.notify_one();
             receive
@@ -656,7 +658,29 @@ async fn park_requires_all_voters_and_no_pending_work() -> Result<()> {
                 .execute("UPDATE counter SET value=value+1", [])?;
             Ok(8_i64.to_be_bytes().to_vec())
         })?;
-        let first = Box::pin(Fixture::with_class(rooted, class)).await?;
+        let class = class
+            .alarms(RaftAlarmLimits {
+                max_alarms: 1,
+                max_payload_bytes: 1,
+            })?
+            .alarm("HeldEffect", [244; 32], move |context, _| {
+                effect_notify.notify_one();
+                effect_receive
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("held effect lock"))?
+                    .recv_timeout(TIMEOUT)
+                    .context("held effect was not released")?;
+                context
+                    .sql()
+                    .execute("UPDATE counter SET value=value+1", [])?;
+                Ok(())
+            })?
+            .command("ArmEffect", [245; 32], |context, _| {
+                context.set_alarm("HeldEffect", context.inputs().now_unix_millis + 200, &[])?;
+                Ok(vec![])
+            })?;
+        let mut first = Box::pin(Fixture::with_class(rooted, class)).await?;
+        first.effects = Some(RaftEffectOptions::default());
         let mut cluster = Box::pin(ManagedCluster::start_with_applications(
             first,
             &[],
@@ -666,8 +690,14 @@ async fn park_requires_all_voters_and_no_pending_work() -> Result<()> {
             FirstGroupSetup::Normal,
         ))
         .await?;
-        let release = ReleaseCommand(Some(send));
-        let result = Box::pin(exercise_park_admission(&mut cluster, entered, release)).await;
+        let release = ReleaseCommand(Some(send.clone()));
+        let result = Box::pin(exercise_park_admission(
+            &mut cluster,
+            entered,
+            release,
+            send,
+        ))
+        .await;
         let joined = movement::close(cluster.nodes, &cluster.hosts).await;
         cluster.fixtures[0].domain.shutdown().await;
         result.with_context(|| format!("park admission with extent-backed images={rooted}"))?;
@@ -680,6 +710,7 @@ async fn exercise_park_admission(
     cluster: &mut ManagedCluster,
     entered: Arc<Notify>,
     release: ReleaseCommand,
+    effect_release: std::sync::mpsc::SyncSender<()>,
 ) -> Result<()> {
     let seed = seed_cells(&cluster.hosts, cluster.history).await?;
     let replica = leader(&cluster.hosts, cluster.history).await?;
@@ -728,6 +759,49 @@ async fn exercise_park_admission(
     }
     drop(control);
 
+    // A claimed callback owns the same execution fence even though there is
+    // no foreground command waiting for it. Parking must not abandon it.
+    let effect_release = ReleaseCommand(Some(effect_release));
+    let handle = cluster.hosts[active].cell(seed.cells[0].clone())?;
+    handle
+        .command(
+            &handle.contract("ArmEffect")?,
+            vec![],
+            CommandOptions::new(CommandId::new(ClientId::new([251; 16])?, 1)?, seed.retry),
+        )
+        .await?;
+    tokio::time::timeout(TIMEOUT, entered.notified()).await?;
+    let selection = park_request(cluster, 251).await?;
+    let principal = request(251, selection.expected_revision).principal;
+    let control = park_control(cluster, active)?;
+    let refused = control
+        .park_group(&principal, &selection, Duration::from_millis(250))
+        .await;
+    drop(effect_release);
+    ensure!(
+        refused.is_err(),
+        "park admitted an unresolved effect callback"
+    );
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let read = read_cell(cluster, active, &seed.cells[0], 248).await?;
+            if read.result == 9_i64.to_be_bytes() {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("claimed alarm did not finish after park refusal")??;
+    if control
+        .park_group_status(&principal, &selection, TIMEOUT)
+        .await?
+        .is_some()
+    {
+        control.wake_group(&principal, &selection, TIMEOUT).await?;
+    }
+    drop(control);
+
     // RF3 can still acknowledge ordinary quorum writes with one voter absent,
     // but all-voter parking must fail. Expiry reopens normal Raft admission.
     let active = leader(&cluster.hosts, cluster.history).await?;
@@ -765,7 +839,7 @@ async fn exercise_park_admission(
         )
         .await?;
     ensure!(
-        committed.result == 10_i64.to_be_bytes()
+        committed.result == 11_i64.to_be_bytes()
             && committed.durability == Durability::Quorum
             && committed.witness.position.index.get() > pending.generation
     );
