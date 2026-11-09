@@ -27,6 +27,15 @@ MOUNTS = {'metadata': '/data', 'raft': '/data/node/raft',
 
 
 def validate_storage(policy):
+    resources = policy.get('resources')
+    placement = resources.get('placement') if isinstance(resources, dict) else None
+    require(isinstance(placement, dict)
+            and set(placement) == {'revision', 'distinct_zones', 'distinct_regions', 'max_work'}
+            and type(placement['revision']) is int and 1 <= placement['revision'] < 2 ** 64
+            and type(placement['distinct_zones']) is bool
+            and type(placement['distinct_regions']) is bool
+            and type(placement['max_work']) is int and 1 <= placement['max_work'] <= 50_000_000,
+            'explicit repair placement policy required')
     limits = policy['storage']
     require(set(limits) == {'metadata_bytes', 'raft_bytes', 'images_bytes',
                            'replay_bytes', 'object_store_bytes', 'snapshot_scratch_bytes',

@@ -1573,8 +1573,8 @@ occupancy and a single Engine memory sample under a five-second ceiling. It
 checks the exact CPU/memory/swap limits and live boot before and after sampling,
 charges memory cache, and retains a digest-addressed evidence object. Missing
 measurements or a changed boot/profile refuse admission. Construction requires
-`FleetDockerResourcePolicy`: explicit non-group disk overhead, resident and peak
-copy/seed/worker bounds, and headroom. Those disk bounds must be enforced by the
+`FleetDockerResourcePolicy`: explicit repair `placement` constraints, non-group
+disk overhead, resident and peak copy/seed/worker bounds, and headroom. Those disk bounds must be enforced by the
 deployment; they are not inferred from Engine block-I/O counters or a filesystem
 scan. This homogeneous-policy provider covers Ready/Active recovery targets;
 departure/return settlement still needs its own retained evidence. Complete

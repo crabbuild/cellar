@@ -536,6 +536,12 @@ async fn recover_on_voter(
         vec![directory],
     )?;
     let policy = FleetDockerResourcePolicy {
+        placement: FleetTopologyPolicy {
+            revision: 1,
+            distinct_zones: false,
+            distinct_regions: false,
+            max_work: 1_000_000,
+        },
         durable_overhead_bytes: DURABLE_OVERHEAD,
         resident: FleetResourceBounds {
             engine_slots: 1,

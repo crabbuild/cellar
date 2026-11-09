@@ -20,11 +20,24 @@ def policy():
                         'object_store_bytes': 4096 * MIB, 'snapshot_scratch_bytes': 128 * MIB,
                         'extent_cache_bytes': 64 * MIB},
             'resources': {'durable_overhead_bytes': 2176 * MIB,
+                          'placement': {'revision': 1, 'distinct_zones': False,
+                                        'distinct_regions': False, 'max_work': 1_000_000},
                           'resident': {'durable_bytes': 64 * MIB},
                           'peak': {'durable_bytes': 64 * MIB}}}
 
 
 class BoundedStorageTests(unittest.TestCase):
+    def test_repair_placement_is_explicit_before_allocating_storage(self):
+        for change in (lambda p: p['resources'].pop('placement'),
+                       lambda p: p['resources']['placement'].update(revision=0),
+                       lambda p: p['resources']['placement'].update(distinct_regions=1),
+                       lambda p: p['resources']['placement'].update(max_work=0)):
+            with self.subTest(change=change):
+                value = policy()
+                change(value)
+                with self.assertRaisesRegex(ValueError, 'explicit repair placement'):
+                    validate_storage(value)
+
     def test_shared_host_backing_requires_exact_guest_identity_before_allocation(self):
         for matched in (False, True):
             with self.subTest(matched=matched), tempfile.TemporaryDirectory() as folder:

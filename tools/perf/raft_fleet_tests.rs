@@ -44,6 +44,12 @@ fn config() -> Config {
             extent_cache_bytes: 64 << 20,
         },
         resources: FleetDockerResourcePolicy {
+            placement: FleetTopologyPolicy {
+                revision: 1,
+                distinct_zones: false,
+                distinct_regions: false,
+                max_work: 1_000_000,
+            },
             durable_overhead_bytes: 2176 * 1024 * 1024,
             resident: FleetResourceBounds {
                 engine_slots: 1,
