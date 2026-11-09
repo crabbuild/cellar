@@ -13,6 +13,80 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 inventory and controller implementation; MVP gate still failing
+
+At `bdddee1c06a0c92f877fd6d2d9c56bacd6ee4e99`, the controller implements these changes:
+
+- An active-group index scoped to configured namespaces. Activation, retirement
+  and quarantine update it under the roster lock. Pages copy at most sixteen
+  histories and reject complete overflow before selecting a favored prefix.
+  Scoped generations fence stale cursors and remove/re-add ABA; foreign
+  namespace changes do not restart a selected namespace's inventory.
+- One inventory page per scheduling turn, followed by immutable complete-cut
+  reuse. Partial inventories cannot select work. Status reports inventory pages,
+  local groups and bounded tracker counts.
+- Originating enrollment now refreshes pre-submission discovery under the
+  original creation ID, captured inputs, deadline and attempt bank. Incoming
+  RPCs stay local; transmitted mutations are not retried.
+- The pure selector and physical adapter share a nine-target bound. This can
+  retain six child slots plus three recovery slots when each target has one
+  free slot. Each accepted observation retains its SDK response permit, with
+  64 KiB of planner metadata. Guards follow data into the owned catalog turn,
+  avoiding the duplicate batch reservation within the existing control pool.
+- Partition and transition workers back off successful turns that make no
+  progress. Operation, phase, local child/archive or inventory-page progress
+  restores the base interval; failure backoff and configured maxima remain.
+
+The build and strict all-target/all-feature Clippy pass for the host and decision
+core. Eight pure placement tests and two backoff tests pass. The backoff tests
+execute the exact dependency-free production leaf through a pinned Rust test
+wrapper. Earlier three inventory tests and one roster-boundary test passed at
+`c918b1b4`; their owning files are unchanged. Those inventory tests cover 128
+selected histories plus 512 foreign histories, paging, generation exhaustion,
+stale cursors and complete overflow. Existing native regression commands: 4 passed; 0 failed.
+A test-only follow-up at `1ef1ed198fa0f73d24fdd765787a8f72649671e8` requires both load receipts and the
+selection/refusal decision before ending the existing load loop. Seed writes
+could previously select refusal before that loop acknowledged any requests.
+Its reserve assertions and original timeout remain; the scheduler executable is
+unchanged from `bdddee1c`. The initial extent-mode failure is retained.
+
+**The new end-to-end gate fails.** `control_plane_fanout_bounded` uses 64 SQL
+cells, fifteen host-native TLS nodes and the existing two engine slots per node.
+At `bdddee1c`, it completes 60 cells across six groups, then its next transition
+stalls in `Retired` while source voters try to quiesce and the coordinator tries
+to release parent holds. The original 60-second transition bound expires.
+Joined shutdown also fails, reporting unobserved mutation outcomes. The case
+therefore does not reach its final 64-cell creation/command replay, linearizable
+read, inventory/reserve and successful joined-close assertions.
+
+An instrumented run at `d0910fcd` stalled earlier, in `Sealed` child installation.
+Its logged retirement metadata/router refusals were transient and recovered.
+The failure is not established to be a single retirement-proof defect. Temporary
+instrumentation was removed. Successful-no-progress backoff reduces idle polling
+but does not resolve the later transition stalls.
+
+The failed attempts are retained. Initial drafts also caught a recovery workspace
+larger than its declared retained-byte budget, missing initial election readiness,
+a follower-ready assertion, missing enrollment discovery retry, insufficient
+reserve space in the six-target placement window and duplicate response-memory
+admission. The final workload uses one-cell batches and splits sixteen-cell
+sources under the existing sixteen-cell recovery limit. Per-node byte/physical
+limits, the 16-MiB control pool, three recovery slots, five-second calls and
+60-second transition bounds are unchanged. No assertion is relaxed.
+
+Record: `.cellar/cell-groups-evidence/CG-11-fanout-bdddee1c-01/record.json`.
+The executable and every current/failed command are source-pinned there. No new
+RustFS run was started because the native gate failed. Older native/RustFS
+checkpoints retain their original sources and limits; they do not qualify this
+new campaign. Four of five required CG-11 names retain earlier scoped passes.
+
+CG-11 remains `IN_PROGRESS`. First resolve repeated-transition child setup and
+source drainage, including joined shutdown, then finish this native gate and
+both RustFS modes. Next implement failure handoff with an already admitted move.
+The separate managed-recovery accounting assertion and original S3 load deadline
+failure remain unresolved. This implementation checkpoint is not task or release
+acceptance.
+
 ## CG-11 automatic merge across disjoint RF3 placements
 
 At `fa65208261c60dc901e7673d1aeff66f1a9f4396`, automatic selection discovers a local range's immediate

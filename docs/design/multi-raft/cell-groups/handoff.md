@@ -14,38 +14,38 @@ CG-11 owns five product outcomes:
 4. Whole-group balancing and fenced repair, preserving cell histories and receipts.
 5. Bounded control-plane inventory, observations and targeted updates as inventory grows.
 
-At `fa652082`, automatic merge across disjoint RF3 placements passes natively
-and against real RustFS in both image modes. The standard planner creates the
-children under SQL load; replacement controllers resume the selected split.
-No controller hosts both merge parents. The completed merge preserves SQL,
-the full receipt ledger and fresh quorum writes. A separate stable-group case
-proves that early local and remote repeat samples perform no catalog or peer work.
-All six focused native cases pass, including the existing cycle, reserve refusal,
-quorum refusal and whole-group movement regressions. See [progress](progress.md)
-for exact sources, binaries, commands and retained failed development attempts.
+At `bdddee1c`, scoped paged inventory, bounded enrollment discovery, a
+reserve-aware nine-target window, retained SDK response admission and successful
+no-progress polling backoff are implemented. Builds, strict Clippy and ten
+placement/backoff tests pass. The existing regression results and unchanged
+inventory-unit scope are recorded in [progress](progress.md).
 
-Earlier placement, balancing and fenced-repair checkpoints retain their recorded
-scopes. Four of five required scheduler names have scoped passes. CG-11 remains
-`IN_PROGRESS`; this feature checkpoint is not complete task or release acceptance.
+**The MVP gate still fails.** The new 64-cell campaign reaches 60 completed cells
+and six RF3 groups, then stalls during a later `Retired` source quiescence.
+Joined shutdown reports unobserved mutation outcomes. An instrumented run also
+stalled in `Sealed` child setup. Final creation/receipt replay, strong reads and
+new-source RustFS qualification have not completed. Four earlier required names
+retain scoped passes. CG-11 remains `IN_PROGRESS`.
 
 ### Delivery order and completion criteria
 
-Finish these gaps in order:
-
-1. Deliver `control_plane_fanout_bounded` over many cells and groups, including
-   bounded inventory, targeted requests and recovery reserve under contention.
-2. Implement and qualify failure handoff when a membership move is already
-   admitted. Reconcile its durable ownership and permits before repair proceeds.
-3. Complete larger-inventory, mixed-load, physical-peak and independent-domain
-   qualification. Resolve the separate managed-recovery aggregate-budget
-   assertion failure before claiming complete managed qualification.
+1. Fix repeated-transition setup and source drainage, including joined shutdown.
+   Capture the underlying controller/catalog refusal at the failing stage; do
+   not assume every stalled phase has the same cause. Keep all original guards.
+2. Finish the exact 64-cell native workflow and both real RustFS image modes,
+   including every original creation/receipt, linearizable SQL, inventory bounds,
+   recovery reserve and joined stop. Gate default-backend cutover on that result.
+3. Implement failure handoff while a membership move is already admitted,
+   reconciling durable ownership and retained permits before repair proceeds.
+4. Resolve managed-recovery ownership accounting and complete journal contention,
+   larger-inventory, mixed-load, physical-peak and independent-domain qualification.
 
 Keep the original resource limits, deadlines, quorum, membership and fencing
-assertions. The new workflow uses nine host-native TLS nodes; RustFS runs with
-one CPU/2 GiB in the owned eight-CPU/16-GiB VM. This does not qualify independent
-voter processes/domains or measured physical peaks. The owned backend and VM are
-stopped with archive objects retained. The known managed-recovery accounting
-failure and CG-14's original S3 deadline failure remain unwaived.
+assertions. The new native campaign uses fifteen host-native TLS nodes. It does
+not qualify independent voter processes/domains or physical peaks. No RustFS
+backend was started for this failed campaign. Earlier owned backends remain
+stopped with archive objects retained. Prior managed-recovery accounting and
+CG-14 S3 deadline failures remain unwaived.
 
 Hard cutover remains `seed-lineage-1`: fresh namespaces, fleet roots and engine
 directories with matching binaries; Docker resource policies require explicit

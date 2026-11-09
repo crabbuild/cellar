@@ -2495,7 +2495,12 @@
         "crates/cellar/tests/support/cell_group_automatic_topology.rs",
         "crates/cellar/durability/raft/records_seed_tests.rs",
         "crates/cellar/tests/support/cell_group_automatic_repair.rs",
-        "crates/cellar/fleet/management/raft/partition_observation.rs"
+        "crates/cellar/fleet/management/raft/partition_observation.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/registration_inventory.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/registration_inventory_tests.rs",
+        "crates/cellar/fleet/management/raft/partition_inventory.rs",
+        "crates/cellar/tests/support/cell_group_scheduler_fanout.rs",
+        "crates/cellar/fleet/management/raft/poll_backoff.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [
