@@ -554,6 +554,15 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
             && delivered.generation == pending.generation
     );
     require_parked(cluster, before.term, delivered.generation).await?;
+    // The directory owner keeps running, but an idle advisory route must not
+    // originate quorum work that undoes an otherwise quiescent park.
+    tokio::time::sleep(Duration::from_millis(
+        3 * RaftNodeDirectoryOptions::default().poll_ms,
+    ))
+    .await;
+    require_parked(cluster, before.term, delivered.generation)
+        .await
+        .context("idle router refresh woke parked voters")?;
     // The very first public linearizable read wakes without an operator call.
     let first_read = router
         .query(
