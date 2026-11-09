@@ -144,6 +144,7 @@ impl Destination<'_> {
             let route = attempt.route();
             let history = route.history;
             let ordinal = usize::from(attempt.ordinal());
+            let mut exhausted_router = false;
             if previous != Some(history) {
                 next_member = 0;
                 previous = Some(history);
@@ -165,6 +166,7 @@ impl Destination<'_> {
                         Ok(members) if !members.is_empty() => {
                             let member = members[next_member % members.len()];
                             next_member += 1;
+                            exhausted_router = next_member >= members.len();
                             let now = self
                                 .shared
                                 .domain
@@ -187,6 +189,19 @@ impl Destination<'_> {
             match result {
                 Ok(response) => return Ok(response),
                 Err(error) if retryable(&error) && ordinal < invocation.maximum_attempts() => {
+                    if exhausted_router {
+                        // Try cached destinations first, including during an
+                        // archive outage. Only an exhausted stale view needs
+                        // fresh rooted discovery before the next read ticket.
+                        match self
+                            .transport
+                            .refresh_managed_router(history, invocation.deadline_ms())
+                            .await
+                        {
+                            Ok(()) | Err(RuntimeError::NotFound) => (),
+                            Err(error) => return Err(Error::Runtime(error)),
+                        }
+                    }
                     // A selected successor can have completely different members.
                     // Replan against a verified root, never an old member list or
                     // a new session with a replenished deadline/attempt budget.
@@ -205,16 +220,34 @@ impl Destination<'_> {
         options: CellSqlOptions,
         permit: Arc<admission::Retention>,
     ) -> Result<CellQueryResponse, Error> {
-        let history = invocation
+        let attempt = invocation
             .attempt()
-            .ok_or(Error::Invalid("missing route"))?
-            .route()
-            .history;
-        let is_local = match self.runtime.log().cell_group(&history) {
-            Ok(group) => group.identity().member == member,
-            Err(LogError::NotFound) => false,
+            .ok_or(Error::Invalid("missing route"))?;
+        let route = attempt.route();
+        let history = route.history;
+        let (is_local, router) = match self.runtime.log().cell_group(&history) {
+            Ok(group) => (group.identity().member == member, false),
+            Err(LogError::NotFound) => (false, true),
             Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
         };
+        if router {
+            match self.transport.cell_query_router_has_member(route, member) {
+                Ok(true) => (),
+                Ok(false) | Err(TransportError::UnknownGroup) => {
+                    // Refresh only discovery, before transmitting this exact
+                    // read ticket. Keep the member selector and attempt deadline.
+                    match self
+                        .transport
+                        .refresh_managed_router(history, attempt.deadline_ms())
+                        .await
+                    {
+                        Ok(()) | Err(RuntimeError::NotFound) => (),
+                        Err(error) => return Err(Error::Runtime(error)),
+                    }
+                }
+                Err(error) => return Err(Error::Transport(error)),
+            }
+        }
         if is_local {
             self.local(invocation, options, permit).await
         } else {

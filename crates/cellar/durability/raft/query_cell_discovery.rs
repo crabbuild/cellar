@@ -10,6 +10,24 @@ impl RaftTransport {
         self.handle.0.options.max_groups
     }
 
+    pub(crate) fn cell_query_router_has_member(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        member: MemberId,
+    ) -> Result<bool, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let view = registry
+            .cell_query_groups
+            .get(&route.history)
+            .ok_or(TransportError::UnknownGroup)?;
+        if view.schema_digest != route.schema_digest {
+            return Err(TransportError::Identity);
+        }
+        Ok(view.peers.iter().any(|peer| peer.replica.member == member))
+    }
+
     pub(crate) fn cell_query_router_members(
         &self,
         route: &cellar_logic::cell_group::GroupRoute,

@@ -88,34 +88,46 @@ impl RouterDirectory {
             return Ok(());
         };
         let group = route.history;
-        let nodes = trust.nodes();
-        let local = log.limits().node;
-        // Use the same rotating candidate throughout one namespace sweep.
-        // Advancing per group can alias group and voter counts and never sample
-        // an owner of a particular group.
-        let source = (0..nodes.len()).find_map(|offset| {
-            let node = &nodes[(namespace.next_node + offset) % nodes.len()];
-            (node.node() != local && node.permits_transport()).then_some(node.node())
-        });
-        if namespace.cursor.is_none() && !nodes.is_empty() {
-            namespace.next_node = (namespace.next_node + 1) % nodes.len();
+        let ordinal = namespace.next_node;
+        // Advance the candidate ordinal once per complete namespace sweep,
+        // avoiding aliases between group and voter counts.
+        if namespace.cursor.is_none() && !trust.nodes().is_empty() {
+            namespace.next_node = (ordinal + 1) % trust.nodes().len();
         }
         match log.cell_group(&group) {
             Ok(_) => return Ok(()),
             Err(crate::raft::storage::LogError::NotFound) => (),
             Err(error) => return Err(error.into()),
         }
-        let Some(source) = source else {
-            return Ok(());
-        };
-        // Sample one physical node and group per turn. The rotating fleet scan
-        // can recover even if this router was offline through all replacements.
-        let Some(authority) = reader
+        let Some(discovery) = reader
             .authorize_router_group(trust, &group, remaining()?)
             .await?
         else {
             return Ok(());
         };
+        let local = log.limits().node;
+        let source = if let Some(nodes) = &discovery.nodes {
+            (0..nodes.len()).find_map(|offset| {
+                let node = nodes[(ordinal + offset) % nodes.len()];
+                (node != local
+                    && trust
+                        .node(node)
+                        .is_some_and(|host| host.permits_transport()))
+                .then_some(node)
+            })
+        } else {
+            // An unsettled/untracked configuration still has the original
+            // bounded fleet fallback; a hint never invents a current owner.
+            let nodes = trust.nodes();
+            (0..nodes.len()).find_map(|offset| {
+                let host = &nodes[(ordinal + offset) % nodes.len()];
+                (host.node() != local && host.permits_transport()).then_some(host.node())
+            })
+        };
+        let Some(source) = source else {
+            return Ok(());
+        };
+        let authority = discovery.authorization;
         let revision = trust.revision();
         let proof = observer
             .observe_peer_fleet_membership(
@@ -182,16 +194,17 @@ impl RouterDirectory {
             );
             return Ok(());
         }
-        let authority = reader
+        let discovery = reader
             .authorize_router_group(trust, &history, remaining()?)
             .await?
             .ok_or_else(|| anyhow::anyhow!("router target is not live at this Fleet root"))?;
         let revision = trust.revision();
-        for voter in birth.voters() {
-            let Some(host) = trust
-                .node(voter.node)
-                .filter(|host| host.permits_transport())
-            else {
+        let authority = discovery.authorization;
+        let nodes = discovery
+            .nodes
+            .unwrap_or_else(|| birth.voters().iter().map(|v| v.node).collect());
+        for node in nodes {
+            let Some(host) = trust.node(node).filter(|host| host.permits_transport()) else {
                 continue;
             };
             // Refresh this exact enrolled endpoint; discovery grants no namespace
@@ -207,7 +220,7 @@ impl RouterDirectory {
             }
             let proof = observer
                 .observe_peer_fleet_membership(
-                    voter.node,
+                    node,
                     authority.clone(),
                     revision,
                     remaining()?.min(Duration::from_millis(500)),

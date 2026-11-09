@@ -14,6 +14,13 @@ pub struct FleetGroupAuthorization {
     owner: super::super::catalog::ManagedBirthOwner,
 }
 
+/// Rooted hints locate observations; only the separate authorization and
+/// destination's actual quorum observation permit installing an advisory route.
+pub(crate) struct RouterDiscovery {
+    pub(crate) authorization: FleetGroupAuthorization,
+    pub(crate) nodes: Option<Vec<NodeId>>,
+}
+
 pub(crate) struct RouterVoter {
     pub(crate) member: MemberId,
     pub(crate) node: NodeId,
@@ -235,6 +242,22 @@ impl FleetCatalog {
             binding: actual,
             history: Box::new(history),
             owner: self.birth_owner()?,
+        })
+    }
+
+    pub(super) async fn authorize_router_discovery(
+        &self,
+        snapshot: &FleetSnapshot,
+        expected: FleetGroupBinding,
+        key: &str,
+    ) -> Result<RouterDiscovery> {
+        let authorization = self.authorize_live_group(snapshot, expected, key).await?;
+        let nodes = self
+            .router_voter_hints(snapshot, &authorization.history)
+            .await?;
+        Ok(RouterDiscovery {
+            authorization,
+            nodes,
         })
     }
 

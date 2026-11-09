@@ -8,6 +8,44 @@ use cellar_logic::consensus::MemberId;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl FleetCatalog {
+    /// Candidate endpoints only. Settled managed placement narrows discovery;
+    /// an incomplete/untracked admission keeps the existing bounded fleet scan.
+    /// Neither a target list nor a settled journal replaces fresh quorum proof.
+    pub(in crate::raft::fleet_catalog) async fn router_voter_hints(
+        &self,
+        snapshot: &FleetSnapshot,
+        history: &super::super::histories::FleetHistory,
+    ) -> Result<Option<Vec<NodeId>>> {
+        let key = history
+            .binding()
+            .key()
+            .map_err(|_| FleetCatalogError::Corrupt("router group key"))?;
+        if let Some(bytes) = self
+            .inner
+            .lookup(snapshot.head.tables[FleetTable::Admissions.slot()], &key)
+            .await?
+        {
+            let permit = FleetMembershipPermit::decode(&bytes)
+                .map_err(|_| FleetCatalogError::Corrupt("router membership permit"))?;
+            if self
+                .inner
+                .lookup(
+                    snapshot.head.tables[FleetTable::Operations.slot()],
+                    &row_key(permit.id()),
+                )
+                .await?
+                .is_none()
+            {
+                return Ok(None);
+            }
+        }
+        match self.settled_group_voters(snapshot, history).await {
+            Ok((voters, _)) => Ok(Some(voters.into_keys().collect())),
+            Err(FleetCatalogError::InventoryIncomplete) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Locate the exact settled voters for bounded partition observations.
     /// Addresses remain advisory; the peer must supply its own quorum proof.
     pub(crate) async fn partition_voters(

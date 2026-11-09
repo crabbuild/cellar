@@ -114,7 +114,45 @@ async fn exercise(cluster: &mut ManagedCluster, disk: &Path) -> Result<()> {
     }
     .await;
     close_router(node, ingress).await?;
-    returned
+    returned?;
+
+    // A second retained return starts with a mutation, before any query can
+    // warm membership discovery. Original IDs and stored receipts still win.
+    let (node, ingress, peer) =
+        open_router(cluster.history, &router, disk, LogOpenMode::Resume, 65).await?;
+    let write_first = async {
+        grant(cluster, &cluster.hosts, &[3, 4, 5], &router, &peer).await?;
+        let handle = ingress.cell(seed.cells[0].clone())?;
+        let original = &seed.receipts[0];
+        let add = handle.contract("Add")?;
+        let written = handle
+            .command(
+                &add,
+                1i64.to_be_bytes().to_vec(),
+                CommandOptions::new(CommandId::new(original.id.client, 3)?, seed.retry),
+            )
+            .await?;
+        ensure!(written.result == 9i64.to_be_bytes() && written.durability == Durability::Quorum);
+        let replay = handle
+            .command(
+                &add,
+                7i64.to_be_bytes().to_vec(),
+                CommandOptions::new(original.id, seed.retry),
+            )
+            .await?;
+        ensure!(
+            replay.id == original.id
+                && replay.result == original.result
+                && replay.version == original.version
+        );
+        let read = read_at(&handle, MemberId::new(4)?, &written, 217).await?;
+        ensure!(read.served_by_node.node == cluster.fixtures[3].spec.node);
+        ensure!(ingress.resource_usage().host.controller.groups == 0);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    close_router(node, ingress).await?;
+    write_first
 }
 
 async fn replace_birth_voter(

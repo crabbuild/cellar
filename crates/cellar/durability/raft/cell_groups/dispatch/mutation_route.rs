@@ -92,5 +92,15 @@ pub(super) async fn mutation_peer(
             Err(error) => return Err(CellDispatchError::Transport(error)),
         }
     }
+    // Every cached candidate failed before submission. Refresh the exact
+    // group's discovery so the caller's next original-session attempt can use
+    // settled replacement voters. No transmitted mutation is replayed here.
+    match transport
+        .refresh_managed_router(route.history, session.deadline_ms())
+        .await
+    {
+        Ok(()) | Err(RuntimeError::NotFound) => (),
+        Err(error) => return Err(CellDispatchError::Runtime(error)),
+    }
     Err(CellDispatchError::Runtime(RuntimeError::NotReady))
 }

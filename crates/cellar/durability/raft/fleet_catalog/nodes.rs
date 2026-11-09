@@ -725,7 +725,7 @@ impl FleetTrustReader {
         trust: &FleetTrustSnapshot,
         scope: &cellar_logic::cell_group::GroupHistory,
         timeout: Duration,
-    ) -> Result<Option<FleetGroupAuthorization>> {
+    ) -> Result<Option<super::permits::RouterDiscovery>> {
         let catalog = &self.authorization.catalog;
         let expected = catalog.binding(scope)?;
         let key = expected
@@ -741,7 +741,7 @@ impl FleetTrustReader {
                     return Err(FleetCatalogError::Conflict);
                 }
                 catalog
-                    .authorize_live_group(&cut, expected, &key)
+                    .authorize_router_discovery(&cut, expected, &key)
                     .await
                     .map(Some)
             })
