@@ -79,6 +79,37 @@ impl RaftCells {
         physical: bool,
     ) -> impl Future<Output = Result<RaftPeerNodeObservation, InspectionError>> + Send + 'static
     {
+        let response = self.inspect_peer_node_owned(node, minimum_revision, timeout, physical);
+        async move {
+            let (observation, _memory) = response.await?;
+            Ok(observation)
+        }
+    }
+
+    /// Keep response admission with a planner's retained observation. This
+    /// transfers memory ownership and supplies no placement authority.
+    pub(crate) fn inspect_peer_physical_inventory_owned(
+        &self,
+        node: NodeId,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> impl Future<
+        Output = Result<(RaftPeerNodeObservation, crate::raft::budget::Permit), InspectionError>,
+    > + Send
+           + 'static {
+        self.inspect_peer_node_owned(node, minimum_revision, timeout, true)
+    }
+
+    fn inspect_peer_node_owned(
+        &self,
+        node: NodeId,
+        minimum_revision: u64,
+        timeout: Duration,
+        physical: bool,
+    ) -> impl Future<
+        Output = Result<(RaftPeerNodeObservation, crate::raft::budget::Permit), InspectionError>,
+    > + Send
+           + 'static {
         // Starting the remote transport at invocation preserves its original
         // deadline even if the response future is retained without polling.
         let admitted = (|| {
@@ -116,7 +147,7 @@ impl RaftCells {
         })();
         let owner = self.internal_observer();
         async move {
-            let (deadline, started, _memory, remote) = admitted?;
+            let (deadline, started, memory, remote) = admitted?;
             owner.metadata_live(deadline).map_err(inspection_error)?;
             let (view, inventory) = if let Some(delivery) = remote {
                 let received = delivery.receive().await?;
@@ -141,11 +172,14 @@ impl RaftCells {
                 .ok()
                 .and_then(|now| now.checked_sub(started))
                 .ok_or(InspectionError::Unavailable)?;
-            Ok(RaftPeerNodeObservation {
-                view,
-                inventory,
-                sample_age_ms,
-            })
+            Ok((
+                RaftPeerNodeObservation {
+                    view,
+                    inventory,
+                    sample_age_ms,
+                },
+                memory,
+            ))
         }
     }
 

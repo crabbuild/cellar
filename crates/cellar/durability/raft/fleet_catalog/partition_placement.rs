@@ -178,16 +178,24 @@ impl FleetCatalog {
                 deferred: Vec::new(),
             });
         }
-        let _memory = observer
+        // Map/projection metadata has its own bound. Each inspected payload
+        // transfers its SDK permit into this retained batch rather than
+        // duplicating the full response reservation here.
+        let metadata = observer
             .control_budget()
-            .acquire((PARTITION_TARGETS + 1) * crate::raft::physical_inventory::RESPONSE_BYTES)
+            .acquire(64 * 1024)
             .ok_or(FleetCatalogError::Overloaded)?;
         let mut nodes = BTreeMap::new();
+        let mut retained = Vec::with_capacity(PARTITION_TARGETS);
         let mut deferred = Vec::new();
         for candidate in candidates {
             let id = candidate.host.node();
-            let physical = match observer
-                .inspect_peer_physical_inventory(id, snapshot.revision(), deadline.remaining()?)
+            let (physical, memory) = match observer
+                .inspect_peer_physical_inventory_owned(
+                    id,
+                    snapshot.revision(),
+                    deadline.remaining()?,
+                )
                 .await
             {
                 Ok(value) => value,
@@ -220,10 +228,15 @@ impl FleetCatalog {
                     missing: 0,
                 },
             );
+            retained.push(memory);
         }
         self.run(
             deadline.remaining()?,
-            Box::pin(async {
+            Box::pin(async move {
+                // These permits follow the observations into the owned turn,
+                // including cancellation or an abandoned response waiter.
+                let _retained = retained;
+                let _metadata = metadata;
                 if self.inner.current().await?.token != snapshot.token {
                     return Err(FleetCatalogError::Conflict);
                 }

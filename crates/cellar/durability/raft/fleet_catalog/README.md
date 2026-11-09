@@ -1799,8 +1799,11 @@ request for exact retries after an unknown mutation outcome.
 Automatic partition placement inspects at most nine ranked nodes per decision.
 This window includes two RF3 children and three recovery slots even when each
 candidate has only one free slot. The pure selector and physical adapter share
-that bound; retained response memory is charged before probes. A stale or
-infeasible window still refuses, and physical/memory/byte limits remain unchanged.
+that bound. Each observation retains its SDK response permit through the owned
+planning turn, including cancellation; the planner charges 64 KiB separately for
+map/projection metadata. This avoids reserving the same response twice and keeps
+the window inside the existing control-memory limit. A stale or infeasible window
+still refuses, and physical/memory/byte limits remain unchanged.
 
 Optional `FleetAutomaticRecoveryOptions` installs the permanent exact-boot
 fencing contract and the existing failure-recovery executor in the same worker.
