@@ -1492,11 +1492,13 @@ status-only command path. No SQL callback or mutation transmission enters
 before the wake barrier, and an already transmitted mutation is never retried
 implicitly. Historical read modes retain their separate admission contracts.
 
-Background router membership refresh follows in-flight route use. An idle cached
-hint must not originate fresh quorum work that wakes parked voters. Node trust,
-endpoint and revocation refresh remains independent. A foreground miss or stale
-route still requires fresh authorized membership discovery; cached hints never
-grant serving authority.
+Background router membership refresh checks one cached group's rooted placement
+per turn. An unchanged idle hint must not originate fresh quorum work that wakes
+parked voters. In-flight use and changed or unsettled rooted voter bindings still
+trigger fresh authorized membership discovery, so idle ingress learns replacement
+voters. Node trust, endpoint and revocation refresh remains independent. Foreground
+misses and stale routes retain targeted discovery; cached hints never grant serving
+authority.
 
 Managed negotiation takes the fleet's rooted disruption slot at the exact
 leader boot, applied position, term and membership revision. A later request

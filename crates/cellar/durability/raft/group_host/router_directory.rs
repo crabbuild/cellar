@@ -84,13 +84,6 @@ impl RouterDirectory {
             Ok(_) | Err(crate::raft::storage::LogError::NotFound) => (),
             Err(error) => return Err(error.into()),
         }
-        // Cached destinations are hints. Polling their quorum while no
-        // request uses them would immediately undo all-voter hibernation.
-        // Foreground misses/failures still use refresh_target, and the node
-        // directory independently refreshes trust, endpoints and revocation.
-        if !transport.cell_query_group_in_use(&group)? {
-            return Ok(());
-        }
         let remaining = || super::directory::remaining(log, deadline);
         let namespace = self
             .namespaces
@@ -115,8 +108,15 @@ impl RouterDirectory {
         else {
             return Ok(());
         };
+        // An unchanged idle hint must not undo hibernation. A changed or
+        // unsettled rooted placement still needs fresh quorum discovery;
+        // otherwise an idle ingress could retain retired voters forever.
+        if !transport.cell_query_group_needs_refresh(&group, discovery.voters.as_ref())? {
+            return Ok(());
+        }
         let local = log.limits().node;
-        let source = if let Some(nodes) = &discovery.nodes {
+        let source = if let Some(voters) = &discovery.voters {
+            let nodes: Vec<_> = voters.keys().copied().collect();
             (0..nodes.len()).find_map(|offset| {
                 let node = nodes[(ordinal + offset) % nodes.len()];
                 (node != local
@@ -212,7 +212,8 @@ impl RouterDirectory {
         let revision = trust.revision();
         let authority = discovery.authorization;
         let nodes = discovery
-            .nodes
+            .voters
+            .map(|voters| voters.into_keys().collect::<Vec<_>>())
             .unwrap_or_else(|| birth.voters().iter().map(|v| v.node).collect());
         for node in nodes {
             let Some(host) = trust.node(node).filter(|host| host.permits_transport()) else {

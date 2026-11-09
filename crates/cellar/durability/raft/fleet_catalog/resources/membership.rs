@@ -15,7 +15,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         history: &super::super::histories::FleetHistory,
-    ) -> Result<Option<Vec<NodeId>>> {
+    ) -> Result<Option<BTreeMap<NodeId, MemberId>>> {
         let key = history
             .binding()
             .key()
@@ -40,7 +40,7 @@ impl FleetCatalog {
             }
         }
         match self.settled_group_voters(snapshot, history).await {
-            Ok((voters, _)) => Ok(Some(voters.into_keys().collect())),
+            Ok((voters, _)) => Ok(Some(voters)),
             Err(FleetCatalogError::InventoryIncomplete) => Ok(None),
             Err(error) => Err(error),
         }

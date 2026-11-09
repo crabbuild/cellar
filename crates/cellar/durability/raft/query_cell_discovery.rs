@@ -3,7 +3,8 @@
 //! Read-only physical discovery; no local RawNode, membership or write authority.
 use super::*;
 use crate::raft::storage::LogError;
-use cellar_logic::consensus::MemberId;
+use cellar_logic::consensus::{MemberId, NodeId};
+use std::collections::BTreeMap;
 
 impl RaftTransport {
     pub(crate) fn cell_query_route_limit(&self) -> usize {
@@ -155,19 +156,26 @@ impl RaftTransport {
     }
 
     /// An advisory scheduling sample, not an admission or revocation proof.
-    /// Idle cached hints must not originate fresh quorum observations that wake
-    /// parked groups. Entered requests pin the route through response validation.
-    pub(crate) fn cell_query_group_in_use(
+    /// Unchanged idle hints must not wake parked groups. Changed or unsettled
+    /// rooted placement still needs a quorum observation before route refresh.
+    /// Entered requests pin the route through response validation.
+    pub(crate) fn cell_query_group_needs_refresh(
         &self,
         history: &GroupHistory,
+        voters: Option<&BTreeMap<NodeId, MemberId>>,
     ) -> Result<bool, TransportError> {
         let state = &self.handle.0;
         let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
-        Ok(registry
-            .cell_query_groups
-            .get(history)
-            .is_some_and(|route| Arc::strong_count(route) > 1))
+        Ok(registry.cell_query_groups.get(history).is_none_or(|route| {
+            Arc::strong_count(route) > 1
+                || voters.is_none_or(|voters| {
+                    voters.len() != route.peers.len()
+                        || route.peers.iter().any(|peer| {
+                            voters.get(&peer.replica.node) != Some(&peer.replica.member)
+                        })
+                })
+        }))
     }
 
     /// Cache eviction cannot invalidate an entered read or write. Admission

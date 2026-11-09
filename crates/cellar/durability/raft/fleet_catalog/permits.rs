@@ -18,7 +18,7 @@ pub struct FleetGroupAuthorization {
 /// destination's actual quorum observation permit installing an advisory route.
 pub(crate) struct RouterDiscovery {
     pub(crate) authorization: FleetGroupAuthorization,
-    pub(crate) nodes: Option<Vec<NodeId>>,
+    pub(crate) voters: Option<std::collections::BTreeMap<NodeId, MemberId>>,
 }
 
 pub(crate) struct RouterVoter {
@@ -252,12 +252,12 @@ impl FleetCatalog {
         key: &str,
     ) -> Result<RouterDiscovery> {
         let authorization = self.authorize_live_group(snapshot, expected, key).await?;
-        let nodes = self
+        let voters = self
             .router_voter_hints(snapshot, &authorization.history)
             .await?;
         Ok(RouterDiscovery {
             authorization,
-            nodes,
+            voters,
         })
     }
 
