@@ -669,7 +669,7 @@ async fn diagnose_learner(cluster: &ManagedCluster, observer: &FleetCatalog) -> 
         let Some(source) = cluster
             .hosts
             .iter()
-            .find(|h| h.identity().node == voter.node)
+            .find(|h| h.identity().node == voter.node && !h.is_closed())
         else {
             continue;
         };

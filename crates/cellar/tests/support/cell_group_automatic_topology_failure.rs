@@ -389,6 +389,12 @@ async fn exercise(
         }
     );
     if drive.is_err() || requests.is_err() {
+        for owner in &cluster.hosts {
+            if !owner.is_closed() {
+                owner.suspend_automatic_topology().await;
+            }
+        }
+        eprintln!("handoff activation diagnosis: {:?}", Box::pin(diagnose_learner(cluster, &observer)).await);
         for history in &histories {
             for (index, owner) in cluster.hosts.iter().enumerate() {
                 if owner.is_closed() {
