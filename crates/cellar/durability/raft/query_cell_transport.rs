@@ -425,10 +425,15 @@ impl IncomingCall {
         self,
         state: &State,
         route: &QueryRoute,
+        deadline: u64,
     ) -> Result<super::query_replies::Reply, TransportError> {
         match self {
             Self::Command(call) => state.execute_cell_command(route, call).await,
-            Self::CommandProbe(call) => state.execute_cell_command_probe(route, call).await,
+            Self::CommandProbe(call) => {
+                state
+                    .execute_cell_command_probe(route, call, deadline)
+                    .await
+            }
             Self::Enrollment(call) => state.execute_cell_enrollment(route, call).await,
             Self::Receipt(call) => state.execute_cell_receipt(route, call).await,
             Self::Shared(call) => {

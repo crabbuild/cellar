@@ -202,7 +202,7 @@ async fn park_request(cluster: &ManagedCluster, id: u8) -> Result<RaftFleetParkR
 }
 
 async fn park(cluster: &ManagedCluster, id: u8) -> Result<(usize, Term, RaftFleetParkStatus)> {
-    let replica = leader(&cluster.hosts, cluster.history).await?;
+    let replica = leader(&cluster.hosts[..3], cluster.history).await?;
     let before = cluster.hosts[replica]
         .group(cluster.history)?
         .status()
@@ -222,7 +222,7 @@ async fn park(cluster: &ManagedCluster, id: u8) -> Result<(usize, Term, RaftFlee
 }
 
 async fn require_parked(cluster: &ManagedCluster, term: Term, generation: u64) -> Result<()> {
-    for host in &cluster.hosts {
+    for host in cluster.hosts.iter().take(3) {
         let sample = host.group(cluster.history)?.status().await?;
         ensure!(
             !sample.ready
@@ -239,7 +239,7 @@ async fn observe_wake(cluster: &ManagedCluster, term: Term, generation: u64) -> 
     tokio::time::timeout(WAKE_TIMEOUT, async {
         loop {
             let mut observations = Vec::with_capacity(cluster.hosts.len());
-            for host in &cluster.hosts {
+            for host in cluster.hosts.iter().take(3) {
                 observations.push(host.group(cluster.history)?.status().await?);
             }
             if let Some(index) = observations.iter().enumerate().find_map(|(index, sample)| {
@@ -455,7 +455,7 @@ async fn partial_park_and_stale_certificate() -> Result<()> {
     for rooted in [false, true] {
         let mut cluster = Box::pin(ManagedCluster::start_with_archives(
             rooted,
-            &[],
+            &[7],
             ArchiveSetup::Disabled,
         ))
         .await?;
@@ -469,8 +469,8 @@ async fn partial_park_and_stale_certificate() -> Result<()> {
 }
 
 async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
-    let seed = seed_cells(&cluster.hosts, cluster.history).await?;
-    let replica = leader(&cluster.hosts, cluster.history).await?;
+    let seed = seed_cells(&cluster.hosts[..3], cluster.history).await?;
+    let replica = leader(&cluster.hosts[..3], cluster.history).await?;
     let selection = park_request(cluster, 225).await?;
     let principal = request(225, selection.expected_revision).principal;
     let control = park_control(cluster, replica)?;
@@ -512,7 +512,27 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
             && delivered.generation == pending.generation
     );
     require_parked(cluster, before.term, delivered.generation).await?;
-    let handle = cluster.hosts[replica].cell(seed.cells[0].clone())?;
+    // The very first public linearizable read wakes without an operator call.
+    ensure!(cluster.hosts[3].resource_usage().host.controller.groups == 0);
+    let router = cluster.hosts[3].cell(seed.cells[0].clone())?;
+    let first_read = router
+        .query(
+            ProposalId::new([230; 16])?,
+            &router.contract("Get")?,
+            vec![],
+            QueryOptions::default(),
+        )
+        .await?;
+    ensure!((1..=3).contains(&first_read.served_by.get()));
+    ensure!(
+        first_read.result == seed.receipts[0].result
+            && first_read.version == seed.receipts[0].version
+            && first_read.witness == seed.receipts[0].witness
+    );
+    observe_wake(cluster, before.term, delivered.generation).await?;
+    // Park a new generation so the first write must independently wake it.
+    let (_, term, write_park) = park(cluster, 231).await?;
+    let handle = cluster.hosts[3].cell(seed.cells[0].clone())?;
     let id = CommandId::new(ClientId::new([228; 16])?, 1)?;
     let options = CommandOptions::new(id, seed.retry);
     let contract = handle.contract("Add")?;
@@ -523,14 +543,18 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
     ensure!(
         committed.result == 10_i64.to_be_bytes()
             && committed.durability == Durability::Quorum
-            && committed.witness.position.index.get() > delivered.generation
+            && committed.witness.position.index.get() > write_park.generation
     );
-    let active = observe_wake(cluster, before.term, delivered.generation).await?;
+    let active = observe_wake(cluster, term, write_park.generation).await?;
 
     // An old successful operation is historical. Its retry must not deliver
     // its old certificate again after newer commands have closed the cut.
     let replayed = control.park_group(&principal, &selection, TIMEOUT).await?;
-    ensure!(replayed == delivered);
+    // observed_revision describes the latest Fleet read, not the original
+    // settlement. Every historical operation binding must remain identical.
+    let mut historical = delivered.clone();
+    historical.observed_revision = replayed.observed_revision;
+    ensure!(replayed == historical && replayed.observed_revision >= delivered.observed_revision);
     let read = read_cell(cluster, active, &seed.cells[0], 229).await?;
     ensure!(
         read.result == committed.result

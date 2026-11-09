@@ -657,6 +657,15 @@ impl CellQueryInvocation {
                 CellReadConsistency::AtLeast(observation.version)
             }
         };
+        if matches!(consistency, CellReadConsistency::Linearizable) {
+            // A parked local read must finish the same fresh-quorum wake as a
+            // command before selecting a SQL image. Explicit historical modes
+            // retain their separate consistency and admission contracts.
+            runtime
+                .routing_status(attempt.route().history, attempt.deadline_ms())
+                .await
+                .map_err(CellDispatchError::Runtime)?;
+        }
         let authority = runtime
             .read_authority(
                 attempt.route().history,

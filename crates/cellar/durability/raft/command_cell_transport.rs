@@ -782,6 +782,7 @@ impl State {
         &self,
         route: &QueryRoute,
         call: CellCommandProbe,
+        deadline: u64,
     ) -> Result<super::query_replies::Reply, TransportError> {
         let (_, target, cell) = route.decode_shared()?;
         let gateway = self
@@ -792,10 +793,6 @@ impl State {
             .and_then(|g| g.upgrade())
             .ok_or(TransportError::Refused)?;
         let runtime = self.runtime.shared()?;
-        let status = runtime
-            .status(target.scope)
-            .await
-            .map_err(TransportError::Runtime)?;
         self.authorize_cell_command(route)?;
         if !gateway.accepting.load(Ordering::Acquire) {
             return Err(TransportError::Refused);
@@ -819,6 +816,17 @@ impl State {
                 .is_err()
         {
             return Err(TransportError::StalePeer);
+        }
+        // A zero-group router's probe must wake a parked voter before it can
+        // trust the retained leader hint. This is read-only discovery: no
+        // mutation is transmitted or retried while fresh quorum is absent.
+        let status = runtime
+            .routing_status(target.scope, deadline)
+            .await
+            .map_err(TransportError::Runtime)?;
+        self.authorize_cell_command(route)?;
+        if !gateway.accepting.load(Ordering::Acquire) {
+            return Err(TransportError::Refused);
         }
         // The sample selects a destination for one attempt. Command admission
         // must independently check current local Raft authority.

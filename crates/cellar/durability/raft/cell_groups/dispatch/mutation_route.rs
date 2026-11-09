@@ -14,13 +14,9 @@ pub(super) async fn mutation_peer(
     domain: &DomainToken,
 ) -> Result<Option<MemberId>, CellDispatchError> {
     let route = attempt.route();
-    let timer = domain
-        .sleep_until(session.deadline_ms())
-        .map_err(|_| closed())?;
-    let status = crate::asyncrt::select! {
-        status = runtime.status(route.history) => status,
-        _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
-    };
+    let status = runtime
+        .routing_status(route.history, session.deadline_ms())
+        .await;
     match status {
         Ok(status) => {
             let Some(leader) = status.leader else {

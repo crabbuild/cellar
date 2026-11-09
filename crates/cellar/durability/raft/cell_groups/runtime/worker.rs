@@ -399,6 +399,16 @@ impl Worker {
             reply(request, group.owner.status().map(Response::Status));
             return;
         }
+        if matches!(request.command, Command::RoutingStatus) {
+            reply(
+                request,
+                group
+                    .owner
+                    .routing_status()
+                    .map(|(status, generation)| Response::RoutingStatus(status, generation)),
+            );
+            return;
+        }
         if matches!(request.command, Command::PendingTransferQuorum) {
             reply(
                 request,

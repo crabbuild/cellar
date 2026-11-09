@@ -194,6 +194,7 @@ enum Command {
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     CaptureCheckpoint(CellGroupCheckpointPool),
     Status,
+    RoutingStatus,
     PendingTransferQuorum,
     Observe,
     ObservePartition,
@@ -220,6 +221,7 @@ enum Response {
     EnrollmentState(Box<CellEnrollmentState>),
     Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
+    RoutingStatus(CellGroupStatus, Option<ParkGeneration>),
     PendingTransferQuorum(Box<TransferChildQuorum>),
     Observation(Box<CellGroupObservation>),
     PartitionObservation(Box<CellGroupPartitionObservation>),
@@ -1179,6 +1181,45 @@ impl CellGroupRuntime {
             Response::Status(status) => Ok(status),
             _ => Err(RuntimeError::Protocol("status reply".into())),
         }
+    }
+
+    /// Observe a destination only after closing its local park generation and
+    /// obtaining fresh quorum authority. Active groups retain a status-only
+    /// observation. The original caller deadline also bounds wake admission.
+    pub(crate) async fn routing_status(
+        &self,
+        history: GroupHistory,
+        deadline: u64,
+    ) -> Result<CellGroupStatus, RuntimeError> {
+        let domain = &self.inner.domain;
+        if domain.mono_ms().map_err(|_| RuntimeError::Closed)? >= deadline {
+            return Err(RuntimeError::DeadlineExceeded);
+        }
+        let timer = domain
+            .sleep_until(deadline)
+            .map_err(|_| RuntimeError::Closed)?;
+        let observation = async {
+            let (status, generation) = match self
+                .call(Some(history), Command::RoutingStatus, 4096)
+                .await?
+            {
+                Response::RoutingStatus(status, generation) => (status, generation),
+                _ => return Err(RuntimeError::Protocol("routing status reply".into())),
+            };
+            if let Some(generation) = generation {
+                let fresh = self.wake_park(history, generation, deadline).await?;
+                return Ok(fresh.status().clone());
+            }
+            Ok(status)
+        };
+        let result = crate::asyncrt::select! {
+            status = observation => status,
+            _ = timer => Err(RuntimeError::DeadlineExceeded),
+        };
+        if domain.mono_ms().map_err(|_| RuntimeError::Closed)? >= deadline {
+            return Err(RuntimeError::DeadlineExceeded);
+        }
+        result
     }
 
     /// Observe the pending child's durable fresh-term commit. The witness can

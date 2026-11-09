@@ -807,6 +807,27 @@ impl CellGroupOwner {
         Ok(self.status_at(&cache))
     }
 
+    /// Routing observes the local park fence without waking it or trusting its
+    /// retained leader. The caller must obtain a fresh wake barrier before SQL
+    /// or mutation transmission; this sample itself grants no authority.
+    pub(super) fn routing_status(
+        &self,
+    ) -> Result<(CellGroupStatus, Option<ParkGeneration>), RuntimeError> {
+        let generation = self
+            .parked
+            .map(ParkGeneration::get)
+            .or_else(|| {
+                self.pending_park
+                    .as_ref()
+                    .map(|pending| pending.preparation.proposal.position.index.get())
+            })
+            .or_else(|| self.waking_after.map(LogIndex::get))
+            .map(ParkGeneration::new)
+            .transpose()
+            .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+        Ok((self.status()?, generation))
+    }
+
     fn status_at(&self, cache: &crate::raft::cache::CachedGroup) -> CellGroupStatus {
         CellGroupStatus {
             term: Term::new(self.node.raft.term),

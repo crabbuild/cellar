@@ -434,7 +434,7 @@ impl State {
                 .checked_add(call.timeout_ms())
                 .ok_or(TransportError::Limit)?;
             let query = async {
-                call.execute(&self, &header.route).await.inspect_err(|error| {
+                call.execute(&self, &header.route, until).await.inspect_err(|error| {
                     tracing::debug!(target: "cellar::raft::query_connection", endpoint=%self.local_query, %error, "shared request execution refused");
                 })
             };

@@ -1483,6 +1483,15 @@ be abandoned merely to park.
    require a current-term applied position beyond the wake floor before serving.
    Send wake hints to peers. Missing a quorum refuses or waits.
 
+Foreground quorum commands and linearizable queries observe the local park
+fence before selecting a retained leader or SQL image. A fenced observation
+closes the exact generation and waits for a fresh quorum barrier within the
+original request deadline. Command discovery probes do the same on a voter
+when ingress runs on a node with no local replica. Active groups keep the
+status-only command path. No SQL callback or mutation transmission enters
+before the wake barrier, and an already transmitted mutation is never retried
+implicitly. Historical read modes retain their separate admission contracts.
+
 Managed negotiation takes the fleet's rooted disruption slot at the exact
 leader boot, applied position, term and membership revision. A later request
 must still match that base. Settlement releases the slot after authenticated
