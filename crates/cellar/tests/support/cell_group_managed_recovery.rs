@@ -390,9 +390,15 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
                 Some(FleetCatalogError::Conflict)
             ),
         };
-        let clean = inspection.resource_usage().control == baseline;
+        let after = inspection.resource_usage().control;
+        let clean = after == baseline;
         registered_node.shutdown(ShutdownMode::Preserve).await?;
-        ensure!(refused && clean && f.catalog.read(TIMEOUT).await?.revision() == revision);
+        let after_revision = f.catalog.read(TIMEOUT).await?.revision();
+        ensure!(
+            refused && clean && after_revision == revision,
+            "registered recovery admission: rooted={rooted}, refused={refused}, \
+             baseline={baseline:?}, after={after:?}, revision={revision}->{after_revision}"
+        );
         ensure!(
             platform.contexts.lock().unwrap().is_empty(),
             "registered boot entered isolation"
