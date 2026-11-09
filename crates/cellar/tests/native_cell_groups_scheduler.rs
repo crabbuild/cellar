@@ -32,14 +32,18 @@ use managed_fixture::{
 };
 use std::{sync::atomic::Ordering, time::Duration};
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn control_plane_fanout_bounded() -> Result<()> {
+fn trace_scheduler() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            "off,cellar::raft::transition_setup=debug,cellar::raft::group_host::directory=debug,cellar::actor=warn",
+            "off,cellar::raft::transition_setup=debug,cellar::raft::group_host::directory=debug,cellar::raft::fleet_catalog::managed_transitions=debug,cellar::raft::cell_groups::directory::transition_retirement=debug,cellar::actor=warn",
         )
         .with_test_writer()
         .try_init();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn control_plane_fanout_bounded() -> Result<()> {
+    trace_scheduler();
     for rooted in [false, true] {
         Box::pin(fanout::qualify(
             rooted,
@@ -53,6 +57,7 @@ async fn control_plane_fanout_bounded() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
 async fn rustfs_control_plane_fanout_bounded() -> Result<()> {
+    trace_scheduler();
     for rooted in [false, true] {
         Box::pin(fanout::qualify(
             rooted,

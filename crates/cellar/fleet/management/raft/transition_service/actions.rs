@@ -118,8 +118,15 @@ pub(super) async fn local(
         .as_ref()
         .ok_or_else(RaftFleetFailure::unsupported)?;
     let phase = cx.phase();
+    // Cleanup admission requires the monotone hold-release flag. A later turn
+    // reopens the journal, so an unreleased hold needs no cleanup-book probe.
     if phase == Some(TransitionPhase::Retired)
         && state.options.reclaim_retired_sources
+        && cx
+            .transition
+            .journal
+            .as_ref()
+            .is_some_and(|journal| journal.parent_holds_released())
         && cx
             .control
             .catalog
@@ -136,6 +143,14 @@ pub(super) async fn local(
     }
     if phase == Some(TransitionPhase::Retired) && state.options.quiesce_retired_sources {
         let route = &cx.parents[index % cx.parents.len()];
+        if state.quiesced.contains(&route.history) {
+            // This exact operation already joined this boot's local source.
+            // Repeating the distributed retirement/child-route probes cannot
+            // strengthen that irreversible outcome. The coordinator still
+            // requires fresh complete inventories before releasing any holds.
+            state.action("source-quiesced");
+            return Ok(());
+        }
         if observer.group(route.history).is_ok() {
             state.action("quiesce-retired-source");
             cx.control
@@ -147,6 +162,7 @@ pub(super) async fn local(
                     turn.remaining()?,
                 )
                 .await?;
+            state.quiesced.push(route.history);
             return Ok(());
         }
     }

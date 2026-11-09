@@ -1286,6 +1286,7 @@ impl FleetCatalog {
                 || sample.view.node.identity.process.bytes() != boot.process
                 || sample.view.node.storage_instance.bytes() != boot.engine
             {
+                tracing::debug!(node = ?node, "retired parent inventory does not match its current boot");
                 return Err(FleetCatalogError::Unconfirmed);
             }
             let inventory = sample
@@ -1300,6 +1301,12 @@ impl FleetCatalog {
                     || row.member().get() != member.member
                     || !row.parked_retired_source()
                 {
+                    tracing::debug!(
+                        node = ?node,
+                        history = ?route.history,
+                        parked = row.parked_retired_source(),
+                        "retired parent is not ready for archive hold release"
+                    );
                     return Err(FleetCatalogError::Unconfirmed);
                 }
             }
@@ -1311,6 +1318,10 @@ impl FleetCatalog {
             Ok(())
         })
         .await?;
+        tracing::debug!(
+            operation = ?transition.plan.operation(),
+            "retired parent inventories verified; releasing archive holds"
+        );
         domain
             .run(Box::pin(crate::asyncrt::timeout(
                 deadline.remaining()?,

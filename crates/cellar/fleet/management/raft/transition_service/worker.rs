@@ -13,6 +13,9 @@ pub(super) struct Work {
     finished: watch::Sender<bool>,
     pub(super) local: BTreeMap<GroupHistory, RaftFleetTransitionChildStep>,
     pub(super) initialized: Vec<GroupHistory>,
+    // At most this plan's two parents. New operations and restarted workers
+    // revalidate retirement instead of inheriting another owner's success.
+    pub(super) quiesced: Vec<GroupHistory>,
     cursor: usize,
     operation: Option<[u8; 16]>,
 }
@@ -23,6 +26,7 @@ struct Progress {
     phase: Option<TransitionPhase>,
     local: BTreeMap<GroupHistory, RaftFleetTransitionChildStep>,
     initialized: usize,
+    quiesced: usize,
 }
 
 impl Work {
@@ -43,6 +47,7 @@ impl Work {
             finished,
             local: BTreeMap::new(),
             initialized: Vec::new(),
+            quiesced: Vec::new(),
             cursor: 0,
             operation: None,
         }
@@ -123,6 +128,7 @@ impl Work {
             phase: self.status.borrow().phase,
             local: self.local.clone(),
             initialized: self.initialized.len(),
+            quiesced: self.quiesced.len(),
         }
     }
 
@@ -194,6 +200,7 @@ impl Work {
         self.operation = operation;
         self.local.clear();
         self.initialized.clear();
+        self.quiesced.clear();
         self.cursor = 0;
         self.status.send_modify(|s| {
             s.operation_id = operation.map(hex::encode);

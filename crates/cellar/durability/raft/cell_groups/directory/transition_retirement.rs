@@ -983,6 +983,7 @@ impl RangeDirectory {
                     return Ok(basis.journal);
                 }
                 let released = async {
+                    tracing::debug!(operation = ?plan.operation(), "verify retained child archive holds");
                     self.require_live_retirement_archives(domain, pool, plan, permit)
                         .await?;
                     let preparation_holds = if permit.is_some() {
@@ -991,11 +992,13 @@ impl RangeDirectory {
                         Vec::new()
                     };
                     for hold in basis.parents.iter().chain(&preparation_holds) {
+                        tracing::debug!(history = ?hold.marker().route().history, "release retired parent archive hold");
                         let registry = self
                             .open_retired_source_archive(domain, pool, hold.marker().route())
                             .await?;
                         registry.release(domain, hold).await?;
                     }
+                    tracing::debug!(operation = ?plan.operation(), "record released parent archive holds");
                     self.record_released_parent_holds(plan, digest, permit)
                         .await
                         .map_err(Into::into)
