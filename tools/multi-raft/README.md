@@ -74,6 +74,12 @@ checks routed requests, exact retries, retained restart and quorum-loss refusals
 The voters and ingress run on the development host, with fixture boot ordering
 and capacity attestation.
 
+The same suite also retires all three birth voters through managed replacements
+and stops their processes. A retained ingress with zero local groups must route
+both a first read and, after another restart, a first quorum write to the current
+voters. Its next periodic directory sweep is outside the original request budget;
+targeted discovery, exact receipt replay and joined shutdown must still succeed.
+
 For the public repair and maintenance gate, use the same command with
 `--suite managed-lifecycle` and a fresh output directory. The lifecycle case
 uses both image modes and keeps the obsolete member's physical debt through

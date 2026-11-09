@@ -304,8 +304,9 @@ SUITES = {
     ),
     "managed-ingress": (
         "native_cell_groups_managed",
-        ("bootstrap::requests::rustfs_managed_native_axum_read_write_and_retained_restart",),
-        "managed operator provisioning, native/Axum authority, quorum requests and retained restart",
+        ("bootstrap::requests::rustfs_managed_native_axum_read_write_and_retained_restart",
+         "bootstrap::lifecycle::cold_router::rustfs_managed_cold_router_returns_after_all_birth_voters_retire"),
+        "managed operator provisioning, native/Axum authority, quorum requests, retained restart and replacement-voter discovery",
         "Managed boot and capacity attestations use fixture inputs. Separate voter processes, "
         "production peer authentication and sustained load remain separate gates.",
     ),
