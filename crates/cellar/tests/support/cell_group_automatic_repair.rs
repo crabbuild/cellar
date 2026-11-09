@@ -219,8 +219,9 @@ async fn exercise(
     let seed = seed_cells(&cluster.hosts, cluster.history).await?;
     movement::discover(cluster).await?;
     let directory = cluster.directory.observe().await?;
+    let seed_owner = leader(&cluster.hosts[..3], cluster.history).await?;
     for (i, original) in seed.receipts.iter().enumerate() {
-        let handle = cluster.hosts[0].cell(seed.cells[i].clone())?;
+        let handle = cluster.hosts[seed_owner].cell(seed.cells[i].clone())?;
         let mut options = CommandOptions::new(original.id, seed.retry);
         options.durability = Durability::S3;
         let receipt = handle
@@ -229,7 +230,8 @@ async fn exercise(
                 [7i64, 11][i].to_be_bytes().to_vec(),
                 options,
             )
-            .await?;
+            .await
+            .context("establish archived receipt coverage on the current leader")?;
         ensure!(
             receipt.result == original.result
                 && receipt.version == original.version
