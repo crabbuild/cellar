@@ -281,7 +281,18 @@ async fn open_router(
 ) -> Result<(Node, RaftCells, RaftPeerNode)> {
     let node = start_node(disk, fixture.application.clone(), &fixture.spec.label).await?;
     let started = async {
+        let returning = matches!(mode, LogOpenMode::Resume);
         let (mut config, services) = fixture.config(&node, mode, process).await?;
+        if returning {
+            // The first five-second public read must resolve current voters
+            // without depending on the next periodic namespace/fleet sweep.
+            config
+                .shared
+                .node_directory
+                .as_mut()
+                .context("managed router directory")?
+                .poll_ms = 60_000;
+        }
         config.groups.push(RaftGroupAssignment {
             history,
             placement: RaftGroupPlacement::QueryRouter,
