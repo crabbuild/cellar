@@ -452,6 +452,10 @@ fn quorum_unavailable(error: &CellDispatchError) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn partial_park_and_stale_certificate() -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("off,cellar::raft::query_connection=debug")
+        .with_test_writer()
+        .try_init();
     for rooted in [false, true] {
         let mut cluster = Box::pin(ManagedCluster::start_with_archives(
             rooted,
@@ -471,6 +475,44 @@ async fn partial_park_and_stale_certificate() -> Result<()> {
 async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
     let seed = seed_cells(&cluster.hosts[..3], cluster.history).await?;
     let replica = leader(&cluster.hosts[..3], cluster.history).await?;
+    ensure!(cluster.hosts[3].resource_usage().host.controller.groups == 0);
+    let router = cluster.hosts[3].cell(seed.cells[0].clone())?;
+    // Discovery and an active node do not grant namespace data access.
+    // Fleet-authorized quorum discovery may independently wake a group;
+    // exercise the data permission refusal before selecting the parked cut.
+    let unauthorized = router
+        .query(
+            ProposalId::new([220; 16])?,
+            &router.contract("Get")?,
+            vec![],
+            QueryOptions::default(),
+        )
+        .await
+        .expect_err("a zero-replica router needs an explicit namespace grant");
+    ensure!(
+        matches!(
+            unauthorized.as_ref(),
+            CellDispatchError::Transport(TransportError::Io(_) | TransportError::Refused)
+        ),
+        "unexpected unauthorized router result: {unauthorized:?}"
+    );
+    let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+    for voter in cluster.hosts.iter().take(3) {
+        inspect_current(voter, cluster.peers[3].node, cut.revision()).await?;
+        voter.grant_query_origin(NamespaceQueryOrigin {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            revision: 1,
+            peer: cluster.peers[3].clone(),
+        })?;
+        voter.grant_command_origin(NamespaceCommandOrigin {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            revision: 1,
+            peer: cluster.peers[3].clone(),
+        })?;
+    }
+
     let selection = park_request(cluster, 225).await?;
     let principal = request(225, selection.expected_revision).principal;
     let control = park_control(cluster, replica)?;
@@ -513,44 +555,6 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
     );
     require_parked(cluster, before.term, delivered.generation).await?;
     // The very first public linearizable read wakes without an operator call.
-    ensure!(cluster.hosts[3].resource_usage().host.controller.groups == 0);
-    let router = cluster.hosts[3].cell(seed.cells[0].clone())?;
-    // Discovery and an active node do not grant namespace access. An
-    // unauthorized read must leave every voter at its parked cut.
-    let unauthorized = router
-        .query(
-            ProposalId::new([220; 16])?,
-            &router.contract("Get")?,
-            vec![],
-            QueryOptions::default(),
-        )
-        .await
-        .expect_err("a zero-replica router needs an explicit namespace grant");
-    ensure!(
-        matches!(
-            unauthorized.as_ref(),
-            CellDispatchError::Transport(TransportError::Io(_) | TransportError::Refused)
-        ),
-        "unexpected unauthorized router result: {unauthorized:?}"
-    );
-    require_parked(cluster, before.term, delivered.generation).await?;
-    let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
-    for voter in cluster.hosts.iter().take(3) {
-        inspect_current(voter, cluster.peers[3].node, cut.revision()).await?;
-        voter.grant_query_origin(NamespaceQueryOrigin {
-            cluster: cluster.history.cluster,
-            namespace: cluster.history.namespace,
-            revision: 1,
-            peer: cluster.peers[3].clone(),
-        })?;
-        voter.grant_command_origin(NamespaceCommandOrigin {
-            cluster: cluster.history.cluster,
-            namespace: cluster.history.namespace,
-            revision: 1,
-            peer: cluster.peers[3].clone(),
-        })?;
-    }
-    require_parked(cluster, before.term, delivered.generation).await?;
     let first_read = router
         .query(
             ProposalId::new([230; 16])?,
@@ -558,7 +562,8 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
             vec![],
             QueryOptions::default(),
         )
-        .await?;
+        .await
+        .context("first authorized router read after park")?;
     ensure!((1..=3).contains(&first_read.served_by.get()));
     ensure!(
         first_read.result == seed.receipts[0].result
@@ -575,7 +580,8 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
     let delta = 3_i64.to_be_bytes().to_vec();
     let committed = handle
         .command(&contract, delta.clone(), options.clone())
-        .await?;
+        .await
+        .context("first authorized router command after park")?;
     ensure!(
         committed.result == 10_i64.to_be_bytes()
             && committed.durability == Durability::Quorum
