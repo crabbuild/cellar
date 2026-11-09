@@ -68,7 +68,7 @@ pub(super) async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> R
     if failed {
         let diagnostic = cluster.fixtures[0]
             .domain
-            .run(Box::pin(diagnose(&cluster)))
+            .run(Box::pin(diagnose(&cluster, rooted)))
             .await;
         eprintln!("fanout failure diagnostics joined: {diagnostic:?}");
     }
@@ -86,24 +86,29 @@ pub(super) async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> R
     Ok(())
 }
 
-async fn diagnose(cluster: &ManagedCluster) {
+async fn diagnose(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
+    let operation = cluster.hosts.iter().find_map(|host| {
+        host.partition_service_status()
+            .and_then(|status| status.operation_id)
+    });
     let current = match routes(cluster).await {
         Ok(current) => current,
         Err(error) => {
             eprintln!("fanout failure directory: {error:#}");
-            return;
+            return Ok(());
         }
     };
     for (index, host) in cluster.hosts.iter().enumerate() {
         let usage = host.resource_usage();
         eprintln!(
             "fanout failure node={index} closed={} control={:?} services={:?} \
-             runtime={:?} controller={:?} partition={:?}",
+             runtime={:?} controller={:?} replay_images={:?} partition={:?}",
             host.is_closed(),
             usage.control,
             usage.control_services,
             usage.runtime,
             usage.host.controller,
+            usage.archive_verifier_images,
             host.partition_service_status(),
         );
         for route in &current {
@@ -116,6 +121,38 @@ async fn diagnose(cluster: &ManagedCluster) {
             }
         }
     }
+    if let Some(operation) = operation {
+        // Freeze only the failed fixture's automatic work. A fresh, independent
+        // inventory distinguishes invalid sealed data from a retained receiver
+        // or node-local replay admission. This never turns the failed gate green.
+        for host in &cluster.hosts {
+            host.suspend_automatic_partitions().await;
+        }
+        let id = hex::decode(operation)?;
+        let operation = ProposalId::new(id.as_slice().try_into()?)?;
+        let fixture = &cluster.fixtures[0];
+        let catalog = managed_fixture::Fixture::open_catalog(
+            &fixture.domain,
+            fixture.store.clone(),
+            cluster.history.cluster,
+        )?;
+        let root = tempfile::tempdir()?.keep();
+        eprintln!("retained failed fanout replay inventory: {}", root.display());
+        let verifier = managed_fixture::verifier::open(fixture, &root, rooted, Default::default())
+            .await?;
+        match catalog
+            .replay_managed_sealed_sources(&cluster.directory, operation, &verifier, TIMEOUT)
+            .await
+        {
+            Ok(sources) => eprintln!(
+                "fanout independent sealed replay: phase={:?} children={:?}",
+                sources.journal().phase(),
+                sources.children(),
+            ),
+            Err(error) => eprintln!("fanout independent sealed replay refused: {error:?}"),
+        }
+    }
+    Ok(())
 }
 
 async fn routes(cluster: &ManagedCluster) -> Result<Vec<GroupRoute>> {
