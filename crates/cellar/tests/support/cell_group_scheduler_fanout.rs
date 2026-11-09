@@ -187,6 +187,47 @@ async fn settled(cluster: &ManagedCluster, catalog: &FleetCatalog) -> Result<Vec
     })?
 }
 
+// The managed service already backs off advisory Busy/Unavailable turns.
+// Drive this read-only diagnostic sampler through that same contract, with
+// one original five-second envelope across all attempts. Other errors fail.
+async fn sample(scheduler: &mut RaftFleetPartitionScheduler) -> Result<RaftFleetPartitionPoll> {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    let interval = configuration().service.interval;
+    let mut retries = 0u32;
+    let mut last = None;
+    let result = tokio::time::timeout_at(deadline, async {
+        loop {
+            match scheduler
+                .poll(
+                    pressure(),
+                    deadline.saturating_duration_since(tokio::time::Instant::now()),
+                )
+                .await
+            {
+                Err(error)
+                    if matches!(
+                        error.code,
+                        RaftFleetFailureCode::Busy | RaftFleetFailureCode::Unavailable
+                    ) =>
+                {
+                    retries = retries.saturating_add(1);
+                    last = Some(error.code);
+                    tokio::time::sleep(interval).await;
+                }
+                result => return result,
+            }
+        }
+    })
+    .await;
+    let poll = result.with_context(|| {
+        format!("fanout metadata sampling deadline: retries={retries}, last={last:?}")
+    })??;
+    if retries != 0 {
+        eprintln!("fanout metadata retries={retries}, last={last:?}");
+    }
+    Ok(poll)
+}
+
 async fn exercise(cluster: &ManagedCluster) -> Result<()> {
     let f = &cluster.fixtures[0];
     let catalog = managed_fixture::Fixture::open_catalog(
@@ -323,8 +364,7 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
             )
         })?;
         for _ in 0..local.len().max(1) {
-            let poll = scheduler
-                .poll(pressure(), TIMEOUT)
+            let poll = sample(&mut scheduler)
                 .await
                 .with_context(|| format!("fanout inventory sample: {:?}", host.identity().node))?;
             if let Some(group) = poll.sampled {
@@ -335,7 +375,7 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
         ensure!(scheduler.local_groups() == local.len() && scheduler.inventory_pages() == 1);
         let pages = scheduler.inventory_pages();
         for _ in 0..4 {
-            scheduler.poll(pressure(), TIMEOUT).await.with_context(|| {
+            sample(&mut scheduler).await.with_context(|| {
                 format!("fanout stable inventory reuse: {:?}", host.identity().node)
             })?;
         }
