@@ -88,10 +88,13 @@ tasks and 137 of 163 required cases. CG-07 has a complete acceptance record
 for its five public cases and all required commands at `84942c4e`.
 Each remaining task still needs the exact target, case oracles and evidence
 specified by `plan.py show <task>`. The index counts acceptance through complete
-task records. CG-11's four passing named cases are scoped checkpoints. The
-fifth case is now implemented, but fails after 60 completed cells and six groups
-during a later transition, including joined shutdown. That failure and remaining
-load/domain qualification prevent full task acceptance.
+task records. All five CG-11 names have scoped native passes, including the
+64-cell/seven-group fanout workflow in both image modes at `2c9637c3` after fixing
+retained source retirement indexes. Current qualification still fails: RustFS
+finishes all cells and joined shutdown but refuses final inventory telemetry;
+the latest native extent follow-up fails trust refresh and node-lease shutdown.
+Those lifecycle/telemetry failures and remaining load/domain qualification
+prevent full task acceptance.
 The separate managed-recovery regression currently fails its registered-node
 aggregate-budget assertion before repair begins. Resolve that ownership-accounting
 gate; the scheduler/RustFS repair pass does not waive it.
@@ -105,7 +108,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | Earlier placement, split/merge, balancing and repair checkpoints retain their scopes. At `bdddee1c`, scoped paged inventory, enrollment discovery refresh, reserve-aware targeting, owned inspection admission and idle polling backoff are implemented. Builds, strict Clippy and ten placement/backoff tests pass. | The new 64-cell gate fails after 60 cells/six groups in late transition drainage; an instrumented attempt stalled in child setup. Fix repeated-transition liveness and joined shutdown, finish native/RustFS replay/read/reserve gates, then admitted-move handoff and full load/domain/accounting qualification. |
+| CG-11 | Reclaimed sources release bounded SQL/seed retirement indexes through exact completed engine receipts. The 64-cell/seven-group native gate passes both modes at `2c9637c3`; existing scheduler/transition regressions pass. | Current RustFS final inventory telemetry fails after all 64 cells; the latest native extent follow-up fails trust refresh and node-lease shutdown. Resolve lifecycle liveness, finish current native/RustFS qualification, then admitted-move handoff and journal/load/accounting/physical/domain gates. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
@@ -134,11 +137,12 @@ through the shared backend and preserve typed refusals for the rest.
    At `6bcbee37`, automatic fenced repair and the exact failure-domain/reserve
    case pass natively and against real RustFS in both image modes. At `fa652082`,
    automatic merge across disjoint RF3 placements also passes both modes natively
-   and against RustFS. At `bdddee1c`, bounded inventory and control-loop changes
-   are implemented, but the new fanout gate stalls after 60 cells/six groups.
-   Fix repeated-transition setup/drainage and joined shutdown, then finish the
-   complete native/RustFS case. Admitted-move failure handoff follows. Keep
-   full task acceptance open for the remaining load, peak and domain gates. Earlier cancellation,
+   and against RustFS. Receipt-checked reclamation now clears the original
+   repeated-transition stall; the complete native 64-cell/seven-group gate passes
+   both modes at `2c9637c3`. Current RustFS final telemetry and the latest native
+   extent trust/lease shutdown still fail after all 64 cells. Resolve that lifecycle
+   boundary and finish both current native/RustFS modes. Admitted-move failure
+   handoff follows. Full journal/load, accounting, peak and domain gates remain. Earlier cancellation,
    request-readiness and operator checkpoints remain scoped to their own sources.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
    wake eligibility and retained lifecycle, then S3 recovery of interrupted
@@ -252,7 +256,7 @@ full hard cutover.
 | --- | --- |
 | CG-09 | Irreversible source sealing and whole-cell transfer, with cancellation/seal serialization, quorum installation and atomic range publication. Preserve cell histories, receipts, effect IDs and remote recovery closure. |
 | CG-10 | Split hot groups and merge compatible adjacent ranges using CG-09; recover partially completed transitions without reopening a sealed source. |
-| CG-11 | Earlier placement, split/merge, balancing and repair checkpoints retain their scopes. At `bdddee1c`, scoped paged inventory, enrollment discovery refresh, reserve-aware targeting, owned inspection admission and idle polling backoff are implemented. Builds, strict Clippy and ten placement/backoff tests pass. | The new 64-cell gate fails after 60 cells/six groups in late transition drainage; an instrumented attempt stalled in child setup. Fix repeated-transition liveness and joined shutdown, finish native/RustFS replay/read/reserve gates, then admitted-move handoff and full load/domain/accounting qualification. |
+| CG-11 | Reclaimed sources release bounded SQL/seed retirement indexes through exact completed engine receipts. The 64-cell/seven-group native gate passes both modes at `2c9637c3`; existing scheduler/transition regressions pass. | Current RustFS final inventory telemetry fails after all 64 cells; the latest native extent follow-up fails trust refresh and node-lease shutdown. Resolve lifecycle liveness, finish current native/RustFS qualification, then admitted-move handoff and journal/load/accounting/physical/domain gates. |
 | CG-12 | Fenced group parking and authority-checked wakeup. Resume actual membership/quorum under the original request deadline; measure cold response latency rather than assuming immediate readiness. |
 | CG-13 | Managed S3 recovery of complete groups and incomplete transfers/splits/merges, including zero-quorum fencing, fresh incarnations and unfinished lifecycle journals. |
 | CG-14 | **Accepted harness infrastructure.** Reproducible process/RustFS campaigns with real cells/groups, source/binary/profile hashes, enforced resource bounds, complete ledgers, archive lag and joined owners. Full release execution remains CG-15. |

@@ -13,6 +13,62 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 source-reclamation leak fixed; lifecycle qualification remains open
+
+At `d4f7da461e2ab61a34e0caa703dbc8330566089c`, completed split/merge source reclamation releases the bounded
+SQL and archive-seed retirement indexes and archive status. Previously only
+member reclamation released those entries, so repeated transitions exhausted
+indexes sized for concurrent retained groups. The controller re-reads the exact
+selected engine receipt. It must match the request, belong to this engine and
+prove completed physical collection with no source mapping. Retained SQL/seed
+owners or seed cleanup debt refuse release. Permanent source tombstones remain;
+lost waiters retry the same receipt. Physical/control limits and deadlines stay.
+
+Three source-reclamation tests and the SQL retirement test pass. The source test
+now distinguishes incomplete collection from a completed receipt and retains
+old-source recreation refusal. At `2c9637c3`, the entire native fanout workflow
+passes both image modes: 64 SQL cells, seven RF3 groups on fifteen host-native TLS
+nodes, two original slots per node, three recovery slots, all creation/command
+receipt replay, linearizable SQL, inventory coverage/reuse, overflow-before-I/O
+and joined shutdown. All seven existing scheduler cases and the automatic
+split/merge, disjoint-merge and reserve-refusal regressions pass on that source.
+Production code is unchanged after `d4f7da461e2ab61a34e0caa703dbc8330566089c`; later edits affect only the
+fanout qualifier. Build and strict host/core Clippy pass at their recorded sources.
+
+**The current end-to-end gate remains open.** Real RustFS at `2c9637c3` reaches
+all 64 cells/seven groups and joins shutdown, but a final inventory sample on
+node 7 returns Unavailable. The owned one-CPU/2-GiB backend and eight-CPU/16-GiB
+VM are stopped, with objects retained. This is a failed qualification, not a pass.
+
+The qualifier at `ea588ad0a2533f8118aa6d5fc4011f0ca21ab27f` retries only Busy/Unavailable read-only sampling
+at the configured interval inside one original five-second envelope. Other
+errors fail immediately; negative overflow probes remain direct. All original
+assertions and limits remain. Materialized mode passes, but extent mode fails
+after all 64 cells during `inspect_current`; two shutdown outcomes report
+`NodeLeaseExpired`. The fixture uses its unchanged one-second node lease. The
+exact renewal/ownership failure is not yet established. Do not extend the lease,
+ignore fencing, relax shutdown or infer a RustFS pass for this follow-up.
+
+The pre-fix trace at `52daac01` retains the 60-cell retired-source stall and
+three unobserved close outcomes. The first fixed run reaches 64 cells and joins
+shutdown but fails a final advisory check with Busy. The context-only native
+rerun passes both modes. The failed RustFS and latest extent attempts remain
+retained. Early setup deadlines in the trace recover before the late failure.
+
+Record: `.cellar/cell-groups-evidence/CG-11-source-release-ea588ad0-01/record.json`.
+Failed RustFS: `.cellar/cell-groups-evidence/CG-11-source-release-2c9637c3-rustfs-01/record.json`.
+These are scoped checkpoints; CG-11 remains `IN_PROGRESS`. Host-native voters do
+not qualify independent processes/domains or physical peaks.
+
+Next resolve managed trust/lease liveness under the existing fifteen-host load,
+then finish the current native and RustFS gate. After that, qualify failure
+handoff while a move is already admitted and fix observed gaps. The movement
+worker already runs detection/isolation during admitted-work backoff; its present
+repair fixture starts with zero admitted moves. Journal contention, sustained
+mixed load, larger inventories, physical/domain qualification and the separate
+managed-recovery accounting assertion remain open. The original S3 occupancy
+deadline remains unwaived. This checkpoint is not full task or release acceptance.
+
 ## CG-11 inventory and controller implementation; MVP gate still failing
 
 At `bdddee1c06a0c92f877fd6d2d9c56bacd6ee4e99`, the controller implements these changes:
