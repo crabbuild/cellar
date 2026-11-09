@@ -36,7 +36,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 async fn control_plane_fanout_bounded() -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            "off,cellar::raft::transition_setup=debug,cellar::raft::group_host::directory=debug",
+            "off,cellar::raft::transition_setup=debug,cellar::raft::group_host::directory=debug,cellar::actor=warn",
         )
         .with_test_writer()
         .try_init();

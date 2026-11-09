@@ -64,7 +64,8 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
 pub async fn inspect_current(host: &RaftCells, node: NodeId, revision: u64) -> Result<()> {
     // The directory's actual timer must install the new rooted trust/process
     // view. Retrying this read does not mint capacity or alter the fleet cut.
-    tokio::time::timeout(TIMEOUT, async {
+    let mut last = None;
+    let observed = tokio::time::timeout(TIMEOUT, async {
         loop {
             match host.inspect_peer_node(node, revision, TIMEOUT).await {
                 Ok(view) => {
@@ -74,11 +75,21 @@ pub async fn inspect_current(host: &RaftCells, node: NodeId, revision: u64) -> R
                         .is_some_and(|r| r >= revision));
                     return Ok::<_, anyhow::Error>(());
                 }
-                Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+                Err(error) => {
+                    last = Some(error);
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
             }
         }
     })
-    .await??;
+    .await;
+    observed.with_context(|| {
+        format!(
+        "trust refresh origin={:?}, target={node:?}, floor={revision}, closed={}, last={last:?}",
+        host.identity().node,
+        host.is_closed(),
+    )
+    })??;
     Ok(())
 }
 
