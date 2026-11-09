@@ -150,6 +150,12 @@ async fn rooted_trust_rejects_unenrolled_views_and_changed_pins() -> anyhow::Res
         .refresh_trust(Some(&other), TIMEOUT)
         .await
         .is_err());
+    assert!(matches!(
+        fixture
+            .transport
+            .install_refreshed_fleet_trust(other.clone()),
+        Err(TransportError::StalePeer)
+    ));
     assert_eq!(
         fixture.transport.install_fleet_trust(other),
         Err(TransportError::StalePeer)
@@ -212,15 +218,24 @@ async fn rooted_trust_rejects_unenrolled_views_and_changed_pins() -> anyhow::Res
     let same = authorization.refresh_trust(Some(&next), TIMEOUT).await?;
     fixture.transport.install_fleet_trust(same)?;
     assert_eq!(
-        fixture.transport.install_fleet_trust(first),
+        fixture.transport.install_fleet_trust(first.clone()),
         Err(TransportError::StalePeer)
     );
+    let retained = fixture.transport.install_refreshed_fleet_trust(first)?;
+    assert_eq!(retained.revision(), next.revision());
+    assert_eq!(retained.catalog(), next.catalog());
     change(&catalog, publisher.peer.node, 13, |record| {
         record["storage_instance"] = serde_json::json!(vec![99; 16]);
         record["epoch"] = serde_json::json!(2);
     })
     .await?;
     let wrong_pin = authorization.trust_snapshot(TIMEOUT).await?;
+    assert!(matches!(
+        fixture
+            .transport
+            .install_refreshed_fleet_trust(wrong_pin.clone()),
+        Err(TransportError::StalePeer)
+    ));
     assert_eq!(
         fixture.transport.install_fleet_trust(wrong_pin),
         Err(TransportError::StalePeer)

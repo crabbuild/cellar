@@ -118,6 +118,37 @@ impl RaftTransport {
         Ok(())
     }
 
+    /// Reconcile independently entered refresh reads. A delayed reader may
+    /// adopt an already installed, verified successor; it cannot roll it back.
+    pub(crate) fn install_refreshed_fleet_trust(
+        &self,
+        trust: FleetTrustSnapshot,
+    ) -> Result<FleetTrustSnapshot, TransportError> {
+        match self.install_fleet_trust(trust.clone()) {
+            Ok(()) => Ok(trust),
+            Err(TransportError::StalePeer) => {
+                let registry = self
+                    .handle
+                    .0
+                    .registry
+                    .lock()
+                    .map_err(|_| TransportError::Closed)?;
+                self.handle.0.admit(&registry)?;
+                let current = registry
+                    .fleet_trust
+                    .as_ref()
+                    .ok_or(TransportError::Refused)?;
+                if current.revision() <= trust.revision()
+                    || current.check_successor(&trust).is_err()
+                {
+                    return Err(TransportError::StalePeer);
+                }
+                Ok(current.clone())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     /// Install one complete current-root cut atomically. Revoked task owners
     /// retain physical reservations until they exit through their stop signals.
     pub(crate) fn install_fleet_trust(

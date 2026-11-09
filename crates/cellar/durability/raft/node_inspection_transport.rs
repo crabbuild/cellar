@@ -184,6 +184,46 @@ impl RaftTransport {
 }
 
 impl State {
+    /// One demand-driven refresh for a newer rooted revision, followed by all
+    /// original identity checks. Never wait for the periodic directory timer.
+    pub(super) async fn authorize_current_node_inspection(
+        &self,
+        route: &NodeRoute,
+        deadline: u64,
+    ) -> Result<(RaftPeerNode, Arc<Budget>), TransportError> {
+        let authorized = self.authorize_node_inspection(route);
+        if !matches!(&authorized, Err(TransportError::StalePeer)) {
+            return authorized;
+        }
+        let previous = {
+            let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+            self.admit(&registry)?;
+            let trust = registry
+                .fleet_trust
+                .as_ref()
+                .ok_or(TransportError::Refused)?;
+            if trust.revision() >= route.minimum_revision()? {
+                return authorized;
+            }
+            trust.clone()
+        };
+        let handle = self
+            .fleet_gateway
+            .lock()
+            .map_err(|_| TransportError::Closed)?
+            .as_ref()
+            .and_then(|handle| handle.upgrade())
+            .ok_or(TransportError::Refused)?;
+        RaftCells::from_internal_handle(handle)
+            .refresh_inspection_trust(previous, route.minimum_revision()?, deadline)
+            .await
+            .map_err(|error| match error {
+                CommandFailure::Overloaded => TransportError::Overloaded,
+                _ => TransportError::StalePeer,
+            })?;
+        self.authorize_node_inspection(route)
+    }
+
     pub(super) fn node_metadata_route(
         &self,
         node: NodeId,
@@ -469,7 +509,12 @@ impl State {
         if frame::decimal(&request.nonce)? == 0 || !(1..=60_000).contains(&request.timeout_ms) {
             return Err(TransportError::Protocol);
         }
-        let authorized = self.authorize_node_inspection(&request.route);
+        let deadline = admitted
+            .checked_add(request.timeout_ms)
+            .ok_or(TransportError::Limit)?;
+        let authorized = self
+            .authorize_current_node_inspection(&request.route, deadline)
+            .await;
         let (peer, peer_budget) = match authorized {
             Ok(result) => result,
             Err(error) => {
@@ -490,16 +535,15 @@ impl State {
                     },
                     &[],
                 )?;
-                return self.bounded(None, write_head(stream, &response)).await;
+                return self
+                    .bounded(Some(deadline), write_head(stream, &response))
+                    .await;
             }
         };
         let _peer = peer_budget
             .acquire(META_BYTES)
             .ok_or(TransportError::Overloaded)?;
         let epoch = self.seed_peer_epoch(&peer)?;
-        let deadline = admitted
-            .checked_add(request.timeout_ms)
-            .ok_or(TransportError::Limit)?;
         let handle = self
             .fleet_gateway
             .lock()

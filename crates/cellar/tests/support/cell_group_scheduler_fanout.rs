@@ -137,9 +137,12 @@ async fn diagnose(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
             cluster.history.cluster,
         )?;
         let root = tempfile::tempdir()?.keep();
-        eprintln!("retained failed fanout replay inventory: {}", root.display());
-        let verifier = managed_fixture::verifier::open(fixture, &root, rooted, Default::default())
-            .await?;
+        eprintln!(
+            "retained failed fanout replay inventory: {}",
+            root.display()
+        );
+        let verifier =
+            managed_fixture::verifier::open(fixture, &root, rooted, Default::default()).await?;
         match catalog
             .replay_managed_sealed_sources(&cluster.directory, operation, &verifier, TIMEOUT)
             .await

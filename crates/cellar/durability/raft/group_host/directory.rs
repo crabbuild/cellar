@@ -15,7 +15,7 @@ use crate::raft::{
 use rand::RngCore;
 use std::{collections::BTreeMap, time::Duration};
 
-const METADATA_BYTES: usize = 4 * 1024 * 1024;
+const METADATA_BYTES: usize = FleetTrustReader::RESERVATION_BYTES;
 
 #[derive(Clone)]
 enum Trusted {
@@ -216,7 +216,7 @@ pub(super) async fn prepare(
     }))
 }
 
-fn require_local(trust: &FleetTrustSnapshot, log: &ReplicaLog) -> anyhow::Result<()> {
+pub(crate) fn require_local(trust: &FleetTrustSnapshot, log: &ReplicaLog) -> anyhow::Result<()> {
     let limits = log.limits();
     let boot = log
         .lifecycle_guard()?
@@ -354,7 +354,8 @@ impl Directory {
             match result {
                 Ok(Ok(trust)) => {
                     require_local(&trust, log)?;
-                    transport.install_fleet_trust(trust.clone())?;
+                    let trust = transport.install_refreshed_fleet_trust(trust)?;
+                    require_local(&trust, log)?;
                     self.trusted = trusted(&trust);
                     self.rooted = Some(trust);
                 }

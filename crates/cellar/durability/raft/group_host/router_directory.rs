@@ -230,8 +230,12 @@ impl RouterDirectory {
                     remaining()?.min(Duration::from_millis(500)),
                 )
                 .await;
-            let Ok(proof) = proof else {
-                continue;
+            let proof = match proof {
+                Ok(proof) => proof,
+                Err(error) => {
+                    tracing::debug!(target: "cellar::raft::group_host::directory", ?history, ?node, revision, ?error, "targeted router voter observation unavailable");
+                    continue;
+                }
             };
             if self.install_observed(
                 log,

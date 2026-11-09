@@ -700,6 +700,9 @@ pub(crate) struct FleetTrustReader {
 }
 
 impl FleetTrustReader {
+    /// Conservative complete-cut memory envelope shared with directory reads.
+    pub(crate) const RESERVATION_BYTES: usize = 4 * 1024 * 1024;
+
     pub(crate) async fn refresh(
         &self,
         previous: Option<&FleetTrustSnapshot>,

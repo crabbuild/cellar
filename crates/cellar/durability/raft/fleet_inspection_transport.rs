@@ -238,6 +238,7 @@ impl State {
         exporter: &[u8; 32],
         prefix: [u8; frame::PREFIX],
     ) -> Result<(), TransportError> {
+        let admitted = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let _node = self
             .inspection_metadata
             .acquire(META_BYTES)
@@ -258,8 +259,16 @@ impl State {
         if frame::decimal(&request.nonce)? == 0 || !(1..=60_000).contains(&request.timeout_ms) {
             return Err(TransportError::Protocol);
         }
-        let authorized = validate_history_route(&request.route, &request.history)
-            .and_then(|()| self.authorize_node_inspection(&request.route));
+        let deadline = admitted
+            .checked_add(request.timeout_ms)
+            .ok_or(TransportError::Limit)?;
+        let authorized = match validate_history_route(&request.route, &request.history) {
+            Ok(()) => {
+                self.authorize_current_node_inspection(&request.route, deadline)
+                    .await
+            }
+            Err(error) => Err(error),
+        };
         let (peer, peer_budget) = match authorized {
             Ok(result) => result,
             Err(error) => {
@@ -281,19 +290,15 @@ impl State {
                     },
                     &[],
                 )?;
-                return self.bounded(None, write_head(stream, &response)).await;
+                return self
+                    .bounded(Some(deadline), write_head(stream, &response))
+                    .await;
             }
         };
         let _peer = peer_budget
             .acquire(META_BYTES)
             .ok_or(TransportError::Overloaded)?;
         let epoch = self.seed_peer_epoch(&peer)?;
-        let deadline = self
-            .domain
-            .mono_ms()
-            .map_err(|_| TransportError::Closed)?
-            .checked_add(request.timeout_ms)
-            .ok_or(TransportError::Limit)?;
         let handle = self
             .fleet_gateway
             .lock()
