@@ -13,6 +13,16 @@ pub struct CellGroupImageUsage {
     pub extents: Option<RaftExtentUsage>,
 }
 
+/// Registered node-owned workers, charged until their actual lifetime joins.
+/// Their reservations are included in `CellGroupResourceUsage::control`.
+/// Transient metadata and physical collection turns use that same bank but
+/// are not workers. Separate samples are not one atomic node-wide snapshot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct CellGroupControlServiceUsage {
+    pub workers: usize,
+    pub bytes: usize,
+}
+
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CellGroupCollectionFailure {
@@ -62,6 +72,7 @@ pub struct CellGroupResourceUsage {
     pub host: CellGroupHostUsage,
     pub runtime: CellGroupRuntimeUsage,
     pub control: crate::application::consensus::RaftBudgetUsage,
+    pub control_services: CellGroupControlServiceUsage,
     pub sql: Option<CellSqlUsage>,
     pub serving_images: CellGroupImageUsage,
     pub archive_verifier_images: Option<CellGroupImageUsage>,
@@ -131,6 +142,7 @@ impl Resources {
             host: core.host.usage(),
             runtime: core.runtime.usage(),
             control: crate::application::consensus::RaftBudgetUsage::capture(&core.services.memory),
+            control_services: core.services.usage(),
             sql: self.sql.usage().ok(),
             serving_images: self.serving.capture(),
             archive_verifier_images: self.archive.as_ref().map(Images::capture),
@@ -149,6 +161,18 @@ impl CellGroupResourceUsage {
     /// enter labels. Unavailable observers emit availability without zero usage.
     pub fn prometheus(&self) -> String {
         let mut out = String::new();
+        sample(
+            &mut out,
+            "control_service_workers",
+            "",
+            self.control_services.workers,
+        );
+        sample(
+            &mut out,
+            "control_service_bytes",
+            "",
+            self.control_services.bytes,
+        );
         sample(
             &mut out,
             "collection_sample_available",

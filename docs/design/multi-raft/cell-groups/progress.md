@@ -13,7 +13,51 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
-## CG-11 retirement workflow qualified; automatic admitted-move handoff next
+## CG-11 automatic movement survives voter loss and controller restart
+
+At `f2694f05`, the new automatically admitted movement fault case passes
+natively in both image modes. All three automatic-topology cases also pass
+against real RustFS in both modes: normal balancing/resume, reserve refusal,
+and voter-loss/controller-restart handoff. The production fixes release saved
+replay-store configurations after joined shutdown, withdraw completed obsolete
+consensus/dispatch owners automatically, and let retained former replicas discover
+current voters for subsequent requests. Physical disks and charges remain until
+separately authorized collection; runtime withdrawal grants no reclamation authority.
+
+The fault workflow preserves the original admitted learner and reservation through
+voter loss, cancels and restarts the exact-boot isolation callback, replays the
+same fencing context from retained controller storage, and finishes both groups
+with three distinct current voters and no Joint/learner state. Concurrent quorum
+commands, linearizable reads, original receipts and fresh writes through the
+moved-out ingress are verified. Eight unique traffic mutations per mode are
+reconciled with their original command IDs. Native materialized mode records
+309 failed command invocations; extent mode records 18 failed command invocations
+and one failed read. These refusals/ambiguities remain counted, not hidden by
+retries. There is no zero-error failover or latency/SLA claim.
+
+Strict host/core all-target/all-feature Clippy and formatting pass at the same
+source. The owned one-CPU/two-GiB RustFS container and VM are stopped with objects
+retained. Voters are host-native TLS actors, not independent voter processes or
+failure domains. Nine failed development attempts remain retained; this passing
+workflow does not establish a general solution for all earlier intermittent
+learner/source failures.
+
+Native record: `.cellar/cell-groups-evidence/CG-11-admitted-handoff-f2694f05-native-01/record.json`.
+RustFS record: `.cellar/cell-groups-evidence/CG-11-admitted-handoff-f2694f05-rustfs-01/record.json`.
+Both are scoped checkpoints, not full task acceptance.
+
+The remaining managed-recovery failure is now isolated at `a84c4ffb`: an
+unactivated node correctly refuses recovery startup and the Fleet revision stays
+22, but extent collection adds an independent one-MiB/one-item physical turn
+between aggregate resource samples. Joined service ownership now has separate
+bounded registry counters; qualification of that change is pending. The shared
+aggregate cap, physical collection charge and joined shutdown requirements remain.
+After resolving that gate, complete the five exact scheduler cases and ten
+required task commands at one source. CG-11 remains `IN_PROGRESS`; full load,
+physical peaks, independent domains and soak remain CG-15/16 requirements.
+
+## Historical retirement qualification
+
 
 At `a3792fd0`, the retirement follow-up passes strict host/core Clippy and all
 five native component regressions in both image modes: live source retirement,

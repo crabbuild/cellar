@@ -105,6 +105,9 @@ async fn collection_close_joins_held_deletion_and_retains_admission() -> anyhow:
     let budget = public.control_budget().clone();
     let pending = budget.usage();
     assert!(pending.0 > 4096 && pending.1 == 2);
+    let worker = public.resource_usage().control_services;
+    assert_eq!(worker.workers, 1);
+    assert_eq!(worker.bytes, 4096);
     let mut closing = Box::pin(public.close());
     assert!(
         tokio::time::timeout(Duration::from_millis(30), &mut closing)
@@ -117,6 +120,7 @@ async fn collection_close_joins_held_deletion_and_retains_admission() -> anyhow:
         pending,
         "cancelled close released admitted physical collection"
     );
+    assert_eq!(public.resource_usage().control_services, worker);
     assert!(
         node.log.storage_instance().is_ok(),
         "storage closed before collector joined"
@@ -124,6 +128,7 @@ async fn collection_close_joins_held_deletion_and_retains_admission() -> anyhow:
     drop(release);
     tokio::time::timeout(Duration::from_secs(5), public.close()).await??;
     assert_eq!(budget.usage(), (0, 0));
+    assert_eq!(public.resource_usage().control_services, Default::default());
     assert_eq!(store.usage()?.objects, 0);
     let finished = observer
         .capture()

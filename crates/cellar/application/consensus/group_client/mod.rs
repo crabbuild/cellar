@@ -135,8 +135,8 @@ pub(crate) mod resources;
 use close::Close;
 pub use close::{MutationOutcomes, RaftCloseError, RaftCloseReport, RaftGroupCloseReport};
 pub use resources::{
-    CellGroupCollectionFailure, CellGroupCollectionUsage, CellGroupImageUsage,
-    CellGroupResourceUsage,
+    CellGroupCollectionFailure, CellGroupCollectionUsage, CellGroupControlServiceUsage,
+    CellGroupImageUsage, CellGroupResourceUsage,
 };
 
 struct Core {

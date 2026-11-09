@@ -160,10 +160,10 @@ pub use crate::raft::version::CellVersionToken;
 pub use cellar_logic::cell_group::{CommitWitness, GroupHistory};
 pub use group_client::{
     CellGroupCollectionFailure, CellGroupCollectionUsage, CellGroupControlError,
-    CellGroupImageUsage, CellGroupResourceUsage, CellGroupStartupError, CommandOptions,
-    CommandReceipt, LearnerActivation, MutationOutcomes, QueryConsistency, QueryOptions,
-    QueryResult, QueryRouting, RaftCellHandle, RaftCells, RaftCloseError, RaftCloseReport,
-    RaftGroupCloseReport, RaftGroupHandle, StaleReadPolicy,
+    CellGroupControlServiceUsage, CellGroupImageUsage, CellGroupResourceUsage,
+    CellGroupStartupError, CommandOptions, CommandReceipt, LearnerActivation, MutationOutcomes,
+    QueryConsistency, QueryOptions, QueryResult, QueryRouting, RaftCellHandle, RaftCells,
+    RaftCloseError, RaftCloseReport, RaftGroupCloseReport, RaftGroupHandle, StaleReadPolicy,
 };
 
 pub use crate::raft::version::CellVersionObservation;

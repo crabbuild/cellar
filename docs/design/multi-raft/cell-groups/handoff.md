@@ -25,22 +25,28 @@ in [progress](progress.md); this proves the tested boundary, not a failover SLA.
 
 ### Delivery order and completion criteria
 
-1. Implement and qualify failure handoff while the configured automatic controller
-   has selected **and admitted** a membership movement. Require cancellation,
-   exact-boot isolation and original debt through controller restart. The manual
-   Joint/learner draft is supplementary and does not close this path. The
-   executable outline is retained with the current qualification scratch data.
-2. Resolve the relevant managed-recovery aggregate-ownership regression and prove
-   bounded controller/journal behavior. Run CG-11's five planned cases and all ten
-   required commands at one source; publish its complete acceptance record only
-   when those functional requirements pass.
-3. After CG-11, continue CG-12/13 features. Full load, physical peaks, independent
-   hosts/domains and soak remain CG-15/16 release requirements, as specified by
-   `plan.py` and `profiles.json`. They are not additional CG-11 acceptance gates.
+The automatic admitted-move handoff is implemented and passes native and real
+RustFS qualification in both image modes at `f2694f05`. It preserves the original
+learner and debit across voter loss and retained controller restart, repeats the
+exact fencing context, restores RF3 and reconciles SQL/receipts through a former
+replica. Completed obsolete runtimes are withdrawn without collecting their disks.
 
-Native: `.cellar/cell-groups-evidence/CG-11-quiescence-a3792fd0-native-01/record.json`.
-RustFS: `.cellar/cell-groups-evidence/CG-11-quiescence-a3792fd0-rustfs-01/record.json`.
-The original S3 occupancy deadline remains unwaived.
+1. Finish the managed-recovery ownership gate. The refused startup is correct;
+   an unrelated extent-collection reservation changes the aggregate sample.
+   Qualify the joined registry's new service counters while retaining physical
+   accounting, aggregate caps, exact callback joins and catalog refusal.
+2. Complete CG-11's five exact scheduler cases and all ten required commands at
+   one source, including bounded inventory/journal work and recovery reserve.
+   Publish full acceptance only when these functional requirements pass.
+3. Continue CG-12/13 features, then CG-15/16 release qualification. Full load,
+   physical peaks, independent hosts/domains and soak retain their original
+   profiles and do not expand CG-11's functional acceptance requirements.
+
+Native: `.cellar/cell-groups-evidence/CG-11-admitted-handoff-f2694f05-native-01/record.json`.
+RustFS: `.cellar/cell-groups-evidence/CG-11-admitted-handoff-f2694f05-rustfs-01/record.json`.
+Transient request failures remain counted and reconciled with the same command
+identities; these host-native fixtures establish no failover SLA. Earlier failed
+runs and the original S3 occupancy deadline remain unwaived.
 
 Hard cutover remains `seed-lineage-1`: fresh namespaces, fleet roots and engine
 directories with matching binaries; Docker resource policies require explicit

@@ -15,6 +15,25 @@ use std::{
 
 type CatalogResult<T> = std::result::Result<T, FleetCatalogError>;
 
+fn service_usage(
+    host: &RaftCells,
+    limits: cellar::application::consensus::RaftBudgetUsage,
+) -> Result<cellar::application::consensus::CellGroupControlServiceUsage> {
+    let usage = host.resource_usage();
+    ensure!(
+        usage.control.bytes <= limits.max_bytes
+            && usage.control.items <= limits.max_items
+            && usage.control.max_bytes == limits.max_bytes
+            && usage.control.max_items == limits.max_items,
+        "control admission exceeded or changed its bounds: {:?}",
+        usage.control
+    );
+    // Extent collection can enter its independently charged physical turn
+    // between samples. Worker admission/release is owned by the joined registry,
+    // not by equality of the shared bank's unrelated transient reservations.
+    Ok(usage.control_services)
+}
+
 struct Callback(Arc<AtomicUsize>);
 
 impl Drop for Callback {
@@ -378,7 +397,8 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
             .await?;
         let inspection = registered_node.start_raft_cells(config, services).await?;
         let revision = f.catalog.read(TIMEOUT).await?.revision();
-        let baseline = inspection.resource_usage().control;
+        let limits = inspection.resource_usage().control;
+        let baseline = service_usage(&inspection, limits)?;
         let refused = start(&f.catalog, &inspection, &inputs, &platform, &verifier).await;
         let refused = match refused {
             Ok(worker) => {
@@ -390,7 +410,7 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
                 Some(FleetCatalogError::Conflict)
             ),
         };
-        let after = inspection.resource_usage().control;
+        let after = service_usage(&inspection, limits)?;
         let clean = after == baseline;
         registered_node.shutdown(ShutdownMode::Preserve).await?;
         let after_revision = f.catalog.read(TIMEOUT).await?.revision();
@@ -403,7 +423,8 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
             platform.contexts.lock().unwrap().is_empty(),
             "registered boot entered isolation"
         );
-        let baseline = observer.resource_usage().control;
+        let limits = observer.resource_usage().control;
+        let baseline = service_usage(observer, limits)?;
         service = Some(start(&f.catalog, observer, &inputs, &platform, &verifier).await?);
         tokio::time::timeout(TIMEOUT * 4, platform.entered.notified())
             .await
@@ -416,13 +437,11 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
             .cloned()
             .context("rooted failure context")?;
         ensure!(context.boot() == &boot && platform.active.load(Ordering::Acquire) == 1);
-        let charged = observer.resource_usage().control;
+        let charged = service_usage(observer, limits)?;
         ensure!(
-            charged.items == baseline.items + 1
+            charged.workers == baseline.workers + 1
                 && charged.bytes > baseline.bytes
-                && charged.bytes <= charged.max_bytes
-                && charged.max_items == baseline.max_items
-                && charged.max_bytes == baseline.max_bytes
+                && charged.bytes <= limits.max_bytes
         );
         let duplicate = start(&f.catalog, observer, &inputs, &platform, &verifier).await;
         ensure!(matches!(
@@ -431,13 +450,13 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
                 .and_then(|e| e.downcast::<FleetCatalogError>().ok()),
             Some(FleetCatalogError::Overloaded)
         ));
-        ensure!(observer.resource_usage().control == charged);
+        ensure!(service_usage(observer, limits)? == charged);
         ensure!(
             inputs.calls.load(Ordering::Acquire) == 0,
             "repair ran before platform isolation completed"
         );
         service.take().unwrap().shutdown().await;
-        ensure!(observer.resource_usage().control == baseline);
+        ensure!(service_usage(observer, limits)? == baseline);
         ensure!(
             platform.active.load(Ordering::Acquire) == 0,
             "shutdown did not join the isolation callback"
@@ -486,7 +505,7 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
         ensure!(cluster.hosts[3].resource_usage().retained_manifest_cells == Some(2));
         ensure!(isolation::disk_digest(&disk)? == retained);
         service.take().unwrap().shutdown().await;
-        ensure!(observer.resource_usage().control == baseline);
+        ensure!(service_usage(observer, limits)? == baseline);
         let payload_reads = independent.group_payload_reads.load(Ordering::Acquire);
         let isolation_calls = platform.contexts.lock().unwrap().len();
         ensure!(isolation_calls >= 2 && inputs.calls.load(Ordering::Acquire) > 0);
@@ -512,7 +531,7 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
             .context("terminal failure recovery status")?;
         ensure!(status.context == context);
         service.take().unwrap().shutdown().await;
-        ensure!(observer.resource_usage().control == baseline);
+        ensure!(service_usage(observer, limits)? == baseline);
         let cut = f.catalog.read(TIMEOUT).await?;
         let removed = f
             .catalog

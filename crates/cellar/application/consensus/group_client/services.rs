@@ -38,6 +38,7 @@ impl ControlServiceKind {
 
 struct Entry {
     id: u64,
+    bytes: usize,
     stop: watch::Sender<bool>,
 }
 
@@ -131,7 +132,7 @@ impl Services {
         state.next = state.next.checked_add(1).ok_or(FleetCatalogError::Limit)?;
         let id = state.next;
         let (stop, receiver) = watch::channel(false);
-        state.slots[kind.slot()] = Some(Entry { id, stop });
+        state.slots[kind.slot()] = Some(Entry { id, bytes, stop });
         Ok(ControlServiceLease {
             owner: self.clone(),
             kind,
@@ -139,6 +140,16 @@ impl Services {
             stop: receiver,
             memory: Some(memory),
         })
+    }
+
+    pub(super) fn usage(&self) -> CellGroupControlServiceUsage {
+        let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        let mut usage = CellGroupControlServiceUsage::default();
+        for entry in state.slots.iter().flatten() {
+            usage.workers += 1;
+            usage.bytes += entry.bytes;
+        }
+        usage
     }
 
     pub(super) async fn close(&self) {
