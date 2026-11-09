@@ -96,7 +96,13 @@ async fn inspection_catches_up_trust_with_one_original_request() -> Result<()> {
     .await;
     second.store.fleet_read_hang.store(false, Ordering::Release);
     second.store.fleet_read_resume.notify_waiters();
-    let joined = managed_fixture::close_group_nodes(nodes, &hosts).await;
+    let mut joined = Ok(());
+    for (node, host) in nodes.into_iter().zip(&hosts) {
+        let result = stopped(node, host).await;
+        if joined.is_ok() {
+            joined = result;
+        }
+    }
     first.domain.shutdown().await;
     result?;
     joined?;
