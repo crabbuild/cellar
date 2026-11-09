@@ -209,6 +209,20 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
             peer: cluster.peers[0].clone(),
         })?;
     }
+    // Fleet registration precedes the initial election. Start the workload only
+    // after its fixed ingress has discovered the elected, ready RF3 leader.
+    let elected = leader(&cluster.hosts[..3], cluster.history).await?;
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let status = cluster.hosts[0].group(cluster.history)?.status().await?;
+            if status.ready && status.leader == Some(elected as u64 + 1) {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("initial fanout ingress readiness")??;
     let retry = u64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -236,7 +250,8 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
                     },
                     TIMEOUT,
                 )
-                .await?;
+                .await
+                .with_context(|| format!("enroll fanout cell {index}"))?;
             ensure!(enrolled.durability() == Durability::Quorum);
             drop(enrolled);
             let delta = i64::from(index + 1);
