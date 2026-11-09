@@ -5,6 +5,12 @@ use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_router_learns_replacement_voter() -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            "cellar::raft::group_host::directory=debug,cellar::raft::query_connection=debug",
+        )
+        .with_test_writer()
+        .try_init();
     for rooted in [false, true] {
         Box::pin(routed_replacement(
             rooted,
@@ -125,6 +131,7 @@ async fn routed_replacement(rooted: bool, store: Arc<fault::Store>) -> Result<()
                 },
             )
         };
+        let mut last = None;
         let read = tokio::time::timeout_at(deadline, async {
             loop {
                 let budget = || {
@@ -139,6 +146,7 @@ async fn routed_replacement(rooted: bool, store: Arc<fault::Store>) -> Result<()
                     budget(),
                 )
                 .await;
+                last = Some((old.as_ref().err().map(ToString::to_string), None));
                 if matches!(
                     old.as_ref().err().map(Arc::as_ref),
                     Some(CellDispatchError::Transport(
@@ -152,6 +160,10 @@ async fn routed_replacement(rooted: bool, store: Arc<fault::Store>) -> Result<()
                         budget(),
                     )
                     .await;
+                    last = Some((
+                        old.as_ref().err().map(ToString::to_string),
+                        result.as_ref().err().map(ToString::to_string),
+                    ));
                     if let Ok(read) = result {
                         return Ok::<_, anyhow::Error>(read);
                     }
@@ -160,7 +172,7 @@ async fn routed_replacement(rooted: bool, store: Arc<fault::Store>) -> Result<()
             }
         })
         .await
-        .context("ingress did not replace the retired voter route")??;
+        .with_context(|| format!("ingress did not replace the retired voter route: {last:?}"))??;
         ensure!(
             read.served_by == member && read.served_by_node.node == cluster.fixtures[3].spec.node
         );
