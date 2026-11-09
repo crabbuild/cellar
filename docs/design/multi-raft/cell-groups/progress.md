@@ -13,6 +13,70 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 automatic merge across disjoint RF3 placements
+
+At `fa65208261c60dc901e7673d1aeff66f1a9f4396`, automatic selection discovers a local range's immediate
+right neighbor and obtains authenticated telemetry from its actual leader,
+including when the controller has no local replica of that group. The parents
+use the existing archive-backed merge protocol. Source quorum, route, membership,
+capacity, seal and activation remain independently checked by their owners.
+
+Each local anchor retains at most one remote neighbor. Both tracker sets are
+charged to the existing control budget: 64 KiB per configured local group plus
+64 KiB fixed metadata. One turn samples one local group and at most one neighbor;
+immutable tree paths have a 32-level bound. The current root locates three settled
+voters; a cached leader selects only the first target. Requests consume the
+original turn deadline. No namespace-wide range/cell scan or per-cell task is added.
+
+Candidate ranking now includes selected parents' rooted settled occupancy before
+its six-node physical-probe window. The initial `33034eb0` run omitted that load
+and placed both children on the same three nodes; its disjointness assertion
+correctly failed. Physical probing and complete resource accounting still own
+feasibility. The original per-node engine/image/byte limits and recovery reserve
+remain in place.
+
+The next run exposed a sampling-cadence defect: an interval complete on the source
+clock could arrive before a complete receiver interval, resetting quiet hysteresis.
+Diagnostics showed stable, idle, fully archived parents and a valid merge with
+spaced observations. Accepted samples now require complete intervals on both
+clocks. Source rates and receiver freshness/cooldown remain separate.
+Rapid 50-ms service polling still flooded one-second policy sampling, causing
+retryable inspection overload to discard neighbor history repeatedly. The new
+scheduler skips catalog and peer work until that group's sampling interval is
+complete. A separate native/RustFS stable-group case requires that an immediate
+repeat performs no catalog reads or remote observation. The original
+60-second test deadline and policy thresholds are unchanged; diagnostic edits are
+removed, and failed attempts remain recorded.
+
+The new native workflow passes in 68.710 seconds. The two-case real RustFS suite
+passes the same executable in both materialized and extent modes in
+125.916 seconds. Under actual SQL load,
+the standard planner selects disjoint RF3 children on nine TLS nodes. The test
+requires that no controller hosts both parents, replaces all configured controllers
+after durable selection, then merges quiet siblings. SQL, logical cell histories,
+the full receipt ledger, fresh quorum writes and joined shutdown are checked.
+A separate stable RF3 case checks local and remote early repeats without transition
+ownership or newly activated leader discovery in its setup. It passes both image
+modes natively and in the same real RustFS suite. The initial probes inside the
+split/merge fixture hit its existing reservation/readiness fences; those failed
+attempts remain retained, and the sampling assertions remain in the isolated case.
+Existing automatic-cycle, reserve-refusal, scheduler-authority and whole-group-scale
+cases also pass their focused native scope.
+Transition executable SHA-256: `5cdd6f1789b9cf14b0b66d01f69ae8ae23d97e7543dbebf93185311df6aad8f3`.
+
+Records: `.cellar/cell-groups-evidence/CG-11-disjoint-fa652082-01/record.json` and
+`.cellar/cell-groups-evidence/CG-11-disjoint-fa652082-rustfs-01/record.json`.
+RustFS uses one CPU/2-GiB in the owned eight-CPU/16-GiB VM; voters are host-native.
+The owned backend and VM are stopped with objects retained. Independent voter
+processes/domains, physical peaks and sustained mixed load remain unqualified.
+
+This closes the automatic disjoint-placement merge feature gap. CG-11 remains
+`IN_PROGRESS` for `control_plane_fanout_bounded`, failure handoff with already-admitted
+moves, larger-inventory/load/domain qualification and complete task acceptance.
+The separate managed-recovery aggregate-budget assertion failure from `6bcbee37`
+and CG-14's original S3 deadline failure remain recorded and unwaived. This is a
+feature CHECKPOINT, not a unified release gate.
+
 ## CG-11 automatic fenced failure-domain repair
 
 At `6bcbee3726e91b795a6ca09c91b8174f16a89b9f`, configured automatic recovery yields a bounded balancing intent

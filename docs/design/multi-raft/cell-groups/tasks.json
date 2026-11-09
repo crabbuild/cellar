@@ -2494,7 +2494,8 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/automatic/policy.rs",
         "crates/cellar/tests/support/cell_group_automatic_topology.rs",
         "crates/cellar/durability/raft/records_seed_tests.rs",
-        "crates/cellar/tests/support/cell_group_automatic_repair.rs"
+        "crates/cellar/tests/support/cell_group_automatic_repair.rs",
+        "crates/cellar/fleet/management/raft/partition_observation.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [

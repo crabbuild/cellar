@@ -89,7 +89,7 @@ for its five public cases and all required commands at `84942c4e`.
 Each remaining task still needs the exact target, case oracles and evidence
 specified by `plan.py show <task>`. The index counts acceptance through complete
 task records. CG-11's four passing named cases are scoped checkpoints. Its missing
-`control_plane_fanout_bounded` case, disjoint-placement merge alignment and remaining
+`control_plane_fanout_bounded` case and remaining
 load/domain qualification prevent full task acceptance.
 The separate managed-recovery regression currently fails its registered-node
 aggregate-budget assertion before repair begins. Resolve that ownership-accounting
@@ -104,7 +104,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | Configured placement/split/merge and automatic balancing pass their recorded native/RustFS scopes. At `6bcbee37`, automatic fenced repair, retained-voter return beside an isolated peer, active quorum-loss refusal, safe spare selection and reserve preservation pass both image modes natively and against RustFS. All seven native scheduler cases pass, including four of five required names. | Implement disjoint replica-set merge alignment and the exact bounded-fanout case. Qualify failure handoff with already-admitted moves, larger inventories, mixed load, physical peaks and independent domains before full scheduler acceptance. Fixture fencing does not qualify permanent Docker launch revocation. |
+| CG-11 | Configured placement/split/merge, balancing and fenced repair retain their recorded native/RustFS scopes. At `fa652082`, the standard planner creates disjoint RF3 children and automatic selection merges them through bounded adjacent-range discovery. Nine-node native and real RustFS cases pass both image modes with controller replacement, SQL, receipts and fresh quorum writes. Four of five required scheduler names have scoped passes. | Implement the exact bounded-fanout case. Qualify failure handoff with admitted moves, larger inventories, mixed load, physical peaks and independent domains; resolve the separate managed-refusal ownership-accounting failure before complete task acceptance. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
@@ -131,9 +131,10 @@ through the shared backend and preserve typed refusals for the rest.
    and paired recovery-room refusal also pass both modes at `c2b6d202`,
    including three persisted moves, controller replacement and operator handover.
    At `6bcbee37`, automatic fenced repair and the exact failure-domain/reserve
-   case pass natively and against real RustFS in both image modes. Next implement
-   alignment of adjacent groups on disjoint replica sets, followed by the missing
-   bounded-fanout case and already-admitted-move failure handoff qualification. Keep the full task open until its planned load,
+   case pass natively and against real RustFS in both image modes. At `fa652082`,
+   automatic merge across disjoint RF3 placements also passes both modes natively
+   and against RustFS. Next implement the bounded-fanout case, followed by
+   already-admitted-move failure handoff qualification. Keep the full task open until its planned load,
    larger-inventory, peak and domain qualifications pass. Earlier cancellation,
    request-readiness and operator checkpoints remain scoped to their own sources.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
