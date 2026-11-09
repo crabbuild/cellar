@@ -82,6 +82,7 @@ async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow
             peers: vec![],
             query_origins: vec![],
             command_origins: vec![],
+            isolated_peers: None,
         },
         root.path().join("cells"),
         test_support::host_options(),
@@ -392,6 +393,7 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
         peers: peers.values().cloned().collect(),
         query_origins: vec![],
         command_origins: vec![],
+        isolated_peers: None,
     };
     let remote_service = remote.service();
     let remote_host = remote
@@ -427,6 +429,7 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
         peers: peers.into_values().collect(),
         query_origins: vec![],
         command_origins: vec![],
+        isolated_peers: None,
     };
     let service = local.service();
     let directory = local.root.path().join("cells");
@@ -569,6 +572,7 @@ async fn late_startup_refusal_joins_control_services_before_storage_close() -> a
         groups: vec![],
         query_origins: vec![],
         command_origins: vec![],
+        isolated_peers: None,
     };
     let options = test_support::host_options();
     let capacity = options.max_control_bytes;
