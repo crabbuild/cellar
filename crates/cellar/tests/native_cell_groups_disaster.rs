@@ -1,0 +1,66 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! CG-13 managed recovery of unpublished parents and acknowledged child tails.
+//! Real TLS voters and disks; platform fencing is qualified separately.
+#![allow(clippy::disallowed_methods)]
+
+use anyhow::{ensure, Context as _, Result};
+use cellar::application::consensus::verification::cell_groups::*;
+use cellar::sdk::{consensus::*, *};
+use managed_fixture::{fault, limits, request, start_node, Fixture, TIMEOUT};
+use std::{
+    sync::{atomic::Ordering, Arc},
+    time::Duration,
+};
+
+#[path = "support/cell_group_transition_context.rs"]
+mod bootstrap;
+#[path = "support/cell_group_transition_catalog.rs"]
+mod catalog;
+#[path = "support/cell_group_managed_fixture.rs"]
+pub mod managed_fixture;
+pub use source_fixture::rustfs;
+#[path = "support/cell_group_host_context.rs"]
+mod source_fixture;
+
+pub use source_fixture::runtime_fixture::catalog_fault;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn transition_disaster_selects_complete_closure() -> Result<()> {
+    use bootstrap::transition::RecoveryPoint;
+    for rooted in [false, true] {
+        for point in [
+            RecoveryPoint::UnpublishedParents,
+            RecoveryPoint::PublishedChildren,
+        ] {
+            Box::pin(bootstrap::transition::qualify_disaster(
+                rooted,
+                Arc::new(catalog_fault::Store::default()),
+                point,
+            ))
+            .await
+            .with_context(|| format!("managed disaster {point:?}, extents={rooted}"))?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_transition_disaster_selects_complete_closure() -> Result<()> {
+    use bootstrap::transition::RecoveryPoint;
+    for rooted in [false, true] {
+        for (point, cohort) in [
+            (RecoveryPoint::UnpublishedParents, "disaster-parent-cuts"),
+            (RecoveryPoint::PublishedChildren, "disaster-child-tails"),
+        ] {
+            let store = Arc::new(catalog_fault::Store::around(rustfs::store(cohort, rooted)?));
+            Box::pin(bootstrap::transition::qualify_disaster(
+                rooted, store, point,
+            ))
+            .await
+            .with_context(|| format!("RustFS managed disaster {point:?}, extents={rooted}"))?;
+        }
+    }
+    Ok(())
+}

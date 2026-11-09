@@ -184,7 +184,7 @@ pub(crate) async fn qualify(rooted: bool, store: Arc<fault::Store>, movement: bo
             async {
                 let decision = if movement {
                     Decision::SplitMerge {
-                        recovery_barrier: false,
+                        recovery_barrier: RecoveryPoint::Disabled,
                         check_child_fence: false,
                         check_resource_bounds: false,
                     }

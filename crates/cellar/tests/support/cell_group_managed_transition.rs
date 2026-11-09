@@ -81,13 +81,20 @@ pub(crate) async fn qualify_retirement(rooted: bool, store: Arc<fault::Store>) -
     Box::pin(run_plan(rooted, store, Decision::Retirement)).await
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RecoveryPoint {
+    Disabled,
+    UnpublishedParents,
+    PublishedChildren,
+}
+
 enum Decision {
     Authorize,
     Retirement,
     Publication,
     Cancel,
     SplitMerge {
-        recovery_barrier: bool,
+        recovery_barrier: RecoveryPoint,
         check_child_fence: bool,
         check_resource_bounds: bool,
     },
@@ -801,9 +808,40 @@ pub(crate) fn qualify_split_merge(
         rooted,
         store,
         Decision::SplitMerge {
-            recovery_barrier: false,
+            recovery_barrier: RecoveryPoint::Disabled,
             check_child_fence,
             check_resource_bounds,
         },
     ))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_published_disaster_preserves_child_s3_tail() -> Result<()> {
+    Box::pin(qualify_disaster(
+        false,
+        Arc::new(fault::Store::default()),
+        RecoveryPoint::PublishedChildren,
+    ))
+    .await
+}
+
+/// Recover either side of the directory publication through the same managed API.
+pub(crate) fn qualify_disaster(
+    rooted: bool,
+    store: Arc<fault::Store>,
+    point: RecoveryPoint,
+) -> futures_util::future::LocalBoxFuture<'static, Result<()>> {
+    Box::pin(async move {
+        ensure!(point != RecoveryPoint::Disabled);
+        Box::pin(run_plan(
+            rooted,
+            store,
+            Decision::SplitMerge {
+                recovery_barrier: point,
+                check_child_fence: false,
+                check_resource_bounds: false,
+            },
+        ))
+        .await
+    })
 }

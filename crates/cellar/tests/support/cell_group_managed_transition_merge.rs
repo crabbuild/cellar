@@ -362,7 +362,7 @@ async fn rustfs_managed_split_merge() -> Result<()> {
             rooted,
             store,
             Decision::SplitMerge {
-                recovery_barrier: false,
+                recovery_barrier: RecoveryPoint::Disabled,
                 check_child_fence: false,
                 check_resource_bounds: false,
             },
@@ -379,7 +379,7 @@ async fn managed_recovery_barrier_fences_transfer_and_reopens() -> Result<()> {
         false,
         Arc::new(fault::Store::default()),
         Decision::SplitMerge {
-            recovery_barrier: true,
+            recovery_barrier: RecoveryPoint::UnpublishedParents,
             check_child_fence: false,
             check_resource_bounds: false,
         },
@@ -399,7 +399,7 @@ async fn rustfs_managed_recovery_barrier_fences_transfer_and_reopens() -> Result
             rooted,
             store,
             Decision::SplitMerge {
-                recovery_barrier: true,
+                recovery_barrier: RecoveryPoint::UnpublishedParents,
                 check_child_fence: false,
                 check_resource_bounds: false,
             },
@@ -456,7 +456,7 @@ pub(super) fn run<'a>(
     directory: &'a RangeDirectory,
     cells: Vec<CellHistory>,
     rooted: bool,
-    recovery_barrier: bool,
+    recovery_barrier: RecoveryPoint,
     check_child_fence: bool,
 ) -> impl std::future::Future<Output = Result<Option<GroupHistory>>> + 'a {
     Box::pin(run_inner(
@@ -474,7 +474,7 @@ async fn run_inner(
     directory: &RangeDirectory,
     cells: Vec<CellHistory>,
     rooted: bool,
-    recovery_barrier: bool,
+    recovery_barrier: RecoveryPoint,
     check_child_fence: bool,
 ) -> Result<Option<GroupHistory>> {
     Box::pin(effects::before_merge(cluster)).await?;
@@ -1244,164 +1244,17 @@ async fn run_inner(
             .context("archived merge cut")?,
     };
     ensure!(publish.archive_digest == hex::encode(archive));
-    if recovery_barrier {
-        let birth = domain
-            .run(directory.materialize_selected_history(parents[0].history))
-            .await??;
-        let wrong = Box::pin(control.select_transition_recovery_barrier(
-            principal,
-            &namespace,
-            &recovery_operation,
-            [99; 32],
-            TIMEOUT,
-        ))
-        .await;
-        ensure!(
-            matches!(wrong, Err(failure) if failure.code == RaftFleetFailureCode::PayloadConflict)
-        );
-        let work = control.select_transition_recovery_barrier(
-            principal,
-            &namespace,
-            &recovery_operation,
-            parent_intent.digest(),
-            TIMEOUT,
-        );
-        let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
-        ensure!(
-            delivered
-                && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable)
-        );
-        let (fresh_catalog, fresh_directory) = reopen_merge_controller(fixture).await?;
-        let fresh = RaftFleetControl::new(domain, fresh_catalog, vec![fresh_directory])?;
-        let confirmed = Box::pin(fresh.select_transition_recovery_barrier(
-            principal,
-            &namespace,
-            &recovery_operation,
-            parent_intent.digest(),
-            TIMEOUT,
-        ))
-        .await?;
-        ensure!(confirmed.intent_digest() == parent_intent.digest());
-        let locked = domain.run(directory.observe()).await??;
-        ensure!(locked.digest() == confirmed.directory_digest());
-        let authority = TransitionFence::own(
-            domain.clone(),
-            &cluster.fixtures,
-            &mut cluster.roots,
-            &mut cluster.nodes,
-            &mut cluster.hosts,
-        )?;
-        let foreign = Box::pin(recovery_control.fence_transition_recovery(
-            "foreign-operator",
-            &namespace,
-            &recovery_operation,
-            confirmed,
-            &authority,
-            TIMEOUT,
-        ))
-        .await;
-        ensure!(matches!(foreign, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
-        ensure!(authority.fences.load(Ordering::Acquire) == 0);
-        fixture
-            .store
-            .fail_recovery_record_confirmation
-            .store(true, Ordering::Release);
-        let unknown = Box::pin(recovery_control.fence_transition_recovery(
-            principal,
-            &namespace,
-            &recovery_operation,
-            confirmed,
-            &authority,
-            TIMEOUT,
-        ))
-        .await;
-        ensure!(
-            matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable)
-        );
-        ensure!(!fixture
-            .store
-            .fail_recovery_record_confirmation
-            .load(Ordering::Acquire));
-        ensure!(authority.fences.load(Ordering::Acquire) == 1);
-        ensure!(authority.erased_disks().await == cluster.fixtures.len());
-        drop(recovery_control);
-        drop(recovery_verifier);
-        domain
-            .blocking(move || recovery_workspace.close())?
-            .await??;
-        let cold_workspace = tempfile::tempdir()?;
-        let cold_verifier =
-            crate::managed_fixture::verifier::open(fixture, cold_workspace.path(), rooted, limits)
-                .await?;
-        let fresh = fresh.with_transition_preparer(cold_verifier, preparation::recovery_pool()?);
-        let fenced = Box::pin(fresh.fence_transition_recovery(
-            principal,
-            &namespace,
-            &recovery_operation,
-            confirmed,
-            &authority,
-            TIMEOUT,
-        ))
-        .await?;
-        let fenced = Arc::new(fenced);
-        ensure!(fenced.request().barrier() == confirmed);
-        ensure!(fenced.request().intent().digest() == parent_intent.digest());
-        ensure!(
-            fenced.request().intent().required_voter_lineages()
-                == parent_intent.required_voter_lineages()
-        );
-        ensure!(fenced.receipt_digest() != [0; 32]);
-        ensure!(fenced
-            .archives()
-            .iter()
-            .map(|cut| cut.hold())
-            .eq(parent_holds.iter()));
-        ensure!(authority.fences.load(Ordering::Acquire) == 1);
-        ensure!(authority.verifications.load(Ordering::Acquire) == 2);
-        let cut = fleet.read(TIMEOUT).await?;
-        Box::pin(fence::check_old_boot_refused(fixture)).await?;
-        ensure!(fleet.read(TIMEOUT).await?.revision() == cut.revision());
-        ensure!(matches!(
-            domain
-                .run(directory.require_current_group_birth(&birth))
-                .await?,
-            Err(cellar::application::consensus::CatalogError::Fenced)
-        ));
-        let refused = Box::pin(control.publish_transition(
-            principal,
-            &namespace,
-            &operation_id,
-            &publish,
-            TIMEOUT,
-        ))
-        .await;
-        ensure!(matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
-        let observed = control
-            .transition_status(&namespace, &operation_id, TIMEOUT)
-            .await?;
-        ensure!(observed.phase == Some(TransitionPhase::Archived) && observed.fleet_slot_held);
-        let page = domain.run(directory.group_page(&locked, None, 2)).await??;
-        ensure!(page.routes == parents && page.next.is_none());
-        let fixture = fixture.clone();
-        // Replacement is a separate lifecycle phase with its own polling
-        // stack. Keep the cold verifier workspace alive until it joins.
-        let replacement = domain.spawn(Box::pin(async move {
-            Box::pin(check_recovery_replacements(
-                &fixture,
-                &control,
-                &fresh,
-                &namespace,
-                &fenced,
-                &RecoveryScenario {
-                    routed: &routed,
-                    receipts: &receipts,
-                    authority: &authority,
-                },
-                rooted,
-            ))
-            .await
-        }))?;
-        replacement.await??;
+    if recovery_barrier == RecoveryPoint::UnpublishedParents {
+        let selected = SelectedDisasterRecovery {
+            intent: parent_intent,
+            principal: principal.clone(),
+            routed,
+            receipts,
+            value_delta: 1,
+            tail: None,
+            publication: Some(publish.clone()),
+        };
+        Box::pin(recover_selected(cluster, directory, selected, rooted)).await?;
         return Ok(None);
     }
     for (registry, hold) in registries.iter().zip(&parent_holds) {
@@ -1453,7 +1306,7 @@ async fn run_inner(
         voters,
         child.history,
         &routed,
-        receipts,
+        receipts.clone(),
         retry,
     ))
     .await?;
@@ -1575,6 +1428,27 @@ async fn run_inner(
         let [archive] = restored.archives() else {
             anyhow::bail!("expected exactly one selected child archive");
         };
+        if recovery_barrier == RecoveryPoint::PublishedChildren {
+            let intent = Box::pin(recovery_control.stage_transition_recovery_intent(
+                principal,
+                &hex::encode([208; 16]),
+                &restored,
+                TIMEOUT,
+            ))
+            .await?;
+            ensure!(intent.archive_holds() == [current.clone()]);
+            let selected = SelectedDisasterRecovery {
+                intent,
+                principal: principal.clone(),
+                routed,
+                receipts,
+                value_delta: 2,
+                tail: Some(s3_receipt),
+                publication: None,
+            };
+            Box::pin(recover_selected(cluster, directory, selected, rooted)).await?;
+            return Ok(None);
+        }
         ensure!(archive.hold() == &current);
         let manifest = archive.recovery().manifest();
         ensure!(manifest.pinned_images() == routed.len());
@@ -1633,10 +1507,233 @@ async fn run_inner(
     Ok(Some(child.history))
 }
 
+struct SelectedDisasterRecovery {
+    intent: cellar::sdk::fleet_operations::FleetTransitionRecoveryIntent,
+    principal: String,
+    routed: Vec<(CellHistory, i64)>,
+    receipts: Vec<CommandReceipt>,
+    value_delta: i64,
+    tail: Option<CommandReceipt>,
+    publication: Option<RaftFleetTransitionPublishRequest>,
+}
+
+async fn recover_selected(
+    cluster: &mut ManagedCluster,
+    directory: &RangeDirectory,
+    selected: SelectedDisasterRecovery,
+    rooted: bool,
+) -> Result<()> {
+    let SelectedDisasterRecovery {
+        intent: parent_intent,
+        principal,
+        routed,
+        receipts,
+        value_delta,
+        tail,
+        publication,
+    } = selected;
+    let principal = &principal;
+    let fixture = &cluster.fixtures[0];
+    let fleet = &fixture.catalog;
+    let domain = &fixture.domain;
+    let namespace = hex::encode(cluster.history.namespace.bytes());
+    let recovery_operation = hex::encode(parent_intent.operation());
+    let operation_id = hex::encode(parent_intent.transition());
+    let parent_holds = parent_intent.archive_holds().to_vec();
+    let sources: Vec<_> = parent_holds
+        .iter()
+        .map(|hold| hold.marker().route().clone())
+        .collect();
+    let control = RaftFleetControl::new(domain, fleet.clone(), vec![directory.clone()])?;
+    let phase = control
+        .transition_status(&namespace, &operation_id, TIMEOUT)
+        .await?
+        .phase;
+    ensure!(matches!(
+        phase,
+        Some(TransitionPhase::Archived | TransitionPhase::Active)
+    ));
+    let limits = CellGroupArchiveTailLimits {
+        max_operations: 2,
+        max_retained_bytes: 2 * CellGroupArchiveTailLimits::default().max_retained_bytes,
+        ..Default::default()
+    };
+    let recovery_workspace = tempfile::tempdir()?;
+    let recovery_verifier =
+        crate::managed_fixture::verifier::open(fixture, recovery_workspace.path(), rooted, limits)
+            .await?;
+    let recovery_control = control
+        .clone()
+        .with_transition_preparer(recovery_verifier.clone(), preparation::recovery_pool()?);
+
+    let birth = domain
+        .run(directory.materialize_selected_history(
+            parent_intent.archive_holds()[0].marker().route().history,
+        ))
+        .await??;
+    let wrong = Box::pin(control.select_transition_recovery_barrier(
+        principal,
+        &namespace,
+        &recovery_operation,
+        [99; 32],
+        TIMEOUT,
+    ))
+    .await;
+    ensure!(matches!(wrong, Err(failure) if failure.code == RaftFleetFailureCode::PayloadConflict));
+    let work = control.select_transition_recovery_barrier(
+        principal,
+        &namespace,
+        &recovery_operation,
+        parent_intent.digest(),
+        TIMEOUT,
+    );
+    let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
+    ensure!(
+        delivered
+            && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable)
+    );
+    let (fresh_catalog, fresh_directory) = reopen_merge_controller(fixture).await?;
+    let fresh = RaftFleetControl::new(domain, fresh_catalog, vec![fresh_directory])?;
+    let confirmed = Box::pin(fresh.select_transition_recovery_barrier(
+        principal,
+        &namespace,
+        &recovery_operation,
+        parent_intent.digest(),
+        TIMEOUT,
+    ))
+    .await?;
+    ensure!(confirmed.intent_digest() == parent_intent.digest());
+    let locked = domain.run(directory.observe()).await??;
+    ensure!(locked.digest() == confirmed.directory_digest());
+    let authority = TransitionFence::own(
+        domain.clone(),
+        &cluster.fixtures,
+        &mut cluster.roots,
+        &mut cluster.nodes,
+        &mut cluster.hosts,
+    )?;
+    let foreign = Box::pin(recovery_control.fence_transition_recovery(
+        "foreign-operator",
+        &namespace,
+        &recovery_operation,
+        confirmed,
+        &authority,
+        TIMEOUT,
+    ))
+    .await;
+    ensure!(matches!(foreign, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+    ensure!(authority.fences.load(Ordering::Acquire) == 0);
+    fixture
+        .store
+        .fail_recovery_record_confirmation
+        .store(true, Ordering::Release);
+    let unknown = Box::pin(recovery_control.fence_transition_recovery(
+        principal,
+        &namespace,
+        &recovery_operation,
+        confirmed,
+        &authority,
+        TIMEOUT,
+    ))
+    .await;
+    ensure!(matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+    ensure!(!fixture
+        .store
+        .fail_recovery_record_confirmation
+        .load(Ordering::Acquire));
+    ensure!(authority.fences.load(Ordering::Acquire) == 1);
+    ensure!(authority.erased_disks().await == cluster.fixtures.len());
+    drop(recovery_control);
+    drop(recovery_verifier);
+    domain
+        .blocking(move || recovery_workspace.close())?
+        .await??;
+    let cold_workspace = tempfile::tempdir()?;
+    let cold_verifier =
+        crate::managed_fixture::verifier::open(fixture, cold_workspace.path(), rooted, limits)
+            .await?;
+    let fresh = fresh.with_transition_preparer(cold_verifier, preparation::recovery_pool()?);
+    let fenced = Box::pin(fresh.fence_transition_recovery(
+        principal,
+        &namespace,
+        &recovery_operation,
+        confirmed,
+        &authority,
+        TIMEOUT,
+    ))
+    .await?;
+    let fenced = Arc::new(fenced);
+    ensure!(fenced.request().barrier() == confirmed);
+    ensure!(fenced.request().intent().digest() == parent_intent.digest());
+    ensure!(
+        fenced.request().intent().required_voter_lineages()
+            == parent_intent.required_voter_lineages()
+    );
+    ensure!(fenced.receipt_digest() != [0; 32]);
+    ensure!(fenced
+        .archives()
+        .iter()
+        .map(|cut| cut.hold())
+        .eq(parent_holds.iter()));
+    ensure!(authority.fences.load(Ordering::Acquire) == 1);
+    ensure!(authority.verifications.load(Ordering::Acquire) == 2);
+    let cut = fleet.read(TIMEOUT).await?;
+    Box::pin(fence::check_old_boot_refused(fixture)).await?;
+    ensure!(fleet.read(TIMEOUT).await?.revision() == cut.revision());
+    ensure!(matches!(
+        domain
+            .run(directory.require_current_group_birth(&birth))
+            .await?,
+        Err(cellar::application::consensus::CatalogError::Fenced)
+    ));
+    if let Some(publish) = publication {
+        let refused = Box::pin(control.publish_transition(
+            principal,
+            &namespace,
+            &operation_id,
+            &publish,
+            TIMEOUT,
+        ))
+        .await;
+        ensure!(matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+    }
+    let observed = control
+        .transition_status(&namespace, &operation_id, TIMEOUT)
+        .await?;
+    ensure!(observed.phase == phase && observed.fleet_slot_held);
+    let page = domain.run(directory.group_page(&locked, None, 2)).await??;
+    ensure!(page.routes == sources && page.next.is_none());
+    let fixture = fixture.clone();
+    // Replacement is a separate lifecycle phase with its own polling
+    // stack. Keep the cold verifier workspace alive until it joins.
+    let replacement = domain.spawn(Box::pin(async move {
+        Box::pin(check_recovery_replacements(
+            &fixture,
+            &control,
+            &fresh,
+            &namespace,
+            &fenced,
+            &RecoveryScenario {
+                routed: &routed,
+                receipts: &receipts,
+                authority: &authority,
+                value_delta,
+                tail: tail.as_ref(),
+            },
+            rooted,
+        ))
+        .await
+    }))?;
+    replacement.await??;
+    Ok(())
+}
+
 struct RecoveryScenario<'a> {
     routed: &'a [(CellHistory, i64)],
     receipts: &'a [CommandReceipt],
     authority: &'a TransitionFence,
+    value_delta: i64,
+    tail: Option<&'a CommandReceipt>,
 }
 
 async fn check_recovery_replacements(
@@ -1846,7 +1943,8 @@ async fn check_recovery_voter_reservations(
         )
         .await?;
         ensure!(
-            replayed.applied_revision() < previous && replayed.voter_boots() == boots.as_slice()
+            replayed.applied_revision() == reserved[0].applied_revision()
+                && replayed.voter_boots() == boots.as_slice()
         );
         let revision = fixture.catalog.read(TIMEOUT).await?.revision();
         let recovery = preparation::recovery_pool()?;
@@ -2367,7 +2465,7 @@ async fn check_recovered_sql(
                     },
                 )
                 .await?;
-            ensure!(query.result == (value + 1).to_be_bytes());
+            ensure!(query.result == (value + sql.value_delta).to_be_bytes());
             let old_token = handle
                 .query(
                     ProposalId::new([215; 16])?,
@@ -2403,13 +2501,35 @@ async fn check_recovered_sql(
                     && restored.observation().version == query.version
                     && restored.observation().witness.group == history
             );
+            if let Some(tail) = sql.tail.filter(|tail| tail.version.history == *old_cell) {
+                let restored = handle
+                    .receipt(
+                        CellReceiptRequest {
+                            id: tail.id,
+                            contract: add.clone(),
+                            input: 0i64.to_be_bytes().to_vec(),
+                            durability: Durability::S3,
+                        },
+                        TIMEOUT,
+                    )
+                    .await?;
+                let stored = restored
+                    .receipt()
+                    .context("published child S3 receipt missing")?;
+                ensure!(stored.command() == tail.id && stored.result() == tail.result.as_slice());
+                ensure!(
+                    restored.observation().version == query.version
+                        && restored.observation().witness.group == history
+                );
+            }
             let id = CommandId::new(ClientId::new([212; 16])?, 1)?;
             let options = CommandOptions::new(id, retry);
             let receipt = handle
                 .command(&add, 1i64.to_be_bytes().to_vec(), options)
                 .await?;
             ensure!(
-                receipt.result == (value + 2).to_be_bytes() && receipt.witness.group == history
+                receipt.result == (value + sql.value_delta + 1).to_be_bytes()
+                    && receipt.witness.group == history
             );
             let duplicate = handle
                 .command(
@@ -2457,7 +2577,7 @@ async fn check_recovered_sql(
                 )
                 .await?;
             ensure!(
-                archived.result == (value + 3).to_be_bytes()
+                archived.result == (value + sql.value_delta + 2).to_be_bytes()
                     && archived.witness.group == history
                     && archived.durability == Durability::S3
             );
