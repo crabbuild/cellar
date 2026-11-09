@@ -13,6 +13,70 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 automatic fenced failure-domain repair
+
+At `6bcbee3726e91b795a6ca09c91b8174f16a89b9f`, configured automatic recovery yields a bounded balancing intent
+to an exact-boot failure operation, resumes committed isolation after controller
+suspension, and restores RF3 on the only spare satisfying the declared zone and
+region policy. Repair now requires an explicit policy; the Docker resource
+provider and preflight require its `placement` fields rather than silently
+weakening separation. A completed health round survives unrelated planner
+errors; failed or cancelled observations clear failure grace.
+
+Retained managed voters can return while a permanently isolated peer has no
+transport address. Startup verifies the canonical isolation receipt against the
+current fleet cut before omitting that endpoint. It retains the full durable
+voting configuration; missing or unreachable peers alone supply no exception.
+
+The native scheduler target passes all seven native cases, with seven explicit
+RustFS cases skipped, in 331.137 seconds. This includes four
+of CG-11's five named cases; `control_plane_fanout_bounded` remains absent.
+Five failure-detection tests, three owning startup tests, and the existing
+automatic balancing regression pass. The fixed real RustFS repair
+suite passes in both materialized and extent modes in
+110.355 seconds. Scheduler executable SHA-256:
+`92e393a95d51539186c7b681cae586fdc62f202836d9d4d6704046e308fd5c1f`.
+
+The repair case closes two original voters before recovery, runs the active
+controller without quorum, and requires refusal of replacement admission, quorum
+writes and linearizable reads. A retained voter then returns; the same ambiguous
+command is reconciled under its original identity, the failed voter is replaced,
+and fresh quorum writes, SQL, all seed receipts, routing, spare selection, reserve
+and the retained fenced disk are checked. Suspend joins the held isolation
+callback; resume uses its committed proof without repeating platform isolation.
+
+Physical settlement exposed a test-owned read pin held beyond its membership
+assertion. The test now releases that observation after checking the original
+three-voter configuration. Settlement still refuses live pins. Earlier failed
+attempts are retained and are not qualification passes.
+
+The separate managed-recovery regression fails before repair at its registered-node
+control-budget equality assertion: refusal succeeds and the catalog stays at
+revision 22, while aggregate usage changes from 4 MiB/one item to 5 MiB/two items
+with the independent directory service active. Its ownership assertion remains
+unresolved. Diagnostic edits are restored; that failure is retained, not waived
+by this scheduler/RustFS checkpoint. Complete managed regression and release
+qualification are not claimed.
+
+The profile retains 512-MiB logical admission, two engine slots and 256-MiB images,
+with explicit recovery reserve and unchanged fixture physical limits/deadlines.
+RustFS uses one CPU/2-GiB in the owned eight-CPU/16-GiB VM. Voters are host-native
+TLS nodes with declared domain labels and a joined fixture fence. This does not
+qualify independent domains, constrained voter processes, permanent Docker launch
+revocation, sustained mixed load or physical peaks. The backend and owned VM are
+stopped; archive objects are retained.
+
+Records: `.cellar/cell-groups-evidence/CG-11-repair-6bcbee37-01/record.json` and
+`.cellar/cell-groups-evidence/CG-11-repair-6bcbee37-rustfs-01/record.json`.
+Strict all-target/all-feature Clippy, formatting, layout, native dependency checks
+and 316 perf Python checks complete (one explicit opt-in skip).
+
+CG-11 remains `IN_PROGRESS`. Next implement merge alignment across disjoint
+replica sets, then the exact bounded-fanout case. Qualify failure handoff with
+already-admitted moves, larger inventories, mixed load, physical peaks and
+independent domains before task acceptance. CG-14's retained S3 deadline failure
+remains a CG-15/release gate.
+
 ## CG-11 automatic whole-group balancing
 
 At `c2b6d20273205b40844f49a113a1f40f87c9cd1f`, configured topology selects

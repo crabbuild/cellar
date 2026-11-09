@@ -2441,7 +2441,8 @@
         "crates/cellar/fleet/management/",
         "crates/cellar/sdk.rs",
         "tools/multi-raft/",
-        "crates/cellar/application/consensus/"
+        "crates/cellar/application/consensus/",
+        "tools/perf/"
       ],
       "creates": [
         "crates/cellar-logic/cell_group_placement.rs",
@@ -2492,7 +2493,8 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/automatic/evidence.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/automatic/policy.rs",
         "crates/cellar/tests/support/cell_group_automatic_topology.rs",
-        "crates/cellar/durability/raft/records_seed_tests.rs"
+        "crates/cellar/durability/raft/records_seed_tests.rs",
+        "crates/cellar/tests/support/cell_group_automatic_repair.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [
