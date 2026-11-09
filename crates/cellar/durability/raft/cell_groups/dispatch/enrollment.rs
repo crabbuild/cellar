@@ -323,18 +323,35 @@ impl CellEnrollmentInvocation {
         transport: &RaftTransport,
     ) -> Result<CellEnrollmentResponse, CellEnrollmentError> {
         self.started = true;
-        let attempt = self.begin_owned().await.map_err(|e| self.error(e))?;
+        let mut attempt = self.begin_owned().await.map_err(|e| self.error(e))?;
         if self.route_remote && self.remote_route.is_none() {
-            let member = Box::pin(super::mutation_route::mutation_peer(
-                runtime,
-                transport,
-                &self.session,
-                &attempt,
-                &self.dispatcher.keys,
-                &self.dispatcher.domain,
-            ))
-            .await
-            .map_err(|e| self.error(e))?;
+            let member = loop {
+                let selected = Box::pin(super::mutation_route::mutation_peer(
+                    runtime,
+                    transport,
+                    &self.session,
+                    &attempt,
+                    &self.dispatcher.keys,
+                    &self.dispatcher.domain,
+                ))
+                .await;
+                match selected {
+                    Ok(member) => break member,
+                    Err(CellDispatchError::Runtime(
+                        RuntimeError::NotReady | RuntimeError::NotFound,
+                    )) if usize::from(attempt.ordinal()) < self.session.maximum_attempts() => {
+                        // Discovery has not entered an initializer or sent a
+                        // creation. Refresh only this route, preserving captured
+                        // inputs, identity, deadline and the shared attempt bank.
+                        attempt = self
+                            .session
+                            .refresh(&attempt)
+                            .await
+                            .map_err(|error| self.error(CellDispatchError::Routing(error)))?;
+                    }
+                    Err(error) => return Err(self.error(error)),
+                }
+            };
             if let Some(member) = member {
                 self.attempt = Some(attempt);
                 let response = self.execute_remote(transport, member).await?;
