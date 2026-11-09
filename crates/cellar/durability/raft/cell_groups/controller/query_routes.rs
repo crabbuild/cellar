@@ -247,6 +247,7 @@ impl Destination<'_> {
             Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
         };
         if router {
+            self.transport.note_managed_router(history);
             match self.transport.cell_query_router_has_member(route, member) {
                 Ok(true) => (),
                 Ok(false) | Err(TransportError::UnknownGroup) => {

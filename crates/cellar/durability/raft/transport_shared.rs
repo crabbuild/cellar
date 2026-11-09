@@ -69,6 +69,25 @@ impl RaftTransport {
         Ok(receiver)
     }
 
+    /// Record actual use of an already cached hint without making data traffic
+    /// wait for Fleet/S3. The existing directory owns bounded refresh afterward.
+    pub(crate) fn note_managed_router(&self, history: GroupHistory) {
+        let state = &self.handle.0;
+        let client = {
+            let Ok(registry) = state.registry.lock() else {
+                return;
+            };
+            if state.admit(&registry).is_err() || !registry.cell_query_groups.contains_key(&history)
+            {
+                return;
+            }
+            registry.router_refresh.clone()
+        };
+        if let Some(client) = client {
+            client.note(history);
+        }
+    }
+
     pub(crate) async fn refresh_managed_router(
         &self,
         history: GroupHistory,

@@ -268,10 +268,21 @@ impl Directory {
                         _ = stop.changed() => break,
                         _ = &mut sleep => break,
                         Some(request) = requests.recv() => {
-                            // A dropped caller cannot cancel entered discovery;
-                            // this worker owns it through its original deadline.
-                            let result = Box::pin(directory.refresh_target(&log, &transport, &observer, request.history, request.deadline)).await;
-                            let _ = request.reply.send(result);
+                            match request {
+                                super::RouterRefreshRequest::Track { history, _memory } => {
+                                    if let Some(routers) = &mut directory.routers {
+                                        if let Err(error) = routers.track_hint(&transport, history) {
+                                            tracing::debug!(?history, %error, "router hint tracking deferred");
+                                        }
+                                    }
+                                }
+                                super::RouterRefreshRequest::Observe { history, deadline, reply, _memory } => {
+                                    // A dropped caller cannot cancel entered discovery;
+                                    // retain its reservation through the original deadline.
+                                    let result = Box::pin(directory.refresh_target(&log, &transport, &observer, history, deadline)).await;
+                                    let _ = reply.send(result);
+                                }
+                            }
                         }
                     }
                 }

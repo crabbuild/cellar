@@ -55,6 +55,28 @@ impl RouterDirectory {
         })
     }
 
+    pub(super) fn track_hint(
+        &mut self,
+        transport: &RaftTransport,
+        history: GroupHistory,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.namespaces.iter().any(|namespace| {
+                let config = namespace.directory.namespace_config();
+                config.cluster == history.cluster && config.namespace == history.namespace
+            }),
+            "cached router namespace capability"
+        );
+        if self.installed.contains(&history) {
+            return Ok(());
+        }
+        if self.installed.len() >= self.max_installed {
+            self.evict_idle(transport)?;
+        }
+        self.installed.push_back(history);
+        Ok(())
+    }
+
     pub(super) async fn refresh(
         &mut self,
         log: &ReplicaLog,

@@ -10,11 +10,17 @@ use cellar_logic::cell_group::GroupHistory;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-pub(crate) struct RouterRefreshRequest {
-    pub(crate) history: GroupHistory,
-    pub(crate) deadline: u64,
-    pub(crate) reply: oneshot::Sender<Result<(), RuntimeError>>,
-    pub(crate) _memory: Permit,
+pub(crate) enum RouterRefreshRequest {
+    Track {
+        history: GroupHistory,
+        _memory: Permit,
+    },
+    Observe {
+        history: GroupHistory,
+        deadline: u64,
+        reply: oneshot::Sender<Result<(), RuntimeError>>,
+        _memory: Permit,
+    },
 }
 
 #[derive(Clone)]
@@ -25,6 +31,18 @@ pub(crate) struct RouterRefreshClient {
 }
 
 impl RouterRefreshClient {
+    /// Best-effort cache scheduling only. No metadata I/O, serving authority or
+    /// request lifetime depends on this hint; a later use can enqueue it again.
+    pub(crate) fn note(&self, history: GroupHistory) {
+        let Some(memory) = self.memory.acquire(32 * 1024) else {
+            return;
+        };
+        let _ = self.sender.try_send(RouterRefreshRequest::Track {
+            history,
+            _memory: memory,
+        });
+    }
+
     pub(crate) fn channel(
         memory: Arc<Budget>,
         domain: DomainToken,
@@ -58,7 +76,7 @@ impl RouterRefreshClient {
             .ok_or(RuntimeError::Overloaded)?;
         let (reply, response) = oneshot::channel();
         self.sender
-            .try_send(RouterRefreshRequest {
+            .try_send(RouterRefreshRequest::Observe {
                 history,
                 deadline,
                 reply,

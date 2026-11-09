@@ -1493,7 +1493,10 @@ before the wake barrier, and an already transmitted mutation is never retried
 implicitly. Historical read modes retain their separate admission contracts.
 
 Background router membership refresh checks one cached group's rooted placement
-per turn. An unchanged idle hint must not originate fresh quorum work that wakes
+per turn. Using a startup-cached route registers that history with the existing
+directory owner through its bounded control queue. This advisory hint does not
+wait for Fleet/S3 or extend the data request; a full queue defers tracking.
+An unchanged idle hint must not originate fresh quorum work that wakes
 parked voters. In-flight use and changed or unsettled rooted voter bindings still
 trigger fresh authorized membership discovery, so idle ingress learns replacement
 voters. Node trust, endpoint and revocation refresh remains independent. Foreground
