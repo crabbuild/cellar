@@ -13,7 +13,50 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
-## CG-11 source-reclamation leak fixed; lifecycle qualification remains open
+## CG-11 replacement-voter routing qualified; extent retirement still blocks
+
+At `c45278c1`, managed ingress discovers settled current voters from the rooted
+membership journal instead of depending on birth voters or fleet-wide probes.
+A missing explicitly selected replica triggers targeted discovery before the
+same read ticket. Exhausted mutation candidates refresh discovery before
+submission; deadlines, attempt banks, command identities and namespace grants
+remain unchanged. Hints select candidates; authenticated quorum observations and
+receiver fences still decide service.
+
+At `7cbc46af`, the cold-router case passes both image modes after every birth
+voter is replaced and stopped. A retained ingress with zero local groups serves
+a first read and, after another restart, a first quorum write, preserving retry
+results and the selected covering version. Four existing query routing-budget
+and permission cases pass. The full 64-cell/seven-group native workflow also
+passes both modes, including SQL, receipts, inventory bounds/reuse, reserve and
+joined shutdown. Strict host/core Clippy, formatting and docs checks pass.
+
+Real RustFS at `26d490b4` passes both managed-ingress cases in both image modes:
+public native/Axum requests with retained restart, and the stronger cold-router
+read-first/write-first case. The scheduler drill passes the entire materialized
+mode, but extent mode stalls after cell 51 in `Retired`, while releasing parent
+archive holds. Its original 60-second settlement bound expires; shutdown joins
+successfully. This is a failed combined gate. The owned backend and VM are
+stopped with objects retained. Earlier inventory and lease failures remain
+retained; their lease root cause is unproven.
+
+The production follow-up at `bc4e08c4` remembers confirmed local source quiescence
+for one operation and boot. Subsequent rounds avoid repeating the distributed
+retirement/child-route probes. Cleanup-book polling starts only after the
+journal records parent-hold release. The coordinator still obtains fresh
+complete source inventories before releasing any hold. A new operation or
+worker revalidates quiescence. This follow-up is awaiting qualification; it is
+not claimed to resolve the extent stall yet.
+
+Native checkpoint: `.cellar/cell-groups-evidence/CG-11-rooted-router-7cbc46af-01/record.json`.
+Passed RustFS ingress: `.cellar/cell-groups-evidence/CG-11-routing-26d490b4-rustfs-ingress-01/record.json`.
+Failed RustFS scheduler: `.cellar/cell-groups-evidence/CG-11-routing-26d490b4-rustfs-fanout-01/record.json`.
+These host-native TLS fixtures do not establish independent failure domains,
+physical peaks or sustained-load performance. CG-11 remains `IN_PROGRESS`.
+The next delivery is extent retirement completion, then admitted-move failure
+handoff, recovery accounting and the remaining journal/load/domain gates.
+
+## Historical source-reclamation checkpoint
 
 At `d4f7da461e2ab61a34e0caa703dbc8330566089c`, completed split/merge source reclamation releases the bounded
 SQL and archive-seed retirement indexes and archive status. Previously only

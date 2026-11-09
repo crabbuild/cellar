@@ -14,40 +14,38 @@ CG-11 owns five product outcomes:
 4. Whole-group balancing and fenced repair, preserving cell histories and receipts.
 5. Bounded control-plane inventory, observations and targeted updates as inventory grows.
 
-At `ea588ad0`, receipt-checked reclamation releases finite SQL/seed retirement
-indexes and archive status after physical collection; permanent source refusal
-remains. This clears the original repeat-transition stall. Three source tests,
-one SQL retirement test, seven scheduler cases and three automatic regressions
-pass at their recorded sources. The full 64-cell/seven-group native workflow
-passes both image modes at `2c9637c3`. See [progress](progress.md) for exact scope.
+Current-voter discovery is implemented at `c45278c1`. The stronger cold-router
+read-first/write-first case and complete native 64-cell/seven-group workflow
+pass both image modes at `7cbc46af`; routing-budget and permission regressions
+also pass. Real RustFS at `26d490b4` passes both managed-ingress cases in both
+modes and the entire materialized scheduler workflow. Extent mode stalls after
+cell 51 while releasing retired-parent archive holds; its original settlement
+deadline expires, with joined shutdown. Earlier inventory and lease failures
+remain retained. See [progress](progress.md) for exact artifacts and limits.
 
-**Current qualification still fails.** Real RustFS at `2c9637c3` reaches all
-64 cells and joins shutdown, then final inventory telemetry returns Unavailable.
-The latest test-only follow-up retries Busy/Unavailable metadata polls inside
-one original five-second envelope. Its materialized mode passes; extent mode
-fails after 64 cells during trust refresh, with two NodeLeaseExpired shutdown
-outcomes. The fixture's one-second lease and all assertions remain unchanged.
-The root cause is unproven. CG-11 remains `IN_PROGRESS`; no latest-source RustFS
-or complete MVP acceptance is claimed. Backend and VM are stopped, objects retained.
+The production follow-up at `bc4e08c4` retains confirmed local source quiescence for
+the current operation/boot and skips cleanup-book reads before hold release.
+The coordinator's fresh complete-inventory checks remain mandatory. This
+follow-up is not qualified yet. CG-11 remains `IN_PROGRESS`.
 
 ### Delivery order and completion criteria
 
-1. Resolve managed trust/lease liveness under the existing fifteen-host load;
-   keep the one-second lease, request bounds and fencing/stop assertions. Inspect
-   node renewal and directory/control ownership at the failing boundary, rather
-   than assuming every unavailable response is the same failure. Then pass the
-   full current native and real RustFS workflow in both image modes.
-2. Qualify failure handoff with a membership move already admitted, including
-   controller replacement, durable ownership/debt and exact-boot isolation; fix
-   observed gaps. The existing movement worker already allows detection/isolation
-   during admitted-work backoff. Its repair fixture starts at zero admitted moves.
+1. Qualify the operation-scoped quiescence follow-up and complete the original
+   native/RustFS 64-cell workflow in both image modes. Resolve the extent
+   retirement/parent-hold boundary under the unchanged one-second lease,
+   five-second request/turn budgets, 60-second settlement cap and resource bounds.
+2. Implement/qualify failure handoff with a membership move already admitted,
+   including controller replacement, original durable debt and exact-boot
+   isolation. A retained controller/learner scenario is drafted outside the
+   qualification source; it is not published or accepted. The existing repair
+   fixture starts at zero admitted moves.
 3. Resolve managed-recovery ownership accounting and complete journal contention,
    larger-inventory, sustained mixed-load, physical-peak and independent-domain
-   gates. Close full CG-11 only after complete source-pinned task qualification.
+   gates. Full CG-11 acceptance requires its complete source-pinned qualification.
 
-Earlier Busy and current Unavailable/lease failures remain in the evidence.
-This host-native campaign does not qualify independent voter processes/domains
-or physical peaks. The original S3 occupancy deadline remains unwaived.
+The full RustFS failure and all previous failed attempts remain in the evidence.
+The backend and VM are stopped with objects retained. The original S3 occupancy
+deadline remains unwaived.
 
 Hard cutover remains `seed-lineage-1`: fresh namespaces, fleet roots and engine
 directories with matching binaries; Docker resource policies require explicit
