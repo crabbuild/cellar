@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Targeted router refresh uses the one joined directory worker and its cache.
+//! Demand-driven metadata refresh retains node budgets and original deadlines.
 use super::*;
 use crate::raft::{completion::RuntimeError, group_host::RouterRefreshRequest};
 use tokio::sync::mpsc;

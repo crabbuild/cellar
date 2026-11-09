@@ -290,9 +290,12 @@ impl State {
                     },
                     &[],
                 )?;
-                return self
-                    .bounded(Some(deadline), write_head(stream, &response))
-                    .await;
+                return crate::asyncrt::timeout_at(
+                    deadline,
+                    self.bounded(None, write_head(stream, &response)),
+                )
+                .await
+                .map_err(|_| TransportError::Timeout)?;
             }
         };
         let _peer = peer_budget

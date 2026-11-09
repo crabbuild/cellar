@@ -143,7 +143,7 @@ impl RaftTransport {
                 {
                     return Err(TransportError::StalePeer);
                 }
-                Ok(current.clone())
+                Ok(current.as_ref().clone())
             }
             Err(error) => Err(error),
         }

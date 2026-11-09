@@ -195,6 +195,10 @@ impl State {
         if !matches!(&authorized, Err(TransportError::StalePeer)) {
             return authorized;
         }
+        let (_, target) = route.identities()?;
+        if target != self.local_physical()? || route.target_label() != self.auth.source() {
+            return authorized;
+        }
         let previous = {
             let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
             self.admit(&registry)?;
@@ -202,10 +206,14 @@ impl State {
                 .fleet_trust
                 .as_ref()
                 .ok_or(TransportError::Refused)?;
-            if trust.revision() >= route.minimum_revision()? {
+            if trust.revision() >= route.minimum_revision()?
+                || trust.fleet() != route.fleet()
+                || trust.catalog() != route.catalog()
+                || trust.cluster().bytes() != route.cluster()
+            {
                 return authorized;
             }
-            trust.clone()
+            trust.as_ref().clone()
         };
         let handle = self
             .fleet_gateway
@@ -535,9 +543,12 @@ impl State {
                     },
                     &[],
                 )?;
-                return self
-                    .bounded(Some(deadline), write_head(stream, &response))
-                    .await;
+                return crate::asyncrt::timeout_at(
+                    deadline,
+                    self.bounded(None, write_head(stream, &response)),
+                )
+                .await
+                .map_err(|_| TransportError::Timeout)?;
             }
         };
         let _peer = peer_budget
