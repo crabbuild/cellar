@@ -351,6 +351,37 @@ fn partition_destinations_charge_both_children_and_reserve() {
 }
 
 #[test]
+fn occupied_destinations_retain_recovery_room_in_the_bounded_window() {
+    let nodes: Vec<_> = (1..=9)
+        .map(|id| PartitionDestination {
+            node: crate::consensus::NodeId::new([id; 16]).unwrap(),
+            physical_host: IncarnationId::new([id; 16]).unwrap(),
+            region: "r".into(),
+            zone: format!("z{id}"),
+            occupied: 1,
+            capacity: 2,
+            available: 1,
+        })
+        .collect();
+    assert!(select_partition_voters(&nodes[..6], &placement(), 2, true).is_none());
+    let selected = select_partition_voters(&nodes, &placement(), 2, true).unwrap();
+    let assigned: std::collections::BTreeSet<_> = selected.iter().flatten().collect();
+    assert_eq!(
+        assigned.len(),
+        6,
+        "each child consumes three distinct free slots"
+    );
+    assert_eq!(
+        nodes.len() - assigned.len(),
+        3,
+        "recovery room stays unassigned"
+    );
+    let mut tighter = placement();
+    tighter.recovery_slots = 4;
+    assert!(select_partition_voters(&nodes, &tighter, 2, true).is_none());
+}
+
+#[test]
 fn partition_destinations_preserve_failure_domains_and_capacity() {
     let mut nodes = destinations();
     for node in &mut nodes {

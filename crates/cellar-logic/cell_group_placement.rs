@@ -602,7 +602,11 @@ pub struct PartitionDestination {
     pub available: u32,
 }
 
-/// Search the bounded six-target window for one merge child or two split
+/// Maximum inspected targets, including both RF3 children and recovery room
+/// when each candidate has only one available slot.
+pub const MAX_PARTITION_DESTINATIONS: usize = 9;
+
+/// Search the bounded target window for one merge child or two split
 /// children. Both are charged together, sources remain occupied, and a spare
 /// pool is retained. Selection grants no reservation or membership permission.
 pub fn select_partition_voters(
@@ -614,7 +618,7 @@ pub fn select_partition_voters(
     use std::collections::BTreeSet;
     if !policy.valid()
         || !(1..=2).contains(&children)
-        || !(3..=6).contains(&nodes.len())
+        || !(3..=MAX_PARTITION_DESTINATIONS).contains(&nodes.len())
         || nodes.iter().map(|n| n.node).collect::<BTreeSet<_>>().len() != nodes.len()
         || nodes.iter().any(|n| {
             n.capacity == 0
@@ -667,7 +671,7 @@ pub fn select_partition_voters(
             triples.iter().map(Some).collect()
         };
         for right in right {
-            let mut counts = [0u32; 6];
+            let mut counts = [0u32; MAX_PARTITION_DESTINATIONS];
             for i in left.iter().chain(right.into_iter().flatten()) {
                 counts[*i] += 1;
             }

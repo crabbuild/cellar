@@ -55,7 +55,7 @@ SUITES = {
         "native_cell_groups_scheduler",
         ("rustfs_control_plane_fanout_bounded",),
         "bounded scheduler inventory and targeted observations across actual shared groups",
-        "Both image modes, 64 enrolled SQL cells and at least eight RF3 groups on fifteen host-native TLS nodes. "
+        "Both image modes, 64 enrolled SQL cells and at least four RF3 groups on fifteen host-native TLS nodes. "
         "The standard planner splits during batched enrollment and writes, preserving the original two engine slots, "
         "per-node physical/byte limits and three recovery slots. Recovery retains the original sixteen-cell "
         "source/target count and byte bounds; batched sources fit 32-cell checkpoints. Directory pages contain at most two routes; stable local "

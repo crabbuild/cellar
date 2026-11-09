@@ -10,7 +10,8 @@ use crate::raft::{catalog::RangeDirectory, inspection::RaftNodeProfile};
 use cellar_logic::consensus::NodeId;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(crate) const PARTITION_TARGETS: usize = 6;
+pub(crate) const PARTITION_TARGETS: usize =
+    cellar_logic::cell_group_placement::MAX_PARTITION_DESTINATIONS;
 
 pub(crate) struct PartitionPlacement {
     pub class: String,
@@ -94,7 +95,8 @@ impl FleetCatalog {
                     }
                     let mut candidates = Vec::new();
                     // The rooted fleet has a 64-node ceiling. Only metadata is read here;
-                    // at most six selected nodes receive physical-inventory requests.
+                    // At most nine selected nodes receive physical-inventory
+                    // requests, covering two RF3 children plus recovery room.
                     for node in self.node_records(&snapshot).await? {
                         let id = NodeId::new(node.node)
                             .map_err(|_| FleetCatalogError::Corrupt("placement node"))?;

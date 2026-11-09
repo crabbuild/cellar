@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 fn configuration() -> RaftFleetAutomaticPartitionOptions {
     let mut limits = policy(64 * 1024 * 1024).limits();
-    limits.split_ceiling.cells = 8;
+    limits.split_ceiling.cells = 15;
     limits.merge_ceiling.cells = 0;
     limits.merge_ceiling.writes_per_second = 0;
     limits.sample_interval_ms = 1_000;
@@ -36,9 +36,10 @@ fn configuration() -> RaftFleetAutomaticPartitionOptions {
             },
         },
         recovery: CellGroupRecoveryLimits {
-            // Batches add at most four cells to a settled <=8-cell source.
-            // The complete source and both children fit the original
-            // sixteen-cell recovery budget and 32-cell checkpoint count.
+            // Add one cell to a settled <=15-cell source before awaiting work.
+            // Its full sixteen-cell source fits the original recovery budget;
+            // median children retain at least eight cells each, so 64 cells
+            // fit this fleet without consuming its three recovery slots.
             max_cells: 16,
             max_retained_bytes: 32 * 1024 * 1024,
             max_image_bytes: 32 * 1024 * 1024,
@@ -164,7 +165,7 @@ async fn settled(cluster: &ManagedCluster, catalog: &FleetCatalog) -> Result<Vec
                         .group(route.history)?
                         .observe_partition(TIMEOUT)
                         .await?;
-                    ready &= sample.stable_leader && sample.cells <= 8 && sample.route == *route;
+                    ready &= sample.stable_leader && sample.cells <= 15 && sample.route == *route;
                 }
                 if ready {
                     return Ok::<_, anyhow::Error>(current);
@@ -231,53 +232,50 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
     .checked_add(600_000)
     .context("receipt retention horizon")?;
     let mut ledger = Vec::new();
-    for batch in 0..16 {
-        for offset in 0..4 {
-            let index = batch * 4 + offset;
-            let history = CellHistory {
-                cluster: cluster.history.cluster,
-                namespace: cluster.history.namespace,
-                cell: CellId::new(format!("Counter:fanout-{index}"))?,
-                incarnation: IncarnationId::new([96; 16])?,
-            };
-            let creation = ProposalId::new((50_000u128 + index as u128).to_be_bytes())?;
-            let handle = cluster.hosts[0].cell(history.clone())?;
-            let enrolled = handle
-                .enroll(
-                    CellEnrollmentRequest {
-                        creation,
-                        durability: Durability::Quorum,
-                    },
-                    TIMEOUT,
-                )
-                .await
-                .with_context(|| format!("enroll fanout cell {index}"))?;
-            ensure!(enrolled.durability() == Durability::Quorum);
-            drop(enrolled);
-            let delta = i64::from(index + 1);
-            let receipt = handle
-                .command(
-                    &handle.contract("Add")?,
-                    delta.to_be_bytes().to_vec(),
-                    CommandOptions::new(CommandId::new(ClientId::new([220; 16])?, 1)?, retry),
-                )
-                .await?;
-            ensure!(
-                receipt.result == delta.to_be_bytes() && receipt.durability == Durability::Quorum
-            );
-            ledger.push((history, creation, receipt, delta));
-        }
+    for index in 0..64 {
+        let history = CellHistory {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            cell: CellId::new(format!("Counter:fanout-{index}"))?,
+            incarnation: IncarnationId::new([96; 16])?,
+        };
+        let creation = ProposalId::new((50_000u128 + index as u128).to_be_bytes())?;
+        let handle = cluster.hosts[0].cell(history.clone())?;
+        let enrolled = handle
+            .enroll(
+                CellEnrollmentRequest {
+                    creation,
+                    durability: Durability::Quorum,
+                },
+                TIMEOUT,
+            )
+            .await
+            .with_context(|| format!("enroll fanout cell {index}"))?;
+        ensure!(enrolled.durability() == Durability::Quorum);
+        drop(enrolled);
+        let delta = i64::from(index + 1);
+        let receipt = handle
+            .command(
+                &handle.contract("Add")?,
+                delta.to_be_bytes().to_vec(),
+                CommandOptions::new(CommandId::new(ClientId::new([220; 16])?, 1)?, retry),
+            )
+            .await?;
+        ensure!(
+            receipt.result == delta.to_be_bytes() && receipt.durability == Durability::Quorum
+        );
+        ledger.push((history, creation, receipt, delta));
         let current = settled(cluster, &catalog).await?;
         eprintln!(
             "fanout batch={} cells={} groups={}",
-            batch + 1,
+            index + 1,
             ledger.len(),
             current.len()
         );
     }
     let current = settled(cluster, &catalog).await?;
     ensure!(
-        current.len() >= 8 && current.iter().all(|r| r.history != cluster.history),
+        current.len() >= 4 && current.iter().all(|r| r.history != cluster.history),
         "64 cells did not form multiple shared groups"
     );
     for host in &cluster.hosts {
