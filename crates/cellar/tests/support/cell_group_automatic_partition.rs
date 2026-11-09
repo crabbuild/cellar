@@ -362,7 +362,9 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32, disjoint: bool) -> Res
                         .is_some_and(|e| e.message.contains("No RF3 placement"))
                 })
             };
-            if done {
+            // Seed writes may already trigger selection or reserve refusal.
+            // Observe that decision and actual load receipts before finishing.
+            if done && acknowledged.iter().all(|receipts| !receipts.is_empty()) {
                 return Ok::<_, anyhow::Error>(());
             }
             // Each cell admits one mutation owner. Load both cells in parallel
