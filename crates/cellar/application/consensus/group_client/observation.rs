@@ -5,18 +5,37 @@ use super::*;
 use crate::raft::completion::RuntimeError;
 
 impl RaftCells {
-    pub(crate) fn partition_groups(
+    pub(crate) fn partition_revision(
         &self,
         scopes: &[(
             cellar_logic::consensus::ClusterId,
             cellar_logic::consensus::NamespaceId,
         )],
-        limit: usize,
-    ) -> Result<Vec<cellar_logic::cell_group::GroupHistory>, RuntimeError> {
+    ) -> Result<[u8; 32], RuntimeError> {
         if self.is_closed() || self.handle.admission.is_draining() {
             return Err(RuntimeError::Closed);
         }
-        self.handle.core.controller.partition_groups(scopes, limit)
+        self.handle.core.controller.partition_revision(scopes)
+    }
+
+    pub(crate) fn partition_page(
+        &self,
+        scopes: &[(
+            cellar_logic::consensus::ClusterId,
+            cellar_logic::consensus::NamespaceId,
+        )],
+        revision: Option<[u8; 32]>,
+        after: Option<cellar_logic::cell_group::GroupHistory>,
+        capacity: usize,
+        limit: usize,
+    ) -> Result<crate::raft::cell_groups::PartitionGroupPage, RuntimeError> {
+        if self.is_closed() || self.handle.admission.is_draining() {
+            return Err(RuntimeError::Closed);
+        }
+        self.handle
+            .core
+            .controller
+            .partition_page(scopes, revision, after, capacity, limit)
     }
 }
 

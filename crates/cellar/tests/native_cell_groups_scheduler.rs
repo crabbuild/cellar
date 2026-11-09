@@ -19,6 +19,9 @@ mod topology;
 #[path = "support/cell_group_automatic_repair.rs"]
 mod automatic_repair;
 
+#[path = "support/cell_group_scheduler_fanout.rs"]
+mod fanout;
+
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::{
     cell_groups::TransitionPhase, FleetHistoryState,
@@ -28,6 +31,34 @@ use managed_fixture::{
     leader, movement, request, seed_cells, ManagedCluster, SeededCells, TIMEOUT,
 };
 use std::{sync::atomic::Ordering, time::Duration};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn control_plane_fanout_bounded() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(fanout::qualify(
+            rooted,
+            std::sync::Arc::new(catalog_fault::Store::default()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_control_plane_fanout_bounded() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(fanout::qualify(
+            rooted,
+            std::sync::Arc::new(catalog_fault::Store::around(rustfs::store(
+                "scheduler-fanout",
+                rooted,
+            )?)),
+        ))
+        .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn repair_preserves_failure_domains_and_reserve() -> Result<()> {

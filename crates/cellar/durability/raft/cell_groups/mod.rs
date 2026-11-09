@@ -42,6 +42,7 @@ pub use checkpoint::{
 };
 mod controller;
 pub(crate) use controller::CellGroupArchiveProvisioning;
+pub(crate) use controller::PartitionGroupPage;
 pub(crate) use controller::{ArchiveSeedClient, ArchiveSeedDescriptor};
 pub use controller::{
     CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,

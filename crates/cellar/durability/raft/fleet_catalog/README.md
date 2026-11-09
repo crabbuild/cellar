@@ -183,6 +183,16 @@ through bounded tree paths. Each local group retains at most one remote neighbor
 the scheduler charges 64 KiB per configured local group plus 64 KiB fixed metadata
 for both tracker sets. One turn samples one local group and at most one neighbor,
 without enumerating all namespace ranges or cells.
+Active-owner inventory is indexed by namespace under the roster's existing slot
+owner. A scoped generation changes on activation, retirement or quarantine;
+unrelated namespaces leave that cut valid. Changes rebuild the complete local
+cut in pages of at most sixteen histories, one page per service turn. Partial
+cuts cannot select work, and the complete configured group bound still refuses
+overflow before returning a favored prefix. Stable turns reuse an immutable cut
+instead of walking the roster. Empty namespace entries are removed; a fresh
+generation prevents a removed-and-returned owner from reusing an old cursor.
+Status exposes copied inventory pages, complete local groups and retained tracker
+counts without per-cell labels. These remain advisory counters, not authority.
 Service turns can run faster to resume durable operations, but repeated sampling
 within the policy interval performs no catalog or peer-inspection work for that
 group. This prevents fast service polling from flooding leader inspection and

@@ -17,6 +17,7 @@ mod maintenance;
 pub use maintenance::*;
 mod nodes;
 mod partition;
+mod partition_inventory;
 mod partition_observation;
 mod partition_selection;
 mod partition_service;

@@ -46,8 +46,9 @@ pub enum RaftFleetPartitionExecutionPolicy {
 #[derive(Clone, Debug)]
 pub struct RaftFleetPartitionServiceOptions {
     pub principal: String,
-    /// Complete local inventory bound. The scheduler separately charges space
-    /// for at most one adjacent remote range per local group.
+    /// Complete local inventory bound. Changes rebuild it in pages of at most
+    /// sixteen owners; partial cuts cannot select work. The scheduler separately
+    /// charges space for at most one adjacent remote range per local group.
     pub max_groups: usize,
     pub execution: RaftFleetPartitionExecutionPolicy,
     pub interval: Duration,
@@ -81,6 +82,11 @@ pub struct RaftFleetPartitionServiceStatus {
     pub rounds: u64,
     /// Successful bounded reads from remote group leaders, not quorum proofs.
     pub remote_samples: u64,
+    /// Local active-owner metadata pages; stable rosters reuse the complete cut.
+    pub inventory_pages: u64,
+    pub local_groups: usize,
+    /// Includes at most one remote neighbor per configured local history.
+    pub tracked_groups: usize,
     pub operation_id: Option<String>,
     pub phase: Option<crate::raft::cell_groups::TransitionPhase>,
     pub last_action: Option<&'static str>,

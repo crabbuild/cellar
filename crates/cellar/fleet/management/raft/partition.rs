@@ -119,6 +119,7 @@ pub struct RaftFleetPartitionScheduler {
     groups: BTreeMap<GroupHistory, Tracked>,
     neighbors: BTreeMap<GroupHistory, GroupHistory>,
     pending: Option<Pending>,
+    inventory: super::partition_inventory::Inventory,
     inventory_cursor: Option<GroupHistory>,
     selection_cursor: Option<GroupHistory>,
     remote_samples: u64,
@@ -155,6 +156,7 @@ impl RaftFleetPartitionScheduler {
             groups: BTreeMap::new(),
             neighbors: BTreeMap::new(),
             pending: None,
+            inventory: super::partition_inventory::Inventory::default(),
             inventory_cursor: None,
             selection_cursor: None,
             _memory: memory,
@@ -166,8 +168,10 @@ impl RaftFleetPartitionScheduler {
     /// round-robin order, sample its immediate right neighbor, and select a
     /// fresh split or compatible adjacent merge across arbitrary voter sets.
     /// No cell enumeration, remote inventory broadcast or mutation occurs.
-    /// The complete local cut must fit the explicit tracker capacity; overflow
-    /// refuses rather than sampling only a favored prefix. Poll often enough
+    /// One page of up to sixteen local histories is assembled per turn after
+    /// an active-owner change. Stable turns reuse the complete inventory. The
+    /// complete scoped cut must fit tracker capacity; partial pages never select
+    /// work and overflow refuses. Poll often enough
     /// for the configured group's rate windows and hysteresis to remain fresh.
     /// Pending work freezes discovery until its exact request is reconciled.
     pub async fn poll(
@@ -194,18 +198,20 @@ impl RaftFleetPartitionScheduler {
                 (config.cluster, config.namespace)
             })
             .collect();
-        let groups = self
-            .control
-            .node_observer
-            .as_ref()
-            .ok_or_else(RaftFleetFailure::unsupported)?
-            .partition_groups(&scopes, self.max_groups)
-            .map_err(|error| match error {
-                crate::raft::completion::RuntimeError::Overloaded => {
-                    FleetCatalogError::Limit.into()
-                }
-                other => observation_failure(other),
-            })?;
+        let Some(groups) = self.inventory.observe(
+            self.control
+                .node_observer
+                .as_ref()
+                .ok_or_else(RaftFleetFailure::unsupported)?,
+            &scopes,
+            self.max_groups,
+        )?
+        else {
+            return Ok(RaftFleetPartitionPoll {
+                sampled: None,
+                recommendation: None,
+            });
+        };
         self.neighbors
             .retain(|local, _| groups.binary_search(local).is_ok());
         self.groups.retain(|history, _| {
@@ -289,6 +295,16 @@ impl RaftFleetPartitionScheduler {
     /// Successfully delivered leader observations; an advisory counter only.
     pub fn remote_samples(&self) -> u64 {
         self.remote_samples
+    }
+
+    /// Local metadata pages copied; unchanged active rosters reuse their cut.
+    pub fn inventory_pages(&self) -> u64 {
+        self.inventory.pages()
+    }
+
+    /// Histories in the current complete local cut, never an admission proof.
+    pub fn local_groups(&self) -> usize {
+        self.inventory.groups()
     }
 
     pub fn tracked_groups(&self) -> usize {
@@ -928,7 +944,9 @@ fn validate_pressure(pressure: RaftFleetPartitionPressure) -> Result<()> {
     Ok(())
 }
 
-fn observation_failure(error: crate::raft::completion::RuntimeError) -> RaftFleetFailure {
+pub(super) fn observation_failure(
+    error: crate::raft::completion::RuntimeError,
+) -> RaftFleetFailure {
     match error {
         crate::raft::completion::RuntimeError::Overloaded => FleetCatalogError::Overloaded.into(),
         _ => FleetCatalogError::Unconfirmed.into(),

@@ -20,41 +20,50 @@ enum GroupState {
 }
 
 pub(crate) struct GroupRoster {
-    groups: Mutex<BTreeMap<GroupHistory, GroupState>>,
+    groups: Mutex<RegisteredGroups>,
     limit: usize,
 }
 
+struct RegisteredGroups {
+    entries: BTreeMap<GroupHistory, GroupState>,
+    inventory: super::registration_inventory::Inventory,
+}
+
 impl GroupRoster {
-    fn partition_groups(
+    fn partition_revision(
         &self,
         scopes: &[(
             cellar_logic::consensus::ClusterId,
             cellar_logic::consensus::NamespaceId,
         )],
+    ) -> Result<[u8; 32], RuntimeError> {
+        self.groups
+            .lock()
+            .map_err(|_| RuntimeError::Closed)?
+            .inventory
+            .revision(scopes)
+    }
+
+    fn partition_page(
+        &self,
+        scopes: &[(
+            cellar_logic::consensus::ClusterId,
+            cellar_logic::consensus::NamespaceId,
+        )],
+        revision: Option<[u8; 32]>,
+        after: Option<GroupHistory>,
+        capacity: usize,
         limit: usize,
-    ) -> Result<Vec<GroupHistory>, RuntimeError> {
-        if !(1..=128).contains(&limit) || scopes.len() > 64 {
-            return Err(RuntimeError::Overloaded);
-        }
+    ) -> Result<super::PartitionGroupPage, RuntimeError> {
         let groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
-        let mut selected = Vec::new();
-        for (history, state) in groups.iter() {
-            if !matches!(state, GroupState::Active)
-                || !scopes.contains(&(history.cluster, history.namespace))
-            {
-                continue;
-            }
-            if selected.len() == limit {
-                return Err(RuntimeError::Overloaded);
-            }
-            selected.push(*history);
-        }
-        Ok(selected)
+        groups
+            .inventory
+            .page(scopes, revision, after, capacity, limit)
     }
 
     pub(super) fn producers_quiesced(&self) -> bool {
         self.groups.lock().is_ok_and(|groups| {
-            groups.values().all(|state| {
+            groups.entries.values().all(|state| {
                 matches!(
                     state,
                     GroupState::Active | GroupState::ParkedRetired | GroupState::ParkedRemoved
@@ -64,8 +73,10 @@ impl GroupRoster {
     }
 
     pub(super) fn new(groups: impl Iterator<Item = GroupHistory>, limit: usize) -> Arc<Self> {
+        let entries: BTreeMap<_, _> = groups.map(|g| (g, GroupState::Active)).collect();
+        let inventory = super::registration_inventory::Inventory::new(entries.keys().copied());
         Arc::new(Self {
-            groups: Mutex::new(groups.map(|g| (g, GroupState::Active)).collect()),
+            groups: Mutex::new(RegisteredGroups { entries, inventory }),
             limit,
         })
     }
@@ -75,6 +86,7 @@ impl GroupRoster {
             .groups
             .lock()
             .map_err(|_| RuntimeError::Closed)?
+            .entries
             .get(group)
         {
             Some(GroupState::Active) => Ok(true),
@@ -89,12 +101,16 @@ impl GroupRoster {
         error: CellGroupControllerError,
     ) -> Result<(), RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
-        let state = groups.get_mut(&group).ok_or(RuntimeError::NotFound)?;
+        let state = groups
+            .entries
+            .get_mut(&group)
+            .ok_or(RuntimeError::NotFound)?;
         if matches!(state, GroupState::ParkedRetired | GroupState::ParkedRemoved) {
             return Err(RuntimeError::NotFound);
         }
         if !matches!(state, GroupState::Quarantined(_)) {
             *state = GroupState::Quarantined(error);
+            groups.inventory.remove(&group);
         }
         Ok(())
     }
@@ -108,6 +124,7 @@ impl GroupRoster {
                 .groups
                 .lock()
                 .map_err(|_| RuntimeError::Closed)?
+                .entries
                 .get(group)
             {
                 Some(GroupState::Quarantined(error)) => Some(error.clone()),
@@ -120,7 +137,8 @@ impl GroupRoster {
         self.groups
             .lock()
             .map(|g| {
-                g.values()
+                g.entries
+                    .values()
                     .filter(|s| matches!(s, GroupState::Active | GroupState::Retiring))
                     .count()
             })
@@ -131,7 +149,8 @@ impl GroupRoster {
         self.groups
             .lock()
             .map(|g| {
-                g.values()
+                g.entries
+                    .values()
                     .filter(|s| matches!(s, GroupState::Pending))
                     .count()
             })
@@ -142,7 +161,8 @@ impl GroupRoster {
         self.groups
             .lock()
             .map(|g| {
-                g.values()
+                g.entries
+                    .values()
                     .filter(|s| matches!(s, GroupState::Quarantined(_)))
                     .count()
             })
@@ -151,9 +171,10 @@ impl GroupRoster {
 
     pub(super) fn begin_retirement(&self, group: GroupHistory) -> Result<bool, RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
-        match groups.get_mut(&group) {
+        match groups.entries.get_mut(&group) {
             Some(state @ (GroupState::Active | GroupState::Retiring)) => {
                 *state = GroupState::Retiring;
+                groups.inventory.remove(&group);
                 Ok(false)
             }
             Some(GroupState::ParkedRetired | GroupState::ParkedRemoved) => Ok(true),
@@ -164,7 +185,7 @@ impl GroupRoster {
 
     pub(super) fn finish_retirement(&self, group: GroupHistory) -> Result<(), RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
-        match groups.get_mut(&group) {
+        match groups.entries.get_mut(&group) {
             Some(state @ GroupState::Retiring) => {
                 *state = GroupState::ParkedRetired;
                 Ok(())
@@ -179,7 +200,7 @@ impl GroupRoster {
         tombstoned: bool,
     ) -> Result<(), RuntimeError> {
         let groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
-        match groups.get(group) {
+        match groups.entries.get(group) {
             Some(GroupState::ParkedRetired | GroupState::ParkedRemoved) => Ok(()),
             None if tombstoned => Ok(()),
             _ => Err(RuntimeError::NotReady),
@@ -188,9 +209,9 @@ impl GroupRoster {
 
     pub(super) fn finish_reclamation(&self, group: &GroupHistory) -> Result<(), RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
-        match groups.get(group) {
+        match groups.entries.get(group) {
             Some(GroupState::ParkedRetired | GroupState::ParkedRemoved) | None => {
-                groups.remove(group);
+                groups.entries.remove(group);
                 Ok(())
             }
             _ => Err(RuntimeError::NotReady),
@@ -202,13 +223,14 @@ impl GroupRoster {
             .groups
             .lock()
             .map_err(|_| RuntimeError::Closed)?
+            .entries
             .contains_key(group))
     }
 
     pub(super) fn retired(&self, group: &GroupHistory) -> bool {
-        self.groups
-            .lock()
-            .is_ok_and(|groups| matches!(groups.get(group), Some(GroupState::ParkedRetired)))
+        self.groups.lock().is_ok_and(|groups| {
+            matches!(groups.entries.get(group), Some(GroupState::ParkedRetired))
+        })
     }
 
     pub(super) fn reserve(
@@ -216,13 +238,13 @@ impl GroupRoster {
         group: GroupHistory,
     ) -> Result<Reservation, RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
-        if groups.contains_key(&group) {
+        if groups.entries.contains_key(&group) {
             return Err(RuntimeError::AlreadyAttached);
         }
-        if groups.len() >= self.limit {
+        if groups.entries.len() >= self.limit {
             return Err(RuntimeError::Overloaded);
         }
-        groups.insert(group, GroupState::Pending);
+        groups.entries.insert(group, GroupState::Pending);
         Ok(Reservation {
             roster: self.clone(),
             group,
@@ -244,11 +266,15 @@ impl Reservation {
             .groups
             .lock()
             .map_err(|_| RuntimeError::Closed)?;
-        let entry = groups.get_mut(&self.group).ok_or(RuntimeError::NotFound)?;
+        let entry = groups
+            .entries
+            .get_mut(&self.group)
+            .ok_or(RuntimeError::NotFound)?;
         if !matches!(entry, GroupState::Pending) {
             return Err(RuntimeError::GroupQuarantined);
         }
         *entry = GroupState::Active;
+        groups.inventory.insert(self.group);
         self.active = true;
         Ok(())
     }
@@ -258,8 +284,8 @@ impl Drop for Reservation {
     fn drop(&mut self) {
         if !self.active {
             if let Ok(mut groups) = self.roster.groups.lock() {
-                if matches!(groups.get(&self.group), Some(GroupState::Pending)) {
-                    groups.remove(&self.group);
+                if matches!(groups.entries.get(&self.group), Some(GroupState::Pending)) {
+                    groups.entries.remove(&self.group);
                 }
             }
         }
@@ -335,17 +361,33 @@ pub(crate) struct GroupRegistrationInventory {
 }
 
 impl CellGroupController {
-    /// A bounded advisory cut of active local owners in the configured scopes.
-    /// Refuse an incomplete cut rather than silently starving excess groups.
-    pub(crate) fn partition_groups(
+    pub(crate) fn partition_revision(
         &self,
         scopes: &[(
             cellar_logic::consensus::ClusterId,
             cellar_logic::consensus::NamespaceId,
         )],
+    ) -> Result<[u8; 32], RuntimeError> {
+        self.handle.0.groups.partition_revision(scopes)
+    }
+
+    /// A page from one exact active roster generation. The complete scoped
+    /// count must fit capacity before even its first page may be returned.
+    pub(crate) fn partition_page(
+        &self,
+        scopes: &[(
+            cellar_logic::consensus::ClusterId,
+            cellar_logic::consensus::NamespaceId,
+        )],
+        revision: Option<[u8; 32]>,
+        after: Option<GroupHistory>,
+        capacity: usize,
         limit: usize,
-    ) -> Result<Vec<GroupHistory>, RuntimeError> {
-        self.handle.0.groups.partition_groups(scopes, limit)
+    ) -> Result<super::PartitionGroupPage, RuntimeError> {
+        self.handle
+            .0
+            .groups
+            .partition_page(scopes, revision, after, capacity, limit)
     }
 
     pub(crate) fn retain_parked_retired_sources(
@@ -371,15 +413,17 @@ impl CellGroupController {
     ) -> Result<(), RuntimeError> {
         let roster = &self.handle.0.groups;
         let mut groups = roster.groups.lock().map_err(|_| RuntimeError::Closed)?;
-        if groups.len().saturating_add(histories.len()) > roster.limit {
+        if groups.entries.len().saturating_add(histories.len()) > roster.limit {
             return Err(RuntimeError::Overloaded);
         }
         if histories.windows(2).any(|pair| pair[0] >= pair[1])
-            || histories.iter().any(|history| groups.contains_key(history))
+            || histories
+                .iter()
+                .any(|history| groups.entries.contains_key(history))
         {
             return Err(RuntimeError::AlreadyAttached);
         }
-        groups.extend(
+        groups.entries.extend(
             histories
                 .into_iter()
                 .map(|history| (history, state.clone())),
@@ -405,7 +449,7 @@ impl CellGroupController {
             quarantined: 0,
             retired_sources: Vec::new(),
         };
-        for (history, state) in groups.iter() {
+        for (history, state) in groups.entries.iter() {
             match state {
                 GroupState::Pending => inventory.pending += 1,
                 GroupState::Active | GroupState::Retiring => inventory.attached.push(*history),
@@ -644,6 +688,16 @@ mod partition_inventory_tests {
         }
     }
 
+    fn complete(
+        roster: &GroupRoster,
+        scopes: &[(ClusterId, NamespaceId)],
+        capacity: usize,
+    ) -> Result<Vec<GroupHistory>, RuntimeError> {
+        let page = roster.partition_page(scopes, None, None, capacity, capacity.min(16))?;
+        assert!(page.next.is_none());
+        Ok(page.groups)
+    }
+
     #[test]
     fn sizing_inventory_is_complete_scoped_and_excludes_unavailable_owners() {
         let a = history(1, 2);
@@ -666,19 +720,21 @@ mod partition_inventory_tests {
             )
             .unwrap();
         let scopes = [(a.cluster, a.namespace)];
-        assert_eq!(roster.partition_groups(&scopes, 2).unwrap(), vec![a, b]);
+        assert_eq!(complete(&roster, &scopes, 2).unwrap(), vec![a, b]);
         assert!(matches!(
-            roster.partition_groups(&scopes, 1),
+            complete(&roster, &scopes, 1),
             Err(RuntimeError::Overloaded)
         ));
-        assert!(roster.partition_groups(&[], 1).unwrap().is_empty());
+        assert!(complete(&roster, &[], 1).unwrap().is_empty());
+        let revision = roster.partition_revision(&scopes).unwrap();
         pending.activate().unwrap();
+        assert_ne!(roster.partition_revision(&scopes).unwrap(), revision);
         assert!(matches!(
-            roster.partition_groups(&scopes, 2),
+            complete(&roster, &scopes, 2),
             Err(RuntimeError::Overloaded)
         ));
         assert_eq!(
-            roster.partition_groups(&scopes, 3).unwrap(),
+            complete(&roster, &scopes, 3).unwrap(),
             vec![a, b, history(6, 2)]
         );
     }

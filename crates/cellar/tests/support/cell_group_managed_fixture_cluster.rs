@@ -109,12 +109,16 @@ pub async fn admit_capacity(
     ] {
         let cut = f.catalog.read(TIMEOUT).await?;
         inspect_current(host, f.spec.node, cut.revision()).await?;
+        // Capacity actions have their own request-ID domain. A larger fleet's
+        // sequence must not collide with first-group bootstrap requests 60/61.
+        let mut identity = request(id + offset, cut.revision());
+        identity.id = (1_000_000 + u128::from(id + offset)).to_be_bytes();
         let accepted = f
             .catalog
             .admit_node_capacity(
                 &cut,
                 &FleetCapacityRequest {
-                    identity: request(id + offset, cut.revision()),
+                    identity,
                     attestation: evidence.clone(),
                     action,
                 },
