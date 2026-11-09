@@ -49,6 +49,7 @@ impl FleetCatalog {
             .await
             .map_err(|_| FleetCatalogError::Closed)?
             .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .inspect_err(|error| tracing::debug!(target: "cellar::raft::source_quiescence", ?history, ?error, stage = "retirement-closure"))
             .map_err(catalog_error)?;
         let source = sources
             .iter()
@@ -71,6 +72,7 @@ impl FleetCatalog {
             let sample = observer
                 .inspect_peer_physical_inventory(node, current.revision(), deadline.remaining()?)
                 .await
+                .inspect_err(|error| tracing::debug!(target: "cellar::raft::source_quiescence", ?history, ?node, ?error, stage = "member-inventory"))
                 .map_err(FleetCatalogError::Observation)?;
             if sample.view.fleet_boot.as_ref() != Some(&boot)
                 || sample.view.node.identity.node != node
@@ -79,6 +81,7 @@ impl FleetCatalog {
                 || sample.view.node.storage_instance.bytes() != boot.engine
                 || member.disk.is_some_and(|disk| disk != boot.disk)
             {
+                tracing::debug!(target: "cellar::raft::source_quiescence", ?history, ?node, stage = "member-boot-binding");
                 return Err(FleetCatalogError::Unconfirmed);
             }
             let inventory = sample
@@ -91,6 +94,10 @@ impl FleetCatalog {
                 || row.member().get() != member.member
                 || !row.source_retirement_applied()
             {
+                tracing::debug!(target: "cellar::raft::source_quiescence", ?history, ?node,
+                    stage = "member-retirement", actual_member = row.member().get(),
+                    expected_member = member.member, retired = row.source_retirement_applied(),
+                    birth_matches = row.birth_digest() == source.route.birth_digest);
                 return Err(FleetCatalogError::Unconfirmed);
             }
         }
@@ -104,6 +111,7 @@ impl FleetCatalog {
             observer
                 .refresh_managed_router(child.history, deadline.remaining()?)
                 .await
+                .inspect_err(|error| tracing::debug!(target: "cellar::raft::source_quiescence", ?history, child = ?child.history, ?error, stage = "successor-route"))
                 .map_err(|error| match error {
                     crate::raft::completion::RuntimeError::Overloaded => {
                         FleetCatalogError::Overloaded
@@ -121,6 +129,7 @@ impl FleetCatalog {
         observer
             .quiesce_managed_source(transition, history, deadline.remaining()?)
             .await
+            .inspect_err(|error| tracing::debug!(target: "cellar::raft::source_quiescence", ?history, ?error, stage = "local-quiesce"))
             .map_err(|error| match error {
                 crate::raft::cell_groups::CellGroupControllerError::Runtime(
                     crate::raft::completion::RuntimeError::Overloaded,
