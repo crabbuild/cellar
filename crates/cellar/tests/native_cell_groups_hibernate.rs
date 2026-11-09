@@ -27,8 +27,8 @@ use cellar::sdk::{
     NodeOutcome, ShutdownMode,
 };
 use managed_fixture::{
-    counter_class, leader, movement, request, seed_cells, start_node, ArchiveSetup,
-    FirstGroupSetup, Fixture, ManagedCluster, TIMEOUT,
+    counter_class, inspect_current, leader, movement, request, seed_cells, start_node,
+    ArchiveSetup, FirstGroupSetup, Fixture, ManagedCluster, TIMEOUT,
 };
 use std::{
     sync::{
@@ -515,6 +515,42 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
     // The very first public linearizable read wakes without an operator call.
     ensure!(cluster.hosts[3].resource_usage().host.controller.groups == 0);
     let router = cluster.hosts[3].cell(seed.cells[0].clone())?;
+    // Discovery and an active node do not grant namespace access. An
+    // unauthorized read must leave every voter at its parked cut.
+    let unauthorized = router
+        .query(
+            ProposalId::new([220; 16])?,
+            &router.contract("Get")?,
+            vec![],
+            QueryOptions::default(),
+        )
+        .await
+        .expect_err("a zero-replica router needs an explicit namespace grant");
+    ensure!(
+        matches!(
+            unauthorized,
+            CellDispatchError::Transport(TransportError::Io(_) | TransportError::Refused)
+        ),
+        "unexpected unauthorized router result: {unauthorized:?}"
+    );
+    require_parked(cluster, before.term, delivered.generation).await?;
+    let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+    for voter in cluster.hosts.iter().take(3) {
+        inspect_current(voter, cluster.peers[3].node, cut.revision()).await?;
+        voter.grant_query_origin(NamespaceQueryOrigin {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            revision: 1,
+            peer: cluster.peers[3].clone(),
+        })?;
+        voter.grant_command_origin(NamespaceCommandOrigin {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            revision: 1,
+            peer: cluster.peers[3].clone(),
+        })?;
+    }
+    require_parked(cluster, before.term, delivered.generation).await?;
     let first_read = router
         .query(
             ProposalId::new([230; 16])?,
