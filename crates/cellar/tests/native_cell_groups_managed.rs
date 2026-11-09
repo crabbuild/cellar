@@ -27,6 +27,8 @@ mod registry;
 mod rustfs;
 #[path = "support/cell_group_managed_shutdown.rs"]
 mod shutdown;
+#[path = "support/cell_group_managed_inspection_catchup.rs"]
+mod inspection_catchup;
 
 async fn stopped(node: Node, service: &RaftCells) -> Result<()> {
     ensure!(matches!(
