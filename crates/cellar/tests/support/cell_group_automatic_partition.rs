@@ -69,6 +69,104 @@ async fn automatic_disjoint_partitions_merge_and_resume() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn partition_sampling_interval_bounds_metadata() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify_sampling(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_partition_sampling_interval_bounds_metadata() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify_sampling(
+            rooted,
+            Arc::new(catalog_fault::Store::around(rustfs::store(
+                "partition-sampling",
+                rooted,
+            )?)),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+async fn qualify_sampling(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    let cluster = Box::pin(ManagedCluster::start_with_store(
+        rooted,
+        &[7, 8, 9],
+        ArchiveSetup::Initialized,
+        store,
+    ))
+    .await?;
+    let f = &cluster.fixtures[0];
+    let result = f
+        .domain
+        .run(Box::pin(async {
+            let _seed = seed_cells(&cluster.hosts, cluster.history).await?;
+            let elected = leader(&cluster.hosts[..3], cluster.history).await?;
+            let control = RaftFleetControl::new(
+                &f.domain,
+                managed_fixture::Fixture::open_catalog(
+                    &f.domain,
+                    f.store.clone(),
+                    cluster.history.cluster,
+                )?,
+                vec![cluster.directory.clone()],
+            )?;
+            // Test the sampling boundary on a stable group, without transition
+            // ownership or newly activated leader discovery in the assertion.
+            for node in [elected, 3] {
+                let mut sampling = RaftFleetPartitionScheduler::new(
+                    control
+                        .clone()
+                        .with_node_observer(cluster.hosts[node].clone()),
+                    configuration(3).sizing,
+                    1,
+                )?;
+                let pressure = RaftFleetPartitionPressure {
+                    placement_class: [231; 32],
+                    leader_cpu_bps: 0,
+                    failure_domain_load_bps: 0,
+                };
+                ensure!(sampling
+                    .observe(cluster.history, pressure, TIMEOUT)
+                    .await?
+                    .is_none());
+                let samples = sampling.remote_samples();
+                ensure!(samples == u64::from(node == 3));
+                let (early, reads) = catalog_fault::count_reads(sampling.observe(
+                    cluster.history,
+                    pressure,
+                    TIMEOUT,
+                ))
+                .await;
+                ensure!(
+                    early?.is_none() && reads.is_empty() && sampling.remote_samples() == samples,
+                    "early policy sampling performed catalog or peer work: {reads:?}"
+                );
+            }
+            Ok::<_, anyhow::Error>(())
+        }))
+        .await;
+    let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+    f.domain.shutdown().await;
+    result
+        .context("sampling execution domain")?
+        .with_context(|| format!("sampling interval, extents={rooted}"))?;
+    joined?;
+    eprintln!(
+        "sampling interval: extents={rooted}, local and remote repeat perform no metadata work"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
 async fn rustfs_automatic_disjoint_partitions_merge_and_resume() -> Result<()> {
     for rooted in [false, true] {
@@ -522,36 +620,6 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32, disjoint: bool) -> Res
         .await?
         .history;
     ensure!(merged_history != cluster.history && !children.contains(&merged_history));
-    if disjoint {
-        let remote = cluster
-            .hosts
-            .iter()
-            .find(|host| host.group(merged_history).is_err())
-            .context("observer without a local parent")?;
-        let mut sampling = RaftFleetPartitionScheduler::new(
-            control.clone().with_node_observer(remote.clone()),
-            configuration(reserve).sizing,
-            2,
-        )?;
-        let pressure = RaftFleetPartitionPressure {
-            placement_class: [231; 32],
-            leader_cpu_bps: 0,
-            failure_domain_load_bps: 0,
-        };
-        ensure!(sampling
-            .observe(merged_history, pressure, TIMEOUT)
-            .await?
-            .is_none());
-        let samples = sampling.remote_samples();
-        ensure!(samples == 1);
-        let (early, reads) =
-            catalog_fault::count_reads(sampling.observe(merged_history, pressure, TIMEOUT)).await;
-        ensure!(
-            early?.is_none() && reads.is_empty() && sampling.remote_samples() == samples,
-            "early policy sampling performed catalog or peer work: {reads:?}"
-        );
-        drop(sampling);
-    }
     let elected = current_leader(cluster, merged_history, &observer).await?;
     cluster.hosts[elected]
         .group(merged_history)?

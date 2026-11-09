@@ -53,14 +53,16 @@ CASES = (
 SUITES = {
     "managed-disjoint-partitions": (
         "native_cell_groups_transition_service",
-        ("automatic::rustfs_automatic_disjoint_partitions_merge_and_resume",),
+        ("automatic::rustfs_partition_sampling_interval_bounds_metadata",
+         "automatic::rustfs_automatic_disjoint_partitions_merge_and_resume"),
         "configured split and automatic merge across disjoint RF3 source sets",
         "Both image modes, nine host-native TLS nodes and original per-node physical limits. "
         "The standard planner selects two disjoint RF3 children under real SQL load. "
         "Controller replacement resumes the selected split; no controller hosts both merge parents. "
         "Bounded adjacent-range discovery and authenticated remote leader telemetry select the quiet "
         "merge through the existing archive-backed transition. SQL, retry receipts, fresh quorum "
-        "writes and joined shutdown are checked. Independent processes/domains, sustained load "
+        "writes and joined shutdown are checked. A stable-group sampling case checks that early "
+        "local and remote repeats perform no catalog or peer work. Independent processes/domains, sustained load "
         "and physical peak measurement remain separate gates.",
     ),
     "managed-automatic-repair": (
