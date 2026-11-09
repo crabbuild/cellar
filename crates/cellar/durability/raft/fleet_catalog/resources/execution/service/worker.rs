@@ -234,12 +234,9 @@ impl MovementServiceWork {
                 }
                 Err(FleetCatalogError::Closed) => return,
                 Err(error) => {
-                    if let Some(detection) = &mut self.detection {
-                        detection.invalidate();
-                    }
-                    if let Some(recovery) = &mut self.recovery {
-                        recovery.detection.invalidate();
-                    }
+                    // ObservationTurn owns failed/cancelled health rounds.
+                    // Preserve completed samples across unrelated work errors;
+                    // their exact-boot checks and freshness still apply.
                     self.publish_work();
                     let kind = schedule::classify(&error);
                     tracing::debug!(failure = ?kind, error = %error, "fleet service round failed");

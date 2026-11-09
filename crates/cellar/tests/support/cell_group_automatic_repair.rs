@@ -403,6 +403,23 @@ async fn exercise(
     nodes[1] = Some(node);
     managed_fixture::admit_capacity(fixture, &cluster.hosts[1], &cluster.directory, 175).await?;
     movement::discover_survivors(cluster, Some(0)).await?;
+    let revision = catalog.read(TIMEOUT).await?.revision();
+    for index in [1, 5] {
+        let target = &cluster.hosts[index];
+        managed_fixture::inspect_current(target, cluster.peers[2].node, revision).await?;
+        target.grant_command_origin(NamespaceCommandOrigin {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            revision,
+            peer: cluster.peers[2].clone(),
+        })?;
+        target.grant_query_origin(NamespaceQueryOrigin {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            revision,
+            peer: cluster.peers[2].clone(),
+        })?;
+    }
     cluster.hosts[2]
         .group(cluster.history)?
         .quorum_membership(TIMEOUT)

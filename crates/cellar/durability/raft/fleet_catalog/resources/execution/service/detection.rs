@@ -98,6 +98,21 @@ pub(super) struct Detection {
     origin: Option<NodeId>,
 }
 
+// An unknown or cancelled observation must restart failure grace. An unrelated
+// planning error after a completed observation must not erase that evidence.
+struct ObservationTurn<'a> {
+    detection: &'a mut Detection,
+    complete: bool,
+}
+
+impl Drop for ObservationTurn<'_> {
+    fn drop(&mut self) {
+        if !self.complete {
+            self.detection.invalidate();
+        }
+    }
+}
+
 impl Detection {
     pub fn new(options: FleetFailureDetectionOptions) -> Self {
         Self {
@@ -158,6 +173,25 @@ impl Detection {
     }
 
     pub async fn round(
+        &mut self,
+        catalog: &FleetCatalog,
+        observer: &RaftCells,
+        cut: &FleetSnapshot,
+        deadline: &Deadline<'_>,
+    ) -> Result<()> {
+        let mut turn = ObservationTurn {
+            detection: self,
+            complete: false,
+        };
+        let result = turn
+            .detection
+            .observe_round(catalog, observer, cut, deadline)
+            .await;
+        turn.complete = result.is_ok();
+        result
+    }
+
+    async fn observe_round(
         &mut self,
         catalog: &FleetCatalog,
         observer: &RaftCells,

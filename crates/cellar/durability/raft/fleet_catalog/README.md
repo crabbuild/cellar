@@ -1784,6 +1784,9 @@ private exact-boot failure admission to claim the disruption slot; admitted
 movements retain their permits and resource charges. Cancellation completes only
 after those debits settle. Platform isolation remains mandatory before repair,
 and controller replacement recovers the same permanent failure operation.
+Completed exact-boot observations retain their grace across unrelated planning
+errors. A failed or cancelled observation turn clears that history; sample age
+still expires while the worker makes no observation progress.
 
 The node's sole movement-worker slot also performs explicitly enabled removed
 member cleanup. Configuring `member_cleanup` alongside automatic topology joins
