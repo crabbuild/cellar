@@ -53,7 +53,7 @@ pub(super) async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> R
     // Fifteen nodes retain the existing two slots and physical attestation.
     // The standard planner must preserve three recovery slots while splitting.
     let spares: Vec<_> = (7..=18).collect();
-    let cluster = Box::pin(ManagedCluster::start_with_partitions(
+    let mut cluster = Box::pin(ManagedCluster::start_with_partitions(
         rooted,
         &spares,
         store,
@@ -64,13 +64,58 @@ pub(super) async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> R
         .domain
         .run(Box::pin(exercise(&cluster)))
         .await;
+    let failed = !matches!(&result, Ok(Ok(())));
+    if failed {
+        let diagnostic = cluster.fixtures[0]
+            .domain
+            .run(Box::pin(diagnose(&cluster)))
+            .await;
+        eprintln!("fanout failure diagnostics joined: {diagnostic:?}");
+    }
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
+    if failed || joined.is_err() {
+        for root in std::mem::take(&mut cluster.roots) {
+            eprintln!("retained failed fanout disk: {}", root.keep().display());
+        }
+    }
     result
         .context("fanout execution domain")?
         .with_context(|| format!("bounded fanout, extents={rooted}; joined={joined:?}"))?;
     joined?;
     Ok(())
+}
+
+async fn diagnose(cluster: &ManagedCluster) {
+    let current = match routes(cluster).await {
+        Ok(current) => current,
+        Err(error) => {
+            eprintln!("fanout failure directory: {error:#}");
+            return;
+        }
+    };
+    for (index, host) in cluster.hosts.iter().enumerate() {
+        let usage = host.resource_usage();
+        eprintln!(
+            "fanout failure node={index} closed={} control={:?} services={:?} \
+             runtime={:?} controller={:?} partition={:?}",
+            host.is_closed(),
+            usage.control,
+            usage.control_services,
+            usage.runtime,
+            usage.host.controller,
+            host.partition_service_status(),
+        );
+        for route in &current {
+            if let Ok(group) = host.group(route.history) {
+                eprintln!(
+                    "fanout failure node={index} group={:?} status={:?}",
+                    route.history,
+                    tokio::time::timeout(TIMEOUT, group.status()).await,
+                );
+            }
+        }
+    }
 }
 
 async fn routes(cluster: &ManagedCluster) -> Result<Vec<GroupRoute>> {
@@ -301,7 +346,8 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
                 delta.to_be_bytes().to_vec(),
                 CommandOptions::new(CommandId::new(ClientId::new([220; 16])?, 1)?, retry),
             )
-            .await?;
+            .await
+            .with_context(|| format!("write fanout cell {index}, history={history:?}"))?;
         ensure!(receipt.result == delta.to_be_bytes() && receipt.durability == Durability::Quorum);
         ledger.push((history, creation, receipt, delta));
         let current = settled(cluster, &catalog).await?;
