@@ -821,10 +821,11 @@ async fn exercise_park_admission(
     let mut leader_index = None;
     for (index, host) in cluster.hosts.iter().enumerate() {
         let status = host.group(cluster.history)?.status().await?;
-        if status.ready && status.leader == Some(active as u64 + 1) {
-            if host.identity().node == cluster.fixtures[active].spec.node {
-                leader_index = Some(index);
-            }
+        if status.ready
+            && status.leader == Some(active as u64 + 1)
+            && host.identity().node == cluster.fixtures[active].spec.node
+        {
+            leader_index = Some(index);
         }
     }
     let leader_index = leader_index.context("remaining quorum leader")?;
