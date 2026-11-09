@@ -146,15 +146,32 @@ impl Services {
             let notified = self.finished.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            {
+            let released = {
                 let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
                 state.closing = true;
                 for entry in state.slots.iter().flatten() {
                     entry.stop.send_replace(true);
                 }
                 if state.slots.iter().all(Option::is_none) {
-                    return;
+                    // Configured recovery owns node-local replay stores. A
+                    // closed SDK handle may outlive this boot; it must not keep
+                    // those stores locked or retain a platform/controller cycle.
+                    // Workers have joined before these final owners are taken.
+                    Some((
+                        state.partition.take(),
+                        state.partition_config.take(),
+                        state.topology.take(),
+                        state.topology_config.take(),
+                    ))
+                } else {
+                    None
                 }
+            };
+            if let Some(owners) = released {
+                // Platform/configuration destructors must run outside the short
+                // service lock; they may release other node-owned capabilities.
+                drop(owners);
+                return;
             }
             notified.await;
         }
