@@ -20,8 +20,9 @@ use cellar::application::consensus::{
 use cellar::sdk::{
     consensus::*,
     fleet_operations::{
-        RaftFleetControl, RaftFleetParkPhase, RaftFleetParkRequest, RaftFleetParkStatus,
-        RaftFleetTransitionGroup,
+        RaftFleetControl, RaftFleetFirstGroupVoter, RaftFleetParkPhase, RaftFleetParkRequest,
+        RaftFleetParkStatus, RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild,
+        RaftFleetTransitionGroup, RaftFleetTransitionPartition,
     },
     NodeOutcome, ShutdownMode,
 };
@@ -702,6 +703,15 @@ async fn park_requires_all_voters_and_no_pending_work() -> Result<()> {
         cluster.fixtures[0].domain.shutdown().await;
         result.with_context(|| format!("park admission with extent-backed images={rooted}"))?;
         joined?;
+
+        let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7, 8, 9])).await?;
+        let result = Box::pin(exercise_topology_park_admission(&mut cluster)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| {
+            format!("topology park admission with extent-backed images={rooted}")
+        })?;
+        joined?;
     }
     Ok(())
 }
@@ -844,5 +854,83 @@ async fn exercise_park_admission(
             && committed.witness.position.index.get() > pending.generation
     );
     control.wake_group(&principal, &selection, TIMEOUT).await?;
+    Ok(())
+}
+
+async fn exercise_topology_park_admission(cluster: &mut ManagedCluster) -> Result<()> {
+    let seed = seed_cells(&cluster.hosts[..3], cluster.history).await?;
+    let replica = leader(&cluster.hosts[..3], cluster.history).await?;
+    let control = park_control(cluster, replica)?;
+    let namespace = hex::encode(cluster.history.namespace.bytes());
+    let basis = control.transition_basis(&namespace, TIMEOUT).await?;
+    let admission = RaftFleetTransitionAdmissionRequest {
+        catalog_id: basis.catalog_id,
+        namespace_id: namespace.clone(),
+        operation_id: hex::encode([151; 16]),
+        request_id: hex::encode([152; 16]),
+        expected_fleet_revision: basis.fleet_revision,
+        expected_directory_digest: basis.directory_digest,
+        class: "Counter".into(),
+        partition: RaftFleetTransitionPartition::Split {
+            parent: RaftFleetTransitionGroup {
+                group_id: hex::encode(cluster.history.group.bytes()),
+                incarnation_id: hex::encode(cluster.history.incarnation.bytes()),
+            },
+            pivot_cell: "Counter:park-pivot".into(),
+        },
+        children: [153_u8, 154]
+            .into_iter()
+            .map(|id| RaftFleetTransitionChild {
+                group: RaftFleetTransitionGroup {
+                    group_id: hex::encode([id; 16]),
+                    incarnation_id: hex::encode([id; 16]),
+                },
+                request_id: hex::encode([id; 16]),
+                creation_id: hex::encode([id; 16]),
+                voters: std::array::from_fn(|member| RaftFleetFirstGroupVoter {
+                    node_id: hex::encode(cluster.fixtures[3 + member].spec.node.bytes()),
+                    member_id: member as u64 + 1,
+                }),
+            })
+            .collect(),
+    };
+    let principal = request(151, basis.fleet_revision).principal;
+    let transition = control
+        .admit_transition(
+            &principal,
+            &namespace,
+            &admission.operation_id,
+            &admission,
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(transition.operation_id == admission.operation_id);
+    let selection = park_request(cluster, 155).await?;
+    let rejected = control
+        .park_group(&principal, &selection, TIMEOUT)
+        .await
+        .expect_err("unresolved topology admission must fence park");
+    ensure!(
+        matches!(
+            rejected.code,
+            cellar::sdk::fleet_operations::RaftFleetFailureCode::Conflict
+                | cellar::sdk::fleet_operations::RaftFleetFailureCode::Blocked
+                | cellar::sdk::fleet_operations::RaftFleetFailureCode::Busy
+        ),
+        "unexpected topology park refusal: {rejected:?}"
+    );
+    ensure!(control
+        .park_group_status(&principal, &selection, TIMEOUT)
+        .await?
+        .is_none());
+    let handle = cluster.hosts[replica].cell(seed.cells[0].clone())?;
+    let committed = handle
+        .command(
+            &handle.contract("Add")?,
+            2_i64.to_be_bytes().to_vec(),
+            CommandOptions::new(CommandId::new(ClientId::new([158; 16])?, 1)?, seed.retry),
+        )
+        .await?;
+    ensure!(committed.result == 9_i64.to_be_bytes() && committed.durability == Durability::Quorum);
     Ok(())
 }
