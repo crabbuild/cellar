@@ -169,6 +169,10 @@ async fn source_clean_refuses_reincarnation_and_releases_exact_slot_after_sync(
         .reclaim_source(Permit::new(&log, source.clone())?)
         .await?;
     assert!(!ack.record().complete);
+    assert!(matches!(
+        ack.reclaimed_history(&log),
+        Err(LogError::Overloaded)
+    ));
     assert!(matches!(group.group_manifest(), Err(LogError::NotFound)));
     assert!(group.log_retention().unwrap().reserve(1024, false).is_err());
     pages.retention.detach_reclaimed_source(&group, &source)?;
@@ -176,6 +180,7 @@ async fn source_clean_refuses_reincarnation_and_releases_exact_slot_after_sync(
     assert_eq!(pages.reclaim(256)?.pages, 0);
     let ack = log.finish_source_reclamation(ack).await?;
     assert!(ack.record().complete);
+    assert_eq!(ack.reclaimed_history(&log)?, history);
     assert_eq!(
         log.reclaim_source(Permit::new(&log, source.clone())?)
             .await?

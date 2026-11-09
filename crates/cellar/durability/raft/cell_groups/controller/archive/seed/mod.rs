@@ -186,6 +186,21 @@ impl Jobs {
         {
             return Err(Error::Runtime(RuntimeError::NotReady));
         }
+        self.release_reclaimed_group(history)
+    }
+
+    pub(in crate::raft::cell_groups::controller) fn release_reclaimed_source(
+        &self,
+        proof: &crate::raft::storage::SourceReclaimAck,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<()> {
+        let history = proof
+            .reclaimed_history(log)
+            .map_err(|error| Error::Runtime(error.into()))?;
+        self.release_reclaimed_group(history)
+    }
+
+    fn release_reclaimed_group(&self, history: GroupHistory) -> Result<()> {
         let mut state = self.state.lock().map_err(|_| Error::Stopped)?;
         if state
             .groups

@@ -1045,6 +1045,13 @@ release. The default `quiesce_retired_sources` option can be disabled when an
 external owner will join the source hosts instead. Retained restart remains a
 separate supported way to establish the same quiescence proof.
 
-A parked retired source's engine history, log and storage stay charged. This is
-owner retirement, not disk deletion or a capacity refund. Physical reclamation,
-automatic plan selection and broader placement qualification remain open.
+A parked retired source's engine history, log and storage stay charged until
+separate, root-authorized physical reclamation completes. The controller then
+releases its bounded SQL and archive-seed retirement markers and archive status
+only after re-reading the matching completed engine receipt. The receipt is bound
+to this engine, the old mapping must be absent, and outstanding SQL/seed owners
+or seed cleanup debt still refuse release. A lost waiter retries the same proof.
+The permanent source tombstone remains in the engine and prevents recreating the
+old source. Thus the in-memory retirement indexes bound concurrent retained
+histories rather than the total number of transitions over the node's lifetime.
+Broader placement and load qualification remain separate release gates.

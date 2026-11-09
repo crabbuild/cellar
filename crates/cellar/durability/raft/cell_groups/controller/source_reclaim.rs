@@ -117,13 +117,49 @@ pub(super) struct Request {
 }
 
 impl Request {
-    pub(super) fn member_history(&self) -> Result<Option<GroupHistory>, RuntimeError> {
-        match &self.permit {
-            Reclamation::Member(permit) => {
-                permit.member.scope().map(Some).map_err(RuntimeError::from)
-            }
-            Reclamation::Source(_) => Ok(None),
+    /// Physical completion also releases the finite SQL/seed retirement index.
+    /// Re-read the selected engine receipt so abandoned waiters and retries use
+    /// the same proof. Incomplete, mismatched or still-entered owners retain it.
+    pub(super) async fn release_retirement(
+        &self,
+        shared: &Shared,
+        sql: &CellGroupSqlPool,
+    ) -> Result<(), CellGroupControllerError> {
+        let log = shared.runtime.log();
+        let history = self.permit.history().map_err(RuntimeError::from)?;
+        let proof = self
+            .permit
+            .status(log)
+            .await
+            .map_err(RuntimeError::from)?
+            .ok_or(RuntimeError::NotReady)?;
+        if !self.permit.matches(&proof) || !proof.complete() {
+            return Err(RuntimeError::NotReady.into());
         }
+        match proof {
+            Ack::Source(proof) => {
+                sql.release_reclaimed_source(&proof, log)
+                    .map_err(|error| CellGroupControllerError::Apply(Arc::new(error)))?;
+                shared
+                    .archive_seeds
+                    .release_reclaimed_source(&proof, log)
+                    .map_err(|error| CellGroupControllerError::Archive(Arc::new(error)))?;
+            }
+            Ack::Member(proof) => {
+                sql.resume_reclaimed_member(&proof, log)
+                    .map_err(|error| CellGroupControllerError::Apply(Arc::new(error)))?;
+                shared
+                    .archive_seeds
+                    .resume_reclaimed_member(&proof, log)
+                    .map_err(|error| CellGroupControllerError::Archive(Arc::new(error)))?;
+            }
+        }
+        shared
+            .archives
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .remove(&history);
+        Ok(())
     }
 }
 

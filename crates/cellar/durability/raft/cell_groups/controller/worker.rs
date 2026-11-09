@@ -286,13 +286,7 @@ impl Worker {
                             let result = async {
                                 let done = source_reclaim::drive(&self.shared, &request).await?;
                                 if done {
-                                    if let Some(history) = request.member_history()? {
-                                        let log = self.runtime.log();
-                                        let proof = log.member_reclamation(history).await.map_err(RuntimeError::from)?.ok_or(RuntimeError::NotReady)?;
-                                        self.sql.resume_reclaimed_member(&proof, log).map_err(|error| CellGroupControllerError::Apply(Arc::new(error)))?;
-                                        self.shared.archive_seeds.resume_reclaimed_member(&proof, log).map_err(|error| CellGroupControllerError::Archive(Arc::new(error)))?;
-                                        self.shared.archives.lock().map_err(|_| CellGroupControllerError::Closed)?.remove(&history);
-                                    }
+                                    request.release_retirement(&self.shared, &self.sql).await?;
                                 }
                                 Ok(done)
                             }.await;

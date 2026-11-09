@@ -147,7 +147,7 @@ impl Admission {
             .is_none_or(|budget| budget.strong_count() == 0))
     }
 
-    pub(super) fn resume_reclaimed_member(
+    pub(super) fn release_reclaimed_group(
         &self,
         group: GroupHistory,
     ) -> Result<(), ExecutionError> {

@@ -365,6 +365,22 @@ impl MemberReclaimAck {
 }
 
 impl SourceReclaimAck {
+    /// Completed engine/page collection permits dropping bounded in-memory
+    /// retirement fences. The permanent source refusal remains in this engine;
+    /// this acknowledgement never permits a new mapping for the source.
+    pub(crate) fn reclaimed_history(&self, log: &ReplicaLog) -> Result<GroupHistory, LogError> {
+        self.check(log)?;
+        let history = self.record.source.scope()?;
+        if !self.record.complete {
+            return Err(LogError::Overloaded);
+        }
+        match log.cell_group(&history) {
+            Err(LogError::NotFound) => Ok(history),
+            Ok(_) => Err(LogError::Overloaded),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(crate) fn record(&self) -> &super::cell_groups::source_reclaim::Record {
         &self.record
     }

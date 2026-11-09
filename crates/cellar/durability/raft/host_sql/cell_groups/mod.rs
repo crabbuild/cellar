@@ -501,7 +501,18 @@ impl CellGroupSqlPool {
         {
             return Err(ExecutionError::Busy);
         }
-        self.inner.admission.resume_reclaimed_member(history)
+        self.inner.admission.release_reclaimed_group(history)
+    }
+
+    pub(crate) fn release_reclaimed_source(
+        &self,
+        proof: &crate::raft::storage::SourceReclaimAck,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<(), ExecutionError> {
+        let history = proof
+            .reclaimed_history(log)
+            .map_err(crate::raft::execution::storage)?;
+        self.inner.admission.release_reclaimed_group(history)
     }
 
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
