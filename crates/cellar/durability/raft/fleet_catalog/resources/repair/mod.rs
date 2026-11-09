@@ -22,6 +22,9 @@ pub struct FleetIsolatedRepairContext {
 /// repair. Callbacks cannot choose a source, target, member ID or repair plan.
 pub struct FleetIsolatedRepairInputs {
     pub history: FleetTopologyHistoryResources,
+    /// Deployment policy before any governing topology intent exists. A rooted
+    /// operator policy takes precedence; omission must never weaken separation.
+    pub policy: FleetTopologyPolicy,
     pub nodes: Vec<FleetTopologyNodeResources>,
     pub namespaces: Vec<RangeDirectory>,
 }

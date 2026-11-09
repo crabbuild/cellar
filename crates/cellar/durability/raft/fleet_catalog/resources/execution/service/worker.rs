@@ -343,6 +343,25 @@ impl MovementServiceWork {
             .domain
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed)?;
+        if let (Some(recovery), Some(topology)) = (&self.recovery, &mut self.topology) {
+            let unavailable = recovery
+                .detection
+                .view(now)
+                .nodes
+                .iter()
+                .any(|node| node.health == FleetNodeHealth::Unavailable);
+            if topology
+                .yield_for_recovery(
+                    &cut,
+                    unavailable,
+                    self.schedule.entries.is_empty(),
+                    &deadline,
+                )
+                .await?
+            {
+                return Ok(());
+            }
+        }
         if let Some(index) = self.schedule.select(now) {
             let movement = &self.schedule.entries[index].pending;
             self.status.send_modify(|status| {

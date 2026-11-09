@@ -261,6 +261,7 @@ impl FleetIsolatedRepairEvidence for Evidence {
             let (_, nodes) = self.nodes(&cut, deadline.remaining()?).await?;
             Ok(FleetIsolatedRepairInputs {
                 history: self.bounds(context.group),
+                policy: self.options.policy.clone(),
                 nodes,
                 namespaces: self.namespaces.clone(),
             })

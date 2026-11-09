@@ -37,6 +37,9 @@ impl Planning<'_, '_> {
         if inputs.nodes.is_empty() || inputs.nodes.len() > 64 || inputs.namespaces.len() > 64 {
             return Err(FleetCatalogError::Limit);
         }
+        if inputs.policy.revision == 0 || !(1..=50_000_000).contains(&inputs.policy.max_work) {
+            return Err(FleetCatalogError::Invalid("isolated repair policy"));
+        }
         let bounds = &inputs.history;
         if bounds.group != context.group
             || bounds.resident.engine_slots != 1
@@ -257,12 +260,7 @@ impl Planning<'_, '_> {
         let policy = placement
             .as_ref()
             .map(|p| p.policy.clone())
-            .unwrap_or(FleetTopologyPolicy {
-                revision: 1,
-                distinct_zones: false,
-                distinct_regions: false,
-                max_work: 1_000_000,
-            });
+            .unwrap_or_else(|| inputs.policy.clone());
         let view = IsolatedRepairView {
             scope: context.group,
             revision: sample.membership().membership_revision(),

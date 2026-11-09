@@ -32,6 +32,8 @@ pub struct Fixture {
     pub image_bytes: u64,
     /// Logical admission only; physical attestations and engine/image limits stay unchanged.
     pub logical_byte_capacity: Option<u64>,
+    /// Declared fixture labels only; these do not prove independent hosts.
+    pub placement_domains: Option<std::collections::BTreeMap<NodeId, (String, String)>>,
     pub spec: FleetNodeSpec,
 }
 
@@ -137,6 +139,7 @@ impl Fixture {
             max_input_bytes: 1024,
             image_bytes: 256 * 1024 * 1024,
             logical_byte_capacity: None,
+            placement_domains: None,
             spec,
         })
     }
@@ -207,10 +210,16 @@ impl Fixture {
         host.images.max_bytes = self.image_bytes;
         // Snapshot/current/private/apply/incoming ownership admits eight copies.
         host.execution.max_image_bytes = self.image_bytes / 8;
+        let (region, zone) = self
+            .placement_domains
+            .as_ref()
+            .and_then(|domains| domains.get(&self.spec.node))
+            .cloned()
+            .unwrap_or_else(|| ("local".into(), "node".into()));
         host.node_profile = Some(RaftNodeProfile {
             pool: "test".into(),
-            region: "local".into(),
-            zone: "node".into(),
+            region,
+            zone,
             group_capacity: 2,
             byte_capacity: self
                 .logical_byte_capacity

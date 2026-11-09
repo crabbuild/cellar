@@ -51,6 +51,19 @@ CASES = (
 )
 
 SUITES = {
+    "managed-automatic-repair": (
+        "native_cell_groups_scheduler",
+        ("rustfs_repair_preserves_failure_domains_and_reserve",),
+        "configured exact-boot failure repair restores RF3 with declared separation and reserve",
+        "Both image modes and original fixture resource/deadline bounds. Six host-native TLS nodes "
+        "declare four regions; two spares share surviving voter domains and must remain unused. "
+        "An unfinished automatic balance yields through durable cancellation. Joined fixture fencing "
+        "resumes the same operation after controller replacement; a second domain loss before repair "
+        "refuses quorum writes and linearizable reads. Retained return reconciles the ambiguous command, "
+        "then repair preserves cells/receipts/SQL, restores RF3 and retains the old disk and recovery room. "
+        "Declared labels and joined fixture fencing do not qualify independent hosts, Docker launch "
+        "revocation, sustained load or measured physical peaks.",
+    ),
     "managed-automatic-topology": (
         "native_cell_groups_transition_service",
         ("automatic_topology::rustfs_configured_topology_balances_groups_and_resumes",
@@ -417,7 +430,7 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-automatic-topology", "managed-automatic-partitions", "managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
+                     or (suite in ("managed-automatic-repair", "managed-automatic-topology", "managed-automatic-partitions", "managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
                                    "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()

@@ -141,6 +141,12 @@ impl FleetIsolatedRepairEvidence for Inputs {
                 memory_bytes: 8 * 1024 * 1024,
             };
             Ok(FleetIsolatedRepairInputs {
+                policy: FleetTopologyPolicy {
+                    revision: 1,
+                    distinct_zones: false,
+                    distinct_regions: false,
+                    max_work: 1_000_000,
+                },
                 history: FleetTopologyHistoryResources {
                     group: self.history,
                     resident: bounds,

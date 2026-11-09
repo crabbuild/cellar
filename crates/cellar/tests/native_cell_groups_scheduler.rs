@@ -16,6 +16,9 @@ mod cleanup;
 #[path = "support/cell_group_scheduler_topology.rs"]
 mod topology;
 
+#[path = "support/cell_group_automatic_repair.rs"]
+mod automatic_repair;
+
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::{
     cell_groups::TransitionPhase, FleetHistoryState,
@@ -25,6 +28,31 @@ use managed_fixture::{
     leader, movement, request, seed_cells, ManagedCluster, SeededCells, TIMEOUT,
 };
 use std::{sync::atomic::Ordering, time::Duration};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn repair_preserves_failure_domains_and_reserve() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(automatic_repair::qualify(
+            rooted,
+            std::sync::Arc::new(catalog_fault::Store::default()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_repair_preserves_failure_domains_and_reserve() -> Result<()> {
+    for rooted in [false, true] {
+        let store = std::sync::Arc::new(catalog_fault::Store::around(rustfs::store(
+            "automatic-repair",
+            rooted,
+        )?));
+        Box::pin(automatic_repair::qualify(rooted, store)).await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn retained_member_cleanup_resumes_on_qualified_boot() -> Result<()> {

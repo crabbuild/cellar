@@ -53,6 +53,55 @@ impl Automatic {
         self.last_complete = Some(signature);
     }
 
+    /// Failure observations may fence automatic planning, never host execution.
+    /// Admitted movements retain their owner and debt. After durable cancellation,
+    /// the failure service may acquire isolation; cancellation settles only when
+    /// the movement book is empty. Explicit operator intents are never seized.
+    pub async fn yield_for_recovery(
+        &self,
+        cut: &FleetSnapshot,
+        unavailable: bool,
+        idle: bool,
+        deadline: &Deadline<'_>,
+    ) -> Result<bool> {
+        let catalog = &self.evidence.catalog;
+        let Some(operation) = catalog
+            .active_topology_operation(cut, deadline.remaining()?)
+            .await?
+        else {
+            return Ok(false);
+        };
+        if !self.owns(&operation)? {
+            return Ok(false);
+        }
+        match operation.phase {
+            FleetTopologyPhase::Running if unavailable => {
+                let request = super::super::topology::service_request(
+                    catalog,
+                    &operation,
+                    cut,
+                    b"failure-yield",
+                )?;
+                catalog
+                    .cancel_topology(cut, &request, deadline.remaining()?)
+                    .await?;
+            }
+            FleetTopologyPhase::Cancelling if idle => {
+                let request = super::super::topology::service_request(
+                    catalog,
+                    &operation,
+                    cut,
+                    b"cancel-complete",
+                )?;
+                catalog
+                    .complete_topology_cancellation(cut, &request, deadline.remaining()?)
+                    .await?;
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
     /// Eligibility changes cancel an automatic operation through its ordinary
     /// durable fence before selecting a new immutable definition.
     pub async fn reconcile(

@@ -1771,6 +1771,20 @@ Detection alone never proves isolation. Managed startup binds replay to the
 actual node's private image inventories and existing archive pools. Admitted
 movements and fenced recovery take priority over new balance collection.
 
+Before a governing topology policy exists, isolated repair uses the explicit
+`FleetIsolatedRepairInputs::policy`; configured recovery supplies the controller's
+zone/region policy. It never defaults to weaker separation. A governing rooted
+operator policy still takes precedence, and rooted physical-host separation is
+checked independently.
+
+Repeated unavailable-boot observations may cancel the controller's own automatic
+balance through its ordinary durable no-new-movement fence. They cannot cancel
+an operator intent or certify isolation. A cancelling intent permits only the
+private exact-boot failure admission to claim the disruption slot; admitted
+movements retain their permits and resource charges. Cancellation completes only
+after those debits settle. Platform isolation remains mandatory before repair,
+and controller replacement recovers the same permanent failure operation.
+
 The node's sole movement-worker slot also performs explicitly enabled removed
 member cleanup. Configuring `member_cleanup` alongside automatic topology joins
 that work into this owner rather than starting a second worker. The worker

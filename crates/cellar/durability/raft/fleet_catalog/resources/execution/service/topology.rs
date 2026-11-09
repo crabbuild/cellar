@@ -113,6 +113,26 @@ impl TopologyService {
         self.candidate = None;
     }
 
+    pub async fn yield_for_recovery(
+        &mut self,
+        cut: &FleetSnapshot,
+        unavailable: bool,
+        idle: bool,
+        deadline: &Deadline<'_>,
+    ) -> Result<bool> {
+        let Some(automatic) = &self.automatic else {
+            return Ok(false);
+        };
+        if !automatic
+            .yield_for_recovery(cut, unavailable, idle, deadline)
+            .await?
+        {
+            return Ok(false);
+        }
+        self.interrupt();
+        Ok(true)
+    }
+
     fn publish(
         &mut self,
         operation: &FleetTopologyOperation,
