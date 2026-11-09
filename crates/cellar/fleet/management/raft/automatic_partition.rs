@@ -75,13 +75,14 @@ impl RaftFleetPartitionPlanner for Planner {
             let directory = self
                 .control
                 .managed_namespace(&context.basis.namespace_id)?;
-            let (partition, children) = match context.recommendation {
+            let (partition, children, parents) = match context.recommendation {
                 RaftFleetPartitionRecommendation::Split { basis, pivot, .. } => (
                     RaftFleetTransitionPartition::Split {
                         parent: group(basis.route.history),
                         pivot_cell: pivot.cell().as_str().into(),
                     },
                     2,
+                    vec![basis.route.history],
                 ),
                 RaftFleetPartitionRecommendation::Merge { left, right } => (
                     RaftFleetTransitionPartition::Merge {
@@ -89,6 +90,7 @@ impl RaftFleetPartitionPlanner for Planner {
                         right: group(right.route.history),
                     },
                     1,
+                    vec![left.route.history, right.route.history],
                 ),
                 RaftFleetPartitionRecommendation::Wait(_) => {
                     return Err(RaftFleetFailure::invalid("wait is not a placement request"))
@@ -120,6 +122,7 @@ impl RaftFleetPartitionPlanner for Planner {
                         revision: context.basis.fleet_revision,
                         policy: &self.placement,
                         children,
+                        parents: &parents,
                         excluded: &excluded,
                     },
                     turn.remaining()?,

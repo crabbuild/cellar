@@ -24,6 +24,7 @@ pub(crate) struct PartitionPlacementRequest<'a> {
     pub revision: u64,
     pub policy: &'a cellar_logic::cell_group_placement::PartitionPlacementPolicy,
     pub children: usize,
+    pub parents: &'a [cellar_logic::cell_group::GroupHistory],
     pub excluded: &'a BTreeSet<NodeId>,
 }
 
@@ -46,9 +47,15 @@ impl FleetCatalog {
             revision,
             policy,
             children,
+            parents,
             excluded,
         } = request;
-        if !(1..=2).contains(&children) {
+        if !matches!((parents.len(), children), (1, 2) | (2, 1))
+            || parents.iter().any(|parent| {
+                parent.cluster != directory.namespace_config().cluster
+                    || parent.namespace != directory.namespace_config().namespace
+            })
+        {
             return Err(FleetCatalogError::Invalid("partition child count"));
         }
         let deadline = deadline::Deadline::new(self, timeout)?;
@@ -64,6 +71,27 @@ impl FleetCatalog {
                     let class = self
                         .declared_class(&snapshot, directory.namespace())
                         .await?;
+                    // Capacity was admitted before these serving parents were
+                    // born. Their settled placements supply a rooted occupancy
+                    // lower bound for ranking the bounded candidate window.
+                    // Physical probing and full resource accounting still own
+                    // feasibility; this ranking grants no capacity authority.
+                    let mut source_slots = BTreeMap::<NodeId, u32>::new();
+                    for parent in parents {
+                        let key = self
+                            .binding(parent)?
+                            .key()
+                            .map_err(|_| FleetCatalogError::Invalid("partition parent history"))?;
+                        let history = self.history_inner(&snapshot, &key).await?;
+                        if *history.state() != FleetHistoryState::Live {
+                            return Err(FleetCatalogError::Conflict);
+                        }
+                        let (voters, _) = self.settled_group_voters(&snapshot, &history).await?;
+                        for node in voters.keys() {
+                            // At most two parents, each with distinct voters.
+                            *source_slots.entry(*node).or_default() += 1;
+                        }
+                    }
                     let mut candidates = Vec::new();
                     // The rooted fleet has a 64-node ceiling. Only metadata is read here;
                     // at most six selected nodes receive physical-inventory requests.
@@ -86,7 +114,9 @@ impl FleetCatalog {
                         let floor = self
                             .resource_floor(&snapshot, &room::resource_attestation(&capacity))
                             .await?;
-                        let slots = floor.engine_slots;
+                        let slots = floor
+                            .engine_slots
+                            .max(source_slots.get(&id).copied().unwrap_or(0));
                         let limit = capacity.engine_slots.min(profile.group_capacity);
                         if slots >= limit {
                             continue;

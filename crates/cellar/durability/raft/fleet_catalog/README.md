@@ -171,6 +171,10 @@ attempt. The planner includes unmaterialized reservations, retained sources,
 resource floors, installed limits and separation constraints. It allocates both
 split children together and retains the configured aggregate recovery slots.
 Empty destinations win equal-load ties before sharing retained source nodes.
+Candidate ranking includes each selected parent's rooted settled voter occupancy,
+including births that followed capacity qualification. A zero resource floor
+therefore cannot make an occupied parent appear empty. The six live probes still
+revalidate complete physical occupancy and available capacity.
 Selection remains advisory; existing admission and seal owners revalidate it.
 
 Sampling rotates over locally hosted active groups and their immediate right
