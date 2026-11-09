@@ -46,6 +46,8 @@ pub enum RaftFleetPartitionExecutionPolicy {
 #[derive(Clone, Debug)]
 pub struct RaftFleetPartitionServiceOptions {
     pub principal: String,
+    /// Complete local inventory bound. The scheduler separately charges space
+    /// for at most one adjacent remote range per local group.
     pub max_groups: usize,
     pub execution: RaftFleetPartitionExecutionPolicy,
     pub interval: Duration,

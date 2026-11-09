@@ -18,6 +18,46 @@ pub struct CellGroupDirectoryPage {
 }
 
 impl RangeDirectory {
+    /// Resolve only the selected range and its immediate right neighbor. Both
+    /// immutable tree paths are bounded; a stale anchor cannot select new work.
+    pub(crate) async fn following_group(
+        &self,
+        view: &DirectoryView,
+        anchor: &GroupRoute,
+    ) -> Result<Option<GroupRoute>, CatalogError> {
+        self.check_view(view)?;
+        self.bounded(async {
+            let selected = match anchor.range.lower() {
+                CellBound::NegativeInfinity => self.successor(view, None).await?,
+                CellBound::Key(key) => {
+                    let root = view
+                        .head
+                        .tree
+                        .as_ref()
+                        .ok_or(CatalogError::Conflict("directory has no selected ranges"))?;
+                    Some(self.lookup_tree(root, key.cell()).await?)
+                }
+                CellBound::PositiveInfinity => {
+                    return Err(CatalogError::Conflict("invalid adjacent range anchor"));
+                }
+            };
+            if selected.as_ref() != Some(anchor) {
+                return Err(CatalogError::Conflict("stale adjacent range anchor"));
+            }
+            let next = self.successor(view, Some(anchor.range.lower())).await?;
+            match &next {
+                Some(next) if anchor.range.upper() != next.range.lower() => {
+                    Err(CatalogError::Corrupt("adjacent range coverage"))
+                }
+                None if anchor.range.upper() != &CellBound::PositiveInfinity => {
+                    Err(CatalogError::Corrupt("missing adjacent range"))
+                }
+                _ => Ok(next),
+            }
+        })
+        .await
+    }
+
     /// Enumerate physical groups without scanning cells or listing S3 objects.
     /// Each call retains at most `limit` routes and one tree path. The cursor
     /// binds the immutable view, including its namespace and topology revision.

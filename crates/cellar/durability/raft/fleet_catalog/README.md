@@ -173,12 +173,23 @@ split children together and retains the configured aggregate recovery slots.
 Empty destinations win equal-load ties before sharing retained source nodes.
 Selection remains advisory; existing admission and seal owners revalidate it.
 
-Sampling rotates over locally hosted active groups. A follower obtains the
-actual leader's counters and geometry through authenticated, scope-bound Fleet
-inspection. Rate calculation uses that owner's counter clock; freshness and
-cooldown use receiver-local request-start time. Different leader clocks are never
-compared. Adjacent groups hosted on the same node can therefore merge with
-different leaders. Global placement alignment for disjoint replica sets remains CG-11 work.
+Sampling rotates over locally hosted active groups and their immediate right
+neighbors. An immutable directory seek verifies the selected anchor and adjacency
+through bounded tree paths. Each local group retains at most one remote neighbor;
+the scheduler charges 64 KiB per configured local group plus 64 KiB fixed metadata
+for both tracker sets. One turn samples one local group and at most one neighbor,
+without enumerating all namespace ranges or cells.
+
+For a remote-only neighbor, the current Fleet root locates three settled voters.
+An authenticated quorum observation identifies the actual leader, whose counters
+and geometry arrive through the existing purpose-bound inspection RPC. A cached
+leader only selects the first target; a failed target falls back to the three
+settled voters within the original turn deadline. Rate calculation uses that
+owner's counter clock; freshness and cooldown use receiver-local request-start
+time. Different leader clocks are never compared. Failed remote telemetry clears
+its merge history. Adjacent groups on disjoint voter sets can use the same
+archive-backed merge protocol; admission still revalidates both source quorums,
+routes, placement and recovery capacity.
 Configured whole-group balancing uses the controller described below.
 
 `RaftCells::partition_service_status` reports bounded progress, failures and

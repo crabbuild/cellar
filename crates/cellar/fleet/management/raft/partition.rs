@@ -100,7 +100,7 @@ pub struct RaftFleetPartitionPoll {
 }
 
 /// One explicitly driven node-local scheduling owner. Each observation samples
-/// one selected local group; there is no fleet-wide inventory broadcast or
+/// one selected local group and at most its immediate right neighbor; there is no fleet-wide inventory broadcast or
 /// per-cell task. Call observation at the policy's interval and use the
 /// existing managed transition steps after admission.
 ///
@@ -116,6 +116,7 @@ pub struct RaftFleetPartitionScheduler {
     policy: PartitionPolicy,
     max_groups: usize,
     groups: BTreeMap<GroupHistory, Tracked>,
+    neighbors: BTreeMap<GroupHistory, GroupHistory>,
     pending: Option<Pending>,
     inventory_cursor: Option<GroupHistory>,
     selection_cursor: Option<GroupHistory>,
@@ -138,18 +139,20 @@ impl RaftFleetPartitionScheduler {
             .node_observer
             .as_ref()
             .ok_or_else(RaftFleetFailure::unsupported)?;
-        // Previous observation and tracker each retain at most seven 1-KiB
-        // cell IDs plus fixed metadata. Include inventory, selected candidate,
+        // Each local group and its one adjacent remote range retain at most
+        // seven 1-KiB cell IDs in their previous observation and tracker.
+        // Include inventory, selected candidate,
         // frozen request and transient clones in this existing control budget.
         let memory = observer
             .control_budget()
-            .acquire(max_groups * 32 * 1024 + 64 * 1024)
+            .acquire(max_groups * 64 * 1024 + 64 * 1024)
             .ok_or(FleetCatalogError::Overloaded)?;
         Ok(Self {
             control,
             policy,
             max_groups,
             groups: BTreeMap::new(),
+            neighbors: BTreeMap::new(),
             pending: None,
             inventory_cursor: None,
             selection_cursor: None,
@@ -159,7 +162,8 @@ impl RaftFleetPartitionScheduler {
     }
 
     /// Discover active local groups in configured namespaces, sample one in
-    /// round-robin order and select a fresh split or compatible adjacent merge.
+    /// round-robin order, sample its immediate right neighbor, and select a
+    /// fresh split or compatible adjacent merge across arbitrary voter sets.
     /// No cell enumeration, remote inventory broadcast or mutation occurs.
     /// The complete local cut must fit the explicit tracker capacity; overflow
     /// refuses rather than sampling only a favored prefix. Poll often enough
@@ -201,8 +205,11 @@ impl RaftFleetPartitionScheduler {
                 }
                 other => observation_failure(other),
             })?;
-        self.groups
-            .retain(|history, _| groups.binary_search(history).is_ok());
+        self.neighbors
+            .retain(|local, _| groups.binary_search(local).is_ok());
+        self.groups.retain(|history, _| {
+            groups.binary_search(history).is_ok() || self.neighbors.values().any(|h| h == history)
+        });
         let selected = groups
             .iter()
             .copied()
@@ -212,9 +219,52 @@ impl RaftFleetPartitionScheduler {
             // Advance even on a failed sample, so one stale/failing owner
             // cannot monopolize later turns. Failed samples lose advisory state.
             self.inventory_cursor = Some(history);
-            if let Err(error) = Box::pin(self.observe(history, pressure, turn.remaining()?)).await {
+            if let Err(error) =
+                Box::pin(self.observe_tracked(history, pressure, turn.remaining()?)).await
+            {
                 self.groups.remove(&history);
                 return Err(error);
+            }
+            let route = self
+                .groups
+                .get(&history)
+                .ok_or(FleetCatalogError::Unconfirmed)?
+                .previous
+                .route
+                .clone();
+            let directory = self
+                .control
+                .managed_namespace(&hex::encode(history.namespace.bytes()))?;
+            let following = turn
+                .run(async {
+                    let view = directory.observe().await?;
+                    directory.following_group(&view, &route).await
+                })
+                .await?
+                .map_err(transition_admission::directory_failure)?;
+            if let Some(remote) = following
+                .map(|route| route.history)
+                .filter(|right| groups.binary_search(right).is_err())
+            {
+                self.neighbors.insert(history, remote);
+                self.groups.retain(|candidate, _| {
+                    groups.binary_search(candidate).is_ok()
+                        || self.neighbors.values().any(|h| h == candidate)
+                });
+                if let Err(error) =
+                    Box::pin(self.observe_tracked(remote, pressure, turn.remaining()?)).await
+                {
+                    // Failed advisory telemetry cannot retain merge hysteresis
+                    // or suppress an independently eligible local split.
+                    self.groups.remove(&remote);
+                    tracing::debug!(%error, "adjacent partition observation unavailable");
+                }
+            } else {
+                self.neighbors.remove(&history);
+                self.groups.retain(|candidate, _| {
+                    groups.binary_search(candidate).is_ok()
+                        || self.neighbors.values().any(|h| h == candidate)
+                });
             }
         }
         let recommendation = super::partition_selection::select(
@@ -278,8 +328,20 @@ impl RaftFleetPartitionScheduler {
         pressure: RaftFleetPartitionPressure,
         timeout: Duration,
     ) -> Result<Option<PartitionSample>> {
+        if !self.groups.contains_key(&history) && self.groups.len() >= self.max_groups {
+            return Err(FleetCatalogError::Limit.into());
+        }
+        Box::pin(self.observe_tracked(history, pressure, timeout)).await
+    }
+
+    async fn observe_tracked(
+        &mut self,
+        history: GroupHistory,
+        pressure: RaftFleetPartitionPressure,
+        timeout: Duration,
+    ) -> Result<Option<PartitionSample>> {
         validate_pressure(pressure)?;
-        if !self.groups.contains_key(&history) && self.groups.len() == self.max_groups {
+        if !self.groups.contains_key(&history) && self.groups.len() >= self.max_groups * 2 {
             return Err(FleetCatalogError::Limit.into());
         }
         let namespace = hex::encode(history.namespace.bytes());
@@ -308,12 +370,27 @@ impl RaftFleetPartitionScheduler {
             .domain
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed)?;
-        let group = observer.group(history).map_err(observation_failure)?;
-        let mut current = group
-            .observe_partition(turn.remaining()?)
-            .await
-            .map_err(observation_failure)?;
-        let mut origin = observer.identity().node;
+        let (mut current, mut origin) = match observer.group(history) {
+            Ok(group) => (
+                group
+                    .observe_partition(turn.remaining()?)
+                    .await
+                    .map_err(observation_failure)?,
+                observer.identity().node,
+            ),
+            Err(crate::raft::completion::RuntimeError::NotFound) => {
+                let remote = Box::pin(super::partition_observation::remote(
+                    &self.control,
+                    history,
+                    self.groups.get(&history).map(|tracked| tracked.origin),
+                    &turn,
+                ))
+                .await?;
+                self.remote_samples = self.remote_samples.saturating_add(1);
+                remote
+            }
+            Err(error) => return Err(observation_failure(error)),
+        };
         if !current.stable_leader {
             let snapshot = self.control.catalog.read(turn.remaining()?).await?;
             let authorization = self

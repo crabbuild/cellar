@@ -51,6 +51,18 @@ CASES = (
 )
 
 SUITES = {
+    "managed-disjoint-partitions": (
+        "native_cell_groups_transition_service",
+        ("automatic::rustfs_automatic_disjoint_partitions_merge_and_resume",),
+        "configured split and automatic merge across disjoint RF3 source sets",
+        "Both image modes, nine host-native TLS nodes and original per-node physical limits. "
+        "The standard planner selects two disjoint RF3 children under real SQL load. "
+        "Controller replacement resumes the selected split; no controller hosts both merge parents. "
+        "Bounded adjacent-range discovery and authenticated remote leader telemetry select the quiet "
+        "merge through the existing archive-backed transition. SQL, retry receipts, fresh quorum "
+        "writes and joined shutdown are checked. Independent processes/domains, sustained load "
+        "and physical peak measurement remain separate gates.",
+    ),
     "managed-automatic-repair": (
         "native_cell_groups_scheduler",
         ("rustfs_repair_preserves_failure_domains_and_reserve",),
@@ -430,7 +442,7 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-automatic-repair", "managed-automatic-topology", "managed-automatic-partitions", "managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
+                     or (suite in ("managed-disjoint-partitions", "managed-automatic-repair", "managed-automatic-topology", "managed-automatic-partitions", "managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
                                    "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()

@@ -55,6 +55,38 @@ async fn automatic_partitions_split_merge_and_resume() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn automatic_disjoint_partitions_merge_and_resume() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify_placement(
+            rooted,
+            3,
+            Arc::new(catalog_fault::Store::default()),
+            true,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_automatic_disjoint_partitions_merge_and_resume() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(qualify_placement(
+            rooted,
+            3,
+            Arc::new(catalog_fault::Store::around(rustfs::store(
+                "automatic-disjoint-partitions",
+                rooted,
+            )?)),
+            true,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn automatic_placement_preserves_recovery_reserve() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(qualify(
@@ -102,9 +134,26 @@ async fn rustfs_automatic_placement_preserves_recovery_reserve() -> Result<()> {
 }
 
 async fn qualify(rooted: bool, reserve: u32, store: Arc<catalog_fault::Store>) -> Result<()> {
+    Box::pin(qualify_placement(rooted, reserve, store, false)).await
+}
+
+async fn qualify_placement(
+    rooted: bool,
+    reserve: u32,
+    store: Arc<catalog_fault::Store>,
+    disjoint: bool,
+) -> Result<()> {
+    // Six empty destinations force the standard joint planner to spread the
+    // children over disjoint RF3 sets. Each node keeps the normal two slots,
+    // image/byte limits and recovery reserve; no callback selects placement.
+    let spares: &[u8] = if disjoint {
+        &[7, 8, 9, 10, 11, 12]
+    } else {
+        &[7, 8, 9]
+    };
     let cluster = Box::pin(ManagedCluster::start_with_partitions(
         rooted,
-        &[7, 8, 9],
+        spares,
         store,
         configuration(reserve),
     ))
@@ -112,7 +161,7 @@ async fn qualify(rooted: bool, reserve: u32, store: Arc<catalog_fault::Store>) -
     eprintln!("automatic RF3: extents={rooted}, reserve={reserve}, startup complete");
     let result = cluster.fixtures[0]
         .domain
-        .run(Box::pin(exercise(&cluster, reserve)))
+        .run(Box::pin(exercise(&cluster, reserve, disjoint)))
         .await;
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
     ensure!(
@@ -152,7 +201,7 @@ async fn active(catalog: &FleetCatalog) -> Result<Option<Vec<u8>>> {
         .await?)
 }
 
-async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
+async fn exercise(cluster: &ManagedCluster, reserve: u32, disjoint: bool) -> Result<()> {
     let f = &cluster.fixtures[0];
     // Status reads own a client; they must not compete for a voter's single
     // catalog turn with its trust and authenticated membership requests.
@@ -358,6 +407,34 @@ async fn exercise(cluster: &ManagedCluster, reserve: u32) -> Result<()> {
     );
     eprintln!("automatic RF3: split retired after controller replacement");
     let histories: Vec<_> = children.iter().copied().collect();
+    if disjoint {
+        let cut = observer.read(TIMEOUT).await?;
+        let mut placements = Vec::new();
+        for history in &histories {
+            let voters = observer
+                .history(&cut, history, TIMEOUT)
+                .await?
+                .initial_placement()?;
+            placements.push(
+                voters
+                    .voters
+                    .into_iter()
+                    .map(|v| v.node)
+                    .collect::<BTreeSet<_>>(),
+            );
+        }
+        ensure!(
+            placements[0].len() == 3 && placements[0].is_disjoint(&placements[1]),
+            "automatic split did not produce disjoint RF3 source sets: {placements:?}"
+        );
+        ensure!(
+            cluster.hosts.iter().all(|host| {
+                !(host.group(histories[0]).is_ok() && host.group(histories[1]).is_ok())
+            }),
+            "a controller has both merge parents locally"
+        );
+        eprintln!("automatic RF3: disjoint source voters confirmed");
+    }
     let left = current_leader(cluster, histories[0], &observer).await?;
     let right = current_leader(cluster, histories[1], &observer).await?;
     if left == right {

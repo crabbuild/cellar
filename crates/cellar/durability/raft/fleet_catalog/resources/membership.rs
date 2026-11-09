@@ -8,6 +8,24 @@ use cellar_logic::consensus::MemberId;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl FleetCatalog {
+    /// Locate the exact settled voters for bounded partition observations.
+    /// Addresses remain advisory; the peer must supply its own quorum proof.
+    pub(crate) async fn partition_voters(
+        &self,
+        snapshot: &FleetSnapshot,
+        history: &super::super::histories::FleetHistory,
+        timeout: Duration,
+    ) -> Result<BTreeMap<NodeId, MemberId>> {
+        self.run(timeout, async {
+            if self.inner.current().await?.token != snapshot.token {
+                return Err(FleetCatalogError::Conflict);
+            }
+            self.require_transition_membership_idle(snapshot).await?;
+            Ok(self.settled_group_voters(snapshot, history).await?.0)
+        })
+        .await
+    }
+
     /// Revalidate a scheduler's source against the exact fleet root and a
     /// purpose-specific quorum observation. The subsequent admission still
     /// owns the topology slot, capacity checks and directory CAS.
@@ -28,14 +46,8 @@ impl FleetCatalog {
         {
             return Err(FleetCatalogError::Conflict);
         }
-        let (voters, _) = self
-            .run(deadline.remaining()?, async {
-                if self.inner.current().await?.token != snapshot.token {
-                    return Err(FleetCatalogError::Conflict);
-                }
-                self.require_transition_membership_idle(snapshot).await?;
-                self.settled_group_voters(snapshot, &history).await
-            })
+        let voters = self
+            .partition_voters(snapshot, &history, deadline.remaining()?)
             .await?;
         let authorization = self
             .authorize_group(snapshot, scope, deadline.remaining()?)
