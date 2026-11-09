@@ -119,6 +119,21 @@ signed inbox protocol. The ordinary SQL fixture keeps its 1 KiB profile. These
 checks do not establish independent voter processes, permanent host fencing,
 or all-local-copy erasure immediately after publication.
 
+## Managed transition disaster closure
+
+Use `--suite managed-transition-disaster-closure` with an owned RustFS backend
+and a fresh output directory. Both image modes recover an unpublished merge's
+complete parent domain and a published merge child's newer S3-acknowledged tail.
+The fixture joins every source voter before erasing its owned disk, reconstructs
+the exact selected archives in a fresh verifier, and installs fresh group, cell
+and voter identities. Serving requires committed activation and a fresh quorum.
+Checks include original and newer S3 receipts, old-token refusal, retained restart,
+duplicate results and subsequent Quorum/S3 writes.
+
+This is a host-native TLS workflow with a fencing contract fixture. Permanent
+Docker launch revocation, independent voter failures and uncertain external
+effects require their separate CG-13/15 qualification gates.
+
 ## Published transfer closure after complete local erasure
 
 Use `--suite managed-publication-loss` with an owned RustFS backend and a fresh
