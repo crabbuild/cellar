@@ -3,7 +3,7 @@
 //! Bounded control work over actual groups created by the standard planner.
 use super::*;
 use cellar::application::consensus::verification::{FleetCatalog, FleetTable};
-use cellar_logic::cell_group::{CellId, GroupRoute};
+use cellar_logic::cell_group::{CellId, GroupHistory, GroupRoute};
 use std::sync::Arc;
 
 fn configuration() -> RaftFleetAutomaticPartitionOptions {
@@ -190,7 +190,7 @@ async fn settled(cluster: &ManagedCluster, catalog: &FleetCatalog) -> Result<Vec
 // The managed service already backs off advisory Busy/Unavailable turns.
 // Drive this read-only diagnostic sampler through that same contract, with
 // one original five-second envelope across all attempts. Other errors fail.
-async fn sample(scheduler: &mut RaftFleetPartitionScheduler) -> Result<RaftFleetPartitionPoll> {
+async fn sample(scheduler: &mut RaftFleetPartitionScheduler) -> Result<Option<GroupHistory>> {
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     let interval = configuration().service.interval;
     let mut retries = 0u32;
@@ -225,7 +225,7 @@ async fn sample(scheduler: &mut RaftFleetPartitionScheduler) -> Result<RaftFleet
     if retries != 0 {
         eprintln!("fanout metadata retries={retries}, last={last:?}");
     }
-    Ok(poll)
+    Ok(poll.sampled)
 }
 
 async fn exercise(cluster: &ManagedCluster) -> Result<()> {
@@ -364,10 +364,10 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
             )
         })?;
         for _ in 0..local.len().max(1) {
-            let poll = sample(&mut scheduler)
+            let sampled_history = sample(&mut scheduler)
                 .await
                 .with_context(|| format!("fanout inventory sample: {:?}", host.identity().node))?;
-            if let Some(group) = poll.sampled {
+            if let Some(group) = sampled_history {
                 ensure!(local.contains(&group));
                 sampled.insert(group);
             }
