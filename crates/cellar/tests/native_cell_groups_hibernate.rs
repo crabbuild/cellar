@@ -174,20 +174,20 @@ async fn read_cell(
     Ok(read)
 }
 
-async fn park(cluster: &ManagedCluster, id: u8) -> Result<(usize, Term, RaftFleetParkStatus)> {
-    let replica = leader(&cluster.hosts, cluster.history).await?;
-    let host = &cluster.hosts[replica];
-    let before = host.group(cluster.history)?.status().await?;
+fn park_control(cluster: &ManagedCluster, replica: usize) -> Result<RaftFleetControl> {
     let fixture = &cluster.fixtures[0];
-    let control = RaftFleetControl::new(
+    Ok(RaftFleetControl::new(
         &fixture.domain,
         fixture.catalog.clone(),
         vec![cluster.directory.clone()],
     )?
-    .with_node_observer(host.clone());
-    let revision = fixture.catalog.read(TIMEOUT).await?.revision();
-    let selection = RaftFleetParkRequest {
-        catalog_id: control.catalog_id().into(),
+    .with_node_observer(cluster.hosts[replica].clone()))
+}
+
+async fn park_request(cluster: &ManagedCluster, id: u8) -> Result<RaftFleetParkRequest> {
+    let revision = cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision();
+    Ok(RaftFleetParkRequest {
+        catalog_id: park_control(cluster, 0)?.catalog_id().into(),
         namespace_id: hex::encode(cluster.history.namespace.bytes()),
         group: RaftFleetTransitionGroup {
             group_id: hex::encode(cluster.history.group.bytes()),
@@ -197,9 +197,23 @@ async fn park(cluster: &ManagedCluster, id: u8) -> Result<(usize, Term, RaftFlee
         request_id: hex::encode([id + 1; 16]),
         settlement_request_id: hex::encode([id + 2; 16]),
         expected_revision: revision,
-    };
+    })
+}
+
+async fn park(cluster: &ManagedCluster, id: u8) -> Result<(usize, Term, RaftFleetParkStatus)> {
+    let replica = leader(&cluster.hosts, cluster.history).await?;
+    let before = cluster.hosts[replica]
+        .group(cluster.history)?
+        .status()
+        .await?;
+    let control = park_control(cluster, replica)?;
+    let selection = park_request(cluster, id).await?;
     let parked = control
-        .park_group(&request(id, revision).principal, &selection, TIMEOUT)
+        .park_group(
+            &request(id, selection.expected_revision).principal,
+            &selection,
+            TIMEOUT,
+        )
         .await?;
     ensure!(parked.phase == RaftFleetParkPhase::Delivered);
     require_parked(cluster, before.term, parked.generation).await?;
@@ -433,4 +447,328 @@ fn quorum_unavailable(error: &CellDispatchError) -> bool {
                 ..
             })
     )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn partial_park_and_stale_certificate() -> Result<()> {
+    for rooted in [false, true] {
+        let mut cluster = Box::pin(ManagedCluster::start_with_archives(
+            rooted,
+            &[],
+            ArchiveSetup::Disabled,
+        ))
+        .await?;
+        let result = Box::pin(exercise_interrupted_park(&mut cluster)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| format!("interrupted park with extent-backed images={rooted}"))?;
+        joined?;
+    }
+    Ok(())
+}
+
+async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
+    let seed = seed_cells(&cluster.hosts, cluster.history).await?;
+    let replica = leader(&cluster.hosts, cluster.history).await?;
+    let selection = park_request(cluster, 225).await?;
+    let principal = request(225, selection.expected_revision).principal;
+    let control = park_control(cluster, replica)?;
+    let before = cluster.hosts[replica]
+        .group(cluster.history)?
+        .status()
+        .await?;
+    // Lose confirmation of the real Fleet CAS. The reservation committed,
+    // but this controller has not proposed PreparePark or delivered anything.
+    cluster.fixtures[0]
+        .store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    let lost = control
+        .park_group(&principal, &selection, TIMEOUT)
+        .await
+        .expect_err("lost admission confirmation must be an unknown result");
+    ensure!(
+        lost.outcome == cellar::sdk::fleet_operations::RaftFleetOutcome::Unknown,
+        "wrong lost-confirmation outcome: {lost:?}"
+    );
+    let pending = control
+        .park_group_status(&principal, &selection, TIMEOUT)
+        .await?
+        .context("the unknown park admission was lost")?;
+    ensure!(pending.phase == RaftFleetParkPhase::Negotiating);
+    let untouched = cluster.hosts[replica]
+        .group(cluster.history)?
+        .status()
+        .await?;
+    ensure!(untouched.ready && untouched.applied == before.applied);
+    drop(control);
+
+    // A new controller reconstructs the exact request from rooted state.
+    let control = park_control(cluster, replica)?;
+    let delivered = control.park_group(&principal, &selection, TIMEOUT).await?;
+    ensure!(
+        delivered.phase == RaftFleetParkPhase::Delivered
+            && delivered.generation == pending.generation
+    );
+    require_parked(cluster, before.term, delivered.generation).await?;
+    let handle = cluster.hosts[replica].cell(seed.cells[0].clone())?;
+    let id = CommandId::new(ClientId::new([228; 16])?, 1)?;
+    let options = CommandOptions::new(id, seed.retry);
+    let contract = handle.contract("Add")?;
+    let delta = 3_i64.to_be_bytes().to_vec();
+    let committed = handle
+        .command(&contract, delta.clone(), options.clone())
+        .await?;
+    ensure!(
+        committed.result == 10_i64.to_be_bytes()
+            && committed.durability == Durability::Quorum
+            && committed.witness.position.index.get() > delivered.generation
+    );
+    let active = observe_wake(cluster, before.term, delivered.generation).await?;
+
+    // An old successful operation is historical. Its retry must not deliver
+    // its old certificate again after newer commands have closed the cut.
+    let replayed = control.park_group(&principal, &selection, TIMEOUT).await?;
+    ensure!(replayed == delivered);
+    let read = read_cell(cluster, active, &seed.cells[0], 229).await?;
+    ensure!(
+        read.result == committed.result
+            && read.version == committed.version
+            && read.witness == committed.witness
+    );
+    let replay = handle.command(&contract, delta, options).await?;
+    ensure!(
+        replay.result == committed.result
+            && replay.version == committed.version
+            && replay.witness == committed.witness
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parked_restart_and_leader_loss() -> Result<()> {
+    for rooted in [false, true] {
+        let mut cluster = Box::pin(ManagedCluster::start_with_archives(
+            rooted,
+            &[],
+            ArchiveSetup::Disabled,
+        ))
+        .await?;
+        let result = Box::pin(exercise_parked_restart(&mut cluster)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| format!("parked restart with extent-backed images={rooted}"))?;
+        joined?;
+    }
+    Ok(())
+}
+
+async fn exercise_parked_restart(cluster: &mut ManagedCluster) -> Result<()> {
+    let seed = seed_cells(&cluster.hosts, cluster.history).await?;
+    let (_, term, parked) = park(cluster, 231).await?;
+    let mut stopped = Vec::new();
+    for index in (0..cluster.nodes.len()).rev() {
+        stopped.push((index, stop_parked_voter(cluster, index).await?));
+    }
+    ensure!(cluster.nodes.is_empty() && cluster.hosts.is_empty());
+    for (index, boot) in stopped.into_iter().rev() {
+        Box::pin(resume_parked_voter(cluster, index, boot)).await?;
+    }
+    let active = observe_wake(cluster, term, parked.generation).await?;
+    for (index, cell) in seed.cells.iter().enumerate() {
+        let read = read_cell(cluster, active, cell, 234 + index as u8).await?;
+        let expected = &seed.receipts[index];
+        ensure!(
+            read.result == expected.result
+                && read.version == expected.version
+                && read.witness == expected.witness,
+            "all-voter restart changed a retained image or receipt"
+        );
+    }
+    let handle = cluster.hosts[active].cell(seed.cells[0].clone())?;
+    let replay = handle
+        .command(
+            &handle.contract("Add")?,
+            7_i64.to_be_bytes().to_vec(),
+            CommandOptions::new(seed.receipts[0].id, seed.retry),
+        )
+        .await?;
+    ensure!(
+        replay.result == seed.receipts[0].result
+            && replay.version == seed.receipts[0].version
+            && replay.witness == seed.receipts[0].witness
+    );
+
+    // Lose the parked leader permanently for this turn. An API request to
+    // one survivor must wake the other and establish an ordinary RF3 quorum.
+    let (lost, term, parked) = park(cluster, 237).await?;
+    let lost_member = lost as u64 + 1;
+    let _boot = stop_parked_voter(cluster, lost).await?;
+    require_parked(cluster, term, parked.generation).await?;
+    let handle = cluster.hosts[0].cell(seed.cells[0].clone())?;
+    let committed = handle
+        .command(
+            &handle.contract("Add")?,
+            5_i64.to_be_bytes().to_vec(),
+            CommandOptions::new(CommandId::new(ClientId::new([240; 16])?, 1)?, seed.retry),
+        )
+        .await?;
+    ensure!(
+        committed.result == 12_i64.to_be_bytes()
+            && committed.durability == Durability::Quorum
+            && committed.witness.position.index.get() > parked.generation
+            && committed.witness.position.term > term
+    );
+    for host in &cluster.hosts {
+        let status = host.group(cluster.history)?.status().await?;
+        ensure!(status.term > term && status.leader != Some(lost_member));
+    }
+    Ok(())
+}
+
+// Releasing the callback is mandatory even when a preceding assertion fails.
+struct ReleaseCommand(Option<std::sync::mpsc::SyncSender<()>>);
+
+impl Drop for ReleaseCommand {
+    fn drop(&mut self) {
+        if let Some(sender) = self.0.take() {
+            let _ = sender.send(());
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn park_requires_all_voters_and_no_pending_work() -> Result<()> {
+    for rooted in [false, true] {
+        let entered = Arc::new(Notify::new());
+        let notify = entered.clone();
+        let (send, receive) = std::sync::mpsc::sync_channel(1);
+        let receive = std::sync::Mutex::new(receive);
+        let class = counter_class()?.command("Held", [241; 32], move |context, _| {
+            notify.notify_one();
+            receive
+                .lock()
+                .map_err(|_| anyhow::anyhow!("held callback lock"))?
+                .recv_timeout(TIMEOUT)
+                .context("held command was not released")?;
+            context
+                .sql()
+                .execute("UPDATE counter SET value=value+1", [])?;
+            Ok(8_i64.to_be_bytes().to_vec())
+        })?;
+        let first = Box::pin(Fixture::with_class(rooted, class)).await?;
+        let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+            first,
+            &[],
+            ArchiveSetup::Disabled,
+            false,
+            None,
+            FirstGroupSetup::Normal,
+        ))
+        .await?;
+        let release = ReleaseCommand(Some(send));
+        let result = Box::pin(exercise_park_admission(&mut cluster, entered, release)).await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| format!("park admission with extent-backed images={rooted}"))?;
+        joined?;
+    }
+    Ok(())
+}
+
+async fn exercise_park_admission(
+    cluster: &mut ManagedCluster,
+    entered: Arc<Notify>,
+    release: ReleaseCommand,
+) -> Result<()> {
+    let seed = seed_cells(&cluster.hosts, cluster.history).await?;
+    let replica = leader(&cluster.hosts, cluster.history).await?;
+    let handle = cluster.hosts[replica].cell(seed.cells[0].clone())?;
+    let command = handle.contract("Held")?;
+    let producer = tokio::spawn(async move {
+        handle
+            .command(
+                &command,
+                vec![],
+                CommandOptions::new(CommandId::new(ClientId::new([242; 16])?, 1)?, seed.retry),
+            )
+            .await
+            .map_err(anyhow::Error::from)
+    });
+    tokio::time::timeout(TIMEOUT, entered.notified()).await?;
+    let selection = park_request(cluster, 243).await?;
+    let principal = request(243, selection.expected_revision).principal;
+    let control = park_control(cluster, replica)?;
+    let refused = control
+        .park_group(&principal, &selection, Duration::from_millis(250))
+        .await;
+    drop(release);
+    let committed = producer.await??;
+    let failure = refused.expect_err("park admitted an unresolved execution capability");
+    ensure!(
+        matches!(
+            failure.code,
+            cellar::sdk::fleet_operations::RaftFleetFailureCode::WaitTimeout
+                | cellar::sdk::fleet_operations::RaftFleetFailureCode::Blocked
+                | cellar::sdk::fleet_operations::RaftFleetFailureCode::Busy
+                | cellar::sdk::fleet_operations::RaftFleetFailureCode::Unavailable
+        ),
+        "unexpected park refusal: {failure:?}"
+    );
+    ensure!(committed.result == 8_i64.to_be_bytes());
+    let active = leader(&cluster.hosts, cluster.history).await?;
+    let read = read_cell(cluster, active, &seed.cells[0], 246).await?;
+    ensure!(read.witness == committed.witness && read.version == committed.version);
+    if control
+        .park_group_status(&principal, &selection, TIMEOUT)
+        .await?
+        .is_some()
+    {
+        control.wake_group(&principal, &selection, TIMEOUT).await?;
+    }
+    drop(control);
+
+    // RF3 can still acknowledge ordinary quorum writes with one voter absent,
+    // but all-voter parking must fail. Expiry reopens normal Raft admission.
+    let active = leader(&cluster.hosts, cluster.history).await?;
+    let absent = (active + 1) % 3;
+    let _boot = stop_parked_voter(cluster, absent).await?;
+    // Vector indices change on removal; retain the exact physical leader.
+    let mut leader_index = None;
+    for (index, host) in cluster.hosts.iter().enumerate() {
+        let status = host.group(cluster.history)?.status().await?;
+        if status.ready && status.leader == Some(active as u64 + 1) {
+            if host.identity().node == cluster.fixtures[active].spec.node {
+                leader_index = Some(index);
+            }
+        }
+    }
+    let leader_index = leader_index.context("remaining quorum leader")?;
+    let selection = park_request(cluster, 247).await?;
+    let principal = request(247, selection.expected_revision).principal;
+    let control = park_control(cluster, leader_index)?;
+    let refused = control
+        .park_group(&principal, &selection, Duration::from_millis(500))
+        .await;
+    ensure!(refused.is_err(), "a missing configured voter was parked");
+    let pending = control
+        .park_group_status(&principal, &selection, TIMEOUT)
+        .await?
+        .context("missing-voter park reservation")?;
+    ensure!(pending.phase == RaftFleetParkPhase::Negotiating);
+    let handle = cluster.hosts[leader_index].cell(seed.cells[0].clone())?;
+    let committed = handle
+        .command(
+            &handle.contract("Add")?,
+            2_i64.to_be_bytes().to_vec(),
+            CommandOptions::new(CommandId::new(ClientId::new([250; 16])?, 1)?, seed.retry),
+        )
+        .await?;
+    ensure!(
+        committed.result == 10_i64.to_be_bytes()
+            && committed.durability == Durability::Quorum
+            && committed.witness.position.index.get() > pending.generation
+    );
+    control.wake_group(&principal, &selection, TIMEOUT).await?;
+    Ok(())
 }

@@ -137,6 +137,15 @@ fn park_reply_is_bound_to_tls_request_cut_and_process() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn park_certificate_delivery_and_wake_over_three_tls_voters() -> anyhow::Result<()> {
+    exercise_certificate_delivery(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn partial_certificate_delivery_wakes_and_rejects_late_replay() -> anyhow::Result<()> {
+    exercise_certificate_delivery(true).await
+}
+
+async fn exercise_certificate_delivery(partial: bool) -> anyhow::Result<()> {
     use crate::{
         asyncrt::ExecutionDomain,
         raft::{
@@ -402,6 +411,74 @@ async fn park_certificate_delivery_and_wake_over_three_tls_voters() -> anyhow::R
     let certificate = transport
         .collect_park_certificate(history, cut.clone(), deadline)
         .await?;
+    if partial {
+        // Lose the certificate deliveries to the final voter after the leader
+        // and one follower synced their exact authenticated certificate. The
+        // still-active voter must wake its peers through ordinary elections.
+        for runtime in &runtimes[..2] {
+            runtime
+                .enter_park(history, certificate.certificate().clone())
+                .await?;
+        }
+        for log in &logs[..2] {
+            assert!(log
+                .cell_group(&history)?
+                .read()?
+                .local_park
+                .as_ref()
+                .is_some_and(|record| record.parked()));
+        }
+        assert!(!logs[2]
+            .cell_group(&history)?
+            .read()?
+            .local_park
+            .as_ref()
+            .context("third voter acknowledged the certificate")?
+            .parked());
+        let resumed = wait_park_test(&domain, || async {
+            let mut all_fresh = true;
+            for runtime in &runtimes {
+                let status = runtime.status(history).await?;
+                all_fresh &= status.term > cut.position().term
+                    && status.applied.index > cut.position().index
+                    && status.applied.term == status.term;
+            }
+            Ok(all_fresh.then_some(()))
+        })
+        .await;
+        // Join the owners even if the liveness assertion failed.
+        let rejected = async {
+            resumed?;
+            for runtime in &runtimes {
+                assert!(matches!(
+                    runtime
+                        .enter_park(history, certificate.certificate().clone())
+                        .await,
+                    Err(RuntimeError::NotReady)
+                ));
+            }
+            assert!(transport
+                .deliver_park_certificate(history, &certificate, deadline)
+                .await
+                .is_err());
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        for runtime in &runtimes {
+            runtime.close().await?;
+        }
+        for pump in pumps {
+            pump.await??;
+        }
+        for transport in &transports {
+            transport.close().await;
+        }
+        for log in &logs {
+            log.close().await?;
+        }
+        domain.shutdown().await;
+        return rejected;
+    }
     transport
         .deliver_park_certificate(history, &certificate, deadline)
         .await?;
