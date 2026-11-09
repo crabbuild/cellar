@@ -528,7 +528,7 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
         .expect_err("a zero-replica router needs an explicit namespace grant");
     ensure!(
         matches!(
-            unauthorized,
+            unauthorized.as_ref(),
             CellDispatchError::Transport(TransportError::Io(_) | TransportError::Refused)
         ),
         "unexpected unauthorized router result: {unauthorized:?}"
