@@ -261,9 +261,7 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
                 CommandOptions::new(CommandId::new(ClientId::new([220; 16])?, 1)?, retry),
             )
             .await?;
-        ensure!(
-            receipt.result == delta.to_be_bytes() && receipt.durability == Durability::Quorum
-        );
+        ensure!(receipt.result == delta.to_be_bytes() && receipt.durability == Durability::Quorum);
         ledger.push((history, creation, receipt, delta));
         let current = settled(cluster, &catalog).await?;
         eprintln!(
