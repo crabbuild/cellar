@@ -4,6 +4,29 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current CG-12 delivery
+
+CG-12 is `DONE` at `2cd71d32`: all five planned cases and ten required commands
+pass in both native image modes, with seven focused protocol and routing regressions.
+Parking refuses unresolved command/effect/topology work or a missing voter. Unknown
+admission resumes with the original rooted identity; partial and stale certificates
+cannot restore closed authority. First strong reads and quorum writes wait for a
+fresh wake barrier within the original deadline, including zero-replica ingress.
+Retained restart, leader loss, minority refusal and alarm/peer wake are covered.
+
+Every cached read/write use notes its history on the existing bounded directory
+queue without waiting for Fleet/S3. The full native CG-11 fanout case also passes.
+Idle discovery compares cached node/member bindings with rooted placement before
+originating quorum work. Unchanged hints preserve parking; replacement and unsettled
+membership still refresh through authenticated observations. The existing replacement
+and all-birth-voters-retired ingress cases pass on this same source.
+
+Record: `.cellar/cell-groups-evidence/CG-12-demand-wake-2cd71d32-native-01/record.json`.
+This is host-native TLS/real-disk functional acceptance with in-memory object storage.
+The plan accepts 147/163 cases. RustFS recovery, independent Linux voter domains,
+load and wake latency remain in the following gates; no resource or deadline limit
+was enlarged. See [progress](progress.md) for retained failed controls and scope.
+
 ## Current CG-11 delivery
 
 CG-11 is `DONE` at `ddb545e4`: all five exact cases and ten required commands
@@ -33,13 +56,13 @@ remain in [progress](progress.md); release-scale qualification stays in CG-15/16
 
 ### Next feature delivery
 
-1. Finish CG-12 all-voter hibernation eligibility, pending-work refusal,
-   partial/stale certificates, retained parked restart and leader-loss wake.
-2. Finish CG-13 recovery of interrupted transitions from S3, permanent Docker
-   revocation of every possible old writer, fresh histories/quorum and the
-   outbox ambiguity refusal. Use the accepted CG-14 infrastructure harness.
-3. Complete CG-15/16 load, reclamation, crash, partition, wake and disk-loss
-   qualification, then the public cutover and remaining legacy audit.
+1. Finish CG-13 recovery of interrupted transitions from S3: select the complete
+   closure, permanently fence every possible old writer, restore fresh histories
+   and quorum, and refuse ambiguous outbox recovery. Use the CG-14 harness.
+2. Complete CG-15 load, reclamation, crash, partition, wake and disk-loss profiles
+   with their original limits, including the unresolved occupancy-128 load failure.
+3. Complete CG-16 public default cutover and remaining legacy audit after the
+   combined qualification passes on one release source.
 
 Hard cutover remains `seed-lineage-1`: fresh namespaces, Fleet roots and engine
 directories with matching binaries. Numeric format markers remain 1.
@@ -49,7 +72,7 @@ do not override the current delivery order above.
 
 ## Current accepted boundary
 
-CG-01–11 have complete scoped task records. CG-07's public SQL/native/Axum/
+CG-01–12 have complete scoped task records. CG-07's public SQL/native/Axum/
 daemon gates and CG-09's publication/source-fencing gates retain their recorded
 sources. CG-10 passes all five exact cases and ten required commands at
 `8b410f25bc4475f3520c2682625ead49e47ea385`. The three new RustFS movement,

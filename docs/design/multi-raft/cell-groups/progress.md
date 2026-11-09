@@ -7,13 +7,63 @@ Purpose: Source-pinned cell-group implementation checkpoints and qualification l
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
-CG-01 through CG-11 have passed their scoped native gates.
-CG-12/13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
+CG-01 through CG-12 have passed their scoped native gates.
+CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-12 accepted: fenced parking and demand-driven quorum wake
+
+At `2cd71d32`, all five planned native cases and all ten required commands pass
+in both image modes. Seven focused regressions also pass: partial/full TLS
+certificate delivery, owner wake and expiry, rooted admission, replacement-voter
+routing and cold ingress after all birth voters retire. CG-12 is `DONE`; the
+index accepts 147 of 163 cases across thirteen tasks. The same source also passes
+CG-11's full native 64-cell/seven-group fanout case in both image modes.
+
+The delivered path refuses parking with held command/alarm callbacks, a missing
+voter or a pending split. Lost admission confirmation is resumed by the exact
+rooted request after controller replacement. Partial delivery and late certificate
+replay cannot re-park a woken voter. Minority wake refuses strong reads and quorum
+writes; due alarms and peer traffic wake without client activity. All-voter
+retained restart preserves cell histories and receipts, and a parked leader's
+loss is recovered through ordinary elections.
+
+The first public strong read or quorum write now closes the exact park generation
+and waits for fresh quorum authority before choosing a retained leader or SQL
+image, including zero-replica ingress. The original absolute deadline is retained;
+an already transmitted mutation is never retried implicitly. Background discovery
+compares exact rooted node/member bindings with the cached route. Cached read/write
+use registers the history through the existing bounded directory queue without
+waiting for Fleet/S3; startup-cached routes therefore learn replacement voters. Unchanged idle
+hints keep groups parked across directory polls; changed or unsettled membership
+still obtains a fresh observation, so voter replacement remains routable.
+
+The Raft owner retains the park state machine, with the existing typed generation
+in the pure core. The unused forecast `cell_group_hibernation.rs` output is removed
+from the task manifest; no step, oracle, invariant or qualification profile changes.
+
+Record: `.cellar/cell-groups-evidence/CG-12-demand-wake-2cd71d32-native-01/record.json`.
+The record pins 3,399 source blobs, all command/log hashes and four executables.
+Host-native TLS voters use real engines, SQLite/LTX and temporary disks; object
+storage is in memory. Original leases, deadlines, budgets, reserve and assertions
+remain unchanged. This closes the functional gate, not RustFS, constrained Linux,
+independent-domain, sustained-load, physical-peak or wake-percentile qualification.
+The unchanged hibernation and release profiles remain CG-15/16 requirements.
+
+Failed controls retain their logs and exact executables: request-wake failures at
+`31a08628`, idle polling that undoes parking at `4cb222b0`, and replacement-selector
+failures at `2f3446b7` and `8da0959f`. The `8b0e825a` trace shows that explicit
+startup-cached reads never registered their history with the demand-driven owner.
+The final source records that demand without new workers, queues or budgets. Setup controls distinguish
+namespace-data grants from separately authorized Fleet discovery. No failed control
+is counted as acceptance. Next deliver CG-13 interrupted-transition S3 recovery,
+then CG-15/16 qualification and cutover.
+
 ## CG-11 accepted: five cases, ten commands and real RustFS
+
+Historical source-pinned acceptance; current status and priorities are above.
 
 At `ddb545e4`, all five exact planned cases and all ten required commands pass:
 sizing hysteresis/hot isolation, stale-authority refusal, whole-group scale-out/in,
