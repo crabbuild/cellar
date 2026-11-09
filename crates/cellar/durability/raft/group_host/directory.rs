@@ -317,8 +317,14 @@ impl Directory {
                 .await)
             })
             .await
-            .map_err(|_| RuntimeError::NotReady)?
-            .map_err(|_| RuntimeError::NotReady)?;
+            .map_err(|error| {
+                tracing::debug!(?history, %error, "targeted router discovery admission refused");
+                RuntimeError::NotReady
+            })?
+            .map_err(|error| {
+                tracing::debug!(?history, %error, "targeted router discovery unavailable");
+                RuntimeError::NotReady
+            })?;
         observer
             .refresh_local_namespace_routes(history, deadline)
             .await

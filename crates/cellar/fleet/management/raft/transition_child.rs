@@ -152,7 +152,11 @@ impl RaftFleetControl {
                         &services.verifier,
                         turn.remaining()?,
                     )
-                    .await?;
+                    .await
+                    .map_err(|error| {
+                        tracing::debug!(target: "cellar::raft::transition_setup", ?operation, ?history, ?error, "sealed source replay refused");
+                        error
+                    })?;
                 let installed = observer
                     .install_managed_transfer_child(
                         transition,
