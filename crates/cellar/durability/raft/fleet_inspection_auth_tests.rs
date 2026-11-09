@@ -19,7 +19,7 @@ fn request() -> RequestHead {
     )
     .unwrap();
     let history: History = serde_json::from_value(serde_json::json!({
-        "binding":binding, "birth":vec![6;32], "schema":vec![5;32],
+        "binding":binding, "birth":vec![6;32], "schema":vec![5;32], "partition":false,
     }))
     .unwrap();
     RequestHead {
