@@ -589,7 +589,15 @@ async fn drive_failure(
             if status.failure_recovery.as_ref().is_some_and(|recovery| {
                 recovery.phase == FleetFailureRecoveryPhase::Removed
                     && recovery.removed_revision.is_some()
-            }) {
+            }) && status.work.is_empty()
+                && status.automatic_topology.as_ref().is_some_and(|automatic| {
+                    automatic.wait == FleetAutomaticTopologyWait::Unchanged
+                })
+            {
+                // Removing a failed node can select another ordinary balance.
+                // Let the configured owner settle that work too, then join its
+                // idle state before checking the complete resource book.
+                host.suspend_automatic_topology().await;
                 let cut = observer.read(TIMEOUT).await?;
                 let receipt = observer
                     .isolated_removal_receipt(&cut, context.operation(), TIMEOUT)
