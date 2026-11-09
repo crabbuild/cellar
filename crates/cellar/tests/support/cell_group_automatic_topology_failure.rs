@@ -388,8 +388,11 @@ async fn exercise(
             result
         }
     );
-    drive?;
-    let receipts = requests?;
+    let receipts = match (drive, requests) {
+        (Ok(()), Ok(receipts)) => receipts,
+        (Err(drive), Err(requests)) => anyhow::bail!("fault drive: {drive:#}; foreground requests: {requests:#}"),
+        (Err(error), _) | (_, Err(error)) => return Err(error),
+    };
     load.audit(&cluster.hosts[ingress], &seed, &receipts)
         .await?;
     let host = cluster.hosts[controller].clone();
