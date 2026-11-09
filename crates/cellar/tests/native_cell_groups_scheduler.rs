@@ -34,6 +34,12 @@ use std::{sync::atomic::Ordering, time::Duration};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn control_plane_fanout_bounded() -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            "off,cellar::raft::transition_setup=debug,cellar::raft::group_host::directory=debug",
+        )
+        .with_test_writer()
+        .try_init();
     for rooted in [false, true] {
         Box::pin(fanout::qualify(
             rooted,
