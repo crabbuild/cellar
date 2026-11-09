@@ -26,14 +26,12 @@ struct RouterObservation<'a> {
 
 struct NamespaceWork {
     directory: RangeDirectory,
-    digest: Option<[u8; 32]>,
-    cursor: Option<CellGroupDirectoryCursor>,
     next_node: usize,
 }
 
 pub(super) struct RouterDirectory {
     namespaces: Vec<NamespaceWork>,
-    next_namespace: usize,
+    next_history: usize,
     installed: VecDeque<GroupHistory>,
     max_installed: usize,
 }
@@ -46,14 +44,12 @@ impl RouterDirectory {
         let namespaces = directories
             .map(|directory| NamespaceWork {
                 directory,
-                digest: None,
-                cursor: None,
                 next_node: 0,
             })
             .collect::<Vec<_>>();
         (!namespaces.is_empty()).then_some(Self {
             namespaces,
-            next_namespace: 0,
+            next_history: 0,
             installed: VecDeque::new(),
             max_installed,
         })
@@ -68,32 +64,15 @@ impl RouterDirectory {
         trust: &FleetTrustSnapshot,
         deadline: u64,
     ) -> anyhow::Result<()> {
-        let remaining = || super::directory::remaining(log, deadline);
-        let index = self.next_namespace;
-        self.next_namespace = (index + 1) % self.namespaces.len();
-        let namespace = &mut self.namespaces[index];
-        // One immutable page per namespace turn; topology changes restart its
-        // cursor. Declaring a namespace permits discovery, never application I/O.
-        let view = namespace.directory.observe().await?;
-        if namespace.digest != Some(view.digest()) {
-            namespace.cursor = None;
-        }
-        let page = namespace
-            .directory
-            .group_page(&view, namespace.cursor.as_ref(), 1)
-            .await?;
-        namespace.digest = Some(view.digest());
-        namespace.cursor = page.next;
-        let Some(route) = page.routes.into_iter().next() else {
+        // Foreground discovery records the histories this node actually uses.
+        // Refresh one such entry per turn; an idle namespace declaration must
+        // not broadcast inspections of every group or churn the bounded cache.
+        if self.installed.is_empty() {
             return Ok(());
-        };
-        let group = route.history;
-        let ordinal = namespace.next_node;
-        // Advance the candidate ordinal once per complete namespace sweep,
-        // avoiding aliases between group and voter counts.
-        if namespace.cursor.is_none() && !trust.nodes().is_empty() {
-            namespace.next_node = (ordinal + 1) % trust.nodes().len();
         }
+        self.next_history %= self.installed.len();
+        let group = self.installed[self.next_history];
+        self.next_history = (self.next_history + 1) % self.installed.len();
         match log.cell_group(&group) {
             Ok(local)
                 if local
@@ -104,6 +83,24 @@ impl RouterDirectory {
             }
             Ok(_) | Err(crate::raft::storage::LogError::NotFound) => (),
             Err(error) => return Err(error.into()),
+        }
+        let remaining = || super::directory::remaining(log, deadline);
+        let namespace = self
+            .namespaces
+            .iter_mut()
+            .find(|namespace| {
+                let config = namespace.directory.namespace_config();
+                config.cluster == group.cluster && config.namespace == group.namespace
+            })
+            .ok_or_else(|| anyhow::anyhow!("cached router namespace capability"))?;
+        let selected = namespace
+            .directory
+            .materialize_selected_history(group)
+            .await?;
+        let route = selected.route().clone();
+        let ordinal = namespace.next_node;
+        if !trust.nodes().is_empty() {
+            namespace.next_node = (ordinal + 1) % trust.nodes().len();
         }
         let Some(discovery) = reader
             .authorize_router_group(trust, &group, remaining()?)
@@ -305,25 +302,32 @@ impl RouterDirectory {
             schema_digest: observed.schema_digest(),
             peers,
         };
-        // Share the transport's explicit route cap. Evict only this worker's
-        // advisory entries; admitted physical attempts keep their own owners.
+        // Share the transport's explicit route cap. A cache turn cannot revoke
+        // an admitted read/write attempt; defer when every candidate is held.
+        if !self.installed.contains(&group) && self.installed.len() >= self.max_installed {
+            self.evict_idle(transport)?;
+        }
         if let Err(error) = transport.install_cell_query_group(route.clone()) {
             if error != crate::raft::transport::TransportError::Overloaded {
                 return Err(error.into());
             }
-            let Some(oldest) = self.installed.pop_front() else {
-                return Err(error.into());
-            };
-            transport.remove_cell_query_group(&oldest)?;
+            self.evict_idle(transport)?;
             transport.install_cell_query_group(route)?;
         }
         self.installed.retain(|history| *history != group);
         self.installed.push_back(group);
-        while self.installed.len() > self.max_installed {
+        Ok(true)
+    }
+
+    fn evict_idle(&mut self, transport: &RaftTransport) -> anyhow::Result<()> {
+        for _ in 0..self.installed.len() {
             if let Some(oldest) = self.installed.pop_front() {
-                transport.remove_cell_query_group(&oldest)?;
+                if transport.evict_idle_cell_query_group(&oldest)? {
+                    return Ok(());
+                }
+                self.installed.push_back(oldest);
             }
         }
-        Ok(true)
+        Err(crate::raft::transport::TransportError::Overloaded.into())
     }
 }

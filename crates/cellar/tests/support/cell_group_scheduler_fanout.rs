@@ -363,6 +363,16 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
         current.len() >= 4 && current.iter().all(|r| r.history != cluster.history),
         "64 cells did not form multiple shared groups"
     );
+    for (index, host) in cluster.hosts.iter().enumerate().skip(1) {
+        let transport = host
+            .resource_usage()
+            .transport
+            .context("fanout passive transport observation")?;
+        ensure!(
+            transport.router_routes == 0,
+            "unused namespace declaration populated router cache on node {index}: {transport:?}"
+        );
+    }
     for host in &cluster.hosts {
         host.suspend_automatic_partitions().await;
     }

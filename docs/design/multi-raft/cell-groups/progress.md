@@ -13,6 +13,41 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 recovery ownership passes; demand-driven routing implemented
+
+At `960cff49`, all nine focused recovery ownership, physical deletion/join,
+request-budget, permission and retained-router regressions pass. Recovery verifies
+both image modes, duplicate/refused admission, exact callback cancellation,
+restart and terminal removal. The shared physical memory cap remains enforced;
+joined service reservations are observed separately from transient collection work.
+Strict default and all-feature host/core Clippy, all-target check, format, layout,
+native dependency and docs checks pass on that source.
+
+Four of five exact planned scheduler cases pass at the same source: hysteresis
+and hot isolation, stale-authority refusal, whole-group scale-out/in and
+failure-domain/reserve repair. The final fanout case fails in materialized mode:
+the 36th cell's command returns ambiguous `DeadlineExceeded` after 35 cells/four
+groups. Joined shutdown succeeds. This is a failed acceptance gate, not CG-11
+completion. Record: `.cellar/cell-groups-evidence/CG-11-ownership-960cff49-01/record.json`.
+
+The diagnostic-only follow-up at `38c17c26` reaches all 64 cells/seven groups,
+then fails a tracker baseline observation with `Busy`. Voters remain present,
+shutdown joins and all fifteen disks are retained. This does not resolve or waive
+the earlier command deadline. Record:
+`.cellar/cell-groups-evidence/CG-11-fanout-38c17c26-01/record.json`.
+
+Router discovery now follows foreground demand. Background refresh visits only
+histories already used by that node, rather than sweeping namespace groups on
+every host. Cache eviction defers while a read/write attempt retains its route;
+explicit route replacement/removal still invalidates stale attempts. The fanout
+fixture now requires unused hosts to keep zero router-cache entries. These
+production changes are awaiting qualification with the original resource limits,
+request deadlines and all prior positive/negative assertions.
+
+CG-11 remains `IN_PROGRESS`. Qualify this bounded discovery and request-ownership
+path, then complete all five cases and ten commands on its source. Full load,
+physical peaks, independent domains and soak remain CG-15/16 gates.
+
 ## CG-11 automatic movement survives voter loss and controller restart
 
 At `f2694f05`, the new automatically admitted movement fault case passes

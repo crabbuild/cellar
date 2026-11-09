@@ -94,14 +94,18 @@ qualification passes at `a3792fd0`: five component regressions and the complete
 automatic admitted-move failure handoff now passes native and real RustFS in both
 image modes at `f2694f05`, including retained controller restart, exact fencing
 replay, RF3 restoration and moved-out ingress SQL/receipt continuity. Remaining
-functional acceptance is the recovery ownership gate and complete same-source task
-record. Full load/independent-domain/soak profiles remain CG-15/16 requirements;
+functional acceptance is bounded discovery/request ownership under the full fanout
+workflow and the complete same-source task record. Recovery ownership, nine
+focused regressions and four planned scheduler cases pass at `960cff49`. Its
+fanout gate fails an ambiguous command deadline; the diagnostic `38c17c26` run
+reaches 64 cells/seven groups but fails a metadata baseline observation with Busy.
+Demand-driven routing and active-route retention are implemented and awaiting
+qualification; both failed runs remain retained. Full load/independent-domain/soak profiles remain CG-15/16 requirements;
 they do not gate CG-11 functional acceptance.
-The separate managed-recovery regression correctly refuses the registered boot,
-but its aggregate sample includes an unrelated extent-collection turn. Separate
-joined service ownership counters are implemented and awaiting qualification;
-physical collection charges and aggregate caps remain enforced. The automatic
-handoff/RustFS pass does not waive that gate.
+The managed-recovery ownership gate now passes both image modes at `960cff49`.
+Separate joined-service counters verify exact admission/release while physical
+collection charges and aggregate caps remain enforced. Held-deletion and cancelled
+close tests also pass. This closes that ownership gate, not the failed fanout gate.
 
 CG-09 has a complete seven-case, 12-command acceptance record at `f4d46d98`.
 The publication-erasure case also passes both real RustFS image modes.
@@ -112,7 +116,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | Automatic admitted-move failure handoff passes native/RustFS in both modes at `f2694f05`, including controller restart, original learner/debit, exact fencing replay and moved-out ingress. The full 64-cell/seven-group workflow passes both backends at `a3792fd0`. | Qualify recovery service ownership accounting and complete bounded controller/journal behavior plus the five-case/ten-command same-source task record. Release-scale profiles remain CG-15/16. |
+| CG-11 | Automatic admitted-move failure handoff passes native/RustFS in both modes at `f2694f05`, including controller restart, original learner/debit, exact fencing replay and moved-out ingress. The full 64-cell/seven-group workflow passes both backends at `a3792fd0`. | Recovery ownership and four planned cases pass at `960cff49`; qualify the implemented demand-driven routing/active-cache retention against the failed fanout gate, then complete the five-case/ten-command record. Release-scale profiles remain CG-15/16. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
@@ -135,8 +139,8 @@ through the shared backend and preserve typed refusals for the rest.
    both native and real RustFS image modes. Failure handoff during an
    **automatically admitted** movement also passes both backends/image modes,
    preserving cancellation, original debt and exact fencing through controller
-   restart. Finish recovery service ownership qualification and bounded
-   controller/journal behavior, then complete the
+   restart. Recovery service ownership passes; next qualify demand-driven routing
+   and active-route retention against the failed full fanout workflow, then complete the
    five-case/ten-command same-source acceptance. Full load, independent domains,
    physical peaks and soak stay in CG-15/16; earlier failures remain retained.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,

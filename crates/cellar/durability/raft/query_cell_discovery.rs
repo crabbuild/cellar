@@ -154,6 +154,30 @@ impl RaftTransport {
         state.start_pools(starts)
     }
 
+    /// Cache eviction cannot invalidate an entered read or write. Admission
+    /// clones the route under this same registry lock; its Arc pins the entry
+    /// through queueing, I/O and response validation. Explicit removal below
+    /// still invalidates route identity immediately for entered attempts.
+    pub(crate) fn evict_idle_cell_query_group(
+        &self,
+        history: &GroupHistory,
+    ) -> Result<bool, TransportError> {
+        let state = &self.handle.0;
+        state.runtime.shared()?;
+        let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        if registry
+            .cell_query_groups
+            .get(history)
+            .is_some_and(|route| Arc::strong_count(route) > 1)
+        {
+            return Ok(false);
+        }
+        registry.cell_query_groups.remove(history);
+        registry.prune_pools();
+        Ok(true)
+    }
+
     /// Remove read-only discovery, invalidating queued/in-flight route identity
     /// and retiring peer pools that no other route or grant retains.
     pub fn remove_cell_query_group(&self, history: &GroupHistory) -> Result<(), TransportError> {

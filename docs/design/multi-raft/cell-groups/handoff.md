@@ -31,13 +31,16 @@ learner and debit across voter loss and retained controller restart, repeats the
 exact fencing context, restores RF3 and reconciles SQL/receipts through a former
 replica. Completed obsolete runtimes are withdrawn without collecting their disks.
 
-1. Finish the managed-recovery ownership gate. The refused startup is correct;
-   an unrelated extent-collection reservation changes the aggregate sample.
-   Qualify the joined registry's new service counters while retaining physical
-   accounting, aggregate caps, exact callback joins and catalog refusal.
-2. Complete CG-11's five exact scheduler cases and all ten required commands at
-   one source, including bounded inventory/journal work and recovery reserve.
-   Publish full acceptance only when these functional requirements pass.
+1. Qualify demand-driven router discovery and active-route retention. The
+   current source stops namespace-wide group prefetch on idle hosts and prevents
+   cache eviction of routes held by entered reads/writes. The new oracle requires
+   unused hosts to keep zero router entries. Preserve explicit revocation fences.
+2. Finish the full fanout gate, then record all five exact scheduler cases and
+   ten required commands at its source. At `960cff49`, nine recovery/routing
+   regressions and four planned cases pass. Fanout fails an ambiguous cell-36
+   command deadline; the diagnostic `38c17c26` run reaches 64 cells/seven groups
+   but fails a metadata baseline observation with Busy. Both failed runs and
+   fifteen diagnostic voter disks remain retained. Do not waive either failure.
 3. Continue CG-12/13 features, then CG-15/16 release qualification. Full load,
    physical peaks, independent hosts/domains and soak retain their original
    profiles and do not expand CG-11's functional acceptance requirements.
