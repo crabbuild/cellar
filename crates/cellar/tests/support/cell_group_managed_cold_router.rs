@@ -90,7 +90,11 @@ async fn exercise(cluster: &mut ManagedCluster, disk: &Path) -> Result<()> {
                 CommandOptions::new(original.id, seed.retry),
             )
             .await?;
-        ensure!(replay.id == original.id && replay.result == original.result);
+        ensure!(
+            replay.id == original.id
+                && replay.result == original.result
+                && replay.version == original.version
+        );
         let next = CommandId::new(original.id.client, 2)?;
         let written = handle
             .command(
@@ -140,10 +144,14 @@ async fn exercise(cluster: &mut ManagedCluster, disk: &Path) -> Result<()> {
                 CommandOptions::new(original.id, seed.retry),
             )
             .await?;
+        // The stored result is immutable. Its public version identifies the
+        // selected image covering it, which now includes the newer write.
+        // Exact equality also proves the duplicate made no cell mutation.
         ensure!(
             replay.id == original.id
                 && replay.result == original.result
-                && replay.version == original.version
+                && replay.version == written.version
+                && replay.version.history == original.version.history
         );
         let read = read_at(&handle, MemberId::new(4)?, &written, 217).await?;
         ensure!(read.served_by_node.node == cluster.fixtures[3].spec.node);

@@ -96,6 +96,13 @@ mutation, bounded to 10,000 entries without a per-birth full inventory scan.
 Each record is at most 4 KiB. The initial references describe genesis, never
 current membership or absence from a node.
 
+Managed ingress uses the current rooted, settled membership journal to locate
+replacement voters. Each candidate still supplies an authenticated fresh-quorum
+observation before installing an advisory route. Unsettled or untracked placement
+retains bounded discovery; corrupt metadata refuses. A cold router can refresh
+its first read or write within the original request deadline after every birth
+voter has retired. Healthy cached routes do not require foreground catalog I/O.
+
 `resolve_managed_birth` writes only the reserved decision and checks its exact
 winner. `cancel_managed_birth` competes at that same immutable name key.
 `confirm_birth` observes the exact winner and commits its disposition in the

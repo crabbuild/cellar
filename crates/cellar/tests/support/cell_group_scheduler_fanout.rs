@@ -64,16 +64,6 @@ pub(super) async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> R
         .domain
         .run(Box::pin(exercise(&cluster)))
         .await;
-    eprintln!(
-        "fanout before joined stop: extents={rooted}, execution_ok={}, closed_hosts={:?}",
-        result.as_ref().is_ok_and(|inner| inner.is_ok()),
-        cluster
-            .hosts
-            .iter()
-            .enumerate()
-            .filter_map(|(i, host)| host.is_closed().then_some(i))
-            .collect::<Vec<_>>()
-    );
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
     result
@@ -327,11 +317,9 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
         current.len() >= 4 && current.iter().all(|r| r.history != cluster.history),
         "64 cells did not form multiple shared groups"
     );
-    eprintln!("fanout stage=before-suspend controllers");
     for host in &cluster.hosts {
         host.suspend_automatic_partitions().await;
     }
-    eprintln!("fanout stage=after-suspend controllers");
     let stable = catalog.read(TIMEOUT).await?;
     for host in &cluster.hosts {
         managed_fixture::inspect_current(host, host.identity().node, stable.revision()).await?;
