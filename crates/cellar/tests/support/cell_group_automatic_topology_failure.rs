@@ -292,7 +292,7 @@ async fn exercise(
         .deny_group_payload_reads
         .store(true, Ordering::Release);
     let mut controller = 3;
-    let host = start_controller(cluster, nodes, controller, &topology, None, 181).await?;
+    let host = start_controller(cluster, nodes, controller, &topology, None, 180).await?;
     let (movement, debit, operation, obsolete) =
         tokio::time::timeout(Duration::from_secs(60), async {
             loop {
@@ -361,7 +361,7 @@ async fn exercise(
     if obsolete == controller {
         host.suspend_automatic_topology().await;
         controller = 4;
-        start_controller(cluster, nodes, controller, &topology, None, 182).await?;
+        start_controller(cluster, nodes, controller, &topology, None, 184).await?;
     }
     let ingress = (3..6)
         .find(|index| *index != obsolete && *index != controller)
@@ -545,7 +545,7 @@ async fn drive_failure(
     let ingress = (3..6)
         .find(|index| *index != obsolete && *index != controller)
         .context("surviving ingress")?;
-    let host = start_controller(cluster, nodes, controller, topology, Some(obsolete), 183).await?;
+    let host = start_controller(cluster, nodes, controller, topology, Some(obsolete), 188).await?;
     ensure!(
         host.observe_node(TIMEOUT)
             .await?
