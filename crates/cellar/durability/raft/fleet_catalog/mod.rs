@@ -121,7 +121,7 @@ pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
     FleetRequestIdentity,
 };
-pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
+pub(crate) use nodes::{FleetIsolatedTransportPeers, FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use placement::FleetReplicaSeparation;
 pub(crate) use resources::MovementServiceWork;

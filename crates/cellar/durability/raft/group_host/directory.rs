@@ -154,6 +154,12 @@ pub(super) async fn prepare(
             trust.nodes().len() <= transport.peer_limit(),
             "fleet exceeds transport peer bound"
         );
+        prepared.isolated_peers = Some(
+            managed
+                .authorization
+                .verified_transport_exclusions(&trust, remaining(log, deadline)?)
+                .await?,
+        );
         transport.install_fleet_trust(trust.clone())?;
         reader = Some(managed.authorization.trust_reader());
         rooted = Some(trust);

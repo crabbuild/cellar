@@ -444,10 +444,15 @@ async fn exercise(
             peer: cluster.peers[2].clone(),
         })?;
     }
-    cluster.hosts[2]
+    let original_membership = cluster.hosts[2]
         .group(cluster.history)?
         .quorum_membership(TIMEOUT)
         .await?;
+    ensure!(
+        original_membership.configuration().voters.len() == 3
+            && original_membership.configuration().voters.contains(&1),
+        "endpoint omission changed the durable voting configuration"
+    );
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     let recovered = tokio::time::timeout_at(deadline, async {
         loop {

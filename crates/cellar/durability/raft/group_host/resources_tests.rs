@@ -42,6 +42,7 @@ async fn collection_close_joins_held_deletion_and_retains_admission() -> anyhow:
         groups: vec![],
         query_origins: vec![],
         command_origins: vec![],
+        isolated_peers: None,
     };
     let input = node.service();
     let public = node

@@ -421,6 +421,49 @@ impl FleetHostAuthorization {
         self.refresh_trust(None, timeout).await
     }
 
+    /// Startup may omit an isolated peer's endpoint after checking its permanent
+    /// root-admitted isolation receipt. This never changes durable membership.
+    pub(crate) async fn verified_transport_exclusions(
+        &self,
+        trust: &FleetTrustSnapshot,
+        timeout: Duration,
+    ) -> Result<FleetIsolatedTransportPeers> {
+        if !trust.nodes().iter().any(|host| host.is_isolated()) {
+            // Empty exclusions grant no exception and need no extra root read.
+            return Ok(FleetIsolatedTransportPeers {
+                nodes: Default::default(),
+            });
+        }
+        self.catalog
+            .run(timeout, async {
+                let cut = self.catalog.inner.current().await?;
+                if trust.catalog != self.catalog.birth_owner()?.catalog
+                    || trust.fleet != self.fleet()
+                    || trust.cluster != self.cluster()
+                    || trust.revision != cut.revision()
+                    || trust.root_digest != hash(&encode(HEAD_KIND, &cut.head, ROOT_LIMIT)?)
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let local = trust.node(self.node).ok_or(FleetCatalogError::Conflict)?;
+                self.require_running_successor(local)?;
+                let mut nodes = std::collections::BTreeSet::new();
+                for host in trust.nodes().iter().filter(|host| host.is_isolated()) {
+                    let proof = self
+                        .catalog
+                        .confirm_node_isolation(&cut, &host.record)
+                        .await?;
+                    if proof.boot.node != host.node.bytes() || proof.boot.disk != host.disk.bytes()
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    nodes.insert(host.node);
+                }
+                Ok(FleetIsolatedTransportPeers { nodes })
+            })
+            .await
+    }
+
     pub(crate) async fn refresh_trust(
         &self,
         previous: Option<&FleetTrustSnapshot>,
@@ -718,6 +761,17 @@ pub(crate) struct FleetTrustSnapshot {
     replica_separation: FleetReplicaSeparation,
     root_digest: [u8; 32],
     nodes: Arc<[FleetHostAuthorization]>,
+}
+
+/// Verified endpoint exclusions only. Configuration and quorum stay in the log.
+pub(crate) struct FleetIsolatedTransportPeers {
+    nodes: std::collections::BTreeSet<NodeId>,
+}
+
+impl FleetIsolatedTransportPeers {
+    pub(crate) fn contains(&self, node: NodeId) -> bool {
+        self.nodes.contains(&node)
+    }
 }
 
 impl FleetTrustSnapshot {

@@ -117,6 +117,7 @@ pub(crate) struct Prepared {
     groups: Vec<Assignment>,
     query_origins: Vec<super::transport_options::NamespaceQueryOrigin>,
     command_origins: Vec<super::transport_options::NamespaceCommandOrigin>,
+    isolated_peers: Option<crate::raft::fleet_catalog::FleetIsolatedTransportPeers>,
 }
 
 pub(crate) use registration::prepare;

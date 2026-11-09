@@ -1788,6 +1788,13 @@ Completed exact-boot observations retain their grace across unrelated planning
 errors. A failed or cancelled observation turn clears that history; sample age
 still expires while the worker makes no observation progress.
 
+A retained voter may return while another voter is permanently isolated. Startup
+verifies that peer's exact root-admitted isolation receipt under the existing
+directory deadline, then omits its transport endpoint. The full durable voting
+configuration remains unchanged; quorum still requires its original majority.
+An unreachable peer, an unverified isolation flag or a missing endpoint supplies
+no exception, and fresh genesis cannot use retained-route omissions.
+
 The node's sole movement-worker slot also performs explicitly enabled removed
 member cleanup. Configuring `member_cleanup` alongside automatic topology joins
 that work into this owner rather than starting a second worker. The worker

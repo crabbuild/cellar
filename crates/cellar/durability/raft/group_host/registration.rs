@@ -244,6 +244,7 @@ pub(crate) async fn prepare(
         groups,
         query_origins: std::mem::take(&mut config.query_origins),
         command_origins: std::mem::take(&mut config.command_origins),
+        isolated_peers: None,
     })
 }
 
@@ -523,6 +524,18 @@ pub(super) fn refresh_routes(
         }
         assignment.transport.peers = members
             .into_iter()
+            .filter(|(_, node)| {
+                // Keep the full durable ConfState. Only a retained managed
+                // member may omit a route, and only with a verified permanent
+                // isolation receipt from the startup trust cut. Missing or
+                // unreachable peers alone never authorize this exception.
+                !(managed
+                    && retained.is_some()
+                    && prepared
+                        .isolated_peers
+                        .as_ref()
+                        .is_some_and(|peers| peers.contains(*node)))
+            })
             .map(|(member, node)| {
                 let endpoint = prepared
                     .peers
