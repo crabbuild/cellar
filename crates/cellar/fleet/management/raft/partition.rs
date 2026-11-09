@@ -78,6 +78,7 @@ impl RaftFleetPartitionRecommendation {
 
 struct Tracked {
     previous: CellGroupPartitionObservation,
+    previous_sampled_at: u64,
     origin: NodeId,
     directory_digest: [u8; 32],
     placement_class: [u8; 32],
@@ -466,6 +467,7 @@ impl RaftFleetPartitionScheduler {
         let now = current.workload.sampled_at_ms;
         let reset = || Tracked {
             previous: current.clone(),
+            previous_sampled_at: receiver_sampled_at,
             directory_digest: digest,
             placement_class: pressure.placement_class,
             topology_at: receiver_sampled_at,
@@ -500,10 +502,23 @@ impl RaftFleetPartitionScheduler {
             return Ok(None);
         };
         let elapsed = now.saturating_sub(tracked.previous.workload.sampled_at_ms);
-        if elapsed < self.policy.limits().sample_interval_ms {
+        let Some(received_elapsed) = receiver_sampled_at.checked_sub(tracked.previous_sampled_at)
+        else {
+            *tracked = reset();
+            return Ok(None);
+        };
+        // Source clocks determine rates; receiver clocks determine hysteresis.
+        // RPC jitter can make a source interval complete before the receiver
+        // interval. Retain the prior pair until both intervals are complete,
+        // instead of resetting quiet/hot continuity with an early sample.
+        if elapsed < self.policy.limits().sample_interval_ms
+            || received_elapsed < self.policy.limits().sample_interval_ms
+        {
             return Ok(None);
         }
-        if elapsed > self.policy.limits().max_sample_age_ms {
+        if elapsed > self.policy.limits().max_sample_age_ms
+            || received_elapsed > self.policy.limits().max_sample_age_ms
+        {
             *tracked = reset();
             return Ok(None);
         }
@@ -516,6 +531,7 @@ impl RaftFleetPartitionScheduler {
             .observe(self.policy, sample.clone(), receiver_now);
         tracked.origin = origin;
         tracked.previous = current;
+        tracked.previous_sampled_at = receiver_sampled_at;
         Ok(Some(sample))
     }
 

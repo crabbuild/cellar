@@ -190,7 +190,9 @@ and geometry arrive through the existing purpose-bound inspection RPC. A cached
 leader only selects the first target; a failed target falls back to the three
 settled voters within the original turn deadline. Rate calculation uses that
 owner's counter clock; freshness and cooldown use receiver-local request-start
-time. Different leader clocks are never compared. Failed remote telemetry clears
+time. A new policy sample requires a complete interval on both clocks, so RPC
+jitter cannot clear hysteresis with an early receiver sample. Different leader
+clocks are never compared. Failed remote telemetry clears
 its merge history. Adjacent groups on disjoint voter sets can use the same
 archive-backed merge protocol; admission still revalidates both source quorums,
 routes, placement and recovery capacity.
