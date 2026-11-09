@@ -556,10 +556,8 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
     require_parked(cluster, before.term, delivered.generation).await?;
     // The directory owner keeps running, but an idle advisory route must not
     // originate quorum work that undoes an otherwise quiescent park.
-    tokio::time::sleep(Duration::from_millis(
-        3 * RaftNodeDirectoryOptions::default().poll_ms,
-    ))
-    .await;
+    let idle_window = Duration::from_millis(3 * RaftNodeDirectoryOptions::default().poll_ms);
+    tokio::time::sleep(idle_window).await;
     require_parked(cluster, before.term, delivered.generation)
         .await
         .context("idle router refresh woke parked voters")?;
@@ -582,6 +580,8 @@ async fn exercise_interrupted_park(cluster: &mut ManagedCluster) -> Result<()> {
     observe_wake(cluster, before.term, delivered.generation).await?;
     // Park a new generation so the first write must independently wake it.
     let (_, term, write_park) = park(cluster, 231).await?;
+    tokio::time::sleep(idle_window).await;
+    require_parked(cluster, term, write_park.generation).await?;
     let handle = cluster.hosts[3].cell(seed.cells[0].clone())?;
     let id = CommandId::new(ClientId::new([228; 16])?, 1)?;
     let options = CommandOptions::new(id, seed.retry);

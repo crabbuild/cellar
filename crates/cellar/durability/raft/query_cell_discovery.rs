@@ -154,6 +154,22 @@ impl RaftTransport {
         state.start_pools(starts)
     }
 
+    /// An advisory scheduling sample, not an admission or revocation proof.
+    /// Idle cached hints must not originate fresh quorum observations that wake
+    /// parked groups. Entered requests pin the route through response validation.
+    pub(crate) fn cell_query_group_in_use(
+        &self,
+        history: &GroupHistory,
+    ) -> Result<bool, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        Ok(registry
+            .cell_query_groups
+            .get(history)
+            .is_some_and(|route| Arc::strong_count(route) > 1))
+    }
+
     /// Cache eviction cannot invalidate an entered read or write. Admission
     /// clones the route under this same registry lock; its Arc pins the entry
     /// through queueing, I/O and response validation. Explicit removal below

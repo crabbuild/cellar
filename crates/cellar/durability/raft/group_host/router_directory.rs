@@ -84,6 +84,13 @@ impl RouterDirectory {
             Ok(_) | Err(crate::raft::storage::LogError::NotFound) => (),
             Err(error) => return Err(error.into()),
         }
+        // Cached destinations are hints. Polling their quorum while no
+        // request uses them would immediately undo all-voter hibernation.
+        // Foreground misses/failures still use refresh_target, and the node
+        // directory independently refreshes trust, endpoints and revocation.
+        if !transport.cell_query_group_in_use(&group)? {
+            return Ok(());
+        }
         let remaining = || super::directory::remaining(log, deadline);
         let namespace = self
             .namespaces
