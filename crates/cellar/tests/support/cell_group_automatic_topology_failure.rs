@@ -388,6 +388,28 @@ async fn exercise(
             result
         }
     );
+    if drive.is_err() || requests.is_err() {
+        for history in &histories {
+            for (index, owner) in cluster.hosts.iter().enumerate() {
+                if owner.is_closed() {
+                    continue;
+                }
+                let group = match owner.group(*history) {
+                    Ok(group) => group,
+                    Err(error) => {
+                        eprintln!("handoff diagnosis: node={index}, ingress={}, group={history:?}, handle={error}", index == ingress);
+                        continue;
+                    }
+                };
+                let status = group.status().await;
+                eprintln!("handoff diagnosis: node={index}, ingress={}, group={history:?}, status={status:?}", index == ingress);
+                if status.is_ok() {
+                    let proof = group.quorum_membership(TIMEOUT).await;
+                    eprintln!("handoff diagnosis: node={index}, group={history:?}, membership={:?}", proof.as_ref().map(|proof| proof.configuration()));
+                }
+            }
+        }
+    }
     let receipts = match (drive, requests) {
         (Ok(()), Ok(receipts)) => receipts,
         (Err(drive), Err(requests)) => {
