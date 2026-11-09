@@ -1796,6 +1796,13 @@ A principal label does not distinguish modes. Use
 for an explicit handover back to automatic policy. Retain the complete generated
 request for exact retries after an unknown mutation outcome.
 
+Partition and transition workers back off successful turns that make no progress,
+using the same configured maximum as retry backoff. A new operation, journal
+phase, local child step or archive initialization restores the base interval;
+inventory-page assembly also counts as partition progress. Quiet voters and
+spares therefore reduce metadata polling while another node owns entered work.
+Failure counters retain their existing meaning, and no RPC deadline is extended.
+
 Automatic partition placement inspects at most nine ranked nodes per decision.
 This window includes two RF3 children and three recovery slots even when each
 candidate has only one free slot. The pure selector and physical adapter share

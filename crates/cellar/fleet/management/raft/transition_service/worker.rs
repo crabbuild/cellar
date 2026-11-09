@@ -1,5 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+use super::super::poll_backoff::PollBackoff;
 use super::*;
 use std::collections::BTreeMap;
 
@@ -14,6 +15,14 @@ pub(super) struct Work {
     pub(super) initialized: Vec<GroupHistory>,
     cursor: usize,
     operation: Option<[u8; 16]>,
+}
+
+#[derive(PartialEq, Eq)]
+struct Progress {
+    operation: Option<[u8; 16]>,
+    phase: Option<TransitionPhase>,
+    local: BTreeMap<GroupHistory, RaftFleetTransitionChildStep>,
+    initialized: usize,
 }
 
 impl Work {
@@ -43,12 +52,14 @@ impl Work {
         let _done = ControlServiceCompletion::new(self.finished.clone());
         let mut requested_stop = self.stop.clone();
         let mut node_stop = self.lease.stop_receiver();
+        let mut backoff = PollBackoff::default();
         self.status.send_modify(|s| s.running = true);
         loop {
             if *self.stop.borrow() || *node_stop.borrow() {
                 break;
             }
             let control = self.control.clone();
+            let before = self.progress();
             let result = crate::asyncrt::select! {
                 _ = requested_stop.changed() => break,
                 _ = node_stop.changed() => break,
@@ -78,11 +89,12 @@ impl Work {
                 break;
             }
             let failures = self.status.borrow().consecutive_failures;
-            let delay = self
-                .options
-                .interval
-                .saturating_mul(1u32 << failures.min(8))
-                .min(self.options.retry_max_interval);
+            let delay = backoff.delay(
+                self.progress() != before,
+                failures,
+                self.options.interval,
+                self.options.retry_max_interval,
+            );
             let Ok(now) = self.control.domain.mono_ms() else {
                 break;
             };
@@ -103,6 +115,15 @@ impl Work {
         // Registry admission outlives every callback future. Entered install
         // and pre-copy jobs keep their separate physical owners after this join.
         drop(self.lease);
+    }
+
+    fn progress(&self) -> Progress {
+        Progress {
+            operation: self.operation,
+            phase: self.status.borrow().phase,
+            local: self.local.clone(),
+            initialized: self.initialized.len(),
+        }
     }
 
     async fn turn(&mut self, control: &RaftFleetControl) -> Result<()> {

@@ -318,10 +318,7 @@ impl Directory {
             })
             .await
             .map_err(|_| RuntimeError::NotReady)?
-            .map_err(|error| {
-                tracing::debug!(target: "cellar::raft::source_quiescence", ?history, %error, stage = "router-target");
-                RuntimeError::NotReady
-            })?;
+            .map_err(|_| RuntimeError::NotReady)?;
         observer
             .refresh_local_namespace_routes(history, deadline)
             .await

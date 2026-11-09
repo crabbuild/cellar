@@ -1,5 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+use super::super::poll_backoff::PollBackoff;
 use super::*;
 use crate::raft::cell_groups::TransitionPhase;
 use sha2::{Digest, Sha256};
@@ -21,12 +22,14 @@ impl Work {
         let _done = ControlServiceCompletion::new(self.finished.clone());
         let mut stop = self.stop.clone();
         let mut node_stop = self.lease.stop_receiver();
+        let mut backoff = PollBackoff::default();
         self.status.send_modify(|s| s.running = true);
         loop {
             if *stop.borrow() || *node_stop.borrow() {
                 break;
             }
             let control = self.control.clone();
+            let before = self.progress();
             let result = crate::asyncrt::select! {
                 _ = stop.changed() => break,
                 _ = node_stop.changed() => break,
@@ -60,11 +63,12 @@ impl Work {
                 break;
             }
             let failures = self.status.borrow().consecutive_failures;
-            let delay = self
-                .options
-                .interval
-                .saturating_mul(1u32 << failures.min(8))
-                .min(self.options.retry_max_interval);
+            let delay = backoff.delay(
+                self.progress() != before,
+                failures,
+                self.options.interval,
+                self.options.retry_max_interval,
+            );
             let Ok(now) = control.domain.mono_ms() else {
                 break;
             };
@@ -87,6 +91,16 @@ impl Work {
         });
         drop(self.scheduler);
         drop(self.lease);
+    }
+
+    fn progress(&self) -> (Option<String>, Option<TransitionPhase>, bool, u64) {
+        let status = self.status.borrow();
+        (
+            status.operation_id.clone(),
+            status.phase,
+            self.scheduler.pending_request().is_some(),
+            self.scheduler.inventory_pages(),
+        )
     }
 
     async fn turn(&mut self, control: &RaftFleetControl) -> Result<()> {

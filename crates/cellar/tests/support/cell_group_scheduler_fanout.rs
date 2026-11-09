@@ -50,10 +50,6 @@ fn configuration() -> RaftFleetAutomaticPartitionOptions {
 }
 
 pub(super) async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::source_quiescence=debug")
-        .with_test_writer()
-        .try_init();
     // Fifteen nodes retain the existing two slots and physical attestation.
     // The standard planner must preserve three recovery slots while splitting.
     let spares: Vec<_> = (7..=18).collect();

@@ -21,6 +21,7 @@ mod partition_inventory;
 mod partition_observation;
 mod partition_selection;
 mod partition_service;
+mod poll_backoff;
 pub use partition::{
     RaftFleetPartitionPoll, RaftFleetPartitionPressure, RaftFleetPartitionRecommendation,
     RaftFleetPartitionScheduler,
