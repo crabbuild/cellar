@@ -6,6 +6,9 @@ use cellar::application::consensus::verification::FleetTable;
 use cellar_logic::consensus::{MemberId, ProposalId};
 use managed_fixture::SeededCells;
 
+#[path = "cell_group_automatic_topology_failure.rs"]
+mod failure;
+
 #[derive(Clone, Copy)]
 enum CapacityProfile {
     Original,
@@ -163,13 +166,18 @@ async fn qualify(
     Ok(())
 }
 
-async fn exercise(
-    cluster: &mut ManagedCluster,
+struct PreparedGroups {
+    seed: SeededCells,
+    histories: BTreeSet<GroupHistory>,
+    observer: FleetCatalog,
+}
+
+async fn prepare_groups(
+    cluster: &ManagedCluster,
     rooted: bool,
-    profile: CapacityProfile,
     workers: &mut Vec<RaftFleetTransitionService>,
     roots: &mut Vec<tempfile::TempDir>,
-) -> Result<()> {
+) -> Result<PreparedGroups> {
     let seed = seed_cells(&cluster.hosts, cluster.history)
         .await
         .context("seed cells before balance")?;
@@ -268,6 +276,27 @@ async fn exercise(
         );
     }
     drop(cut);
+
+    Ok(PreparedGroups {
+        seed,
+        histories,
+        observer,
+    })
+}
+
+async fn exercise(
+    cluster: &mut ManagedCluster,
+    rooted: bool,
+    profile: CapacityProfile,
+    workers: &mut Vec<RaftFleetTransitionService>,
+    roots: &mut Vec<tempfile::TempDir>,
+) -> Result<()> {
+    let PreparedGroups {
+        seed,
+        histories,
+        observer,
+    } = prepare_groups(cluster, rooted, workers, roots).await?;
+    let directory = cluster.directory.observe().await?;
 
     // Retained restart with no local group exercises normal configured startup,
     // including fresh boot qualification before automatic placement can run.

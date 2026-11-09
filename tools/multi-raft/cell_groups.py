@@ -93,7 +93,8 @@ SUITES = {
     "managed-automatic-topology": (
         "native_cell_groups_transition_service",
         ("automatic_topology::rustfs_configured_topology_balances_groups_and_resumes",
-         "automatic_topology::rustfs_configured_topology_preserves_recovery_room"),
+         "automatic_topology::rustfs_configured_topology_preserves_recovery_room",
+         "automatic_topology::failure::rustfs_admitted_balance_yields_to_repair_across_controller_restart"),
         "configured whole-group balancing resumes its durable intent after controller replacement",
         "Both image modes, six host-native TLS voters and two engine slots per node. "
         "The positive case declares 1-GiB logical admission within the unchanged 1-GiB disk/3-GiB memory fixture attestation; "
@@ -101,7 +102,9 @@ SUITES = {
         "Startup waits for its exact boot capacity activation. Two occupied shared groups rebalance "
         "with unchanged cell routing, receipt replay, linearizable SQL reads and fresh quorum writes. "
         "Explicit operator policy takes precedence and hands back through a canonical request. "
-        "Failure-domain loss, independent voter processes, sustained load, larger inventories and measured peaks remain separate gates.",
+        "An actual admitted move also survives old-voter loss and retained controller restart with its "
+        "original learner/debit, exact-boot fixture fence replay, mixed quorum SQL and terminal RF3 repair. "
+        "Independent failure domains, voter processes, sustained load, larger inventories and measured peaks remain separate gates.",
     ),
     "managed-retained-cleanup": (
         "native_cell_groups_scheduler",
