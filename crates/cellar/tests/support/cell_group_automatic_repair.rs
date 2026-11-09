@@ -453,6 +453,9 @@ async fn exercise(
             && original_membership.configuration().voters.contains(&1),
         "endpoint omission changed the durable voting configuration"
     );
+    // The proof owns a runtime read pin. Settlement must observe its release,
+    // rather than retaining this test observation throughout the repair.
+    drop(original_membership);
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     let recovered = tokio::time::timeout_at(deadline, async {
         loop {
@@ -490,7 +493,33 @@ async fn exercise(
                 && recovery.removed_revision.is_some()
         })
     })
-    .await?;
+    .await;
+    if terminal.is_err() {
+        let cut = catalog.read(TIMEOUT).await?;
+        for index in [1, 2, 5] {
+            let physical = host
+                .inspect_peer_physical_inventory(
+                    cluster.fixtures[index].spec.node,
+                    cut.revision(),
+                    TIMEOUT,
+                )
+                .await
+                .map(|sample| {
+                    let inventory = sample.inventory.as_ref();
+                    let group = inventory.and_then(|i| i.group_history(&cluster.history));
+                    format!(
+                        "trust={:?} seed={} pending={} initializing={:?} group={:?}",
+                        sample.view.fleet_trust_revision,
+                        sample.view.seed_workers,
+                        sample.view.pending_history_registrations,
+                        inventory.and_then(|i| i.initializing()),
+                        group.map(|g| (g.member(), g.completed_sequence(), g.in_configuration())),
+                    )
+                });
+            eprintln!("automatic repair physical node {index}: {physical:?}");
+        }
+    }
+    let terminal = terminal?;
     ensure!(
         terminal
             .failure_recovery
