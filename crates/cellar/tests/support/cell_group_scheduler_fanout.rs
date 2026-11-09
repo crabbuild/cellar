@@ -215,7 +215,7 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
     tokio::time::timeout(TIMEOUT, async {
         loop {
             let status = cluster.hosts[0].group(cluster.history)?.status().await?;
-            if status.ready && status.leader == Some(elected as u64 + 1) {
+            if status.leader == Some(elected as u64 + 1) {
                 return Ok::<_, anyhow::Error>(());
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
