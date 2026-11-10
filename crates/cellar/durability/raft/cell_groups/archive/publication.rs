@@ -151,12 +151,25 @@ struct Coverage {
     verified: VerifiedCellGroupArchiveRecovery,
 }
 
+#[derive(Clone)]
 pub(in crate::raft::cell_groups) struct CoverageUse {
     hold: CellGroupArchiveHold,
     coverage: std::sync::Weak<Coverage>,
 }
 
 impl CoverageUse {
+    pub(in crate::raft::cell_groups) fn marker(&self) -> &GroupManifest {
+        self.hold.marker()
+    }
+
+    pub(in crate::raft::cell_groups) fn retain_coverage(&self) -> Option<CellGroupArchiveCoverage> {
+        self.coverage.upgrade().map(CellGroupArchiveCoverage)
+    }
+
+    pub(in crate::raft::cell_groups) fn same_snapshot(&self, other: &Self) -> bool {
+        self.hold == other.hold && std::sync::Weak::ptr_eq(&self.coverage, &other.coverage)
+    }
+
     pub(in crate::raft::cell_groups) fn retains(&self, hold: &CellGroupArchiveHold) -> bool {
         &self.hold == hold && self.coverage.strong_count() != 0
     }

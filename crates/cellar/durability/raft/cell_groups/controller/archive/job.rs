@@ -123,7 +123,47 @@ fn receiver(
 
 pub(super) struct Driven {
     pub coverage: CellGroupArchiveCoverage,
-    pub retirement_pending: bool,
+    pub published: GroupManifest,
+    pub maintenance_pending: bool,
+}
+
+/// Reuse only a still-live admitted verification. The weak index does not keep
+/// a workspace alive, and no archive-status sample can create this proof.
+pub(super) async fn retained(
+    context: &Context,
+    execution: &ControllerExecution,
+) -> Result<Option<Driven>> {
+    let candidate = {
+        let mut uses = context
+            .uses
+            .lock()
+            .map_err(|_| Error::Invalid("archive use lock"))?;
+        uses.retain(|usage| usage.live());
+        uses.iter()
+            .max_by_key(|usage| usage.marker().position().index)
+            .cloned()
+    };
+    let Some(coverage) = candidate.and_then(|usage| usage.retain_coverage()) else {
+        return Ok(None);
+    };
+    context.authority.require_current().await?;
+    let record = load(context, execution).await?;
+    if record.head.as_ref() != Some(coverage.hold())
+        && record.retire.as_ref() != Some(coverage.hold())
+    {
+        return Err(Error::Invalid("retained archive hold journal"));
+    }
+    let published = record
+        .head
+        .as_ref()
+        .ok_or(Error::Invalid("retained archive without head"))?
+        .marker()
+        .clone();
+    Ok(Some(Driven {
+        coverage,
+        published,
+        maintenance_pending: record.retire.is_some() || !matches!(record.pending, Pending::None),
+    }))
 }
 
 async fn select(
@@ -144,8 +184,9 @@ async fn select(
     // Its pending retirement still blocks allocation of another archive below.
     let allocation_ready = retire(context, execution, record).await?;
     Ok(Driven {
+        published: coverage.marker().clone(),
         coverage,
-        retirement_pending: !allocation_ready,
+        maintenance_pending: !allocation_ready,
     })
 }
 
@@ -254,8 +295,9 @@ pub(super) async fn drive(
                     )
                     .await?;
                 return Ok(Driven {
+                    published: coverage.marker().clone(),
                     coverage,
-                    retirement_pending: !allocation_ready,
+                    maintenance_pending: !allocation_ready,
                 });
             }
         }

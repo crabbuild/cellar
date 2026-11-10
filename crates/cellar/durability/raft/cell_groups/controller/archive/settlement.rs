@@ -470,7 +470,13 @@ pub(super) async fn prove(
     {
         let mut uses = context.uses.lock().unwrap_or_else(|e| e.into_inner());
         uses.retain(|usage| usage.live());
-        uses.push(coverage.retain_use());
+        let retained = coverage.retain_use();
+        // Replaying covered outputs shares the same admitted verification.
+        // One weak entry per admitted verification keeps this index bounded by
+        // verification admission, rather than the number of duplicate calls.
+        if !uses.iter().any(|usage| usage.same_snapshot(&retained)) {
+            uses.push(retained);
+        }
     }
     for request in requests {
         let now = execution

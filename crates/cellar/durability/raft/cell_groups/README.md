@@ -732,6 +732,14 @@ reconciliation nor executes another callback. A duplicate receipt uses the same
 output phase. Cancellation keeps the admitted owner; terminal errors release
 output resources without quarantining a group whose SQL producer already closed.
 
+An output can reuse a still-live, admitted archive verification instead of
+reserving another verifier workspace for the same covered receipt. The owner
+keeps only weak references, coalescing clones of one verification while tracking
+independent verification instances separately. It checks the journaled hold,
+current birth, local prefix and exact archived receipt before settling output;
+later serving fences still apply. Uncovered requests continue through publication.
+This cache neither keeps an idle workspace alive nor grows with duplicate calls.
+
 An outstanding S3 output can retain the previous archive hold while the next
 verified head is already committed. That retention delays another archive
 allocation; it does not prevent new outputs from proving their receipts against
