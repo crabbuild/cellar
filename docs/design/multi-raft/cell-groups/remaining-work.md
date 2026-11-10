@@ -116,7 +116,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | --- | --- | --- |
 | CG-11 | **Accepted: 5/5 cases and ten commands at `ddb545e4`.** Six focused regressions and the full 64-cell/seven-group native/RustFS workflow pass in both image modes. | Functional acceptance is closed. Release-scale profiles remain CG-15/16. |
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
-| CG-13 | Historical inventory binding is delivered. Portable selection/reopening passes both native root cases at `0c85daf5`. At `3d780669`, the independent operator completes the materialized RustFS portions; the full case fails during extent-mode source retirement before recovery. | Fix the retained retirement deadline failure within original bounds. Complete managed Docker voter seeding, attachment, activation and serving release, then pass all six cases on one source. Partial operator execution and ordinary shared-group Docker recovery do not establish the combined managed gate. |
+| CG-13 | Historical inventory binding, portable operator handoff and durable post-launch assignments are delivered. Both complete RustFS recovery roots pass diagnostically at `ae6f0d66`, including both image modes; earlier retirement and archive-preflight failures remain retained. | Integrate real managed Docker voter seeding, attachment, activation and serving with the assignment controller. Reproduce and fix the retained failures within original bounds, then pass all six cases on one clean source. Diagnostic passes and ordinary shared-group Docker recovery do not establish the combined managed gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
 | CG-17 | TODO; no primitive compatibility cases are accepted. Existing SQL and alarm/outbox/inbox gates remain scoped foundations. The audit refines delivery into eight packages and 32 required cases. | Begin inventory/evidence enforcement and the shared activation/Storage/async execution foundation. Complete due work, provider fencing, payload closure, public binding/filesystem semantics, retention/schema/time rules and all primitive adapters, then pass the complete matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). Preserve ordinary Fleet/bucket regressions; missing providers or unsupported families keep the task open. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
@@ -137,9 +137,10 @@ are accepted natively at `2cd71d32`. The next feature priorities are:
 
 1. **Finish CG-13 interrupted-transition recovery from S3.** Managed request
    binding to historical launch inventory is implemented at `5e179d75`; portable
-   operator handoff follows at `0c85daf5`/`3d780669`. First fix the retained
-   extent-mode source-retirement deadline, then complete the managed Docker voter
-   driver and qualify all six cases on one source: closure selection,
+   operator handoff follows at `0c85daf5`/`3d780669`, with durable post-launch
+   assignments at `d589e538`. Complete the managed Docker voter driver while
+   reproducing the retained retirement/archive failures, then qualify all six
+   cases on one clean source: closure selection,
    permanent revocation, fresh histories/quorum, exact retry and outbox ambiguity.
 2. **Deliver CG-17 full primitive compatibility before broad cutover.** Start
    CG17-01 inventory/report validation and CG17-02 shared activation/Storage

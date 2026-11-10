@@ -18,6 +18,38 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: post-launch assignments and recovery diagnostics
+
+At `d589e538`, `ManagedLauncher.assign_histories` durably appends group histories
+before a bounded SDK seed/attach callback and holds the launch/revocation lock
+through that callback. Lost replies retain the assignment. Fencing includes every
+historical writer in the cohort; unknown deployments, foreign catalogs and revoked
+generations/histories refuse admission. Controller regressions cover persistence,
+lock ownership, lost replies, immutable declarations and stable fence payloads.
+This is a controller API foundation; the managed Docker voter driver is still open.
+
+At diagnostic source `ae6f0d66`, the complete real RustFS closure root case passes
+in 510.210 seconds: both image modes, both recovery cuts and their independent
+operator controls. The separate outbox-ambiguity root case passes both modes in
+250.807 seconds on the same executable. Temporary retirement/archive probes are
+excluded from the published change. Application deadlines, leases, resource
+profiles, reserves and assertions are unchanged. All owned actors/backend/VM are
+stopped; exact source, executable and output hashes remain retained.
+
+These diagnostic passes do **not** establish a causal fix or current-source task
+acceptance. The earlier extent-mode retirement `DeadlineExceeded` remains an
+unresolved control. An intervening run also fails earlier, in materialized merge
+replay: `Unconfirmed` arrives before the injected archive payload denial. Another
+attempt stops at signed S3 startup HTTP 503 before any Cellar test executes.
+Both failures are retained. The passing run reaches all eight payload-denial
+checks; neither transient runtime failure reproduces there.
+
+Record: `.cellar/cell-groups-evidence/CG-13-retirement-ae6f0d66-diagnostic-01/checkpoint.json`.
+CG-13 remains `IN_PROGRESS`. Next deliver the managed Docker voter
+seed/attach/activation/serving path using the durable assignment API, make the
+retained failures reproducible, and qualify all six cases on one clean source.
+CG-17/15/16 and the full hard cutover remain open; accepted task counts are unchanged.
+
 ## CG-13 checkpoint: portable recovery selection and independent operator
 
 At `0c85daf5`, the SDK exports a descriptive
@@ -42,7 +74,7 @@ At `3d780669`, build, strict focused Clippy and formatting pass. The production
 library/Cargo inputs remain unchanged from the native checkpoint; the operator
 and qualification fixtures have their own recorded executable hashes.
 
-**The current combined RustFS case fails.** Its two materialized scenarios finish,
+**The combined RustFS case at `3d780669` fails.** Its two materialized scenarios finish,
 including the mandatory independent operator controls. Extent-mode unpublished
 parent setup then returns `Runtime(DeadlineExceeded)` from source-retirement
 `commit`, before that scenario reaches disaster recovery. This follows the

@@ -17,6 +17,22 @@ recovery entries below.
 
 ## Current CG-13 operator process delivery and qualification gap
 
+Post-merge controller work at `d589e538` adds durable post-launch assignments.
+Use `ManagedLauncher.assign_histories` before the first seed/attach action;
+lost replies keep the history in every possible old writer's fencing inventory.
+The callback holds the same lock as launch/restart/revocation. New independent
+voter processes must still use real `Node`/`RaftCells` and rederive recovery proofs
+from the existing S3 roots and pinned fence authority; the unmanaged tool service
+cannot stand in for that path.
+
+Diagnostic source `ae6f0d66` passes the complete closure and outbox RustFS roots
+in both image modes on one executable (510.210 / 250.807 seconds). It includes
+temporary probes excluded from publication. Earlier retirement `DeadlineExceeded`
+and materialized pre-payload `Unconfirmed` failures remain unresolved. A signed
+S3 startup 503 control runs no Cellar test. Exact failed and passing records are in
+`.cellar/cell-groups-evidence/CG-13-retirement-ae6f0d66-diagnostic-01/checkpoint.json`.
+No CG-13 acceptance or liveness-fix claim follows from these diagnostic passes.
+
 The SDK's portable recovery selection and read-only fence reopening are delivered
 at `0c85daf5`. The receiving process replays S3 cuts and verifies the persisted
 receipt using its configured authority; a serialized selector grants no proof.
@@ -32,9 +48,9 @@ recovery. Its two materialized scenarios finish; the later outbox case is not ru
 The exact failed record and two earlier configuration controls are retained in
 the latest [progress checkpoint](progress.md). All owned actors/backend/VM are stopped.
 
-Next isolate the retirement call's authority, directory and Raft phases and fix
-its liveness without enlarging the original deadline. Then deliver the managed
-Docker voter seed/attach/activation/serving driver and the complete six-case CG-13
+Next deliver the managed Docker voter seed/attach/activation/serving driver and
+use the retained diagnostics to reproduce the retirement/archive refusals within
+their original deadlines. Complete the six-case CG-13
 gate. Do not promote partial execution or predecessor evidence to current task
 acceptance. The production library/Cargo inputs are unchanged from the native
 checkpoint; fixture and operator changes have separate executable provenance.
