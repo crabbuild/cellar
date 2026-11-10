@@ -20,6 +20,69 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: held-receipt replays and current-source RustFS
+
+At `b85c609c`, three recovery suites pass against real RustFS on the combined
+recovery/TiKV source. Each covers materialized and extent images, host-native
+RF3 TLS voters, deletion of every owned source voter disk, fresh histories and
+quorum, SQL/receipt restoration, old-token refusal, retained restart and joined
+shutdown. The closure case covers unpublished parents and published merged-child
+tails. A separate cold operator reopens the selection and signed fence from S3.
+
+| RustFS suite | Whole-workflow duration | Result |
+| --- | ---: | --- |
+| `managed-disaster-retry` | 220.233 s | Original SDK command IDs/inputs return restored results and fresh-history Quorum/S3 proofs. |
+| `managed-transition-disaster-closure` | 378.309 s | Both publication states select the complete closure and preserve newer archived tails. |
+| `managed-disaster-outbox` | 182.025 s | Recovery preserves an uncertain external outcome without delivering it again. |
+
+The stronger retry case first failed at `31a3c503`: an S3 replay timed out while
+earlier receipt responses retained the one-operation verification admission.
+The archive controller now reuses a still-live admitted verification through a
+weak index. Each output still verifies its exact receipt, version, witness,
+durability minimum and current birth. A verified current head can prove covered
+outputs while an older hold awaits retirement; another archive allocation stays
+blocked. Pending retirement continues on the existing retry cadence.
+
+The native retry case passes at `abbf73f2` in 157.558 s with the same production
+source and executable as the final RustFS runs. Seven archive boundary cases
+pass at `b85c609c`, including exact results, archived observations, slow response
+ownership, compaction, publication reconciliation and peer archive reuse. The
+exact-result test now requires a covered duplicate to progress without another
+upload and an uncovered successor to wait until the final proof consumer drops.
+The original two-response budget, one-operation verification pool and deadlines
+are unchanged. Full strict all-target Clippy for `cellar`/`cellar-logic`, formatting
+and layout pass. Tooling records 68 passes and one opt-in skip; all 42 plan tests,
+documentation and dependency checks pass at their recorded source boundaries.
+
+All three RustFS records verify 2,805 source inputs, executable/operator hashes
+and seven signed backend probes. Native executable SHA-256:
+`e625b3dead91c31af4c5e6dcf081965b46ce99f0e58cfb6dc30c5ff8a3beeed8`.
+Cold operator SHA-256:
+`ed68ee3b4cdb12249a2841c8d601ef04e1f33d9c3876ff3469ed7d3a0ce84994`.
+Records, executables and failed controls remain under the checkout-private
+`cg13-transition-process.jgb3z3v_` workspace target. Summary SHA-256:
+`6765250d37feec9ba78f9997af82739494ad9980ea1555cb3e01f31b6d2ed8b1`.
+The initial exact-result failure and instrumented controls remain marked failed
+or diagnostic; they were not relabeled as qualification passes.
+
+RustFS is pinned to digest `bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858`
+with one CPU/2 GiB and no extra swap. The owned server exits zero without OOM;
+its VM is stopped, and the target/default VMs are unchanged. Voters use native
+fixtures with a fencing-authority contract, not constrained containers or current-source
+Docker launch revocation. The earlier permanent Docker fence results below retain
+their source pins. These durations are functional workflow times, not request
+latency or throughput measurements.
+
+CG-13 remains open. Stable managed groups still need an explicit recovery
+admission/selection path: the current managed API requires an owned split/merge
+transition, and direct group recovery preparation is restricted to unmanaged
+births. Three planned entry points remain absent:
+`managed_disaster_blocks_old_lifecycle`, `fence_all_possible_old_writers` and
+`all_disks_deleted_restore_all_cells`. Complete all six exact case gates and the
+required `rustfs_disaster` profile: 256 cells, five nodes, occupancy 64, 900 seconds,
+three repetitions, both image modes and at least six scenarios. No task or OPT
+package is newly accepted; totals remain **13/17 tasks, 147/195 cases**.
+
 ## Combined recovery and TiKV optimization source
 
 PR [#166](https://github.com/crabbuild/cellar/pull/166) combines recovery source
@@ -48,10 +111,10 @@ An initial driver stopped on an empty codec selector after five passing groups;
 the corrected driver continued the remaining groups without repeating them.
 That control and all raw logs remain retained.
 
-The four RustFS runs below retain their earlier `320a40ce` source; they do not
-qualify this combined source. Next run the current-source RustFS and exact
-six-case CG-13 matrix, then CG-17 compatibility and CG-15/16 release gates. No OPT
-package or CG task is newly accepted by this integration checkpoint.
+The four Docker RustFS runs below retain their earlier `320a40ce` source. The
+current-source native-voter RustFS results above qualify their explicit scope;
+the exact six-case CG-13 matrix, CG-17 compatibility and CG-15/16 release gates
+remain open. No OPT package or CG task is newly accepted by this checkpoint.
 
 ## CG-13 checkpoint: routed SQL and four-run RustFS recovery
 

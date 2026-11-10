@@ -24,9 +24,14 @@ The same PR now integrates committed TiKV routing/read optimization source
 `19982a1b` at `79f2ccc5`; 63 selected Rust checks and focused strict Clippy pass
 with the CI test profile. CG-17's eight-package/32-case design remains included
 and TODO. See [optimization progress](optimization-progress.md) for delivered
-behavior and open OPT gates. The immediate qualification priority is the combined
-source against real RustFS and the exact six CG-13 cases; earlier RustFS results
-retain their original source pins.
+behavior and open OPT gates. At `b85c609c`, combined-source native RF3 recovery
+passes real RustFS closure selection, original SDK retries and uncertain outbox
+recovery in both image modes. Held receipts share an admitted verification;
+uncovered writes still wait for its release within the original budgets. Seven
+archive safety cases and full strict all-target Clippy also pass. See the
+[current-source checkpoint](progress.md#cg-13-checkpoint-held-receipt-replays-and-current-source-rustfs)
+for hashes, failed controls and fencing limits. The six-case CG-13 task gate and
+full disaster profile remain open.
 
 ## Current boundary
 
@@ -135,7 +140,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | --- | --- | --- |
 | CG-11 | **Accepted: 5/5 cases and ten commands at `ddb545e4`.** Six focused regressions and the full 64-cell/seven-group native/RustFS workflow pass in both image modes. | Functional acceptance is closed. Release-scale profiles remain CG-15/16. |
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
-| CG-13 | At `320a40ce`, the normal managed Docker driver passes published/unpublished recovery in both RustFS image modes on one image. Every run fences and deletes five source disks, restores fresh RF3 SQL/receipts, refuses old tokens, acknowledges fresh S3 writes and passes retained restart, retirement and joined close. Published runs restore both children with newer tails. Cached-source SDK writes and strong reads pass before Fleet promotion. | Pass all six exact current-source native/RustFS cases, including merged-child closure and external-effect ambiguity. Address the retained archive/failure controls within original bounds. The four scoped Counter drills do not accept the complete recovery gate. |
+| CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
 | CG-17 | TODO; no primitive compatibility cases are accepted. Existing SQL and alarm/outbox/inbox gates remain scoped foundations. The audit refines delivery into eight packages and 32 required cases. | Begin inventory/evidence enforcement and the shared activation/Storage/async execution foundation. Complete due work, provider fencing, payload closure, public binding/filesystem semantics, retention/schema/time rules and all primitive adapters, then pass the complete matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). Preserve ordinary Fleet/bucket regressions; missing providers or unsupported families keep the task open. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
@@ -154,17 +159,16 @@ CG-11's placement, adaptive partitioning and bounded request/control path are
 accepted at `ddb545e4`. CG-12's fenced parking and demand-driven fresh-quorum wake
 are accepted natively at `2cd71d32`. The next feature priorities are:
 
-1. **Finish CG-13 interrupted-transition recovery from S3.** The independent
-   managed Docker unpublished-split workflow now passes both image modes at
-   `b4dd07b5`, including permanent fencing, deletion of all five source disks,
-   fresh genesis/quorum and serving SQL/receipts. At `320a40ce`, published child
-   tails, two-range recovery and both unpublished controls pass on one image.
-   Preparations remain sequential with explicit release under the unchanged
-   one-operation pool. Cached-source writes and strong reads now pass too.
-   Reproduce and fix the earlier native merged-child, retirement and archive
-   liveness failures within the original bounds. Then qualify all six cases on
-   one clean source: closure selection, permanent revocation, fresh histories/
-   quorum, exact retry and outbox ambiguity. See [progress](progress.md).
+1. **Finish CG-13 managed recovery from S3.** Current-source closure, held-receipt
+   retries and outbox ambiguity now pass real RustFS in both image modes. Next
+   implement explicit recovery admission/selection for a stable managed group;
+   do not require a fabricated split/merge or weaken the Fleet disruption,
+   directory, fence or new-incarnation checks. Then implement the three missing
+   lifecycle/fence/all-cells case entry points, pass all six exact gates on one
+   source, and run the full 256-cell/five-node disaster profile. Preparations
+   remain sequential under the unchanged one-operation pool. Current-source
+   permanent Docker launch revocation and constrained voter qualification remain
+   distinct from the passing native fencing-contract fixtures. See [progress](progress.md).
 2. **Deliver CG-17 full primitive compatibility before broad cutover.** Start
    CG17-01 inventory/report validation and CG17-02 shared activation/Storage
    integration alongside transition work. Follow with async transaction/executor

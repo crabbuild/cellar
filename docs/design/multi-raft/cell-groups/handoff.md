@@ -27,10 +27,29 @@ for source, executable and log records. Matching peers and clients require a
 rebuild for the response-format cutover. Uncommitted work in other optimization
 checkouts was not included.
 
-Next qualify this combined source with real RustFS and all six CG-13 cases;
-the earlier four-run campaign below remains pinned to `320a40ce`. CG-17's design
-is included, but its implementation and all remaining OPT acceptance gates stay
-open. Acceptance remains 13/17 tasks and 147/195 cases.
+At `b85c609c`, the combined source passes three real RustFS suites in both image
+modes: closure selection, original SDK command retries and uncertain outbox
+recovery. The retry regression exposed a real one-operation verification conflict;
+the controller now shares a still-live admitted proof and separates covered output
+from pending hold retirement. Seven archive safety cases and full strict
+all-target Clippy pass. The strengthened exact-result test requires covered reuse
+without upload and blocks an uncovered successor until the final consumer drops.
+Budgets and deadlines are unchanged. See the
+[current-source checkpoint](progress.md#cg-13-checkpoint-held-receipt-replays-and-current-source-rustfs)
+for executable hashes, failed controls and scope. Owned RustFS exits zero without
+OOM and its VM is stopped; target/default VMs are unchanged.
+
+Next implement stable managed-group recovery admission/selection. The managed
+selection API currently requires an owned topology transition; direct group
+recovery preparation refuses managed births. Preserve exact Fleet/directory roots,
+old-host fencing and fresh incarnations without staging an artificial transition.
+Three CG-13 entry points remain missing: `managed_disaster_blocks_old_lifecycle`,
+`fence_all_possible_old_writers` and `all_disks_deleted_restore_all_cells`.
+Complete all six gates and the full 256-cell/five-node `rustfs_disaster` profile.
+Current-source native fencing-contract runs do not replace permanent Docker launch
+revocation or constrained voters. The earlier four-run Docker campaign below
+remains pinned to `320a40ce`. CG-17 implementation and all remaining OPT acceptance
+gates stay open. Acceptance remains 13/17 tasks and 147/195 cases.
 
 ## Current CG-13 disk-erasure recovery delivery
 
