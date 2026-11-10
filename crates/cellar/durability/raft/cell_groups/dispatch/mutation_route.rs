@@ -5,8 +5,8 @@ use super::*;
 use crate::raft::transport::{LeaderLookup, RaftTransport, TransportError};
 use cellar_logic::consensus::{CommandFailure, MemberId};
 
-/// The controller supplies its existing retry cadence. Routing retains the
-/// originating deadline, attempt bank and physical invocation owner.
+/// The controller supplies its minimum retry cadence. Routing distributes the
+/// original remaining window across its finite tickets and final execution.
 pub(crate) struct MutationRouting<'a> {
     pub transport: &'a RaftTransport,
     pub retry_interval_ms: u64,
@@ -17,8 +17,9 @@ impl MutationRouting<'_> {
         &self,
         domain: &DomainToken,
         deadline: u64,
+        remaining_attempts: usize,
     ) -> Result<(), CellDispatchError> {
-        backoff(domain, deadline, self.retry_interval_ms).await
+        backoff(domain, deadline, self.retry_interval_ms, remaining_attempts).await
     }
 }
 
@@ -26,17 +27,28 @@ pub(super) async fn backoff(
     domain: &DomainToken,
     deadline: u64,
     retry_interval_ms: u64,
+    remaining_attempts: usize,
 ) -> Result<(), CellDispatchError> {
     let now = domain.mono_ms().map_err(|_| closed())?;
     if now >= deadline {
         return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
     }
-    let wake = now.saturating_add(retry_interval_ms.max(1)).min(deadline);
+    let wake = retry_at(now, deadline, retry_interval_ms, remaining_attempts);
     domain.sleep_until(wake).map_err(|_| closed())?.await;
     if domain.mono_ms().map_err(|_| closed())? >= deadline {
         return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
     }
     Ok(())
+}
+
+/// Distribute the original remaining window geometrically across the remaining
+/// retries and their final execution. A small controller poll cadence alone can
+/// exhaust every RPC ticket before admitted physical work has time to complete.
+fn retry_at(now: u64, deadline: u64, interval_ms: u64, remaining_attempts: usize) -> u64 {
+    let shares = (1u64 << remaining_attempts.saturating_add(1).min(17)) - 1;
+    let delay = deadline.saturating_sub(now) / shares;
+    now.saturating_add(delay.max(interval_ms).max(1))
+        .min(deadline)
 }
 
 #[derive(Default)]

@@ -132,7 +132,12 @@ impl CellCommandInvocation {
                                 < self.session.maximum_attempts() =>
                         {
                             routing
-                                .backoff(&self.dispatcher.domain, self.session.deadline_ms())
+                                .backoff(
+                                    &self.dispatcher.domain,
+                                    self.session.deadline_ms(),
+                                    self.session.maximum_attempts()
+                                        - usize::from(self.current()?.ordinal()),
+                                )
                                 .await
                                 .map_err(|cause| self.error(cause))?;
                             self.retry().await?;
@@ -180,7 +185,12 @@ impl CellCommandInvocation {
                             // by this invocation. An earlier unknown result wins.
                             if matches!(error.cause.refusal(), Some(CommandFailure::Overloaded)) {
                                 routing
-                                    .backoff(&self.dispatcher.domain, self.session.deadline_ms())
+                                    .backoff(
+                                        &self.dispatcher.domain,
+                                        self.session.deadline_ms(),
+                                        self.session.maximum_attempts()
+                                            - usize::from(self.current()?.ordinal()),
+                                    )
                                     .await
                                     .map_err(|cause| self.error(cause))?;
                             }

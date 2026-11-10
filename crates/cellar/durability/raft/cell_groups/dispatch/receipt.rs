@@ -227,6 +227,7 @@ impl CellReceiptInvocation {
             &self.dispatcher.domain,
             self.session.deadline_ms(),
             retry_interval_ms,
+            self.session.maximum_attempts() - usize::from(self.current()?.ordinal()),
         )
         .await?;
         self.retry().await

@@ -272,6 +272,81 @@ The earlier interval catalog/public run overlapped independent fixtures,
 contrary to the qualification guide; its startup failure and isolated rerun
 remain recorded above.
 
+## Transient-refusal candidate
+
+Source `0cef5350` separates a probe set containing only overload or valid
+no-leader observations from the existing membership-discovery fallback. Such
+observations do not establish a changed placement. Commands, pre-submission
+enrollment and receipt reads back off using the controller's configured cadence
+and retry the cached route within the original session. The shared destination
+selector keeps its existing return contract for all three operations.
+
+An authenticated command rejection for overload may retry only while the
+invocation is unambiguous. A previously unknown outcome remains sticky. The
+retry retains the command ID, captured inputs, fingerprint, original absolute
+deadline, attempt bank and physical owner. Backoff uses the owning execution
+domain, clamps to that deadline and refuses after owner closure. No parent bank,
+worker or request budget is added. IO/stale-member fallback still needs the
+remaining membership/endpoint/range scope separation; this change does not close
+OPT-01.
+
+The new public `busy_leader_keeps_placement` candidate retains two real destination
+commands waiting for S3 proof, observes an authenticated rejection at an
+ingress-only origin, releases archive work, and requires the same invocation and
+exact replay with once-only callback entry. It requires zero probes, command
+directory lookups and demand membership refreshes for that retry. Three private
+cases cover probe-failure scope, the original deadline and closed-owner refusal.
+Focused Clippy passed in the isolated source checkout. The source-pinned CI-profile
+run at `729b006f` subsequently passed focused Clippy, format/layout, native
+dependencies, docs, all 42 plan tests and 49 selected private Rust cases. Its new
+public overload case failed and stopped the remaining serial campaign.
+
+Review found that this new fixture submitted its two concurrent destination
+commands with one client identity, violating the documented per-client sequence
+contract. Setup correction `729b006f` gives each concurrent command its own client
+and preserves exact replay of the routed command. All overload, routing-work,
+durability and callback-count assertions are unchanged. The first CI-profile
+build at `0cef5350` completed, but its validation was invalidated before any
+runtime test; the in-flight Clippy process was cancelled. The corrected source was
+used for the `729b006f` campaign above. No invalidated run is counted as a pass.
+
+The next diagnostic showed that one of the two held S3 commands completed early
+with SQL `Busy`: both targeted the same SQLite cell. The intended node-level
+capacity hold therefore did not survive until the incoming request. That request
+was admitted and returned an ambiguous `Unavailable`, correctly preserving its
+identity and refusing automatic replay. The corrected fixture uses two independent
+cells, establishes initial S3 coverage, and explicitly refuses any held call that
+completes before archive release. It keeps the same two-slot node bank and five-second
+request deadline; callbacks and exact per-cell results remain checked.
+
+With a valid capacity hold, all four original request tickets were consumed by
+authenticated overload responses in approximately fifteen milliseconds. S3 work
+completed about 890 milliseconds after release. The controller's five-millisecond
+poll cadence alone did not give that work time to free capacity. Retry spacing
+now divides the original remaining window geometrically across the remaining
+tickets and final execution, with the configured cadence as its minimum. Each
+retry still consumes an original ticket and every sleep clamps to the original
+absolute deadline. No retry count, timeout or admission limit is increased.
+This follows the bounded exponential pacing principle in the
+[TiKV Rust client](https://github.com/tikv/client-rust/blob/master/src/backoff.rs),
+while deriving Cellar's spacing from its own existing invocation bounds.
+
+The paced public case passed both modes in 29.79 seconds before diagnostic cleanup.
+Materialized images observed three proven refusals before success; extents observed
+two. Both preserved the command identity, one callback, exact replay and zero
+probes, directory lookups and membership refreshes. Temporary instrumentation was
+removed. A fourth private case checks time reserved for progress and final
+execution without deadline renewal; combined final-source validation is pending.
+
+Artifact inspection found the preceding failing native startup runs used
+optimization level 0 and debug information level 2. The qualification guide and
+SDK CI require test optimization level 1, no debug information, and enabled debug
+assertions and overflow checks. The new build and serial driver use those exact
+settings, verify the emitted Cargo profiles, wait for all static checks and flush
+build writes before fixtures. Original timeouts, assertions and resource limits
+remain unchanged. This corrects the reproduction setup; it does not yet establish
+the cause of the earlier failures or supersede their failed results.
+
 ## Local container verification
 
 The user explicitly requested local RustFS storage and Colima containers for
@@ -287,8 +362,7 @@ The fresh digest-pinned RustFS container on the verified workspace profile passe
 all seven signed S3 protocol operations, including conditional create and ETag
 compare-and-swap. The local harness's one-CPU/2-GiB/no-additional-swap envelope is
 unchanged. Preflight positively matched the Docker and Colima SSH Engine IDs,
-cgroup v2, the eight-CPU VM and its workspace backing file. This is backend and
-environment evidence; no Cellar node container qualification is claimed yet.
+cgroup v2, the eight-CPU VM and its workspace backing file.
 Credentials and generated runtime state stay outside the repository in the
 checkout-private qualification directory.
 
@@ -305,10 +379,41 @@ baseline's source revision, recovery digest/excerpt and review note were advance
 together. All 42 checker tests and direct source-anchor preflight now pass; no
 checks were weakened. The full `plan.py preflight` CLI remains unavailable in this
 fresh checkout because prior accepted tasks reference private ignored evidence
-files that are not present; no synthetic replacement evidence was created. The Rust 1.98.1 Linux builder is present in the verified VM.
-A matching source image and three constrained voters remain pending. Local
-container runs do not establish independent host/zone resilience or release
-acceptance.
+files that are not present; no synthetic replacement evidence was created.
+
+The managed Linux daemon campaign passed at source
+`a2bbabae57f1386e25370999c11e9b050903b760`, built with Rust 1.98.1 and the locked
+dependency graph. The primary checkout remained clean at that revision throughout
+the build and campaign. The runner checked the immutable image, source manifest
+and deployed daemon/operator binary digests. The image is
+`sha256:65e6ca2d92aa57a42294654e076a27fbbab1fefac191ff5ee1ed406f2714980a`;
+its source manifest is
+`519fc5131bee8e1fea9fb3a83eea896fe07ebf18a05633290cd4001299b02e82`.
+
+| Image mode | Result | Fixture duration |
+| --- | --- | ---: |
+| Materialized | Passed | 74.977 seconds |
+| Extents | Passed | 71.547 seconds |
+
+Both modes used three separate Linux voter containers, each with its own disk,
+one CPU, 3 GiB RAM and zero cgroup swap. The record includes observed cgroup-v2
+limits and Docker inventory. The actual daemons acquired RustFS-backed node leases
+and authenticated peers. Native and Axum ingress exercised Quorum/S3 receipts,
+park/fresh-quorum wake, archive-write outage and exact S3 reconciliation,
+leader SIGKILL and successor selection before retained-disk restart, maintenance
+stop/return/resume, and quorum-loss read/write refusals. The intentionally killed
+container exited 137 in each mode; the four other original/replacement containers
+exited zero. Both fixture controllers exited zero. These results retain the
+original request, resource and workload limits.
+
+The private artifact root is
+`/Volumes/Workspace/crabbuild-target/cellar-ios-6afff9f4-tikv/qualification`.
+`linux-daemon-build.json` records the successful build and verification;
+`managed-daemon-a2bbabae57f1/` retains the summary, mode reports and event ledgers.
+RustFS objects, logs and voter disks remain available. Credentials stay outside
+source. This campaign used one VM and did not select standby or failed-voter
+repair. It does not close the failed native RO-09 run, public transition/fencing
+cases, performance gates, independent host/zone resilience or release acceptance.
 
 ## Validation
 
