@@ -299,10 +299,13 @@ guest calls and records the Engine identity. Three configuration/routing tests
 passed; the local multi-Raft Python suite passed 31 tests with its one opt-in
 Docker configuration case skipped. Review found no change to voter/backend
 limits, workload assertions, source-image checks, cleanup inventory or request
-budgets. The plan checker's pinned recovery anchor correctly reports this source
-drift (41 passes, one preflight error). After the source checkpoint its reviewed
-revision, digest/excerpt and review note must be advanced together; the guard is
-not being weakened. The Rust 1.98.1 Linux builder is present in the verified VM.
+budgets. The plan checker initially caught the changed recovery anchor (41
+passes, one preflight error). Source checkpoint `4a00fd96` was reviewed, and the
+baseline's source revision, recovery digest/excerpt and review note were advanced
+together. All 42 checker tests and direct source-anchor preflight now pass; no
+checks were weakened. The full `plan.py preflight` CLI remains unavailable in this
+fresh checkout because prior accepted tasks reference private ignored evidence
+files that are not present; no synthetic replacement evidence was created. The Rust 1.98.1 Linux builder is present in the verified VM.
 A matching source image and three constrained voters remain pending. Local
 container runs do not establish independent host/zone resilience or release
 acceptance.
