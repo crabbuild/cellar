@@ -18,6 +18,58 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: constrained managed RF3 source cohort
+
+At `4eb4533b`, `managed_group_drill.py` provisions a fresh managed namespace
+through the public SDK, registers real Docker nodes, qualifies measured capacity,
+and reserves, publishes and archives its first shared group through independent
+controller processes. Bootstrap returns the compiled schema/capability and exact
+namespace digest; no reconstructed base digest or raw NamespaceId is substituted.
+The controller grants namespace read/write permission explicitly after checking
+authenticated peer boots. Membership does not grant application permission.
+
+All three startup waiters enter concurrently under one durable assignment/fencing
+lock. Stopped containers receive exact config/TLS snapshots, including an explicit
+fresh/retained mode. The authority key and launch ledger stay outside them.
+Original requests precede entry, and uncertain batch outcomes retain every voter.
+
+Both unmodified Docker runs pass on the same source and Linux executable:
+materialized **35.135 s**, extents **34.204 s**. Each checks three SQL cells in one
+physical RF3 group, S3 and Quorum writes, minimum-version and linearizable reads
+through every voter, retained restart with new process IDs, original command
+replay, and unchanged SQL values/versions before and after replay. Six exact-process
+joined-close records per run cover initial and retained boots. All four final
+containers exit 0 without OOM. The binary SHA-256 is
+`e52119fa6248597a95bbd9e14a03489fc30dd7bb9abae19102359ba3fef367a9`.
+
+Two failed controls and their causal probes are retained. `67f31888` binds peer
+listeners to a wildcard while advertising container IPs; all three group routes
+refuse `Transport(Identity)`, and partial attachments do not prove joined close.
+Changing only that input passes the diagnostic cohort. `f7cbe3a3` then incorrectly
+requires a retry's observation version to equal its first observation. A captured
+identical S3 request preserves result/history/durability while its token and
+observation advance from 2 to 3. The final oracle requires monotonic observations
+and unchanged current SQL/version around replay, detecting extra application.
+Both input/oracle regressions fail before their fixes and pass afterwards.
+
+Final-source strict focused Clippy, format/layout, docs/dependency checks,
+25 controller tests and 42 plan tests pass. Evidence is hash-verified in both
+checkouts under `.cellar/cell-groups-evidence/CG-13-cohort-4eb4533b-`:
+`materialized-01`, `extents-01` and `checkpoint-01`. The `67f31888` bind and
+`f7cbe3a3` observation failure/diagnostic directories retain the earlier controls.
+Private credentials, launch ledgers and signing keys remain outside that copy.
+
+This is a source-cohort gate with `full_dr_completed: false`. The colocated
+`Nodes` policy is explicit; voters each have one CPU/3 GiB/no extra swap and
+RustFS one CPU/2 GiB. Capacity uses real cgroup settings/usage and the running SDK
+profile; the declared 1-GiB disk budget is not a filesystem quota. There is no
+load, independent-host, full primitive or all-disk-loss recovery claim. The owned
+actors and VM are stopped; data and failed controls remain retained.
+CG-13 stays IN_PROGRESS and acceptance counts remain 13/17 tasks, 147/195 cases.
+Next connect managed transition admission/archive/seal preparation to permanent
+fencing and fresh seed-to-serving recovery after deleting all source disks.
+Earlier merged-child, retirement and archive liveness failures remain open.
+
 ## CG-13 checkpoint: independent controller steps and immediate capacity admission
 
 `8437563c` adds `managed-recovery`: standalone SDK commands for replacement

@@ -17,7 +17,15 @@ recovery entries below.
 
 ## Current CG-13 controller delivery and qualification gap
 
-At `1095507e`, use `managed-recovery` for the standalone post-fence SDK steps and
+At `4eb4533b`, `managed_group_drill.py` passes the managed Docker source cohort
+in both image modes: SDK bootstrap, actual capacity admission, first-group
+publication/archive, concurrent RF3 startup, Quorum/S3 writes, strong reads,
+retained restart, original retries and joined close. Peer listeners must bind
+their exact advertised container IP. A retry may return a later SDK observation;
+check fixed results/histories and unchanged SQL/version around it. See the latest
+[progress](progress.md) for retained failures, probes and evidence limits.
+
+Use `managed-recovery` for the standalone post-fence SDK steps and
 `managed-node` for actual voter ownership. The operator's read-only reservation
 and seed APIs cannot allocate missing state; publication requires the selected
 seed set. Late reconciliation and retirement do not depend on an obsolete active
@@ -40,8 +48,9 @@ digest. Exact records, limits and timings are linked from [progress](progress.md
 All owned actors/backend/VM are stopped. No CG-13 acceptance follows from these
 scoped passes.
 
-Next implement the complete managed Docker driver: initial recovery intent and
-archive preparation, authenticated permanent fence, new-node capacity, reserved
+Next extend the qualified source driver with managed split/merge admission and
+archive/seal preparation, then initial recovery intent, authenticated permanent
+fence, new-node capacity, reserved
 seed-to-publication, activation, settlement, serving release, retained restart and
 retirement. Persist original requests and reconcile unknown replies with the
 phase-appropriate read APIs. Bind launch inventory to the exact SDK catalog and
