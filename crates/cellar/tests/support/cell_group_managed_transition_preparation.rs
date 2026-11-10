@@ -719,7 +719,13 @@ pub(super) async fn verify_sealed_cut(
                 voter
                     .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
                     .await
-                    .context("attach second pending child")?;
+                    .with_context(|| {
+                        format!(
+                            "attach second pending child {:?} on {:?}",
+                            route.history,
+                            voter.identity()
+                        )
+                    })?;
             }
         }
         proofs.push(wait_pending_child(voters, route.history).await?);
@@ -1910,6 +1916,14 @@ async fn restart_destination(
             .await?
             == expected
     );
+    // A fresh quorum on the first child does not establish that every peer's
+    // cached process view is ready for attaching the other retained child.
+    let revision = fixture.catalog.read(TIMEOUT).await?.revision();
+    for voter in &cluster.hosts[DESTINATION + 1..] {
+        inspect_current(voter, host.identity().node, revision)
+            .await
+            .context("discover the second retained boot before attaching its children")?;
+    }
     host.attach_managed_transfer_child(transition, route, TIMEOUT)
         .await
         .context("reattach retained pending voter after the fresh term")?;

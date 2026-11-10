@@ -1532,6 +1532,17 @@ async fn recover_selected(
         tail,
         publication,
     } = selected;
+    ensure!(routed.len() == receipts.len());
+    if let Some(tail) = &tail {
+        ensure!(
+            routed
+                .iter()
+                .filter(|(cell, _)| *cell == tail.version.history)
+                .count()
+                == 1,
+            "published S3 tail must belong to exactly one recovered cell"
+        );
+    }
     let principal = &principal;
     let fixture = &cluster.fixtures[0];
     let fleet = &fixture.catalog;
@@ -1997,7 +2008,9 @@ async fn check_recovery_voter_reservations(
                     receipt.boot == boots[voter_index]
                         && receipt.member.get() == 21 + voter_index as u64
                 );
-                if voter_index == 1 && range_index == 0 {
+                // One seed never forms a quorum. With two seeds, selection
+                // still refuses until every replacement range is complete.
+                if voter_index == 0 || (voter_index == 1 && range_index + 1 < reserved.len()) {
                     let incomplete = Box::pin(control.select_transition_recovery_seed_quorums(
                         namespace, fenced, plan, TIMEOUT,
                     )).await;
