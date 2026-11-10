@@ -533,8 +533,57 @@ constructs it without exposing credentials in output. Do not mount the controlle
 signing key or launch ledger in this process. Use a fresh private replay directory
 for each cold verification and keep credential configuration out of evidence.
 
-This operator bridge still needs the managed voter-side seed, attach, activation
-and serving-release driver before the complete independent-Docker CG-13 gate.
+### Managed voter process
+
+`CELLAR_GROUP_ACTION=managed-node` starts a real SDK `Node` and `RaftCells` with
+the existing managed namespace declaration and an owned engine. Set
+`CELLAR_GROUP_CONFIG` to a private configuration and `CELLAR_GROUP_DATA` to its
+absolute data directory. Set `CELLAR_GROUP_RETAINED=true` only for an existing
+engine. Boot identities come from the configuration; leave the older numeric
+node/generation flags at zero. The [configuration](node/managed_voter/configuration.rs)
+requires explicit S3 roots/credentials, the compiled Counter contract, node/disk/
+process IDs, advertised peer endpoints, private TLS paths and an independently
+pinned fence public key. Never mount the controller signing key or launch ledger.
+The two-group and image/checkpoint capacities match the existing managed fixture.
+Recovery uses its four-cell, 1-MiB image and 4-MiB restore limits, with one shared
+import pool per process. This is a functional fixture envelope, not the release
+load envelope.
+
+The `control_ready` event opens only process control. The authenticated `/control`
+protocol binds every request to `x-cellar-node`, `x-cellar-disk` and
+`x-cellar-process`; a stale boot is refused before SDK work. Its recovery phases are:
+
+1. `reopen_recovery`: independently replay the existing S3 selection and verify
+   its persisted fence, then reopen the controller's exact replacement plan.
+2. `prepare_seed`: use read-only `reopen_transition_recovery_range` to find an
+   existing reservation, then prepare this engine's image under SDK admission.
+   A missing reservation is refused without allocating capacity. One preparation
+   is retained in the process; opaque proofs never cross the wire.
+3. `seed`: sync or reconcile that preparation's durable genesis and receipt.
+4. `attach` and `activate`: use descriptive operation/plan/seed IDs to rederive
+   the published reservation and prove the exact applied activation.
+
+Every phase keeps its original SDK bounds; metadata/physical substeps share the
+request budget. Recovery reopening uses the existing 20-second operator budget;
+other requests use five seconds. The SDK retains entered producers after a lost
+response. Reconcile the same identities; never invent a new command or plan.
+Clearing RPC caches releases only idle copies; SDK producers keep their own
+physical pins until the owning node/domain joins entered work.
+
+`managed_group_voter.ManagedVoter` binds a controller-owned historical launch to
+this protocol. Its start/prepare/seed/attach/activate methods durably assign the
+history and hold the launch/fencing lock through the bounded request. Raw calls
+cannot bypass that assignment. The client refuses redirects, ignores ambient
+proxies and never automatically retries a mutation. Ordinary Counter SDK reads
+default to linearizable consistency; writes require Quorum or explicit S3 proof.
+Missing groups or quorum refuse admission.
+
+The process regression is
+`process::rustfs_managed_voter_process_boot_restart_and_stop` in
+`native_cell_groups_disaster`. It covers both image modes, stale/unauthenticated
+requests, empty-standby read/write refusals, retained engine ownership and joined
+stop. Full managed Docker seed-to-serving orchestration, coordinator publication/
+settlement and the six-case disk-loss gate remain required for CG-13 acceptance.
 
 ## Cell-group transition contracts
 

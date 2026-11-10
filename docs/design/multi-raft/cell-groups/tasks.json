@@ -2750,6 +2750,8 @@
         "tools/cellar-recovery-tests/",
         "tools/multi-raft/",
         "crates/cellar/tests/support/raft_daemon_recovery.rs",
+        "crates/cellar/tests/native_cell_groups_disaster.rs",
+        "crates/cellar/tests/support/cell_group_managed_process.rs",
         "crates/cellar/tests/support/cell_group_managed_transition_fence.rs",
         "crates/cellar/tests/support/cell_group_managed_transition_merge.rs",
         "crates/cellar/tests/support/cell_group_managed_transition_retirement.rs",

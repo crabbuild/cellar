@@ -5,6 +5,8 @@
 #![allow(clippy::disallowed_methods)]
 mod config;
 mod managed_operator;
+mod managed_store;
+mod managed_voter;
 mod physical;
 mod recovery;
 mod service;
@@ -31,6 +33,9 @@ async fn main() -> Result<()> {
     let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
     let result = domain
         .run(async {
+            if options.action == "managed-node" {
+                return managed_voter::run(domain.clone(), &options).await;
+            }
             if options.action.starts_with("managed-") {
                 return managed_operator::run(&domain, &options).await;
             }

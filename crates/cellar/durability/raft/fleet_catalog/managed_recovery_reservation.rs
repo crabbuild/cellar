@@ -173,6 +173,44 @@ impl FleetHostAuthorization {
 }
 
 impl FleetCatalog {
+    pub(crate) async fn reopen_managed_recovery_range(
+        &self,
+        directory: &RangeDirectory,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+        scope: GroupHistory,
+        archives: &CellGroupArchivePool,
+        timeout: Duration,
+    ) -> Result<Option<FleetRecoveryRangeReservation>> {
+        self.run(timeout, async {
+            self.require_managed_replacement(fenced, plan).await?;
+            self.require_confirmed_managed_fence(directory, fenced, archives)
+                .await?;
+            let birth = plan
+                .births()
+                .iter()
+                .find(|birth| birth.route().history == scope)
+                .ok_or(FleetCatalogError::Conflict)?;
+            let snapshot = self.inner.current().await?;
+            let intent = fenced.request().intent();
+            self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
+                .await?;
+            let selected = self
+                .managed_recovery_reservation_at(&snapshot, directory, intent, plan, birth)
+                .await?;
+            if selected.is_some() {
+                self.inner
+                    .domain
+                    .run(directory.require_managed_recovery_identity(birth, plan.digest()))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
+            }
+            Ok(selected)
+        })
+        .await
+    }
+
     pub(crate) async fn reserve_managed_recovery_range(
         &self,
         directory: &RangeDirectory,

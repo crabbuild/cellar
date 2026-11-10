@@ -1960,6 +1960,13 @@ async fn check_recovery_voter_reservations(
         }
 
         let first = plan.births()[0].route().history;
+        let before = fixture.catalog.read(TIMEOUT).await?.revision();
+        ensure!(Box::pin(control.reopen_transition_recovery_range(
+            namespace, fenced, plan, first, TIMEOUT,
+        ))
+        .await?
+        .is_none());
+        ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == before);
         fixture
             .store
             .fail_fleet_confirmation
@@ -1988,6 +1995,15 @@ async fn check_recovery_voter_reservations(
             .await?;
             ensure!(proof.route() == birth.route() && proof.plan_digest() == plan.digest());
             ensure!(proof.voter_boots() == boots.as_slice());
+            let reopened = Box::pin(fresh.reopen_transition_recovery_range(
+                namespace, fenced, plan, birth.route().history, TIMEOUT,
+            ))
+            .await?
+            .context("independent voter reopens the exact reserved range")?;
+            ensure!(reopened.route() == proof.route()
+                && reopened.plan_digest() == proof.plan_digest()
+                && reopened.applied_revision() == proof.applied_revision()
+                && reopened.voter_boots() == proof.voter_boots());
             ensure!(proof.applied_revision() > previous);
             previous = proof.applied_revision();
             reserved.push(Arc::new(proof));

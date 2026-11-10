@@ -369,6 +369,32 @@ impl RaftFleetControl {
             .await?)
     }
 
+    /// Reopen an existing placement without allocating capacity or repairing a
+    /// missing reservation. Voter processes rederive this proof from S3 before
+    /// seeding their own engine; descriptive IDs carry no admission authority.
+    #[doc(hidden)]
+    pub async fn reopen_transition_recovery_range(
+        &self,
+        namespace: &str,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+        history: cellar_logic::cell_group::GroupHistory,
+        timeout: Duration,
+    ) -> Result<Option<FleetRecoveryRangeReservation>> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .reopen_managed_recovery_range(
+                directory,
+                fenced,
+                plan,
+                history,
+                &self.archive_pool,
+                timeout,
+            )
+            .await?)
+    }
+
     /// Verify a durable seed majority for every replacement. An exact retry
     /// reopens the selected receipts even if more voters have completed.
     #[doc(hidden)]

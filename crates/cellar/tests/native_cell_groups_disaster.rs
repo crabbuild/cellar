@@ -27,6 +27,9 @@ mod source_fixture;
 
 pub use source_fixture::runtime_fixture::catalog_fault;
 
+#[path = "support/cell_group_managed_process.rs"]
+mod process;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn transition_disaster_selects_complete_closure() -> Result<()> {
     use bootstrap::transition::RecoveryPoint;

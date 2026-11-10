@@ -61,6 +61,15 @@ pub fn store(case: &str, rooted: bool) -> Result<Arc<dyn ObjectStore>> {
     configured_store(case, rooted, None)
 }
 
+/// One captured connection for a source fixture and independent voter process.
+pub fn process_store(
+    case: &str,
+    rooted: bool,
+) -> Result<(Arc<dyn ObjectStore>, OperatorStoreConfig)> {
+    let config = OperatorStoreConfig::load(case, rooted)?;
+    Ok((config.open(None)?, config))
+}
+
 pub fn outage_store(case: &str, rooted: bool) -> Result<Arc<dyn ObjectStore>> {
     // A stopped backend must expose its actual connection failure promptly.
     // Other RustFS cases keep their existing adapter retry policy.
