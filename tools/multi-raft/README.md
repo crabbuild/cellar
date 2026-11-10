@@ -698,7 +698,16 @@ output directory. Its dedicated VM needs eight CPUs and at least 21 GiB actual
 memory (a 24-GiB profile); five voters remain limited to one CPU/3 GiB each.
 Split rosters use the existing two-slot profiles without increasing their bounds.
 The old five-node cohort is permanently revoked and every disk deleted before
-the three fresh replacement nodes start. This qualifies one Counter/namespace
+the three fresh replacement nodes start on a different VM. Pass
+`--replacement-context` and `--replacement-image` for an idle, separately owned
+16-GiB VM with the exact image already loaded. Setup verifies that image before
+any disk erasure, stops the replacement VM and starts the 24-GiB source phase.
+After fencing, it gracefully restarts the retained RustFS service on an 8-GiB
+source VM before starting the 16-GiB replacement. This keeps guest reservations
+within 24 GiB on the 32-GiB development machine. No SDK request is entered during
+the declared service restart. A one-CPU/1-GiB, 32-connection TCP bridge preserves
+S3 bytes/headers and joins its execution-domain tasks on stop. The old-host
+exclusion remains unchanged; inventing a replacement host ID is forbidden. This qualifies one Counter/namespace
 scenario; published child tails, external effects and all six CG-13 cases still
 require their complete gate.
 

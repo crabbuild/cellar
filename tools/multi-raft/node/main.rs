@@ -7,6 +7,7 @@ mod config;
 mod managed_bootstrap;
 mod managed_operator;
 mod managed_recovery;
+mod managed_relay;
 mod managed_store;
 mod managed_voter;
 mod physical;
@@ -43,6 +44,9 @@ async fn main() -> Result<()> {
             }
             if options.action == "managed-recovery" {
                 return managed_recovery::run(&domain, &options).await;
+            }
+            if options.action == "managed-s3-relay" {
+                return managed_relay::run(&domain, &options).await;
             }
             if options.action.starts_with("managed-") {
                 return managed_operator::run(&domain, &options).await;

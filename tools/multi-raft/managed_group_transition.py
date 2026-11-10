@@ -17,6 +17,7 @@ import time
 from group_disaster import Qualification, qualification_subnet
 from group_fence import PURPOSE
 from managed_group_drill import GIB, ManagedQualification, nonce
+from managed_group_deployment import handoff, prepare, profile
 from managed_group_fence import ManagedLauncher
 from managed_group_voter import VoterFailure
 from raft_disaster import command, owned_container
@@ -26,12 +27,17 @@ from raft_run import require
 class TransitionQualification(ManagedQualification):
     def __init__(self,args):
         super().__init__(args)
+        self.source_context=args.context;self.replacement_context=args.replacement_context
+        self.active_contexts=[self.source_context]
         self.model.update(transition=nonce(),recovery=nonce(),replacement={
             'group':nonce(),'incarnation':nonce(),'creation':nonce()},recovered_values={})
         self.report.update(suite='managed-unpublished-disaster',full_dr_completed=False)
+        self.report['limitations'][0]='Separate source/replacement VMs on one Mac; hardware-host/zone independence remains unqualified.'
         self.report['limitations'][1]='Counter/one namespace; one unpublished split recovery. Published child tails, external effects and all six CG-13 cases remain separate gates.'
 
     def setup(self):
+        self.event('deployment/prepare',{'source':self.source_context,'replacement':self.replacement_context,
+            'replacement_image':self.args.replacement_image},lambda:prepare(self))
         info=json.loads(self.docker('info','--format','{{json .}}'))
         require(info['NCPU']>=8 and info['MemTotal']>=21*GIB,
                 'five voters, operator and RustFS require 8 CPUs / 21 GiB')
@@ -270,23 +276,50 @@ class TransitionQualification(ManagedQualification):
 
     def drill(self):
         self.source_workflow()
-        self.transition();self.recover()
+        self.transition()
+        self.event('deployment/handoff',{'source':self.source_context,'replacement':self.replacement_context},lambda:handoff(self))
+        described=self.control('replacement-store-probe',{'step':'describe'})
+        require(described['catalog_id']==self.model['bootstrap']['catalog_id']
+            and described['namespace_digest']==self.model['bootstrap']['namespace_digest'],
+            'replacement bridge reaches a different catalog or namespace')
+        self.recover()
 
     def close(self):
-        Qualification.close(self)
-        if self.report['completed']:
-            try:
-                for row in self.target_nodes():self.joined_voter(row,1)
-            except BaseException:
-                self.report.update(completed=False,shutdown_verified=False);self.save();raise
+        states=[]
+        failures=[]
+        complete=self.report['completed']
+        for context in reversed(self.active_contexts):
+            self.args.context=context
+            # Stop SDK owners before their object-store endpoint or bridge.
+            rows=self.target_nodes() if context==self.replacement_context else [row for row in self.model['nodes'] if row['generation']==0]
+            present=set(self.docker('ps','-aq','--no-trunc','--filter','label='+self.owner).split())
+            for row in rows:
+                identifier=row.get('container')
+                if identifier not in present:continue
+                if owned_container(self.docker,identifier,self.run_id)['State']['Running']:
+                    self.docker('stop','--time','60',identifier)
+                if complete and context==self.replacement_context:
+                    try:self.joined_voter(row,1)
+                    except BaseException as error:failures.append(type(error).__name__+': '+self.redact(str(error)))
+            Qualification.close(self)
+            states.extend(dict(value,context=context) for value in self.report['stopped_containers'])
+        self.args.context=self.source_context
+        self.report['stopped_containers']=states
+        self.report['shutdown_verified']=bool(states) and not failures and all(not value['running'] and not value['oom_killed'] and value['exit_code']==0 for value in states)
+        if failures:self.report['shutdown_failures']=failures
+        if not self.report['shutdown_verified']:self.report.update(completed=False,full_dr_completed=False)
+        self.save()
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--context',required=True);parser.add_argument('--image',required=True)
+    parser.add_argument('--replacement-context',required=True);parser.add_argument('--replacement-image',required=True)
     parser.add_argument('--output',type=Path,required=True);parser.add_argument('--mode',choices=['materialized','extents'],required=True)
     parser.add_argument('--port-base',type=int,default=19800);parser.add_argument('--subnet',type=qualification_subnet)
     args=parser.parse_args();require(1024<=args.port_base<65530,'invalid loopback port range')
+    profile(args.context);profile(args.replacement_context)
+    require(args.context!=args.replacement_context,'a fresh replacement VM is required')
     q=TransitionQualification(args)
     try:q.setup();q.drill()
     except BaseException as error:

@@ -7,9 +7,16 @@ from unittest.mock import Mock, patch
 from managed_group_drill import ManagedQualification, verify_retry
 from managed_group_transition import TransitionQualification
 from managed_group_voter import VoterFailure
+from managed_group_deployment import profile
 
 
 class ManagedDrillTests(unittest.TestCase):
+    def test_vm_handoff_refuses_default_and_unscoped_contexts(self):
+        self.assertEqual(profile('colima-cellar-multi-raft-owned'),'cellar-multi-raft-owned')
+        for context in ('default','colima','colima-default','colima-cellar-multi-raft'):
+            with self.subTest(context=context),self.assertRaisesRegex(ValueError,'dedicated VM'):
+                profile(context)
+
     def activation_driver(self):
         driver=object.__new__(TransitionQualification)
         driver.model={'attach_request':{'operation':'original','plan_digest':'plan','seed_digest':'seeds'}}
