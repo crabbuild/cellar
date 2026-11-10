@@ -35,6 +35,34 @@ pub(super) struct State {
 struct Endpoint {
     hosts: Vec<RaftCells>,
     group: GroupHistory,
+    members: Vec<(NodeId, u64)>,
+}
+
+impl Endpoint {
+    async fn leader(&self) -> Result<usize> {
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                for (index, host) in self.hosts.iter().enumerate() {
+                    let member = self
+                        .members
+                        .iter()
+                        .find(|(node, _)| *node == host.identity().node)
+                        .context("recovery host is absent from the selected birth")?
+                        .1;
+                    let status = host.group(self.group)?.status().await?;
+                    if status.ready
+                        && status.leader == Some(member)
+                        && status.applied.term == status.term
+                    {
+                        return Ok::<_, anyhow::Error>(index);
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("selected recovery voters did not establish a leader")?
+    }
 }
 
 struct Pending(Arc<State>);
@@ -87,7 +115,8 @@ async fn send(
 ) -> std::result::Result<Vec<u8>, CommandFailure> {
     let endpoint =
         { state.endpoint.lock().unwrap().upgrade() }.ok_or(CommandFailure::Unavailable)?;
-    let index = leader(&endpoint.hosts, endpoint.group)
+    let index = endpoint
+        .leader()
         .await
         .map_err(|_| CommandFailure::Unavailable)?;
     let handle = endpoint.hosts[index]
@@ -340,9 +369,14 @@ pub(super) async fn verify_recovered(
     let endpoint = Arc::new(Endpoint {
         hosts: hosts.to_vec(),
         group,
+        members: plan.births()[0]
+            .voters()
+            .iter()
+            .map(|voter| (voter.node, voter.member.get()))
+            .collect(),
     });
     *state.endpoint.lock().unwrap() = Arc::downgrade(&endpoint);
-    let handle = hosts[leader(hosts, group).await?].cell(cell)?;
+    let handle = hosts[endpoint.leader().await?].cell(cell)?;
     let query = handle
         .query(
             ProposalId::new([227; 16])?,
@@ -399,7 +433,7 @@ pub(super) async fn verify_recovered(
         )
     })??;
     ensure!(state.fresh.load(Ordering::Acquire) > 0 && state.received.load(Ordering::Acquire) == 1);
-    let receiver = hosts[leader(hosts, group).await?].cell(CellHistory {
+    let receiver = hosts[endpoint.leader().await?].cell(CellHistory {
         cluster: group.cluster,
         namespace: group.namespace,
         cell: CellId::new("Counter:cold-1")?,
