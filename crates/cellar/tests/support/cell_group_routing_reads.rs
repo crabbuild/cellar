@@ -7,9 +7,7 @@ use std::sync::atomic::AtomicU64;
 
 #[path = "cell_group_routing_read_gate.rs"]
 mod gate;
-#[path = "raft_storage_fault.rs"]
-#[allow(dead_code)]
-mod storage_fault;
+use crate::storage_fault;
 
 #[derive(Clone, Copy, Debug)]
 enum Ingress {

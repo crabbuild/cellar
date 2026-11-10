@@ -20,6 +20,9 @@ use std::{
 )]
 #[path = "support/cell_group_transition_context.rs"]
 mod bootstrap;
+#[path = "support/raft_storage_fault.rs"]
+pub mod storage_fault;
+
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
 #[path = "support/cell_group_split_merge_catalog.rs"]

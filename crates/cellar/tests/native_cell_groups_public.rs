@@ -10,6 +10,9 @@ use std::{path::Path, process::Command, sync::Mutex};
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
 
+#[path = "support/raft_storage_fault.rs"]
+pub mod storage_fault;
+
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
 
