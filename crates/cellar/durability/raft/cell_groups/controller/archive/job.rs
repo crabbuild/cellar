@@ -239,7 +239,11 @@ pub(super) async fn drive(
             .map_err(|error| Error::Runtime(error.into()))?
             .ok_or(Error::Runtime(RuntimeError::NotReady))?;
         if let Some(head) = &record.head {
-            if head.marker().position().index >= current.position().index {
+            // A queued output may already be covered even when later group
+            // entries exist. The receipt verifier still checks its exact
+            // position, cell version, witness and stored result against this
+            // prefix; an uncovered output keeps waiting for allocation.
+            if !allocation_ready || head.marker().position().index >= current.position().index {
                 let coverage = context
                     .registry
                     .verify_hold(
