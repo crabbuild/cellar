@@ -561,24 +561,21 @@ pub(crate) async fn s3_commands(
     );
     assert_eq!(h.archive.tails.usage().operations, 1);
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);
-    // A Quorum duplicate still honors the stored S3 minimum. A retained response
-    // keeps its physical proof and remote hold until the final consumer drops it.
-    let mut duplicate = Box::pin(
-        h.command(1, b"first", Durability::Quorum, Duration::from_secs(15))
-            .await?
-            .response(),
-    );
+    // A covered duplicate shares the already-admitted proof, including the
+    // stored S3 minimum. Disallow another upload while both consumers retain it.
+    h.remote
+        .deny_generation_writes
+        .store(true, Ordering::Release);
+    let duplicate = h
+        .command(1, b"first", Durability::Quorum, Duration::from_secs(15))
+        .await?
+        .response()
+        .await?;
     controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 2)).await?;
-    assert!(
-        tokio::time::timeout(Duration::from_millis(30), duplicate.as_mut())
-            .await
-            .is_err()
-    );
-    drop(response);
-    let response = duplicate.await?;
-    assert_eq!(response.durability(), Durability::S3);
+    assert_eq!(h.archive.tails.usage().operations, 1);
+    assert_eq!(duplicate.durability(), Durability::S3);
     assert_eq!(
-        response
+        duplicate
             .local_receipt()
             .expect("local command receipt")
             .receipt
@@ -586,7 +583,7 @@ pub(crate) async fn s3_commands(
         b"first"
     );
     assert_eq!(
-        response
+        duplicate
             .local_receipt()
             .expect("local command receipt")
             .version
@@ -596,6 +593,44 @@ pub(crate) async fn s3_commands(
     );
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);
     drop(response);
+    controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 1)).await?;
+    assert_eq!(h.archive.tails.usage().operations, 1);
+
+    // An uncovered successor cannot borrow that historical proof or bypass the
+    // single-operation verification pool. Dropping only the first consumer did
+    // not release the shared admission; the final consumer must release it.
+    h.remote
+        .deny_generation_writes
+        .store(false, Ordering::Release);
+    let mut successor = Box::pin(
+        h.command(3, b"third", Durability::S3, Duration::from_secs(15))
+            .await?
+            .response(),
+    );
+    controller::wait_for(async || {
+        Ok(h.controllers[0].usage().retained_s3 == 2
+            && h.calls.load(Ordering::SeqCst) == 3
+            && h.fixture.appliers[&(0, h.route.history)]
+                .0
+                .usage()?
+                .active_cells
+                == 0)
+    })
+    .await?;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), successor.as_mut())
+            .await
+            .is_err()
+    );
+    assert_eq!(h.archive.tails.usage().operations, 1);
+    drop(duplicate);
+    let successor = successor.await?;
+    assert_eq!(successor.durability(), Durability::S3);
+    let receipt = successor.local_receipt().context("successor S3 receipt")?;
+    assert_eq!(receipt.receipt.result(), b"third");
+    assert_eq!(receipt.version.sequence.get(), 4);
+    assert_eq!(h.calls.load(Ordering::SeqCst), 3);
+    drop(successor);
     controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 0)).await?;
     assert!(h.controllers[0].group_failure(h.route.history)?.is_none());
     h.close().await
