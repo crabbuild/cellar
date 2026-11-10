@@ -474,6 +474,43 @@ pub(crate) async fn follower_linearizable(rooted: bool) -> Result<()> {
         ))
         .await
         .is_err());
+    // A request already forwarded by another member must not be relayed by
+    // the former leader under that member's identity. Local follower reads
+    // still issue their own authenticated context directly to the new leader.
+    for prefix in [
+        b"cellar-cell-forward-read-1\0".as_slice(),
+        b"cellar-group-membership-read-1\0".as_slice(),
+    ] {
+        let mut context = prefix.to_vec();
+        context.extend_from_slice(&2_u64.to_be_bytes());
+        context.extend_from_slice(&[47; 16]);
+        context.extend_from_slice(&1_u64.to_be_bytes());
+        let message = Message {
+            msg_type: MessageType::MsgReadIndex,
+            from: 2,
+            to: 1,
+            entries: vec![Entry {
+                data: context.into(),
+                ..Default::default()
+            }]
+            .into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            fixture.runtimes[0].step(route.history, message).await,
+            Err(RuntimeError::NotLeader)
+        ));
+        assert_eq!(
+            fixture.runtimes[0].status(route.history).await?.leader,
+            Some(3)
+        );
+    }
+    let fresh = selected(&mut fixture, 1, &a, CellReadConsistency::Linearizable).await?;
+    let options = fixture.cell_options_at(&a, 1).await?;
+    assert_eq!(
+        value(&pool, options, fresh).await?.result(),
+        0_i64.to_le_bytes()
+    );
     pool.close().await?;
     fixture.close().await
 }

@@ -407,6 +407,45 @@ The retained 12-case `record.json` SHA-256 is
 Replica preference ranking and the public SDK/native/Axum RO-11 oracle remain
 open; these component checks do not close OPT-03 or release qualification.
 
+## Public read cohort verification candidate
+
+The ordinary SDK, native HTTP and Axum candidate holds actual Raft filesystem
+sync and actual application query callbacks in each storage mode. It requires
+two pre-initiation reads to share one barrier, later arrivals to initiate another,
+and independently retained image pins and original two-slot controller admission
+after an entered caller is cancelled. Signed observations must match each cell's
+own version under the registered namespace schema. Higher-term handoff cuts
+require refusal before query callback entry and exact S3 command replay.
+
+This public drill exposed a production handoff failure: the former leader relayed
+another member's ReadIndex request through raft-rs with the original sender.
+Cellar's authenticated transport correctly refused that nonlocal identity, and
+the controller closed the node. The incoming owner now validates the message,
+then refuses peer ReadIndex at a non-leader before RawNode can relay it. Local
+follower reads still create and forward their own authenticated context. The
+transport identity check is unchanged. The new owner-boundary regression failed
+on the preceding source and passed in both storage modes with the guard.
+
+The public sharing/later-arrival/cancellation/term matrix passed its development
+smoke in 28.46 seconds with all three ingress paths and both storage modes. The
+schema-token check initially used the raw example seed and was corrected to the
+actual registered namespace digest. Temporary shutdown diagnostics were removed.
+The cleaned source passed 40 selected native cases: read/cohort, membership,
+seed, all six public routing cases, and all five park/wake cases. Focused Clippy,
+format/layout, native dependency isolation, documentation and all 42 plan tests
+passed under the SDK CI test profile. A callback type alias resolved the preceding
+Clippy-only failure; no runtime cases ran in that failed campaign and no lint was
+suppressed. Source inputs are pinned by
+`c2bbcdd1c342d60808910f76fd188f59f1b7ce93550a95bed877c126739406f9`.
+Tested executables, operator CLI, source patches and logs are retained at
+`qualification/read-relay-c2bbcdd1` under this checkout's workspace target;
+its `record.json` SHA-256 is
+`f5fa796524142d63894f8e70f77ef26b251c3bc2e28a0a42e477fa169c79e9e6`.
+The public configuration change cut and replica preference ranking remain open;
+RO-11 and OPT-03 are not closed by these partial or component results. An isolated
+configuration-cut candidate has passed focused static Clippy only and has no
+runtime qualification yet.
+
 ## Local container verification
 
 The user explicitly requested local RustFS storage and Colima containers for

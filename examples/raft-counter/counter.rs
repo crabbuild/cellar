@@ -162,6 +162,13 @@ pub fn definition() -> Result<RaftClass> {
 pub(crate) fn definition_with_callback(
     on_command: impl Fn() + Send + Sync + 'static,
 ) -> Result<RaftClass> {
+    definition_with_callbacks(on_command, |_| {})
+}
+
+pub(crate) fn definition_with_callbacks(
+    on_command: impl Fn() + Send + Sync + 'static,
+    on_query: impl Fn(&CellHistory) + Send + Sync + 'static,
+) -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [21; 32])?
         .initializer([24; 32], |_, sql| {
             sql.execute_batch(
@@ -183,7 +190,8 @@ pub(crate) fn definition_with_callback(
                 .execute("UPDATE counter SET value=?1", [value])?;
             Ok(value.to_be_bytes().to_vec())
         })?
-        .query("Get", [23; 32], |context, _| {
+        .query("Get", [23; 32], move |context, _| {
+            on_query(context.identity());
             let value: i64 =
                 context.query_row("SELECT value FROM counter", [], |row| row.get(0))?;
             Ok(value.to_be_bytes().to_vec())

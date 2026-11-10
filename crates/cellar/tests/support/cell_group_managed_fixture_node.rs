@@ -27,6 +27,8 @@ pub struct Fixture {
     pub catalog: FleetCatalog,
     pub declaration: RaftNamespaceRegistration,
     pub application: Arc<dyn Application>,
+    /// Captured physical I/O provider for the initial node owner.
+    pub filesystem: Arc<dyn cellar_ltx::FileSystem>,
     pub effects: Option<RaftEffectOptions>,
     pub max_input_bytes: usize,
     pub image_bytes: u64,
@@ -135,6 +137,7 @@ impl Fixture {
             catalog,
             declaration,
             application,
+            filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             effects: None,
             max_input_bytes: 1024,
             image_bytes: 256 * 1024 * 1024,
@@ -360,8 +363,22 @@ pub async fn start_node(
     application: Arc<dyn Application>,
     label: &str,
 ) -> Result<Node> {
+    Box::pin(start_node_with_filesystem(
+        directory,
+        application,
+        label,
+        Arc::new(cellar_ltx::DirectFileSystem),
+    ))
+    .await
+}
+
+pub async fn start_node_with_filesystem(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    label: &str,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<Node> {
     let classes = vec![];
-    let filesystem = Arc::new(cellar_ltx::DirectFileSystem);
     let shutdown = ShutdownPolicy::default();
     let bucket: Option<Bucket> = None;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;

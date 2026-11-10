@@ -10,6 +10,9 @@ mod busy;
 #[path = "cell_group_routing_refresh.rs"]
 mod refresh;
 
+#[path = "cell_group_routing_reads.rs"]
+mod reads;
+
 const COUNTERS: [&str; 6] = [
     "cell_command_rpc_attempts",
     "cell_command_leader_probes",
@@ -73,6 +76,10 @@ pub(super) async fn refresh_storm_is_bounded() -> Result<()> {
         run(Scenario::RefreshClose { axum }).await?;
     }
     Ok(())
+}
+
+pub(super) async fn read_cohort_has_fresh_barrier() -> Result<()> {
+    Box::pin(reads::run()).await
 }
 
 #[derive(Clone, Copy, Debug)]

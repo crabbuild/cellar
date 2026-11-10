@@ -1780,6 +1780,15 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         self.validate_message(&message)?;
+        // Only the origin may forward its local read to a leader. raft-rs
+        // relays peer ReadIndex messages with their original `from`, which
+        // would impersonate that member on this node's authenticated transport.
+        // A stale destination refuses before RawNode can create such a frame.
+        if message.get_msg_type() == MessageType::MsgReadIndex
+            && self.node.raft.state != StateRole::Leader
+        {
+            return Err(RuntimeError::NotLeader);
+        }
         let entries = if message.get_msg_type() == MessageType::MsgAppend {
             message.entries.as_slice()
         } else {

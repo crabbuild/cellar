@@ -8,6 +8,8 @@ use cellar::application::consensus::{
 
 pub(super) const INGRESS: usize = 3;
 
+type QueryObserver = Arc<dyn Fn(&CellHistory) + Send + Sync>;
+
 pub(super) struct Cluster {
     pub managed: ManagedCluster,
     nodes: Vec<Option<Node>>,
@@ -22,9 +24,41 @@ fn definition(observer: Option<Arc<dyn Fn() + Send + Sync>>) -> Result<RaftClass
     }
 }
 
+fn read_definition(
+    on_command: Option<Arc<dyn Fn() + Send + Sync>>,
+    on_query: Option<QueryObserver>,
+) -> Result<RaftClass> {
+    let Some(on_query) = on_query else {
+        return definition(on_command);
+    };
+    let on_command = on_command.unwrap_or_else(|| Arc::new(|| {}));
+    counter::definition_with_callbacks(move || on_command(), move |cell| on_query(cell))
+}
+
 impl Cluster {
     pub async fn start(rooted: bool, store: Arc<fault::Store>) -> Result<Self> {
-        Box::pin(Self::start_configured(rooted, store, None, true)).await
+        Box::pin(Self::start_configured(
+            rooted, store, None, true, None, None,
+        ))
+        .await
+    }
+
+    pub async fn start_with_read_control(
+        rooted: bool,
+        store: Arc<fault::Store>,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        on_command: Arc<dyn Fn() + Send + Sync>,
+        on_query: QueryObserver,
+    ) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            rooted,
+            store,
+            Some(on_command),
+            true,
+            Some(filesystem),
+            Some(on_query),
+        ))
+        .await
     }
 
     pub async fn start_with_callback(
@@ -37,6 +71,8 @@ impl Cluster {
             store,
             Some(on_command),
             true,
+            None,
+            None,
         ))
         .await
     }
@@ -51,6 +87,8 @@ impl Cluster {
             store,
             Some(on_command),
             false,
+            None,
+            None,
         ))
         .await
     }
@@ -60,13 +98,18 @@ impl Cluster {
         store: Arc<fault::Store>,
         on_command: Option<Arc<dyn Fn() + Send + Sync>>,
         install_router: bool,
+        first_filesystem: Option<Arc<dyn cellar_ltx::FileSystem>>,
+        on_query: Option<QueryObserver>,
     ) -> Result<Self> {
-        let class = definition(on_command.clone())?;
-        let first = Fixture::with_store(rooted, class, store).await?;
+        let class = read_definition(on_command.clone(), on_query.clone())?;
+        let mut first = Fixture::with_store(rooted, class, store).await?;
+        if let Some(filesystem) = first_filesystem {
+            first.filesystem = filesystem;
+        }
         let mut apis = Vec::new();
         let mut applications = Vec::new();
         for _ in 0..3 {
-            let class = definition(on_command.clone())?;
+            let class = read_definition(on_command.clone(), on_query.clone())?;
             let api = counter::CounterApi::new(
                 http::secret(),
                 first.declaration.namespace.cluster,
