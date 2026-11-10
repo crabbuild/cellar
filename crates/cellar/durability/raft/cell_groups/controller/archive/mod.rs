@@ -235,6 +235,7 @@ pub(super) struct Completed {
     group: GroupHistory,
     context: Option<job::Context>,
     result: Result<GroupManifest>,
+    retirement_pending: bool,
     observation: std::result::Result<LogIndex, RuntimeError>,
     waiters: Vec<settlement::Request>,
 }
@@ -426,6 +427,7 @@ impl Manager {
             settlement::prune(&mut waiters, now);
             self.active_group = Some(group);
             self.job = Some(Box::pin(async move {
+                let mut retirement_pending = false;
                 let result = std::panic::AssertUnwindSafe(async {
                     if context.is_none() {
                         context = Some(
@@ -438,13 +440,16 @@ impl Manager {
                             .await?,
                         );
                     }
-                    let coverage = job::drive(
+                    let driven = job::drive(
                         context.as_ref().expect("opened archive context"),
                         &registration,
                         &runtime,
                         &execution,
+                        !waiters.is_empty(),
                     )
                     .await?;
+                    retirement_pending = driven.retirement_pending;
+                    let coverage = driven.coverage;
                     let local = runtime
                         .log()
                         .cell_group(&group)
@@ -482,6 +487,7 @@ impl Manager {
                     group,
                     context,
                     result,
+                    retirement_pending,
                     observation,
                     waiters,
                 }
@@ -510,12 +516,18 @@ impl Manager {
                 let covered = marker.position().index;
                 status.published = Some(marker);
                 status.error = None;
+                if completed.retirement_pending {
+                    // A dropped output must eventually release the old hold,
+                    // even if no new commands or apply events arrive. Keep the
+                    // existing bounded retry cadence for that maintenance.
+                    entry.retry_at = now.saturating_add(shared.limits.retry_interval_ms);
+                }
                 match completed.observation {
                     Ok(applied) => {
                         let latest = entry
                             .latest_applied
                             .map_or(applied, |seen| seen.max(applied));
-                        entry.dirty = latest > covered;
+                        entry.dirty = latest > covered || completed.retirement_pending;
                     }
                     Err(error) => {
                         let error = Error::Runtime(error);

@@ -121,12 +121,17 @@ fn receiver(
         .map_err(CellGroupArchiveError::from)?)
 }
 
+pub(super) struct Driven {
+    pub coverage: CellGroupArchiveCoverage,
+    pub retirement_pending: bool,
+}
+
 async fn select(
     context: &Context,
     execution: &ControllerExecution,
     record: &mut Record,
     coverage: CellGroupArchiveCoverage,
-) -> Result<CellGroupArchiveCoverage> {
+) -> Result<Driven> {
     let head = coverage.hold().clone();
     if record.retire.is_some() {
         return Err(Error::Invalid("unfinished archive hold retirement"));
@@ -134,15 +139,23 @@ async fn select(
     record.retire = record.head.replace(head);
     record.pending = Pending::None;
     store(context, execution, record).await?;
-    retire(context, execution, record).await?;
-    Ok(coverage)
+    // The new head is already durable and independently verified. An earlier
+    // output can retain the previous hold without preventing use of this head.
+    // Its pending retirement still blocks allocation of another archive below.
+    let allocation_ready = retire(context, execution, record).await?;
+    Ok(Driven {
+        coverage,
+        retirement_pending: !allocation_ready,
+    })
 }
 
+/// Release an unused previous hold. False leaves its journaled ownership intact;
+/// it prevents another archive allocation, not verification of the current head.
 async fn retire(
     context: &Context,
     execution: &ControllerExecution,
     record: &mut Record,
-) -> Result<()> {
+) -> Result<bool> {
     if let Some(previous) = &record.retire {
         let retained = {
             let mut uses = context
@@ -153,13 +166,13 @@ async fn retire(
             uses.iter().any(|usage| usage.retains(previous))
         };
         if retained {
-            return Err(CellGroupArchiveError::Busy.into());
+            return Ok(false);
         }
         context.registry.release(execution, previous).await?;
         record.retire = None;
         store(context, execution, record).await?;
     }
-    Ok(())
+    Ok(true)
 }
 
 pub(super) async fn drive(
@@ -167,7 +180,8 @@ pub(super) async fn drive(
     registration: &CellGroupArchiveRegistration,
     runtime: &CellGroupRuntime,
     execution: &ControllerExecution,
-) -> Result<CellGroupArchiveCoverage> {
+    prove_outputs: bool,
+) -> Result<Driven> {
     let node = runtime.log().limits().node;
     let group = registration.birth.route().history.group;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "drive");
@@ -177,7 +191,10 @@ pub(super) async fn drive(
         .await
         .map_err(CellGroupArchiveBindingError::from)?;
     let mut record = load(context, execution).await?;
-    retire(context, execution, &mut record).await?;
+    let allocation_ready = retire(context, execution, &mut record).await?;
+    if !allocation_ready && (!prove_outputs || !matches!(record.pending, Pending::None)) {
+        return Err(CellGroupArchiveError::Busy.into());
+    }
     if let Pending::Publish { ticket, intent } = record.pending.clone() {
         match context
             .registry
@@ -232,8 +249,17 @@ pub(super) async fn drive(
                         receiver(registration)?,
                     )
                     .await?;
-                return Ok(coverage);
+                return Ok(Driven {
+                    coverage,
+                    retirement_pending: !allocation_ready,
+                });
             }
+        }
+        // Retained output proofs may delay the previous hold's release. Reuse
+        // above requires no new archive, but acquisition/upload must preserve
+        // the existing current-plus-retiring bound.
+        if !allocation_ready {
+            return Err(CellGroupArchiveError::Busy.into());
         }
         // Another voter may have published this exact applied manifest while
         // our publication was in flight. Pin and independently verify its cut
