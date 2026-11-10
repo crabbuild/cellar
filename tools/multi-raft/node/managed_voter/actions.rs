@@ -25,6 +25,15 @@ enum Action {
     ActivateNode {
         request: RaftFleetNodeCapacity,
     },
+    AuthorizeSeal {
+        request: RaftFleetTransitionSealRequest,
+    },
+    SealSource {
+        request: RaftFleetTransitionSourceSealRequest,
+    },
+    SetupChild {
+        request: RaftFleetTransitionChildSetupRequest,
+    },
     GrantOrigin {
         revision: u64,
         node: [u8; 16],
@@ -222,6 +231,39 @@ impl State {
                     "applied":status.applied.index.get(), "committed":status.committed.get()}),
                 )
             }
+            Action::AuthorizeSeal { request } => Ok(serde_json::to_value(
+                self.control
+                    .authorize_transition_seal(
+                        &self.config.principal,
+                        &self.config.namespace().namespace_id,
+                        &request.operation_id,
+                        &request,
+                        turn.remaining()?,
+                    )
+                    .await?,
+            )?),
+            Action::SealSource { request } => Ok(serde_json::to_value(
+                self.control
+                    .seal_transition_source(
+                        &self.config.principal,
+                        &self.config.namespace().namespace_id,
+                        &request.operation_id,
+                        &request,
+                        turn.remaining()?,
+                    )
+                    .await?,
+            )?),
+            Action::SetupChild { request } => Ok(serde_json::to_value(
+                self.control
+                    .setup_transition_child(
+                        &self.config.principal,
+                        &self.config.namespace().namespace_id,
+                        &request.operation_id,
+                        &request,
+                        turn.remaining()?,
+                    )
+                    .await?,
+            )?),
             Action::GrantOrigin {
                 revision,
                 node,

@@ -689,6 +689,38 @@ the positive managed seed-to-serving flow still require their combined gate.
 It establishes no throughput, independent-host resilience or full primitive
 compatibility claim.
 
+### Managed transition disaster driver
+
+`managed_group_transition.py` extends that exact source workflow with an
+unpublished split, source sealing, durable recovery-intent selection, permanent
+Docker fencing and new-history recovery. Use the same CLI arguments and a fresh
+output directory. Its dedicated VM needs eight CPUs and at least 21 GiB actual
+memory (a 24-GiB profile); five voters remain limited to one CPU/3 GiB each.
+Split rosters use the existing two-slot profiles without increasing their bounds.
+The old five-node cohort is permanently revoked and every disk deleted before
+the three fresh replacement nodes start. This qualifies one Counter/namespace
+scenario; published child tails, external effects and all six CG-13 cases still
+require their complete gate.
+
+The standalone controller adds `fleet_status`, transition basis/admission/status,
+archive preparation/capture, recovery basis, hold preparation/acquisition,
+intent staging/reopening, challenge and fence commands. A prepared hold intent
+must be persisted before acquisition; an uncertain allocation keeps that exact
+intent. `RaftFleetControl` checks the principal, complete current recovery basis,
+selected source and namespace-owned registry. Serialized holds still require
+independent complete-closure verification before intent staging. None of these
+values grant startup, quorum or serving authority.
+
+`authorize_seal` and `seal_source` run on voter-backed control endpoints and use
+the SDK's physical observer and group owner. `setup_child` uses the existing
+install/attach/quorum/archive SDK steps; `ManagedVoter.setup_child` records its
+history under the launch/fencing lock before entry. Raw client calls cannot
+bypass that assignment. All standalone substeps share their original 20-second
+budget, while voter actions retain the five-second protocol budget. Unknown
+mutations stop for reconciliation; no transport failure silently retries them.
+An explicitly returned Accepted activation is reconciled with the same immutable
+request within one 20-second workflow budget; an unknown response stops it.
+
 The process regression is
 `process::rustfs_managed_voter_process_boot_restart_and_stop` in
 `native_cell_groups_disaster`. It covers both image modes, stale/unauthenticated

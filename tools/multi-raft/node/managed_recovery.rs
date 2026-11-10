@@ -27,6 +27,7 @@ struct Configuration {
 #[serde(tag = "step", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
     Describe,
+    FleetStatus,
     RegisterNode {
         request: RaftFleetRegisterNode,
     },
@@ -39,6 +40,47 @@ enum Command {
     },
     FirstArchive {
         request: RaftFleetFirstGroupMutation,
+    },
+    TransitionBasis,
+    TransitionStatus {
+        operation: String,
+    },
+    TransitionAdmit {
+        request: RaftFleetTransitionAdmissionRequest,
+    },
+    TransitionPrepare {
+        request: RaftFleetTransitionPrepareRequest,
+    },
+    TransitionCapture {
+        request: RaftFleetTransitionSourceSealRequest,
+    },
+    RecoveryBasis {
+        operation: String,
+    },
+    HoldPrepare {
+        basis: RaftFleetTransitionRecoveryBasis,
+        source: RaftFleetTransitionGroup,
+    },
+    HoldAcquire {
+        basis: RaftFleetTransitionRecoveryBasis,
+        source: RaftFleetTransitionGroup,
+        intent: Box<CellGroupArchiveIntent>,
+    },
+    Intent {
+        basis: RaftFleetTransitionRecoveryBasis,
+        operation: String,
+        holds: Vec<CellGroupArchiveHold>,
+    },
+    IntentStatus {
+        operation: String,
+    },
+    Challenge {
+        operation: String,
+        intent_digest: String,
+    },
+    Fence {
+        selection: RaftFleetTransitionRecoverySelection,
+        certificate: Vec<u8>,
     },
     Stage {
         selection: RaftFleetTransitionRecoverySelection,
@@ -200,6 +242,9 @@ async fn execute(
         Command::Describe => Ok(json!({"catalog_id":control.catalog_id(),
             "namespace_id":namespace, "namespace_digest":hex::encode(control.namespace_digest(namespace)?),
             "image_storage":config.connection.namespaces[0].image_storage})),
+        Command::FleetStatus => Ok(serde_json::to_value(
+            control.status(turn.remaining()?).await?,
+        )?),
         Command::RegisterNode { request } => {
             let admission = control
                 .register_node(&config.principal, request.clone(), turn.remaining()?)
@@ -233,6 +278,172 @@ async fn execute(
                 )
                 .await?;
             Ok(serde_json::to_value(admission)?)
+        }
+        Command::TransitionBasis => Ok(serde_json::to_value(
+            control
+                .transition_basis(namespace, turn.remaining()?)
+                .await?,
+        )?),
+        Command::TransitionStatus { operation } => Ok(serde_json::to_value(
+            control
+                .transition_status(namespace, operation, turn.remaining()?)
+                .await?,
+        )?),
+        Command::TransitionAdmit { request } => Ok(serde_json::to_value(
+            control
+                .admit_transition(
+                    &config.principal,
+                    namespace,
+                    &request.operation_id,
+                    request,
+                    turn.remaining()?,
+                )
+                .await?,
+        )?),
+        Command::TransitionPrepare { request } => Ok(serde_json::to_value(
+            control
+                .prepare_transition(
+                    &config.principal,
+                    namespace,
+                    &request.operation_id,
+                    request,
+                    turn.remaining()?,
+                )
+                .await?,
+        )?),
+        Command::TransitionCapture { request } => Ok(serde_json::to_value(
+            control
+                .capture_transition_source(
+                    &config.principal,
+                    namespace,
+                    &request.operation_id,
+                    request,
+                    turn.remaining()?,
+                )
+                .await?,
+        )?),
+        Command::RecoveryBasis { operation } => Ok(serde_json::to_value(
+            control
+                .transition_recovery_basis(namespace, operation, turn.remaining()?)
+                .await?,
+        )?),
+        Command::HoldPrepare { basis, source } => Ok(serde_json::to_value(
+            control
+                .prepare_transition_recovery_hold(
+                    &config.principal,
+                    basis,
+                    source,
+                    turn.remaining()?,
+                )
+                .await?,
+        )?),
+        Command::HoldAcquire {
+            basis,
+            source,
+            intent,
+        } => Ok(serde_json::to_value(
+            control
+                .acquire_transition_recovery_hold(
+                    &config.principal,
+                    basis,
+                    source,
+                    intent,
+                    turn.remaining()?,
+                )
+                .await?,
+        )?),
+        Command::Intent {
+            basis,
+            operation,
+            holds,
+        } => {
+            let verified = control
+                .verify_transition_recovery_archives(
+                    &config.principal,
+                    basis,
+                    holds.clone(),
+                    turn.remaining()?,
+                )
+                .await?;
+            let intent = control
+                .stage_transition_recovery_intent(
+                    &config.principal,
+                    operation,
+                    &verified,
+                    turn.remaining()?,
+                )
+                .await?;
+            Ok(
+                json!({"operation":hex::encode(intent.operation()),"intent_digest":hex::encode(intent.digest()),"holds":intent.archive_holds().len()}),
+            )
+        }
+        Command::IntentStatus { operation } => {
+            let intent = control
+                .reopen_transition_recovery_intent(
+                    &config.principal,
+                    namespace,
+                    operation,
+                    turn.remaining()?,
+                )
+                .await?;
+            Ok(
+                json!({"intent":intent.map(|intent|json!({"operation":hex::encode(intent.operation()),"intent_digest":hex::encode(intent.digest()),"holds":intent.archive_holds().len()}))}),
+            )
+        }
+        Command::Challenge {
+            operation,
+            intent_digest,
+        } => {
+            let intent = control
+                .reopen_transition_recovery_intent(
+                    &config.principal,
+                    namespace,
+                    operation,
+                    turn.remaining()?,
+                )
+                .await?
+                .context("stage recovery intent first")?;
+            ensure!(
+                hex::encode(intent.digest()) == *intent_digest,
+                "different recovery intent"
+            );
+            let (selection, challenge) = control
+                .transition_recovery_challenge(
+                    &config.principal,
+                    namespace,
+                    &intent,
+                    turn.remaining()?,
+                )
+                .await?;
+            Ok(
+                json!({"selection":selection,"challenge":serde_json::from_slice::<Value>(&challenge)?}),
+            )
+        }
+        Command::Fence {
+            selection,
+            certificate,
+        } => {
+            ensure!(
+                selection.catalog_id == control.catalog_id()
+                    && selection.namespace_id == *namespace,
+                "different recovery scope"
+            );
+            let authority = CellGroupPermanentFenceAuthority::new(config.fence_public)?
+                .with_certificate(certificate.clone())?;
+            let fenced = control
+                .fence_selected_transition_recovery(
+                    &config.principal,
+                    selection,
+                    &authority,
+                    turn.remaining()?,
+                )
+                .await?;
+            Ok(
+                json!({"fence_digest":hex::encode(fenced.request().digest()),"receipt_digest":hex::encode(fenced.receipt_digest()),"ranges":fenced.archives().len(),
+                "cuts":fenced.archives().iter().map(|archive|json!({"group":hex::encode(archive.marker().route().history.group.bytes()),
+                    "incarnation":hex::encode(archive.marker().route().history.incarnation.bytes()),"epoch":archive.marker().route().epoch.get(),
+                    "position":archive.marker().position().index.get()})).collect::<Vec<_>>()}),
+            )
         }
         Command::Stage {
             selection,

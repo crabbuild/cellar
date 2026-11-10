@@ -51,10 +51,22 @@ class ManagedVoterTests(unittest.TestCase):
 
     def test_raw_control_call_cannot_bypass_assignment_for_physical_operations(self):
         self.voter._request = Mock(side_effect=AssertionError('physical admission bypassed'))
-        for action in ('start', 'prepare_seed', 'seed', 'attach', 'activate'):
+        for action in ('start', 'prepare_seed', 'seed', 'attach', 'activate', 'setup_child'):
             with self.subTest(action=action), self.assertRaisesRegex(ValueError, 'durable assignment'):
                 self.voter.call({'action': action})
         self.voter._request.assert_not_called()
+
+    def test_transition_child_assignment_precedes_unknown_install(self):
+        request={'child':{'group_id':word(12),'incarnation_id':word(13)},'step':'install'}
+        def lost(action):
+            self.assertEqual(len(self.launcher.read()['deployments']['0']),2)
+            self.assertEqual(action,{'action':'setup_child','request':request})
+            raise VoterFailure('lost install reply')
+        self.voter._request=Mock(side_effect=lost)
+        with self.assertRaises(VoterFailure):
+            self.voter.setup_child(word(1,32),word(2,32),request)
+        self.assertEqual(len(self.launcher.read()['deployments']['0']),2)
+        self.assertEqual(self.voter._request.call_count,1)
 
     def test_wire_request_pins_launch_identity_and_never_retries_http_failure(self):
         import io

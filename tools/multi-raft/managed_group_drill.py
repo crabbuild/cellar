@@ -10,6 +10,7 @@ transition recovery and all-source-disk deletion remain separate required gates.
 """
 import argparse
 import hashlib
+import ipaddress
 import json
 from pathlib import Path
 import secrets
@@ -133,7 +134,7 @@ class ManagedQualification(Qualification):
 
     def client(self, row):
         scope = self.model['bootstrap']
-        return ManagedVoter(self.launcher, 0, row['container'], row['endpoint'], self.config['token'],
+        return ManagedVoter(self.launcher, row['generation'], row['container'], row['endpoint'], self.config['token'],
             row['process'], catalog=scope['catalog_id'], namespace=scope['namespace_digest'])
 
     def node_config(self, row, retained):
@@ -157,46 +158,57 @@ class ManagedQualification(Qualification):
         scope=self.model['bootstrap']
         self.launcher.declare(0,scope['catalog_id'],scope['namespace_digest'],
             [{'group':self.model['group'],'incarnation':self.model['incarnation']}])
-        for index in range(3):
-            row={'node':nonce(),'disk':nonce(),'process':nonce(),
-                'label':f'managed-{self.run_id}-{index}', 'ip':self.config['peers'][0][index]['host']}
-            descriptor={'node_id':row['node'],'disk_id':row['disk'],'physical_host':self.physical_host,
-                'label':row['label'],'server_name':'localhost',
-                'capability_digest':scope['capability_digest'],'storage_instance':None}
-            admitted=self.control('register-'+str(index),{'step':'register_node','request':{
-                'catalog_id':scope['catalog_id'],'request_id':nonce(),
-                'expected_revision':self.model['revision'],'descriptor':descriptor}})
-            self.model['revision']=admitted['admission']['applied_revision']
-            with socket.socket() as listener:
-                listener.bind(('127.0.0.1',0));port=listener.getsockname()[1]
-            row.update(endpoint='http://127.0.0.1:'+str(port),volume=self.prefix+'-managed-'+str(index))
-            self.model['nodes'].append(row);self.save()
-            self.docker('volume','create','--label',self.owner,row['volume'])
-
-            def invoke():
-                identifier=self.docker('create','--label',self.owner,'--restart=no',
-                    '--name',row['volume'],'--network',self.prefix,'--ip',row['ip'],
-                    '--cpus','1','--memory','3g','--memory-swap','3g',
-                    '-p',f'127.0.0.1:{port}:8080','-v',row['volume']+':/data',
-                    '-e','CELLAR_GROUP_ACTION=managed-node',self.args.image)
-                row['container']=identifier;self.save()
-                self.copy_node(row,False)
-                self.docker('start',identifier)
-                return identifier
-            self.launcher.launch(0,row['volume'],row['volume'],invoke,identity={
-                'node':row['node'],'disk':row['disk'],'physical_host':self.physical_host})
-            self.capture_resources(owned_container(self.docker,row['container'],self.run_id),3)
-            observed=self.until(lambda:self.client(row).call({'action':'observe'}),60)
-            require(observed['catalog_id']==scope['catalog_id']
-                    and observed['namespace_digest']==scope['namespace_digest'], 'different running namespace')
-            self.model['revision']=observed['fleet_revision'];self.save()
+        for index in range(3):self.launch_node(index,0)
         for row in self.model['nodes']:self.admit(row)
         self.grant_origins()
 
-    def grant_origins(self):
-        revision=self.client(self.model['nodes'][0]).call({'action':'observe'})['fleet_revision']
-        for target in self.model['nodes']:
-            for origin in self.model['nodes']:
+    def launch_node(self, index, generation):
+        scope=self.model['bootstrap']
+        row={'node':nonce(),'disk':nonce(),'process':nonce(),'generation':generation,'index':index,
+            'label':f'managed-{self.run_id}-{generation}-{index}',
+            'ip':str(ipaddress.ip_network(self.report['network']['subnet'])[11+10*generation+index])}
+        descriptor={'node_id':row['node'],'disk_id':row['disk'],'physical_host':self.physical_host,
+            'label':row['label'],'server_name':'localhost',
+            'capability_digest':scope['capability_digest'],'storage_instance':None}
+        basis=self.control(f'register-basis-{generation}-{index}',{'step':'fleet_status'})
+        self.model['revision']=basis['observed_revision'];self.save()
+        admitted=self.control(f'register-{generation}-{index}',{'step':'register_node','request':{
+            'catalog_id':scope['catalog_id'],'request_id':nonce(),
+            'expected_revision':self.model['revision'],'descriptor':descriptor}})
+        self.model['revision']=admitted['admission']['applied_revision']
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1',0));port=listener.getsockname()[1]
+        row.update(endpoint='http://127.0.0.1:'+str(port),volume=f'{self.prefix}-managed-{generation}-{index}')
+        self.model['nodes'].append(row);self.save()
+        self.docker('volume','create','--label',self.owner,row['volume'])
+
+        def invoke():
+            identifier=self.docker('create','--label',self.owner,'--restart=no',
+                '--name',row['volume'],'--network',self.prefix,'--ip',row['ip'],
+                '--cpus','1','--memory','3g','--memory-swap','3g',
+                '-p',f'127.0.0.1:{port}:8080','-v',row['volume']+':/data',
+                '-e','CELLAR_GROUP_ACTION=managed-node',self.args.image)
+            row['container']=identifier;self.save()
+            self.copy_node(row,False)
+            self.docker('start',identifier)
+            return identifier
+        self.launcher.launch(generation,row['volume'],row['volume'],invoke,identity={
+            'node':row['node'],'disk':row['disk'],'physical_host':self.physical_host})
+        self.capture_resources(owned_container(self.docker,row['container'],self.run_id),3)
+        observed=self.until(lambda:self.client(row).call({'action':'observe'}),60)
+        require(observed['catalog_id']==scope['catalog_id']
+                and observed['namespace_digest']==scope['namespace_digest'], 'different running namespace')
+        self.model['revision']=observed['fleet_revision'];self.save()
+        return row
+
+    def source_nodes(self):
+        return [row for row in self.model['nodes'] if row['generation']==0 and row['index']<3]
+
+    def grant_origins(self, rows=None):
+        rows=self.source_nodes() if rows is None else rows
+        revision=self.client(rows[0]).call({'action':'observe'})['fleet_revision']
+        for target in rows:
+            for origin in rows:
                 if origin is target:continue
                 payload={'action':'grant_origin','revision':revision,
                     'node':list(bytes.fromhex(origin['node'])),'disk':list(bytes.fromhex(origin['disk'])),
@@ -237,7 +249,7 @@ class ManagedQualification(Qualification):
             'expected_revision':self.client(self.model['nodes'][0]).call({'action':'observe'})['fleet_revision'],
             'publication_id':nonce(),'group_id':self.model['group'],
             'incarnation_id':self.model['incarnation'],'creation_id':nonce(),
-            'voters':[{'node_id':row['node'],'member_id':index+1} for index,row in enumerate(self.model['nodes'])]}
+            'voters':[{'node_id':row['node'],'member_id':index+1} for index,row in enumerate(self.source_nodes())]}
         self.model['first_plan']=plan;self.save()
         self.control('reserve-first',{'step':'first_reserve','plan':plan})
         for label,step in [('publish-first','first_publish'),('archive-first','first_archive')]:
@@ -246,14 +258,14 @@ class ManagedQualification(Qualification):
         self.start_source('initial')
 
     def start_source(self,label):
-        scope=self.model['bootstrap'];voters=[self.client(row) for row in self.model['nodes']]
+        scope=self.model['bootstrap'];voters=[self.client(row) for row in self.source_nodes()]
         self.event('start/'+label,{'group':self.model['group'],'incarnation':self.model['incarnation']},
             lambda:ManagedVoter.start_cohort(voters,scope['catalog_id'],scope['namespace_digest'],
                 self.model['group'],self.model['incarnation']))
         self.until(self.source_leader,60)
 
     def source_leader(self):
-        for index,row in enumerate(self.model['nodes']):
+        for index,row in enumerate(self.source_nodes()):
             try:
                 value=self.client(row).call({'action':'status',
                     'group':list(bytes.fromhex(self.model['group'])),
@@ -287,7 +299,7 @@ class ManagedQualification(Qualification):
         self.verify_source()
 
     def verify_source(self):
-        for row in self.model['nodes']:
+        for row in self.source_nodes():
             require(self.client(row).call({'action':'observe'})['groups']==1,'expected one shared physical group')
             for cell,record in self.model['cells'].items():
                 for minimum in (record['quorum']['receipt']['token'],None):
@@ -299,7 +311,7 @@ class ManagedQualification(Qualification):
                             'source SQL or minimum/linearizable read changed')
 
     def restart_source(self):
-        for row in self.model['nodes']:
+        for row in self.source_nodes():
             self.event('stop/'+row['process'], {'action':'stop'},
                 lambda:self.client(row).call({'action':'stop'}))
             self.until(lambda:not owned_container(self.docker,row['container'],self.run_id)['State']['Running'],30)
@@ -360,11 +372,15 @@ class ManagedQualification(Qualification):
                 self.save()
                 raise
 
-    def drill(self):
+    def source_workflow(self):
         self.launch_source();self.provision_source();self.data();self.restart_source()
         self.report['checks'].update(managed_rf3=True,one_group_three_cells=True,
             sdk_s3_writes=True,sdk_quorum_writes=True,minimum_reads_each_ingress=True,
             linearizable_reads_each_ingress=True,retained_restart=True,exact_retry_results=True)
+        self.save()
+
+    def drill(self):
+        self.source_workflow()
         self.report['completed']=True;self.save()
 
 

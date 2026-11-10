@@ -18,7 +18,7 @@ from managed_group_fence import identifier, physical_identity
 from raft_run import decode_json, require
 
 LIMIT = 64 * 1024
-PHYSICAL = frozenset(('start', 'prepare_seed', 'seed', 'attach', 'activate'))
+PHYSICAL = frozenset(('start', 'prepare_seed', 'seed', 'attach', 'activate', 'setup_child'))
 
 
 class VoterFailure(RuntimeError):
@@ -158,6 +158,14 @@ class ManagedVoter:
         return self._assigned(catalog, namespace, group, incarnation, {
             'action': 'prepare_seed', 'group': list(bytes.fromhex(group)),
             'incarnation': list(bytes.fromhex(incarnation)),
+        })
+
+    def setup_child(self, catalog, namespace, request):
+        require(isinstance(request, dict) and isinstance(request.get('child'), dict),
+                'exact transition child request required')
+        child = request['child']
+        return self._assigned(catalog, namespace, child['group_id'], child['incarnation_id'], {
+            'action': 'setup_child', 'request': request,
         })
 
     def seed(self, catalog, namespace, group, incarnation):
