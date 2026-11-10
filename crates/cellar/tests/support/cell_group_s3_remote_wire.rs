@@ -164,7 +164,7 @@ async fn fill(
             connection
                 .frame_bytes(
                     b"CLQP",
-                    b"cellar-raft-query-request-1",
+                    b"cellar-raft-query-advice-request-1",
                     None,
                     &request_header,
                     &body,
@@ -214,7 +214,7 @@ async fn complete(
     sequence: usize,
 ) -> Result<()> {
     let (reply, length, _) = connection
-        .receive_head(b"CLQA", b"cellar-raft-query-response-1", binding)
+        .receive_head(b"CLQA", b"cellar-raft-query-advice-response-1", binding)
         .await?;
     assert_eq!(reply["request"], serde_json::json!(binding));
     assert_eq!(reply["sequence"], sequence.to_string());
@@ -228,7 +228,17 @@ async fn complete(
             b"CLGCRS01"
         }
     );
-    assert_eq!(&bytes[8..10], &[0, 2]);
+    if kind == "command" {
+        assert_eq!(bytes[8], 0, "exact applied outcome");
+        let status = match bytes[9] {
+            0 => 10,
+            1 => 130, // Fixed-width history/configuration/term/member advice.
+            other => anyhow::bail!("invalid command advice tag {other}"),
+        };
+        assert_eq!(&bytes[status..status + 2], &[0, 2]);
+    } else {
+        assert_eq!(&bytes[8..10], &[0, 2]);
+    }
     assert_eq!(
         reply["digest"],
         serde_json::json!(<[u8; 32]>::from(Sha256::digest(&bytes)))
@@ -280,7 +290,7 @@ pub(crate) async fn s3_remote_slow_delivery(
             }
             let mut connection = Connection::open_with_receive_buffer(
                 h.fixture.transports[0].query_address(),
-                b"EXPORTER-cellar-raft-query-1",
+                b"EXPORTER-cellar-raft-query-advice-1",
                 Some(1024),
             )
             .await?;

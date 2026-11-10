@@ -25,6 +25,7 @@ mod host_sql;
 pub(crate) mod inspection;
 mod inspection_identity;
 mod inspection_wire;
+mod leader_advice;
 pub(crate) mod mailbox;
 mod manifest;
 pub(crate) mod member_state;

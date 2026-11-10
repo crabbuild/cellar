@@ -2,7 +2,7 @@
 
 //! Select one destination for a mutation before submission.
 use super::*;
-use crate::raft::transport::{RaftTransport, TransportError};
+use crate::raft::transport::{LeaderLookup, RaftTransport, TransportError};
 use cellar_logic::consensus::MemberId;
 
 pub(super) async fn mutation_peer(
@@ -14,9 +14,15 @@ pub(super) async fn mutation_peer(
     domain: &DomainToken,
 ) -> Result<Option<MemberId>, CellDispatchError> {
     let route = attempt.route();
-    let status = runtime
-        .routing_status(route.history, session.deadline_ms())
-        .await;
+    let status = match runtime.log().cell_group(&route.history) {
+        Ok(_) => {
+            runtime
+                .routing_status(route.history, session.deadline_ms())
+                .await
+        }
+        Err(crate::raft::storage::LogError::NotFound) => Err(RuntimeError::NotFound),
+        Err(error) => return Err(CellDispatchError::Runtime(RuntimeError::Storage(error))),
+    };
     match status {
         Ok(status) => {
             let Some(leader) = status.leader else {
@@ -39,6 +45,24 @@ pub(super) async fn mutation_peer(
         Err(error) => return Err(CellDispatchError::Runtime(error)),
     }
 
+    match transport
+        .cell_command_leader(route)
+        .map_err(CellDispatchError::Transport)?
+    {
+        LeaderLookup::Known(member) => return Ok(Some(member)),
+        LeaderLookup::Unverified | LeaderLookup::Membership => {
+            // Only an unverified/changed configuration needs the trusted member
+            // lookup. Elections with usable advice stay on the installed range.
+            match transport
+                .refresh_managed_router(route.history, session.deadline_ms())
+                .await
+            {
+                Ok(()) | Err(RuntimeError::NotFound) => (),
+                Err(error) => return Err(CellDispatchError::Runtime(error)),
+            }
+        }
+        LeaderLookup::Unknown => (),
+    }
     transport.note_managed_router(route.history);
     let candidates = match transport.cell_query_router_members(route, session.maximum_attempts()) {
         Ok(members) => members,
@@ -87,6 +111,12 @@ pub(super) async fn mutation_peer(
                 | TransportError::Overloaded,
             ) => (),
             Err(error) => return Err(CellDispatchError::Transport(error)),
+        }
+        if let LeaderLookup::Known(leader) = transport
+            .cell_command_leader(route)
+            .map_err(CellDispatchError::Transport)?
+        {
+            return Ok(Some(leader));
         }
     }
     // Every cached candidate failed before submission. Refresh the exact

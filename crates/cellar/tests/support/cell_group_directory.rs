@@ -1445,7 +1445,9 @@ pub async fn routing_deadline_and_cancellation() -> Result<()> {
 #[path = "cell_group_routing_cache.rs"]
 mod routing_cache;
 pub(crate) use routing_cache::{
-    bounded_route_hints, cached_operation_discovery, stale_cache_refill,
+    bounded_route_hints, cached_operation_discovery, changed_interval_preserves_unaffected_routes,
+    old_proof_cannot_cross_a_fence, repair_deadline_keeps_the_observed_publication,
+    repair_failure_invalidates_all, retained_revision_honors_invocation_floor, stale_cache_refill,
 };
 
 impl Fixture {

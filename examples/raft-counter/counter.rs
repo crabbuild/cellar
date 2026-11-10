@@ -156,6 +156,12 @@ pub fn history(cluster: ClusterId, namespace: NamespaceId, name: &str) -> Result
 }
 
 pub fn definition() -> Result<RaftClass> {
+    definition_with_callback(|| {})
+}
+
+pub(crate) fn definition_with_callback(
+    on_command: impl Fn() + Send + Sync + 'static,
+) -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [21; 32])?
         .initializer([24; 32], |_, sql| {
             sql.execute_batch(
@@ -163,7 +169,8 @@ pub fn definition() -> Result<RaftClass> {
             )?;
             Ok(())
         })?
-        .command("Increment", [22; 32], |context, input| {
+        .command("Increment", [22; 32], move |context, input| {
+            on_command();
             let delta = i64::from_be_bytes(input.try_into()?);
             let value: i64 = context
                 .sql()

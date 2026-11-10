@@ -63,8 +63,11 @@ impl RaftTransport {
         if registry.router_refresh.is_some() {
             return Err(RuntimeError::AlreadyAttached);
         }
-        let (client, receiver) =
-            crate::raft::group_host::RouterRefreshClient::channel(memory, state.domain.clone())?;
+        let (client, receiver) = crate::raft::group_host::RouterRefreshClient::channel(
+            memory,
+            state.domain.clone(),
+            state.performance.clone(),
+        )?;
         registry.router_refresh = Some(client);
         Ok(receiver)
     }
@@ -93,16 +96,24 @@ impl RaftTransport {
         history: GroupHistory,
         deadline: u64,
     ) -> Result<(), RuntimeError> {
-        let client = {
+        let (client, key) = {
             let state = &self.handle.0;
             let registry = state.registry.lock().map_err(|_| RuntimeError::Closed)?;
             state.admit(&registry).map_err(|_| RuntimeError::Closed)?;
-            registry
+            let route = registry.cell_query_groups.get(&history);
+            let configuration = route.and_then(|route| registry.leaders.generation(route));
+            let key = crate::raft::group_host::RouterRefreshKey::new(history, route, configuration);
+            let client = registry
                 .router_refresh
                 .clone()
-                .ok_or(RuntimeError::NotFound)?
+                .ok_or(RuntimeError::NotFound)?;
+            (client, key)
         };
-        client.request(history, deadline).await
+        self.handle.0.performance.increment(
+            crate::raft::performance::Counter::CellMembershipRefreshes,
+            1,
+        );
+        client.request(key, deadline).await
     }
 
     /// Remove dispatch only after the exact retired source/member loses its consensus claim.

@@ -399,13 +399,13 @@ impl Worker {
             reply(request, group.owner.status().map(Response::Status));
             return;
         }
-        if matches!(request.command, Command::RoutingStatus) {
+        if let Command::RoutingStatus { advice } = request.command {
             reply(
                 request,
                 group
                     .owner
-                    .routing_status()
-                    .map(|(status, generation)| Response::RoutingStatus(status, generation)),
+                    .routing_status(advice)
+                    .map(Response::RoutingStatus),
             );
             return;
         }

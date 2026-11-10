@@ -7,7 +7,7 @@ mod collection;
 mod directory;
 pub(crate) use directory::require_local as require_local_fleet_boot;
 mod router_refresh;
-pub(crate) use router_refresh::{RouterRefreshClient, RouterRefreshRequest};
+pub(crate) use router_refresh::{RouterRefreshClient, RouterRefreshKey, RouterRefreshRequest};
 mod partition;
 mod provisioning;
 mod recovery;
@@ -425,7 +425,12 @@ pub(crate) async fn start(
                             continue;
                         }
                     }
-                    match transport.install_cell_query_group(route) {
+                    let installed = if options.managed.is_some() {
+                        transport.install_cell_query_group(route)
+                    } else {
+                        transport.install_initial_cell_query_group(route, &assignment.birth)
+                    };
+                    match installed {
                         Ok(()) => (),
                         Err(
                             super::transport::TransportError::Refused

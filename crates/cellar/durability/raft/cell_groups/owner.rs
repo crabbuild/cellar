@@ -812,7 +812,8 @@ impl CellGroupOwner {
     /// or mutation transmission; this sample itself grants no authority.
     pub(super) fn routing_status(
         &self,
-    ) -> Result<(CellGroupStatus, Option<ParkGeneration>), RuntimeError> {
+        include_advice: bool,
+    ) -> Result<crate::raft::leader_advice::RoutingObservation, RuntimeError> {
         let generation = self
             .parked
             .map(ParkGeneration::get)
@@ -825,7 +826,41 @@ impl CellGroupOwner {
             .map(ParkGeneration::new)
             .transpose()
             .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
-        Ok((self.status()?, generation))
+        self.live()?;
+        let cache = self.group.read()?;
+        let status = self.status_at(&cache);
+        // Sample term, leader and the applied configuration in one owner turn.
+        // Outgoing-only voters and learners cannot be advised as write leaders.
+        let advice = status
+            .leader
+            .filter(|leader| {
+                include_advice
+                    && generation.is_none()
+                    && status.term.get() != 0
+                    && cache.membership.revision().get()
+                        == self.current.marker().membership_revision()
+                    && cache.conf_state.voters.contains(leader)
+            })
+            .map(|leader| {
+                Ok::<_, RuntimeError>(crate::raft::leader_advice::LeaderAdvice {
+                    history: self.current.marker().route().history,
+                    membership_revision: cache.membership.revision().get(),
+                    configuration_digest: crate::raft::host::group_membership_digest(
+                        &cache.membership,
+                        &cache.conf_state,
+                    )
+                    .map_err(|_| RuntimeError::Protocol("routing configuration digest".into()))?,
+                    term: status.term.get(),
+                    leader: MemberId::new(leader)
+                        .map_err(|_| RuntimeError::Protocol("routing leader".into()))?,
+                })
+            })
+            .transpose()?;
+        Ok(crate::raft::leader_advice::RoutingObservation {
+            status,
+            park: generation,
+            advice,
+        })
     }
 
     fn status_at(&self, cache: &crate::raft::cache::CachedGroup) -> CellGroupStatus {

@@ -3,6 +3,7 @@
 //! Command payloads are accepted only under an authenticated command-purpose route.
 use super::*;
 use crate::raft::cell_groups::{CellCommandRequest, CellCommandResponse};
+use crate::raft::leader_advice::{LeaderAdvice, MutationDisposition};
 use crate::storage::CommandInputs;
 use cellar_logic::{
     cell_group::CellHistory,
@@ -68,18 +69,47 @@ impl CellCommandProbe {
     }
 }
 
-pub(in crate::raft) fn encode_probe_result(leader: bool) -> Vec<u8> {
+pub(in crate::raft) fn encode_probe_result(
+    leader: bool,
+    advice: Option<&LeaderAdvice>,
+    limit: usize,
+) -> Result<Vec<u8>, TransportError> {
     let mut body = b"CLGCPS01".to_vec();
     body.push(u8::from(leader));
-    body
+    super::advice::encode(&mut body, advice)?;
+    if body.len() > limit {
+        return Err(TransportError::Limit);
+    }
+    Ok(body)
 }
 
-pub(in crate::raft) fn decode_probe_result(bytes: &[u8]) -> Result<bool, TransportError> {
-    match bytes.strip_prefix(b"CLGCPS01") {
-        Some([0]) => Ok(false),
-        Some([1]) => Ok(true),
-        _ => Err(TransportError::Protocol),
+pub(in crate::raft) fn decode_probe_result(
+    bytes: &[u8],
+    limit: usize,
+) -> Result<(bool, Option<LeaderAdvice>), TransportError> {
+    if bytes.len() > limit {
+        return Err(TransportError::Limit);
     }
+    let mut body = Reader(bytes);
+    if body.take(8)? != b"CLGCPS01" {
+        return Err(TransportError::Protocol);
+    }
+    let leader = match body.byte()? {
+        0 => false,
+        1 => true,
+        _ => return Err(TransportError::Protocol),
+    };
+    let advice = super::advice::decode(&mut body)?;
+    if !body.0.is_empty() {
+        return Err(TransportError::Protocol);
+    }
+    Ok((leader, advice))
+}
+
+pub(in crate::raft) struct CellCommandReply {
+    pub result: Result<CellCommandValue, CommandFailure>,
+    pub disposition: MutationDisposition,
+    pub advice: Option<LeaderAdvice>,
 }
 
 pub(in crate::raft) struct CellCommandValue {
@@ -188,11 +218,22 @@ pub(super) fn command_id(body: &mut Reader<'_>) -> Result<CommandId, TransportEr
     CommandId::new(client, u64::from_be_bytes(body.array()?)).map_err(|_| TransportError::Identity)
 }
 
-pub(in crate::raft) fn encode_result(
+pub(in crate::raft) fn encode_reply(
     result: &Result<CellCommandResponse, CommandFailure>,
+    disposition: MutationDisposition,
+    advice: Option<&LeaderAdvice>,
     limit: usize,
 ) -> Result<Vec<u8>, TransportError> {
     let mut body = b"CLGCCS01".to_vec();
+    if result.is_ok() != (disposition == MutationDisposition::Applied) {
+        return Err(TransportError::Protocol);
+    }
+    body.push(match disposition {
+        MutationDisposition::Applied => 0,
+        MutationDisposition::RejectedBeforeAdmission => 1,
+        MutationDisposition::AdmittedOrUnknown => 2,
+    });
+    super::advice::encode(&mut body, advice)?;
     match result {
         Ok(response) => {
             // Incoming commands execute locally; remote output is not a local
@@ -238,7 +279,7 @@ pub(in crate::raft) fn encode_result(
     Ok(body)
 }
 
-pub(in crate::raft) fn decode_result(
+pub(in crate::raft) fn decode_reply(
     bytes: &[u8],
     expected: (CommandId, &CellHistory, Durability),
     schema: [u8; 32],
@@ -246,7 +287,7 @@ pub(in crate::raft) fn decode_result(
     now: u64,
     limit: usize,
     served_by: MemberId,
-) -> Result<Result<CellCommandValue, CommandFailure>, TransportError> {
+) -> Result<CellCommandReply, TransportError> {
     if bytes.len() > limit {
         return Err(TransportError::Limit);
     }
@@ -254,6 +295,13 @@ pub(in crate::raft) fn decode_result(
     if body.take(8)? != b"CLGCCS01" {
         return Err(TransportError::Protocol);
     }
+    let disposition = match body.byte()? {
+        0 => MutationDisposition::Applied,
+        1 => MutationDisposition::RejectedBeforeAdmission,
+        2 => MutationDisposition::AdmittedOrUnknown,
+        _ => return Err(TransportError::Protocol),
+    };
+    let advice = super::advice::decode(&mut body)?;
     let result = match body.byte()? {
         0 => {
             let durability = read_durability(&mut body)?;
@@ -303,5 +351,42 @@ pub(in crate::raft) fn decode_result(
     if !body.0.is_empty() {
         return Err(TransportError::Protocol);
     }
-    Ok(result)
+    if result.is_ok() != (disposition == MutationDisposition::Applied) {
+        return Err(TransportError::Protocol);
+    }
+    Ok(CellCommandReply {
+        result,
+        disposition,
+        advice,
+    })
 }
+
+#[cfg(test)]
+pub(in crate::raft) fn encode_result(
+    result: &Result<CellCommandResponse, CommandFailure>,
+    limit: usize,
+) -> Result<Vec<u8>, TransportError> {
+    let disposition = if result.is_ok() {
+        MutationDisposition::Applied
+    } else {
+        MutationDisposition::AdmittedOrUnknown
+    };
+    encode_reply(result, disposition, None, limit)
+}
+
+#[cfg(test)]
+pub(in crate::raft) fn decode_result(
+    bytes: &[u8],
+    expected: (CommandId, &CellHistory, Durability),
+    schema: [u8; 32],
+    keys: &VersionKeys,
+    now: u64,
+    limit: usize,
+    served_by: MemberId,
+) -> Result<Result<CellCommandValue, CommandFailure>, TransportError> {
+    decode_reply(bytes, expected, schema, keys, now, limit, served_by).map(|reply| reply.result)
+}
+
+#[cfg(test)]
+#[path = "command_cell_wire_tests.rs"]
+mod tests;

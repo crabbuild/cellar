@@ -61,6 +61,78 @@ impl RaftTransport {
         &self,
         route: GroupRoute<GroupHistory>,
     ) -> Result<(), TransportError> {
+        self.install_cell_query_group_inner(route, None)
+    }
+
+    pub(crate) fn install_observed_cell_query_group(
+        &self,
+        route: GroupRoute<GroupHistory>,
+        observation: &crate::raft::host::FleetMembershipObservation,
+    ) -> Result<(), TransportError> {
+        if observation.replica().scope != route.scope
+            || observation.schema_digest() != route.schema_digest
+        {
+            return Err(TransportError::Identity);
+        }
+        self.install_cell_query_group_inner(
+            route,
+            Some(leader_cache::Configuration {
+                revision: observation.membership_revision().get(),
+                digest: observation.configuration_digest(),
+                incoming: observation.configuration().voters().to_vec(),
+            }),
+        )
+    }
+
+    /// Historical initial configuration metadata for an unmanaged static route.
+    /// Advice must still match its exact digest/revision; this supplies neither
+    /// current membership nor permission to serve, bootstrap or learn a peer.
+    pub(crate) fn install_initial_cell_query_group(
+        &self,
+        route: GroupRoute<GroupHistory>,
+        birth: &crate::raft::cell_groups::CellGroupBirth,
+    ) -> Result<(), TransportError> {
+        if birth.route().history != route.scope
+            || birth.route().schema_digest != route.schema_digest
+        {
+            return Err(TransportError::Identity);
+        }
+        let state = &self.handle.0;
+        // Serialization has the existing membership observation scratch bound.
+        let Some(_scratch) = state.outgoing.control.acquire(64 * 1024) else {
+            return self.install_cell_query_group(route);
+        };
+        let configuration = ::raft::prelude::ConfState {
+            voters: birth
+                .voters()
+                .iter()
+                .map(|voter| voter.member.get())
+                .collect(),
+            learners: birth
+                .learners()
+                .iter()
+                .map(|learner| learner.member.get())
+                .collect(),
+            ..Default::default()
+        };
+        let membership = crate::raft::member_state::GroupMembership::initial(&configuration);
+        let digest = crate::raft::host::group_membership_digest(&membership, &configuration)
+            .map_err(|_| TransportError::Identity)?;
+        self.install_cell_query_group_inner(
+            route,
+            Some(leader_cache::Configuration {
+                revision: 1,
+                digest,
+                incoming: birth.voters().iter().map(|voter| voter.member).collect(),
+            }),
+        )
+    }
+
+    fn install_cell_query_group_inner(
+        &self,
+        route: GroupRoute<GroupHistory>,
+        configuration: Option<leader_cache::Configuration>,
+    ) -> Result<(), TransportError> {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
         match runtime.log().cell_group(&route.scope) {
@@ -92,6 +164,12 @@ impl RaftTransport {
         }
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
+        let now = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        if let Some(configuration) = &configuration {
+            registry
+                .leaders
+                .check_configuration(&route, configuration)?;
+        }
         if registry.physical_groups.contains_key(&route.scope) {
             return Err(TransportError::Identity);
         }
@@ -100,6 +178,12 @@ impl RaftTransport {
         }
         if let Some(old) = registry.cell_query_groups.get(&route.scope) {
             if **old == route {
+                let old = old.clone();
+                if let Some(configuration) = configuration {
+                    registry
+                        .leaders
+                        .install(&old, configuration, &state.outgoing.control, now)?;
+                }
                 return Ok(());
             }
             if old.revision >= route.revision || old.schema_digest != route.schema_digest {
@@ -147,9 +231,15 @@ impl RaftTransport {
             }
         }
         let starts = state.prepare_pools(&mut registry, &physical)?;
+        let route = Arc::new(route);
         registry
             .cell_query_groups
-            .insert(route.scope, Arc::new(route));
+            .insert(route.scope, route.clone());
+        if let Some(configuration) = configuration {
+            registry
+                .leaders
+                .install(&route, configuration, &state.outgoing.control, now)?;
+        }
         registry.prune_pools();
         drop(registry);
         state.start_pools(starts)

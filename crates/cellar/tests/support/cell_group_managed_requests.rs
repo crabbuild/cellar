@@ -10,8 +10,26 @@ mod counter;
 mod http;
 #[path = "cell_group_managed_request_nodes.rs"]
 mod nodes;
+#[path = "cell_group_routing_optimization.rs"]
+mod optimization;
 #[path = "cell_group_managed_request_parity.rs"]
 mod parity;
+
+pub async fn cached_leader_direct_write() -> Result<()> {
+    optimization::cached_leader_direct_write().await
+}
+
+pub async fn election_repairs_leader_only() -> Result<()> {
+    optimization::election_repairs_leader_only().await
+}
+
+pub async fn metadata_outage_on_cached_path() -> Result<()> {
+    optimization::metadata_outage_on_cached_path().await
+}
+
+pub async fn refresh_storm_is_bounded() -> Result<()> {
+    optimization::refresh_storm_is_bounded().await
+}
 
 pub async fn run_native() -> Result<()> {
     for rooted in [false, true] {

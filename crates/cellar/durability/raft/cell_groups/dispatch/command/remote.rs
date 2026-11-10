@@ -7,8 +7,16 @@ use crate::raft::transport::{CellRemoteCommandResponse, RaftTransport, Transport
 use cellar_logic::consensus::MemberId;
 
 impl CellCommandInvocation {
-    pub(crate) fn bind_remote_route(&mut self, route: super::super::RemoteMutationRoute) {
+    pub(crate) fn bind_remote_route(
+        &mut self,
+        route: super::super::RemoteMutationRoute,
+        deadline: u64,
+    ) -> Result<(), CellCommandError> {
+        self.session
+            .constrain_deadline(deadline)
+            .map_err(|error| self.error(CellDispatchError::Routing(error)))?;
         self.remote_route = Some(route);
+        Ok(())
     }
 
     /// Execute this catalog attempt on an explicitly selected remote member.
@@ -60,8 +68,10 @@ impl CellCommandInvocation {
             route_epoch: attempt.route().epoch.get(),
             birth_digest: attempt.route().birth_digest,
         };
-        self.session
-            .mark_submitted(&attempt)
+        let previous_ambiguity = self.ambiguous;
+        let submission = self
+            .session
+            .mark_remote_submitted(&attempt)
             .map_err(|e| self.error(CellDispatchError::Routing(e)))?;
         self.dispatched = true;
         self.ambiguous = true;
@@ -79,8 +89,16 @@ impl CellCommandInvocation {
             .await
             .map_err(|_| self.error(closed()))?;
         let response = result.map_err(|error| {
+            if matches!(error, TransportError::CommandRejected(_)) {
+                // A rejection settles only this transmission. Never erase
+                // uncertainty retained from a preceding attempt.
+                if let Err(error) = self.session.reject_remote_submission(submission) {
+                    return self.error(CellDispatchError::Routing(error));
+                }
+                self.ambiguous = previous_ambiguity;
+            }
             self.error(match error {
-                TransportError::Command(failure) => {
+                TransportError::Command(failure) | TransportError::CommandRejected(failure) => {
                     CellDispatchError::Execution(ExecutionError::Refused(failure))
                 }
                 other => CellDispatchError::Transport(other),

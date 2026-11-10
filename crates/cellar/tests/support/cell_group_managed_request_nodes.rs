@@ -15,14 +15,58 @@ pub(super) struct Cluster {
     web: Option<http::Web>,
 }
 
+fn definition(observer: Option<Arc<dyn Fn() + Send + Sync>>) -> Result<RaftClass> {
+    match observer {
+        Some(observer) => counter::definition_with_callback(move || observer()),
+        None => counter::definition(),
+    }
+}
+
 impl Cluster {
     pub async fn start(rooted: bool, store: Arc<fault::Store>) -> Result<Self> {
-        let class = counter::definition()?;
+        Box::pin(Self::start_configured(rooted, store, None, true)).await
+    }
+
+    pub async fn start_with_callback(
+        rooted: bool,
+        store: Arc<fault::Store>,
+        on_command: Arc<dyn Fn() + Send + Sync>,
+    ) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            rooted,
+            store,
+            Some(on_command),
+            true,
+        ))
+        .await
+    }
+
+    pub async fn start_with_cold_ingress(
+        rooted: bool,
+        store: Arc<fault::Store>,
+        on_command: Arc<dyn Fn() + Send + Sync>,
+    ) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            rooted,
+            store,
+            Some(on_command),
+            false,
+        ))
+        .await
+    }
+
+    async fn start_configured(
+        rooted: bool,
+        store: Arc<fault::Store>,
+        on_command: Option<Arc<dyn Fn() + Send + Sync>>,
+        install_router: bool,
+    ) -> Result<Self> {
+        let class = definition(on_command.clone())?;
         let first = Fixture::with_store(rooted, class, store).await?;
         let mut apis = Vec::new();
         let mut applications = Vec::new();
         for _ in 0..3 {
-            let class = counter::definition()?;
+            let class = definition(on_command.clone())?;
             let api = counter::CounterApi::new(
                 http::secret(),
                 first.declaration.namespace.cluster,
@@ -52,7 +96,7 @@ impl Cluster {
             web: None,
         };
         let started = async {
-            Box::pin(cluster.start_ingress()).await?;
+            Box::pin(cluster.start_ingress(on_command, install_router)).await?;
             cluster.start_web().await
         }
         .await;
@@ -65,9 +109,13 @@ impl Cluster {
         Ok(cluster)
     }
 
-    async fn start_ingress(&mut self) -> Result<()> {
+    async fn start_ingress(
+        &mut self,
+        on_command: Option<Arc<dyn Fn() + Send + Sync>>,
+        install_router: bool,
+    ) -> Result<()> {
         let mut fixture = peer_fixture(&self.managed.fixtures[0], 7).await?;
-        let class = counter::definition()?;
+        let class = definition(on_command)?;
         let group = self.managed.history;
         let api =
             counter::CounterApi::with_history_resolver(http::secret(), &class, move |name| {
@@ -93,10 +141,12 @@ impl Cluster {
         .await?;
         let started = async {
             let (mut config, services) = fixture.config(&node, LogOpenMode::Create, 27).await?;
-            config.groups.push(RaftGroupAssignment {
-                history: self.managed.history,
-                placement: RaftGroupPlacement::QueryRouter,
-            });
+            if install_router {
+                config.groups.push(RaftGroupAssignment {
+                    history: self.managed.history,
+                    placement: RaftGroupPlacement::QueryRouter,
+                });
+            }
             let peer = config.peers[0].clone();
             let host = node.start_raft_cells(config, services).await?;
             Ok::<_, anyhow::Error>((peer, host))
@@ -252,19 +302,41 @@ impl Cluster {
         Ok(())
     }
 
+    /// Retain the whole public node drain when only its observing waiter drops.
+    pub fn stop_owned(&mut self, index: usize) -> tokio::task::JoinHandle<Result<RaftCloseReport>> {
+        let node = self.nodes[index].take();
+        let host = self.managed.hosts[index].clone();
+        tokio::spawn(async move {
+            let stopped = if let Some(node) = node {
+                let NodeOutcome::Stopped(report) = node.shutdown(ShutdownMode::Preserve).await?
+                else {
+                    anyhow::bail!("node did not complete its preserved shutdown")
+                };
+                ensure!(report.application_work_drained);
+                Some(
+                    report
+                        .raft
+                        .context("native node's Raft close report")?
+                        .result?,
+                )
+            } else {
+                None
+            };
+            let report = host.close().await?;
+            if let Some(stopped) = stopped {
+                ensure!(stopped == report);
+            }
+            ensure!(
+                report.groups_total == usize::from(index != INGRESS)
+                    && report.groups.iter().all(|g| !g.failed)
+            );
+            ensure!(report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers);
+            Ok(report)
+        })
+    }
+
     pub async fn stop(&mut self, index: usize) -> Result<()> {
-        if let Some(node) = self.nodes[index].take() {
-            ensure!(matches!(
-                node.shutdown(ShutdownMode::Preserve).await?,
-                NodeOutcome::Stopped(_)
-            ));
-        }
-        let report = self.managed.hosts[index].close().await?;
-        ensure!(
-            report.groups_total == usize::from(index != INGRESS)
-                && report.groups.iter().all(|g| !g.failed)
-        );
-        ensure!(report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers);
+        self.stop_owned(index).await??;
         Ok(())
     }
 

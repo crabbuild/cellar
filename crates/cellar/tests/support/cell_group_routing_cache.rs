@@ -5,6 +5,14 @@ use super::*;
 use cellar::application::consensus::{RaftClass, VersionKeys, VersionSigningKey};
 use cellar_logic::consensus::{ClientId, CommandId, Durability};
 
+#[path = "cell_group_routing_cache_repair.rs"]
+mod repair;
+pub(crate) use repair::{
+    changed_interval_preserves_unaffected_routes, old_proof_cannot_cross_a_fence,
+    repair_deadline_keeps_the_observed_publication, repair_failure_invalidates_all,
+    retained_revision_honors_invocation_floor,
+};
+
 async fn setup(
     count: usize,
     capacity: usize,
@@ -175,7 +183,9 @@ pub(crate) async fn bounded_route_hints() -> Result<()> {
     assert_eq!(dispatcher.route_cache_usage()?, before);
     let next = publish_route_split(&f, &routes[0], &selected.cell).await?;
     assert_eq!(dispatcher.refresh_routes().await?, 2);
-    assert_eq!(dispatcher.route_cache_usage()?.entries, 0);
+    // Both retained entries cover other ranges; the verified replacement
+    // invalidates only overlaps instead of flushing these original proofs.
+    assert_eq!(dispatcher.route_cache_usage()?.entries, 2);
     let mut moved = query(&dispatcher, &class, selected)?;
     let (result, reads) = fault::count_reads(moved.begin()).await;
     result?;

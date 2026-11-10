@@ -161,6 +161,10 @@ impl RouterDirectory {
         };
         let authority = discovery.authorization;
         let revision = trust.revision();
+        log.performance().increment(
+            crate::raft::performance::Counter::CellMembershipBackgroundObservations,
+            1,
+        );
         let proof = observer
             .observe_peer_fleet_membership(
                 source,
@@ -341,12 +345,12 @@ impl RouterDirectory {
         if !self.installed.contains(&group) && self.installed.len() >= self.max_installed {
             self.evict_idle(transport)?;
         }
-        if let Err(error) = transport.install_cell_query_group(route.clone()) {
+        if let Err(error) = transport.install_observed_cell_query_group(route.clone(), observed) {
             if error != crate::raft::transport::TransportError::Overloaded {
                 return Err(error.into());
             }
             self.evict_idle(transport)?;
-            transport.install_cell_query_group(route)?;
+            transport.install_observed_cell_query_group(route, observed)?;
         }
         self.installed.retain(|history| *history != group);
         self.installed.push_back(group);

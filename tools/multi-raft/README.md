@@ -167,7 +167,11 @@ HTTP. All voters share the guest's physical host identity. The controller runs
 outside the voter containers and keeps the Docker socket out of their mounts.
 
 Start and verify an owned RustFS backend as above, then build and run from a
-committed source revision.
+committed source revision. The daemon runner selects the exact profile and
+Docker context recorded by the owned backend. For a workspace-volume Colima home,
+create that directory before the initial `colima start`, then pass
+`--colima-home /absolute/workspace/colima-home`. Guest commands bind the matching
+Colima/Lima homes and must match the backend's Engine ID before launching a node.
 
 ```sh
 revision=$(git rev-parse HEAD)

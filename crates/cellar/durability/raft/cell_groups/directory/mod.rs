@@ -34,6 +34,7 @@ pub use recovery::{
 pub(crate) use recovery::{ManagedRecoveryPublicationInput, RecoverySeedPermit};
 mod route_cache;
 mod routing;
+mod routing_proof;
 pub use route_cache::CellRouteCacheUsage;
 pub(crate) use route_cache::RouteCache;
 mod store;
@@ -851,6 +852,11 @@ impl RangeDirectory {
             transfer_archive,
             tree: tree.clone(),
         };
+        // The journal already commits this digest. Retain its exact bounded
+        // intent so caches can verify the complete changed interval without
+        // inventing a second topology authority or scanning the full history.
+        self.immutable("changes", mutation.digest, &mutation.bytes)
+            .await?;
         let bytes = record::encode(wire::JOURNAL, &journal, wire::LIMIT)?;
         let id = record::digest(&bytes);
         self.immutable("journal", id, &bytes).await?;

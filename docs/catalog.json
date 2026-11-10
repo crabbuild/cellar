@@ -686,6 +686,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/optimization-progress.md",
+      "title": "TiKV-informed optimization implementation",
+      "summary": "Track implementation and validation against the",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/progress.md",
       "title": "Cell-group implementation progress",
       "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",

@@ -57,7 +57,7 @@ fn result_bytes() -> Vec<u8> {
         .issue_cell(&cell_observation(), [9; 32], 1000)
         .unwrap();
     let mut bytes = b"CLGCQS01\0".to_vec();
-    bytes.extend_from_slice(&0u64.to_be_bytes());
+    bytes.push(0);
     string(&mut bytes, token.as_str()).unwrap();
     bytes.extend_from_slice(&3u32.to_be_bytes());
     bytes.extend_from_slice(&[8, 7, 6]);
@@ -592,7 +592,7 @@ fn shared_query_result_authenticates_cell_progress_not_group_log_index() {
     let observation = cell_observation();
     let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
     let mut bytes = b"CLGCQS01\0".to_vec();
-    bytes.extend_from_slice(&0u64.to_be_bytes());
+    bytes.push(0);
     string(&mut bytes, token.as_str()).unwrap();
     bytes.extend_from_slice(&3u32.to_be_bytes());
     bytes.extend_from_slice(b"yes");
@@ -806,6 +806,7 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
     let cell = &observation.version.history;
     let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
     let mut body = b"CLGCCS01".to_vec();
+    body.extend_from_slice(&[0, 0]);
     body.push(0);
     body.push(1);
     body.extend_from_slice(&call.request.id.client.bytes());
@@ -889,6 +890,7 @@ fn shared_s3_results_refuse_durability_downgrades() {
     .unwrap();
     for achieved in [Durability::Quorum, Durability::S3] {
         let mut command = b"CLGCCS01".to_vec();
+        command.extend_from_slice(&[0, 0]);
         command.extend_from_slice(&[0, durability_code(achieved)]);
         command.extend_from_slice(&call.request.id.client.bytes());
         command.extend_from_slice(&call.request.id.sequence().to_be_bytes());
@@ -936,7 +938,7 @@ fn shared_s3_results_refuse_durability_downgrades() {
         }
         // Unknown durability codes must not become either successful contract.
         for invalid in [0, 3, 255] {
-            command[9] = invalid;
+            command[11] = invalid;
             receipt[9] = invalid;
             let mut enrollment = enrollment.clone();
             enrollment[9] = invalid;
@@ -1434,9 +1436,27 @@ fn shared_receipt_purpose_cannot_authorize_mutation() {
 
 #[test]
 fn shared_query_leader_hint_is_advice_inside_authenticated_payload() {
-    for hint in [None, Some(MemberId::new(3).unwrap())] {
-        let bytes =
-            cell::encode_cell_result(&Err(CommandFailure::VersionUnavailable), hint, 4096).unwrap();
+    for hint in [
+        None,
+        Some(crate::raft::leader_advice::LeaderAdvice {
+            history: cellar_logic::cell_group::GroupHistory {
+                cluster: cell_history().cluster,
+                namespace: cell_history().namespace,
+                group: GroupId::new([3; 16]).unwrap(),
+                incarnation: cell_history().incarnation,
+            },
+            membership_revision: 7,
+            configuration_digest: [8; 32],
+            term: 9,
+            leader: MemberId::new(3).unwrap(),
+        }),
+    ] {
+        let bytes = cell::encode_cell_result(
+            &Err(CommandFailure::VersionUnavailable),
+            hint.as_ref(),
+            4096,
+        )
+        .unwrap();
         let (result, decoded) = cell::decode_cell_reply(
             &bytes,
             &cell_history(),

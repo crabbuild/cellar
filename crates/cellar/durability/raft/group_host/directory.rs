@@ -276,17 +276,23 @@ impl Directory {
                                         }
                                     }
                                 }
-                                super::RouterRefreshRequest::Observe { history, deadline, reply, _memory } => {
+                                super::RouterRefreshRequest::Observe { owner } => {
+                                    let history = owner.history();
+                                    let deadline = owner.deadline();
                                     // A dropped caller cannot cancel entered discovery;
                                     // retain its reservation through the original deadline.
                                     let result = Box::pin(directory.refresh_target(&log, &transport, &observer, history, deadline)).await;
-                                    let _ = reply.send(result);
+                                    owner.complete(result);
                                 }
                             }
                         }
                     }
                 }
             }
+            // Retire every queued reservation and notify its waiters before
+            // releasing the directory service lease observed by joined close.
+            requests.close();
+            while requests.try_recv().is_ok() {}
         })?.detach();
         Ok(())
     }
