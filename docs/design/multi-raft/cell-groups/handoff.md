@@ -4,6 +4,17 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Published design scope
+
+CG-17's [primitive compatibility contract](qualification.md#full-primitive-compatibility-cg-17)
+defines eight packages and 32 required cases. It is TODO and gates CG-15/16
+acceptance; the inventory and shared Storage/async foundations can begin beside
+CG-13 implementation. The [TiKV optimization proposal](tikv-informed-optimization.md)
+builds on accepted CG-11/12 foundations and introduces additional optimization
+oracles, not new runtime qualification. Read the latest [progress](progress.md)
+for the signed fence/controller checkpoint before using the earlier source-specific
+recovery entries below.
+
 ## Current CG-13 outbox delivery
 
 `9fa5d932` adds authenticated old-origin refusal, public reconciliation status and
@@ -97,9 +108,11 @@ remain in [progress](progress.md); release-scale qualification stays in CG-15/16
    Closure recovery and uncertain-outbox isolation now have native/RustFS passes.
    Next prove permanent Docker launch revocation and qualify all six root cases
    on one source with the CG-14 harness.
-2. Complete CG-15 load, reclamation, crash, partition, wake and disk-loss profiles
+2. Deliver CG-17 compatibility, starting with inventory/evidence enforcement and
+   shared activation/Storage/async execution, then the remaining primitive adapters.
+3. Complete CG-15 load, reclamation, crash, partition, wake and disk-loss profiles
    with their original limits, including the unresolved occupancy-128 load failure.
-3. Complete CG-16 public default cutover and remaining legacy audit after the
+4. Complete CG-16 public default cutover and remaining legacy audit after CG-17 and
    combined qualification passes on one release source.
 
 Hard cutover remains `seed-lineage-1`: fresh namespaces, Fleet roots and engine

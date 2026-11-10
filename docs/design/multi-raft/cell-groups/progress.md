@@ -9,8 +9,13 @@ end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
 CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
-CG-16 remains pending
-the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
+CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
+adds eight delivery packages and 32 required cases; implementation remains TODO.
+The [TiKV-informed optimization proposal](tikv-informed-optimization.md) adds
+routing, cache repair, cleanup and shared-worker acceptance targets, with no new
+performance qualification or change to accepted CG-11/12 status.
+CG-16 remains pending CG-17 compatibility and the combined release gate.
+Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
 ## CG-13 checkpoint: signed permanent fences and component launch revocation

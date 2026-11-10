@@ -20,7 +20,54 @@ STATUSES = {"TODO", "IN_PROGRESS", "BLOCKED", "DONE"}
 SHA256 = re.compile(r"[0-9a-f]{64}")
 REVISION = re.compile(r"[0-9a-f]{40}")
 CASE = re.compile(r"[a-z][a-z0-9_]*")
-TASK_IDS = {f"CG-{number:02}" for number in range(1, 17)}
+TASK_IDS = {f"CG-{number:02}" for number in range(1, 18)}
+PRIMITIVE_DEPENDENCIES = {"CG-07", "CG-08", "CG-10", "CG-12", "CG-13", "CG-14"}
+PRIMITIVE_CASES = {
+    "primitives_capability_inventory_and_deployment_bounds",
+    "primitives_storage_sql_kv_atomicity",
+    "primitives_async_callbacks_commit_and_retry",
+    "primitives_queue_leases_ack_retry_and_dead_letter",
+    "primitives_event_stream_outbox_inbox_replay",
+    "primitives_workflow_steps_waits_retries_and_cancel",
+    "primitives_alarms_cron_occurrence_identity",
+    "primitives_blob_filesystem_recovery_closure",
+    "primitives_http_rpc_and_cross_cell_effects",
+    "primitives_websocket_reconnect_and_stale_owner",
+    "primitives_container_restart_and_fencing",
+    "primitives_stateless_bindings_and_ephemeral_resources",
+    "primitives_public_sdk_native_axum_cli_admin",
+    "primitives_leader_loss_quorum_refusal_and_restart",
+    "primitives_split_merge_placement_and_wakeup",
+    "primitives_archive_outage_reclaim_and_recovery",
+    "primitives_zero_quorum_fresh_incarnation",
+    "primitives_cancellation_capacity_and_joined_shutdown",
+    "primitives_feature_modes_and_cutover",
+    "primitives_complete_coverage_evidence",
+    "primitives_activation_storage_backend_bridge",
+    "primitives_async_nested_transactions_and_output_gates",
+    "primitives_external_execution_fence_and_reconciliation",
+    "primitives_due_work_recovery_without_requests",
+    "primitives_payload_reference_publication_and_gc",
+    "primitives_sql_sessions_kv_ttl_and_revision_conditions",
+    "primitives_filesystem_descriptors_transactions_and_gc",
+    "primitives_receipt_retention_pruning_and_recreation",
+    "primitives_schema_definition_and_deployment_changes",
+    "primitives_clock_discontinuities_and_timer_generations",
+    "primitives_coverage_manifest_and_rejection",
+    "primitives_fleet_bucket_regression_and_no_fallback",
+}
+PRIMITIVE_INTEGRATION_SCOPE = {
+    "crates/cellar/runtime/", "crates/cellar/storage/", "crates/cellar/node/",
+    "crates/cellar/execution/", "crates/cellar-logic/", "crates/cellar-native/",
+    "crates/cellar-ltx/", "crates/cellar-python/", "crates/cellar-javascript/",
+}
+PRIMITIVE_CONTRACT_OUTPUTS = {
+    "docs/design/multi-raft/cell-groups/primitive-inventory.json",
+    "docs/design/multi-raft/cell-groups/primitive-coverage-requirements.json",
+    "docs/design/multi-raft/cell-groups/primitive-coverage.schema.json",
+    "tools/multi-raft/primitive_coverage.py",
+    "tools/multi-raft/test_primitive_coverage.py",
+}
 INVARIANTS = {f"I{number:02}" for number in range(1, 15)}
 PROFILE_IDS = {"idle_density", "mixed_quorum", "mixed_s3", "hot_cold", "split_merge",
                "hibernate_wake", "rustfs_disaster", "independent_domain_loss", "soak_24h"}
@@ -208,6 +255,21 @@ def validate_contract(manifest, baseline, profiles, root):
     require(covered == INVARIANTS, "Missing invariant coverage")
     order = ordered(tasks)
     by_id = {task["id"]: task for task in tasks}
+    primitives = by_id["CG-17"]
+    require(PRIMITIVE_DEPENDENCIES <= set(primitives["depends_on"]),
+            "CG-17: primitive compatibility requires public, effect, transition, wake, recovery and harness dependencies")
+    require(primitives["capability"] == "primitives"
+            and primitives["test_target"] == "native_cell_groups_primitives",
+            "CG-17: missing public primitive qualification target")
+    require(PRIMITIVE_CASES <= {case["name"] for case in primitives["test_cases"]},
+            "CG-17: incomplete required primitive compatibility cases")
+    require(PRIMITIVE_INTEGRATION_SCOPE <= set(primitives["scope"]),
+            "CG-17: missing primitive integration scope")
+    require(PRIMITIVE_CONTRACT_OUTPUTS <= set(primitives["creates"]),
+            "CG-17: missing primitive inventory/validator outputs")
+    for tid in ("CG-15", "CG-16"):
+        require("CG-17" in by_id[tid]["depends_on"],
+                f"{tid}: full primitive compatibility must gate qualification and cutover")
     for task in tasks:
         if task["status"] == "DONE":
             require(all(by_id[d]["status"] == "DONE" for d in task["depends_on"]), f'{task["id"]}: DONE before dependency')
@@ -410,7 +472,7 @@ def index_text(manifest):
     accepted = sum(len(task["test_cases"]) for task in done)
     lines = ["<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->", "",
              "# Implementation order", "",
-             "Purpose: Dependency order and status of the sixteen cell-group implementation tasks.", "",
+             f"Purpose: Dependency order and status of the {len(tasks)} cell-group implementation tasks.", "",
              "Generated from `tasks.json`. Regenerate with `plan.py index` after status changes.",
              f"**{len(done)} of {len(tasks)} tasks are accepted**, covering **{accepted} of {required} required cases**.",
              "The acceptance count includes only DONE tasks. A task closes after its dependencies",
@@ -418,7 +480,7 @@ def index_text(manifest):
              "tracks individual passes and remaining gates for pending tasks.",
              "The full release requires a combined run on one source revision.",
              "CG-07 gates the default shared-group backend for new SQL namespaces.",
-             "CG-15 and CG-16 gate the full release.", "",
+             "CG-17 requires full public primitive compatibility before CG-15 qualification and CG-16 cutover.", "",
              "Start with the [quorum SQL delivery priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)",
              "for the next release gate and [progress](progress.md) for exact qualification results.", "",
              "Use `python3 docs/design/multi-raft/cell-groups/plan.py show CG-01` for a complete",
@@ -438,6 +500,10 @@ def index_text(manifest):
                   "CG-13 add movement, adaptive scheduling, hibernation and complete managed recovery.",
                   "CG-08 adapts effects before CG-07 public cutover. CG-14 can proceed after CG-07;",
                   "CG-13 requires its real-infrastructure harness.",
+                  "CG-17 completes public primitive adapters and their lifecycle matrix; implementation can",
+                  "begin after CG-07/08, while acceptance requires its remaining lifecycle dependencies.",
+                  "Its eight delivery packages start with inventory/evidence and the shared Storage/async",
+                  "execution foundation. Ordinary Fleet/bucket modes remain supported; Raft cannot fall back to them.",
                   "CG-15 and CG-16 qualify the combined artifact. These milestones are not separate",
                   "production architectures. No full delivery claim precedes the final gate.", ""])
     return "\n".join(lines)

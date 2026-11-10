@@ -6,13 +6,13 @@ Purpose: Prioritize the remaining cell-group MVP, merge gates and full architect
 
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime
 and the accepted public SQL cutover. This ordering preserves the full
-CG-01–16 objective in [tasks.json](tasks.json), [design](design.md) and
+CG-01–17 objective in [tasks.json](tasks.json), [design](design.md) and
 [qualification](qualification.md). See [progress](progress.md) for exact source
 and validation boundaries and [handoff](handoff.md) for executor context.
 
 ## Current boundary
 
-CG-01–09 passed their recorded acceptance gates. Shared group owners,
+CG-01–12 and CG-14 passed their recorded scoped acceptance gates. Shared group owners,
 cell-specific SQLite histories/receipts/effects/versions, complete checkpoints,
 archives/reclamation and fenced fresh-history recovery have scoped coverage.
 Managed startup, directory refresh, membership send fences, capacity admission,
@@ -65,8 +65,9 @@ preserve the original receipt after those refusals. The named public authority
 and occupancy-one cases pass their recorded native scope.
 
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
-CG-16 is pending the combined
-release gate. Individual checkpoints cover operator-driven split and merge,
+CG-17 is TODO: full public primitive compatibility is a required implementation
+task, not an established capability. CG-15 and CG-16 now depend on CG-17.
+CG-16 is pending the combined release gate. Individual checkpoints cover operator-driven split and merge,
 placement recommendations, fenced parking and wake, managed recovery and
 parts of the qualification matrix. The task-level evidence remains open.
 
@@ -84,7 +85,7 @@ their own qualification.
 ## Open case audit
 
 The [implementation index](implementation-plan.md) records thirteen accepted
-tasks and 147 of 163 required cases. CG-07 has a complete acceptance record
+tasks and 147 of 195 required cases. CG-07 has a complete acceptance record
 for its five public cases and all required commands at `84942c4e`.
 Each remaining task still needs the exact target, case oracles and evidence
 specified by `plan.py show <task>`. The index counts acceptance through complete
@@ -117,6 +118,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
+| CG-17 | TODO; no primitive compatibility cases are accepted. Existing SQL and alarm/outbox/inbox gates remain scoped foundations. The audit refines delivery into eight packages and 32 required cases. | Begin inventory/evidence enforcement and the shared activation/Storage/async execution foundation. Complete due work, provider fencing, payload closure, public binding/filesystem semantics, retention/schema/time rules and all primitive adapters, then pass the complete matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). Preserve ordinary Fleet/bucket regressions; missing providers or unsupported families keep the task open. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 
@@ -136,12 +138,29 @@ are accepted natively at `2cd71d32`. The next feature priorities are:
 1. **Finish CG-13 interrupted-transition recovery from S3.** Qualify closure
    selection, permanent Docker revocation of every possible old writer, fresh
    histories/quorum, exact retry and outbox ambiguity refusal using the CG-14 harness.
-2. **Complete CG-15 release qualification.** Resolve the occupancy-128 failure
-   within its original bounds. Run load, reclamation, crash, partition, wake and
-   disk-loss profiles, including Joint crashes, peer activation cancellation and
-   multi-namespace ingress. Record physical peaks and the planned wake percentiles.
-3. **Ship through CG-16.** Complete public default cutover and the remaining legacy
-   audit after the combined qualification passes on one release source.
+2. **Deliver CG-17 full primitive compatibility before broad cutover.** Start
+   CG17-01 inventory/report validation and CG17-02 shared activation/Storage
+   integration alongside transition work. Follow with async transaction/executor
+   fencing, committed due-work discovery, ordinary SQL/KV/filesystem semantics
+   and actual payload closure. Build Queue/EventStream/Workflow and the remaining
+   public/provider adapters on that foundation. The eight packages require 32
+   exact cases plus independently validated API/scenario/configuration evidence,
+   with schema, clock, retention and Fleet/bucket/mixed-mode regressions.
+   Implementation can start on CG-07/08 now; acceptance retains all lifecycle
+   dependencies and the complete failure matrix. The SQL MVP does not establish
+   this broader compatibility.
+3. **Complete CG-15 release qualification.** After CG-17 acceptance, resolve the
+   occupancy-128 failure within its original bounds. Run load, reclamation, crash,
+   partition, wake and disk-loss profiles, including Joint crashes, peer activation
+   cancellation and multi-namespace ingress. Record physical peaks and the planned
+   wake percentiles. Harness fixes and scoped campaigns can proceed earlier.
+4. **Ship through CG-16.** Complete public default cutover and the remaining legacy
+   audit after CG-17 compatibility and combined qualification pass on one source.
+
+The [TiKV-informed optimization proposal](tikv-informed-optimization.md) defines
+additional direct-routing, cache-repair, cleanup and worker-efficiency packages.
+Reuse accepted CG-11/12 behavior and qualify new optimization oracles separately;
+the proposal neither reopens those task acceptances nor claims measured speedups.
 
 ## P0: finish the MVP and its merge gates
 
@@ -217,17 +236,19 @@ An explicitly configured Raft SQL namespace uses shared groups, defaults to
 quorum minimum durability and three voters, and defaults commands to quorum.
 CG-07 qualifies its namespace provisioning, SDK, CLI, daemon and public ingress
 at the recorded boundary. Broad default selection across all cell classes and
-the final deployment cutover remain CG-16 decisions after capability coverage.
+the final deployment cutover require CG-17 compatibility and CG-15/16 release
+qualification.
 Missing quorum must refuse admission without selecting weaker durability.
 The intended contract is three-replica shared groups, quorum writes and
 asynchronous S3 archives, with measured archive lag/RPO. An explicit S3 write
 requires its separate complete coverage proof.
 
-Resolve the default backend's capability matrix before enabling it broadly.
-Workflow/Queue callbacks, WebSockets and mutable-container behavior need equivalent
-adapters or an explicit supported product scope; the native SQL counter cases
-do not establish their coverage. Preserve capability refusals while these remain
-unimplemented. Existing Fleet data requires a separate deployment decision:
+CG-17 requires equivalent public adapters for all Cellar primitives, including
+Workflow/Queue callbacks, WebSockets and mutable-container behavior. Its
+[compatibility contract](qualification.md#full-primitive-compatibility-cg-17)
+defines implementation and acceptance; narrowing the supported product scope
+cannot substitute for delivery. Preserve capability refusals during development
+and keep CG-17 open until the complete matrix passes. Existing Fleet data requires a separate deployment decision:
 this plan supplies no online Fleet-to-Raft conversion and must not reinterpret
 old data as a new Raft history.
 
@@ -249,5 +270,6 @@ full hard cutover.
 | CG-12 | Fenced group parking and authority-checked wakeup. Resume actual membership/quorum under the original request deadline; measure cold response latency rather than assuming immediate readiness. |
 | CG-13 | Managed S3 recovery of complete groups and incomplete transfers/splits/merges, including zero-quorum fencing, fresh incarnations and unfinished lifecycle journals. |
 | CG-14 | **Accepted harness infrastructure.** Reproducible process/RustFS campaigns with real cells/groups, source/binary/profile hashes, enforced resource bounds, complete ledgers, archive lag and joined owners. Full release execution remains CG-15. |
+| CG-17 | Full public primitive adapters, capability/budget validation and the complete RF3/RustFS lifecycle matrix. Acceptance depends on CG-07/08, CG-10, CG-12, CG-13 and CG-14; implementation can begin with the existing SQL/effect foundation. Required before CG-15 and CG-16. |
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |

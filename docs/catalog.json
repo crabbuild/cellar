@@ -676,7 +676,7 @@
     {
       "path": "design/multi-raft/cell-groups/implementation-plan.md",
       "title": "Implementation order",
-      "summary": "Dependency order and status of the sixteen cell-group implementation tasks.",
+      "summary": "Dependency order and status of the 17 cell-group implementation tasks.",
       "roles": [
         "builder",
         "platform",
@@ -725,6 +725,18 @@
       "path": "design/multi-raft/cell-groups/remaining-work.md",
       "title": "Remaining cell-group work and priorities",
       "summary": "Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/tikv-informed-optimization.md",
+      "title": "Cell-group routing, lifecycle and performance optimization",
+      "summary": "TiKV-informed design for direct routing, precise cache repair, sustainable group movement and bounded shared execution.",
       "roles": [
         "builder",
         "platform",

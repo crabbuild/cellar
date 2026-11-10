@@ -5,10 +5,11 @@
 Purpose: Shared cell-group delivery status, execution commands and completion boundaries.
 
 Status: executable design and implementation plan delivered on 2026-10-29;
-end-to-end implementation remains in progress. CG-01–06 and CG-08 have passed
-recorded component gates. CG-07 canonical SDK/fleet cutover is IN_PROGRESS;
-CG-09–16 remain required. PR #160 is a draft checkpoint until its public/build
-and current-source backend gates pass.
+end-to-end implementation remains in progress. CG-01–12 and CG-14 have passed
+their recorded scoped gates, including the public SQL MVP. CG-13 and CG-15–17
+remain open. CG-17 adds full public primitive compatibility as a prerequisite of
+CG-15 qualification and CG-16 cutover. Earlier component passes do not establish
+complete primitive support or qualify the final combined release.
 
 Start with [remaining work and priorities](remaining-work.md) for the MVP order
 and merge criteria. [Progress](progress.md) records source-scoped validation;
@@ -86,12 +87,12 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-CG-01 through CG-06 and CG-08 are DONE at their declared scoped boundaries.
-CG-07 is IN_PROGRESS in the spare checkout, with incomplete canonical startup changes.
-Read [progress](progress.md) and [handoff](handoff.md), then run `plan.py show CG-07`
-for canonical SDK/host/fleet cutover. Keep complete group closure, logical cell
+CG-01 through CG-12 and CG-14 are DONE at their declared scoped boundaries.
+Read [progress](progress.md) and [handoff](handoff.md) for the active implementation,
+and `plan.py show CG-17` for the new full primitive compatibility brief.
+Keep complete group closure, logical cell
 identity, uncertainty, managed admission and physical ownership intact. The public
-cutover and all CG-09 through CG-16 capabilities and release profiles remain
+cutover and the remaining CG-13/15/16/17 capabilities and release profiles remain
 required. No intermediate gate proves the final combined runtime.
 
 ### Historical implementation checkpoints
@@ -299,9 +300,13 @@ deliverable, not those implementation or deployment gates.
 | `qualification.md`, `profiles.json` | Fault oracles, fixed workload contracts, numerical candidate gates and evidence format |
 | `baseline.json` | Reviewed Cellar source hashes/excerpts and TiKV investigation pin |
 | `plan.py`, `test_plan.py` | Executable package validator, drift checks, task briefs and negative validation tests |
+| `tikv-informed-optimization.md` | Proposed direct routing, cache repair, physical cleanup and shared-worker optimization packages, building on accepted CG-11/12 foundations |
 
 The complete scope includes managed fleet integration, effect identity preservation
-through split/merge, and disaster recovery while a transfer is incomplete. These
+through split/merge, disaster recovery while a transfer is incomplete, and full
+public primitive compatibility under CG-17. The
+[compatibility matrix](qualification.md#full-primitive-compatibility-cg-17)
+requires ordinary SDK/host paths and the complete lifecycle fault envelope. These
 cannot be dropped to make a fixed-group demonstration count as full delivery.
 One-cell groups remain available through the same implementation for hot cells.
 

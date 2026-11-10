@@ -4,7 +4,7 @@
 
 Purpose: Physical group consensus over independent SQLite cells, identities and hard cutover.
 
-Status: target contract for CG-01 through CG-16; implementation in progress.
+Status: target contract for CG-01 through CG-17; implementation in progress.
 See [implementation progress](progress.md); no runtime cutover is qualified yet.
 Cellar baseline: `1be27d234d4674d4d014785c60cecbfe394bdab9`.
 TiKV investigation: `b3995dab28308f09cbb7c125bf32f789dbc203fe` in the supplied
@@ -40,6 +40,17 @@ The feature-off Fleet/bucket protocol and non-Raft applications keep their contr
 Full delivery includes split/merge, automatic placement, coordinated hibernation,
 materialized and extent images, managed and unmanaged namespaces, native/Axum
 ingress, alarms/outbox/inbox, group S3 reclamation and fenced disaster recovery.
+CG-17 additionally requires every public Cellar primitive to work through its
+normal SDK and host adapters after the per-cell Raft cutover. This includes
+Storage/SQL/KV, Queue, EventStream, Workflow, alarms/cron, Blob/Filesystem,
+HTTP/RPC, WebSockets and Container/sandbox bindings. Stateless utilities and
+ephemeral resources retain their documented behavior and regression coverage.
+CG-15 and CG-16 cannot close before this compatibility task is accepted; SQL-only
+coverage or an unsupported-capability exclusion does not satisfy full delivery.
+See the [primitive compatibility contract](qualification.md#full-primitive-compatibility-cg-17).
+The [TiKV-informed optimization proposal](tikv-informed-optimization.md) specifies
+further routing, cache repair, cleanup and shared-worker improvements on this
+architecture; its performance targets require separate evidence.
 TiKV transaction/MVCC APIs, SQL over multiple cells, geographic replication, online
 conversion of old one-cell storage and a claim of TiKV-equivalent performance are
 outside this package. No new consensus algorithm or raft-rs fork is needed.

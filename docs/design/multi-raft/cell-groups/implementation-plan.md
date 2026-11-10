@@ -2,16 +2,16 @@
 
 # Implementation order
 
-Purpose: Dependency order and status of the sixteen cell-group implementation tasks.
+Purpose: Dependency order and status of the 17 cell-group implementation tasks.
 
 Generated from `tasks.json`. Regenerate with `plan.py index` after status changes.
-**13 of 16 tasks are accepted**, covering **147 of 163 required cases**.
+**13 of 17 tasks are accepted**, covering **147 of 195 required cases**.
 The acceptance count includes only DONE tasks. A task closes after its dependencies
 and complete source-pinned evidence pass. The [open case audit](remaining-work.md#open-case-audit)
 tracks individual passes and remaining gates for pending tasks.
 The full release requires a combined run on one source revision.
 CG-07 gates the default shared-group backend for new SQL namespaces.
-CG-15 and CG-16 gate the full release.
+CG-17 requires full public primitive compatibility before CG-15 qualification and CG-16 cutover.
 
 Start with the [quorum SQL delivery priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next release gate and [progress](progress.md) for exact qualification results.
@@ -37,12 +37,17 @@ never executed by the plan runner. Read the [design](design.md),
 | CG-12 | Coordinate group hibernation and authority-checked wakeup | CG-08, CG-10, CG-11 | DONE | 5 | Accepted |
 | CG-14 | Build reproducible shared-group workload and RustFS harnesses | CG-07, CG-08 | DONE | 5 | Accepted |
 | CG-13 | Recover managed groups and incomplete transitions from S3 | CG-06, CG-09, CG-10, CG-11, CG-14 | IN_PROGRESS | 6 | Pending |
-| CG-15 | Qualify crashes, split merge, wake and zero-quorum recovery | CG-10, CG-11, CG-12, CG-13, CG-14 | IN_PROGRESS | 6 | Pending |
-| CG-16 | Publish the unified group runtime and qualified release envelope | CG-15 | TODO | 4 | Pending |
+| CG-17 | Deliver full public primitive compatibility on shared-group durability | CG-07, CG-08, CG-10, CG-12, CG-13, CG-14 | TODO | 32 | Pending |
+| CG-15 | Qualify crashes, split merge, wake and zero-quorum recovery | CG-10, CG-11, CG-12, CG-13, CG-14, CG-17 | IN_PROGRESS | 6 | Pending |
+| CG-16 | Publish the unified group runtime and qualified release envelope | CG-15, CG-17 | TODO | 4 | Pending |
 
 CG-01 through CG-08 establish the shared runtime and public cutover. CG-09 through
 CG-13 add movement, adaptive scheduling, hibernation and complete managed recovery.
 CG-08 adapts effects before CG-07 public cutover. CG-14 can proceed after CG-07;
 CG-13 requires its real-infrastructure harness.
+CG-17 completes public primitive adapters and their lifecycle matrix; implementation can
+begin after CG-07/08, while acceptance requires its remaining lifecycle dependencies.
+Its eight delivery packages start with inventory/evidence and the shared Storage/async
+execution foundation. Ordinary Fleet/bucket modes remain supported; Raft cannot fall back to them.
 CG-15 and CG-16 qualify the combined artifact. These milestones are not separate
 production architectures. No full delivery claim precedes the final gate.

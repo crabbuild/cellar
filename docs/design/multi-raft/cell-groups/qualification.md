@@ -252,6 +252,283 @@ and restart the fresh quorum on its new disks. Repeat before/after topology
 publication and after reclamation. Managed inventory/transition journal failures
 must fail closed. Unreconciled old-origin outbox work must remain refused.
 
+## Full primitive compatibility (CG-17)
+
+CG-17 is an implementation and qualification task. It starts TODO with no
+accepted cases; the existing SQL and effect tests do not establish this broader
+support. Its 32 exact cases are defined in `tasks.json` and displayed by
+`plan.py show CG-17`. Implementations of those planned cases are required
+outputs, not tests that this plan change has passed. CG-15 and CG-16 depend on
+CG-17; the validator rejects removal of the task, required cases or cutover
+dependencies.
+
+The completion contract is that every existing public Cellar primitive works
+through normal SDK declarations and host adapters on the shared runtime. Preserve
+public behavior, transaction boundaries, error types, authorization, ordering and
+retry semantics. Any necessary public API change needs an explicit contract
+review; a blanket UnsupportedCapability, smaller supported product scope or
+legacy per-cell fallback cannot satisfy compatibility. Unsupported configurations
+must still refuse activation while their implementation is incomplete.
+
+Build the inventory from all exports in `cellar::sdk`, their public application
+modules, built-in cell classes, bindings and supported feature modes. Each entry
+records public symbols/examples, the owning adapter, durable state and provider
+dependencies, minimum acknowledgement proof, ordering/deduplication contract,
+recovery behavior, tests and retained evidence. New exports must extend this
+inventory. Every entry must map to a stateful family below or an exercised
+stateless/ephemeral regression; unclassified entries fail the coverage oracle.
+
+| Family | Required public behavior and state |
+| --- | --- |
+| Storage, SQL and KV | Transactions, conditional updates, list/query semantics, rollback, consistency modes and command receipts; preserve separate boundaries for bindings to other cells or providers. |
+| Queue | Producers and consumer callbacks, delayed delivery, batch/lease generations, acknowledgement, retry, purge, retention and dead-letter transitions. |
+| EventStream and outbox/inbox | Transactional emission, lane ordering/sealing, replay, subscription checkpoints, delivery identity and atomic receiver receipts. |
+| Workflow | Creation, step results/journals, waits, timers, retries, streams, cancellation, retention and rollback. |
+| Alarms and cron | Durable due times, generations, cancellation, occurrence identities and history; execution resumes without a client request. |
+| Filesystem | SQLite-backed file data and metadata, file-plus-business transactions, descriptor/inode/cookie behavior, sync/fsync, quotas and revision-aware reclamation. |
+| Blob and external payloads | Public object conditions, ranges, checksums and multipart behavior; ordinary KV external values and provider volumes retain explicit publication, recovery, fencing and retention contracts. In-SQL Raft Blob values are a separate storage mechanism. |
+| HTTP, services, cell calls and RPC | Normal request/response, authorization, streaming, original deadlines, cancellation and explicit uncertain outcomes. |
+| WebSockets | Upgrades, callbacks, attachments/tags, auto-responses, hibernation and defined reconnect behavior under fenced ownership. |
+| Container, supervision and sandbox | Desired state, provider-enforced execution fencing, stable operation identity, restart and persistent storage recovery. |
+| Other SDK exports | Assets, cache, facets, loader, streams, sockets, HTML rewriting, codecs and utilities retain their public behavior and applicable feature regressions. Record which resources are ephemeral. |
+
+Use the existing replicated storage and effect services as the foundation.
+Ordinary async callbacks need an owned leader-side orchestration adapter that
+submits durable mutations through shared consensus. Keep synchronous SQL callbacks
+restricted and keep locks out of await points. Persist intent atomically with
+business state; schedule external work under current execution authority and
+settle results through replicated commands. Failover must rediscover pending work
+from committed state. Shared bounded schedulers, worker pools and due indexes
+must not become one worker, timer or open SQLite connection per idle cell.
+
+Compile declared primitive requirements into deployment validation before opening
+ingress. Validate request/envelope sizes, result/receipt capacity, client identity
+floors, scheduler metadata, images, archive dependencies and provider capabilities.
+For example, the signed inbox envelope has a 60 KiB bound: a SQL-only 1 KiB input
+profile must refuse that declaration, while an explicit sufficient bounded profile
+must run it. Never silently increase deployment quotas or weaken capacity checks.
+
+For every stateful family, the evidence matrix must contain:
+
+1. Normal public requests and retries after a response is lost following commit.
+   Verify business state independently, exact result identity, ordering and the
+   primitive's actual deduplication/lease rules.
+2. Actual leader process SIGKILL, partition/quorum loss, follower catch-up,
+   joined-member replacement and retained restart. Reject minority writes and
+   strong reads; exercise stale executor, callback and lease settlement.
+3. Whole-cell movement, split, merge, placement and parked wake with pending work,
+   including interrupted transition-controller operations. No work can disappear
+   or acquire a new identity merely because its physical group changes.
+4. Real RustFS outage, bounded archive debt, backend return, actual local log
+   reclamation and independent restoration of complete data/metadata/receipt and
+   payload closure. Newly live or elected leaders must attach their existing
+   archive binding without requiring an extra restart to unstrand S3 effects.
+5. Permanently fenced zero-quorum recovery after deleting all owned voter disks.
+   Establish fresh incarnations and quorum, reject old writers/tokens/grants,
+   verify the selected recovery cut and resume safe pending work.
+6. Cancellation, capacity saturation, ownership revocation and joined shutdown
+   during outstanding callbacks/provider operations, followed by recovery of
+   unfinished durable obligations.
+
+Run both materialized and extent images, managed and unmanaged namespaces,
+Quorum and explicit S3 durability, occupancy one and multiple cells per group,
+and at least two groups on the same nodes. Applicable SDK/native/Axum paths and
+CLI/admin lifecycle must use normal registration and adapters. Use the CG-14
+constrained RF3 process/RustFS harness and the real supported container provider
+for execution tests. Native component checks supplement this campaign. Missing
+providers or features cannot convert required cases into ignored or passing
+tests. Feature-off behavior remains covered by the workspace regression matrix.
+
+Quorum acknowledgements protect committed cell state; asynchronous archives may
+lag. Measure the Quorum-only suffix/RPO separately from the S3-protected recovery
+cut. Metadata replication alone cannot establish external payload durability.
+External delivery is at least once unless the receiver's own protocol supplies
+deduplication; arbitrary network effects are not universally exactly once.
+Cross-cell calls remain separate transactions even within one group. Sockets,
+streams, caches and process memory retain explicit transport/disposable semantics;
+test the promised reconnect/restart behavior without inventing continuity.
+
+After disaster recovery, old-origin effects with unknown outcomes require
+authenticated reconciliation or an explicit unresolved refusal that retains the
+work obligation. Never mint a new delivery identity to bypass ambiguity. A
+provider without the required fencing/reconciliation contract keeps that adapter
+unqualified and CG-17 open; stored metadata is not an execution proof.
+
+The complete-coverage case must check the SDK inventory against actual family ×
+scenario × configuration results, reject omissions/ignored/zero-selected tests,
+and bind public application binaries, source hashes, configuration, process/fault
+observations and state/effect ledgers to one source. Preserve failures and provider
+limitations. CG-15 repeats the matrix with its combined fault campaign; CG-16
+reruns all exact cases and the workspace/features release gates at the final
+source. No full compatibility or cutover claim precedes those gates.
+
+### Audit-driven delivery packages
+
+The 2026-11-07 audit identified integration and contract gaps beyond the original
+family-level cases. The eight packages below refine CG-17, not its completion
+scope. Their exact actions, test names and oracles are in `tasks.json`; the
+executor brief prints each package with its commands. All outputs and cases are
+planned work until implemented and evidenced. No acceptance status changes merely
+because this plan is more detailed.
+
+| Package | Delivery | Ordering |
+| --- | --- | --- |
+| CG17-01 | Public API/capability inventory, explicit coverage requirements, report schema and independent acceptance validator with negative fixtures | Begin now on the CG-07/08 foundations; establish proof before family ports |
+| CG17-02 | One shared activation/Storage backend, typed framework-operation authority, private transactions, receipts and output proof integration | After inventory contracts; reuse for every family |
+| CG17-03 | Async invocation/transaction/attempt state machine, nested work and external executor fencing/reconciliation | After the storage bridge; preserve synchronous SQL callback restrictions |
+| CG17-04 | Committed discovery and generation-specific settlement for every due-work reason, with clock and park/wake behavior | After storage and execution ownership |
+| CG17-05 | Normal Storage/SQL/KV/filesystem APIs and actual external payload publication/recovery/GC | After applicable storage/execution contracts; reuse existing conformance suites |
+| CG17-06 | Queue, EventStream and Workflow state machines, receipt horizons and schema/deployment changes | After storage, execution and work discovery; use payload support where required |
+| CG17-07 | Remaining public/provider adapters, native/Axum/daemon/CLI/admin wiring and Fleet/bucket/mixed-mode regression | After each adapter's foundations; assert the selected backend |
+| CG17-08 | Complete constrained RF3/RustFS/provider fault matrix, cancellation/resource proofs and release evidence | After packages 01–07 and every task-level lifecycle dependency |
+
+Package checkpoints permit parallel feature delivery; they do not mark CG-17 DONE.
+Its existing CG-07/08/10/12/13/14 acceptance dependencies remain. CG-15/16 still
+require the complete task. Do not wait for the final crash campaign to begin the
+shared Storage bridge or provider contracts.
+
+### Shared execution and proof contract
+
+The owning integration includes `cellar/application`, `cellar/runtime`,
+`cellar/storage`, `cellar/node`, `cellar/execution`, the pure core, SQLite/LTX/value
+adapters and supported language adapters. Changes belong beside those existing
+owners, not in one catch-all primitive dispatcher. Python/JavaScript feature
+regressions must preserve their supported contracts without pulling an optional
+language engine into the native core.
+
+Specify the invocation, transaction, attempt, command and external-operation
+identities and their Prepared/Submitted/Applied/Ambiguous transitions before
+implementing asynchronous adapters. Those names are semantic states to define,
+not APIs already delivered. Distinguish:
+
+- A synchronous local Storage/file operation returning to application code.
+- Private preparation and local transaction completion.
+- A quorum-committed and applied exact receipt.
+- Protected output or external dispatch released by its required proof.
+- Explicit sync/fsync and stronger S3 coverage.
+- An uncertain submitted operation retaining its original recovery obligation.
+
+Preserve ordinary nested/async transaction behavior: read-your-writes, child
+drainage, rollback/panic, reentrancy, escaped-view refusal and cancellation. Awaiting
+external work cannot publish half an atomic transaction, run I/O inside a
+replicated SQL callback or let an obsolete continuation settle under a new leader.
+Replaying one transaction is not permission to rerun an entire callback that
+already committed other transactions. A later pre-admission rejection describes
+only that attempt; it cannot clear earlier uncertainty.
+
+The common kernel reuses existing command/receipt, LTX, alarm and outbox/inbox
+owners. Built-in schemas and internal operations retain separate host-minted
+authority. Bind publish/read/consume/admin and provider grants to the correct
+origin, target and operation; caller arguments cannot mint internal provenance.
+Record transitive binding dependencies before activation. A caller's Quorum
+setting neither joins another binding's transaction nor proves its provider data.
+
+For external execution, define intent persistence, operation identity, execution
+fence, result settlement, provider lookup/reconciliation and idempotency horizon.
+Exercise callbacks that continue after timeout. A Workflow generation is not by
+itself a current leadership or infrastructure fence. An already transmitted
+arbitrary request cannot be unsent; preserve its documented at-least-once/unknown
+outcome. Require real provider enforcement only where that adapter promises it;
+otherwise report the weaker external contract explicitly without weakening the
+cell's replicated state proof.
+
+### Additional primitive-specific oracles
+
+The twelve audit-driven cases supplement all twenty original cases:
+
+| Contract | Additional oracle |
+| --- | --- |
+| Activation/Storage bridge | Actual shared-group histories and isolated private state; ordinary factory/storage handles cannot hide a Fleet implementation behind a Quorum response |
+| Async transactions/output gates | Hold work across awaits and leader replacement, including nested children and partial multi-transaction invocations; verify original identities and precise output boundaries |
+| External execution | Hold a provider request through timeout, movement and owner replacement; enforce or reconcile the original operation under its real provider contract |
+| Due work | Recover outbox, stream/resource/filesystem maintenance and sandbox cleanup plus Queue/Workflow/cron obligations without client requests; completing one installation preserves other deadlines |
+| Payload closure | Fault upload/reference/archive ordering; retain pending uploads, readers, checkpoints and older archive cuts; inspect actual restored bytes after newer values are replaced/deleted |
+| SQL/KV bindings | Use ordinary Database/Session/KV APIs; preserve session/bookmark, conditional revision, TTL, list/cursor, bulk/streamed-value and independent-provider semantics |
+| Filesystem | Reuse descriptor, inode, rename/unlink, offset, directory-cookie, sparse-chunk, transaction, sync/fsync and quota/GC conformance, including typed uncertain outcomes |
+| Receipt horizons | Explicit pruning, retention, partial batches/DLQ transfer, purge and delete/recreate; preserve documented ended-deduplication behavior and required identity floors |
+| Schema/deployment | Declare supported change/refusal protocols for primitive tables and application/Workflow definitions; incompatible deployments and stale executors cannot silently operate together |
+| Clocks/timers | Forward/backward wall changes, suspension and different leader clocks around leases, TTL, sleeps and cron; preserve monotonic request deadlines and generation fences |
+| Coverage rejection | Independently reject incomplete API/scenario/configuration reports, even if every top-level test name prints a pass |
+| Backend regressions | Explicit conformance factories for ordinary fleet and bucket durability, feature-off and supported mixed deployments; no requested Raft operation silently falls back |
+
+Keep SQLite-backed filesystem chunks separate from external Blob/KV references
+and provider volumes. Descriptor tokens are ephemeral even when their file data
+is durable. Workflow output chunks and EventStream records are durable state;
+ordinary network byte pipes are not. Fully qualified API identities prevent the
+word "stream" or "bucket" from collapsing these different contracts.
+
+Derive a feasible capability profile from the intersection of public application
+limits and actual envelope, result/receipt, private image, staging, worker,
+scheduler, archive and provider limits. Bounded profiles must accept valid
+applications and refuse intrinsically incompatible declarations before ingress.
+Neither `CellLimits::unrestricted()` nor an adapter port can increase hard Raft or
+deployment ceilings. Exhaustion must retain entered owners until joined completion.
+
+For schemas and deployments, distinguish an application/primitive change contract
+from conversion of existing Fleet data. Preserve normal supported SQL migration
+operations; explicitly refuse incompatible class/definition changes before
+activation when no reviewed transition exists. Do not infer a rolling upgrade
+protocol, add old format readers or waive pending obligations after undeploy.
+
+### Machine-readable inventory and acceptance evidence
+
+CG17-01 must create the following outputs; none is accepted runtime evidence just
+because its path is declared:
+
+- `primitive-inventory.json`: fully qualified public operations, built-in resource
+  classes, symbols/examples, feature conditions, owners and schemas, persistent
+  versus ephemeral state, permissions, provider/binding boundaries, acknowledgement
+  proof, ordering, retry/retention and recovery contracts.
+- `primitive-coverage-requirements.json`: the reviewed mandatory coverage cells
+  for that inventory and feature contract. Each cell has a stable ID, operation
+  set, family, scenario/fault cuts and configuration requirements. Applicability
+  derives from the public contract, never from which providers happened to run.
+- `primitive-coverage.schema.json`: strict format-1 report fields and bounded
+  types, distinguishing acceptance results from failed development attempts.
+- `tools/multi-raft/primitive_coverage.py` and its negative tests: the independent
+  validator called by the actual acceptance and release verifiers and CI.
+
+The report must bind the exact inventory/requirements digests, frozen source,
+public application and voter/CLI executable manifests, feature/provider settings
+and hashed command/ledger artifacts. Each required cell names the actual selected
+case and result, image form, namespace mode, durability minimum, occupancy/group
+topology, applicable public path and provider. Stateful cases also retain physical
+process/fault observations, required versus achieved proof, original request/
+effect identities and state/payload/resource reconciliation. Several cells may be
+covered by one real run, but every claimed cell must have its actual oracle and
+configuration evidence. A manually asserted coverage label is not enough.
+
+Compare the public export inventory with the supported build/deployment surfaces,
+including aliases, built-ins and applicable macro/feature-generated APIs. New or
+unclassified operations fail inventory validation. Pre-existing documented
+unsupported methods, such as an already unsupported utility operation, must be
+classified and have refusal regressions; that exception cannot omit a supported
+stateful family or excuse a missing new adapter.
+
+Negative fixtures must remove one required API/family/scenario/image/namespace/
+durability/feature/provider/path, duplicate or mislabel a cell, substitute an
+ordinary backend, skip/select zero tests, omit physical fault/payload evidence,
+corrupt hashes or mix source/binary revisions. All must refuse. Keep failed
+attempts without letting them satisfy acceptance. No mandatory cell becomes
+inapplicable because infrastructure is unavailable or a feature implementation is
+missing. Feature-off regressions are separate required observations.
+
+Integrate this validation into `plan.py check_evidence` for CG-17 and every
+CG-15/16 combined-source rerun. The current named-case checks and profile rules
+alone do not enforce this matrix; implementation of the independent report
+validation and its wiring remains required before task acceptance. The
+`primitives_complete_coverage_evidence` case must exercise that integration, not
+just call a checker in isolation. The plan's guards against removing cases,
+integration owners and output paths protect the delivery contract; they do not
+claim that the future coverage checker has already been implemented.
+
+Use backend factories to reuse existing public conformance suites. Explicitly
+exercise ordinary Fleet namespaces under both `fleet` and `bucket` durability,
+alongside supported feature-off/mixed deployments. Keep these modes supported.
+The forbidden fallback is acknowledging a requested Raft mutation through one of
+those weaker proof paths. Co-located and cross-group bindings retain their own
+transaction and provider boundaries in every mode.
+
 ## Task evidence
 
 Store local raw evidence under an ignored repository-relative directory, for

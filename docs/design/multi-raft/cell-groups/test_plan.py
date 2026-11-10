@@ -116,7 +116,7 @@ class PlanTests(unittest.TestCase):
 
     def test_current_contract_and_index(self):
         stats = self.contract()
-        self.assertEqual(stats["tasks"], 16)
+        self.assertEqual(stats["tasks"], 17)
         self.assertGreaterEqual(stats["required_cases"], 83)
         self.assertEqual(stats["invariants"], 14)
         self.assertEqual((plan.PACKAGE / "implementation-plan.md").read_text(), plan.index_text(self.actual_manifest))
@@ -139,6 +139,62 @@ class PlanTests(unittest.TestCase):
         order = plan.ordered(self.manifest["tasks"])
         self.assertLess(order.index("CG-08"), order.index("CG-07"))
         self.assertLess(order.index("CG-14"), order.index("CG-13"))
+        for tid in plan.PRIMITIVE_DEPENDENCIES:
+            self.assertLess(order.index(tid), order.index("CG-17"))
+        self.assertLess(order.index("CG-17"), order.index("CG-15"))
+        self.assertLess(order.index("CG-17"), order.index("CG-16"))
+
+    def test_primitive_task_and_release_dependencies_cannot_be_removed(self):
+        saved = copy.deepcopy(self.manifest)
+        self.manifest["tasks"] = [t for t in self.manifest["tasks"] if t["id"] != "CG-17"]
+        with self.assertRaisesRegex(plan.PlanError, "Incomplete task inventory"):
+            self.contract()
+        for tid in ("CG-15", "CG-16"):
+            self.manifest = copy.deepcopy(saved)
+            task = next(t for t in self.manifest["tasks"] if t["id"] == tid)
+            task["depends_on"].remove("CG-17")
+            with self.subTest(task=tid), self.assertRaisesRegex(plan.PlanError, "must gate qualification and cutover"):
+                self.contract()
+
+    def test_primitive_lifecycle_dependencies_cannot_be_removed(self):
+        saved = copy.deepcopy(self.manifest)
+        for dep in plan.PRIMITIVE_DEPENDENCIES:
+            self.manifest = copy.deepcopy(saved)
+            task = next(t for t in self.manifest["tasks"] if t["id"] == "CG-17")
+            task["depends_on"].remove(dep)
+            with self.subTest(dependency=dep), self.assertRaisesRegex(plan.PlanError, "compatibility requires"):
+                self.contract()
+
+    def test_primitive_family_case_cannot_be_removed_with_its_step(self):
+        saved = copy.deepcopy(self.manifest)
+        for name in plan.PRIMITIVE_CASES:
+            self.manifest = copy.deepcopy(saved)
+            task = next(t for t in self.manifest["tasks"] if t["id"] == "CG-17")
+            task["test_cases"] = [c for c in task["test_cases"] if c["name"] != name]
+            for step in task["steps"]:
+                step["tests"] = [case for case in step["tests"] if case != name]
+            task["steps"] = [step for step in task["steps"] if step["tests"]]
+            task["invariants"] = sorted({inv for c in task["test_cases"] for inv in c["invariants"]})
+            with self.subTest(case=name), self.assertRaisesRegex(plan.PlanError, "incomplete required primitive"):
+                self.contract()
+
+    def test_primitive_integration_owners_cannot_be_removed(self):
+        saved = copy.deepcopy(self.manifest)
+        for scope in plan.PRIMITIVE_INTEGRATION_SCOPE:
+            self.manifest = copy.deepcopy(saved)
+            task = next(t for t in self.manifest["tasks"] if t["id"] == "CG-17")
+            task["scope"].remove(scope)
+            with self.subTest(scope=scope), self.assertRaisesRegex(plan.PlanError, "missing primitive integration scope"):
+                self.contract()
+
+    def test_primitive_inventory_and_validator_outputs_cannot_be_removed(self):
+        saved = copy.deepcopy(self.manifest)
+        for output in plan.PRIMITIVE_CONTRACT_OUTPUTS:
+            self.manifest = copy.deepcopy(saved)
+            task = next(t for t in self.manifest["tasks"] if t["id"] == "CG-17")
+            task["creates"].remove(output)
+            with self.subTest(output=output), self.assertRaisesRegex(plan.PlanError, "missing primitive inventory/validator outputs"):
+                self.contract()
 
     def test_cycle_refuses(self):
         self.manifest["tasks"][0]["depends_on"] = ["CG-16"]
