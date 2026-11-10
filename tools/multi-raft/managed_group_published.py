@@ -89,7 +89,7 @@ class PublishedTransitionQualification(TransitionQualification):
         for child in children:
             leader=self.until(lambda:self.child_leader(child,True),60)
             self.child_step(common,child,'initialize_archive',leader)
-        self.grant_origins([row for row in self.model['nodes'] if row['generation']==0])
+        self.grant_origins([row for row in self.model['nodes'] if row['generation']==0],phase='published')
         for child in children:self.write_child_tail(child)
         basis=self.control('recovery-basis',{'step':'recovery_basis','operation':self.model['transition']})
         require(basis['publication_digest']==publication['publication_digest'] and len(basis['children'])==2,

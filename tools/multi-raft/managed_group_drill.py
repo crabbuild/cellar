@@ -204,7 +204,7 @@ class ManagedQualification(Qualification):
     def source_nodes(self):
         return [row for row in self.model['nodes'] if row['generation']==0 and row['index']<3]
 
-    def grant_origins(self, rows=None):
+    def grant_origins(self, rows=None, *, phase=None):
         rows=self.source_nodes() if rows is None else rows
         revision=self.client(rows[0]).call({'action':'observe'})['fleet_revision']
         for target in rows:
@@ -215,7 +215,8 @@ class ManagedQualification(Qualification):
                     'process':list(bytes.fromhex(origin['process'])),'label':origin['label'],
                     'server_name':'localhost','addresses':[origin['ip']+':'+str(port) for port in (17000,17001,17002)],
                     'read':True,'write':True}
-                self.event('grant/'+target['process']+'/'+origin['process'],payload,
+                prefix='grant/' if phase is None else 'grant/'+phase+'/'
+                self.event(prefix+target['process']+'/'+origin['process'],payload,
                     lambda:self.client(target).call(payload))
 
     def admit(self,row):

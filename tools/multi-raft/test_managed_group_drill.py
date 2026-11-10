@@ -12,6 +12,24 @@ from managed_group_deployment import profile
 
 
 class ManagedDrillTests(unittest.TestCase):
+    def test_permission_grants_have_distinct_phase_journals_without_reusing_mutations(self):
+        driver=object.__new__(ManagedQualification);driver.model={'events':{}};driver.save=Mock()
+        rows=[{'node':str(i+1).zfill(32),'disk':str(i+3).zfill(32),'process':str(i+5).zfill(32),
+               'label':'voter'+str(i),'ip':'172.20.0.'+str(11+i)} for i in range(2)]
+        revision=[8];mutations=[]
+        def call(request):
+            if request['action']=='observe':return {'fleet_revision':revision[0]}
+            mutations.append(request);return {'granted':True}
+        driver.client=Mock(return_value=Mock(call=Mock(side_effect=call)))
+        driver.grant_origins(rows);revision[0]=9
+        driver.grant_origins(rows,phase='published')
+        self.assertEqual(len(driver.model['events']),4)
+        self.assertEqual([request['revision'] for request in mutations],[8,8,9,9])
+        self.assertTrue(all(request['read'] and request['write'] for request in mutations))
+        with self.assertRaisesRegex(ValueError,'operation already entered'):
+            driver.grant_origins(rows,phase='published')
+        self.assertEqual(len(mutations),4)
+
     def test_vm_handoff_refuses_default_and_unscoped_contexts(self):
         self.assertEqual(profile('colima-cellar-multi-raft-owned'),'cellar-multi-raft-owned')
         for context in ('default','colima','colima-default','colima-cellar-multi-raft'):
