@@ -58,7 +58,7 @@ and its named RO/RL cases remain the acceptance contract:
 | OPT-05 | Load telemetry, reserve-aware placement and repeated release-scale movement; RL-06 |
 | OPT-06 | Measured scheduling fairness, batching and queue isolation; RL-07 |
 | OPT-07 | Optimized wake/transition/recovery routing; RL-08 and retained CG-13 gates |
-| OPT-08 | Combined-source public primitive, RustFS, constrained-process, fault and performance qualification |
+| OPT-08 | Combined-source full primitive, backend-fault, crash and performance qualification; selected local RustFS/daemon checks pass below |
 
 ## Direct-routing candidate
 
@@ -529,9 +529,10 @@ The executables, source overlay, all 43 attempts, checker logs, evidence and
 auditor are retained at `qualification/public-read-ledger-isolated-64b27b95`
 under the checkout's workspace target. Its `record.json` SHA-256 is
 `84af9fd5f9afd698a5f679520441c484a6df3058722dfa92d2125dde07cf329b`.
-This closes the selected public RO-11 functional oracle. Replica preference
-ranking, RO-10, current-source RustFS verification, broader OPT-03 acceptance
-and release qualification remain open.
+This closes the selected public RO-11 functional oracle. RustFS verification
+was pending at that native checkpoint and subsequently passed as recorded below.
+Replica preference ranking, RO-10, broader OPT-03 acceptance and release
+qualification remain open.
 
 ## Local container verification
 
@@ -600,6 +601,45 @@ RustFS objects, logs and voter disks remain available. Credentials stay outside
 source. This campaign used one VM and did not select standby or failed-voter
 repair. It does not close the failed native RO-09 run, public transition/fencing
 cases, performance gates, independent host/zone resilience or release acceptance.
+
+The current runtime/example source inputs were subsequently verified at committed
+checkpoint `1ef5385e97d6fccdc544fb067394b993a3b0dcb1`. Rust 1.98.1 for ARM64
+Linux built the daemon and operator CLI from a clean source archive with the
+locked dependency graph. The selected Colima profile, Engine identity and
+container limits remained the same. The runner independently matched the image's
+source manifest and both deployed binary digests before launching voters. The
+source-input digest is
+`64b27b9500ee75f666fcd762077cc0e0dc18a5018f9eb7d0ffa14806700452aa`,
+matching the 40-case native checkpoint above. The immutable image is
+`sha256:1b4334a7d084b754182188267ef6c940c29813cf6ada15f2303027bddf047eb3`.
+
+| Image mode | Current-source result | Fixture duration |
+| --- | --- | ---: |
+| Materialized | Passed | 79.509 seconds |
+| Extents | Passed | 93.455 seconds |
+
+Each mode passed all seven signed RustFS protocol operations, three live
+RustFS-backed node leases, native/Axum Quorum and S3 SQL, fresh-quorum wake,
+archive-write refusal and exact reconciliation, leader SIGKILL, retained-disk
+restart, maintenance stop/return/resume and quorum-loss refusal. Each mode
+retains five live voter/replacement cgroup samples and a separate joined
+SIGKILL observation. Every live sample confirms one CPU, 3 GiB memory and zero
+additional swap. The killed container exited 137; four other original/replacement
+containers exited zero. Both controllers exited zero and all voter containers
+are stopped. RustFS remains healthy and running; voter disks and remote objects
+remain available.
+
+`qualification/linux-daemon-1ef5385e97d6/` under the workspace target retains
+the source archive, Linux compiler identity, tested binaries, immutable image
+identity, build logs, mode reports, event ledgers, resource observations and
+artifact checksums. Its `managed-daemon/record.json` SHA-256 is
+`f8b757ba1610281ff247086e87780b65024e101c1caeb4f40a08742cf6ff53ab`.
+The source archive SHA-256 is
+`a294f50e957e01ed6327a09e602f06c781b7b59cf74fac8ef0538daaa433ea9e`.
+This closes the selected current-source constrained RustFS/daemon campaign.
+It preserves the one-VM limitation and does not select standby, failed-voter
+repair, independent failure domains, sustained performance or release gates.
+The intermittent host-native startup cause above remains unresolved.
 
 ## Validation
 
