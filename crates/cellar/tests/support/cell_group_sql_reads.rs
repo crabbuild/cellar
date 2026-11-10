@@ -4,6 +4,10 @@ use super::reconciliation::apply_through;
 use super::*;
 use raft::prelude::Entry;
 
+#[path = "cell_group_read_cohorts.rs"]
+mod cohorts;
+pub(crate) use cohorts::{invalidated as cohort_invalidated, run as cohort_reads};
+
 pub(super) async fn deadline(fixture: &RuntimeCluster, ms: u64) -> Result<u64> {
     fixture
         .cluster

@@ -961,7 +961,10 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
     sql::submission_rejections(rooted).await
 }
 
-pub(super) use sql::{coherent_reads, follower_linearizable, query_lifecycle, recent_source_reads};
+pub(super) use sql::{
+    coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable, query_lifecycle,
+    recent_source_reads,
+};
 
 pub(super) use sql::apply_images;
 

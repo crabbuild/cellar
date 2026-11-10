@@ -4,6 +4,7 @@
 
 mod leadership;
 mod park_deadlines;
+mod read_cohort;
 pub(super) mod reads;
 mod retirement;
 mod worker;

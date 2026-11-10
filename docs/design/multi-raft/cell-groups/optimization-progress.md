@@ -336,7 +336,23 @@ Materialized images observed three proven refusals before success; extents obser
 two. Both preserved the command identity, one callback, exact replay and zero
 probes, directory lookups and membership refreshes. Temporary instrumentation was
 removed. A fourth private case checks time reserved for progress and final
-execution without deadline renewal; combined final-source validation is pending.
+execution without deadline renewal.
+
+Final source `0bf9571506fe5207215cb8055cea739c3eeacd06` passed 83 selected
+regressions under the SDK CI test profile after all builds and static checks
+completed. This includes the complete SDK/native and SDK/Axum refresh-and-close
+matrix in both storage modes, the public overload/direct/election/catalog-outage
+cases, and selected routing, enrollment, receipt and wire regressions. Focused
+Clippy, formatting, layout, dependency isolation, documentation and all 42 plan
+tests passed. The source manifest digest is
+`10160068de81411681829c06df350994bb023acaaf6768e4513cd6709ea18644`.
+Source, test binaries, operator CLI and logs are retained outside the repository
+at `qualification/native-paced-routing-0bf95715` under this checkout's workspace
+target. Its `record.json` SHA-256 is
+`6a912e7262f6aad8cd3b170ec71fbb2d254ed7424726b80ee3d81d1e9a3f0478`;
+all 15 recorded artifact hashes were rechecked. These selected regressions do
+not close every RO-09 fault/load cut, any complete OPT package, or performance
+and release qualification.
 
 Artifact inspection found the preceding failing native startup runs used
 optimization level 0 and debug information level 2. The qualification guide and
@@ -346,6 +362,50 @@ settings, verify the emitted Cargo profiles, wait for all static checks and flus
 build writes before fixtures. Original timeouts, assertions and resource limits
 remain unchanged. This corrects the reproduction setup; it does not yet establish
 the cause of the earlier failures or supersede their failed results.
+
+## Fresh ReadIndex cohort candidate
+
+Adjacent already-queued linearizable cell reads may share one newly initiated
+barrier for the exact group history, term and applied configuration revision.
+Initiation seals the cohort; later arrivals need another barrier. Each logical
+read retains its original node/group reservation and absolute deadline, selects
+its own coherent target-cell image, and receives its own consumed authority and
+pin. Cancelling the first waiter leaves the shared context available to remaining
+members. Last-member removal discards correlation state. Term or configuration
+changes refuse pending selection. No lease or completed-barrier cache is added.
+
+The worker gathers at most 32 adjacent reads per group turn without crossing a
+non-read request. Original group and node banks still bound admission. Deferred
+barrier submission updates actual node read accounting and wakes the owner's
+Ready work immediately. Two counters distinguish RawNode submissions (including
+forward retries) from logical joins; neither counter grants read authority.
+
+Source manifest
+`986cbfd6d2318897b09730fae39e8368819480ab7e8f047ed76dfd56bfe91f43`
+passed 33 selected regressions under the SDK CI test profile. These include three
+private cohort tests, actual consensus tests in both storage modes for fresh
+arrival boundaries, cancellation and independent image pins, selected strong,
+follower, source-age, membership and query-lifecycle regressions, and all five
+public routing optimization cases. Focused Clippy, format/layout, dependency
+isolation, documentation and all 42 plan tests passed. Source patches, binaries
+and logs are retained at `qualification/read-cohort-candidate-986cbfd6` under
+this checkout's workspace target; its `record.json` SHA-256 is
+`afe4f8e1aa01585e4c9a5550fb1c1cba0935fc02ce269dadd040e59ac93b5d6d`.
+Four additional actual-consensus term/configuration invalidation cases passed
+in both storage modes, alongside eight companion barrier, pin-cleanup and
+follower-read cases. The corrected fixture uses the stored manifest's public
+membership-revision accessor; the preceding compile-only failure ran no tests
+and is retained separately. This 12-case run passed all six static checks at
+source manifest
+`48c54ec3943737d9a9663f466b3f846684424bda3a11e82225229949642ecaee`.
+Its source, executable and logs are retained at
+`qualification/read-cohort-invalidation-48c54ec3` under this checkout's workspace
+target. Comparing all source inputs with the 33-case campaign confirmed changes
+only in five test files; production inputs are identical.
+The retained 12-case `record.json` SHA-256 is
+`8c4d5e42d2b0bcae0e4345f0e18decdeee17ba8411f61c1104c6cee00ec4eeb2`.
+Replica preference ranking and the public SDK/native/Axum RO-11 oracle remain
+open; these component checks do not close OPT-03 or release qualification.
 
 ## Local container verification
 

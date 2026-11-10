@@ -157,11 +157,12 @@ impl Worker {
         domain: crate::asyncrt::DomainToken,
         events: mpsc::Sender<CellGroupRuntimeEvent>,
     ) -> Self {
+        let performance = log.performance();
         Self {
             log,
             output: Budget::new(options.max_event_bytes, options.max_events),
             proposals: Budget::new(options.max_request_bytes, options.max_requests),
-            cell_reads: reads::Reads::new(&options),
+            cell_reads: reads::Reads::new(&options, performance),
             options,
             domain,
             groups: BTreeMap::new(),
@@ -739,6 +740,7 @@ impl Worker {
                         } else {
                             match command {
                                 Command::Read(request) => {
+                                    let coalescible = request.kind.cell_linearizable();
                                     let now =
                                         self.domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
                                     self.cell_reads.start(
@@ -748,6 +750,36 @@ impl Worker {
                                         answer.take().expect("read reply"),
                                         now,
                                     );
+                                    if coalescible {
+                                        // Preserve queue order and the existing
+                                        // 32-item group envelope. Only adjacent,
+                                        // already admitted cell reads may join.
+                                        for _ in 1..32 {
+                                            if !group.deferred.front().is_some_and(|request| {
+                                                matches!(&request.command, Command::Read(read) if read.kind.cell_linearizable())
+                                            }) {
+                                                break;
+                                            }
+                                            let Request {
+                                                command: Command::Read(read),
+                                                reply,
+                                                ..
+                                            } = group
+                                                .deferred
+                                                .pop_front()
+                                                .expect("queued cohort read")
+                                            else {
+                                                unreachable!("checked cohort read");
+                                            };
+                                            self.cell_reads.start(
+                                                history,
+                                                &mut group.owner,
+                                                *read,
+                                                reply,
+                                                now,
+                                            );
+                                        }
+                                    }
                                     Ok(Response::Unit)
                                 }
                                 Command::Execution(cell) => group
@@ -1166,13 +1198,23 @@ impl Worker {
             made |= self.cell_reads.progress(
                 now,
                 &self.domain,
-                |history, request, term, barrier, context, retry| {
+                |history, request, term, barrier, context, retry, cohort| {
                     let group = self
                         .groups
                         .get_mut(&history)
                         .ok_or(RuntimeError::NotFound)?;
                     if let Some(error) = &group.failed {
                         return Err(error.clone());
+                    }
+                    if let Some(expected) = cohort {
+                        let status = group.owner.status()?;
+                        if expected.history != history
+                            || expected.term != status.term
+                            || expected.configuration
+                                != group.owner.manifest().marker().membership_revision()
+                        {
+                            return Err(RuntimeError::NotLeader);
+                        }
                     }
                     match &request.kind {
                         reads::ReadKind::Cell(cell, consistency) => {
@@ -1188,7 +1230,19 @@ impl Worker {
                                 if term.is_none()
                                     || status.leader != Some(group.owner.membership_read_origin())
                                 {
+                                    if term.is_none()
+                                        && self.reads >= self.options.max_pending_reads
+                                    {
+                                        return Err(RuntimeError::Overloaded);
+                                    }
                                     group.owner.read_forwarded_cell_index(context.to_vec())?;
+                                    // Cohorts initiate after the ordinary group
+                                    // turn. Account the actual RawNode entry
+                                    // before another group's cohort can enter.
+                                    let reads = group.owner.usage().2;
+                                    self.reads = self.reads - group.usage.2 + reads;
+                                    group.usage.2 = reads;
+                                    group.wake(history, &mut self.order);
                                     *term = Some(status.term);
                                 }
                             }

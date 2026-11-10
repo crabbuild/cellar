@@ -2111,6 +2111,9 @@ impl CellGroupOwner {
             return Err(RuntimeError::Overloaded);
         }
         self.node.read_index(context);
+        self.log
+            .performance()
+            .increment(crate::raft::performance::Counter::CellReadBarriers, 1);
         Ok(())
     }
 

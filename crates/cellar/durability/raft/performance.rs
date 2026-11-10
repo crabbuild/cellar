@@ -238,9 +238,11 @@ pub(crate) enum Counter {
     CellMembershipBackgroundObservations,
     CellMembershipDiscoveryOwners,
     CellMembershipRefreshJoins,
+    CellReadBarriers,
+    CellReadCohortJoins,
 }
 
-const COUNTERS: [Counter; 52] = [
+const COUNTERS: [Counter; 54] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -293,6 +295,8 @@ const COUNTERS: [Counter; 52] = [
     Counter::CellMembershipBackgroundObservations,
     Counter::CellMembershipDiscoveryOwners,
     Counter::CellMembershipRefreshJoins,
+    Counter::CellReadBarriers,
+    Counter::CellReadCohortJoins,
 ];
 
 impl Counter {
@@ -300,6 +304,8 @@ impl Counter {
         match self {
             Self::CellMembershipDiscoveryOwners => "cell_membership_discovery_owners",
             Self::CellMembershipRefreshJoins => "cell_membership_refresh_joins",
+            Self::CellReadBarriers => "cell_linearizable_read_barriers",
+            Self::CellReadCohortJoins => "cell_linearizable_read_cohort_joins",
             Self::CellCommandDirectoryLookups => "cell_command_directory_lookups",
             Self::CellMembershipBackgroundObservations => "cell_membership_background_observations",
             Self::CellMembershipRefreshes => "cell_membership_demand_refreshes",
