@@ -76,19 +76,31 @@ pub(super) async fn run(domain: &ExecutionDomain, options: &Options) -> Result<(
                 == config.rooted,
         "exact namespace and image mode required"
     );
-    let store = AmazonS3Builder::new()
+    let builder = AmazonS3Builder::new()
         .with_endpoint(&config.endpoint)
         .with_bucket_name(&config.bucket)
         .with_region("us-east-1")
         .with_access_key_id(&config.access)
         .with_secret_access_key(&config.secret)
         .with_allow_http(true)
-        .with_conditional_put(S3ConditionalPut::ETagMatch)
-        .build()?;
-    let store = Arc::new(PrefixStore::new(store, config.prefix.as_str()));
+        .with_conditional_put(S3ConditionalPut::ETagMatch);
+    let store = Arc::new(PrefixStore::new(
+        builder.clone().build()?,
+        config.prefix.as_str(),
+    ));
+    // Preserve lost conditional-write replies for exact SDK reconciliation.
+    let cas = Arc::new(PrefixStore::new(
+        builder
+            .with_retry(object_store::RetryConfig {
+                max_retries: 0,
+                ..Default::default()
+            })
+            .build()?,
+        config.prefix.as_str(),
+    ));
     let bucket = Bucket::from_clients(
-        store.clone(),
         store,
+        cas,
         Arc::new(NoListing),
         StorageBackend::S3,
         config.bucket,
