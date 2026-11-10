@@ -2606,17 +2606,17 @@ async fn check_recovered_sql(
                     && archived.witness.group == history
                     && archived.durability == Durability::S3
             );
-            Box::pin(disaster_effects::verify_recovered(
-                sql.uncertain.as_ref(),
-                old_cell,
-                &handle,
-            ))
-            .await?;
             positions.push((history, archived.witness.position.index));
         }
     }
     ensure!(positions.len() == sql.routed.len());
-    preparation::wait_transfer_applied(&hosts, &positions).await
+    preparation::wait_transfer_applied(&hosts, &positions).await?;
+    Box::pin(disaster_effects::verify_recovered(
+        sql.uncertain.as_ref(),
+        &hosts,
+        plan,
+    ))
+    .await
 }
 
 async fn start_recovery_voter(
