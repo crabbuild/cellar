@@ -18,7 +18,69 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
-## CG-13 checkpoint: published children, S3 tails and cached source routing
+## CG-13 checkpoint: routed SQL and four-run RustFS recovery
+
+At `320a40ce`, the unmodified managed recovery driver passes both publication
+states and image formats on one Linux image and executable:
+
+| Recovery source | Image format | Whole-workflow duration | Checks |
+| --- | --- | ---: | ---: |
+| Published children | Extents | 191.612 s | 21 |
+| Published children | Materialized | 203.165 s | 21 |
+| Unpublished parent | Materialized | 249.344 s | 16 |
+| Unpublished parent | Extents | 146.378 s | 16 |
+
+Each run permanently fences and deletes all five source voter disks, refuses
+old restart attempts, restores on a different actual VM host, commits fresh
+genesis/quorum and verifies SQL/receipts, old-token refusal, fresh S3 writes,
+retained restart, retirement and joined shutdown. Published runs restore both
+children, including their newer S3 tails; unpublished runs restore the parent.
+All checks pass and every surviving container exits 0 without OOM. Durations
+include VM setup/handoff and are not request latency measurements.
+
+The SDK now repairs sealed-source routing before mutation transmission. A
+separate discovery gap is also fixed: published transfer children remain
+`Reserved` in Fleet until retirement, so both caller and membership-inspection
+receiver verify the exact owned publication and selected birth. Actual serving
+still requires activation, fresh quorum and explicit origin permission. General
+enrollment and partition authorization remain restricted to live histories.
+The existing receiver control budget covers the additional metadata reservation.
+
+The public SDK regression passes both image forms in 69.06 s. It warms handles
+on the source leader, replays original receipts through both children, issues
+fresh writes and verifies linearizable and minimum-version reads before Fleet
+promotion. It also checks that generic group authorization still refuses those
+reserved children. This focused native run uses test optimization level 0 with
+debug/overflow assertions; the complete release-profile/native CG-13 matrix
+remains pending. The source SDK is unchanged from the strict Clippy pass at
+`c184af43`; formatting, layout, docs, dependencies, all 47 controller tests,
+42 plan tests and full plan validation pass at `320a40ce`.
+
+Image: `sha256:4016044f1c6fbcccdf2c48749ebea3e163ac20bd81ee10ed416aadf5762ef8dc`.
+Linux binary SHA-256:
+`9d7add55dc696970d9b43b1176ce0ef5afcf8be0f016a4d29e35412abc241b1e`.
+Source-manifest SHA-256:
+`454d2f7f3e3aed25c29792d370720438228470a0af1718530f018d9d354b80fa`.
+
+Evidence is hash-verified in both checkouts under
+`.cellar/cell-groups-evidence/CG-13-published-320a40ce-`,
+`CG-13-unpublished-320a40ce-` and `CG-13-routed-sql-320a40ce-checkpoint-01`.
+Failed controls and the explicitly unqualified diagnostic remain retained.
+The checkpoint scans 51 generated credential values with no matches; private
+configurations, signing keys and launch ledgers are excluded. Both owned VMs
+are stopped and the default VM is unchanged.
+
+Scope remains Counter, one namespace and two VMs on one Mac. Voters retain one
+CPU/3 GiB/no extra swap; RustFS one CPU/2 GiB; the S3 bridge one CPU/1 GiB and
+32 connections. Declared disk capacity is not a filesystem quota. These are
+functional drills, not load or independent-hardware qualification.
+
+Next close all six current-source CG-13 cases, including merged-child closure,
+external-effect ambiguity and the retained archive/failure controls. Then deliver
+CG-17 compatibility, CG-15 combined qualification and CG-16 hard cutover.
+Acceptance remains **13/17 tasks, 147/195 cases**.
+
+## Earlier CG-13 checkpoint: published children, S3 tails and cached source routing
 
 Published recovery now restores both selected child histories on one fresh RF3
 cohort. Each voter prepares, seeds and explicitly releases one range before

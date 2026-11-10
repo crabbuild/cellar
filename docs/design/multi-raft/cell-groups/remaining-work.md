@@ -10,16 +10,15 @@ CG-01–17 objective in [tasks.json](tasks.json), [design](design.md) and
 [qualification](qualification.md). See [progress](progress.md) for exact source
 and validation boundaries and [handoff](handoff.md) for executor context.
 
-Follow-up PR [#166](https://github.com/crabbuild/cellar/pull/166) now qualifies
-managed unpublished-split recovery at `b4dd07b5`: permanent Docker fencing and
-deletion of all five source voter disks, a fresh RF3 cohort on another VM,
-restored SQL/receipts and serving operations pass both real RustFS image modes.
-This advances the recovery workflow without accepting the complete CG-13 matrix.
-Published two-range recovery also passes the normal materialized driver at
-`497f1e51` and an extent-mode diagnostic at `66c38fd2`. The latter includes newer
-S3 tails from both children. A cached-source native forwarding regression still
-refuses; resolving it and passing the unmodified four-run gate are the immediate
-request-path priorities. See the latest [checkpoint](progress.md).
+Follow-up PR [#166](https://github.com/crabbuild/cellar/pull/166) passes the normal
+published/unpublished recovery driver in both real RustFS image modes at
+`320a40ce`. All four runs permanently fence and delete five source disks, restore
+fresh RF3 service on another VM and verify SQL/receipts, fresh S3 writes, retained
+restart, retirement and joined shutdown. Published recovery restores both child
+histories and newer S3 tails. Source-cached SDK handles also pass fresh writes,
+linearizable reads and minimum-version reads before child Fleet promotion.
+The complete six-case CG-13 matrix remains open. See [progress](progress.md) for
+exact pins, profiles and scope.
 
 ## Current boundary
 
@@ -128,7 +127,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | --- | --- | --- |
 | CG-11 | **Accepted: 5/5 cases and ten commands at `ddb545e4`.** Six focused regressions and the full 64-cell/seven-group native/RustFS workflow pass in both image modes. | Functional acceptance is closed. Release-scale profiles remain CG-15/16. |
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
-| CG-13 | At `b4dd07b5`, independent managed Docker voters/controllers pass unpublished-split recovery in both RustFS image modes: admission/archive/seal, durable intent, permanent fencing and deletion of all five source disks, a different actual replacement VM, fresh genesis/quorum, restored SQL/receipts, old-token refusal, fresh S3 writes, retained restart, retirement and joined close. Failed controls and causal probes are retained. | Resolve cached-source forwarding and pass the normal four-run gate; address the earlier native merged-child/retirement/archive failures within original bounds. Pass all six cases, including external-effect ambiguity, on one clean source. The unpublished-split pass does not establish the complete recovery gate. |
+| CG-13 | At `320a40ce`, the normal managed Docker driver passes published/unpublished recovery in both RustFS image modes on one image. Every run fences and deletes five source disks, restores fresh RF3 SQL/receipts, refuses old tokens, acknowledges fresh S3 writes and passes retained restart, retirement and joined close. Published runs restore both children with newer tails. Cached-source SDK writes and strong reads pass before Fleet promotion. | Pass all six exact current-source native/RustFS cases, including merged-child closure and external-effect ambiguity. Address the retained archive/failure controls within original bounds. The four scoped Counter drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
 | CG-17 | TODO; no primitive compatibility cases are accepted. Existing SQL and alarm/outbox/inbox gates remain scoped foundations. The audit refines delivery into eight packages and 32 required cases. | Begin inventory/evidence enforcement and the shared activation/Storage/async execution foundation. Complete due work, provider fencing, payload closure, public binding/filesystem semantics, retention/schema/time rules and all primitive adapters, then pass the complete matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). Preserve ordinary Fleet/bucket regressions; missing providers or unsupported families keep the task open. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
@@ -150,10 +149,10 @@ are accepted natively at `2cd71d32`. The next feature priorities are:
 1. **Finish CG-13 interrupted-transition recovery from S3.** The independent
    managed Docker unpublished-split workflow now passes both image modes at
    `b4dd07b5`, including permanent fencing, deletion of all five source disks,
-   fresh genesis/quorum and serving SQL/receipts. Published child tails and
-   two-range seeding are implemented with sequential preparation and explicit
-   release under the unchanged one-operation pool. Resolve cached-source
-   forwarding, then pass both publication states and image modes on one source.
+   fresh genesis/quorum and serving SQL/receipts. At `320a40ce`, published child
+   tails, two-range recovery and both unpublished controls pass on one image.
+   Preparations remain sequential with explicit release under the unchanged
+   one-operation pool. Cached-source writes and strong reads now pass too.
    Reproduce and fix the earlier native merged-child, retirement and archive
    liveness failures within the original bounds. Then qualify all six cases on
    one clean source: closure selection, permanent revocation, fresh histories/

@@ -17,41 +17,37 @@ recovery entries below.
 
 ## Current CG-13 disk-erasure recovery delivery
 
-At `b4dd07b5`, the normal managed Docker driver passes unpublished-split recovery
-against real RustFS in both image modes on the same image and Linux executable.
-It covers managed admission/archive/seal, persisted intent and SDK-bound permanent
-fencing, SIGKILL and deletion of all five historical voter disks, replacement on
-a different actual VM host, three fresh seeds, committed activation, settlement,
-directory completion, serving release and retained serving startup. Restored
-SQL/receipts, old-token refusal, fresh S3 writes, another retained restart,
-retirement and joined shutdown pass. See [progress](progress.md) for exact pins,
-durations, resource limits, retained failures and evidence.
+At `320a40ce`, the normal managed Docker driver passes published and unpublished
+split recovery in both real RustFS image formats on one image/binary. Published
+runs restore both child histories with newer S3 tails; unpublished runs restore
+the parent. Every run permanently fences and deletes all five source voter disks,
+refuses old restart attempts, restores on a different actual VM, commits fresh
+quorum and verifies SQL/receipts, old-token refusal, fresh S3 writes, retained
+restart, retirement and joined shutdown. See [progress](progress.md) for exact
+pins, durations, resource limits and retained failures.
 
-Pending-recovery owners remain non-serving after release. Reopen their retained
-disks under current Fleet/serving authority before waiting for readiness. Never
-reattach them through the pending-recovery path for serving, and never reboot or
-read after an unknown release. The regression suite covers these boundaries.
-Do not weaken the old-host exclusion: source and replacement use actual different
-Docker daemon identities. The two VMs remain on one Mac; hardware independence
-is not qualified. Both owned VMs and actors are stopped, and the default VM is
-unchanged.
+Source-cached SDK handles now pass receipt replay, fresh writes and linearizable/
+minimum-version reads before child Fleet promotion. Discovery and its receiver
+verify the exact owned publication and birth while children remain reserved;
+actual serving still requires activation/quorum and explicit origin grants.
+General enrollment and partition authority remain live-history-only. The focused
+native case uses optimization level 0; complete release-profile qualification
+remains open.
 
-Published child tails and two-range recovery are now implemented. The normal
-materialized driver passes at `497f1e51`; the extent-mode diagnostic at `66c38fd2`
-passes after sealed-source routing repair. Preparations remain sequential under
-the unchanged one-operation pool, with explicit release after a known seed reply
-and two bounded exact-release receipts. Do not replace this with parallel
-preparations or release inputs after an unknown reply. See the latest
-[checkpoint](progress.md) for proof and limits.
+Preparations remain sequential under the one-operation recovery pool. Release
+inputs only after the known seed result, and retain two bounded exact-release
+receipts. Unknown seed replies retain their original inputs. Serving release
+never thaws pending-recovery owners: join and restart them with current Fleet and
+serving authority. Preserve old-host exclusion and real Docker daemon identities.
+The two VMs remain on one Mac; independent hardware is not qualified. Both owned
+VMs/actors are stopped and the default VM is unchanged. Evidence and failed
+controls are hash-verified in both checkouts, excluding credentials and keys.
 
-Next resolve the native cached-source forwarding regression and pass the normal
-published/unpublished driver in both image modes on one clean source. Preserve
-immutable per-history requests, seed commitments, fence checks and current boot
-authorization. Reproduce and fix the
-earlier native merged-child/retirement/archive liveness controls within their
-original bounds, then pass all six CG-13 cases including outbox ambiguity on one
-clean source. CG-17/15/16 and full hard cutover remain open; the implementation
-index correctly remains 13/17 accepted tasks and 147/195 accepted cases.
+Next pass all six exact current-source CG-13 cases, including merged-child and
+outbox ambiguity recovery plus the retained native archive/failure controls.
+Then deliver CG-17 compatibility, CG-15 combined qualification and CG-16 hard
+cutover. Acceptance remains 13/17 tasks and 147/195 cases; no full-release claim
+follows from the four scoped Counter drills.
 
 ## Earlier CG-13 source cohort and controller checkpoint
 
