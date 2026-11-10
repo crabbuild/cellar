@@ -813,6 +813,14 @@ impl CellGroupOwner {
     pub(super) fn routing_status(
         &self,
     ) -> Result<(CellGroupStatus, Option<ParkGeneration>), RuntimeError> {
+        self.live()?;
+        // A sealed source can retain its Raft leader for archive/retirement
+        // work, but that leader is no longer an application destination.
+        // Refuse this read-only observation before mutation transmission so
+        // the original routing session refreshes placement within its budget.
+        if self.current.marker().source_seal().is_some() {
+            return Err(RuntimeError::NotReady);
+        }
         let generation = self
             .parked
             .map(ParkGeneration::get)
