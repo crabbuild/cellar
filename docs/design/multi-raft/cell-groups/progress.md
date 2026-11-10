@@ -13,6 +13,60 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: signed permanent fences and component launch revocation
+
+At `044f7c9b`, `CellGroupPermanentFenceAuthority` supplies the public pinned-key
+receipt verifier for shared-group and managed transition recovery. Its 129-byte
+format-1 receipt binds the exact request and a controller inventory commitment.
+Weak keys, changed scope/inventory, invalid signatures and the old qualification
+receipt format refuse. A key-only instance can verify the winning persisted
+receipt; fencing requires an explicitly supplied valid controller receipt.
+The controller remains responsible for the permanent infrastructure fence.
+
+The Docker launcher now durably revokes every selected generation before
+checking inventory completeness. It includes obsolete/retained launches beyond
+the minimum voter roster, serializes restarts with revocation, resumes partial
+deletion and refuses certification while any old container/disk or unresolved
+launch remains. A real Docker boundary probe covers seven processes across two
+generations, one retained offline launch, a lost deletion reply resumed by a new
+controller process, and a fresh-generation restart positive control. These idle
+processes qualify the controller boundary, not Raft recovery.
+
+Three public receipt tests, thirteen controller tests, focused strict Clippy,
+format/layout, dependency and documentation checks pass; one explicit Docker
+configuration test is skipped. Managed closure recovery and outbox ambiguity
+pass both image modes natively (357.614 / 195.111 seconds) and against real RustFS
+(472.502 / 258.506 seconds), using the same retained native executable. Native
+recovery uses the public verifier after joined source-disk erasure. The successor
+`96100c8e` restores one Python entry-point import; Rust/Cargo/fixture inputs and
+native executable hashes are unchanged, with dependency-file proof retained.
+
+At `96100c8e`, the actual three-voter Docker/RustFS shared-group disk-loss drill
+also passes both image modes (30.522 / 26.652 seconds). It erases all three source
+voter disks, refuses old restarts/tokens, restores all three cells and receipts,
+activates fresh quorum, completes new writes and checks retained restart. Voters
+and operators have one CPU/3 GiB, RustFS one CPU/2 GiB, with no extra swap. The
+owned backend and VM are stopped; objects and new disks remain retained.
+
+Records under `.cellar/cell-groups-evidence/`:
+
+- `CG-13-permanent-fence-044f7c9b-native-01/record.json`
+- `CG-13-permanent-fence-044f7c9b-controller-01/record.json`
+- `CG-13-permanent-fence-96100c8e-docker-01/record.json`
+- `CG-13-permanent-fence-96100c8e-closure-rustfs-01/record.json`
+- `CG-13-permanent-fence-96100c8e-outbox-rustfs-01/record.json`
+
+The entry-point failure before voter launch is retained separately at
+`CG-13-permanent-fence-044f7c9b-entrypoint-red-01`. No deadline, resource bound,
+profile, recovery reserve or assertion is weakened.
+
+CG-13 remains `IN_PROGRESS`: bind the managed intent's physical voter lineages
+to the complete Docker launch inventory, then qualify the full managed
+transition recovery in independent voter processes. The current managed voters
+are host-native; the Docker recovery drill is an unmanaged shared group. Neither
+establishes independent physical domains, sustained load or the CG-15/16 release
+gate. CG-11 remains functionally closed.
+
 ## CG-13 checkpoint: isolate uncertain outbox origins after recovery
 
 Production change `9fa5d932` authenticates the complete stored request before
