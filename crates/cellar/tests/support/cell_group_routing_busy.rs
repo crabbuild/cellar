@@ -47,16 +47,20 @@ pub(super) async fn exercise(cluster: &nodes::Cluster, callbacks: &AtomicUsize) 
     let ingress = &cluster.managed.hosts[INGRESS];
     let cell = ingress.cell(history.clone())?;
     let increment = cell.contract("Increment")?;
-    let client = ClientId::new([204; 16])?;
     let retry = u64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_millis(),
     )? + 60_000;
-    let options = |sequence, durability| CommandOptions {
+    // Each concurrently submitted command has its own client. A single client
+    // must submit sequences in order; this drill is about destination capacity.
+    let options = |ordinal: u8, durability| CommandOptions {
         durability,
         timeout: TIMEOUT,
-        ..CommandOptions::new(CommandId::new(client, sequence).unwrap(), retry)
+        ..CommandOptions::new(
+            CommandId::new(ClientId::new([204 + ordinal; 16]).unwrap(), 1).unwrap(),
+            retry,
+        )
     };
     let warm = cell
         .command(
