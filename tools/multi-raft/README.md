@@ -587,8 +587,10 @@ no voter membership or permission to bypass SDK serving admission.
 `CELLAR_GROUP_ACTION=managed-node` starts a real SDK `Node` and `RaftCells` with
 the existing managed namespace declaration and an owned engine. Set
 `CELLAR_GROUP_CONFIG` to a private configuration and `CELLAR_GROUP_DATA` to its
-absolute data directory. Set `CELLAR_GROUP_RETAINED=true` only for an existing
-engine. Boot identities come from the configuration; leave the older numeric
+absolute data directory. The required configuration field `retained` must be
+`true` only for an existing engine and `false` for fresh storage. Copy an explicit
+new configuration while the container is stopped for retained restart; its
+environment does not select this managed mode. Boot identities come from the configuration; leave the older numeric
 node/generation flags at zero. The [configuration](node/managed_voter/configuration.rs)
 requires explicit S3 roots/credentials, the compiled Counter contract, node/disk/
 process IDs, advertised peer endpoints, private TLS paths and an independently
@@ -640,6 +642,46 @@ cannot bypass that assignment. The client refuses redirects, ignores ambient
 proxies and never automatically retries a mutation. Ordinary Counter SDK reads
 default to linearizable consistency; writes require Quorum or explicit S3 proof.
 Missing groups or quorum refuse admission.
+
+### Managed Docker source cohort
+
+`managed_group_drill.py` supplies the source side of the managed recovery drill.
+Build `Dockerfile` from a clean committed source with a checkout-specific
+`TARGET_CACHE_ID` as above, then pass its immutable image ID:
+
+```sh
+python3 tools/multi-raft/managed_group_drill.py \
+  --context colima-cellar-multi-raft-my-run --image "$image" \
+  --mode materialized --port-base 19800 \
+  --output /tmp/cellar-managed-source-001
+```
+
+Repeat with `--mode extents` and a fresh output directory. The dedicated VM needs
+at least six CPUs and 14.5 GiB memory. Three voters each have one CPU, 3 GiB and
+no additional swap; RustFS has one CPU and 2 GiB. The colocated `Nodes` policy is
+explicit; all voters report the same Docker host identity. Capacity admission
+binds actual cgroup settings and measured usage to the running SDK boot/profile.
+The one-GiB disk budget is declared deployment capacity, not a filesystem quota.
+
+The `managed-bootstrap` process explicitly initializes new SDK Fleet/namespace
+roots and returns the actual compiled schema, capability and namespace digests.
+Ordinary managed opens cannot initialize missing roots. Separate
+`managed-recovery` processes register nodes and reserve, publish and archive the
+first shared group. Each voter independently verifies rooted startup and capacity.
+The controller grants namespace reads/writes explicitly; membership supplies no
+application permission. The three startup waiters enter concurrently under one
+durable assignment/fencing lock. The driver then checks three S3-durable SQL
+cells in one physical group, minimum-token reads at every ingress, retained
+restart with new process IDs, original receipt replay and joined SDK shutdown.
+Only config and peer TLS snapshots enter stopped containers; the fencing key and
+launch ledger stay with the controller. Request identities are persisted before
+entry; lost mutations are retained for reconciliation without automatic retry.
+
+This is a source-cohort gate. Its report keeps `full_dr_completed: false`;
+transition preparation, permanent revocation, complete source-disk deletion and
+the positive managed seed-to-serving flow still require their combined gate.
+It establishes no throughput, independent-host resilience or full primitive
+compatibility claim.
 
 The process regression is
 `process::rustfs_managed_voter_process_boot_restart_and_stop` in

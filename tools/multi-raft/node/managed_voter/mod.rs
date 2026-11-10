@@ -82,7 +82,7 @@ pub(super) async fn run(domain: Arc<ExecutionDomain>, options: &Options) -> Resu
     );
     let path = options.data.join("node");
     ensure!(
-        options.retained == path.join("raft").exists(),
+        config.retained == path.join("raft").exists(),
         "explicit fresh/retained engine mode required"
     );
     let node = startup::node(&config, path, application.clone()).await?;
@@ -93,7 +93,7 @@ pub(super) async fn run(domain: Arc<ExecutionDomain>, options: &Options) -> Resu
             &bucket,
             &catalog,
             application,
-            options.retained,
+            config.retained,
         )
         .await?;
         let listener = TcpListener::bind((config.bind, config.api_port)).await?;
@@ -172,7 +172,7 @@ async fn terminate() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-fn counter() -> Result<RaftClass> {
+pub(super) fn counter() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [81; 32])?
         .initializer([82; 32], |_, sql| {
             sql.execute_batch(

@@ -25,6 +25,17 @@ enum Action {
     ActivateNode {
         request: RaftFleetNodeCapacity,
     },
+    GrantOrigin {
+        revision: u64,
+        node: [u8; 16],
+        disk: [u8; 16],
+        process: [u8; 16],
+        label: String,
+        server_name: String,
+        addresses: [std::net::SocketAddr; 3],
+        read: bool,
+        write: bool,
+    },
     Start {
         group: [u8; 16],
         incarnation: [u8; 16],
@@ -160,6 +171,8 @@ impl State {
                 Ok(
                     json!({"node":self.config.node, "process":self.config.process,
                     "boot":view.fleet_boot, "groups":view.node.groups,
+                    "catalog_id":self.control.catalog_id(),
+                    "namespace_digest":hex::encode(self.control.namespace_digest(&self.config.namespace().namespace_id)?),
                     "fleet_revision":revision, "installed_revision":view.fleet_trust_revision,
                     "registered_histories":view.registered_histories,
                     "unattached_engine_histories":view.unattached_engine_histories,
@@ -208,6 +221,66 @@ impl State {
                     json!({"leader":status.leader, "ready":status.ready, "term":status.term.get(),
                     "applied":status.applied.index.get(), "committed":status.committed.get()}),
                 )
+            }
+            Action::GrantOrigin {
+                revision,
+                node,
+                disk,
+                process,
+                label,
+                server_name,
+                addresses,
+                read,
+                write,
+            } => {
+                ensure!(
+                    read || write,
+                    "explicit namespace operation permission required"
+                );
+                self.cells
+                    .inspect_peer_node(NodeId::new(self.config.node)?, revision, turn.remaining()?)
+                    .await?;
+                let observed = self
+                    .cells
+                    .inspect_peer_node(NodeId::new(node)?, revision, turn.remaining()?)
+                    .await?;
+                let boot = observed
+                    .view
+                    .fleet_boot
+                    .context("missing authenticated origin boot")?;
+                ensure!(
+                    boot.node == node && boot.disk == disk && boot.process == process,
+                    "namespace origin differs from its authenticated current boot"
+                );
+                let peer = RaftPeerNode {
+                    node: NodeId::new(node)?,
+                    disk: DiskLineage::new(disk)?,
+                    process: ProcessGeneration::new(process)?,
+                    label,
+                    server_name,
+                    control_address: addresses[0],
+                    data_address: addresses[1],
+                    query_address: addresses[2],
+                };
+                let cluster = ClusterId::new(id(&self.config.connection.cluster_id)?)?;
+                let namespace = NamespaceId::new(id(&self.config.namespace().namespace_id)?)?;
+                if read {
+                    self.cells.grant_query_origin(NamespaceQueryOrigin {
+                        cluster,
+                        namespace,
+                        revision,
+                        peer: peer.clone(),
+                    })?;
+                }
+                if write {
+                    self.cells.grant_command_origin(NamespaceCommandOrigin {
+                        cluster,
+                        namespace,
+                        revision,
+                        peer,
+                    })?;
+                }
+                Ok(json!({"read":read,"write":write}))
             }
             Action::Start { group, incarnation } => {
                 let history = self.history(group, incarnation)?;

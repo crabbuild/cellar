@@ -8,6 +8,7 @@ This adapter does not initialize catalogs, invent capacity attestations or sign
 fences. The Docker driver must separately qualify those platform operations.
 """
 import ipaddress
+from concurrent.futures import ThreadPoolExecutor
 import json
 import urllib.error
 import urllib.parse
@@ -28,14 +29,21 @@ class VoterFailure(RuntimeError):
         self.outcome = reply.get('outcome', 'unknown') if isinstance(reply, dict) else 'unknown'
 
 
+class VoterCohortFailure(VoterFailure):
+    def __init__(self, outcomes):
+        super().__init__('incomplete cohort startup; reconcile every original voter/history')
+        self.outcomes = outcomes
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *_args, **_kwargs):
         return None
 
 
 class ManagedVoter:
-    def __init__(self, launcher, generation, container, endpoint, token, process):
+    def __init__(self, launcher, generation, container, endpoint, token, process, *, catalog, namespace):
         identifier(process, 16)
+        self.catalog, self.namespace = identifier(catalog, 32), identifier(namespace, 32)
         require(isinstance(token, str) and len(token) == 64
                 and all(c in '0123456789abcdef' for c in token), 'invalid private voter bearer')
         address = urllib.parse.urlsplit(endpoint)
@@ -53,7 +61,10 @@ class ManagedVoter:
                     if row['generation'] == generation and row['container_id'] == container]
             require(len(rows) == 1 and container is not None, 'unknown managed voter launch')
             identity = physical_identity(rows[0]['identity'])
+            require(any(key.startswith(catalog+'/'+namespace+'/') for key in value['deployments'][str(generation)]),
+                    'voter namespace was not declared')
         self.launcher, self.generation = launcher, generation
+        self.container = container
         self.endpoint, self.token, self.process = endpoint.rstrip('/'), token, process
         self.identity = identity
         self.client = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
@@ -91,6 +102,7 @@ class ManagedVoter:
             raise VoterFailure('unknown voter outcome; reconcile the original operation') from error
 
     def _assigned(self, catalog, namespace, group, incarnation, action):
+        require((catalog, namespace) == (self.catalog, self.namespace), 'different configured voter namespace')
         history = {'group': identifier(group, 16), 'incarnation': identifier(incarnation, 16)}
         return self.launcher.assign_histories(self.generation, catalog, namespace, [history],
                                               lambda: self._request(action))
@@ -100,6 +112,47 @@ class ManagedVoter:
             'action': 'start', 'group': list(bytes.fromhex(group)),
             'incarnation': list(bytes.fromhex(incarnation)),
         })
+
+    @staticmethod
+    def start_cohort(voters, catalog, namespace, group, incarnation):
+        """Enter all RF3 startup barriers under one durable assignment/fence lock.
+
+        Each SDK call waits for fresh quorum. Serializing those calls individually
+        prevents peers from reaching that quorum. The bounded batch keeps the
+        same revocation exclusion while admitting all three possible writers.
+        """
+        require(len(voters) == 3 and all(isinstance(voter, ManagedVoter) for voter in voters),
+                'three managed voters required')
+        first = voters[0]
+        require(all((voter.catalog, voter.namespace) == (catalog, namespace) for voter in voters),
+                'different configured voter namespace')
+        require(all(voter.generation == first.generation
+                    and voter.launcher.path.resolve() == first.launcher.path.resolve()
+                    and voter.launcher.run_id == first.launcher.run_id for voter in voters),
+                'one managed deployment cohort required')
+        require(len({voter.container for voter in voters}) == 3
+                and len({voter.identity['node'] for voter in voters}) == 3
+                and len({voter.identity['disk'] for voter in voters}) == 3,
+                'distinct cohort writers required')
+        history = {'group': identifier(group, 16), 'incarnation': identifier(incarnation, 16)}
+        action = {'action': 'start', 'group': list(bytes.fromhex(group)),
+                  'incarnation': list(bytes.fromhex(incarnation))}
+
+        def enter(voter):
+            try:
+                return {'node': voter.identity['node'], 'result': voter._request(action)}
+            except VoterFailure as error:
+                return {'node': voter.identity['node'], 'error': {
+                    'status': error.status, 'outcome': error.outcome, 'reply': error.reply}}
+
+        def invoke():
+            with ThreadPoolExecutor(max_workers=3) as workers:
+                outcomes = list(workers.map(enter, voters))
+            if any('error' in value for value in outcomes):
+                raise VoterCohortFailure(outcomes)
+            return outcomes
+
+        return first.launcher.assign_histories(first.generation, catalog, namespace, [history], invoke)
 
     def prepare_seed(self, catalog, namespace, group, incarnation):
         return self._assigned(catalog, namespace, group, incarnation, {

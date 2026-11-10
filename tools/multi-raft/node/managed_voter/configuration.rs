@@ -8,6 +8,7 @@ use std::net::{IpAddr, SocketAddr};
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Configuration {
+    pub retained: bool,
     pub endpoint: String,
     pub bucket: String,
     pub prefix: String,

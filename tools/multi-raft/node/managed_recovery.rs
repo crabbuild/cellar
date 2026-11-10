@@ -27,6 +27,19 @@ struct Configuration {
 #[serde(tag = "step", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
     Describe,
+    RegisterNode {
+        request: RaftFleetRegisterNode,
+    },
+    FirstStandby,
+    FirstReserve {
+        plan: RaftFleetFirstGroupPlan,
+    },
+    FirstPublish {
+        request: RaftFleetFirstGroupPublish,
+    },
+    FirstArchive {
+        request: RaftFleetFirstGroupMutation,
+    },
     Stage {
         selection: RaftFleetTransitionRecoverySelection,
         replacements: Vec<Replacement>,
@@ -140,13 +153,17 @@ pub(super) async fn run(domain: &ExecutionDomain, options: &Options) -> Result<(
                 "recovery command deadline expired; reconcile the original command"
             ))
         });
+    reply(result, &config.access, &config.secret)
+}
+
+pub(super) fn reply(result: Result<Value>, access: &str, secret: &str) -> Result<()> {
     match result {
         Ok(value) => output(json!({"managed_recovery":"ok", "result":value})),
         Err(error) => {
             let typed = error.downcast_ref::<RaftFleetFailure>();
             let message = format!("{error:#}")
-                .replace(&config.access, "[REDACTED]")
-                .replace(&config.secret, "[REDACTED]");
+                .replace(access, "[REDACTED]")
+                .replace(secret, "[REDACTED]");
             output(json!({"managed_recovery":"error",
                 "code":typed.map(|failure| failure.code).unwrap_or(RaftFleetFailureCode::Unavailable),
                 "outcome":typed.map(|failure| failure.outcome).unwrap_or(RaftFleetOutcome::Unknown),
@@ -181,7 +198,42 @@ async fn execute(
     let namespace = &config.namespace_id;
     match &config.command {
         Command::Describe => Ok(json!({"catalog_id":control.catalog_id(),
-            "namespace_id":namespace, "image_storage":config.connection.namespaces[0].image_storage})),
+            "namespace_id":namespace, "namespace_digest":hex::encode(control.namespace_digest(namespace)?),
+            "image_storage":config.connection.namespaces[0].image_storage})),
+        Command::RegisterNode { request } => {
+            let admission = control
+                .register_node(&config.principal, request.clone(), turn.remaining()?)
+                .await?;
+            Ok(json!({"admission":admission}))
+        }
+        Command::FirstStandby => Ok(serde_json::to_value(
+            control
+                .first_group_standby(namespace, turn.remaining()?)
+                .await?,
+        )?),
+        Command::FirstReserve { plan } => {
+            let admission = control
+                .reserve_first_group(&config.principal, namespace, plan, turn.remaining()?)
+                .await?;
+            Ok(serde_json::to_value(admission)?)
+        }
+        Command::FirstPublish { request } => {
+            let admission = control
+                .publish_first_group(&config.principal, namespace, request, turn.remaining()?)
+                .await?;
+            Ok(serde_json::to_value(admission)?)
+        }
+        Command::FirstArchive { request } => {
+            let admission = control
+                .initialize_first_group_archive(
+                    &config.principal,
+                    namespace,
+                    request,
+                    turn.remaining()?,
+                )
+                .await?;
+            Ok(serde_json::to_value(admission)?)
+        }
         Command::Stage {
             selection,
             replacements,

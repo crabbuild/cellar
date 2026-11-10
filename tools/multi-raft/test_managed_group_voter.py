@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import group_disaster
 from managed_group_fence import ManagedLauncher
-from managed_group_voter import ManagedVoter, VoterFailure
+from managed_group_voter import ManagedVoter, VoterFailure, VoterCohortFailure
 from test_managed_group_fence import history, identity, lineage, request, word
 
 
@@ -21,7 +21,7 @@ class ManagedVoterTests(unittest.TestCase):
         self.launcher.declare(0, word(1, 32), word(2, 32), [history(10)])
         container = self.launcher.launch(0, 'voter', 'disk', lambda: 'a'*64, identity=identity(4))
         self.voter = ManagedVoter(self.launcher, 0, container, 'http://127.0.0.1:8080',
-                                  word(80, 32), word(81))
+                                  word(80, 32), word(81), catalog=word(1,32), namespace=word(2,32))
 
     def test_assignment_precedes_unknown_prepare_and_is_reloaded_for_fencing(self):
         def lost(_action):
@@ -71,6 +71,51 @@ class ManagedVoterTests(unittest.TestCase):
         self.assertEqual(wire.get_header('X-cellar-node'), identity(4)['node'])
         self.assertEqual(wire.get_header('X-cellar-disk'), identity(4)['disk'])
         self.assertEqual(wire.get_header('X-cellar-process'), word(81))
+
+    def test_cohort_start_enters_all_quorum_waiters_after_one_durable_assignment(self):
+        import threading
+        entered = threading.Barrier(3)
+        voters = [self.voter]
+        for offset in (1, 2):
+            container = self.launcher.launch(0, 'voter'+str(offset), 'disk'+str(offset),
+                lambda offset=offset: ('b' if offset == 1 else 'c')*64, identity=identity(4+offset))
+            voters.append(ManagedVoter(self.launcher, 0, container,
+                'http://127.0.0.1:'+str(8080+offset), word(80, 32), word(81+offset),
+                catalog=word(1,32), namespace=word(2,32)))
+
+        def start(_):
+            self.assertEqual(len(self.launcher.read()['deployments']['0']), 2)
+            entered.wait(timeout=2)
+            return {'attached': True}
+        for voter in voters:
+            voter._request = Mock(side_effect=start)
+        outcomes = ManagedVoter.start_cohort(voters, word(1, 32), word(2, 32), word(12), word(13))
+        self.assertEqual(len(outcomes), 3)
+        for voter in voters:
+            voter._request.assert_called_once()
+
+        voters[0]._request = Mock(side_effect=VoterFailure('lost startup response'))
+        for voter in voters[1:]:
+            voter._request = Mock(return_value={'attached': True})
+        with self.assertRaises(VoterCohortFailure) as caught:
+            ManagedVoter.start_cohort(voters, word(1, 32), word(2, 32), word(14), word(15))
+        self.assertEqual(len(caught.exception.outcomes), 3)
+        self.assertEqual(caught.exception.outcome, 'unknown')
+        self.assertEqual(len(self.launcher.read()['deployments']['0']), 3)
+        self.assertEqual(voters[0]._request.call_count, 1)
+
+    def test_cohort_start_refuses_duplicate_writers_before_sending(self):
+        self.voter._request = Mock(side_effect=AssertionError('duplicate writer admitted'))
+        with self.assertRaisesRegex(ValueError, 'distinct cohort'):
+            ManagedVoter.start_cohort([self.voter]*3, word(1, 32), word(2, 32), word(12), word(13))
+        self.voter._request.assert_not_called()
+
+    def test_physical_assignment_rejects_a_different_namespace_digest(self):
+        self.voter._request = Mock(side_effect=AssertionError('namespace binding bypassed'))
+        with self.assertRaisesRegex(ValueError, 'different configured voter namespace'):
+            self.voter.prepare_seed(word(1,32), word(3,32), word(12), word(13))
+        self.assertEqual(len(self.launcher.read()['deployments']['0']), 1)
+        self.voter._request.assert_not_called()
 
 
 if __name__ == '__main__':

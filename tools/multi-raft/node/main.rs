@@ -4,6 +4,7 @@
 //! This is qualification infrastructure, not production deployment policy.
 #![allow(clippy::disallowed_methods)]
 mod config;
+mod managed_bootstrap;
 mod managed_operator;
 mod managed_recovery;
 mod managed_store;
@@ -36,6 +37,9 @@ async fn main() -> Result<()> {
         .run(async {
             if options.action == "managed-node" {
                 return managed_voter::run(domain.clone(), &options).await;
+            }
+            if options.action == "managed-bootstrap" {
+                return managed_bootstrap::run(&domain, &options).await;
             }
             if options.action == "managed-recovery" {
                 return managed_recovery::run(&domain, &options).await;

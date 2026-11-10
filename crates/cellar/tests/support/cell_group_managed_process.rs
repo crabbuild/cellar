@@ -111,7 +111,7 @@ async fn voter(
             group_directory: Default::default(),
         }],
     };
-    let config = json!({"endpoint":store.endpoint, "bucket":store.bucket, "prefix":store.prefix,
+    let config = json!({"retained":retained, "endpoint":store.endpoint, "bucket":store.bucket, "prefix":store.prefix,
         "access":store.access, "secret":store.secret, "bucket_prefix":"tenant/",
         "connection":connection, "principal":"managed-test", "token":hex::encode([121;32]),
         "node":f.spec.node.bytes(), "disk":f.spec.disk.bytes(), "process":vec![generation;16],
