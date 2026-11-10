@@ -1625,6 +1625,17 @@ async fn recover_selected(
     ensure!(confirmed.intent_digest() == parent_intent.digest());
     let locked = domain.run(directory.observe()).await??;
     ensure!(locked.digest() == confirmed.directory_digest());
+    let (portable, challenge) = Box::pin(recovery_control.transition_recovery_challenge(
+        principal,
+        &namespace,
+        &parent_intent,
+        TIMEOUT,
+    ))
+    .await?;
+    let portable: cellar::sdk::fleet_operations::RaftFleetTransitionRecoverySelection =
+        serde_json::from_slice(&serde_json::to_vec(&portable)?)?;
+    let challenge: serde_json::Value = serde_json::from_slice(&challenge)?;
+    ensure!(challenge["request_digest"] == portable.fence_digest);
     let authority = TransitionFence::own(
         domain.clone(),
         &cluster.fixtures,
@@ -1632,6 +1643,24 @@ async fn recover_selected(
         &mut cluster.nodes,
         &mut cluster.hosts,
     )?;
+    let absent = Box::pin(
+        recovery_control
+            .reopen_fenced_transition_recovery(principal, &portable, &authority, TIMEOUT),
+    )
+    .await;
+    ensure!(matches!(absent, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+    let mut changed = portable.clone();
+    changed.fence_digest = hex::encode([99; 32]);
+    let refused = Box::pin(
+        recovery_control
+            .fence_selected_transition_recovery(principal, &changed, &authority, TIMEOUT),
+    )
+    .await;
+    ensure!(
+        matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::PayloadConflict)
+    );
+    ensure!(authority.fences.load(Ordering::Acquire) == 0);
+    ensure!(authority.verifications.load(Ordering::Acquire) == 0);
     let foreign = Box::pin(recovery_control.fence_transition_recovery(
         "foreign-operator",
         &namespace,
@@ -1647,14 +1676,10 @@ async fn recover_selected(
         .store
         .fail_recovery_record_confirmation
         .store(true, Ordering::Release);
-    let unknown = Box::pin(recovery_control.fence_transition_recovery(
-        principal,
-        &namespace,
-        &recovery_operation,
-        confirmed,
-        &authority,
-        TIMEOUT,
-    ))
+    let unknown = Box::pin(
+        recovery_control
+            .fence_selected_transition_recovery(principal, &portable, &authority, TIMEOUT),
+    )
     .await;
     ensure!(matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
     ensure!(!fixture
@@ -1674,14 +1699,9 @@ async fn recover_selected(
         crate::managed_fixture::verifier::open(fixture, cold_workspace.path(), rooted, limits)
             .await?;
     let fresh = fresh.with_transition_preparer(cold_verifier, preparation::recovery_pool()?);
-    let fenced = Box::pin(fresh.fence_transition_recovery(
-        principal,
-        &namespace,
-        &recovery_operation,
-        confirmed,
-        &authority,
-        TIMEOUT,
-    ))
+    let fenced = Box::pin(
+        fresh.reopen_fenced_transition_recovery(principal, &portable, &authority, TIMEOUT),
+    )
     .await?;
     let fenced = Arc::new(fenced);
     ensure!(fenced.request().barrier() == confirmed);
@@ -1698,6 +1718,24 @@ async fn recover_selected(
         .eq(parent_holds.iter()));
     ensure!(authority.fences.load(Ordering::Acquire) == 1);
     ensure!(authority.verifications.load(Ordering::Acquire) == 2);
+    if std::env::var_os("CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT").is_some() {
+        let cohort = if uncertain.is_some() {
+            "disaster-outbox"
+        } else if publication.is_some() {
+            "disaster-child-tails"
+        } else {
+            "disaster-parent-cuts"
+        };
+        Box::pin(fence::verify_rustfs_operator(
+            fixture,
+            &portable,
+            principal,
+            cohort,
+            rooted,
+            fenced.receipt_digest(),
+        ))
+        .await?;
+    }
     let cut = fleet.read(TIMEOUT).await?;
     Box::pin(fence::check_old_boot_refused(fixture)).await?;
     ensure!(fleet.read(TIMEOUT).await?.revision() == cut.revision());

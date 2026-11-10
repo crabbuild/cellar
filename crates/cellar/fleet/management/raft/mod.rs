@@ -31,6 +31,7 @@ pub use partition_service::{
     RaftFleetPartitionService, RaftFleetPartitionServiceOptions, RaftFleetPartitionServiceStatus,
 };
 mod records;
+mod recovery_selection;
 mod transition;
 mod transition_admission;
 mod transition_child;
@@ -71,6 +72,7 @@ pub use records::{
     RaftFleetAcceptance, RaftFleetBegin, RaftFleetCancel, RaftFleetMovement, RaftFleetMovements,
     RaftFleetOperation, RaftFleetStatus,
 };
+pub use recovery_selection::RaftFleetTransitionRecoverySelection;
 use std::{sync::Arc, time::Duration};
 pub use transition::{
     RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,

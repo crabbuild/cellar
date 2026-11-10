@@ -4,6 +4,7 @@
 //! This is qualification infrastructure, not production deployment policy.
 #![allow(clippy::disallowed_methods)]
 mod config;
+mod managed_operator;
 mod physical;
 mod recovery;
 mod service;
@@ -27,10 +28,13 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<()> {
     let options = Options::load()?;
-    let config = Arc::new(Config::load(&options.config)?);
     let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
     let result = domain
         .run(async {
+            if options.action.starts_with("managed-") {
+                return managed_operator::run(&domain, &options).await;
+            }
+            let config = Arc::new(Config::load(&options.config)?);
             match options.action.as_str() {
                 "node" => service::run(domain.clone(), config.clone(), &options).await,
                 "seed" => recovery::seed(&domain, &config, &options).await,

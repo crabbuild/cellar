@@ -484,6 +484,47 @@ by the managed native/RustFS fixture to verify actual SDK challenges and compare
 their independently decoded minimum against the owned voters. It is not itself
 a physical fence. Full managed Docker voter recovery remains a separate gate.
 
+### Managed operator process handoff
+
+`RaftFleetControl::transition_recovery_challenge` selects the exact retained
+intent's directory barrier, independently replays the selected archives and
+returns a `RaftFleetTransitionRecoverySelection` plus the controller challenge.
+Retain both before stopping the operator. The selection contains only catalog,
+namespace, operation and intent/directory/fence digests. It grants no authority.
+The controller authenticates its expected digest separately and maps the bound
+histories to its historical launch inventory as described above.
+
+`fence_selected_transition_recovery` checks every selector before invoking the
+configured fencing authority. `reopen_fenced_transition_recovery` instead
+requires the already persisted winning receipt, replays the S3 closure and
+verifies the receipt with the configured authority. It never calls `fence`,
+selects a barrier or creates a missing receipt. A receiving voter/operator needs
+its own private replay stores; no in-memory proof or serving pin is transported.
+Reopening after serving release uses the later attach/retirement APIs instead.
+
+The disposable `cellar-perf-cell-group` executable exposes these process steps:
+
+```sh
+CELLAR_GROUP_ACTION=managed-challenge \
+CELLAR_GROUP_CONFIG=/private/run/operator.json \
+CELLAR_GROUP_DATA=/private/run/replay-a \
+cellar-perf-cell-group
+```
+
+Use `managed-fence` to confirm the external controller's 129-byte certificate,
+or `managed-reopen` with only the independently pinned public key to reopen the
+persisted receipt. Each invocation opens existing Fleet/namespace roots from an
+explicit `RaftFleetConnection`, explicit loopback/RustFS credentials and isolated
+store/bucket prefixes. It does not initialize a fleet or admit a replacement.
+The [operator implementation](node/managed_operator.rs) defines the private
+configuration; the [RustFS interoperability fixture](../../crates/cellar/tests/support/cell_group_managed_transition_fence.rs)
+constructs it without exposing credentials in output. Do not mount the controller
+signing key or launch ledger in this process. Use a fresh private replay directory
+for each cold verification and keep credential configuration out of evidence.
+
+This operator bridge still needs the managed voter-side seed, attach, activation
+and serving-release driver before the complete independent-Docker CG-13 gate.
+
 ## Cell-group transition contracts
 
 CG-09 uses `native_cell_groups_transitions`. Its current required cases cover

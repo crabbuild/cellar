@@ -9,6 +9,107 @@ use std::{collections::BTreeSet, path::PathBuf, sync::atomic::AtomicUsize};
 
 type PhysicalVoter = (NodeId, DiskLineage, IncarnationId);
 
+/// A new executable process opens only the real RustFS roots, exact serialized
+/// selectors and pinned public key. No in-memory authority or replay pins cross
+/// that boundary; its key-only adapter cannot initiate a physical fence.
+pub(super) async fn verify_rustfs_operator(
+    fixture: &Fixture,
+    selected: &cellar::sdk::fleet_operations::RaftFleetTransitionRecoverySelection,
+    principal: &str,
+    cohort: &str,
+    rooted: bool,
+    receipt: [u8; 32],
+) -> Result<()> {
+    use serde_json::json;
+    let config = json!({
+        "rooted": rooted,
+        "endpoint": std::env::var("CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT")?,
+        "bucket": std::env::var("CELLAR_CELL_GROUPS_RUSTFS_BUCKET")?,
+        "prefix": format!("{}/{cohort}/{}", std::env::var("CELLAR_CELL_GROUPS_RUSTFS_PREFIX")?,
+            if rooted {"extents"} else {"materialized"}),
+        "access": std::env::var("AWS_ACCESS_KEY_ID")?,
+        "secret": std::env::var("AWS_SECRET_ACCESS_KEY")?,
+        "bucket_prefix": "tenant/",
+        "connection": {
+            "cluster_id":hex::encode(fixture.declaration.namespace.cluster.bytes()),
+            "incarnation_id":hex::encode([80;16]),
+            "coordination_prefix":"hosts/",
+            "namespaces":[{
+                "namespace_id":selected.namespace_id,
+                "schema_digest":hex::encode(fixture.declaration.namespace.schema_digest),
+                "catalog_prefix":"managed/", "scope":"store_root", "managed":true,
+                "image_storage":if rooted {"extents"} else {"materialized"},
+                "group_directory":DirectoryLimits::default(),
+            }]
+        },
+        "principal":principal,
+        "namespace_id":selected.namespace_id,
+        "operation_id":selected.operation_id,
+        "intent_digest":selected.intent_digest,
+        "selection":selected,
+        "fence_public":SigningKey::from_bytes(&[147;32]).verifying_key().to_bytes(),
+        "certificate":[],
+    });
+    let expected = selected.clone();
+    fixture
+        .domain
+        .blocking(move || -> Result<()> {
+            let root = tempfile::tempdir()?;
+            for variant in ["valid", "foreign-key", "changed-selection"] {
+                let mut config = config.clone();
+                if variant == "foreign-key" {
+                    config["fence_public"] = json!(SigningKey::from_bytes(&[148; 32])
+                        .verifying_key()
+                        .to_bytes());
+                } else if variant == "changed-selection" {
+                    config["selection"]["fence_digest"] = json!(hex::encode([99; 32]));
+                }
+                let path = root.path().join(format!("{variant}.json"));
+                use std::{fs::OpenOptions, io::Write as _};
+                let mut options = OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt as _;
+                    options.mode(0o600);
+                }
+                options
+                    .open(&path)?
+                    .write_all(&serde_json::to_vec(&config)?)?;
+                let result =
+                    std::process::Command::new(env!("CARGO_BIN_EXE_cellar-perf-cell-group"))
+                        .env("CELLAR_GROUP_ACTION", "managed-reopen")
+                        .env("CELLAR_GROUP_CONFIG", path)
+                        .env("CELLAR_GROUP_DATA", root.path().join(variant))
+                        .env("CELLAR_GROUP_GENERATION", "0")
+                        .env("CELLAR_GROUP_NODE", "0")
+                        .env("CELLAR_GROUP_RETAINED", "false")
+                        .output()?;
+                if variant == "valid" {
+                    ensure!(
+                        result.status.success(),
+                        "cold managed operator failed: {}",
+                        String::from_utf8_lossy(&result.stderr)
+                    );
+                    let report: serde_json::Value = serde_json::from_slice(&result.stdout)?;
+                    ensure!(
+                        report["selection"] == serde_json::to_value(&expected)?
+                            && report["receipt_digest"] == hex::encode(receipt)
+                            && report["ranges"].as_u64().is_some_and(|n| n > 0),
+                        "different cold recovery proof"
+                    );
+                } else {
+                    ensure!(
+                        !result.status.success() && result.stdout.is_empty(),
+                        "invalid cold recovery inputs accepted"
+                    );
+                }
+            }
+            Ok(())
+        })?
+        .await?
+}
+
 struct Sources {
     owners: BTreeSet<PhysicalVoter>,
     nodes: Vec<Node>,

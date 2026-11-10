@@ -328,7 +328,9 @@ SUITES = {
         "Both image modes, host-native RF3 TLS voters and real RustFS. An external adapter holds "
         "an uncertain reply after the source claim reaches S3. All source disks are erased and "
         "callbacks joined. Recovery preserves the pending envelope, exposes reconciliation status, "
-        "and dispatches an independent fresh lane without reissuing the old request. "
+        "and dispatches an independent fresh lane without reissuing the old request. A fresh "
+        "operator executable reopens the signed fence from S3 using serialized selectors and a "
+        "pinned public key; foreign keys and changed selectors refuse. "
         "The external adapter is in process; no external exactly-once guarantee or permanent Docker "
         "launch revocation is claimed. Independent failure domains and load remain separate gates.",
     ),
@@ -339,7 +341,9 @@ SUITES = {
         "Both image modes and host-native RF3 TLS voters. The fixture joins all source owners "
         "before erasing their disks, independently replays the selected RustFS cuts, and requires "
         "fresh identities, quorum activation, receipt inspection, old-token refusal, retained restart "
-        "and subsequent Quorum/S3 writes. Platform fencing is a contract fixture; permanent Docker "
+        "and subsequent Quorum/S3 writes. A fresh operator executable reopens only from S3, "
+        "serialized selectors and a pinned public key; foreign keys and changed selectors refuse. "
+        "Platform fencing is a contract fixture; permanent Docker "
         "launch revocation, external-effect ambiguity and sustained-load qualification remain separate gates.",
     ),
     "managed-publication-loss": (
@@ -621,6 +625,20 @@ def main():
                     record["operator_cli"] = {"path": operator_cli.name, "sha256": cli_hash}
                 if cli_hash != record["operator_cli"]["sha256"] or sha(operator_cli) != cli_hash:
                     raise RuntimeError("managed operator CLI changed during qualification")
+            if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox"):
+                current_operator = executable.parent.parent / "cellar-perf-cell-group" if match else None
+                if current_operator is None or not current_operator.is_file():
+                    raise RuntimeError("missing cold managed recovery operator provenance")
+                operator_hash = sha(current_operator)
+                retained = out / current_operator.name
+                if "managed_recovery_operator" not in record:
+                    shutil.copy2(current_operator, retained)
+                    record["managed_recovery_operator"] = {
+                        "path": retained.name, "sha256": operator_hash,
+                    }
+                if (operator_hash != record["managed_recovery_operator"]["sha256"]
+                        or sha(retained) != operator_hash):
+                    raise RuntimeError("cold managed recovery operator changed during qualification")
             save()
             if result.returncode:
                 raise RuntimeError(f"{selection} failed; see {log}")
