@@ -34,6 +34,9 @@ enum Action {
     SetupChild {
         request: RaftFleetTransitionChildSetupRequest,
     },
+    ActivateChild {
+        request: RaftFleetTransitionActivationRequest,
+    },
     GrantOrigin {
         revision: u64,
         node: [u8; 16],
@@ -60,6 +63,12 @@ enum Action {
     Seed {
         group: [u8; 16],
         incarnation: [u8; 16],
+    },
+    ReleaseSeed {
+        group: [u8; 16],
+        incarnation: [u8; 16],
+        plan_digest: [u8; 32],
+        commitment: [u8; 32],
     },
     Attach {
         group: [u8; 16],
@@ -264,6 +273,17 @@ impl State {
                     )
                     .await?,
             )?),
+            Action::ActivateChild { request } => Ok(serde_json::to_value(
+                self.control
+                    .activate_transition_child(
+                        &self.config.principal,
+                        &self.config.namespace().namespace_id,
+                        &request.operation_id,
+                        &request,
+                        turn.remaining()?,
+                    )
+                    .await?,
+            )?),
             Action::GrantOrigin {
                 revision,
                 node,
@@ -384,6 +404,13 @@ impl State {
             Action::PrepareSeed { group, incarnation } => {
                 let history = self.history(group, incarnation)?;
                 let selected = self.selected_recovery()?;
+                // The recovery pool admits one retained preparation. Never
+                // evict an unfinished range to prepare a second one: a lost
+                // seed reply must reconcile its original retained input.
+                ensure!(
+                    self.seed.lock().unwrap().is_none(),
+                    "finish or reconcile the prepared range before preparing another"
+                );
                 let reservation = Arc::new(
                     self.control
                         .reopen_transition_recovery_range(
@@ -396,10 +423,6 @@ impl State {
                         .await?
                         .context("controller must reserve this range first")?,
                 );
-                // Exactly one preparation is retained. Entered SDK workers own
-                // their clones after cancellation; replacing this slot cannot
-                // release their physical pins or bypass their resource bank.
-                self.seed.lock().unwrap().take();
                 let prepared = self
                     .cells
                     .prepare_managed_recovery_seed(
@@ -416,6 +439,7 @@ impl State {
                     history,
                     reservation,
                     prepared,
+                    synchronized: false,
                 });
                 Ok(value)
             }
@@ -428,6 +452,10 @@ impl State {
                         .as_ref()
                         .context("prepare this range in this voter process first")?;
                     ensure!(seed.history == history, "different prepared range");
+                    ensure!(
+                        seed.prepared.plan_digest() == selected.plan.digest(),
+                        "different prepared plan"
+                    );
                     (seed.reservation.clone(), seed.prepared.clone())
                 };
                 let seeded = self
@@ -440,12 +468,65 @@ impl State {
                         turn.remaining()?,
                     )
                     .await?;
+                // A lost HTTP reply must retain this exact preparation even
+                // after the local SDK returned a synchronized receipt. Only
+                // an explicit controller release may drop the idle copy.
+                self.seed
+                    .lock()
+                    .unwrap()
+                    .as_mut()
+                    .context("prepared range disappeared")?
+                    .synchronized = true;
                 Ok(
                     json!({"seeded":true, "group":seeded.route.history.group.bytes(),
                     "incarnation":seeded.route.history.incarnation.bytes(), "member":seeded.member.get(),
                     "plan_digest":hex::encode(seeded.plan_digest),
                     "commitment":hex::encode(seeded.genesis_commitment), "boot":seeded.boot}),
                 )
+            }
+            Action::ReleaseSeed {
+                group,
+                incarnation,
+                plan_digest,
+                commitment,
+            } => {
+                let history = self.history(group, incarnation)?;
+                let selected = self.selected_recovery()?;
+                ensure!(
+                    selected.plan.digest() == plan_digest,
+                    "different seed release plan"
+                );
+                let mut releases = self.released_seeds.lock().unwrap();
+                let release = SeedRelease {
+                    plan: plan_digest,
+                    commitment,
+                };
+                if let Some(previous) = releases.get(&history) {
+                    ensure!(
+                        *previous == release,
+                        "different seed preparation release"
+                    );
+                    return Ok(json!({"released":true}));
+                }
+                ensure!(
+                    releases.len() < 2,
+                    "seed release receipts exceed the two-group profile"
+                );
+                let mut prepared = self.seed.lock().unwrap();
+                let seed = prepared.as_ref().context("no retained seed preparation")?;
+                ensure!(
+                    seed.history == history
+                        && seed.prepared.plan_digest() == plan_digest
+                        && selected.plan.digest() == plan_digest
+                        && seed.prepared.commitment() == commitment,
+                    "different seed preparation release"
+                );
+                ensure!(seed.synchronized, "prepared seed has not synchronized");
+                // The engine/controller retain the live history owner. Any
+                // still-entered SDK producer retains its own physical debt.
+                prepared.take();
+                releases.insert(history, release);
+                Ok(json!({"released":true}))
             }
             Action::Attach {
                 group,

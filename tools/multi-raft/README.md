@@ -719,6 +719,18 @@ Fleet authority before establishing a fresh serving quorum. It does not reuse
 pending-recovery attachment for serving. An unknown release stops the workflow
 before any serving restart or application request.
 
+Pass `--published` to install and activate both split children, initialize their
+archives and acknowledge newer S3 writes in each child before selecting recovery.
+The replacement cohort owns both physical groups in its existing two-group
+profile. Each process prepares and seeds one range at a time under the unchanged
+one-operation recovery pool. After receiving the synchronized seed result, the
+controller explicitly releases the exact history/plan/commitment's idle
+preparation; unknown seeds retain their original input for reconciliation.
+Recovery binds every replacement to its exact fenced source, restores each
+cell's own new incarnation, and replays both parent and newer child receipts.
+This scenario retains the same resource/fence limits and does not qualify
+external-effect ambiguity or the complete CG-13/15 matrix.
+
 The standalone controller adds `fleet_status`, transition basis/admission/status,
 archive preparation/capture, recovery basis, hold preparation/acquisition,
 intent staging/reopening, challenge and fence commands. A prepared hold intent

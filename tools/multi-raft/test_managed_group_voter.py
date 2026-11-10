@@ -51,7 +51,7 @@ class ManagedVoterTests(unittest.TestCase):
 
     def test_raw_control_call_cannot_bypass_assignment_for_physical_operations(self):
         self.voter._request = Mock(side_effect=AssertionError('physical admission bypassed'))
-        for action in ('start', 'prepare_seed', 'seed', 'attach', 'activate', 'setup_child'):
+        for action in ('start', 'prepare_seed', 'seed', 'release_seed', 'attach', 'activate', 'setup_child', 'activate_child'):
             with self.subTest(action=action), self.assertRaisesRegex(ValueError, 'durable assignment'):
                 self.voter.call({'action': action})
         self.voter._request.assert_not_called()
@@ -83,6 +83,17 @@ class ManagedVoterTests(unittest.TestCase):
         self.assertEqual(wire.get_header('X-cellar-node'), identity(4)['node'])
         self.assertEqual(wire.get_header('X-cellar-disk'), identity(4)['disk'])
         self.assertEqual(wire.get_header('X-cellar-process'), word(81))
+
+    def test_child_activation_assignment_survives_a_lost_reply(self):
+        request={'group_id':word(12),'incarnation_id':word(13),'request_id':word(70)}
+        def lost(action):
+            self.assertEqual(len(self.launcher.read()['deployments']['0']),2)
+            self.assertEqual(action,{'action':'activate_child','request':request})
+            raise VoterFailure('lost child activation reply')
+        self.voter._request=Mock(side_effect=lost)
+        with self.assertRaises(VoterFailure):self.voter.activate_child(word(1,32),word(2,32),request)
+        self.assertEqual(self.voter._request.call_count,1)
+        self.assertEqual(len(self.launcher.read()['deployments']['0']),2)
 
     def test_cohort_start_enters_all_quorum_waiters_after_one_durable_assignment(self):
         import threading

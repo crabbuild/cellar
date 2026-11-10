@@ -54,6 +54,12 @@ enum Command {
     TransitionCapture {
         request: RaftFleetTransitionSourceSealRequest,
     },
+    TransitionVerifyArchive {
+        request: RaftFleetTransitionPrepareRequest,
+    },
+    TransitionPublish {
+        request: RaftFleetTransitionPublishRequest,
+    },
     RecoveryBasis {
         operation: String,
     },
@@ -314,6 +320,28 @@ async fn execute(
         Command::TransitionCapture { request } => Ok(serde_json::to_value(
             control
                 .capture_transition_source(
+                    &config.principal,
+                    namespace,
+                    &request.operation_id,
+                    request,
+                    turn.remaining()?,
+                )
+                .await?,
+        )?),
+        Command::TransitionVerifyArchive { request } => Ok(serde_json::to_value(
+            control
+                .verify_transition_archive(
+                    &config.principal,
+                    namespace,
+                    &request.operation_id,
+                    request,
+                    turn.remaining()?,
+                )
+                .await?,
+        )?),
+        Command::TransitionPublish { request } => Ok(serde_json::to_value(
+            control
+                .publish_transition(
                     &config.principal,
                     namespace,
                     &request.operation_id,

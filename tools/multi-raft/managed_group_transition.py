@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-"""Managed unpublished-transition recovery after permanent RF3 disk erasure.
+"""Managed transition recovery after permanent RF3 disk erasure.
 
 Use the real SDK controller/voter protocol and RustFS. The controller persists
 requests, owns all launch history and signs only after its exact old cohort and
-disks are absent. This one unpublished split scenario does not accept CG-13's
-published-tail, external-effect, complete native or release qualification gates.
+disks are absent. Use --published to recover both published split children and
+their newer S3 tails. Neither scenario accepts CG-13's complete external-effect,
+native or release qualification gates.
 """
 import argparse
 import hashlib
@@ -74,10 +75,11 @@ class TransitionQualification(ManagedQualification):
         payload={'action':'seal_source','request':seal}
         self.event('transition/seal-source',payload,lambda:self.client(leader).call(payload))
         self.control('transition-capture',{'step':'transition_capture','request':seal})
-        basis=self.control('recovery-basis',{'step':'recovery_basis','operation':self.model['transition']})
-        require(basis['publication_digest'] is None and len(basis['parents'])==1,'expected unpublished parent recovery')
+        basis=self.disaster_sources(common,children)
+        sources=basis['children'] if basis['publication_digest'] is not None else basis['parents']
+        self.model['archive_sources']=sources;self.save()
         holds=[]
-        for index,source in enumerate(basis['parents']):
+        for index,source in enumerate(sources):
             intent=self.control('hold-prepare-'+str(index),{'step':'hold_prepare','basis':basis,'source':source})
             holds.append(self.control('hold-acquire-'+str(index),{'step':'hold_acquire','basis':basis,'source':source,'intent':intent}))
         selected=self.control('recovery-intent',{'step':'intent','basis':basis,'operation':self.model['recovery'],'holds':holds})
@@ -87,6 +89,11 @@ class TransitionQualification(ManagedQualification):
             'intent_digest':selected['intent_digest']})
         self.model['selection']=challenge['selection'];self.save()
         self.permanent_fence(challenge)
+
+    def disaster_sources(self,_common,_children):
+        basis=self.control('recovery-basis',{'step':'recovery_basis','operation':self.model['transition']})
+        require(basis['publication_digest'] is None and len(basis['parents'])==1,'expected unpublished parent recovery')
+        return basis
 
     def permanent_fence(self,challenge):
         expected=challenge['selection']['fence_digest']
@@ -117,7 +124,8 @@ class TransitionQualification(ManagedQualification):
         signed=signature.read_bytes();require(len(signed)==64,'invalid Ed25519 signature length')
         fenced=self.control('recovery-fence',{'step':'fence','selection':self.model['selection'],
             'certificate':list(payload+signed)})
-        require(fenced['fence_digest']==expected and fenced['ranges']==1,'different persisted SDK fence')
+        require(fenced['fence_digest']==expected and fenced['ranges']==len(self.model['archive_sources']),
+                'different persisted SDK fence')
         self.model['fenced']=fenced;self.report['fence']=proof
         self.report['checks'].update(all_source_disks_deleted=True,permanent_restart_refusal=True)
         self.save()
@@ -125,44 +133,82 @@ class TransitionQualification(ManagedQualification):
     def target_nodes(self):
         return [row for row in self.model['nodes'] if row['generation']==1]
 
+    def recovery_histories(self):
+        return self.model['replacements'] if 'replacements' in self.model else [self.model['replacement']]
+
+    def history_for_cell(self,cell):
+        histories=self.recovery_histories()
+        if len(histories)==1:return histories[0]
+        matches=[history for history in histories if cell in history['cells']]
+        require(len(matches)==1,'cell must belong to exactly one restored range')
+        return matches[0]
+
+    def range_label(self,label,history):
+        return label if len(self.recovery_histories())==1 else label+'-'+history['group']
+
     def recover(self):
-        scope=self.model['bootstrap'];history=self.model['replacement']
+        scope=self.model['bootstrap'];histories=self.recovery_histories()
         self.launcher.declare(1,scope['catalog_id'],scope['namespace_digest'],
-            [{'group':history['group'],'incarnation':history['incarnation']}])
+            [{'group':history['group'],'incarnation':history['incarnation']} for history in histories])
         for index in range(3):
             row=self.launch_node(index,1);row['member']=11+index;self.save();self.admit(row)
         rows=self.target_nodes()
-        replacement={'history':{'group':history['group'],'incarnation':history['incarnation']},
-            'creation':history['creation'],'epoch':self.model['fenced']['cuts'][0]['epoch']+1,
-            'voters':[{'node':row['node'],'member':row['member']} for row in rows],'learners':[]}
-        plan=self.control('recovery-stage',{'step':'stage','selection':self.model['selection'],'replacements':[replacement]})
+        replacements=[]
+        for history in histories:
+            cuts=self.model['fenced']['cuts']
+            if 'source' in history:
+                cuts=[cut for cut in cuts if cut['group']==history['source']['group_id']
+                    and cut['incarnation']==history['source']['incarnation_id']]
+            require(len(cuts)==1,'replacement must bind one exact fenced source')
+            replacements.append({'history':{'group':history['group'],'incarnation':history['incarnation']},
+                'creation':history['creation'],'epoch':cuts[0]['epoch']+1,
+                'voters':[{'node':row['node'],'member':row['member']} for row in rows],'learners':[]})
+        plan=self.control('recovery-stage',{'step':'stage','selection':self.model['selection'],'replacements':replacements})
         selected={'selection':self.model['selection'],'plan_digest':plan['plan_digest']}
         self.model['replacement_plan']=plan;self.save()
-        selector={'group':history['group'],'incarnation':history['incarnation']}
-        self.control('recovery-reserve',{'step':'reserve','basis':selected,'history':selector})
-        commitments=[]
+        for history in histories:
+            selector={'group':history['group'],'incarnation':history['incarnation']}
+            self.control(self.range_label('recovery-reserve',history),{'step':'reserve','basis':selected,'history':selector})
+        commitments={history['group']:set() for history in histories}
         for row in rows:
             payload={'action':'reopen_recovery','selection':self.model['selection'],'plan_digest':plan['plan_digest']}
             self.event('recovery/reopen/'+row['process'],payload,lambda:self.client(row).call(payload,timeout=20))
-            self.event('recovery/prepare/'+row['process'],selector,
-                lambda:self.client(row).prepare_seed(scope['catalog_id'],scope['namespace_digest'],history['group'],history['incarnation']))
-            seeded=self.event('recovery/seed/'+row['process'],selector,
-                lambda:self.client(row).seed(scope['catalog_id'],scope['namespace_digest'],history['group'],history['incarnation']))
-            require(seeded['seeded'] and seeded['member']==row['member'],'wrong seed voter')
-            commitments.append(seeded['commitment'])
-        require(len(set(commitments))==1,'voters seeded different genesis commitments')
+            # The one-operation recovery pool stays unchanged. After receiving
+            # a known seed, explicitly release the idle preparation before
+            # asking this process to prepare another physical group.
+            for history in histories:
+                selector={'group':history['group'],'incarnation':history['incarnation']}
+                suffix=row['process']+'/'+history['group']
+                self.event('recovery/prepare/'+suffix,selector,
+                    lambda:self.client(row).prepare_seed(scope['catalog_id'],scope['namespace_digest'],history['group'],history['incarnation']))
+                seeded=self.event('recovery/seed/'+suffix,selector,
+                    lambda:self.client(row).seed(scope['catalog_id'],scope['namespace_digest'],history['group'],history['incarnation']))
+                require(seeded['seeded'] and seeded['member']==row['member']
+                        and bytes(seeded['group']).hex()==history['group']
+                        and bytes(seeded['incarnation']).hex()==history['incarnation']
+                        and seeded['plan_digest']==plan['plan_digest'],'wrong seed voter or history')
+                commitments[history['group']].add(seeded['commitment'])
+                released=self.event('recovery/release-preparation/'+suffix,
+                    dict(selector,plan_digest=plan['plan_digest'],commitment=seeded['commitment']),
+                    lambda:self.client(row).release_seed(scope['catalog_id'],scope['namespace_digest'],
+                        history['group'],history['incarnation'],plan['plan_digest'],seeded['commitment']))
+                require(released['released'],'seed preparation release is unconfirmed')
+        require(all(len(values)==1 for values in commitments.values()),'voters seeded different genesis commitments')
         seeds=self.control('recovery-select-seeds',{'step':'select_seeds','basis':selected})
         seed_digest=seeds['seeds']['seed_digest']
         request={'operation':self.model['recovery'],'plan_digest':plan['plan_digest'],'seed_digest':seed_digest}
         self.model['attach_request']=request;self.save()
         self.control('recovery-publish',{'step':'publish','basis':selected,'seed_digest':seed_digest})
         self.attach_targets('initial')
-        leader=self.until(lambda:self.target_leader(False),60)
-        self.activate_target(leader)
-        activated=self.control('recovery-activation',{'step':'activation','request':request,'history':selector})
-        require(activated['activation'] is not None,'missing committed activation')
+        for history in histories:
+            leader=self.until(lambda:self.target_leader(False,history),60)
+            self.activate_target(leader,history)
+            selector={'group':history['group'],'incarnation':history['incarnation']}
+            activated=self.control(self.range_label('recovery-activation',history),
+                {'step':'activation','request':request,'history':selector})
+            require(activated['activation'] is not None,'missing committed activation')
         settled=self.control('recovery-settle',{'step':'settle','request':request})
-        require(settled['promoted_ranges']==settled['total_ranges']==1,'incomplete promoted recovery range')
+        require(settled['promoted_ranges']==settled['total_ranges']==len(histories),'incomplete promoted recovery range')
         complete=self.control('recovery-complete',{'step':'complete','request':request})
         self.control('recovery-release',{'step':'release','request':request,'completion':complete['completion']})
         self.model['completion']=complete['completion'];self.save()
@@ -180,32 +226,35 @@ class TransitionQualification(ManagedQualification):
             old_tokens_refused=True,fresh_s3_writes=True,recovered_retained_restart=True,recovery_retired=True)
         self.report.update(completed=True,full_dr_completed=True);self.save()
 
-    def physical(self,method,row):
-        scope=self.model['bootstrap'];history=self.model['replacement'];request=self.model['attach_request']
+    def physical(self,method,row,history=None):
+        scope=self.model['bootstrap'];history=history or self.recovery_histories()[0];request=self.model['attach_request']
         return method(scope['catalog_id'],scope['namespace_digest'],history['group'],history['incarnation'],
             request['operation'],request['plan_digest'],request['seed_digest'])
 
-    def activate_target(self,leader):
+    def activate_target(self,leader,history=None):
         # Accepted is a known proposal, not an applied activation. The SDK
         # explicitly permits reconciling this same immutable request. A lost or
         # refused call raises immediately; only a returned Accepted continues.
         deadline=time.monotonic()+20
         attempt=0
         while deadline-time.monotonic()>=5:
-            result=self.event('recovery/activate/'+str(attempt),self.model['attach_request'],
-                lambda:self.physical(self.client(leader).activate,leader))
+            label='recovery/activate/'+str(attempt)
+            if history is not None:label+='/'+history['group']
+            result=self.event(label,self.model['attach_request'],
+                lambda:self.physical(self.client(leader).activate,leader,history))
             if result['applied'] is not None:return result
             attempt+=1
             time.sleep(.05)
         raise ValueError('activation proposal remains unconfirmed; reconcile the original request')
 
     def attach_targets(self,label):
-        for row in self.target_nodes():
-            self.event('recovery/attach/'+label+'/'+row['process'],self.model['attach_request'],
-                lambda:self.physical(self.client(row).attach,row))
+        for history in self.recovery_histories():
+            for row in self.target_nodes():
+                self.event('recovery/attach/'+label+'/'+row['process']+'/'+history['group'],self.model['attach_request'],
+                    lambda:self.physical(self.client(row).attach,row,history))
 
-    def target_leader(self,ready=True):
-        history=self.model['replacement']
+    def target_leader(self,ready=True,history=None):
+        history=history or self.recovery_histories()[0]
         for row in self.target_nodes():
             try:
                 value=self.client(row).call({'action':'status','group':list(bytes.fromhex(history['group'])),
@@ -216,13 +265,14 @@ class TransitionQualification(ManagedQualification):
 
     def query_target(self,row,cell,minimum=None):
         return self.client(row).call({'action':'read','cell':cell,
-            'incarnation':list(bytes.fromhex(self.model['replacement']['incarnation'])),
+            'incarnation':list(bytes.fromhex(self.history_for_cell(cell)['incarnation'])),
             'invocation':list(bytes.fromhex(nonce())),'minimum':minimum})
 
     def verify_targets(self,replay=False,old_tokens=False):
         rows=self.target_nodes();before={}
         for row in rows:
-            require(self.client(row).call({'action':'observe'})['groups']==1,'replacement must own exactly one shared group')
+            require(self.client(row).call({'action':'observe'})['groups']==len(self.recovery_histories()),
+                    'replacement must own every restored physical group')
             for cell,record in self.model['cells'].items():
                 observed=self.query_target(row,cell)
                 require(int.from_bytes(bytes.fromhex(observed['result']),'big',signed=True)==self.model['recovered_values'].get(cell,1),
@@ -235,9 +285,11 @@ class TransitionQualification(ManagedQualification):
                         require(error.status==503 and 'WrongHistory' in str(error.reply),'old token refused for a different reason')
                     else:raise ValueError('old-incarnation token was accepted')
         if replay:
-            history=self.model['replacement'];leader=self.until(self.target_leader,60)
             for cell,record in self.model['cells'].items():
-                for kind,original in (('s3',record),('quorum',record['quorum'])):
+                history=self.history_for_cell(cell);leader=self.until(lambda:self.target_leader(history=history),60)
+                originals=[('s3',record),('quorum',record['quorum'])]
+                if 'tail' in record:originals.append(('tail',record['tail']))
+                for kind,original in originals:
                     payload=dict(original['request'],incarnation=list(bytes.fromhex(history['incarnation'])))
                     result=self.event('recovery/retry/'+cell+'/'+kind,payload,lambda:self.client(leader).call(payload))
                     require(result['result']==original['receipt']['result']
@@ -251,8 +303,8 @@ class TransitionQualification(ManagedQualification):
         return before
 
     def fresh_writes(self):
-        leader=self.until(self.target_leader,60);history=self.model['replacement']
         for cell in self.model['cells']:
+            history=self.history_for_cell(cell);leader=self.until(lambda:self.target_leader(history=history),60)
             payload={'action':'write','cell':cell,'incarnation':list(bytes.fromhex(history['incarnation'])),
                 'session':list(bytes.fromhex(nonce())),'sequence':1,'retry_until_ms':int(time.time()*1000)+300000,'delta':1,'s3':True}
             result=self.event('recovery/fresh/'+cell,payload,lambda:self.client(leader).call(payload))
@@ -266,7 +318,7 @@ class TransitionQualification(ManagedQualification):
         for row in self.target_nodes():
             self.event('recovery/stop/'+row['process'],{'action':'stop'},lambda:self.client(row).call({'action':'stop'}))
             self.until(lambda:not owned_container(self.docker,row['container'],self.run_id)['State']['Running'],30)
-            self.joined_voter(row,1)
+            self.joined_voter(row,len(self.recovery_histories()))
             row['process']=nonce();self.save()
             def invoke():
                 self.copy_node(row,True)
@@ -276,7 +328,8 @@ class TransitionQualification(ManagedQualification):
         # Retained startup independently validates the serving receipt and
         # current boot. Pending-recovery attachment is only for activation.
         self.grant_origins(self.target_nodes())
-        self.until(self.target_leader,60);self.verify_targets()
+        for history in self.recovery_histories():self.until(lambda:self.target_leader(history=history),60)
+        self.verify_targets()
 
     def drill(self):
         self.source_workflow()
@@ -303,7 +356,7 @@ class TransitionQualification(ManagedQualification):
                 if owned_container(self.docker,identifier,self.run_id)['State']['Running']:
                     self.docker('stop','--time','60',identifier)
                 if complete and context==self.replacement_context:
-                    try:self.joined_voter(row,1)
+                    try:self.joined_voter(row,len(self.recovery_histories()))
                     except BaseException as error:failures.append(type(error).__name__+': '+self.redact(str(error)))
             Qualification.close(self)
             states.extend(dict(value,context=context) for value in self.report['stopped_containers'])
@@ -321,16 +374,21 @@ def main():
     parser.add_argument('--replacement-context',required=True);parser.add_argument('--replacement-image',required=True)
     parser.add_argument('--output',type=Path,required=True);parser.add_argument('--mode',choices=['materialized','extents'],required=True)
     parser.add_argument('--port-base',type=int,default=19800);parser.add_argument('--subnet',type=qualification_subnet)
+    parser.add_argument('--published',action='store_true',help='recover two published split children including newer S3 writes')
     args=parser.parse_args();require(1024<=args.port_base<65530,'invalid loopback port range')
     profile(args.context);profile(args.replacement_context)
     require(args.context!=args.replacement_context,'a fresh replacement VM is required')
-    q=TransitionQualification(args)
+    if args.published:
+        from managed_group_published import PublishedTransitionQualification
+        q=PublishedTransitionQualification(args)
+    else:q=TransitionQualification(args)
     try:q.setup();q.drill()
     except BaseException as error:
         q.report.update(completed=False,failure=type(error).__name__+': '+q.redact(str(error)));raise
     finally:q.close()
     require(q.report['completed'] and q.report['shutdown_verified'],'incomplete managed recovery')
-    print('PASS managed unpublished-transition disaster recovery ('+args.mode+'); full CG-13 remains unqualified',flush=True)
+    phase='published' if args.published else 'unpublished'
+    print('PASS managed '+phase+'-transition disaster recovery ('+args.mode+'); full CG-13 remains unqualified',flush=True)
 
 
 if __name__=='__main__':main()

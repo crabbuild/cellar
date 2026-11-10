@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from managed_group_drill import ManagedQualification, verify_retry
 from managed_group_transition import TransitionQualification
+from managed_group_published import PublishedTransitionQualification
 from managed_group_voter import VoterFailure
 from managed_group_deployment import profile
 
@@ -50,13 +51,18 @@ class ManagedDrillTests(unittest.TestCase):
         driver.report={'checks':{}};driver.launcher=Mock();driver.save=Mock()
         driver.launch_node=Mock(side_effect=rows);driver.admit=Mock();driver.target_nodes=Mock(return_value=rows)
         driver.event=Mock(side_effect=lambda _label,_request,invoke:invoke())
-        driver.client=lambda row:Mock(seed=Mock(return_value={'seeded':True,'member':row['member'],'commitment':'same'}))
+        driver.client=lambda row:Mock(release_seed=Mock(return_value={'released':True}),seed=Mock(side_effect=lambda _catalog,_namespace,group,incarnation:{
+            'seeded':True,'member':row['member'],'commitment':'same','plan_digest':'plan',
+            'group':list(bytes.fromhex(group)),'incarnation':list(bytes.fromhex(incarnation))}))
         replies={'recovery-stage':{'plan_digest':'plan'},'recovery-select-seeds':{'seeds':{'seed_digest':'seeds'}},
             'recovery-activation':{'activation':{'index':3,'term':2}},
             'recovery-settle':{'promoted_ranges':1,'total_ranges':1},'recovery-complete':{'completion':'complete'},
             'recovery-retire':{'retired_histories':3,'total_histories':3,'fleet_slot_released':True}}
         def control(label,_request):
             if label=='recovery-release' and release_error:raise release_error
+            if label.startswith('recovery-activation'):return replies['recovery-activation']
+            if label=='recovery-settle':
+                count=len(driver.recovery_histories());return {'promoted_ranges':count,'total_ranges':count}
             return replies.get(label,{})
         driver.control=Mock(side_effect=control);driver.attach_targets=Mock();driver.activate_target=Mock()
         driver.target_leader=Mock(return_value=rows[0]);driver.grant_origins=Mock()
@@ -83,6 +89,7 @@ class ManagedDrillTests(unittest.TestCase):
 
     def test_retained_serving_startup_does_not_reattach_as_pending_recovery(self):
         driver=object.__new__(TransitionQualification)
+        driver.model={'replacement':{'group':'01'*16,'incarnation':'02'*16}}
         row={'process':'01'*16,'container':'owned'}
         driver.target_nodes=Mock(return_value=[row]);driver.client=Mock()
         driver.event=Mock(side_effect=lambda _label,_request,invoke:invoke())
@@ -94,6 +101,73 @@ class ManagedDrillTests(unittest.TestCase):
         driver.restart_targets()
         driver.copy_node.assert_called_once_with(row,True)
         driver.verify_targets.assert_called_once_with()
+
+    def test_two_recovered_ranges_keep_one_preparation_slot_per_voter(self):
+        driver=self.recovery_driver()
+        driver.model['fenced']['cuts']=[{'group':'04'*16,'incarnation':'05'*16,'epoch':7},
+            {'group':'06'*16,'incarnation':'07'*16,'epoch':3}]
+        driver.model['replacements']=[dict(driver.model['replacement'],
+            source={'group_id':'06'*16,'incarnation_id':'07'*16},cells=['Counter:alpha']),
+            {'group':'08'*16,'incarnation':'09'*16,'creation':'0a'*16,
+             'source':{'group_id':'04'*16,'incarnation_id':'05'*16},'cells':['Counter:beta']}]
+        clients={}
+        for row in driver.target_nodes():
+            voter=Mock();pending=[];calls=[]
+            def prepare(_catalog,_namespace,group,incarnation,pending=pending,calls=calls):
+                self.assertFalse(pending,'second preparation bypassed the one-operation pool')
+                pending.append((group,incarnation));calls.append(('prepare',group));return {}
+            def seed(_catalog,_namespace,group,incarnation,pending=pending,calls=calls,row=row):
+                self.assertEqual(pending[-1],(group,incarnation));calls.append(('seed',group))
+                return {'seeded':True,'member':row['member'],'commitment':group,'plan_digest':'plan',
+                    'group':list(bytes.fromhex(group)),'incarnation':list(bytes.fromhex(incarnation))}
+            def release(_catalog,_namespace,group,incarnation,_plan,commitment,pending=pending,calls=calls):
+                self.assertEqual(pending.pop(),(group,incarnation));self.assertEqual(commitment,group)
+                calls.append(('release',group));return {'released':True}
+            voter.prepare_seed.side_effect=prepare;voter.seed.side_effect=seed;voter.release_seed.side_effect=release
+            clients[row['node']]=(voter,calls)
+        driver.client=lambda row:clients[row['node']][0]
+        driver.recover()
+        histories=driver.recovery_histories()
+        for _voter,calls in clients.values():
+            self.assertEqual(calls,[(step,h['group']) for h in histories for step in ('prepare','seed','release')])
+        staged=next(c.args[1]['replacements'] for c in driver.control.call_args_list if c.args[0]=='recovery-stage')
+        self.assertEqual([h['epoch'] for h in staged],[4,8])
+        self.assertEqual(driver.activate_target.call_count,2)
+
+    def test_unknown_seed_never_releases_original_input_or_prepares_another_range(self):
+        driver=self.recovery_driver();voter=Mock()
+        voter.seed.side_effect=VoterFailure('lost seed reply')
+        driver.client=Mock(return_value=voter)
+        with self.assertRaises(VoterFailure):driver.recover()
+        voter.release_seed.assert_not_called();self.assertEqual(voter.prepare_seed.call_count,1)
+        driver.attach_targets.assert_not_called()
+
+    def test_recovered_cell_requests_use_their_own_new_incarnation(self):
+        driver=self.recovery_driver()
+        driver.model['replacements']=[dict(driver.model['replacement'],cells=['Counter:alpha']),
+            {'group':'06'*16,'incarnation':'07'*16,'cells':['Counter:beta']}]
+        client=Mock();driver.client=Mock(return_value=client)
+        for cell,expected in [('Counter:alpha','02'*16),('Counter:beta','07'*16)]:
+            driver.query_target({},cell)
+            self.assertEqual(bytes(client.call.call_args.args[0]['incarnation']).hex(),expected)
+        with self.assertRaisesRegex(ValueError,'exactly one restored range'):driver.query_target({},'Counter:missing')
+
+    def test_published_child_activation_reconciles_only_a_returned_proposal(self):
+        driver=object.__new__(PublishedTransitionQualification)
+        driver.model={'bootstrap':{'catalog_id':'catalog','namespace_digest':'namespace'}}
+        client=Mock();driver.client=Mock(return_value=client)
+        driver.event=Mock(side_effect=lambda _label,_request,invoke:invoke())
+        child={'group':{'group_id':'01'*16,'incarnation_id':'02'*16}}
+        applied={'applied':{'term':2,'index':3}}
+        client.activate_child.side_effect=[{'applied':None},applied]
+        with patch('managed_group_published.time.sleep'):
+            self.assertEqual(driver.activate_child({},child,{}),applied)
+        first,second=driver.event.call_args_list
+        self.assertIs(first.args[1],second.args[1])
+        client.activate_child.reset_mock(side_effect=True)
+        client.activate_child.side_effect=VoterFailure('lost child activation reply')
+        with self.assertRaises(VoterFailure):driver.activate_child({},child,{})
+        self.assertEqual(client.activate_child.call_count,1)
 
     def test_source_quorum_and_replacement_cohort_remain_separate(self):
         driver=object.__new__(TransitionQualification)

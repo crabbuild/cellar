@@ -26,6 +26,13 @@ struct Seed {
     history: GroupHistory,
     reservation: Arc<FleetRecoveryRangeReservation>,
     prepared: RaftFleetPreparedRecoveryRange,
+    synchronized: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SeedRelease {
+    plan: [u8; 32],
+    commitment: [u8; 32],
 }
 
 struct State {
@@ -37,6 +44,8 @@ struct State {
     recovery_pool: CellGroupRecoveryPool,
     recovery: Mutex<Option<Recovery>>,
     seed: Mutex<Option<Seed>>,
+    // Exact local release receipts only; live history owners remain in the SDK.
+    released_seeds: Mutex<std::collections::BTreeMap<GroupHistory, SeedRelease>>,
     lane: tokio::sync::Mutex<()>,
     stop: tokio::sync::watch::Sender<bool>,
     add: OperationContract,
@@ -117,6 +126,7 @@ pub(super) async fn run(domain: Arc<ExecutionDomain>, options: &Options) -> Resu
         recovery_pool,
         recovery: Mutex::new(None),
         seed: Mutex::new(None),
+        released_seeds: Mutex::new(Default::default()),
         lane: tokio::sync::Mutex::new(()),
         stop,
         add,
