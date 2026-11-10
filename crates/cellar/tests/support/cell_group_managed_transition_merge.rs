@@ -1311,12 +1311,6 @@ async fn run_inner(
     ))
     .await?;
     Box::pin(effects::after_merge_activation(cluster, child.history)).await?;
-    Box::pin(disaster_effects::before_recovery(
-        cluster,
-        child.history,
-        &routed,
-    ))
-    .await?;
     Box::pin(initialize_merge_child_archive(
         cluster,
         directory,
@@ -1342,6 +1336,14 @@ async fn run_inner(
     let voters = &cluster.hosts[..3];
     let archive_leader = &voters[leader(voters, child.history).await?];
     preparation::wait_active_archive(archive_leader, child.history).await?;
+    // The uncertain delivery itself requests S3 durability. Inject it only
+    // after the merged child has completed its normal archive initialization.
+    Box::pin(disaster_effects::before_recovery(
+        cluster,
+        child.history,
+        &routed,
+    ))
+    .await?;
     let older = preparation::acquire_hold(domain, &child_registry).await?;
     let (cell, expected) = &routed[0];
     let handle = archive_leader.cell(cell.clone())?;
