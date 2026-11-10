@@ -473,6 +473,17 @@ whose entire voter set was replaced before the selected cut. It permanently
 closes their generations and histories before checking minimum identity coverage.
 Unknown launches, missing declarations or wrong disk/host identities refuse.
 
+For a group assigned after launch, use
+`assign_histories(generation, catalog, namespace, histories, invoke)` before its
+first SDK seed preparation or attachment. It durably appends the histories to
+the existing deployment and holds the launch/revocation lock through the bounded
+callback. Assignments conservatively cover every historical writer in that
+cohort. A failed or lost callback response keeps the assignment; retry with the
+same SDK operation identity. Assignments cannot remove histories, change the
+deployment's Fleet catalog, or admit any permanently revoked generation/history.
+This controller API is a foundation for the managed Docker driver; it does not
+establish the complete recovery gate.
+
 `fence(expected_digest, docker)` resumes exact immutable-ID deletion; only
 `certificate_payload(expected_digest, docker)` after confirmed complete absence
 can supply bytes to the private signer. No manual count/roster entry point is

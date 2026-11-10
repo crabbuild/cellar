@@ -48,6 +48,17 @@ def history_key(catalog, namespace, group, incarnation):
                      identifier(group, 16), identifier(incarnation, 16)])
 
 
+def deployment_histories(catalog, namespace, histories):
+    require(isinstance(histories, list) and histories, 'empty managed deployment')
+    keys = []
+    for history in histories:
+        require(isinstance(history, dict) and set(history) == {'group', 'incarnation'},
+                'invalid deployment history')
+        keys.append(history_key(catalog, namespace, history['group'], history['incarnation']))
+    require(len(set(keys)) == len(keys), 'duplicate deployment history')
+    return sorted(keys)
+
+
 def challenge(expected, encoded):
     """Check the exact SDK wire record and derive identities from its bound body."""
     identifier(expected, 32)
@@ -98,7 +109,8 @@ def challenge(expected, encoded):
 class ManagedLauncher(Launcher):
     """One private format-1 ledger; managed receipts never accept a manual roster.
 
-    Group assignments must be declared before their physical deployment starts.
+    Initial assignments precede launch. Dynamic assignments are durably appended
+    under the same fencing lock before preparing or attaching their group.
     Every historical declaration matching a requested history is selected, even
     if all of its voters were removed before the archived cut. New incarnations
     use distinct histories; declaring an old history under a new generation is
@@ -117,14 +129,7 @@ class ManagedLauncher(Launcher):
 
     def declare(self, generation, catalog, namespace, histories):
         require(type(generation) is int and generation >= 0, 'invalid deployment generation')
-        require(isinstance(histories, list) and histories, 'empty managed deployment')
-        keys = []
-        for history in histories:
-            require(isinstance(history, dict) and set(history) == {'group', 'incarnation'},
-                    'invalid deployment history')
-            keys.append(history_key(catalog, namespace, history['group'], history['incarnation']))
-        require(len(set(keys)) == len(keys), 'duplicate deployment history')
-        keys.sort()
+        keys = deployment_histories(catalog, namespace, histories)
         with self.lock():
             value = self.read()
             require(generation not in value['revoked']
@@ -134,6 +139,32 @@ class ManagedLauncher(Launcher):
             require(old is None or old == keys, 'different managed deployment declaration')
             value['deployments'][str(generation)] = keys
             save(self.path, value)
+
+    def assign_histories(self, generation, catalog, namespace, histories, invoke):
+        """Record possible writers before a bounded SDK preparation/attach call.
+
+        A generation conservatively assigns every history to every writer in
+        its cohort, including historical writers. Never remove an assignment,
+        even when the callback fails or loses its response. A retry must use
+        the same SDK operation identity to reconcile its uncertain outcome.
+        Materialization holds the launch/restart/revocation lock, so fencing
+        cannot complete while that call can still admit an old writer.
+        """
+        require(type(generation) is int and generation >= 0, 'invalid deployment generation')
+        keys = deployment_histories(catalog, namespace, histories)
+        with self.lock():
+            value = self.read()
+            require(generation not in value['revoked'], 'deployment permanently revoked')
+            old = value['deployments'].get(str(generation))
+            require(old is not None, 'managed deployment was not declared')
+            require(all(key.split('/')[0] == catalog for key in old),
+                    'different managed deployment scope')
+            combined = sorted(set(old).union(keys))
+            require(not set(combined).intersection(value['revoked_histories']),
+                    'managed history permanently revoked')
+            value['deployments'][str(generation)] = combined
+            save(self.path, value)
+            return invoke()
 
     def launch(self, generation, name, volume, invoke, *, identity):
         identity = physical_identity(identity)
