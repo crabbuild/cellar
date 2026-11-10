@@ -20,7 +20,24 @@ pub(super) async fn verify_rustfs_operator(
     rooted: bool,
     receipt: [u8; 32],
 ) -> Result<()> {
+    use cellar::sdk::fleet_operations::{
+        RaftFleetConnection, RaftFleetNamespace, RaftFleetNamespaceScope,
+    };
     use serde_json::json;
+    let connection = RaftFleetConnection {
+        cluster_id: hex::encode(fixture.declaration.namespace.cluster.bytes()),
+        incarnation_id: hex::encode([80; 16]),
+        coordination_prefix: "hosts/".into(),
+        namespaces: vec![RaftFleetNamespace {
+            namespace_id: selected.namespace_id.clone(),
+            schema_digest: hex::encode(fixture.declaration.namespace.schema_digest),
+            catalog_prefix: "managed/".into(),
+            scope: RaftFleetNamespaceScope::StoreRoot,
+            managed: true,
+            image_storage: fixture.declaration.namespace.image_storage,
+            group_directory: DirectoryLimits::default(),
+        }],
+    };
     let config = json!({
         "rooted": rooted,
         "endpoint": std::env::var("CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT")?,
@@ -30,18 +47,7 @@ pub(super) async fn verify_rustfs_operator(
         "access": std::env::var("AWS_ACCESS_KEY_ID")?,
         "secret": std::env::var("AWS_SECRET_ACCESS_KEY")?,
         "bucket_prefix": "tenant/",
-        "connection": {
-            "cluster_id":hex::encode(fixture.declaration.namespace.cluster.bytes()),
-            "incarnation_id":hex::encode([80;16]),
-            "coordination_prefix":"hosts/",
-            "namespaces":[{
-                "namespace_id":selected.namespace_id,
-                "schema_digest":hex::encode(fixture.declaration.namespace.schema_digest),
-                "catalog_prefix":"managed/", "scope":"store_root", "managed":true,
-                "image_storage":if rooted {"extents"} else {"materialized"},
-                "group_directory":DirectoryLimits::default(),
-            }]
-        },
+        "connection":connection,
         "principal":principal,
         "namespace_id":selected.namespace_id,
         "operation_id":selected.operation_id,
