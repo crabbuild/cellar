@@ -10,7 +10,8 @@ end-to-end implementation and hard cutover work is specified in the
 CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
-adds eight delivery packages and 32 required cases; implementation remains TODO.
+adds eight delivery packages and 32 required cases. CG17-01 is in progress;
+no primitive runtime case has been accepted.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -19,6 +20,39 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 checkpoint: primitive coverage admission
+
+At `9b9a7c49`, CG17-01 adds the machine-readable inventory, configuration/fault
+requirements, format-1 report schema and independent verifier. The starter
+inventory lists 186 SDK symbols across 17 capability entries and all 11
+families, including the existing typed SQL dump refusal. It distinguishes cell
+state, provider payloads and ephemeral resources. Its 4,572 coverage rows are
+obligations for the listed APIs, not runtime passes or separate workloads.
+
+CI checks the catalog and refusal tests. CG-17, CG-15 and CG-16 task evidence
+must carry a separate coverage report pinned to the qualified source and
+contracts. The verifier checks exact case selection, executable hashes,
+test-emitted configuration/artifact digests, RF3 process and fault observations,
+per-symbol result/state reconciliation, durability and restored payload bytes.
+Named passes alone cannot satisfy the gate. Ordinary Fleet/bucket results and
+shared Raft results have distinct configuration rows.
+
+The catalog remains `partial`, which refuses acceptance. SDK root fingerprints
+catch top-level export changes; full compiled export reconciliation, including
+aliases, generated APIs and supported feature modes, remains open. Real native
+and constrained RustFS runs still need producers for these artifacts. The
+synthetic verifier fixtures test admission and refusals; they establish no
+runtime primitive capability. All 13 verifier tests and 44 plan tests pass,
+including missing-report refusal at each of the three acceptance gates. The
+reviewed baseline changes only the CI anchor; the preflight assertion is intact.
+
+Next finish the export/deployment inventory and port one ordinary `Context` /
+`Storage` SQL+KV transaction through the shared backend (CG17-02). This is the
+common boundary for async transactions, due work, Queue, EventStream, Workflow
+and the provider adapters. Stable managed recovery and full CG-13 disaster
+qualification remain separate prerequisites for CG-17 acceptance. Task totals
+remain **13/17 tasks, 147/195 cases**.
 
 ## CG-13 checkpoint: held-receipt replays and current-source RustFS
 

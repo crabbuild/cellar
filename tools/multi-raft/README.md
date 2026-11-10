@@ -56,6 +56,49 @@ preparations retain their environment record for diagnosis. A separate cleanup
 step can remove the exact recorded resources after their data is no longer
 needed; never use a global Docker prune or delete a Colima profile as cleanup.
 
+## Primitive compatibility evidence
+
+CG17-01's [coverage contract](../../docs/design/multi-raft/cell-groups/qualification.md#machine-readable-inventory-and-acceptance-evidence)
+has a partial SDK catalog and an independent admission verifier. Check them with:
+
+```sh
+python3 tools/multi-raft/primitive_coverage.py check-catalog
+python3 -m unittest discover -s tools/multi-raft -p test_primitive_coverage.py
+```
+
+These commands validate the contract and synthetic refusal fixtures. They do
+not run public primitives, start voters, or qualify an SDK configuration. An
+acceptance report requires a reviewed catalog; the current partial catalog
+refuses it. Complete the compiled export audit before changing that status.
+
+The [format-1 schema](../../docs/design/multi-raft/cell-groups/primitive-coverage.schema.json)
+defines the report envelope. `plan.py` reads the three contracts from the tested
+source revision and verifies the report at CG-17/15/16 acceptance. The runner
+must preserve repository-relative artifacts, SHA-256 hashes, source input digest
+and application, voter, CLI and exact test executables for each feature mode.
+
+For each required row, capture the exact selected test and its normal libtest
+summary. The test emits a `cellar_primitive_evidence` JSON line with `cell`,
+`source_revision`, `configuration`, `observations_sha256` and `ledger_sha256`.
+One test can emit several rows it actually exercised. Reusing a passing log
+for an unobserved configuration refuses. Keep the log intact; the verifier
+handles structured lines interleaved with the libtest status line.
+
+- Physical observations retain initial group histories, voter process, disk and
+  cgroup identities, voter limits and ordered fault events. Disaster rows
+  require fencing and erasure for every voter in the observed source groups.
+- State ledgers retain each public symbol's original identity, expected and
+  observed outcome/result/state, required proof and duplicate-commit count.
+  Documented refusals retain their typed error codes. Archive/disaster payload,
+  filesystem and container rows also hash actual restored bytes.
+- Native, native without default features, Python, JavaScript and mixed-mode
+  regressions retain distinct backend and configuration identities. A Fleet or
+  bucket result cannot fill a shared Raft row.
+
+Real runners still need to capture these artifacts from public applications,
+owned process/RustFS fault runs and supported providers. A synthetic report,
+configuration label or passing test name alone establishes no runtime coverage.
+
 ## Shared cell-group managed ingress checks
 
 Use the same owned loopback RustFS backend and a fresh output directory.

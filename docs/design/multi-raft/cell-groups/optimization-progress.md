@@ -22,7 +22,7 @@ safety cases and full strict all-target Clippy pass. See the
 [current-source checkpoint](progress.md#cg-13-checkpoint-held-receipt-replays-and-current-source-rustfs)
 for held-proof reuse, failed controls and fencing limits. Full CG-13 and release
 profiles remain open. This checkpoint does not accept a complete OPT package,
-change CG-17's TODO status or establish a measured speedup.
+qualify any CG-17 primitive runtime case or establish a measured speedup.
 
 ## Current boundary
 
