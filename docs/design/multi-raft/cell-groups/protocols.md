@@ -1647,6 +1647,16 @@ must share that same mutation journal and resource debt; no unmanaged bypass.
 Unknown fencing/publication outcomes resume the identical request. They never
 unfence old hosts or select another cut.
 
+Pending outbox envelopes keep their original signed cell history after recovery.
+A valid old-origin lane head sets `QueryContext::outbox_progress(...).requires_reconciliation`.
+Claim or completion under the fresh incarnation cannot relabel that request:
+validation checks the signature, same logical cell, schema, binding and exact
+canonical bytes before returning `WrongIncarnation`. The bounded scanner skips
+that lane without changing its intent or watermarks, so independent fresh lanes
+can run. Corruption and changed bindings refuse rather than becoming a skipped
+lane. Recovery does not authorize automatic cross-incarnation retry or settlement
+of an uncertain external outcome.
+
 The mandatory RustFS drill deletes all owned voter disks after independently
 checking the ledger and archive cut. It verifies every cell, old-token rejection,
 receipt retries, new writes and retained-disk restart. Repeat during split/merge

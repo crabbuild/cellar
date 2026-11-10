@@ -74,13 +74,13 @@ fn scan_connection(
             return Ok(None);
         };
         Ok(
-            outbox::due(connection, definition, now)?.map(|(selected, minimum)| {
-                DueEffect::Delivery {
+            outbox::due(connection, definition, scope, class.schema_digest(), now)?.map(
+                |(selected, minimum)| DueEffect::Delivery {
                     selected,
                     minimum,
                     definition: definition.clone(),
-                }
-            }),
+                },
+            ),
         )
     };
     let alarm = || -> Result<Option<DueEffect>> {

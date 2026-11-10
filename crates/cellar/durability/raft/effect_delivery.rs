@@ -430,8 +430,27 @@ pub(crate) fn restore_request(
     let signed: Signed<Request> = parse(bytes, MAX_REQUEST)?;
     verify(&signed, key.verification_key(), REQUEST_DOMAIN)?;
     let payload = URL_SAFE_NO_PAD.decode(&signed.body.payload)?;
-    let expected = RaftDeliveryRequest::new(origin, &payload, target, key)?;
+    let stored = signed.body.origin.clone().decode()?;
+    ensure!(
+        stored.cluster == origin.scope.cluster
+            && stored.namespace == origin.scope.namespace
+            && stored.cell == origin.scope.cell,
+        CommandFailure::CorruptState
+    );
+    let current = origin.scope;
+    let expected = RaftDeliveryRequest::new(
+        DeliveryOrigin {
+            scope: &stored,
+            ..origin
+        },
+        &payload,
+        target,
+        key,
+    )?;
+    // Validate every signed field before recognizing a legitimate old origin.
+    // Recovery cannot relabel this envelope or mint another delivery identity.
     ensure!(expected.encoded() == bytes, CommandFailure::CorruptState);
+    ensure!(stored == *current, CommandFailure::WrongIncarnation);
     Ok(expected)
 }
 

@@ -796,6 +796,15 @@ route, activation or lineage change does. The source rechecks custody before sen
 and reply acceptance, verifies the configured receiver signature, then replicates
 conditional generation-matched completion through the normal durability gate.
 
+Fresh-history recovery retains pending signed outbox envelopes. A valid envelope
+for an older incarnation is reported by `QueryContext::outbox_progress` with
+`requires_reconciliation = true`. Direct reuse refuses with `WrongIncarnation`;
+the scanner leaves that lane's bytes, generation and watermarks untouched. It
+checks at most the configured lane heads, one bounded envelope at a time, and
+can dispatch independent current-origin lanes. Changed bindings, foreign cells
+and damaged signatures still refuse. This authorizes no automatic retry or
+settlement across incarnations; uncertain external outcomes require reconciliation.
+
 Cancellation does not retire admitted command producers. Closing stops new effect
 admission, joins factories/scans/delivery waiters, then closes the existing physical
 SQL/runtime owners. Pending callback work must finish before close succeeds;

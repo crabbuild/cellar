@@ -229,6 +229,7 @@ pub struct QueryContext<'a> {
     database: &'a ImmutableQuery,
     blobs: Option<super::RaftBlobLimits>,
     outbox: Option<&'a super::RaftOutbox>,
+    schema: [u8; 32],
 }
 
 impl QueryContext<'_> {
@@ -237,6 +238,8 @@ impl QueryContext<'_> {
             self.database.connection(),
             self.outbox
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
+            self.identity,
+            self.schema,
             lane,
         )
     }
@@ -932,6 +935,7 @@ impl RaftClass {
                     database,
                     blobs: self.blobs,
                     outbox: self.outbox.as_deref(),
+                    schema: self.schema_digest,
                 },
                 input,
             )

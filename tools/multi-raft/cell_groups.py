@@ -321,6 +321,17 @@ SUITES = {
         "Host-native voters and fixture capacity. Phase-crash schedules, full effect continuity "
         "and permanent platform fencing remain separate gates.",
     ),
+    "managed-disaster-outbox": (
+        "native_cell_groups_disaster",
+        ("rustfs_disaster_outbox_ambiguity_refuses",),
+        "uncertain old-origin delivery remains blocked after managed fresh-history recovery",
+        "Both image modes, host-native RF3 TLS voters and real RustFS. An external adapter holds "
+        "an uncertain reply after the source claim reaches S3. All source disks are erased and "
+        "callbacks joined. Recovery preserves the pending envelope, exposes reconciliation status, "
+        "and dispatches an independent fresh lane without reissuing the old request. "
+        "The external adapter is in process; no external exactly-once guarantee or permanent Docker "
+        "launch revocation is claimed. Independent failure domains and load remain separate gates.",
+    ),
     "managed-transition-disaster-closure": (
         "native_cell_groups_disaster",
         ("rustfs_transition_disaster_selects_complete_closure",),
@@ -471,7 +482,7 @@ def sources(suite):
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
                      or (suite in ("managed-scheduler-fanout", "managed-disjoint-partitions", "managed-automatic-repair", "managed-automatic-topology", "managed-automatic-partitions", "managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss", "managed-transition-disaster-closure")
+                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss", "managed-transition-disaster-closure", "managed-disaster-outbox")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]

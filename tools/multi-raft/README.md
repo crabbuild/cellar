@@ -134,6 +134,14 @@ This is a host-native TLS workflow with a fencing contract fixture. Permanent
 Docker launch revocation, independent voter failures and uncertain external
 effects require their separate CG-13/15 qualification gates.
 
+Use `--suite managed-disaster-outbox` to qualify the external-effect boundary.
+An in-process adapter accepts a delivery identity and holds its response after
+the source claim reaches S3. The fixture joins the callback owners, deletes all
+source disks, restores the published group, checks explicit reconciliation status,
+and dispatches a fresh lane without reissuing the old request. Both image modes
+use real RustFS and unchanged limits. This does not qualify an external exactly-once
+service or permanent Docker launch revocation.
+
 ## Published transfer closure after complete local erasure
 
 Use `--suite managed-publication-loss` with an owned RustFS backend and a fresh

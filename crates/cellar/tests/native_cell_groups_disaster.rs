@@ -66,3 +66,33 @@ async fn rustfs_transition_disaster_selects_complete_closure() -> Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn disaster_outbox_ambiguity_refuses() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(bootstrap::transition::disaster_effects::qualify(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("managed uncertain outbox recovery, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_disaster_outbox_ambiguity_refuses() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "disaster-outbox",
+            rooted,
+        )?));
+        Box::pin(bootstrap::transition::disaster_effects::qualify(
+            rooted, store,
+        ))
+        .await
+        .with_context(|| format!("RustFS uncertain outbox recovery, extents={rooted}"))?;
+    }
+    Ok(())
+}

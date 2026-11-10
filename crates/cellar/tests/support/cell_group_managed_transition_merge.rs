@@ -1311,6 +1311,12 @@ async fn run_inner(
     ))
     .await?;
     Box::pin(effects::after_merge_activation(cluster, child.history)).await?;
+    Box::pin(disaster_effects::before_recovery(
+        cluster,
+        child.history,
+        &routed,
+    ))
+    .await?;
     Box::pin(initialize_merge_child_archive(
         cluster,
         directory,
@@ -1532,6 +1538,7 @@ async fn recover_selected(
         tail,
         publication,
     } = selected;
+    let uncertain = disaster_effects::state();
     ensure!(routed.len() == receipts.len());
     if let Some(tail) = &tail {
         ensure!(
@@ -1654,6 +1661,7 @@ async fn recover_selected(
         .load(Ordering::Acquire));
     ensure!(authority.fences.load(Ordering::Acquire) == 1);
     ensure!(authority.erased_disks().await == cluster.fixtures.len());
+    disaster_effects::source_fenced(uncertain.as_ref())?;
     drop(recovery_control);
     drop(recovery_verifier);
     domain
@@ -1730,6 +1738,7 @@ async fn recover_selected(
                 authority: &authority,
                 value_delta,
                 tail: tail.as_ref(),
+                uncertain,
             },
             rooted,
         ))
@@ -1745,6 +1754,7 @@ struct RecoveryScenario<'a> {
     authority: &'a TransitionFence,
     value_delta: i64,
     tail: Option<&'a CommandReceipt>,
+    uncertain: Option<Arc<disaster_effects::State>>,
 }
 
 async fn check_recovery_replacements(
@@ -2594,6 +2604,12 @@ async fn check_recovered_sql(
                     && archived.witness.group == history
                     && archived.durability == Durability::S3
             );
+            Box::pin(disaster_effects::verify_recovered(
+                sql.uncertain.as_ref(),
+                old_cell,
+                &handle,
+            ))
+            .await?;
             positions.push((history, archived.witness.position.index));
         }
     }

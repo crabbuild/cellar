@@ -27,6 +27,9 @@ pub(crate) mod restart;
 #[path = "cell_group_transition_effects.rs"]
 pub(crate) mod effects;
 
+#[path = "cell_group_disaster_effects.rs"]
+pub(crate) mod disaster_effects;
+
 #[path = "cell_group_transition_closure.rs"]
 pub(crate) mod closure;
 
@@ -101,9 +104,11 @@ enum Decision {
 }
 
 async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) -> Result<()> {
-    let class = effects::class()?.unwrap_or(counter_class()?);
+    let class = disaster_effects::class()?
+        .or(effects::class()?)
+        .unwrap_or(counter_class()?);
     let mut first = Fixture::with_store(rooted, class, store).await?;
-    if effects::enabled() {
+    if effects::enabled() || disaster_effects::state().is_some() {
         first.effects = Some(RaftEffectOptions::default());
         // The signed inbox protocol admits requests up to 60 KiB. Keep the
         // ordinary 1 KiB SQL fixture profile unchanged for all other cases.
