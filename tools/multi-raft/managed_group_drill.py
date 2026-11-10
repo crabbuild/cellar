@@ -130,7 +130,7 @@ class ManagedQualification(Qualification):
         return dict(self.common(), retained=retained, bucket_prefix='tenant/', connection=self.model['bootstrap']['connection'],
             principal='managed-drill', token=self.config['token'], node=list(bytes.fromhex(row['node'])),
             disk=list(bytes.fromhex(row['disk'])), process=list(bytes.fromhex(row['process'])),
-            label=row['label'], server_name='localhost', bind='0.0.0.0', advertise=row['ip'],
+            label=row['label'], server_name='localhost', bind=row['ip'], advertise=row['ip'],
             peer_ports=[17000,17001,17002], api_port=8080,
             ca='/config/ca.der', certificate='/config/server.der', key='/config/key.der',
             fence_public=self.config['fence_public'])
@@ -265,18 +265,28 @@ class ManagedQualification(Qualification):
             require(int.from_bytes(bytes.fromhex(receipt['result']),'big',signed=True)==1
                     and receipt['durability']=='s3' and bytes(receipt['group']).hex()==self.model['group'],
                     'write did not return the exact shared-group S3 result')
-            self.model['cells'][cell]={'request':payload,'receipt':receipt};self.save()
+            quorum=dict(payload,session=list(bytes.fromhex(nonce())),delta=0,s3=False)
+            committed=self.event('quorum-write/'+name,quorum,lambda:self.client(leader).call(quorum))
+            require(int.from_bytes(bytes.fromhex(committed['result']),'big',signed=True)==1
+                    and committed['durability']=='quorum'
+                    and committed['version']==receipt['version']+1
+                    and committed['group']==receipt['group'] and committed['incarnation']==receipt['incarnation'],
+                    'quorum command did not preserve the applied SQL/group history')
+            self.model['cells'][cell]={'request':payload,'receipt':receipt,
+                'quorum':{'request':quorum,'receipt':committed}};self.save()
         self.verify_source()
 
     def verify_source(self):
         for row in self.model['nodes']:
             require(self.client(row).call({'action':'observe'})['groups']==1,'expected one shared physical group')
             for cell,record in self.model['cells'].items():
-                reply=self.client(row).call({'action':'read','cell':cell,
-                    'incarnation':list(bytes.fromhex(self.model['incarnation'])),
-                    'invocation':list(bytes.fromhex(nonce())),'minimum':record['receipt']['token']})
-                require(int.from_bytes(bytes.fromhex(reply['result']),'big',signed=True)==1,
-                        'source SQL or minimum-version read changed')
+                for minimum in (record['quorum']['receipt']['token'],None):
+                    reply=self.client(row).call({'action':'read','cell':cell,
+                        'incarnation':list(bytes.fromhex(self.model['incarnation'])),
+                        'invocation':list(bytes.fromhex(nonce())),'minimum':minimum})
+                    require(int.from_bytes(bytes.fromhex(reply['result']),'big',signed=True)==1
+                            and reply['version']==record['quorum']['receipt']['version'],
+                            'source SQL or minimum/linearizable read changed')
 
     def restart_source(self):
         for row in self.model['nodes']:
@@ -303,11 +313,12 @@ class ManagedQualification(Qualification):
         # Prove the retained state before replay could mask a lost SQL image.
         self.verify_source()
         for cell,record in self.model['cells'].items():
-            leader=self.until(self.source_leader,60)
-            replay=self.client(leader).call(record['request'])
-            require(all(replay[key]==record['receipt'][key]
-                    for key in ('result','version','group','incarnation','durability')),
-                    'original command receipt changed')
+            for original in (record,record['quorum']):
+                leader=self.until(self.source_leader,60)
+                replay=self.client(leader).call(original['request'])
+                require(all(replay[key]==original['receipt'][key]
+                        for key in ('result','version','group','incarnation','durability')),
+                        'original command receipt changed')
         self.verify_source()
 
     def joined_voter(self, row, groups):
@@ -343,7 +354,8 @@ class ManagedQualification(Qualification):
     def drill(self):
         self.launch_source();self.provision_source();self.data();self.restart_source()
         self.report['checks'].update(managed_rf3=True,one_group_three_cells=True,
-            sdk_s3_writes=True,minimum_reads_each_ingress=True,retained_restart=True,exact_retry_results=True)
+            sdk_s3_writes=True,sdk_quorum_writes=True,minimum_reads_each_ingress=True,
+            linearizable_reads_each_ingress=True,retained_restart=True,exact_retry_results=True)
         self.report['completed']=True;self.save()
 
 

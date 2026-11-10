@@ -2772,7 +2772,8 @@
         "tools/multi-raft/managed_group_voter.py",
         "tools/multi-raft/managed_group_configuration.py",
         "tools/multi-raft/test_managed_group_configuration.py",
-        "tools/multi-raft/managed_group_drill.py"
+        "tools/multi-raft/managed_group_drill.py",
+        "tools/multi-raft/test_managed_group_drill.py"
       ],
       "test_target": "native_cell_groups_disaster",
       "steps": [

@@ -671,8 +671,11 @@ first shared group. Each voter independently verifies rooted startup and capacit
 The controller grants namespace reads/writes explicitly; membership supplies no
 application permission. The three startup waiters enter concurrently under one
 durable assignment/fencing lock. The driver then checks three S3-durable SQL
-cells in one physical group, minimum-token reads at every ingress, retained
+cells and subsequent Quorum commands in one physical group, minimum-token and
+linearizable reads at every ingress, retained
 restart with new process IDs, original receipt replay and joined SDK shutdown.
+Peer listeners bind the exact advertised container IP; wildcard listeners do not
+satisfy the physical group's local endpoint identity check.
 Only config and peer TLS snapshots enter stopped containers; the fencing key and
 launch ledger stay with the controller. Request identities are persisted before
 entry; lost mutations are retained for reconciliation without automatic retry.
