@@ -72,6 +72,12 @@ class ManagedQualification(Qualification):
             self.model['events'][label]['voter_outcomes'] = error.outcomes
             self.save()
             raise
+        except VoterFailure as error:
+            self.model['events'][label]['voter_failure'] = {
+                'status':error.status,'outcome':error.outcome,
+                'reply':json.loads(self.redact(json.dumps(error.reply)))}
+            self.save()
+            raise
         self.model['events'][label].update(outcome='returned', result=result)
         self.save()
         return result

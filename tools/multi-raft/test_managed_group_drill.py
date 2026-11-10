@@ -12,6 +12,19 @@ from managed_group_deployment import profile
 
 
 class ManagedDrillTests(unittest.TestCase):
+    def test_refused_mutation_retains_structured_unknown_reply_without_retry_or_secrets(self):
+        driver=object.__new__(ManagedQualification);driver.model={'events':{}};driver.save=Mock()
+        driver.config={'access':'private-access','secret':'private-secret','token':'private-token'}
+        request={'action':'write','original_id':'keep-this'}
+        invoke=Mock(side_effect=VoterFailure('refused',status=503,
+            reply={'error':'private-secret Runtime(NotReady)','outcome':'unknown'}))
+        with self.assertRaises(VoterFailure):driver.event('original',request,invoke)
+        stored=driver.model['events']['original']
+        self.assertIs(stored['request'],request);self.assertEqual(stored['outcome'],'unknown')
+        self.assertEqual(stored['voter_failure'],{'status':503,'outcome':'unknown',
+            'reply':{'error':'[REDACTED] Runtime(NotReady)','outcome':'unknown'}})
+        invoke.assert_called_once()
+
     def test_permission_grants_have_distinct_phase_journals_without_reusing_mutations(self):
         driver=object.__new__(ManagedQualification);driver.model={'events':{}};driver.save=Mock()
         rows=[{'node':str(i+1).zfill(32),'disk':str(i+3).zfill(32),'process':str(i+5).zfill(32),
