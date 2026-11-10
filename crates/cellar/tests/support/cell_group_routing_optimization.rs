@@ -4,6 +4,9 @@
 use super::*;
 use std::sync::atomic::AtomicUsize;
 
+#[path = "cell_group_routing_busy.rs"]
+mod busy;
+
 #[path = "cell_group_routing_refresh.rs"]
 mod refresh;
 
@@ -52,6 +55,10 @@ pub(super) async fn cached_leader_direct_write() -> Result<()> {
     run(Scenario::Direct).await
 }
 
+pub(super) async fn busy_leader_keeps_placement() -> Result<()> {
+    run(Scenario::Busy).await
+}
+
 pub(super) async fn election_repairs_leader_only() -> Result<()> {
     run(Scenario::Election).await
 }
@@ -71,6 +78,7 @@ pub(super) async fn refresh_storm_is_bounded() -> Result<()> {
 #[derive(Clone, Copy, Debug)]
 enum Scenario {
     Direct,
+    Busy,
     Election,
     MetadataOutage,
     Refresh { axum: bool },
@@ -110,6 +118,7 @@ async fn run(scenario: Scenario) -> Result<()> {
             Scenario::RefreshClose { axum } => {
                 Box::pin(refresh::exercise(&mut cluster, &callbacks, true, axum)).await
             }
+            Scenario::Busy => Box::pin(busy::exercise(&cluster, &callbacks)).await,
             Scenario::Election => Box::pin(exercise_election(&mut cluster, &callbacks)).await,
             Scenario::Direct => Box::pin(exercise(&cluster, &callbacks, None)).await,
             Scenario::MetadataOutage => {

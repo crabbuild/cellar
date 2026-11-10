@@ -4,6 +4,7 @@
 //! Routing observations never replace destination authority or ingress grants.
 
 mod mutation_route;
+pub(crate) use mutation_route::MutationRouting;
 mod query_routing;
 mod receipt;
 pub use query_routing::CellQueryRouting;

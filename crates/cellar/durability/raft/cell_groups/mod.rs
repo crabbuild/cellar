@@ -59,7 +59,6 @@ mod dispatch;
 pub use disaster::CellGroupPermanentFenceAuthority;
 mod host;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
-pub(crate) use dispatch::PendingCellCommand;
 pub use dispatch::{
     CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
     CellCommandResponse, CellCommandSettlement, CellCommandSubmission, CellDispatchError,
@@ -68,6 +67,7 @@ pub use dispatch::{
     CellQueryRequest, CellQueryResponse, CellQueryRouting, CellReceiptInvocation,
     CellReceiptRequest, CellReceiptResponse, CellReceiptSelection,
 };
+pub(crate) use dispatch::{MutationRouting, PendingCellCommand};
 pub use host::{
     CellGroupCellHandle, CellGroupHost, CellGroupHostLimits, CellGroupHostRegistration,
     CellGroupHostUsage, CellGroupNamespaceStorage,

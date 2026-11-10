@@ -82,7 +82,7 @@ impl CellCommandInvocation {
         options: CellSqlOptions,
         roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
-        transport: Option<&crate::raft::transport::RaftTransport>,
+        routing: Option<MutationRouting<'_>>,
     ) -> Result<CellCommandResponse, CellCommandError> {
         self.session.track_command(runtime.log().performance());
         if let Some(expected) = &self.remote_route {
@@ -109,7 +109,8 @@ impl CellCommandInvocation {
         }
         // Only an originating invocation may forward. An authenticated incoming
         // command stays local, so stale hints cannot create forwarding cycles.
-        if let Some(transport) = transport.filter(|_| !self.system && self.remote_route.is_none()) {
+        if let Some(routing) = routing.filter(|_| !self.system && self.remote_route.is_none()) {
+            let transport = routing.transport;
             loop {
                 let remote = loop {
                     let selected = Box::pin(super::super::mutation_route::mutation_peer(
@@ -123,6 +124,19 @@ impl CellCommandInvocation {
                     .await;
                     match selected {
                         Ok(member) => break member,
+                        Err(cause)
+                            if matches!(
+                                cause.refusal(),
+                                Some(CommandFailure::NotLeader { .. } | CommandFailure::Overloaded)
+                            ) && usize::from(self.current()?.ordinal())
+                                < self.session.maximum_attempts() =>
+                        {
+                            routing
+                                .backoff(&self.dispatcher.domain, self.session.deadline_ms())
+                                .await
+                                .map_err(|cause| self.error(cause))?;
+                            self.retry().await?;
+                        }
                         Err(CellDispatchError::Runtime(
                             RuntimeError::NotReady | RuntimeError::NotFound,
                         )) if usize::from(self.current()?.ordinal())
@@ -153,7 +167,10 @@ impl CellCommandInvocation {
                             if !error.ambiguous
                                 && matches!(
                                     error.cause.refusal(),
-                                    Some(CommandFailure::NotLeader { .. })
+                                    Some(
+                                        CommandFailure::NotLeader { .. }
+                                            | CommandFailure::Overloaded
+                                    )
                                 )
                                 && usize::from(self.current()?.ordinal())
                                     < self.session.maximum_attempts() =>
@@ -161,6 +178,12 @@ impl CellCommandInvocation {
                             // Only an authenticated pre-admission rejection permits
                             // another destination. Inputs, ID and deadline stay owned
                             // by this invocation. An earlier unknown result wins.
+                            if matches!(error.cause.refusal(), Some(CommandFailure::Overloaded)) {
+                                routing
+                                    .backoff(&self.dispatcher.domain, self.session.deadline_ms())
+                                    .await
+                                    .map_err(|cause| self.error(cause))?;
+                            }
                             self.retry().await?;
                             continue;
                         }

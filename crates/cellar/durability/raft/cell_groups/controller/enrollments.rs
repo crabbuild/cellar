@@ -6,7 +6,7 @@ use super::calls::Delivery;
 use super::*;
 use crate::raft::cell_groups::{
     CellDispatchError, CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentResponse,
-    CellSqlOptions,
+    CellSqlOptions, MutationRouting,
 };
 use cellar_logic::consensus::ProposalId;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -166,7 +166,10 @@ pub(super) async fn drive(
             options,
             &shared.groups,
             &mut progress,
-            &transport,
+            MutationRouting {
+                transport: &transport,
+                retry_interval_ms: shared.limits.retry_interval_ms,
+            },
         )
         .await
         .map_err(Arc::new);

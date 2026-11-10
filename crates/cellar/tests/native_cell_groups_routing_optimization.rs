@@ -14,6 +14,11 @@ async fn cached_leader_direct_write() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn busy_leader_keeps_placement() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::busy_leader_keeps_placement()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn election_repairs_leader_only() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::election_repairs_leader_only()).await
 }

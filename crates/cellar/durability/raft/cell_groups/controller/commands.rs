@@ -7,7 +7,8 @@ use super::*;
 use crate::raft::budget::Budget;
 use crate::raft::cell_groups::{
     CellCommandError, CellCommandInvocation, CellCommandRequest, CellCommandResponse,
-    CellDispatchError, CellGroupDispatcher, CellRoutingLimits, CellSqlOptions, PendingCellCommand,
+    CellDispatchError, CellGroupDispatcher, CellRoutingLimits, CellSqlOptions, MutationRouting,
+    PendingCellCommand,
 };
 use cellar_logic::consensus::CommandId;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -273,7 +274,10 @@ pub(super) async fn drive(
             options,
             &shared.groups,
             &mut progress,
-            transport.as_ref(),
+            transport.as_ref().map(|transport| MutationRouting {
+                transport,
+                retry_interval_ms: shared.limits.retry_interval_ms,
+            }),
         )
         .await
         .map_err(Arc::new);

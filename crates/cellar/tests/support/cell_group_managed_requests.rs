@@ -19,6 +19,10 @@ pub async fn cached_leader_direct_write() -> Result<()> {
     optimization::cached_leader_direct_write().await
 }
 
+pub async fn busy_leader_keeps_placement() -> Result<()> {
+    optimization::busy_leader_keeps_placement().await
+}
+
 pub async fn election_repairs_leader_only() -> Result<()> {
     optimization::election_repairs_leader_only().await
 }

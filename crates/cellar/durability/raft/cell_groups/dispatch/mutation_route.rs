@@ -3,7 +3,63 @@
 //! Select one destination for a mutation before submission.
 use super::*;
 use crate::raft::transport::{LeaderLookup, RaftTransport, TransportError};
-use cellar_logic::consensus::MemberId;
+use cellar_logic::consensus::{CommandFailure, MemberId};
+
+/// The controller supplies its existing retry cadence. Routing retains the
+/// originating deadline, attempt bank and physical invocation owner.
+pub(crate) struct MutationRouting<'a> {
+    pub transport: &'a RaftTransport,
+    pub retry_interval_ms: u64,
+}
+
+impl MutationRouting<'_> {
+    pub(super) async fn backoff(
+        &self,
+        domain: &DomainToken,
+        deadline: u64,
+    ) -> Result<(), CellDispatchError> {
+        backoff(domain, deadline, self.retry_interval_ms).await
+    }
+}
+
+pub(super) async fn backoff(
+    domain: &DomainToken,
+    deadline: u64,
+    retry_interval_ms: u64,
+) -> Result<(), CellDispatchError> {
+    let now = domain.mono_ms().map_err(|_| closed())?;
+    if now >= deadline {
+        return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+    }
+    let wake = now.saturating_add(retry_interval_ms.max(1)).min(deadline);
+    domain.sleep_until(wake).map_err(|_| closed())?.await;
+    if domain.mono_ms().map_err(|_| closed())? >= deadline {
+        return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct ProbeFailures {
+    discovery: bool,
+    no_leader: bool,
+    overloaded: bool,
+}
+
+impl ProbeFailures {
+    fn leader_retry(&self) -> Option<CommandFailure> {
+        if self.discovery {
+            None
+        } else if self.no_leader {
+            Some(CommandFailure::NotLeader { leader: None })
+        } else if self.overloaded {
+            Some(CommandFailure::Overloaded)
+        } else {
+            // An empty/unverified member set still needs actual discovery.
+            None
+        }
+    }
+}
 
 pub(super) async fn mutation_peer(
     runtime: &CellGroupRuntime,
@@ -80,6 +136,7 @@ pub(super) async fn mutation_peer(
         }
         Err(error) => return Err(CellDispatchError::Transport(error)),
     };
+    let mut failures = ProbeFailures::default();
     for (index, member) in candidates.iter().enumerate() {
         session
             .validate_attempt(attempt)
@@ -102,14 +159,14 @@ pub(super) async fn mutation_peer(
             .await
         {
             Ok(true) => return Ok(Some(*member)),
-            Ok(false) => (),
+            Ok(false) => failures.no_leader = true,
+            Err(TransportError::Overloaded) => failures.overloaded = true,
             Err(
                 TransportError::Io(_)
                 | TransportError::Timeout
                 | TransportError::StalePeer
-                | TransportError::UnknownGroup
-                | TransportError::Overloaded,
-            ) => (),
+                | TransportError::UnknownGroup,
+            ) => failures.discovery = true,
             Err(error) => return Err(CellDispatchError::Transport(error)),
         }
         if let LeaderLookup::Known(leader) = transport
@@ -118,6 +175,13 @@ pub(super) async fn mutation_peer(
         {
             return Ok(Some(leader));
         }
+    }
+    if let Some(reason) = failures.leader_retry() {
+        // These are discovery observations before mutation submission. An
+        // election or busy peer alone does not establish stale membership/range.
+        return Err(CellDispatchError::Execution(ExecutionError::Refused(
+            reason,
+        )));
     }
     // Every cached candidate failed before submission. Refresh the exact
     // group's discovery so the caller's next original-session attempt can use
@@ -131,3 +195,7 @@ pub(super) async fn mutation_peer(
     }
     Err(CellDispatchError::Runtime(RuntimeError::NotReady))
 }
+
+#[cfg(test)]
+#[path = "mutation_route_tests.rs"]
+mod tests;
