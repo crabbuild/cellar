@@ -57,7 +57,7 @@ class TransitionQualification(ManagedQualification):
             'operation_id':self.model['transition'],'request_id':nonce(),
             'expected_fleet_revision':basis['fleet_revision'],'expected_directory_digest':basis['directory_digest'],
             'class':'Counter','partition':{'split':{'parent':{
-                'group_id':self.model['group'],'incarnation_id':self.model['incarnation']},'pivot_cell':'Counter:beta'}},
+                'group_id':self.model['group'],'incarnation_id':self.model['incarnation']},'pivot_cell':self.split_pivot()}},
             'children':children}
         self.model['transition_request']=request;self.save()
         admitted=self.launcher.assign_histories(0,scope['catalog_id'],scope['namespace_digest'],
@@ -94,6 +94,9 @@ class TransitionQualification(ManagedQualification):
         basis=self.control('recovery-basis',{'step':'recovery_basis','operation':self.model['transition']})
         require(basis['publication_digest'] is None and len(basis['parents'])==1,'expected unpublished parent recovery')
         return basis
+
+    def split_pivot(self):
+        return 'Counter:beta'
 
     def permanent_fence(self,challenge):
         expected=challenge['selection']['fence_digest']

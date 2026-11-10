@@ -12,6 +12,27 @@ from managed_group_deployment import profile
 
 
 class ManagedDrillTests(unittest.TestCase):
+    def test_published_cells_follow_namespace_hash_order_instead_of_names(self):
+        driver=object.__new__(PublishedTransitionQualification)
+        children=[{'group':{'group_id':'left'}},{'group':{'group_id':'right'}}]
+        driver.model={'namespace':'a2ff6b8ec7674489309dec900eed8451',
+            'cells':{cell:{} for cell in ['Counter:alpha','Counter:beta','Counter:gamma']},
+            'transition_request':{'children':children,'partition':{'split':{'pivot_cell':'Counter:beta'}}}}
+        self.assertNotIn('Counter:alpha',driver.child_cells(children[0]))
+        self.assertIn('Counter:alpha',driver.child_cells(children[1]))
+        self.assertIn('Counter:beta',driver.child_cells(children[1]))
+
+    def test_published_pivot_keeps_both_fixture_ranges_nonempty(self):
+        driver=object.__new__(PublishedTransitionQualification)
+        children=[{'group':{'group_id':'left'}},{'group':{'group_id':'right'}}]
+        for namespace in ['01'*16,'02'*16,'a2ff6b8ec7674489309dec900eed8451']:
+            driver.model={'namespace':namespace,'cells':{cell:{} for cell in ['Counter:alpha','Counter:beta','Counter:gamma']}}
+            pivot=driver.split_pivot()
+            driver.model['transition_request']={'children':children,'partition':{'split':{'pivot_cell':pivot}}}
+            left,right=(driver.child_cells(child) for child in children)
+            self.assertEqual((len(left),len(right)),(1,2))
+            self.assertEqual(set(left+right),set(driver.model['cells']))
+
     def test_refused_mutation_retains_structured_unknown_reply_without_retry_or_secrets(self):
         driver=object.__new__(ManagedQualification);driver.model={'events':{}};driver.save=Mock()
         driver.config={'access':'private-access','secret':'private-secret','token':'private-token'}

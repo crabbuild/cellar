@@ -6,6 +6,7 @@ The three replacement voters share both groups within the existing two-group
 profile. Preparations remain sequential under the one-operation recovery pool.
 This does not qualify the full CG-13 external-effect and failure matrix.
 """
+import hashlib
 import time
 
 from managed_group_drill import nonce
@@ -110,7 +111,21 @@ class PublishedTransitionQualification(TransitionQualification):
         children=self.model['transition_request']['children']
         pivot=self.model['transition_request']['partition']['split']['pivot_cell']
         left=child['group']==children[0]['group']
-        return [cell for cell in self.model['cells'] if (cell<pivot)==left]
+        return [cell for cell in self.model['cells'] if (self.routing_key(cell)<self.routing_key(pivot))==left]
+
+    def routing_key(self,cell):
+        # Independent oracle for the documented CellKey contract. Range order
+        # is namespace-scoped SHA-256, with the complete UTF-8 ID as tie-breaker;
+        # application names alone do not determine which child owns a cell.
+        encoded=cell.encode('utf-8');namespace=bytes.fromhex(self.model['namespace'])
+        require(len(namespace)==16,'routing requires the namespace ID, not its configuration digest')
+        preimage=b'cellar-cell-route-1\0'+namespace+len(encoded).to_bytes(4,'big')+encoded
+        return hashlib.sha256(preimage).digest(),encoded
+
+    def split_pivot(self):
+        cells=sorted(self.model['cells'],key=self.routing_key)
+        require(len(cells)>=2,'published split requires cells on both sides')
+        return cells[len(cells)//2]
 
     def write_child_tail(self,child):
         leader=self.until(lambda:self.child_leader(child,True),60)
