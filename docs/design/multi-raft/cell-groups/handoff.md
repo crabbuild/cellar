@@ -4,6 +4,24 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current CG-13 outbox delivery
+
+`9fa5d932` adds authenticated old-origin refusal, public reconciliation status and
+bounded lane isolation. The old signed request and watermarks remain intact;
+independent fresh lanes can complete normally. Invalid signatures, foreign cells
+and changed bindings still refuse. At `07126563`, the exact managed outbox case
+passes both image modes natively and against real RustFS on the same executable:
+all source disks erased, fresh quorum, old lane blocked, one real inbox execution,
+verified S3 receipt/source settlement and clean shutdown. See [progress](progress.md).
+
+Records: `.cellar/cell-groups-evidence/CG-13-outbox-07126563-native-01/record.json`
+and `.cellar/cell-groups-evidence/CG-13-outbox-07126563-rustfs-01/record.json`.
+Four outbox, seven wire, one scan and two ordinary-delivery regressions pass on the
+unchanged production source. Focused build/Clippy and format/layout gates pass.
+RustFS is one CPU/2 GiB; voters and the external uncertainty adapter are host-native.
+The owned server/VM are stopped. Permanent Docker fencing and full task/release
+qualification remain open; this does not close CG-13.
+
 ## Current CG-13 delivery
 
 At `1c841f2a`, complete closure recovery passes natively and against real RustFS:
@@ -18,8 +36,9 @@ Records: `.cellar/cell-groups-evidence/CG-13-selected-closure-1c841f2a-native-01
 and `.cellar/cell-groups-evidence/CG-13-selected-closure-1c841f2a-rustfs-01/record.json`.
 The native voters execute a fencing-authority contract. RustFS is constrained to
 one CPU/2 GiB; the owned backend and VM are stopped with objects retained.
-CG-13 remains `IN_PROGRESS`: deliver the other five named root cases, permanent
-Docker launch revocation and ambiguous external-outbox refusal before acceptance.
+CG-13 remains `IN_PROGRESS`: the outbox case is qualified in the checkpoint above.
+Complete the other lifecycle/fence/disk-loss/retry gates and permanent Docker launch
+revocation, then qualify the full task on one source before acceptance.
 This checkpoint does not qualify independent domains, load or the final cutover.
 
 ## Current CG-12 delivery
@@ -74,10 +93,10 @@ remain in [progress](progress.md); release-scale qualification stays in CG-15/16
 
 ### Next feature delivery
 
-1. Finish CG-13's remaining lifecycle, fence, disk-loss, retry and outbox gates.
-   Complete closure recovery now passes native/RustFS qualification; next prove
-   permanent Docker launch revocation and refuse ambiguous external delivery.
-   Use the CG-14 harness and preserve the current source-pinned checkpoint.
+1. Finish CG-13's remaining lifecycle, fence, disk-loss and retry case gates.
+   Closure recovery and uncertain-outbox isolation now have native/RustFS passes.
+   Next prove permanent Docker launch revocation and qualify all six root cases
+   on one source with the CG-14 harness.
 2. Complete CG-15 load, reclamation, crash, partition, wake and disk-loss profiles
    with their original limits, including the unresolved occupancy-128 load failure.
 3. Complete CG-16 public default cutover and remaining legacy audit after the

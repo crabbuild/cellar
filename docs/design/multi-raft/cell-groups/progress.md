@@ -13,6 +13,56 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: isolate uncertain outbox origins after recovery
+
+Production change `9fa5d932` authenticates the complete stored request before
+classifying a valid older cell incarnation. Direct reuse returns `WrongIncarnation`;
+`QueryContext::outbox_progress` exposes `requires_reconciliation`. The bounded
+scanner leaves that lane's signed bytes, generation and watermarks untouched and
+can run independent current-origin lanes. Foreign cells, changed bindings/schema
+and invalid signatures still refuse. Wire/storage markers remain 1.
+
+At fixture source `07126563`, the exact planned
+`disaster_outbox_ambiguity_refuses` case passes both image modes natively
+(215.323 seconds) and against real RustFS (274.008 seconds), on the same exact
+managed-recovery executable. It holds an uncertain external response after the
+source claim reaches S3, joins its owners, erases all owned source disks and
+restores fresh histories/quorum. The old lane remains blocked. A fresh lane reaches
+a real recovered inbox, executes once, verifies its S3 receiver receipt and
+conditionally settles at the source. A later S3 barrier keeps the unchanged
+zero-archive-lag shutdown assertion meaningful. Restore does not run the inbox
+callback. Original receipts, old-token refusals and new Quorum/S3 writes remain
+covered by the shared recovery path.
+
+At the unchanged production source, four outbox, seven wire and one scan unit
+regressions pass, as do ordinary lost-reply and verified S3 settlement cases.
+The native record retains all sixteen passing command/log records and three
+executables. Only two native fixture files changed afterward; retained dependency
+files exclude those paths from the earlier library/effects binaries. Focused
+host/native type and strict Clippy gates, format/layout, docs and tooling checks
+pass. This is not an all-target/all-feature or combined release qualification.
+
+Native record: `.cellar/cell-groups-evidence/CG-13-outbox-07126563-native-01/record.json`.
+RustFS record: `.cellar/cell-groups-evidence/CG-13-outbox-07126563-rustfs-01/record.json`.
+The server has one CPU/2 GiB and no extra swap; voters are host-native TLS fixtures.
+The owned backend and VM are stopped with objects retained. External uncertainty
+uses an in-process adapter; no external exactly-once service, independent physical
+domain or permanent Docker launch revocation is qualified.
+
+The baseline regression selected the blocked old lane over fresh work. That failed
+control is retained at `CG-13-outbox-starvation-4ac40f3f-red-01`. Fixture controls
+also retain the pre-archive S3 refusal at `9fa5d932`, the unsettled positive control's
+shutdown lag at `53a9fbed`, and birth-member leader selection at `6564a74e`.
+The final fixture initializes the archive first, completes the fresh receipt and
+selects current members from the recovery plan. No deadline, lease, capacity,
+shutdown assertion or admission proof is weakened.
+
+CG-13 remains `IN_PROGRESS`. Two named root cases now have scoped native/RustFS
+passes at their recorded sources. Complete the remaining lifecycle/fence/disk-loss/
+retry case gates, permanently revoke Docker launch authority, and run the full
+managed recovery gate on one source before task acceptance. CG-15/16 release gates
+and the occupancy-128 load failure remain open.
+
 ## CG-13 checkpoint: recover unpublished parents and published child tails
 
 At `1c841f2a`, `transition_disaster_selects_complete_closure` passes all four
