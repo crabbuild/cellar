@@ -244,8 +244,9 @@ async fn voter(
                 attestation: attestation.clone(),
             };
             let admitted = request(json!({"action":action,"request":capacity})).send().await?;
-            ensure!(admitted.status().is_success(), "managed process {action} refused");
+            let status = admitted.status();
             let value = admitted.json::<Value>().await?;
+            ensure!(status.is_success(), "managed process {action} refused: {value}");
             let admission: RaftFleetNodeAdmission = serde_json::from_value(value["admission"].clone())?;
             admission.validate()?;
             ensure!(admission.action == expected && admission.applied_revision == cut.revision() + 1);

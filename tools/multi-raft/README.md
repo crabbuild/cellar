@@ -607,6 +607,9 @@ The `qualify_node` and `activate_node` actions take the public SDK
 provide its explicit platform attestation; the SDK independently checks the
 running observer, boot, profile and rooted inventory. An `observe` reply is not a
 capacity attestation. Stale boot evidence cannot admit placement capacity.
+Self-inspection catches up to the requested Fleet revision within the original
+deadline, including an activation immediately after qualification. It still
+rechecks the exact current boot, enrollment and installed trust.
 
 The recovery phases are:
 
@@ -626,6 +629,9 @@ other requests use five seconds. The SDK retains entered producers after a lost
 response. Reconcile the same identities; never invent a new command or plan.
 Clearing RPC caches releases only idle copies; SDK producers keep their own
 physical pins until the owning node/domain joins entered work.
+Joined stop requires the complete close inventory and no unresolved local
+producers. A retained manifest's `active` field records committed activation;
+it survives stop and does not indicate a running worker or serving permission.
 
 `managed_group_voter.ManagedVoter` binds a controller-owned historical launch to
 this protocol. Its start/prepare/seed/attach/activate methods durably assign the

@@ -156,6 +156,17 @@ impl RaftCells {
                 }
                 (*received.view, received.inventory)
             } else {
+                if let Some(previous) = owner
+                    .handle
+                    .core
+                    .transport
+                    .lagging_inspection_trust(minimum_revision)?
+                {
+                    owner
+                        .refresh_inspection_trust(previous, minimum_revision, deadline)
+                        .await
+                        .map_err(inspection_error)?;
+                }
                 let (view, inventory) = owner.capture_physical_node().map_err(inspection_error)?;
                 (view, physical.then(|| Box::new(inventory)))
             };

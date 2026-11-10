@@ -153,12 +153,11 @@ pub(super) async fn run(domain: Arc<ExecutionDomain>, options: &Options) -> Resu
             && closed.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers
             && closed.omitted_groups == 0
             && closed.groups.len() == closed.groups_total
-            && closed
-                .groups
-                .iter()
-                .all(|group| !group.active && !group.failed),
+            && closed.groups.iter().all(|group| !group.failed),
         "managed voter did not prove joined shutdown: {outcome:?}, {closed:?}"
     );
+    // A retained manifest keeps its committed activation bit. It is not a live
+    // worker flag; Stopped and NoUnresolvedLocalProducers prove joined ownership.
     output(json!({"managed_voter":"stopped", "joined":true, "groups":closed.groups_total}))
 }
 
