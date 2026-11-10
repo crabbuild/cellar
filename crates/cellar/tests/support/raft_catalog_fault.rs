@@ -163,6 +163,8 @@ impl RegistryGate {
 pub struct Store {
     external: Option<std::sync::Arc<dyn ObjectStore>>,
     gate_identity: std::sync::Arc<()>,
+    pub deny_routing_metadata_reads: AtomicBool,
+    pub denied_routing_metadata_reads: AtomicUsize,
     pub group_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
     pub deny_group_payload_reads: AtomicBool,
@@ -198,6 +200,7 @@ pub struct Store {
     pub registry_before: RegistryGate,
     pub registry_after: RegistryGate,
     pub group_archive_read: RegistryGate,
+    pub router_birth_read: RegistryGate,
     pub fail_registry_before: AtomicBool,
     pub fail_registry_after: AtomicBool,
     pub registry_writes: AtomicUsize,
@@ -696,6 +699,15 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if self.deny_routing_metadata_reads.load(Ordering::Acquire)
+            && (path.as_ref().contains("/cell-groups/")
+                || path.as_ref().contains("/fleet/")
+                || (path.as_ref().contains("/raft/") && path.as_ref().contains("/nodes/")))
+        {
+            self.denied_routing_metadata_reads
+                .fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
+        }
         if path.as_ref().contains("/cell-groups/births/")
             && GROUP_BIRTH_CONFIRMATION
                 .try_with(|state| {
@@ -708,6 +720,9 @@ impl ObjectStore for Store {
                 .unwrap_or(false)
         {
             return Err(failure());
+        }
+        if path.as_ref().contains("/cell-groups/births/") {
+            self.router_birth_read.pause().await;
         }
         let denied = self
             .denied_prefix

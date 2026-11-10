@@ -4,6 +4,7 @@
 """Run the managed native daemon fixture in separate constrained Linux voters."""
 
 import argparse
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -22,25 +23,36 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/perf"))
 from raft_run import input_digest, parse_manifest, require, source_manifest
 
-PROFILE = "cellar-multi-raft"
-CONTEXT = "colima-" + PROFILE
 LABEL = "io.cellar.daemon.run"
 BIN = "/usr/local/bin"
 NAMES = ("cellar-raft-daemon", "cellar")
 
 
-def docker(*args, stderr=None):
-    return subprocess.check_output(
-        ["docker", "--context", CONTEXT, *args], text=True, stderr=stderr).strip()
+@dataclass(frozen=True)
+class Lab:
+    profile: str
+    context: str
+    home: Path
+
+    def __post_init__(self):
+        require(re.fullmatch(r"cellar-multi-raft(?:-[a-z0-9-]+)?", self.profile) is not None
+                and self.context == "colima-" + self.profile,
+                "backend must identify one dedicated Colima profile/context")
+        require(self.home.is_absolute() and self.home.is_dir(), "explicit existing Colima home required")
+
+    def docker(self, *args, stderr=None):
+        return subprocess.check_output(
+            ["docker", "--context", self.context, *args], text=True, stderr=stderr).strip()
+
+    def guest(self, script):
+        return subprocess.run(["colima", "ssh", "--profile", self.profile, "--", "sh", "-s"],
+                              input=script, text=True, stdout=subprocess.PIPE, cwd=Path.home(),
+                              stderr=subprocess.STDOUT, timeout=14 * 60, check=False,
+                              env=dict(os.environ, COLIMA_HOME=str(self.home), LIMA_HOME=str(self.home / "_lima")))
 
 
-def guest(script):
-    return subprocess.run(["colima", "ssh", "--profile", PROFILE, "--", "sh", "-s"],
-                          input=script, text=True, stdout=subprocess.PIPE, cwd=Path.home(),
-                          stderr=subprocess.STDOUT, timeout=14 * 60, check=False)
-
-
-def verify_image(image):
+def verify_image(image, lab):
+    docker = lab.docker
     require(re.fullmatch(r"sha256:[0-9a-f]{64}", image), "immutable Docker image ID required")
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     require(docker("image", "inspect", "--format",
@@ -55,7 +67,8 @@ def verify_image(image):
             "binaries": binaries}
 
 
-def inventory(run, image):
+def inventory(run, image, lab):
+    docker = lab.docker
     identifiers = docker("ps", "-aq", "--no-trunc", "--filter", f"label={LABEL}={run}").splitlines()
     rows = []
     for identifier in identifiers:
@@ -230,7 +243,8 @@ def verify_repair(events):
                 "replacement changed the archived receipt or cell history")
 
 
-def execute(mode, output, remote, credentials, build, engine, standby=False, repair=False):
+def execute(mode, output, remote, credentials, build, engine, lab, standby=False, repair=False):
+    docker, guest = lab.docker, lab.guest
     run = secrets.token_hex(8)
     directory = f"/tmp/cellar-daemon-{run}"
     result = {"mode": mode, "run": run, "guest_directory": directory, "status": "RUNNING"}
@@ -270,7 +284,7 @@ def execute(mode, output, remote, credentials, build, engine, standby=False, rep
         completed = guest("\n".join(lines) + "\n")
         log = completed.stdout.replace(access, "[REDACTED]").replace(secret, "[REDACTED]")
         (output / f"{mode}.log").write_text(log)
-        rows = inventory(run, image)
+        rows = inventory(run, image, lab)
         result["voters"] = rows
         result["fixture_exit"] = completed.returncode
         ledger = guest(f"cat {quoted}/process.jsonl\n")
@@ -344,7 +358,7 @@ def execute(mode, output, remote, credentials, build, engine, standby=False, rep
         result.update(status="PASSED", resources=proof)
     except Exception:
         result["status"] = "FAILED"
-        for row in inventory(run, image):
+        for row in inventory(run, image, lab):
             if row["running"]:
                 docker("kill", "--signal", "KILL", row["id"])
         raise
@@ -358,12 +372,15 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--backend", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--colima-home", type=Path, default=Path.home() / ".colima",
+                        help="explicit home containing the backend's dedicated Colima profile")
     extension = parser.add_mutually_exclusive_group()
     extension.add_argument("--standby", action="store_true", help="qualify and bind a fourth repair standby")
     extension.add_argument("--repair", action="store_true", help="qualify Docker-fenced replacement from RustFS")
     args = parser.parse_args()
     remote, credentials = backend(args.backend.resolve())
-    require(remote["context"] == CONTEXT, "requires the dedicated daemon lab context")
+    lab = Lab(remote["profile"], remote["context"], args.colima_home.resolve())
+    docker = lab.docker
     engine, os_type, cgroups, cpus, memory = docker(
         "info", "--format", "{{.ID}} {{.OSType}} {{.CgroupVersion}} {{.NCPU}} {{.MemTotal}}"
     ).split()
@@ -372,16 +389,17 @@ def main():
     require(os_type == "linux" and int(cpus) >= 6 and int(memory) >= min_memory_gib * 1024**3,
             "insufficient Linux VM resources")
     require(not docker("ps", "-q", "--filter", f"label={LABEL}"), "another daemon campaign is active")
-    build = verify_image(args.image)
+    build = verify_image(args.image, lab)
     output = args.output.resolve()
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     report = {"status": "RUNNING", "build": build, "backend": remote["observed_rustfs"],
               "scope": "three Linux voters with separate cgroups and disks in one VM",
-              "repair_standby": args.standby, "failed_voter_repair": args.repair}
+              "repair_standby": args.standby, "failed_voter_repair": args.repair,
+              "colima": {"profile": lab.profile, "context": lab.context, "home": str(lab.home), "engine_id": engine}}
     atomic_json(output / "record.json", report)
     try:
         for mode in ("materialized", "extents"):
-            execute(mode, output, remote, credentials, build, engine, standby=args.standby, repair=args.repair)
+            execute(mode, output, remote, credentials, build, engine, lab, standby=args.standby, repair=args.repair)
         report["status"] = "PASSED"
     except Exception:
         report["status"] = "FAILED"

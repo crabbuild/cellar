@@ -228,9 +228,21 @@ pub(crate) enum Counter {
     SnapshotPreparedHits,
     SnapshotPreparedMisses,
     SnapshotPreparedReusedBytes,
+    CellCommandAttempts,
+    CellCommandProbes,
+    CellCommandPreAdmissionRefusals,
+    CellCommandUnconfirmedReplies,
+    CellLeaderAdviceHits,
+    CellCommandDirectoryLookups,
+    CellMembershipRefreshes,
+    CellMembershipBackgroundObservations,
+    CellMembershipDiscoveryOwners,
+    CellMembershipRefreshJoins,
+    CellReadBarriers,
+    CellReadCohortJoins,
 }
 
-const COUNTERS: [Counter; 42] = [
+const COUNTERS: [Counter; 54] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -273,11 +285,35 @@ const COUNTERS: [Counter; 42] = [
     Counter::SnapshotPreparedHits,
     Counter::SnapshotPreparedMisses,
     Counter::SnapshotPreparedReusedBytes,
+    Counter::CellCommandAttempts,
+    Counter::CellCommandProbes,
+    Counter::CellCommandPreAdmissionRefusals,
+    Counter::CellCommandUnconfirmedReplies,
+    Counter::CellLeaderAdviceHits,
+    Counter::CellCommandDirectoryLookups,
+    Counter::CellMembershipRefreshes,
+    Counter::CellMembershipBackgroundObservations,
+    Counter::CellMembershipDiscoveryOwners,
+    Counter::CellMembershipRefreshJoins,
+    Counter::CellReadBarriers,
+    Counter::CellReadCohortJoins,
 ];
 
 impl Counter {
     fn name(self) -> &'static str {
         match self {
+            Self::CellMembershipDiscoveryOwners => "cell_membership_discovery_owners",
+            Self::CellMembershipRefreshJoins => "cell_membership_refresh_joins",
+            Self::CellReadBarriers => "cell_linearizable_read_barriers",
+            Self::CellReadCohortJoins => "cell_linearizable_read_cohort_joins",
+            Self::CellCommandDirectoryLookups => "cell_command_directory_lookups",
+            Self::CellMembershipBackgroundObservations => "cell_membership_background_observations",
+            Self::CellMembershipRefreshes => "cell_membership_demand_refreshes",
+            Self::CellLeaderAdviceHits => "cell_leader_advice_hits",
+            Self::CellCommandAttempts => "cell_command_rpc_attempts",
+            Self::CellCommandProbes => "cell_command_leader_probes",
+            Self::CellCommandPreAdmissionRefusals => "cell_command_pre_admission_refusals",
+            Self::CellCommandUnconfirmedReplies => "cell_command_unconfirmed_replies",
             Self::EngineReadBytes => "engine_file_read_bytes",
             Self::EngineWriteRequestedBytes => "engine_file_write_requested_bytes",
             Self::EngineWriteCompletedBytes => "engine_file_write_completed_bytes",

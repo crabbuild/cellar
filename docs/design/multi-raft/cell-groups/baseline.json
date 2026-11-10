@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "a3792fd047e41cf4e4f3b1246ffec1361db3635c",
+  "source_revision": "4a00fd960ec2788fbe93695005637301d17b9d04",
   "runtime_revision": "bc4e08c440d4a22baca7d9e05faf85c14c88614a",
-  "review_note": "Reviewed confirmed local source-quiescence reuse at bc4e08c4: bounded to the current two parents, cleared for a new operation/worker, with fresh coordinator inventory checks and cleanup ownership unchanged. At a3792fd0 strict host/core Clippy, five native retirement/reclamation/capacity/merge/fanout regressions and the full native/RustFS 64-cell/seven-group workflows pass both image modes under original leases, deadlines and resource/reserve limits. Owned backend and VM are stopped with objects retained; earlier failures remain and no failover SLA is claimed. All anchored bytes/excerpts remain unchanged. CG-11 stays IN_PROGRESS for automatic admitted-move handoff, relevant ownership accounting, bounded controller/journal behavior and its five-case/ten-command acceptance. Full load/physical/independent-domain/soak profiles remain CG-15/16 gates, preserving the whole design. See progress.md for exact records.",
+  "review_note": "Reviewed confirmed local source-quiescence reuse at bc4e08c4: bounded to the current two parents, cleared for a new operation/worker, with fresh coordinator inventory checks and cleanup ownership unchanged. At a3792fd0 strict host/core Clippy, five native retirement/reclamation/capacity/merge/fanout regressions and the full native/RustFS 64-cell/seven-group workflows pass both image modes under original leases, deadlines and resource/reserve limits. Owned backend and VM are stopped with objects retained; earlier failures remain and no failover SLA is claimed. All anchored bytes/excerpts remain unchanged. CG-11 stays IN_PROGRESS for automatic admitted-move handoff, relevant ownership accounting, bounded controller/journal behavior and its five-case/ten-command acceptance. Full load/physical/independent-domain/soak profiles remain CG-15/16 gates, preserving the whole design. See progress.md for exact records. Reviewed source checkpoint 4a00fd96: only the recovery harness anchor changes. The daemon binds the owned backend profile/context and explicit existing Colima/Lima homes; the guest still positively matches the captured Engine before launch. Voter/backend limits, workload/source-image assertions, cleanup inventory and request budgets are unchanged. Three routing/configuration tests and real Docker/SSH Engine plus cgroup/workspace-disk preflight passed; 31 local multi-Raft Python tests passed with one opt-in Docker case skipped. This aligns reviewed source only: node-container qualification, native startup stability, RO-09 and all remaining optimization/release gates stay open. See optimization-progress.md.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -139,9 +139,9 @@
     },
     "recovery": {
       "path": "tools/multi-raft/daemon.py",
-      "sha256": "acef91d5644227a83e8318c02d365ab1caa158e083149ba3553b3adc9ad3c594",
-      "line": 356,
-      "excerpt": "def main():\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument(\"--image\", required=True)\n    parser.add_argument(\"--backend\", type=Path, required=True)\n    parser.add_argument(\"--output\", type=Path, required=True)\n    extension = parser.add_mutually_exclusive_group()"
+      "sha256": "418c8b7e36d06ad188cefbb2d4870f7e260fb32a7ed9f3964a7f1f73c99470f0",
+      "line": 370,
+      "excerpt": "def main():\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument(\"--image\", required=True)\n    parser.add_argument(\"--backend\", type=Path, required=True)\n    parser.add_argument(\"--output\", type=Path, required=True)\n    parser.add_argument(\"--colima-home\", type=Path, default=Path.home() / \".colima\",\n                        help=\"explicit home containing the backend's dedicated Colima profile\")"
     },
     "ci": {
       "path": ".github/workflows/native-sdk.yml",

@@ -4,6 +4,7 @@
 
 mod leadership;
 mod park_deadlines;
+mod read_cohort;
 pub(super) mod reads;
 mod retirement;
 mod worker;
@@ -194,7 +195,9 @@ enum Command {
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     CaptureCheckpoint(CellGroupCheckpointPool),
     Status,
-    RoutingStatus,
+    RoutingStatus {
+        advice: bool,
+    },
     PendingTransferQuorum,
     Observe,
     ObservePartition,
@@ -221,7 +224,7 @@ enum Response {
     EnrollmentState(Box<CellEnrollmentState>),
     Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
-    RoutingStatus(CellGroupStatus, Option<ParkGeneration>),
+    RoutingStatus(crate::raft::leader_advice::RoutingObservation),
     PendingTransferQuorum(Box<TransferChildQuorum>),
     Observation(Box<CellGroupObservation>),
     PartitionObservation(Box<CellGroupPartitionObservation>),
@@ -1191,6 +1194,50 @@ impl CellGroupRuntime {
         history: GroupHistory,
         deadline: u64,
     ) -> Result<CellGroupStatus, RuntimeError> {
+        self.routing_observation_in(history, deadline, false, true)
+            .await
+            .map(|(status, _)| status)
+    }
+
+    pub(crate) async fn routing_observation(
+        &self,
+        history: GroupHistory,
+        deadline: u64,
+    ) -> Result<
+        (
+            CellGroupStatus,
+            Option<crate::raft::leader_advice::LeaderAdvice>,
+        ),
+        RuntimeError,
+    > {
+        self.routing_observation_in(history, deadline, true, true)
+            .await
+    }
+
+    /// Query advice must not wake a parked group for an explicitly stale read.
+    pub(crate) async fn leader_advice(
+        &self,
+        history: GroupHistory,
+        deadline: u64,
+    ) -> Result<Option<crate::raft::leader_advice::LeaderAdvice>, RuntimeError> {
+        self.routing_observation_in(history, deadline, true, false)
+            .await
+            .map(|(_, advice)| advice)
+    }
+
+    async fn routing_observation_in(
+        &self,
+        history: GroupHistory,
+        deadline: u64,
+        advice: bool,
+        wake: bool,
+    ) -> Result<
+        (
+            CellGroupStatus,
+            Option<crate::raft::leader_advice::LeaderAdvice>,
+        ),
+        RuntimeError,
+    > {
         let domain = &self.inner.domain;
         if domain.mono_ms().map_err(|_| RuntimeError::Closed)? >= deadline {
             return Err(RuntimeError::DeadlineExceeded);
@@ -1198,19 +1245,44 @@ impl CellGroupRuntime {
         let timer = domain
             .sleep_until(deadline)
             .map_err(|_| RuntimeError::Closed)?;
+        // Digest construction serializes the same bounded ledger as a quorum
+        // membership observation. Reserve that scratch in the existing bank;
+        // ordinary local status selection still needs only its small record.
+        let bytes = if advice {
+            super::membership_observation::MEMBERSHIP_BYTES
+        } else {
+            4096
+        };
         let observation = async {
-            let (status, generation) = match self
-                .call(Some(history), Command::RoutingStatus, 4096)
+            let observation = match self
+                .call(Some(history), Command::RoutingStatus { advice }, bytes)
                 .await?
             {
-                Response::RoutingStatus(status, generation) => (status, generation),
+                Response::RoutingStatus(observation) => observation,
                 _ => return Err(RuntimeError::Protocol("routing status reply".into())),
             };
-            if let Some(generation) = generation {
+            if let Some(generation) = observation.park {
+                if !wake {
+                    return Ok((observation.status, None));
+                }
                 let fresh = self.wake_park(history, generation, deadline).await?;
-                return Ok(fresh.status().clone());
+                if !advice {
+                    return Ok((fresh.status().clone(), None));
+                }
+                // A pre-wake sample never supplies reusable advice. Resample
+                // the same owner after the fresh wake barrier has completed.
+                return match self
+                    .call(Some(history), Command::RoutingStatus { advice }, bytes)
+                    .await?
+                {
+                    Response::RoutingStatus(fresh) if fresh.park.is_none() => {
+                        Ok((fresh.status, fresh.advice))
+                    }
+                    Response::RoutingStatus(_) => Err(RuntimeError::NotReady),
+                    _ => Err(RuntimeError::Protocol("routing status reply".into())),
+                };
             }
-            Ok(status)
+            Ok((observation.status, observation.advice))
         };
         let result = crate::asyncrt::select! {
             status = observation => status,

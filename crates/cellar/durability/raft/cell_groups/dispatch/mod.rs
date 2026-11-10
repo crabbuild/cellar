@@ -4,6 +4,7 @@
 //! Routing observations never replace destination authority or ingress grants.
 
 mod mutation_route;
+pub(crate) use mutation_route::MutationRouting;
 mod query_routing;
 mod receipt;
 pub use query_routing::CellQueryRouting;
@@ -88,7 +89,8 @@ impl CellDispatchError {
             Self::Execution(ExecutionError::Refused(failure))
             | Self::Transport(
                 crate::raft::transport::TransportError::Query(failure)
-                | crate::raft::transport::TransportError::Command(failure),
+                | crate::raft::transport::TransportError::Command(failure)
+                | crate::raft::transport::TransportError::CommandRejected(failure),
             ) => Some(failure),
             _ => None,
         }
@@ -195,11 +197,14 @@ impl CellGroupDispatcher {
         {
             return Err(CellDispatchError::Invalid("invocation limits"));
         }
+        let budget = Budget::new(limits.retained_bytes, limits.max_invocations);
         let routes = Arc::new(
             crate::raft::catalog::RouteCache::new(
                 directory.clone(),
                 limits.max_cached_routes,
                 limits.route_cache_bytes,
+                budget.clone(),
+                limits.max_input_bytes * 2 + 8192,
             )
             .map_err(|_| CellDispatchError::Invalid("route cache limits"))?,
         );
@@ -210,7 +215,7 @@ impl CellGroupDispatcher {
             keys,
             domain,
             limits,
-            budget: Budget::new(limits.retained_bytes, limits.max_invocations),
+            budget,
             s3: None,
         })
     }
@@ -261,17 +266,16 @@ impl CellGroupDispatcher {
         self.routes.usage().map_err(catalog_failure)
     }
 
-    /// Observe a verified current directory head and retire all older range hints.
+    /// Observe the current directory and invalidate verified changed intervals.
+    /// Missing or over-budget proofs select full invalidation. Retained entries
+    /// keep their original verified revisions rather than inheriting this head.
     /// This is host-driven metadata refresh, not a serving lease or a timer task.
     pub async fn refresh_routes(&self) -> Result<u64, CellDispatchError> {
-        let view = self
-            .domain
-            .run(self.directory.observe())
+        self.domain
+            .run(self.routes.refresh())
             .await
             .map_err(|_| closed())?
-            .map_err(catalog_failure)?;
-        self.routes.observe(&view).map_err(catalog_failure)?;
-        Ok(view.revision())
+            .map_err(catalog_failure)
     }
 
     pub fn usage(&self) -> (usize, usize) {
@@ -813,7 +817,8 @@ fn catalog_failure(error: crate::raft::catalog::CatalogError) -> CellDispatchErr
     })
 }
 
-/// Receiver-side destination constraint, checked against a fresh catalog lookup.
+/// Receiver-side destination constraint. Commands match the actual applied local
+/// manifest before execution; enrollment/receipt paths retain catalog discovery.
 pub(crate) struct RemoteMutationRoute {
     pub group: cellar_logic::cell_group::GroupHistory,
     pub schema: [u8; 32],

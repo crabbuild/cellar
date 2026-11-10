@@ -10,6 +10,8 @@ It supplements [design](design.md), [protocols](protocols.md) and
 [qualification](qualification.md). It does not close or replace their CG gates,
 including full primitive compatibility. Implementation remains tracked by the
 existing [plan](implementation-plan.md) and [remaining work](remaining-work.md).
+The [optimization implementation ledger](optimization-progress.md) records the
+current implementation boundary without treating these proposed gates as passed.
 
 Cellar initial routing review: `b44dd5e0ff185c38fed9d9c33cd732ee3a35b7af`.
 The main thread advanced during drafting. The selection and reclamation delta

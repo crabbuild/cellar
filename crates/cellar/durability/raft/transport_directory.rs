@@ -182,6 +182,14 @@ impl RaftTransport {
         let starts = state.prepare_pools(&mut registry, physical)?;
         refresh_routes(&mut registry.physical_groups, peer);
         refresh_routes(&mut registry.cell_query_groups, peer);
+        {
+            let Registry {
+                leaders,
+                cell_query_groups,
+                ..
+            } = &mut *registry;
+            leaders.refresh_endpoint(cell_query_groups, peer.node);
+        }
         refresh_routes(&mut registry.groups, peer);
         refresh_routes(&mut registry.query_groups, peer);
         let Registry {

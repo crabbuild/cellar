@@ -197,6 +197,7 @@ impl RaftTransport {
                 return Err(TransportError::Identity);
             }
         }
+        registry.leaders.fence_peers(allowed);
         registry.pools.retain(|_, pool| {
             if allowed(&pool.peer) {
                 true

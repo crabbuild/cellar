@@ -37,6 +37,6 @@ pub mod seed_failures;
 pub mod verifier;
 
 pub use cluster::*;
-pub use node::{limits, request, start_node, Fixture, NoListing};
+pub use node::{limits, request, start_node, start_node_with_filesystem, Fixture, NoListing};
 
 pub const TIMEOUT: Duration = Duration::from_secs(5);

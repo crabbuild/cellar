@@ -7,6 +7,7 @@ use crate::raft::cell_groups::{
     CellDispatchError, CellGroupController, CellGroupDispatcher, CellGroupNamespaceStorage,
     CellRoutingLimits, EnrollmentRecord,
 };
+use crate::raft::leader_advice::MutationDisposition;
 use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire::{
     self as wire,
@@ -207,6 +208,8 @@ pub(super) struct SendCellWrite {
     peer: RaftPeer<GroupHistory>,
     cell: CellHistory,
     call: WriteCall,
+    started_at: u64,
+    leader_generation: Option<std::sync::Weak<()>>,
     keys: VersionKeys,
     deadline: u64,
     cancel: watch::Receiver<bool>,
@@ -435,7 +438,7 @@ impl RaftTransport {
         let state = &self.handle.0;
         // Discovery never creates a local replica or grants voting authority.
         state.runtime.shared()?;
-        let (view, peer, pool) = {
+        let (view, peer, pool, leader_generation) = {
             let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
             state.admit(&registry)?;
             let view = registry
@@ -461,9 +464,11 @@ impl RaftTransport {
                 .get(&peer.replica.node)
                 .ok_or(TransportError::StalePeer)?
                 .clone();
-            (view, peer, pool)
+            let leader_generation = registry.leaders.generation(&view);
+            (view, peer, pool, leader_generation)
         };
-        if state.domain.mono_ms().map_err(|_| TransportError::Closed)? >= deadline {
+        let started_at = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        if started_at >= deadline {
             return Err(TransportError::Timeout);
         }
         let charge = queries::reservation(
@@ -495,6 +500,8 @@ impl RaftTransport {
                 peer,
                 cell: cell.clone(),
                 call,
+                started_at,
+                leader_generation,
                 keys,
                 deadline,
                 cancel: cancelled,
@@ -605,6 +612,16 @@ impl State {
                         WriteCall::Enrollment(_) => route.for_enrollment()?,
                         WriteCall::Receipt(_) => route.for_receipt()?,
                     };
+                    use crate::raft::performance::Counter;
+                    match request.call {
+                        WriteCall::Command(_) => {
+                            self.performance.increment(Counter::CellCommandAttempts, 1)
+                        }
+                        WriteCall::Probe(_) => {
+                            self.performance.increment(Counter::CellCommandProbes, 1)
+                        }
+                        _ => (),
+                    }
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
                         .await?;
@@ -615,7 +632,7 @@ impl State {
                         WriteCall::Command(call) => {
                             let now = u64::try_from(crate::asyncrt::wall_ms())
                                 .map_err(|_| TransportError::Authentication)?;
-                            wire::command::decode_result(
+                            let reply = wire::command::decode_reply(
                                 &body,
                                 (call.request.id, &request.cell, call.request.durability),
                                 request.route.schema_digest,
@@ -623,12 +640,60 @@ impl State {
                                 now,
                                 self.options.max_query_response_bytes,
                                 request.peer.replica.member,
-                            )?
-                            .map(WriteValue::Command)
+                            )?;
+                            if reply
+                                .advice
+                                .as_ref()
+                                .is_some_and(|advice| advice.history != request.route.scope)
+                            {
+                                return Err(TransportError::Authentication);
+                            }
+                            if matches!(&reply.result, Err(CommandFailure::NotLeader { .. })) {
+                                self.suspect_cell_leader(
+                                    &request.route,
+                                    request.leader_generation.as_ref(),
+                                    request.peer.replica.member,
+                                );
+                            }
+                            self.remember_cell_leader(
+                                &request.route,
+                                request.leader_generation.as_ref(),
+                                &request.peer,
+                                reply.advice,
+                                request.started_at,
+                            );
+                            return reply.result.map(WriteValue::Command).map_err(|failure| {
+                                if reply.disposition == MutationDisposition::RejectedBeforeAdmission
+                                {
+                                    self.performance
+                                        .increment(Counter::CellCommandPreAdmissionRefusals, 1);
+                                    TransportError::CommandRejected(failure)
+                                } else {
+                                    self.performance
+                                        .increment(Counter::CellCommandUnconfirmedReplies, 1);
+                                    TransportError::Command(failure)
+                                }
+                            });
                         }
                         WriteCall::Probe(_) => {
-                            return wire::command::decode_probe_result(&body)
-                                .map(WriteValue::Probe);
+                            let (leader, advice) = wire::command::decode_probe_result(
+                                &body,
+                                self.options.max_query_response_bytes,
+                            )?;
+                            if advice.as_ref().is_some_and(|advice| {
+                                advice.history != request.route.scope
+                                    || (leader && advice.leader != request.peer.replica.member)
+                            }) {
+                                return Err(TransportError::Authentication);
+                            }
+                            self.remember_cell_leader(
+                                &request.route,
+                                request.leader_generation.as_ref(),
+                                &request.peer,
+                                advice,
+                                request.started_at,
+                            );
+                            return Ok(WriteValue::Probe(leader));
                         }
                         WriteCall::Receipt(call) => {
                             let now = u64::try_from(crate::asyncrt::wall_ms())
@@ -657,9 +722,22 @@ impl State {
                 },
             )
             .await;
+        if matches!(
+            &result,
+            Err(TransportError::Io(_)
+                | TransportError::Timeout
+                | TransportError::StalePeer
+                | TransportError::UnknownGroup)
+        ) {
+            self.suspect_cell_leader(
+                &request.route,
+                request.leader_generation.as_ref(),
+                request.peer.replica.member,
+            );
+        }
         // A fully authenticated application refusal consumed a complete reply;
         // retain the peer connection just as the legacy query lane does.
-        let failed = matches!(&result, Err(error) if !matches!(error, TransportError::Command(_)));
+        let failed = matches!(&result, Err(error) if !matches!(error, TransportError::Command(_) | TransportError::CommandRejected(_)));
         let _ = request.reply.send(result.map(|value| WriteResponse {
             value,
             served_by: request.peer.replica.member,
@@ -820,8 +898,8 @@ impl State {
         // A zero-group router's probe must wake a parked voter before it can
         // trust the retained leader hint. This is read-only discovery: no
         // mutation is transmitted or retried while fresh quorum is absent.
-        let status = runtime
-            .routing_status(target.scope, deadline)
+        let (status, advice) = runtime
+            .routing_observation(target.scope, deadline)
             .await
             .map_err(TransportError::Runtime)?;
         self.authorize_cell_command(route)?;
@@ -832,7 +910,11 @@ impl State {
         // must independently check current local Raft authority.
         let leader = status.ready && status.leader == Some(target.member.get());
         Ok(super::query_replies::Reply::plain(
-            wire::command::encode_probe_result(leader),
+            wire::command::encode_probe_result(
+                leader,
+                advice.as_ref(),
+                self.options.max_query_response_bytes,
+            )?,
         ))
     }
 
@@ -840,6 +922,7 @@ impl State {
         &self,
         route: &QueryRoute,
         call: CellCommandCall,
+        deadline: u64,
     ) -> Result<super::query_replies::Reply, TransportError> {
         let (_, target, cell) = route.decode_shared()?;
         let gateway = self
@@ -859,14 +942,41 @@ impl State {
             epoch: call.route_epoch,
             birth: call.birth_digest,
         };
+        let mut disposition = MutationDisposition::RejectedBeforeAdmission;
+        let mut advice = None;
         let result = async {
+            // This observation precedes invocation/producer construction. Only
+            // this explicit refusal point can prove a routing rejection.
+            self.authorize_cell_command(route)
+                .map_err(|_| CommandFailure::Unavailable)?;
+            let (status, observed) = self
+                .runtime
+                .shared()
+                .map_err(|_| CommandFailure::Unavailable)?
+                .routing_observation(target.scope, deadline)
+                .await
+                .map_err(|_| CommandFailure::Unavailable)?;
+            advice = observed;
+            if status.leader != Some(target.member.get()) {
+                return Err(CommandFailure::NotLeader {
+                    leader: advice.map(|advice| advice.leader),
+                });
+            }
+            let remaining = deadline
+                .checked_sub(
+                    self.domain
+                        .mono_ms()
+                        .map_err(|_| CommandFailure::Unavailable)?,
+                )
+                .filter(|remaining| *remaining > 0)
+                .ok_or(CommandFailure::Unavailable)?;
             let mut invocation = gateway
                 .dispatcher
                 .command_with_inputs(
                     cell,
                     call.request,
                     CellRoutingLimits {
-                        timeout: Duration::from_millis(call.timeout_ms),
+                        timeout: Duration::from_millis(call.timeout_ms.min(remaining)),
                         max_attempts: 1,
                     },
                     None,
@@ -874,7 +984,9 @@ impl State {
                 )
                 .await
                 .map_err(|error| command_failure(&error.cause))?;
-            invocation.bind_remote_route(binding);
+            invocation
+                .bind_remote_route(binding, deadline)
+                .map_err(|error| command_failure(&error.cause))?;
             if !gateway.accepting.load(Ordering::Acquire) {
                 return Err(CommandFailure::Unavailable);
             }
@@ -886,12 +998,23 @@ impl State {
                 .controller
                 .command(invocation, options)
                 .map_err(|error| command_failure(&error.error.cause))?;
+            // From here the controller retains physical ownership even when
+            // its response waiter expires. A generic error is never rejection.
+            disposition = MutationDisposition::AdmittedOrUnknown;
             call.response()
                 .await
                 .map_err(|error| command_failure(&error.cause))
         }
         .await;
-        super::query_replies::Reply::command(result, self.options.max_query_response_bytes)
+        if result.is_ok() {
+            disposition = MutationDisposition::Applied;
+        }
+        super::query_replies::Reply::command(
+            result,
+            disposition,
+            advice.as_ref(),
+            self.options.max_query_response_bytes,
+        )
     }
 }
 

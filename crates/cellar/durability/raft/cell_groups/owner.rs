@@ -812,7 +812,8 @@ impl CellGroupOwner {
     /// or mutation transmission; this sample itself grants no authority.
     pub(super) fn routing_status(
         &self,
-    ) -> Result<(CellGroupStatus, Option<ParkGeneration>), RuntimeError> {
+        include_advice: bool,
+    ) -> Result<crate::raft::leader_advice::RoutingObservation, RuntimeError> {
         self.live()?;
         // A sealed source can retain its Raft leader for archive/retirement
         // work, but that leader is no longer an application destination.
@@ -833,7 +834,40 @@ impl CellGroupOwner {
             .map(ParkGeneration::new)
             .transpose()
             .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
-        Ok((self.status()?, generation))
+        let cache = self.group.read()?;
+        let status = self.status_at(&cache);
+        // Sample term, leader and the applied configuration in one owner turn.
+        // Outgoing-only voters and learners cannot be advised as write leaders.
+        let advice = status
+            .leader
+            .filter(|leader| {
+                include_advice
+                    && generation.is_none()
+                    && status.term.get() != 0
+                    && cache.membership.revision().get()
+                        == self.current.marker().membership_revision()
+                    && cache.conf_state.voters.contains(leader)
+            })
+            .map(|leader| {
+                Ok::<_, RuntimeError>(crate::raft::leader_advice::LeaderAdvice {
+                    history: self.current.marker().route().history,
+                    membership_revision: cache.membership.revision().get(),
+                    configuration_digest: crate::raft::host::group_membership_digest(
+                        &cache.membership,
+                        &cache.conf_state,
+                    )
+                    .map_err(|_| RuntimeError::Protocol("routing configuration digest".into()))?,
+                    term: status.term.get(),
+                    leader: MemberId::new(leader)
+                        .map_err(|_| RuntimeError::Protocol("routing leader".into()))?,
+                })
+            })
+            .transpose()?;
+        Ok(crate::raft::leader_advice::RoutingObservation {
+            status,
+            park: generation,
+            advice,
+        })
     }
 
     fn status_at(&self, cache: &crate::raft::cache::CachedGroup) -> CellGroupStatus {
@@ -1753,6 +1787,15 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         self.validate_message(&message)?;
+        // Only the origin may forward its local read to a leader. raft-rs
+        // relays peer ReadIndex messages with their original `from`, which
+        // would impersonate that member on this node's authenticated transport.
+        // A stale destination refuses before RawNode can create such a frame.
+        if message.get_msg_type() == MessageType::MsgReadIndex
+            && self.node.raft.state != StateRole::Leader
+        {
+            return Err(RuntimeError::NotLeader);
+        }
         let entries = if message.get_msg_type() == MessageType::MsgAppend {
             message.entries.as_slice()
         } else {
@@ -2084,6 +2127,9 @@ impl CellGroupOwner {
             return Err(RuntimeError::Overloaded);
         }
         self.node.read_index(context);
+        self.log
+            .performance()
+            .increment(crate::raft::performance::Counter::CellReadBarriers, 1);
         Ok(())
     }
 

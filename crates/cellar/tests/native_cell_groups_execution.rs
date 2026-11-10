@@ -1155,6 +1155,36 @@ async fn physical_owner_retains_lease_through_cancelled_sync() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn linearizable_read_cohorts_keep_fresh_barriers() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_reads(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_linearizable_read_cohorts_keep_fresh_barriers() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_reads(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn linearizable_read_cohorts_refuse_term_change() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_invalidated(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_linearizable_read_cohorts_refuse_term_change() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_invalidated(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn linearizable_read_cohorts_refuse_configuration_change() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_invalidated(false, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_linearizable_read_cohorts_refuse_configuration_change() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_invalidated(true, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn strong_read_at_group_barrier() -> Result<()> {
     runtime_fixture::coherent_reads(false).await
 }

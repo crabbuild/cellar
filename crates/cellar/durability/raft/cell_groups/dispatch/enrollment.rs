@@ -6,7 +6,7 @@ mod remote;
 
 use super::*;
 use crate::raft::execution::CellEnrollmentAttempt;
-use crate::raft::transport::{CellRemoteEnrollmentResponse, RaftTransport};
+use crate::raft::transport::CellRemoteEnrollmentResponse;
 use crate::storage::CommandInputs;
 use cellar_logic::consensus::{CommandFailure, Durability};
 use cellar_ltx::generation::ImageId;
@@ -320,8 +320,9 @@ impl CellEnrollmentInvocation {
         options: CellSqlOptions,
         roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
-        transport: &RaftTransport,
+        routing: MutationRouting<'_>,
     ) -> Result<CellEnrollmentResponse, CellEnrollmentError> {
+        let transport = routing.transport;
         self.started = true;
         let mut attempt = self.begin_owned().await.map_err(|e| self.error(e))?;
         if self.route_remote && self.remote_route.is_none() {
@@ -337,6 +338,29 @@ impl CellEnrollmentInvocation {
                 .await;
                 match selected {
                     Ok(member) => break member,
+                    Err(cause)
+                        if matches!(
+                            cause.refusal(),
+                            Some(CommandFailure::NotLeader { .. } | CommandFailure::Overloaded)
+                        ) && usize::from(attempt.ordinal())
+                            < self.session.maximum_attempts() =>
+                    {
+                        // No creation was sent. Retain the same placement, inputs,
+                        // creation identity and original attempt/deadline bank.
+                        routing
+                            .backoff(
+                                &self.dispatcher.domain,
+                                self.session.deadline_ms(),
+                                self.session.maximum_attempts() - usize::from(attempt.ordinal()),
+                            )
+                            .await
+                            .map_err(|cause| self.error(cause))?;
+                        attempt = self
+                            .session
+                            .retry(&attempt)
+                            .await
+                            .map_err(|error| self.error(CellDispatchError::Routing(error)))?;
+                    }
                     Err(CellDispatchError::Runtime(
                         RuntimeError::NotReady | RuntimeError::NotFound,
                     )) if usize::from(attempt.ordinal()) < self.session.maximum_attempts() => {
