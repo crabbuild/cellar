@@ -1961,6 +1961,10 @@ async fn check_recovery_voter_reservations(
 
         let first = plan.births()[0].route().history;
         let before = fixture.catalog.read(TIMEOUT).await?.revision();
+        ensure!(Box::pin(control.reopen_transition_recovery_seed_quorums(
+            namespace, fenced, plan, TIMEOUT,
+        )).await?.is_none());
+        ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == before);
         ensure!(Box::pin(control.reopen_transition_recovery_range(
             namespace, fenced, plan, first, TIMEOUT,
         ))
@@ -2083,10 +2087,14 @@ async fn check_recovery_voter_reservations(
                 )).await;
                 ensure!(matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
                 ensure!(!fixture.store.fail_recovery_record_confirmation.load(Ordering::Acquire));
+                let readonly = Box::pin(fresh.reopen_transition_recovery_seed_quorums(
+                    namespace, fenced, plan, TIMEOUT,
+                )).await?.context("reopen selected seeds after losing selection response")?;
                 let selected = Box::pin(fresh.select_transition_recovery_seed_quorums(
                     namespace, fenced, plan, TIMEOUT,
                 )).await?;
                 ensure!(selected.plan_digest() == plan.digest() && selected.ranges().len() == reserved.len());
+                ensure!(readonly.digest() == selected.digest());
                 ensure!(selected.ranges().iter().zip(plan.births()).all(|(range, birth)| {
                     range.birth_digest() == birth.route().birth_digest
                         && range.members() == [21, 22]
@@ -2097,9 +2105,9 @@ async fn check_recovery_voter_reservations(
             let view = host.observe_node(TIMEOUT).await?;
             ensure!(view.node.groups == reserved.len() as u32 && view.registered_histories == 0);
         }
-        let reopened = Box::pin(control.select_transition_recovery_seed_quorums(
+        let reopened = Box::pin(control.reopen_transition_recovery_seed_quorums(
             namespace, fenced, plan, TIMEOUT,
-        )).await?;
+        )).await?.context("independent controller reopens the original seed set")?;
         ensure!(Some(reopened.digest()) == quorum_digest);
         ensure!(reopened.ranges().iter().all(|range| range.members() == [21, 22]));
         let request = FleetRecoveryAttachRequest {

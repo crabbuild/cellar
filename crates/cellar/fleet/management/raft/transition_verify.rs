@@ -418,6 +418,29 @@ impl RaftFleetControl {
             .await?)
     }
 
+    /// Reopen a selected seed majority without choosing or writing a new set.
+    /// This grants no publication, activation or serving authority.
+    #[doc(hidden)]
+    pub async fn reopen_transition_recovery_seed_quorums(
+        &self,
+        namespace: &str,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+        timeout: Duration,
+    ) -> Result<Option<FleetRecoverySeedQuorums>> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .reopen_managed_recovery_seed_quorums(
+                directory,
+                fenced,
+                plan,
+                &self.archive_pool,
+                timeout,
+            )
+            .await?)
+    }
+
     /// Atomically select the seeded replacements while retaining the startup
     /// fence. Repeat with the exact selected receipt set after a lost response.
     #[doc(hidden)]

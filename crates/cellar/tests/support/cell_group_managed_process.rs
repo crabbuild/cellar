@@ -3,7 +3,8 @@
 //! Real independent Node/RaftCells ownership against the captured RustFS roots.
 use super::*;
 use cellar::sdk::fleet_operations::{
-    RaftFleetConnection, RaftFleetNamespace, RaftFleetNamespaceScope,
+    RaftFleetCapacityAttestation, RaftFleetConnection, RaftFleetNamespace, RaftFleetNamespaceScope,
+    RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCapacity,
 };
 use serde_json::{json, Value};
 use std::{io::Write as _, path::Path, process::Stdio};
@@ -201,6 +202,58 @@ async fn voter(
             duplicate.status() == 409,
             "ambiguous process headers admitted control"
         );
+        let mut profile_digest = [0; 32];
+        hex::decode_to_slice(observed["profile_digest"].as_str().context("profile digest")?, &mut profile_digest)?;
+        let attestation = RaftFleetCapacityAttestation {
+            boot: serde_json::from_value(observed["boot"].clone())?,
+            profile_revision: 1,
+            profile_digest,
+            cpu_millis: 1000,
+            memory_bytes: 3 * 1024 * 1024 * 1024,
+            durable_bytes: 1024 * 1024 * 1024,
+            engine_slots: 2,
+            memory_swap_disabled: true,
+            used_memory_bytes: 64 * 1024 * 1024,
+            used_durable_bytes: 1024 * 1024,
+            evidence_digest: [71; 32],
+            evidence_reference: "fixture-only/deployment-attestation".into(),
+        };
+        // These are the existing functional fixture's explicit attestations,
+        // not inferred kernel limits or a constrained-voter qualification.
+        let cut = f.catalog.read(TIMEOUT).await?;
+        let mut stale = attestation.clone();
+        stale.boot.process = [generation - 1; 16];
+        let stale = RaftFleetNodeCapacity {
+            catalog_id: hex::encode(attestation.boot.catalog),
+            request_id: hex::encode((1_000_100 + u128::from(generation) * 4).to_be_bytes()),
+            expected_revision: cut.revision(),
+            attestation: stale,
+        };
+        let denied = request(json!({"action":"qualify_node", "request":stale})).send().await?;
+        ensure!(denied.status() == 503, "stale capacity boot accepted");
+        ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
+        for (offset, action, expected) in [
+            (1u128, "qualify_node", RaftFleetNodeAction::Qualify),
+            (2, "activate_node", RaftFleetNodeAction::Activate),
+        ] {
+            let cut = f.catalog.read(TIMEOUT).await?;
+            let capacity = RaftFleetNodeCapacity {
+                catalog_id: hex::encode(attestation.boot.catalog),
+                request_id: hex::encode((1_000_100 + u128::from(generation) * 4 + offset).to_be_bytes()),
+                expected_revision: cut.revision(),
+                attestation: attestation.clone(),
+            };
+            let admitted = request(json!({"action":action,"request":capacity})).send().await?;
+            ensure!(admitted.status().is_success(), "managed process {action} refused");
+            let value = admitted.json::<Value>().await?;
+            let admission: RaftFleetNodeAdmission = serde_json::from_value(value["admission"].clone())?;
+            admission.validate()?;
+            ensure!(admission.action == expected && admission.applied_revision == cut.revision() + 1);
+            let current = f.catalog.read(TIMEOUT).await?;
+            let qualified = f.catalog.authorize_capacity(&current, f.spec.node, TIMEOUT).await?;
+            ensure!(qualified.attestation() == &attestation
+                && qualified.receive_replicas() == (expected == RaftFleetNodeAction::Activate));
+        }
         let absent = json!({"cell":"Counter:absent","incarnation":vec![9;16]});
         let denied = request(
             json!({"action":"read","cell":absent["cell"],"incarnation":absent["incarnation"],

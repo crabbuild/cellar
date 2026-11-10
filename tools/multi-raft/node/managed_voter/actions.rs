@@ -19,6 +19,12 @@ enum Action {
         incarnation: [u8; 16],
     },
     Stop,
+    QualifyNode {
+        request: RaftFleetNodeCapacity,
+    },
+    ActivateNode {
+        request: RaftFleetNodeCapacity,
+    },
     Start {
         group: [u8; 16],
         incarnation: [u8; 16],
@@ -167,6 +173,30 @@ impl State {
             Action::Stop => {
                 self.stop.send(true)?;
                 Ok(json!({"stopping":true}))
+            }
+            Action::QualifyNode { request } => {
+                let admission = self
+                    .control
+                    .qualify_node(
+                        &self.config.principal,
+                        &hex::encode(self.config.node),
+                        request,
+                        turn.remaining()?,
+                    )
+                    .await?;
+                Ok(json!({"admission":admission}))
+            }
+            Action::ActivateNode { request } => {
+                let admission = self
+                    .control
+                    .activate_node(
+                        &self.config.principal,
+                        &hex::encode(self.config.node),
+                        request,
+                        turn.remaining()?,
+                    )
+                    .await?;
+                Ok(json!({"admission":admission}))
             }
             Action::Status { group, incarnation } => {
                 let status = self

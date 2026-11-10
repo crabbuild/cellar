@@ -2763,7 +2763,8 @@
         "tools/multi-raft/managed_group_fence.py",
         "tools/multi-raft/test_managed_group_fence.py",
         "crates/cellar/fleet/management/raft/recovery_selection.rs",
-        "tools/multi-raft/node/managed_operator.rs"
+        "tools/multi-raft/node/managed_operator.rs",
+        "tools/multi-raft/node/managed_recovery.rs"
       ],
       "test_target": "native_cell_groups_disaster",
       "steps": [

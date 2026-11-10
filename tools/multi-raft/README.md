@@ -533,6 +533,55 @@ constructs it without exposing credentials in output. Do not mount the controlle
 signing key or launch ledger in this process. Use a fresh private replay directory
 for each cold verification and keep credential configuration out of evidence.
 
+### Managed recovery controller steps
+
+`CELLAR_GROUP_ACTION=managed-recovery` exposes the remaining SDK recovery
+operations in independent processes. The [configuration](node/managed_recovery.rs)
+contains the explicit existing S3 connection, one managed namespace, authenticated
+operator principal, pinned fence public key and one `command`. Keep credentials
+private and use a fresh replay directory for each invocation:
+
+```sh
+CELLAR_GROUP_ACTION=managed-recovery \
+CELLAR_GROUP_CONFIG=/private/run/recovery-step.json \
+CELLAR_GROUP_DATA=/private/run/replay-step \
+cellar-perf-cell-group
+```
+
+The controller persists each exact command before invocation. The sequence is:
+
+`describe` reports the opened catalog/namespace identity and image mode without
+initializing metadata or granting admission. It can verify the existing-root
+connection before proposing recovery work.
+
+1. `stage`: pass the retained `selection` and `replacements`, in selected-cut
+   order. Each replacement declares `history` (`group`/`incarnation`), `creation`,
+   `epoch`, `voters` and `learners` (`node`/`member`). Range boundaries come from
+   the verified cuts, never arbitrary caller keys. Retain the returned plan digest.
+2. `plan`, `reserve`/`reservation`, and `select_seeds`/`seeds` use
+   `basis: {selection, plan_digest}`. Range commands also take `history`.
+   `reservation` and `seeds` are read-only: absent records return null without
+   allocating capacity or choosing a receipt set. Seeding itself runs in each
+   managed voter after capacity admission and reservation.
+3. `publish` takes that `basis` and the already selected `seed_digest`. It only
+   reopens the selected quorum; it cannot create a missing seed selection.
+   Reconcile a lost publication response with `publication` and the same operation,
+   plan and seed IDs, including after the active barrier has been released.
+4. `publication`, `activation`, `settle`, `complete`, `release` and `retire` use
+   `request: {operation, plan_digest, seed_digest}`. `activation` adds a `history`;
+   `release` and `retire` add the exact `completion` digest. These commands
+   rederive the phase-appropriate durable SDK proofs. They do not require an
+   obsolete active-barrier proof after serving release. Retirement independently
+   verifies the permanent fence with the configured public key.
+
+Each invocation executes one bounded SDK step. Settlement and retirement report
+rooted cursors; the controller repeats the same request to advance the next
+bounded batch. All metadata/replay substeps share one 20-second command deadline.
+No mutation is automatically retried. JSON errors retain the SDK failure code and
+outcome; transport loss or timeout remains unknown. Keep the original command
+and reconcile it. Successful JSON output describes a durable decision; it grants
+no voter membership or permission to bypass SDK serving admission.
+
 ### Managed voter process
 
 `CELLAR_GROUP_ACTION=managed-node` starts a real SDK `Node` and `RaftCells` with
@@ -551,7 +600,15 @@ load envelope.
 
 The `control_ready` event opens only process control. The authenticated `/control`
 protocol binds every request to `x-cellar-node`, `x-cellar-disk` and
-`x-cellar-process`; a stale boot is refused before SDK work. Its recovery phases are:
+`x-cellar-process`; a stale boot is refused before SDK work.
+
+The `qualify_node` and `activate_node` actions take the public SDK
+`RaftFleetNodeCapacity` request for this exact node. The deployment controller must
+provide its explicit platform attestation; the SDK independently checks the
+running observer, boot, profile and rooted inventory. An `observe` reply is not a
+capacity attestation. Stale boot evidence cannot admit placement capacity.
+
+The recovery phases are:
 
 1. `reopen_recovery`: independently replay the existing S3 selection and verify
    its persisted fence, then reopen the controller's exact replacement plan.
@@ -582,8 +639,9 @@ The process regression is
 `process::rustfs_managed_voter_process_boot_restart_and_stop` in
 `native_cell_groups_disaster`. It covers both image modes, stale/unauthenticated
 requests, empty-standby read/write refusals, retained engine ownership and joined
-stop. Full managed Docker seed-to-serving orchestration, coordinator publication/
-settlement and the six-case disk-loss gate remain required for CG-13 acceptance.
+stop, plus stale capacity refusal and public qualification/activation admission.
+Full managed Docker seed-to-serving orchestration and the six-case disk-loss gate
+remain required for CG-13 acceptance.
 
 ## Cell-group transition contracts
 

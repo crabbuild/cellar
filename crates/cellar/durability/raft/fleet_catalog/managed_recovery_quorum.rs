@@ -156,6 +156,50 @@ impl FleetHostAuthorization {
 }
 
 impl FleetCatalog {
+    /// Revalidate an already selected seed set without selecting or persisting a
+    /// new one. A controller that lost its response can reconcile independently.
+    pub(crate) async fn reopen_managed_recovery_seed_quorums(
+        &self,
+        directory: &RangeDirectory,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+        archives: &CellGroupArchivePool,
+        timeout: Duration,
+    ) -> Result<Option<FleetRecoverySeedQuorums>> {
+        self.run(timeout, async {
+            self.require_managed_replacement(fenced, plan).await?;
+            self.require_confirmed_managed_fence(directory, fenced, archives)
+                .await?;
+            let intent = fenced.request().intent();
+            let snapshot = self.inner.current().await?;
+            self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
+                .await?;
+            let Some((record, _)) = self
+                .inner
+                .read::<Record>(&seed_quorum_key(intent.operation()), KIND, LIMIT)
+                .await?
+            else {
+                return Ok(None);
+            };
+            if record.plan != plan.digest()
+                || record.receipt != fenced.receipt_digest()
+                || record.ranges.len() != plan.births().len()
+            {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            self.verify_managed_seed_quorums(&snapshot, directory, fenced, plan, Some(&record))
+                .await?;
+            self.require_confirmed_managed_fence(directory, fenced, archives)
+                .await?;
+            if self.inner.current().await?.token != snapshot.token {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let digest = hash(&encode(KIND, &record, LIMIT)?);
+            Ok(Some(FleetRecoverySeedQuorums { record, digest }))
+        })
+        .await
+    }
+
     pub(crate) async fn select_managed_recovery_seed_quorums(
         &self,
         directory: &RangeDirectory,
