@@ -245,13 +245,79 @@ impl FleetCatalog {
         })
     }
 
+    pub(super) async fn authorize_router_history(
+        &self,
+        snapshot: &FleetSnapshot,
+        expected: FleetGroupBinding,
+        key: &str,
+        directory: &crate::raft::cell_groups::RangeDirectory,
+        birth: &crate::raft::cell_groups::CellGroupBirth,
+    ) -> Result<FleetGroupAuthorization> {
+        let bytes = self
+            .inner
+            .lookup(snapshot.head.tables[FleetTable::Histories.slot()], key)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        let history = super::histories::FleetHistory::decode(&bytes)?;
+        if history.binding() != &expected || !history.check_birth(directory, birth) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        match history.state() {
+            FleetHistoryState::Live => (),
+            FleetHistoryState::Reserved => {
+                // Publication can make a child serve before retirement promotes
+                // its Fleet history. This capability only discovers that exact
+                // published child; it grants no enrollment, votes or writes.
+                // The destination still needs activation and fresh quorum.
+                let operation = cellar_logic::consensus::ProposalId::new(history.operation)
+                    .map_err(|_| FleetCatalogError::Corrupt("router transition operation"))?;
+                let observed = self
+                    .observe_managed_transition_at(snapshot, directory, operation)
+                    .await?
+                    .ok_or(FleetCatalogError::Conflict)?;
+                let transition = &observed.transition;
+                use crate::raft::cell_groups::TransitionPhase;
+                if !observed.fleet_slot_held
+                    || !transition.journal.as_ref().is_some_and(|journal| {
+                        matches!(
+                            journal.phase(),
+                            TransitionPhase::Published
+                                | TransitionPhase::Active
+                                | TransitionPhase::Retired
+                        )
+                    })
+                    || !directory
+                        .transition_routes(&transition.plan)
+                        .map_err(super::histories::catalog_error)?
+                        .1
+                        .iter()
+                        .any(|route| route == birth.route())
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+            }
+            FleetHistoryState::Retired { .. } | FleetHistoryState::Cancelled { .. } => {
+                return Err(FleetCatalogError::Conflict);
+            }
+        }
+        Ok(FleetGroupAuthorization {
+            binding: expected,
+            history: Box::new(history),
+            owner: self.birth_owner()?,
+        })
+    }
+
     pub(super) async fn authorize_router_discovery(
         &self,
         snapshot: &FleetSnapshot,
         expected: FleetGroupBinding,
         key: &str,
+        directory: &crate::raft::cell_groups::RangeDirectory,
+        birth: &crate::raft::cell_groups::CellGroupBirth,
     ) -> Result<RouterDiscovery> {
-        let authorization = self.authorize_live_group(snapshot, expected, key).await?;
+        let authorization = self
+            .authorize_router_history(snapshot, expected, key, directory, birth)
+            .await?;
         let voters = self
             .router_voter_hints(snapshot, &authorization.history)
             .await?;

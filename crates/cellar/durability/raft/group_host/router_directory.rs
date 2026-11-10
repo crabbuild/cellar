@@ -125,7 +125,7 @@ impl RouterDirectory {
             namespace.next_node = (ordinal + 1) % trust.nodes().len();
         }
         let Some(discovery) = reader
-            .authorize_router_group(trust, &group, remaining()?)
+            .authorize_router_group(trust, &namespace.directory, &selected, remaining()?)
             .await?
         else {
             return Ok(());
@@ -228,7 +228,7 @@ impl RouterDirectory {
             return Ok(());
         }
         let discovery = reader
-            .authorize_router_group(trust, &history, remaining()?)
+            .authorize_router_group(trust, &namespace.directory, &birth, remaining()?)
             .await?
             .ok_or_else(|| anyhow::anyhow!("router target is not live at this Fleet root"))?;
         let revision = trust.revision();

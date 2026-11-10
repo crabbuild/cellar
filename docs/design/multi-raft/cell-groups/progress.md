@@ -18,7 +18,53 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
-## CG-13 checkpoint: managed recovery after permanent source-disk erasure
+## CG-13 checkpoint: published children, S3 tails and cached source routing
+
+Published recovery now restores both selected child histories on one fresh RF3
+cohort. Each voter prepares, seeds and explicitly releases one range before
+preparing the next; the recovery pool remains one operation. Exact release
+receipts are bounded to the two-group profile. Unknown seed replies retain their
+original inputs. Namespace grants remain explicit, and voter-backed child archive
+initialization confirms its local publisher before returning.
+
+The normal published driver passes materialized images at `497f1e51` in
+**190.306 s**. Extent-mode qualification exposed the harness's cell-name ordering
+assumption; `14fbe3a5` uses the actual namespace-scoped routing hash and a median
+pivot, with cells and newer S3 writes on both sides. Its first S3 tail still
+refused with `Runtime(NotReady)`.
+
+At `66c38fd2`, sealed sources refuse read-only application routing observations
+while preserving ordinary Raft status for archive and retirement work. This lets
+the existing invocation refresh placement before mutation transmission, within
+its original deadline and attempt bank. The tagged extent-mode diagnostic
+`diagnostic-published-routing-66` completes the whole two-range recovery workflow
+in **242.634 s**, including all three S3 child tails, permanent fencing and deletion
+of all five source disks, fresh seeds/quorums, restored SQL/receipts, old-token
+refusal, fresh S3 writes, retained restart, retirement and joined shutdown.
+All 21 diagnostic checks pass. This is a private diagnostic, not the unmodified
+four-run qualification gate; durations include VM setup/handoff, not request latency.
+
+A new native regression warms handles on the source leader before sealing and
+replays their original receipts after child activation. It refuses with
+`Runtime(NotReady)` both before the guard and at `66c38fd2`; the remaining
+non-voter forwarding/discovery failure is under diagnosis. Do not treat the
+diagnostic recovery pass as completion of that public request-path regression.
+
+At `66c38fd2`, formatting, layout, docs, native dependency checks, full plan
+validation and all 42 plan tests pass. Current strict Clippy and the unmodified
+published/unpublished four-run gate remain pending. Evidence for the published
+pass, failed controls and diagnostic is hash-verified in both checkouts under
+`.cellar/cell-groups-evidence/CG-13-published-` and
+`.cellar/cell-groups-evidence/CG-13-diagnostic-published-`; generated credentials,
+private configurations and signing keys are excluded. Both owned VMs and all
+qualification actors are stopped; the default VM is unchanged.
+
+Next resolve cached-source forwarding, rerun both publication states and image
+modes on one clean source, then finish the six CG-13 cases including merged-child
+and external-effect recovery. Acceptance remains **13/17 tasks, 147/195 cases**.
+CG-17 compatibility, CG-15 qualification and CG-16 hard cutover remain required.
+
+## Earlier CG-13 checkpoint: managed recovery after permanent source-disk erasure
 
 At `b4dd07b5`, the unmodified `managed_group_transition.py` passes its full
 unpublished-split recovery workflow against real RustFS in both image modes:

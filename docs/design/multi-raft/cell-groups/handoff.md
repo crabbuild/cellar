@@ -36,11 +36,18 @@ Docker daemon identities. The two VMs remain on one Mac; hardware independence
 is not qualified. Both owned VMs and actors are stopped, and the default VM is
 unchanged.
 
-Next implement and qualify published child tails and multi-range recovery. The
-voter helper currently retains one prepared recovery seed per process; use a
-bounded history-keyed owner map within its two-group profile before exercising
-multiple replacement ranges. Preserve immutable per-history requests, seed
-commitments, fence checks and current boot authorization. Reproduce and fix the
+Published child tails and two-range recovery are now implemented. The normal
+materialized driver passes at `497f1e51`; the extent-mode diagnostic at `66c38fd2`
+passes after sealed-source routing repair. Preparations remain sequential under
+the unchanged one-operation pool, with explicit release after a known seed reply
+and two bounded exact-release receipts. Do not replace this with parallel
+preparations or release inputs after an unknown reply. See the latest
+[checkpoint](progress.md) for proof and limits.
+
+Next resolve the native cached-source forwarding regression and pass the normal
+published/unpublished driver in both image modes on one clean source. Preserve
+immutable per-history requests, seed commitments, fence checks and current boot
+authorization. Reproduce and fix the
 earlier native merged-child/retirement/archive liveness controls within their
 original bounds, then pass all six CG-13 cases including outbox ambiguity on one
 clean source. CG-17/15/16 and full hard cutover remain open; the implementation

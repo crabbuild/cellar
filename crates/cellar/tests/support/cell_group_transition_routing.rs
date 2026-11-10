@@ -43,6 +43,23 @@ pub(super) async fn replay(cluster: &ManagedCluster, cached: Cached, retry: u64)
         })?;
     }
     for (handle, original) in cached.cells {
+        let domain = &cluster.fixtures[0].domain;
+        let directory = &cluster.directory;
+        let view = domain.run(directory.observe()).await??;
+        let route = domain
+            .run(directory.lookup(&view, &handle.history().cell))
+            .await??;
+        let fleet = &cluster.fixtures[0].catalog;
+        let snapshot = fleet.read(TIMEOUT).await?;
+        ensure!(
+            matches!(
+                fleet
+                    .authorize_group(&snapshot, &route.history, TIMEOUT)
+                    .await,
+                Err(FleetCatalogError::Conflict)
+            ),
+            "routing must not promote a reserved child into a general group capability"
+        );
         let replay = handle
             .command(
                 &handle.contract("Add")?,
@@ -50,7 +67,13 @@ pub(super) async fn replay(cluster: &ManagedCluster, cached: Cached, retry: u64)
                 CommandOptions::new(original.id, retry),
             )
             .await
-            .context("first cached-source command after split must refresh before submission")?;
+            .with_context(|| {
+                format!(
+                    "first cached-source command for {} from voter {} must refresh before submission; transport={:?}",
+                    handle.history().cell.as_str(), cached.origin,
+                    cluster.hosts[cached.origin].resource_usage().transport
+                )
+            })?;
         ensure!(replay.id == original.id && replay.result == original.result);
     }
     Ok(())
