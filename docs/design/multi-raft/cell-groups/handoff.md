@@ -15,6 +15,30 @@ oracles, not new runtime qualification. Read the latest [progress](progress.md)
 for the signed fence/controller checkpoint before using the earlier source-specific
 recovery entries below.
 
+## Current CG-13 operator process delivery and qualification gap
+
+The SDK's portable recovery selection and read-only fence reopening are delivered
+at `0c85daf5`. The receiving process replays S3 cuts and verifies the persisted
+receipt using its configured authority; a serialized selector grants no proof.
+At `3d780669`, the actual standalone operator consumes explicit existing roots,
+with separate ordinary and no-retry conditional clients. Each RustFS scenario
+requires completed valid/foreign-key/changed-selector process controls against
+the same captured connection that opened its source store.
+
+Both native root cases pass at `0c85daf5`; current build/Clippy/format checks pass.
+The combined RustFS root case at `3d780669` fails in extent-mode unpublished-parent
+source retirement with `Runtime(DeadlineExceeded)`, before that scenario reaches
+recovery. Its two materialized scenarios finish; the later outbox case is not run.
+The exact failed record and two earlier configuration controls are retained in
+the latest [progress checkpoint](progress.md). All owned actors/backend/VM are stopped.
+
+Next isolate the retirement call's authority, directory and Raft phases and fix
+its liveness without enlarging the original deadline. Then deliver the managed
+Docker voter seed/attach/activation/serving driver and the complete six-case CG-13
+gate. Do not promote partial execution or predecessor evidence to current task
+acceptance. The production library/Cargo inputs are unchanged from the native
+checkpoint; fixture and operator changes have separate executable provenance.
+
 ## Current CG-13 managed controller delivery
 
 At `5e179d75`, managed fence requests export the exact canonical intent and

@@ -2745,10 +2745,15 @@
       "scope": [
         "crates/cellar/durability/raft/",
         "crates/cellar/fleet/management/raft/",
+        "crates/cellar/fleet/management/mod.rs",
         "crates/cellar/sdk.rs",
         "tools/cellar-recovery-tests/",
         "tools/multi-raft/",
-        "crates/cellar/tests/support/raft_daemon_recovery.rs"
+        "crates/cellar/tests/support/raft_daemon_recovery.rs",
+        "crates/cellar/tests/support/cell_group_managed_transition_fence.rs",
+        "crates/cellar/tests/support/cell_group_managed_transition_merge.rs",
+        "crates/cellar/tests/support/cell_group_managed_transition_retirement.rs",
+        "crates/cellar/tests/support/cell_group_rustfs.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/disaster.rs",

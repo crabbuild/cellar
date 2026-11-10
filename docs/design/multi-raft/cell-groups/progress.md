@@ -18,6 +18,57 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: portable recovery selection and independent operator
+
+At `0c85daf5`, the SDK exports a descriptive
+`RaftFleetTransitionRecoverySelection` with exact catalog, namespace, operation
+and intent/directory/fence digests. Challenge preparation independently replays
+the selected S3 closure. Selected fencing validates every binding before invoking
+the authority. Read-only reopening requires the persisted winning receipt and
+configured verifier; it never calls `fence`, selects a barrier or creates a
+missing receipt. No in-memory proof or replay pin crosses the process boundary.
+
+The disposable operator executable exposes challenge, confirmation and reopening
+against explicit existing Fleet/namespace roots and private replay stores.
+At `3d780669`, ordinary S3 reads and conditional writes use separate clients;
+conditional transport retries are disabled so lost mutation replies remain
+available for exact SDK reconciliation. The RustFS fixture captures the source
+connection once and passes it to a new executable process. Every scenario
+requires one completed valid/foreign-key/changed-selector operator check.
+
+Both scoped native root cases pass at `0c85daf5`, in both image modes:
+closure selection takes 370.840 seconds and outbox ambiguity 224.325 seconds.
+At `3d780669`, build, strict focused Clippy and formatting pass. The production
+library/Cargo inputs remain unchanged from the native checkpoint; the operator
+and qualification fixtures have their own recorded executable hashes.
+
+**The current combined RustFS case fails.** Its two materialized scenarios finish,
+including the mandatory independent operator controls. Extent-mode unpublished
+parent setup then returns `Runtime(DeadlineExceeded)` from source-retirement
+`commit`, before that scenario reaches disaster recovery. This follows the
+source-pinned loop order and failure context; partial execution is not a passing
+root case. The outbox RustFS case is not reached in this campaign. No deadline,
+profile, reserve or assertion is enlarged. All owned actors/backend/VM are stopped.
+
+Records under `.cellar/cell-groups-evidence/`:
+
+- `CG-13-portable-operator-0c85daf5-native-01/record.json` — two scoped native passes.
+- `CG-13-portable-operator-3d780669-checkpoint-01/record.json` — `IN_PROGRESS`, exact source/log/executable provenance.
+- `CG-13-portable-operator-3d780669-closure-rustfs-01/record.json` — retained failed root case.
+
+Earlier failed controls remain at `CG-13-portable-operator-0c85daf5-closure-rustfs-01`
+(hand-written enum spelling) and `CG-13-portable-operator-9f691fc5-closure-rustfs-01`
+(an uncommitted publish request incorrectly selected the child store). The final
+fixture serializes SDK connection types and uses the exact source store scope;
+missing or repeated operator verification fails the scenario.
+
+CG-13 remains `IN_PROGRESS`. Next diagnose and fix retirement liveness within
+the original bounds, then connect independent Docker voters to seed, attach,
+activate and release serving through the managed recovery path. All six planned
+cases and the combined source gate remain required. Neither this operator bridge
+nor earlier unmanaged Docker recovery qualifies that complete gate, independent
+failure domains, sustained load or release readiness. CG-11/12 acceptance stays closed.
+
 ## CG-13 checkpoint: bind managed requests to historical launch inventory
 
 At `5e179d75`, the public managed fence request exports its exact canonical
