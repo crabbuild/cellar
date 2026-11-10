@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cellar:primitive-coverage:1",
+  "$comment": "Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.",
+  "title": "Cellar primitive coverage report",
+  "description": "Format-1 report envelope. primitive_coverage.py independently checks the reviewed matrix, exact commands, artifacts, observations and reconciliation. Only acceptance reports can close the gate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "status",
+    "source_revision",
+    "source_inputs_sha256",
+    "contracts",
+    "binaries",
+    "runs"
+  ],
+  "properties": {
+    "format": {
+      "type": "integer",
+      "const": 1
+    },
+    "status": {
+      "enum": [
+        "acceptance",
+        "failed",
+        "diagnostic"
+      ]
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "source_inputs_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primitive-inventory.json",
+        "primitive-coverage-requirements.json",
+        "primitive-coverage.schema.json"
+      ],
+      "properties": {
+        "primitive-inventory.json": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "primitive-coverage-requirements.json": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "primitive-coverage.schema.json": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "binaries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/executable"
+      },
+      "minItems": 0,
+      "maxItems": 128
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/run"
+      },
+      "minItems": 0,
+      "maxItems": 32768
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "acceptance"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "binaries": {
+            "minItems": 4
+          },
+          "runs": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "feature",
+        "image",
+        "namespace",
+        "minimum",
+        "occupancy",
+        "path",
+        "provider"
+      ],
+      "properties": {
+        "backend": {
+          "enum": [
+            "cell-group-raft",
+            "fleet",
+            "bucket"
+          ]
+        },
+        "feature": {
+          "enum": [
+            "native",
+            "native-no-default",
+            "python",
+            "javascript",
+            "mixed"
+          ]
+        },
+        "image": {
+          "enum": [
+            "materialized",
+            "extents",
+            "ordinary"
+          ]
+        },
+        "namespace": {
+          "enum": [
+            "managed",
+            "unmanaged",
+            "ordinary"
+          ]
+        },
+        "minimum": {
+          "enum": [
+            "quorum",
+            "s3",
+            "fleet",
+            "bucket"
+          ]
+        },
+        "occupancy": {
+          "type": "integer",
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "path": {
+          "enum": [
+            "sdk",
+            "native",
+            "axum",
+            "cli",
+            "admin"
+          ]
+        },
+        "provider": {
+          "enum": [
+            "none",
+            "rustfs",
+            "container",
+            "external-service"
+          ]
+        }
+      }
+    },
+    "executable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "source_revision",
+        "feature",
+        "artifact"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,95}$"
+        },
+        "role": {
+          "enum": [
+            "application",
+            "voter",
+            "cli",
+            "test"
+          ]
+        },
+        "source_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "feature": {
+          "enum": [
+            "native",
+            "native-no-default",
+            "python",
+            "javascript",
+            "mixed"
+          ]
+        },
+        "artifact": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "argv",
+        "exit_code",
+        "output"
+      ],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "minItems": 1,
+          "maxItems": 32
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "output": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cell",
+        "case",
+        "configuration",
+        "binaries",
+        "command",
+        "observations",
+        "ledger"
+      ],
+      "properties": {
+        "cell": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "case": {
+          "type": "string",
+          "pattern": "^primitives_[a-z0-9_]{1,100}$"
+        },
+        "configuration": {
+          "$ref": "#/$defs/configuration"
+        },
+        "binaries": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "application",
+            "voter",
+            "cli",
+            "test"
+          ],
+          "properties": {
+            "application": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,95}$"
+            },
+            "voter": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,95}$"
+            },
+            "cli": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,95}$"
+            },
+            "test": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,95}$"
+            }
+          }
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "observations": {
+          "$ref": "#/$defs/artifact"
+        },
+        "ledger": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,694 @@
+{
+  "format": 1,
+  "status": "partial",
+  "sdk_roots": {
+    "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
+    "crates/cellar/application/mod.rs": "a97b41d45ff21873ad0985918648c30a09eaf2c122e6308fdfcfe4dfdc060aa6"
+  },
+  "entries": [
+    {
+      "id": "cell-storage",
+      "family": "storage-sql-kv",
+      "symbols": [
+        "cellar::sdk::Context::storage",
+        "cellar::sdk::Storage",
+        "cellar::sdk::Storage::get",
+        "cellar::sdk::Storage::get_many",
+        "cellar::sdk::Storage::list",
+        "cellar::sdk::Storage::list_cursor",
+        "cellar::sdk::Storage::get_json",
+        "cellar::sdk::Storage::get_clone",
+        "cellar::sdk::Storage::put_json",
+        "cellar::sdk::Storage::put_many_json",
+        "cellar::sdk::Storage::put_clone",
+        "cellar::sdk::Storage::put_stored_clone",
+        "cellar::sdk::Storage::delete",
+        "cellar::sdk::Storage::delete_many",
+        "cellar::sdk::Storage::delete_all",
+        "cellar::sdk::Storage::sync",
+        "cellar::sdk::Storage::sql",
+        "cellar::sdk::Storage::sql_cursor",
+        "cellar::sdk::Storage::sql_ingest",
+        "cellar::sdk::Storage::transaction",
+        "cellar::sdk::Storage::transaction_sync"
+      ],
+      "owners": [
+        "crates/cellar/application/storage/mod.rs",
+        "crates/cellar/application/storage/transaction.rs",
+        "crates/cellar/storage/sqlite/mod.rs"
+      ],
+      "schemas": [
+        "Cell SQLite KV and application SQL"
+      ],
+      "bindings": [],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Current activation, invocation and transaction",
+      "proof": "Exact applied receipt or verified S3 coverage",
+      "ordering": "Atomic SQL/KV, nested savepoints, original identity",
+      "recovery": "Restore SQLite and receipts under the selected fresh history",
+      "case": "primitives_storage_sql_kv_atomicity",
+      "refusals": {}
+    },
+    {
+      "id": "sql-binding",
+      "family": "storage-sql-kv",
+      "symbols": [
+        "cellar::sdk::Context::sql",
+        "cellar::sdk::sql::Database",
+        "cellar::sdk::sql::Database::prepare",
+        "cellar::sdk::sql::Database::exec",
+        "cellar::sdk::sql::Database::batch",
+        "cellar::sdk::sql::Database::with_session",
+        "cellar::sdk::sql::Database::migrate",
+        "cellar::sdk::sql::Database::migrations",
+        "cellar::sdk::sql::Database::dump",
+        "cellar::sdk::sql::Session::get_bookmark",
+        "cellar::sdk::sql::PreparedStatement::all",
+        "cellar::sdk::sql::PreparedStatement::run",
+        "cellar::sdk::sql::PreparedStatement::first",
+        "cellar::sdk::sql::PreparedStatement::raw"
+      ],
+      "owners": [
+        "crates/cellar/application/sql/mod.rs"
+      ],
+      "schemas": [
+        "Target SQLite and migration history"
+      ],
+      "bindings": [
+        "Named SQL database"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Independent database grant",
+      "proof": "Target DB commit at requested durability",
+      "ordering": "Session bookmarks and atomic target batches",
+      "recovery": "Restore target database and session/history bounds",
+      "case": "primitives_sql_sessions_kv_ttl_and_revision_conditions",
+      "refusals": {
+        "cellar::sdk::sql::Database::dump": "SQL_ERROR"
+      }
+    },
+    {
+      "id": "kv-binding",
+      "family": "payload",
+      "symbols": [
+        "cellar::sdk::Context::kv",
+        "cellar::sdk::kv::Namespace",
+        "cellar::sdk::kv::Namespace::get",
+        "cellar::sdk::kv::Namespace::get_with_metadata",
+        "cellar::sdk::kv::Namespace::get_many",
+        "cellar::sdk::kv::Namespace::put_text",
+        "cellar::sdk::kv::Namespace::put_bytes",
+        "cellar::sdk::kv::Namespace::put_stream",
+        "cellar::sdk::kv::Namespace::delete",
+        "cellar::sdk::kv::Namespace::delete_many",
+        "cellar::sdk::kv::Namespace::list"
+      ],
+      "owners": [
+        "crates/cellar/application/kv/mod.rs",
+        "crates/cellar/application/kv/blob_backend.rs"
+      ],
+      "schemas": [
+        "KV revisions, expiries and external value references"
+      ],
+      "bindings": [
+        "Named KV namespace",
+        "external value store"
+      ],
+      "state": "replicated",
+      "provider": "rustfs",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Independent namespace and operation grant",
+      "proof": "Target commit and recoverable payload bytes",
+      "ordering": "Conditional revisions, TTL and list cursors",
+      "recovery": "Restore bytes and retain selected object dependencies",
+      "case": "primitives_sql_sessions_kv_ttl_and_revision_conditions",
+      "refusals": {}
+    },
+    {
+      "id": "queue",
+      "family": "queue",
+      "symbols": [
+        "cellar::sdk::Context::queue",
+        "cellar::sdk::queue::Producer",
+        "cellar::sdk::queue::Producer::send",
+        "cellar::sdk::queue::Producer::send_value",
+        "cellar::sdk::queue::Producer::send_batch",
+        "cellar::sdk::queue::Producer::metrics",
+        "cellar::sdk::queue::Message::ack",
+        "cellar::sdk::queue::Message::retry",
+        "cellar::sdk::queue::dispatch",
+        "cellar::sdk::Invocation::Queue"
+      ],
+      "owners": [
+        "crates/cellar/application/queue/mod.rs",
+        "crates/cellar/application/queue/broker.rs",
+        "crates/cellar/application/queue/schema.sql"
+      ],
+      "schemas": [
+        "Messages, due times, lease generations and dead-letter state"
+      ],
+      "bindings": [
+        "Named producer",
+        "consumer and dead-letter target"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Separate publish, consume and admin grants",
+      "proof": "Broker mutation and settlement receipts",
+      "ordering": "Message identity, fenced batches and retention",
+      "recovery": "Discover pending and ambiguous deliveries with original identities",
+      "case": "primitives_queue_leases_ack_retry_and_dead_letter",
+      "refusals": {}
+    },
+    {
+      "id": "event-stream",
+      "family": "event-stream",
+      "symbols": [
+        "cellar::sdk::event_stream::Stream",
+        "cellar::sdk::event_stream::Stream::configure",
+        "cellar::sdk::event_stream::Stream::read",
+        "cellar::sdk::event_stream::Stream::subscription",
+        "cellar::sdk::event_stream::Subscription::next",
+        "cellar::sdk::event_stream::Subscription::next_with_id",
+        "cellar::sdk::event_stream::Subscription::ack",
+        "cellar::sdk::event_stream::Subscription::retry",
+        "cellar::sdk::event_stream::Subscription::extend_until"
+      ],
+      "owners": [
+        "crates/cellar/application/event_stream/mod.rs",
+        "crates/cellar/application/event_stream/client.rs",
+        "crates/cellar/application/event_stream/subscription.rs",
+        "crates/cellar/application/event_stream/schema.sql"
+      ],
+      "schemas": [
+        "Records, lanes and consumer checkpoints"
+      ],
+      "bindings": [
+        "Named stream and subscription"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Separate publish, read, consume and admin grants",
+      "proof": "Target append or checkpoint receipt",
+      "ordering": "Ordered lanes, stable deliveries and generation-specific settlement",
+      "recovery": "Recover records, checkpoints and original subscription receipts",
+      "case": "primitives_event_stream_outbox_inbox_replay",
+      "refusals": {}
+    },
+    {
+      "id": "outbox-inbox",
+      "family": "event-stream",
+      "symbols": [
+        "cellar::sdk::Storage::emit",
+        "cellar::sdk::Storage::seal",
+        "cellar::sdk::Storage::retry_outbox",
+        "cellar::sdk::Storage::inbox",
+        "cellar::sdk::storage::Inbox::accept",
+        "cellar::sdk::storage::Inbox::prune_before",
+        "cellar::sdk::CommandContext::emit"
+      ],
+      "owners": [
+        "crates/cellar/application/storage/outbox.rs",
+        "crates/cellar/application/storage/inbox.rs",
+        "crates/cellar/storage/sqlite/outbox.sql",
+        "crates/cellar/storage/sqlite/inbox.sql"
+      ],
+      "schemas": [
+        "Outbox lanes and inbox identities"
+      ],
+      "bindings": [
+        "Declared stream and authenticated receiver scope"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Source generation and origin/receiver grants",
+      "proof": "Atomic business/outbox commit and independent receiver receipt",
+      "ordering": "Lane order and original delivery identities",
+      "recovery": "Resume safe obligations and retain unknown outcomes and identity floors",
+      "case": "primitives_event_stream_outbox_inbox_replay",
+      "refusals": {}
+    },
+    {
+      "id": "workflow",
+      "family": "workflow",
+      "symbols": [
+        "cellar::sdk::Context::workflow",
+        "cellar::sdk::workflow::Workflow",
+        "cellar::sdk::workflow::Workflow::create",
+        "cellar::sdk::workflow::Workflow::create_batch",
+        "cellar::sdk::workflow::Instance::send_event",
+        "cellar::sdk::workflow::Instance::resume",
+        "cellar::sdk::workflow::Instance::restart",
+        "cellar::sdk::workflow::Step::run_with_rollback",
+        "cellar::sdk::workflow::Step::sleep",
+        "cellar::sdk::workflow::Step::sleep_until"
+      ],
+      "owners": [
+        "crates/cellar/application/workflow/mod.rs",
+        "crates/cellar/application/workflow/replay.rs",
+        "crates/cellar/application/workflow/rollback.rs",
+        "crates/cellar/application/workflow/stream.rs"
+      ],
+      "schemas": [
+        "Definitions, journals, outputs and compensation"
+      ],
+      "bindings": [
+        "Named workflow and registered step executor"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Instance, attempt and executor generation",
+      "proof": "Committed journal/result and applicable provider reconciliation",
+      "ordering": "Stable step IDs, timers and receipt horizons",
+      "recovery": "Resume waits and pending steps; retain known or unresolved results",
+      "case": "primitives_workflow_steps_waits_retries_and_cancel",
+      "refusals": {}
+    },
+    {
+      "id": "alarms-cron",
+      "family": "alarms-cron",
+      "symbols": [
+        "cellar::sdk::Storage::get_alarm",
+        "cellar::sdk::Storage::set_alarm",
+        "cellar::sdk::Storage::delete_alarm",
+        "cellar::sdk::CommandContext::set_alarm",
+        "cellar::sdk::CommandContext::cancel_alarm",
+        "cellar::sdk::Invocation::Alarm",
+        "cellar::sdk::Invocation::Scheduled",
+        "cellar::sdk::cron::Scheduled::no_retry"
+      ],
+      "owners": [
+        "crates/cellar/application/storage/mod.rs",
+        "crates/cellar/application/cron/mod.rs",
+        "crates/cellar/application/cron/types.rs",
+        "crates/cellar/application/consensus/class.rs"
+      ],
+      "schemas": [
+        "Schedule generations and occurrence history"
+      ],
+      "bindings": [
+        "Registered schedule and alarm callbacks"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Current owner and exact installation",
+      "proof": "Committed schedule and occurrence settlement",
+      "ordering": "Due times, generations, cancellation and occurrence identity",
+      "recovery": "Discover due work after restart or wake without client requests",
+      "case": "primitives_alarms_cron_occurrence_identity",
+      "refusals": {}
+    },
+    {
+      "id": "filesystem",
+      "family": "filesystem",
+      "symbols": [
+        "cellar::sdk::Context::fs",
+        "cellar::sdk::filesystem::Filesystem",
+        "cellar::sdk::filesystem::Filesystem::open",
+        "cellar::sdk::filesystem::Filesystem::openat",
+        "cellar::sdk::filesystem::Filesystem::stat",
+        "cellar::sdk::filesystem::Filesystem::mkdir",
+        "cellar::sdk::filesystem::Filesystem::unlink",
+        "cellar::sdk::filesystem::Filesystem::rename",
+        "cellar::sdk::filesystem::Filesystem::opendir",
+        "cellar::sdk::filesystem::Filesystem::sync",
+        "cellar::sdk::filesystem::Filesystem::read_file",
+        "cellar::sdk::filesystem::Filesystem::write_file",
+        "cellar::sdk::filesystem::Filesystem::collect_garbage",
+        "cellar::sdk::filesystem::File",
+        "cellar::sdk::filesystem::Directory"
+      ],
+      "owners": [
+        "crates/cellar/application/filesystem/mod.rs",
+        "crates/cellar/storage/sqlite/filesystem/schema.sql"
+      ],
+      "schemas": [
+        "SQLite inodes, directory entries and chunks"
+      ],
+      "bindings": [
+        "Activation filesystem policy"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Descriptor affinity and inode generation",
+      "proof": "File/business transaction and required sync proof",
+      "ordering": "Atomic rename/unlink, cursor and bounded reclamation",
+      "recovery": "Recover bytes and metadata; reopen ephemeral descriptors",
+      "case": "primitives_filesystem_descriptors_transactions_and_gc",
+      "refusals": {}
+    },
+    {
+      "id": "blob",
+      "family": "payload",
+      "symbols": [
+        "cellar::sdk::Context::blob",
+        "cellar::sdk::blob::Bucket",
+        "cellar::sdk::blob::Bucket::head",
+        "cellar::sdk::blob::Bucket::get",
+        "cellar::sdk::blob::Bucket::put",
+        "cellar::sdk::blob::Bucket::put_stream",
+        "cellar::sdk::blob::Bucket::list",
+        "cellar::sdk::blob::Bucket::delete",
+        "cellar::sdk::blob::Bucket::create_multipart",
+        "cellar::sdk::blob::Bucket::resume_multipart",
+        "cellar::sdk::blob::Bucket::create_resumable_multipart",
+        "cellar::sdk::blob::Bucket::resume_resumable_multipart",
+        "cellar::sdk::blob::Multipart::upload_part",
+        "cellar::sdk::blob::Multipart::complete",
+        "cellar::sdk::blob::Multipart::abort"
+      ],
+      "owners": [
+        "crates/cellar/application/blob/mod.rs",
+        "crates/cellar/application/blob/resumable.rs"
+      ],
+      "schemas": [
+        "Provider objects, multipart state and cell reference metadata"
+      ],
+      "bindings": [
+        "Named Blob bucket and real object provider"
+      ],
+      "state": "replicated",
+      "provider": "rustfs",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Bucket policy and provider operation grant",
+      "proof": "Provider payload proof and cell reference commit where applicable",
+      "ordering": "Conditional requests, ranges and multipart identities",
+      "recovery": "Verify actual restored bytes and retain selected cuts, readers and uploads",
+      "case": "primitives_payload_reference_publication_and_gc",
+      "refusals": {}
+    },
+    {
+      "id": "raft-sql-effects",
+      "family": "storage-sql-kv",
+      "symbols": [
+        "cellar::sdk::RaftClass",
+        "cellar::sdk::RaftClass::command",
+        "cellar::sdk::RaftClass::query",
+        "cellar::sdk::CommandContext::sql",
+        "cellar::sdk::CommandContext::inputs",
+        "cellar::sdk::QueryContext",
+        "cellar::sdk::QueryContext::outbox_progress"
+      ],
+      "owners": [
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/application/consensus/group_client/mod.rs",
+        "crates/cellar/storage/sqlite/command.rs"
+      ],
+      "schemas": [
+        "Private command image and receipts"
+      ],
+      "bindings": [
+        "Shared Raft group"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Compiled operation and current cell/group grant",
+      "proof": "Quorum apply or verified archive coverage",
+      "ordering": "One committed result per retained identity",
+      "recovery": "Restore image and receipts; followers apply bytes",
+      "case": "primitives_activation_storage_backend_bridge",
+      "refusals": {}
+    },
+    {
+      "id": "http-rpc",
+      "family": "http-rpc",
+      "symbols": [
+        "cellar::sdk::Cell::invoke",
+        "cellar::sdk::Application::invoke",
+        "cellar::sdk::Context::service",
+        "cellar::sdk::Context::fetch_cell",
+        "cellar::sdk::Context::rpc_cell",
+        "cellar::sdk::service::Fetcher::fetch",
+        "cellar::sdk::service::Fetcher::rpc",
+        "cellar::sdk::Invocation::Fetch",
+        "cellar::sdk::Invocation::Rpc",
+        "cellar::sdk::Invocation::CellRpc",
+        "cellar::sdk::Context::wait_until"
+      ],
+      "owners": [
+        "crates/cellar/application/mod.rs",
+        "crates/cellar/application/service/mod.rs",
+        "crates/cellar/application/cells.rs",
+        "crates/cellar/application/rpc/mod.rs"
+      ],
+      "schemas": [],
+      "bindings": [
+        "Service, cell and RPC endpoints"
+      ],
+      "state": "ephemeral",
+      "provider": "external-service",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Origin, target, operation and original deadline",
+      "proof": "Independent mutation proofs; transport outcomes may be uncertain",
+      "ordering": "Separate cross-cell and provider transactions",
+      "recovery": "Reconnect and reconcile declared stable external identities",
+      "case": "primitives_http_rpc_and_cross_cell_effects",
+      "refusals": {}
+    },
+    {
+      "id": "websocket",
+      "family": "websocket",
+      "symbols": [
+        "cellar::sdk::Context::websocket_pair",
+        "cellar::sdk::Context::websockets",
+        "cellar::sdk::Context::websocket",
+        "cellar::sdk::Context::websocket_auto_response",
+        "cellar::sdk::websocket::WebSocket::send_text",
+        "cellar::sdk::websocket::WebSocket::send_binary",
+        "cellar::sdk::websocket::WebSocket::close",
+        "cellar::sdk::websocket::WebSocket::serialize_attachment",
+        "cellar::sdk::websocket::WebSocket::deserialize_attachment",
+        "cellar::sdk::Invocation::WebSocketOpen",
+        "cellar::sdk::Invocation::WebSocketMessage",
+        "cellar::sdk::Invocation::WebSocketClose"
+      ],
+      "owners": [
+        "crates/cellar/application/websocket.rs"
+      ],
+      "schemas": [],
+      "bindings": [
+        "WebSocket ingress and current connection owner"
+      ],
+      "state": "ephemeral",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Socket and activation ownership",
+      "proof": "Network send is separate from cell mutation proof",
+      "ordering": "Connection callbacks, tags, attachments and auto-responses",
+      "recovery": "Reconnect after fenced owner loss",
+      "case": "primitives_websocket_reconnect_and_stale_owner",
+      "refusals": {}
+    },
+    {
+      "id": "container",
+      "family": "container",
+      "symbols": [
+        "cellar::sdk::Context::container",
+        "cellar::sdk::Context::container_provider_authority",
+        "cellar::sdk::containers::Container",
+        "cellar::sdk::containers::Container::start",
+        "cellar::sdk::containers::Container::destroy",
+        "cellar::sdk::containers::Container::monitor",
+        "cellar::sdk::containers::Container::exec",
+        "cellar::sdk::containers::Container::signal",
+        "cellar::sdk::containers::Container::read_file",
+        "cellar::sdk::containers::Container::write_file",
+        "cellar::sdk::containers::Container::port",
+        "cellar::sdk::containers::ProviderAuthority::before_effect"
+      ],
+      "owners": [
+        "crates/cellar/application/containers.rs",
+        "crates/cellar/storage/sqlite/container_bindings.sql"
+      ],
+      "schemas": [
+        "Desired state, supervision and provider volumes"
+      ],
+      "bindings": [
+        "Real container or sandbox provider"
+      ],
+      "state": "replicated",
+      "provider": "container",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Activation and provider-enforced fence",
+      "proof": "Intent/result commit plus provider outcome and volume proof",
+      "ordering": "Stable provider operation and obsolete executor fencing",
+      "recovery": "Reconcile unknown operations and restore actual volume bytes",
+      "case": "primitives_container_restart_and_fencing",
+      "refusals": {}
+    },
+    {
+      "id": "auxiliary",
+      "family": "other",
+      "symbols": [
+        "cellar::sdk::Context::assets",
+        "cellar::sdk::Context::caches",
+        "cellar::sdk::Context::loader",
+        "cellar::sdk::Context::facets",
+        "cellar::sdk::assets::Fetcher::fetch",
+        "cellar::sdk::cache::Cache::put",
+        "cellar::sdk::cache::Cache::match_request",
+        "cellar::sdk::loader::Loader::load",
+        "cellar::sdk::loader::Worker::dispose",
+        "cellar::sdk::sockets::Socket",
+        "cellar::sdk::streams::http_byte_stream",
+        "cellar::sdk::html_rewriter::HtmlRewriter"
+      ],
+      "owners": [
+        "crates/cellar/application/assets.rs",
+        "crates/cellar/application/cache.rs",
+        "crates/cellar/application/loader.rs",
+        "crates/cellar/application/facets.rs",
+        "crates/cellar/application/sockets.rs",
+        "crates/cellar/application/streams.rs",
+        "crates/cellar/application/html_rewriter/mod.rs"
+      ],
+      "schemas": [],
+      "bindings": [
+        "Deployment, cache, loaded worker and transport ownership"
+      ],
+      "state": "ephemeral",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Invocation, loader and resource policy",
+      "proof": "Disposable resources do not imply durability",
+      "ordering": "Streaming, cancellation and ownership",
+      "recovery": "Recreate disposable resources and join old owners",
+      "case": "primitives_stateless_bindings_and_ephemeral_resources",
+      "refusals": {}
+    },
+    {
+      "id": "public-ingress",
+      "family": "other",
+      "symbols": [
+        "cellar::sdk::Host",
+        "cellar::sdk::Node",
+        "cellar::sdk::NodeRaftService",
+        "cellar::sdk::NativeRaftCells",
+        "cellar::sdk::NativeRaftNode"
+      ],
+      "owners": [
+        "crates/cellar/sdk.rs",
+        "crates/cellar/node/native.rs"
+      ],
+      "schemas": [],
+      "bindings": [
+        "Native/Axum ingress, daemon, CLI and admin"
+      ],
+      "state": "ephemeral",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum",
+        "cli",
+        "admin"
+      ],
+      "permission": "Deployment, namespace, origin and operator grants",
+      "proof": "Preserve selected Raft proof",
+      "ordering": "Original identities, deadlines and typed refusals",
+      "recovery": "Reopen current authority and refuse weaker fallback",
+      "case": "primitives_public_sdk_native_axum_cli_admin",
+      "refusals": {}
+    },
+    {
+      "id": "codecs",
+      "family": "other",
+      "symbols": [
+        "cellar::sdk::primitives",
+        "cellar::sdk::clone",
+        "cellar::sdk::compression",
+        "cellar::sdk::crypto",
+        "cellar::sdk::encoding",
+        "cellar::sdk::json",
+        "cellar::sdk::web"
+      ],
+      "owners": [
+        "crates/cellar/sdk.rs"
+      ],
+      "schemas": [],
+      "bindings": [],
+      "state": "stateless",
+      "provider": "none",
+      "paths": [
+        "sdk"
+      ],
+      "permission": "Public input bounds and enabled features",
+      "proof": "No mutation acknowledgement",
+      "ordering": "Codec and utility contracts",
+      "recovery": "Preserve native and feature behavior",
+      "case": "primitives_stateless_bindings_and_ephemeral_resources",
+      "refusals": {}
+    }
+  ]
+}

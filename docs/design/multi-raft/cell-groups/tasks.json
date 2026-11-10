@@ -3007,7 +3007,7 @@
     {
       "id": "CG-17",
       "title": "Deliver full public primitive compatibility on shared-group durability",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P0",
       "effort": "XL",
       "risk": "HIGH",

@@ -37,7 +37,7 @@ never executed by the plan runner. Read the [design](design.md),
 | CG-12 | Coordinate group hibernation and authority-checked wakeup | CG-08, CG-10, CG-11 | DONE | 5 | Accepted |
 | CG-14 | Build reproducible shared-group workload and RustFS harnesses | CG-07, CG-08 | DONE | 5 | Accepted |
 | CG-13 | Recover managed groups and incomplete transitions from S3 | CG-06, CG-09, CG-10, CG-11, CG-14 | IN_PROGRESS | 6 | Pending |
-| CG-17 | Deliver full public primitive compatibility on shared-group durability | CG-07, CG-08, CG-10, CG-12, CG-13, CG-14 | TODO | 32 | Pending |
+| CG-17 | Deliver full public primitive compatibility on shared-group durability | CG-07, CG-08, CG-10, CG-12, CG-13, CG-14 | IN_PROGRESS | 32 | Pending |
 | CG-15 | Qualify crashes, split merge, wake and zero-quorum recovery | CG-10, CG-11, CG-12, CG-13, CG-14, CG-17 | IN_PROGRESS | 6 | Pending |
 | CG-16 | Publish the unified group runtime and qualified release envelope | CG-15, CG-17 | TODO | 4 | Pending |
 
