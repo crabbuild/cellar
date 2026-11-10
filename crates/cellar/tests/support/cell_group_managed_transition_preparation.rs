@@ -1164,6 +1164,7 @@ pub(super) async fn verify_transferred_sql(
     cluster: &mut ManagedCluster,
     directory: &RangeDirectory,
     seeded: SeededCells,
+    cached_source: Option<&super::routing::Cached>,
 ) -> Result<()> {
     let domain = cluster.fixtures[0].domain.clone();
     let view = domain.run(directory.observe()).await??;
@@ -1232,7 +1233,12 @@ pub(super) async fn verify_transferred_sql(
                 && replay.version == query.version
                 && replay.witness == query.witness
         );
-        let next = handle
+        let writer = if let Some(cached) = cached_source {
+            cached.cell(handle.history())?
+        } else {
+            &handle
+        };
+        let next = writer
             .command(
                 &add,
                 1i64.to_be_bytes().to_vec(),
@@ -1244,6 +1250,34 @@ pub(super) async fn verify_transferred_sql(
             .await?;
         effects::acknowledge("Add", &1i64.to_be_bytes(), &next)?;
         ensure!(next.result == (expected + 1).to_be_bytes() && next.witness.group == route.history);
+        if cached_source.is_some() {
+            for (read_index, consistency) in [
+                QueryConsistency::Linearizable,
+                QueryConsistency::AtLeast(next.version_token.clone()),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let read = writer
+                    .query(
+                        ProposalId::new([161 + index as u8 * 2 + read_index as u8; 16])?,
+                        &get,
+                        vec![],
+                        QueryOptions {
+                            consistency,
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .context("cached source must read the fresh child write")?;
+                ensure!(
+                    read.result == next.result
+                        && read.witness.group == route.history
+                        && read.version.history == next.version.history
+                        && read.version.sequence >= next.version.sequence
+                );
+            }
+        }
         positions.push((route.history, next.witness.position.index));
     }
     wait_transfer_applied(hosts, &positions).await?;

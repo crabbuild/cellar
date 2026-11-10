@@ -8,6 +8,16 @@ pub(super) struct Cached {
     cells: Vec<(RaftCellHandle, CommandReceipt)>,
 }
 
+impl Cached {
+    pub(super) fn cell(&self, history: &CellHistory) -> Result<&RaftCellHandle> {
+        self.cells
+            .iter()
+            .find(|(handle, _)| handle.history() == history)
+            .map(|(handle, _)| handle)
+            .context("cached source cell history")
+    }
+}
+
 pub(super) async fn prime(cluster: &ManagedCluster, seeded: &SeededCells) -> Result<Cached> {
     let origin = leader(&cluster.hosts[..3], cluster.history).await?;
     let mut cells = Vec::new();
@@ -30,7 +40,7 @@ pub(super) async fn prime(cluster: &ManagedCluster, seeded: &SeededCells) -> Res
     Ok(Cached { origin, cells })
 }
 
-pub(super) async fn replay(cluster: &ManagedCluster, cached: Cached, retry: u64) -> Result<()> {
+pub(super) async fn replay(cluster: &ManagedCluster, cached: &Cached, retry: u64) -> Result<()> {
     let revision = cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision();
     let peer = &cluster.peers[cached.origin];
     for host in &cluster.hosts[3..] {
@@ -41,8 +51,14 @@ pub(super) async fn replay(cluster: &ManagedCluster, cached: Cached, retry: u64)
             revision: 1,
             peer: peer.clone(),
         })?;
+        host.grant_query_origin(NamespaceQueryOrigin {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            revision: 1,
+            peer: peer.clone(),
+        })?;
     }
-    for (handle, original) in cached.cells {
+    for (handle, original) in &cached.cells {
         let domain = &cluster.fixtures[0].domain;
         let directory = &cluster.directory;
         let view = domain.run(directory.observe()).await??;
