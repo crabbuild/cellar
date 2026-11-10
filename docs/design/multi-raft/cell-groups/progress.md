@@ -18,6 +18,64 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: independent controller steps and immediate capacity admission
+
+`8437563c` adds `managed-recovery`: standalone SDK commands for replacement
+staging, range reservation, seed-quorum selection, publication, activation
+inspection, settlement, directory completion, serving release and retirement.
+Every process reopens its own durable proofs. Missing reservations and seed sets
+can be inspected without allocation or selection. Publication only reopens an
+already selected quorum. Late-phase reconciliation uses retained operation/plan/
+seed IDs instead of requiring an obsolete active recovery barrier. The operator
+never receives a controller signing key.
+
+Managed voters now expose SDK capacity qualification and activation through their
+real observer. The first real RustFS run at `8437563c` qualifies the voter but
+refuses immediate activation: local inspection validates its old installed Fleet
+cut, while the remote path already refreshes it. `1095507e` refreshes lagging local
+inspection within the original request deadline, then retains all boot, enrollment
+and installed-trust checks. A stalled-background regression exercises both remote
+and local inspection with one request each. Joined stop also preserves the synced
+manifest's activation bit; quiescence comes from the joined close outcome, not
+from clearing durable activation metadata.
+
+At clean source `1095507e`, on source/executable-pinned builds:
+
+- The stalled-background inspection case passes (1.49 seconds).
+- The expanded real RustFS process case passes both image modes (10.64 seconds):
+  fresh/retained ownership, stale capacity refusal, qualification followed by
+  immediate activation, identity/authentication refusals, empty-standby read/write
+  refusal and joined stop.
+- Both native joined-shutdown cases pass (39.97 seconds), including preserved
+  activation and applied receipts with an in-flight proposal.
+- Independent operator checks pass against both retained RustFS modes:
+  two existing-root descriptions and 26 missing-proof refusals across both modes.
+  The Fleet head bytes and ETags remain unchanged after every command.
+- Focused compilation, strict Clippy, formatting, layout, dependency/docs checks
+  and 42 plan tests pass. Profiles, leases, deadlines and reserves are unchanged.
+
+All owned processes, backend and VM are stopped. Voters are host-native and use
+the existing fixture's explicit attestations; RustFS is constrained to one CPU /
+2 GiB. These checks do not establish constrained-voter capacity, positive
+cross-process seed-to-serving, complete managed Docker disk-loss recovery or task
+acceptance. The new positive seed-set reopening assertions are checked in but the
+complete recovery root has not been rerun past its retained setup failure.
+
+Failed controls are retained. The combined process campaign records `FAILED`
+because its **post-case** operator probe supplied a base schema digest instead of
+the SDK-computed Counter schema; its Rust test itself passed. A resumed attempt
+disconnects during RustFS startup before any Cellar command. The final operator
+run uses the captured SDK connection, retains one signed startup HTTP 503, then
+passes readiness and all 28 controls. Passing SDK cases are not repeated.
+
+Records under `.cellar/cell-groups-evidence/CG-13-controller-1095507e-`:
+`inspection-01`, `process-01`, `shutdown-01`, `operator-01` and `checkpoint-01`.
+The checkpoint includes the original `8437563c` capacity failure and both later
+probe/setup failures. Earlier merged-child, retirement and archive-preflight
+failures remain unresolved at their recorded sources. CG-13 stays `IN_PROGRESS`;
+accepted task/case counts are unchanged. Next deliver the full managed Docker
+coordinator and its positive recovery and six-case gate. CG-17/15/16 remain open.
+
 ## CG-13 checkpoint: real managed voter process
 
 At `0c653ce9`, `cellar-perf-cell-group managed-node` owns a real public SDK

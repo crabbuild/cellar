@@ -116,7 +116,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | --- | --- | --- |
 | CG-11 | **Accepted: 5/5 cases and ten commands at `ddb545e4`.** Six focused regressions and the full 64-cell/seven-group native/RustFS workflow pass in both image modes. | Functional acceptance is closed. Release-scale profiles remain CG-15/16. |
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
-| CG-13 | Historical inventory binding, portable operator handoff, durable post-launch assignments and a real SDK managed voter process are delivered. The new RustFS process case passes both image modes at `0c653ce9`; the full native closure fails earlier during merged-child installation. Earlier diagnostic recovery passes and failure controls retain their original sources. | Connect operator/controller staging, reservation, publication, settlement and serving release to actual Docker voters. Qualify positive seed-to-serving and all-voter disk deletion, address the retained liveness failures within original bounds, then pass all six cases on one clean source. Process startup and diagnostic passes do not establish that combined gate. |
+| CG-13 | Historical inventory, portable operator handoff, durable assignments, real SDK voters and standalone post-fence controller steps are delivered. At `1095507e`, fresh/retained capacity admission passes real RustFS in both modes; held-background self-inspection and joined-close regressions pass. Two operator descriptions and 26 missing-proof refusals preserve the Fleet heads. Earlier full-recovery failures retain their original sources. | Complete the managed Docker coordinator, including initial archive/intent preparation and the positive seed-to-serving flow after every source disk is deleted. Address the retained liveness failures within original bounds, then pass all six cases on one clean source. Startup, metadata controls and diagnostic passes do not establish the combined gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
 | CG-17 | TODO; no primitive compatibility cases are accepted. Existing SQL and alarm/outbox/inbox gates remain scoped foundations. The audit refines delivery into eight packages and 32 required cases. | Begin inventory/evidence enforcement and the shared activation/Storage/async execution foundation. Complete due work, provider fencing, payload closure, public binding/filesystem semantics, retention/schema/time rules and all primitive adapters, then pass the complete matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). Preserve ordinary Fleet/bucket regressions; missing providers or unsupported families keep the task open. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
@@ -139,10 +139,12 @@ are accepted natively at `2cd71d32`. The next feature priorities are:
    binding to historical launch inventory is implemented at `5e179d75`; portable
    operator handoff follows at `0c85daf5`/`3d780669`, with durable post-launch
    assignments at `d589e538` and a real SDK managed voter process at `0c653ce9`.
-   Finish operator/controller staging, reservation, publication, settlement and
-   serving release, then connect the managed Docker driver. Its process startup
-   case passes RustFS in both modes; the current full native closure fails during
-   merged-child installation before recovery. Address that and the retained
+   Post-fence controller steps and immediate fresh/retained capacity admission
+   follow at `1095507e`, with scoped RustFS/native passes in [progress](progress.md).
+   Complete the managed Docker coordinator, including initial intent/archive
+   preparation and positive seed-to-serving after all source disks are deleted.
+   The earlier full native closure fails during merged-child installation before
+   recovery. Address that and the retained
    retirement/archive failures within the original bounds, then qualify all six
    cases on one clean source: closure selection,
    permanent revocation, fresh histories/quorum, exact retry and outbox ambiguity.

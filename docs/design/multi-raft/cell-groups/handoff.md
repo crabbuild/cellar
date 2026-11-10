@@ -15,7 +15,42 @@ oracles, not new runtime qualification. Read the latest [progress](progress.md)
 for the signed fence/controller checkpoint before using the earlier source-specific
 recovery entries below.
 
-## Current CG-13 managed voter delivery and qualification gap
+## Current CG-13 controller delivery and qualification gap
+
+At `1095507e`, use `managed-recovery` for the standalone post-fence SDK steps and
+`managed-node` for actual voter ownership. The operator's read-only reservation
+and seed APIs cannot allocate missing state; publication requires the selected
+seed set. Late reconciliation and retirement do not depend on an obsolete active
+barrier. See the [tool protocol](../../../../tools/multi-raft/README.md#managed-recovery-controller-steps).
+
+The first expanded RustFS case at `8437563c` exposes stale self-inspection after
+qualification advances the Fleet epoch. The local path now uses the existing
+original-deadline trust refresher before capture/validation. The deterministic
+held-background remote/local regression passes, and the original process case
+passes both image modes with fresh and retained qualification/activation. Both
+native joined-close cases also pass. Do not treat the close report's `active`
+manifest bit as a running-worker flag; activation must survive retained stop.
+
+Independent operator controls pass against both retained RustFS modes: two
+descriptions and 26 missing-proof refusals with unchanged Fleet heads. The initial
+post-case probe has an incorrect private schema digest, and a later startup
+disconnect executes no Cellar command. Both failures remain retained. Use the
+SDK-serialized connection rather than reconstructing a class digest from its base
+digest. Exact records, limits and timings are linked from [progress](progress.md).
+All owned actors/backend/VM are stopped. No CG-13 acceptance follows from these
+scoped passes.
+
+Next implement the complete managed Docker driver: initial recovery intent and
+archive preparation, authenticated permanent fence, new-node capacity, reserved
+seed-to-publication, activation, settlement, serving release, retained restart and
+retirement. Persist original requests and reconcile unknown replies with the
+phase-appropriate read APIs. Bind launch inventory to the exact SDK catalog and
+namespace digests; the controller's namespace digest is not the raw NamespaceId.
+Prove serving reads/writes and restored receipts after deleting every source
+voter disk, preserve the retained setup/liveness failures, then pass all six cases
+on one clean source. CG-17/15/16 and full cutover remain open.
+
+## Earlier CG-13 managed voter checkpoint
 
 `0c653ce9` delivers a real SDK `Node`/`RaftCells` process in
 `tools/multi-raft/node/managed_voter/`, plus the controller-side
@@ -36,8 +71,8 @@ complete RustFS closure is not run on this source after the native failure.
 Both exact records and the check inventory are linked from [progress](progress.md).
 The owned backend/VM are stopped. CG-13 acceptance remains open.
 
-Next implement the controller/operator stage/reserve/select/publish/settle/release
-commands and the full managed Docker driver around these voters. Persist original
+The following checkpoint predates the standalone controller steps above. Its
+remaining integration is the full managed Docker driver. Persist original
 operation identities and reconcile unknown replies; voter observations and seed
 descriptions are not portable proofs. Qualify positive seed-to-serving, permanent
 launch revocation and deletion of every old voter disk, then all six CG-13 cases
