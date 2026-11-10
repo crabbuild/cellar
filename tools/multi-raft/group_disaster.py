@@ -8,11 +8,8 @@ Ed25519 key are never mounted in voters/operators. Source volumes alone are
 removed after complete inventory checks; new volumes and sanitized evidence stay.
 """
 import argparse
-from contextlib import contextmanager
-import fcntl
 import ipaddress
 import json
-import os
 from pathlib import Path
 import re
 import secrets
@@ -22,83 +19,13 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools/perf'))
-from raft_disaster import LABEL, command, fence_and_delete, owned_container
+from raft_disaster import LABEL, command, owned_container
 from raft_run import input_digest, parse_manifest, request, require, source_manifest
 from run import create_bucket
 from group_configuration import copy_configuration
+from group_fence import Launcher, PURPOSE, fence_and_delete, save
 
 RUSTFS = 'ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858'
-PURPOSE = b'cellar-docker-cell-group-fence-1\0'
-
-
-def save(path, value):
-    temporary = path.with_name(path.name + '.' + secrets.token_hex(8) + '.pending')
-    with open(temporary, 'x', opener=lambda p, f: os.open(p, f, 0o600)) as stream:
-        json.dump(value, stream, indent=2)
-        stream.write('\n')
-        stream.flush()
-        os.fsync(stream.fileno())
-    temporary.replace(path)
-    descriptor = os.open(path.parent, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
-class Launcher:
-    """Reloaded for each admission; revocation has no reverse operation.
-
-    Holding the lock through launch resolution prevents a launch from passing
-    admission before revocation and materializing after the fence inventory.
-    """
-    def __init__(self, root, run_id):
-        self.root, self.run_id = Path(root), run_id
-        self.path = self.root / 'launcher.json'
-        with self.lock():
-            if not self.path.exists():
-                save(self.path, {'format': 1, 'run_id': run_id, 'revoked': [], 'nodes': []})
-            self.read()
-
-    @contextmanager
-    def lock(self):
-        with open(self.root / 'launcher.lock', 'a+') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
-
-    def read(self):
-        value = json.loads(self.path.read_text())
-        require(value['format'] == 1 and value['run_id'] == self.run_id, 'foreign launcher ledger')
-        return value
-
-    def launch(self, generation, name, volume, invoke):
-        with self.lock():
-            value = self.read()
-            require(generation not in value['revoked'], 'deployment permanently revoked')
-            require(all(row['name'] != name for row in value['nodes']), 'duplicate launch identity')
-            row = {'generation': generation, 'name': name, 'volume': volume, 'container_id': None}
-            value['nodes'].append(row)
-            save(self.path, value)
-            identifier = invoke()
-            require(re.fullmatch('[0-9a-f]{64}', identifier) is not None, 'unknown launch outcome')
-            row['container_id'] = identifier
-            save(self.path, value)
-            return identifier
-
-    def revoke(self, generation):
-        with self.lock():
-            value = self.read()
-            nodes = [row for row in value['nodes'] if row['generation'] == generation]
-            require(len(nodes) == 3 and len({row['container_id'] for row in nodes}) == 3
-                    and all(row['container_id'] for row in nodes), 'incomplete writer inventory')
-            if generation not in value['revoked']:
-                value['revoked'].append(generation)
-                save(self.path, value)
-            return [(row['container_id'], row['volume']) for row in nodes]
-
 
 def verify_image(image, docker):
     require(re.fullmatch('sha256:[0-9a-f]{64}', image), 'immutable Docker image ID required')
@@ -335,12 +262,13 @@ class Qualification:
 
     def sign(self, digest):
         message = self.root / 'fence-message'
-        message.write_bytes(PURPOSE + bytes.fromhex(digest))
+        payload = self.launcher.certificate_payload(digest, {0: 3}, self.docker)
+        message.write_bytes(PURPOSE + payload)
         signature = self.root / 'fence-signature'
         command(['openssl', 'pkeyutl', '-sign', '-inkey', str(self.key), '-rawin', '-in', str(message), '-out', str(signature)])
         data = signature.read_bytes()
         require(len(data) == 64, 'unexpected Ed25519 signature length')
-        self.config['certificate'] = list(bytes.fromhex(digest) + data)
+        self.config['certificate'] = list(payload + data)
         self.save()
 
     def drill(self):
@@ -366,10 +294,10 @@ class Qualification:
         self.save()
         missing, text = self.operator('fence', check=False)
         require(missing.returncode != 0 and 'fence certificate' in text, 'missing infrastructure fence accepted')
-        self.config['certificate'] = list(bytes.fromhex(plan['fence_digest']) + bytes(64))
+        self.config['certificate'] = list(bytes([1]) + bytes.fromhex(plan['fence_digest']) + bytes([1]) * 32 + bytes(64))
         self.save()
         forged, text = self.operator('fence', check=False)
-        require(forged.returncode != 0 and 'untrusted Docker controller fence' in text, 'forged certificate did not reach signature-verification refusal')
+        require(forged.returncode != 0 and 'untrusted permanent fence certificate' in text, 'forged certificate did not reach signature-verification refusal')
         inventory = self.launcher.revoke(0)
         require(inventory == old, 'durable launcher inventory differs')
         for identifier, _ in old:
@@ -454,7 +382,8 @@ class Qualification:
         self.save()
         for identifier, _ in self.targets:
             self.stage_configuration(identifier)
-        self.docker('start', *(identifier for identifier,_ in self.targets))
+        for identifier, _ in self.targets:
+            self.launcher.restart(identifier, lambda identifier=identifier: self.docker('start', identifier))
         self.ready(1)
         self.ok({'action':'archive'},1)
         for cell, sequence, original in [('alpha',2,source),('beta',1,beta)]:

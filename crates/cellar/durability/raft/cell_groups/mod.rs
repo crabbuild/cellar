@@ -54,7 +54,9 @@ pub use controller::{
     CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
 };
 pub(crate) use controller::{RetiredSource, S3OutputProof};
+mod disaster;
 mod dispatch;
+pub use disaster::CellGroupPermanentFenceAuthority;
 mod host;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
 pub(crate) use dispatch::PendingCellCommand;

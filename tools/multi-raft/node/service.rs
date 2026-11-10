@@ -108,7 +108,7 @@ pub(super) async fn run(
             .bootstrap_recovered_group_member(
                 &directory.decode_group_recovery(&config.recovery)?,
                 &log,
-                Arc::new(recovery::SignedFence::new(&config)?),
+                Arc::new(recovery::fence_authority(&config)?),
             )
             .await?
     };
@@ -317,7 +317,7 @@ impl Node {
                 let request = self
                     .directory
                     .decode_group_recovery(&self.config.recovery)?;
-                let authority = recovery::SignedFence::new(&self.config)?;
+                let authority = recovery::fence_authority(&self.config)?;
                 let permit = self
                     .directory
                     .prepare_group_recovery_activation(&request, &self.log, &authority)

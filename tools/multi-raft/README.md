@@ -422,13 +422,29 @@ the unoptimized, debug-info-free Cargo development profile for correctness
 qualification. It establishes no throughput or recovery-time claim.
 
 The controller owns the complete disposable deployment and is its sole launcher.
-It persists permanent generation revocation under a launch lock, verifies and
-removes the exact owned old containers and voter volumes, then signs the exact
-recovery request. Its private signing key and launch ledger never enter a voter
-or operator container. Reloading the controller cannot authorize the revoked
-generation; an unknown launch outcome prevents certification. Production needs
+It persists permanent component generation revocation under a launch/restart
+lock **before** checking inventory completeness. Failed fencing leaves admission
+closed. The inventory includes every retained launch, even when it exceeds the
+minimum voter roster, and can span several generations. Partial container/disk
+deletion is resumable without recreating old writers. Certification requires
+positive Docker reads confirming every inventoried container and volume absent.
+Its private signing key and launch ledger never enter a voter or operator
+container. Reloading the controller cannot authorize the revoked generation;
+an unknown launch outcome prevents certification. Production needs
 an equivalent trusted infrastructure fencing authority that revokes every old
 writer's launch capability. Stopping processes alone does not supply that proof.
+
+`cellar::sdk::consensus::CellGroupPermanentFenceAuthority` verifies the
+controller's receipt for both shared-group and managed transition recovery.
+Pin its Ed25519 key independently of the archive. The 129-byte receipt contains
+format `1`, the exact request digest, a SHA-256 inventory commitment, and the
+signature over `cellar-cell-group-permanent-fence-1\0` plus those first 65 bytes.
+An instance with only the pinned key can verify a persisted winning receipt;
+`fence` refuses until a valid controller receipt is explicitly supplied with
+`with_certificate`. This adapter performs no platform fencing itself. The old
+qualification-only 96-byte receipt is no longer accepted. The managed native
+drill exercises this verifier after joined disk erasure; the Docker drill above
+still covers one unmanaged shared group, not complete CG-13 managed recovery.
 
 Only this run's three old voter disks are deleted. The RustFS object volume,
 new voter volumes and evidence remain. The runner stops all remaining owned

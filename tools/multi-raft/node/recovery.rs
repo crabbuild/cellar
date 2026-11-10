@@ -1,56 +1,13 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use futures_util::future::BoxFuture;
 
-pub(super) const PURPOSE: &[u8] = b"cellar-docker-cell-group-fence-1\0";
-
-pub(super) struct SignedFence {
-    public: ed25519_dalek::VerifyingKey,
-    certificate: Vec<u8>,
-}
-
-impl SignedFence {
-    pub fn new(config: &Config) -> Result<Self> {
-        Ok(Self {
-            public: ed25519_dalek::VerifyingKey::from_bytes(&config.fence_public)?,
-            certificate: config.certificate.clone(),
-        })
-    }
-
-    fn check(&self, request: &CellGroupDisasterFenceRequest, evidence: &[u8]) -> Result<()> {
-        ensure!(
-            evidence.len() == 96 && evidence[..32] == request.digest(),
-            "missing or foreign permanent fence certificate"
-        );
-        let mut message = PURPOSE.to_vec();
-        message.extend_from_slice(&request.digest());
-        self.public
-            .verify_strict(
-                &message,
-                &ed25519_dalek::Signature::from_slice(&evidence[32..])?,
-            )
-            .context("untrusted Docker controller fence")
-    }
-}
-
-impl DisasterFenceAuthority<CellGroupDisasterFenceRequest> for SignedFence {
-    fn fence<'a>(
-        &'a self,
-        request: &'a CellGroupDisasterFenceRequest,
-    ) -> BoxFuture<'a, Result<Vec<u8>>> {
-        Box::pin(async move {
-            self.check(request, &self.certificate)?;
-            Ok(self.certificate.clone())
-        })
-    }
-
-    fn verify<'a>(
-        &'a self,
-        request: &'a CellGroupDisasterFenceRequest,
-        evidence: &'a [u8],
-    ) -> BoxFuture<'a, Result<()>> {
-        Box::pin(async move { self.check(request, evidence) })
+pub(super) fn fence_authority(config: &Config) -> Result<CellGroupPermanentFenceAuthority> {
+    let authority = CellGroupPermanentFenceAuthority::new(config.fence_public)?;
+    if config.certificate.is_empty() {
+        Ok(authority)
+    } else {
+        authority.with_certificate(config.certificate.clone())
     }
 }
 
@@ -78,7 +35,7 @@ pub(super) async fn fenced(
                 physical::scratch(8)?,
                 data.into(),
             )?,
-            &SignedFence::new(config)?,
+            &fence_authority(config)?,
         )
         .await?)
 }
@@ -116,7 +73,7 @@ pub(super) async fn seed(
     )
     .await?;
     let seeded = directory
-        .seed_group_recovery(domain, prepared, &log, &SignedFence::new(config)?)
+        .seed_group_recovery(domain, prepared, &log, &fence_authority(config)?)
         .await?;
     let value = json!({"seeded":true,"member":seeded.group().identity().member.get(),"binding":hex::encode(seeded.binding()),"cells":seeded.manifest().pinned_images()});
     drop(seeded);
@@ -177,7 +134,7 @@ pub(super) async fn operator(
         return output(json!({"fenced":true,"request":hex::encode(proof.request().digest())}));
     }
     let request = directory.decode_group_recovery(&config.recovery)?;
-    let authority = SignedFence::new(config)?;
+    let authority = fence_authority(config)?;
     match action {
         "publish" => {
             directory

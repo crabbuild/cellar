@@ -2,7 +2,9 @@
 
 //! Fence and erase only the disks owned by the managed host test.
 use super::*;
+use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::future::BoxFuture;
+use sha2::{Digest as _, Sha256};
 use std::{collections::BTreeSet, path::PathBuf, sync::atomic::AtomicUsize};
 
 type PhysicalVoter = (NodeId, DiskLineage, IncarnationId);
@@ -194,7 +196,20 @@ impl DisasterFenceAuthority<FleetTransitionRecoveryFenceRequest> for TransitionF
                 state.erased = erased?;
             }
             ensure!(!state.erased.is_empty(), "source erasure is unconfirmed");
-            Ok(digest.to_vec())
+            // A fixture controller key is pinned independently of archive
+            // objects. Exercise the production managed receipt verifier after
+            // joined erasure; this does not claim Docker launch revocation.
+            let key = SigningKey::from_bytes(&[147; 32]);
+            let inventory = Sha256::digest(serde_json::to_vec(&state.erased)?);
+            let mut certificate = vec![1];
+            certificate.extend_from_slice(&digest);
+            certificate.extend_from_slice(&inventory);
+            let mut message = CellGroupPermanentFenceAuthority::PURPOSE.to_vec();
+            message.extend_from_slice(&certificate);
+            certificate.extend_from_slice(&key.sign(&message).to_bytes());
+            let authority = CellGroupPermanentFenceAuthority::new(key.verifying_key().to_bytes())?
+                .with_certificate(certificate)?;
+            authority.fence(request).await
         })
     }
 
@@ -205,8 +220,11 @@ impl DisasterFenceAuthority<FleetTransitionRecoveryFenceRequest> for TransitionF
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             self.verifications.fetch_add(1, Ordering::AcqRel);
+            let key = SigningKey::from_bytes(&[147; 32]);
+            CellGroupPermanentFenceAuthority::new(key.verifying_key().to_bytes())?
+                .verify(request, evidence)
+                .await?;
             let digest = request.digest();
-            ensure!(evidence == digest, "unbound fence evidence");
             let disks = {
                 let state = self.state.lock().await;
                 ensure!(
