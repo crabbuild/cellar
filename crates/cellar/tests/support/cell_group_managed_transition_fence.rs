@@ -44,12 +44,69 @@ impl Sources {
     }
 }
 
+async fn verify_controller_challenge(
+    domain: &ExecutionDomain,
+    digest: [u8; 32],
+    challenge: Vec<u8>,
+) -> Result<BTreeSet<PhysicalVoter>> {
+    let output = domain
+        .blocking(move || -> Result<std::process::Output> {
+            use std::{
+                io::Write as _,
+                process::{Command, Stdio},
+            };
+            let controller = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/multi-raft/managed_group_fence.py");
+            let mut child = Command::new("python3")
+                .arg(controller)
+                .args(["--expected-digest", &hex::encode(digest)])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            let written = match child.stdin.take() {
+                Some(mut input) => input.write_all(&challenge),
+                None => Err(std::io::Error::other("controller stdin missing")),
+            };
+            if written.is_err() {
+                let _ = child.kill();
+            }
+            let output = child.wait_with_output()?;
+            written?;
+            Ok(output)
+        })?
+        .await??;
+    ensure!(
+        output.status.success(),
+        "managed controller rejected the SDK challenge: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let writers: Vec<[String; 3]> = serde_json::from_value(report["writers"].clone())?;
+    let bytes = |text: &str| -> Result<[u8; 16]> {
+        hex::decode(text)?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("controller writer identity size"))
+    };
+    writers
+        .into_iter()
+        .map(|row| {
+            Ok((
+                NodeId::new(bytes(&row[0])?)?,
+                DiskLineage::new(bytes(&row[1])?)?,
+                IncarnationId::new(bytes(&row[2])?)?,
+            ))
+        })
+        .collect()
+}
+
 #[derive(Default)]
 struct FenceState {
     sources: Option<Sources>,
     digest: Option<[u8; 32]>,
     erasing: Option<BoxFuture<'static, Result<Vec<PathBuf>>>>,
     erased: Vec<PathBuf>,
+    challenge: Option<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -168,6 +225,24 @@ impl DisasterFenceAuthority<FleetTransitionRecoveryFenceRequest> for TransitionF
             self.fences.fetch_add(1, Ordering::AcqRel);
             let mut state = self.state.lock().await;
             let digest = request.digest();
+            let challenge = request.encode_challenge()?;
+            if let Some(encoded) = &state.challenge {
+                ensure!(encoded == &challenge, "different canonical fence challenge");
+            } else {
+                // Exercise the real SDK -> Python wire boundary and compare its
+                // independently derived minimum to the actual owned voters.
+                let physical = verify_controller_challenge(
+                    self.domain.as_ref().context("fence domain")?,
+                    digest,
+                    challenge.clone(),
+                )
+                .await?;
+                ensure!(
+                    state.sources.as_ref().context("fence owners")?.owners == physical,
+                    "exported fence challenge omitted physical owners"
+                );
+                state.challenge = Some(challenge);
+            }
             if let Some(selected) = state.digest {
                 ensure!(selected == digest, "different fence scope");
             }

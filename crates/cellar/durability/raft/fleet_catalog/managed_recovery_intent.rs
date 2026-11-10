@@ -149,6 +149,14 @@ impl FleetTransitionRecoveryIntent {
     pub fn required_voter_lineages(&self) -> &[FleetRecoveryVoterLineage] {
         &self.lineages
     }
+
+    pub(super) fn fence_encoding(&self) -> Result<Vec<u8>> {
+        let encoded = encode(KIND, &self.record, LIMIT)?;
+        if hash(&encoded) != self.digest {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        Ok(encoded)
+    }
 }
 
 impl Record {

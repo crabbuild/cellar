@@ -33,6 +33,46 @@ impl FleetTransitionRecoveryFenceRequest {
     pub fn digest(&self) -> [u8; 32] {
         self.digest
     }
+
+    /// Export the exact intent and directory barrier to an authenticated
+    /// infrastructure controller. The format-1 JSON contains hexadecimal
+    /// `request_digest`, `directory_digest` and `intent` fields. `intent` is the
+    /// complete canonical catalog record, including its framing and checksum.
+    /// Its hash and the directory digest reproduce this request's digest.
+    ///
+    /// Controllers must derive the minimum voter lineages from that record,
+    /// consult their complete historical launch inventory and durably revoke
+    /// every possible old writer. The challenge is not itself a fence proof or
+    /// caller authorization. Authenticate the expected request digest separately;
+    /// neither a caller-supplied roster nor a valid checksum grants authority.
+    ///
+    /// The output is bounded by twice the existing 4-MiB intent limit plus
+    /// 1 KiB of envelope space. This export does not change host/RPC quotas or
+    /// the separate bound on signed fence receipts.
+    pub fn encode_challenge(&self) -> Result<Vec<u8>> {
+        #[derive(Serialize)]
+        struct Challenge {
+            format: u8,
+            request_digest: String,
+            directory_digest: String,
+            intent: String,
+        }
+        let intent = self.intent.fence_encoding()?;
+        if managed_fence_digest(hash(&intent), self.barrier.directory_digest()) != self.digest {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        let encoded = serde_json::to_vec(&Challenge {
+            format: 1,
+            request_digest: hex::encode(self.digest),
+            directory_digest: hex::encode(self.barrier.directory_digest()),
+            intent: hex::encode(intent),
+        })
+        .map_err(|_| FleetCatalogError::Corrupt("fence challenge encoding"))?;
+        if encoded.len() > 2 * 4 * 1024 * 1024 + 1024 {
+            return Err(FleetCatalogError::Limit);
+        }
+        Ok(encoded)
+    }
 }
 
 /// Read-back proof of a verified permanent infrastructure fence. Retains the

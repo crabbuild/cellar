@@ -454,6 +454,36 @@ ledgers, signing material and sanitized process logs; keep it out of Git and
 publish only deliberately sanitized reports. A successful drill is an exact
 local recovery result, separate from the complete CG-06 task and release gates.
 
+### Managed recovery request binding
+
+`FleetTransitionRecoveryFenceRequest::encode_challenge` exports the complete
+canonical format-1 intent record and directory-barrier binding. The controller
+checks its framing/checksum and recomputes the exact SDK request digest. Minimum
+node/disk/physical-host lineages come from those bound bytes, never a separately
+supplied roster. Authenticate the expected request digest independently of the
+challenge's contents; a checksum is not caller authorization.
+
+`managed_group_fence.ManagedLauncher` maintains its own private format-1 launch
+ledger. Declare the catalog/namespace and group/incarnation histories before
+launch, and register each launch's physical identity before its Docker call.
+This inventory must come from actual deployment ownership, not be reconstructed
+from a recovery challenge. `bind(expected_digest, challenge_bytes)` selects
+**every historical deployment** serving those histories, including deployments
+whose entire voter set was replaced before the selected cut. It permanently
+closes their generations and histories before checking minimum identity coverage.
+Unknown launches, missing declarations or wrong disk/host identities refuse.
+
+`fence(expected_digest, docker)` resumes exact immutable-ID deletion; only
+`certificate_payload(expected_digest, docker)` after confirmed complete absence
+can supply bytes to the private signer. No manual count/roster entry point is
+accepted for managed receipts. Recreating the old history under a new deployment
+generation is refused; new histories use separate declarations. The export is
+bounded by twice the existing 4-MiB intent bound plus 1 KiB; this does not increase
+Cellar host, RPC or signed-receipt limits. The controller's wire-only CLI is used
+by the managed native/RustFS fixture to verify actual SDK challenges and compare
+their independently decoded minimum against the owned voters. It is not itself
+a physical fence. Full managed Docker voter recovery remains a separate gate.
+
 ## Cell-group transition contracts
 
 CG-09 uses `native_cell_groups_transitions`. Its current required cases cover

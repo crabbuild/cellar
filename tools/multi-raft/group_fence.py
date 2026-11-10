@@ -44,17 +44,22 @@ class Launcher:
     a missing container nor the minimum voter count resolves that uncertainty.
     Fencing fails closed, while the deployment remains permanently revoked.
     """
+    ledger_name = 'launcher.json'
+
+    def initial_state(self):
+        return {'format': 1, 'run_id': self.run_id, 'revoked': [], 'nodes': []}
+
     def __init__(self, root, run_id):
         self.root, self.run_id = Path(root), run_id
-        self.path = self.root / 'launcher.json'
+        self.path = self.root / self.ledger_name
         with self.lock():
             if not self.path.exists():
-                save(self.path, {'format': 1, 'run_id': run_id, 'revoked': [], 'nodes': []})
+                save(self.path, self.initial_state())
             self.read()
 
     @contextmanager
     def lock(self):
-        with open(self.root / 'launcher.lock', 'a+') as lock:
+        with open(self.path.with_suffix('.lock'), 'a+') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 yield
@@ -67,23 +72,28 @@ class Launcher:
         return value
 
     def launch(self, generation, name, volume, invoke):
+        with self.lock():
+            return self._launch_locked(self.read(), generation, name, volume, invoke)
+
+    def _launch_locked(self, value, generation, name, volume, invoke, identity=None):
+        """Caller holds this ledger's lock through materialization and readback."""
         require(type(generation) is int and generation >= 0, 'invalid deployment generation')
         require(isinstance(name, str) and name and isinstance(volume, str) and volume,
                 'invalid launch identity')
-        with self.lock():
-            value = self.read()
-            require(generation not in value['revoked'], 'deployment permanently revoked')
-            require(all(row['name'] != name for row in value['nodes']), 'duplicate launch identity')
-            require(all(row['volume'] != volume for row in value['nodes']), 'duplicate launch disk')
-            row = {'generation': generation, 'name': name, 'volume': volume, 'container_id': None}
-            value['nodes'].append(row)
-            save(self.path, value)
-            identifier = invoke()
-            require(isinstance(identifier, str) and re.fullmatch('[0-9a-f]{64}', identifier),
-                    'unknown launch outcome')
-            row['container_id'] = identifier
-            save(self.path, value)
-            return identifier
+        require(generation not in value['revoked'], 'deployment permanently revoked')
+        require(all(row['name'] != name for row in value['nodes']), 'duplicate launch identity')
+        require(all(row['volume'] != volume for row in value['nodes']), 'duplicate launch disk')
+        row = {'generation': generation, 'name': name, 'volume': volume, 'container_id': None}
+        if identity is not None:
+            row['identity'] = identity
+        value['nodes'].append(row)
+        save(self.path, value)
+        identifier = invoke()
+        require(isinstance(identifier, str) and re.fullmatch('[0-9a-f]{64}', identifier),
+                'unknown launch outcome')
+        row['container_id'] = identifier
+        save(self.path, value)
+        return identifier
 
     def restart(self, identifier, invoke):
         with self.lock():
