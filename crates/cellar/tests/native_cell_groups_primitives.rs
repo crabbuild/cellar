@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! The command-side portion of the shared Storage bridge.
+//! Shared Storage over private commands and pinned committed queries.
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{consensus::*, RaftClass, Storage};
@@ -46,11 +46,20 @@ async fn run(rooted: bool) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let rejected_after_savepoint = Arc::new(AtomicUsize::new(0));
     let escaped = Arc::new(Mutex::new(None::<Storage>));
+    let escaped_query = Arc::new(Mutex::new(None::<Storage>));
     let callback_calls = calls.clone();
     let callback_rejected = rejected_after_savepoint.clone();
     let callback_escaped = escaped.clone();
+    let command_query_view = escaped_query.clone();
+    let query_view = escaped_query.clone();
+    let query_command_view = escaped.clone();
     let class = RaftClass::new("Counter", 1, [211; 32])?
-        .initializer([212; 32], |_, transaction| {
+        .initializer([212; 32], |identity, transaction| {
+            if identity.cell.as_str() == "Counter:storage-empty" {
+                return transaction.execute_batch(
+                    "CREATE TABLE counter(value INTEGER NOT NULL); INSERT INTO counter VALUES(0);",
+                );
+            }
             let storage = transaction.storage()?;
             storage.sql(
                 "CREATE TABLE counter(value INTEGER NOT NULL); INSERT INTO counter VALUES(0);",
@@ -66,6 +75,12 @@ async fn run(rooted: bool) -> Result<()> {
                 ensure!(old.get_json("value").is_err(), "escaped view was reused");
             }
             drop(previous);
+            if let Some(old) = command_query_view.lock().unwrap().as_ref() {
+                ensure!(
+                    old.get_json("value").is_err(),
+                    "query view entered a command"
+                );
+            }
             let delta = i64::from_be_bytes(input.try_into()?);
             let result = update(&storage, delta)?;
             if delta < 0 {
@@ -74,9 +89,47 @@ async fn run(rooted: bool) -> Result<()> {
             }
             Ok(result.to_be_bytes().to_vec())
         })?
-        .query("Get", [214; 32], |context, _| {
-            let value: i64 =
-                context.query_row("SELECT value FROM counter", [], |row| row.get(0))?;
+        .query("Get", [214; 32], move |context, _| {
+            let storage = context.storage();
+            if let Some(old) = query_view.lock().unwrap().replace(storage.clone()) {
+                ensure!(
+                    old.get_json("value").is_err(),
+                    "escaped query view was reused"
+                );
+            }
+            if let Some(old) = query_command_view.lock().unwrap().as_ref() {
+                ensure!(
+                    old.get_json("value").is_err(),
+                    "command view entered a query"
+                );
+            }
+            let (columns, rows, written) = storage.sql("SELECT value FROM counter", &[])?;
+            ensure!(columns == ["value"] && written == 0);
+            let value = rows[0][0].as_i64().context("integer counter")?;
+            let expected =
+                (context.identity().cell.as_str() != "Counter:storage-empty").then(|| json!(value));
+            ensure!(storage.get_json("value")? == expected);
+            // Enter through raw application SQL before invoking the fixed KV read.
+            let nested = context.query_row("SELECT 1", [], |_| Ok(storage.get_json("value")))??;
+            ensure!(nested == expected);
+            let rows = storage.get_many(&["value".into(), "missing".into(), "value".into()])?;
+            let keys = rows.into_iter().map(|(key, _)| key).collect::<Vec<_>>();
+            let listed = storage.list(&cellar::sdk::ListOptions {
+                prefix: Some("val".into()),
+                ..Default::default()
+            })?;
+            ensure!(keys.len() == usize::from(expected.is_some()));
+            ensure!(keys.into_iter().eq(listed.into_iter().map(|(key, _)| key)));
+            ensure!(storage.get_json("temporary")?.is_none());
+            ensure!(storage.sql_database_size()? > 0);
+            ensure!(storage.sql("UPDATE counter SET value=999", &[]).is_err());
+            ensure!(storage.sql("CREATE TEMP TABLE forbidden(v)", &[]).is_err());
+            ensure!(storage.sql("SELECT v FROM __sys_cell_kv", &[]).is_err());
+            ensure!(storage.put_json("value", &json!(999)).is_err());
+            ensure!(storage.delete_many(&[]).is_err());
+            ensure!(storage
+                .tx::<()>(|_| panic!("read-only transaction entered"))
+                .is_err());
             Ok(value.to_be_bytes().to_vec())
         })?;
     let fixture = Box::pin(Fixture::with_class(rooted, class)).await?;
@@ -100,7 +153,11 @@ async fn run(rooted: bool) -> Result<()> {
             .checked_add(60_000)
             .context("retry horizon")?;
         let mut cells = Vec::new();
-        for (name, creation) in [("Counter:storage-one", 215), ("Counter:storage-two", 216)] {
+        for (name, creation) in [
+            ("Counter:storage-one", 215),
+            ("Counter:storage-two", 216),
+            ("Counter:storage-empty", 221),
+        ] {
             let cell = cluster.hosts[leader].cell(CellHistory {
                 cluster: history.cluster,
                 namespace: history.namespace,
@@ -154,6 +211,13 @@ async fn run(rooted: bool) -> Result<()> {
             )
             .await?;
         ensure!(read.result == 7i64.to_be_bytes() && read.version == receipt.version);
+        ensure!(escaped_query
+            .lock()
+            .unwrap()
+            .as_ref()
+            .context("captured query Storage")?
+            .get_json("value")
+            .is_err());
 
         let archived = second
             .command(
@@ -169,11 +233,28 @@ async fn run(rooted: bool) -> Result<()> {
         ensure!(archived.id == receipt.id && archived.witness.group == history);
         ensure!(archived.version.history != receipt.version.history);
 
-        let read_kv = CommandOptions::new(CommandId::new(ClientId::new([218; 16])?, 2)?, retry);
-        let checked = first
-            .command(&add, 0i64.to_be_bytes().to_vec(), read_kv)
+        let checked = second
+            .query(
+                ProposalId::new([222; 16])?,
+                &second.contract("Get")?,
+                Vec::new(),
+                QueryOptions {
+                    consistency: QueryConsistency::AtLeast(archived.version_token),
+                    ..QueryOptions::default()
+                },
+            )
             .await?;
-        ensure!(checked.result == 7i64.to_be_bytes() && calls.load(Ordering::Acquire) == 4);
+        ensure!(checked.result == 11i64.to_be_bytes() && checked.version == archived.version);
+        let empty = &cells[2];
+        let checked = empty
+            .query(
+                ProposalId::new([223; 16])?,
+                &empty.contract("Get")?,
+                Vec::new(),
+                QueryOptions::default(),
+            )
+            .await?;
+        ensure!(checked.result == 0i64.to_be_bytes() && calls.load(Ordering::Acquire) == 3);
         Ok::<_, anyhow::Error>(())
     }
     .await;
@@ -191,7 +272,7 @@ async fn run(rooted: bool) -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn command_storage_commits_sql_and_kv_together() -> Result<()> {
+async fn storage_reads_and_writes_exact_cell_versions() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(run(rooted))
             .await

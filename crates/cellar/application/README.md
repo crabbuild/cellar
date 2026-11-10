@@ -79,6 +79,12 @@ required Quorum or S3 proof. Ordinary `Context` activation and the remaining
 primitive adapters are tracked in the
 [cell-group implementation plan](../../../docs/design/multi-raft/cell-groups/implementation-plan.md).
 
+`QueryContext::storage()` reads SQL and KV from the immutable image selected
+by the query's consistency policy. The view and the returned query version
+describe the same image. KV reads on images with no KV schema return empty
+results. SQL writes and Storage mutations fail, and the view expires with the
+callback.
+
 Within each component, private modules separate values, codecs and validation
 from runtime operations. Pass clocks and budgets explicitly to value helpers;
 resolve execution-domain services in adapters. Binding operations require a

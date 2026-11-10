@@ -73,13 +73,9 @@ impl CommandTransaction<'_> {
             .frame
             .storage
             .get_or_init(|| Arc::new(Resources::default()));
-        Ok(Storage::raft(resources.clone()))
+        Ok(Storage::raft_command(resources.clone()))
     }
 }
-
-// Each Raft image belongs to exactly one cell. This internal row scope remains
-// stable across placement and disaster recovery, including new incarnations.
-pub(crate) const STORAGE_SCOPE: &str = "\0raft-command";
 
 struct CommandFrame {
     connection: RefCell<Connection>,

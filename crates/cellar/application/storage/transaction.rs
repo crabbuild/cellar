@@ -184,7 +184,7 @@ impl Transaction {
         // Cleanup needs its original connection after a failed critical
         // section. It ignores the failure flag, never activation identity.
         let scope = storage.installed_data_scope()?;
-        if matches!(&storage.0, Owner::Raft(_)) {
+        if matches!(&storage.0, Owner::RaftCommand(_)) {
             return crate::storage::transaction_control(scope, action, true, &self.savepoint)
                 .map(|_| ())
                 .map_err(anyhow::Error::msg);
@@ -448,7 +448,7 @@ impl Storage {
     /// success. Errors and panics roll back; root helpers take the innermost
     /// active layer. An escaped view refuses use after its boundary.
     pub fn transaction_sync<T>(&self, callback: impl FnOnce(&Storage) -> Result<T>) -> Result<T> {
-        self.data_scope()?;
+        self.write_scope()?;
         let parent = self
             .resources()
             .transaction

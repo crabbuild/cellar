@@ -4,7 +4,7 @@
 
 use super::{CommandId, CommittedVersion, Durability};
 use crate::raft::version::CellVersionObservation;
-use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery};
+use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery, QueryFrame};
 use cellar_logic::{cell_group::CellHistory, NamespaceMode};
 use sha2::{Digest, Sha256};
 use std::{
@@ -234,7 +234,7 @@ pub enum QueryVersion<'a> {
 pub struct QueryContext<'a> {
     identity: &'a CellHistory,
     version: QueryVersion<'a>,
-    database: &'a ImmutableQuery,
+    frame: &'a QueryFrame,
     blobs: Option<super::RaftBlobLimits>,
     outbox: Option<&'a super::RaftOutbox>,
     schema: [u8; 32],
@@ -243,7 +243,7 @@ pub struct QueryContext<'a> {
 impl QueryContext<'_> {
     pub fn outbox_progress(&self, lane: &str) -> anyhow::Result<super::RaftOutboxProgress> {
         crate::raft::effects::outbox::progress(
-            self.database.connection(),
+            self.frame.database().connection(),
             self.outbox
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
             self.identity,
@@ -260,10 +260,16 @@ impl QueryContext<'_> {
         self.version
     }
 
+    /// Read SQL and KV from the same committed image as this query's version.
+    /// Storage views expire when the callback returns and refuse mutations.
+    pub fn storage(&self) -> crate::application::Storage {
+        self.frame.storage()
+    }
+
     /// Read only bytes present in this query's pinned committed generation.
     pub fn blob(&self, reference: super::RaftBlobReference) -> anyhow::Result<Vec<u8>> {
         crate::raft::effects::get_blob(
-            self.database.connection(),
+            self.frame.database().connection(),
             self.blobs
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
             reference,
@@ -276,7 +282,7 @@ impl QueryContext<'_> {
         params: impl rusqlite::Params,
         read: impl FnOnce(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
     ) -> anyhow::Result<T> {
-        self.database.query_row(sql, params, read)
+        self.frame.database().query_row(sql, params, read)
     }
 }
 
@@ -887,7 +893,7 @@ impl RaftClass {
         &self,
         contract: &OperationContract,
         version: &CommittedVersion,
-        database: &ImmutableQuery,
+        database: ImmutableQuery,
         input: &[u8],
     ) -> anyhow::Result<Vec<u8>> {
         let identity = CellHistory::try_from(&version.scope)?;
@@ -904,7 +910,7 @@ impl RaftClass {
         &self,
         contract: &OperationContract,
         observation: &CellVersionObservation,
-        database: &ImmutableQuery,
+        database: ImmutableQuery,
         input: &[u8],
     ) -> anyhow::Result<Vec<u8>> {
         self.invoke_query(
@@ -921,7 +927,7 @@ impl RaftClass {
         contract: &OperationContract,
         identity: &CellHistory,
         version: QueryVersion<'_>,
-        database: &ImmutableQuery,
+        database: ImmutableQuery,
         input: &[u8],
     ) -> anyhow::Result<Vec<u8>> {
         self.validate_operation(contract)?;
@@ -936,17 +942,19 @@ impl RaftClass {
             .callback;
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = CallbackGuard::enter()?;
-            callback(
-                &QueryContext {
-                    identity,
-                    version,
-                    database,
-                    blobs: self.blobs,
-                    outbox: self.outbox.as_deref(),
-                    schema: self.schema_digest,
-                },
-                input,
-            )
+            QueryFrame::run(database, |frame| {
+                callback(
+                    &QueryContext {
+                        identity,
+                        version,
+                        frame,
+                        blobs: self.blobs,
+                        outbox: self.outbox.as_deref(),
+                        schema: self.schema_digest,
+                    },
+                    input,
+                )
+            })
         }))
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
     }

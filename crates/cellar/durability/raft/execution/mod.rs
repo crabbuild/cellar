@@ -174,7 +174,7 @@ pub fn query_registered(
         position: published.position(),
     };
     let result = class
-        .invoke_group_query(contract, &version, &database, input)
+        .invoke_group_query(contract, &version, database, input)
         .map_err(storage)?;
     if result.len() > limits.max_result_bytes {
         return Err(ExecutionError::Refused(CommandFailure::Overloaded));

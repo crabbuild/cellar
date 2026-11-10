@@ -19,10 +19,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 mod command;
+pub(crate) use command::require_storage as require_raft_command_storage;
 pub(crate) use command::CommandDatabase;
-pub(crate) use command::{
-    require_storage as require_raft_storage, STORAGE_SCOPE as RAFT_STORAGE_SCOPE,
-};
 pub use command::{CommandInputs, CommandTransaction};
 mod console;
 pub(crate) mod container_bindings;
@@ -32,6 +30,7 @@ pub(crate) mod filesystem;
 #[cfg(test)]
 mod identity_tests;
 mod immutable;
+pub(crate) use immutable::{require_storage as require_raft_query_storage, QueryFrame};
 pub(crate) mod inbox;
 #[cfg(test)]
 mod json_reads_tests;
@@ -49,6 +48,10 @@ mod transaction_cache_tests;
 pub(crate) mod wake_record;
 pub(crate) mod work;
 pub(crate) use console::{sql_console, sql_console_migrations};
+
+// Each Raft image belongs to exactly one cell. Both private writes and
+// committed reads use this persisted row scope across placement and recovery.
+pub(crate) const RAFT_STORAGE_SCOPE: &str = "\0raft-command";
 
 /// Read the alarm and its identity before releasing the source's SQLite lock.
 pub(crate) fn alarm_snapshot(scope: &str) -> anyhow::Result<cellar_logic::wake::AlarmSnapshot> {
@@ -1056,6 +1059,9 @@ pub(crate) fn reset_native_resources(scope: &str) {
 
 fn with<T>(scope: &str, f: impl FnOnce(&Connection) -> T) -> Option<T> {
     if scope == RAFT_STORAGE_SCOPE {
+        if immutable::active() {
+            return immutable::with(f);
+        }
         return command::with(f);
     }
     dbs(|d| d.borrow().get(scope).map(|cell| f(&cell.connection)))
@@ -3485,27 +3491,36 @@ pub fn get(scope: &str, key: &str) -> Option<String> {
     })?
 }
 
+fn read_cell_kv<T: Default>(
+    scope: &str,
+    read: impl FnOnce(&Connection) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    if scope == RAFT_STORAGE_SCOPE && !immutable::has_kv()? {
+        return Ok(T::default());
+    }
+    with(scope, |connection| as_framework_sql(|| read(connection)))
+        .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
+}
+
 pub fn get_stored(scope: &str, key: &str) -> anyhow::Result<Option<StoredValue>> {
-    with(scope, |c| {
+    read_cell_kv(scope, |c| {
         c.prepare_cached(KV_GET_SQL)?
             .query_row([scope, key], |row| Ok(stored_value(row.get_ref(0)?)))
             .optional()
             .map_err(Into::into)
     })
-    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
 }
 
 /// Read JSON without retaining an owned copy of the persisted text.
 /// Parsing is synchronous under the original cell turn; no row borrow escapes.
 pub(crate) fn get_json_value(scope: &str, key: &str) -> anyhow::Result<Option<serde_json::Value>> {
-    with(scope, |connection| {
+    read_cell_kv(scope, |connection| {
         connection
             .prepare_cached(KV_GET_SQL)?
             .query_row([scope, key], |row| Ok(stored_json(row.get_ref(0)?)))
             .optional()?
             .transpose()
     })
-    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
 }
 
 #[cfg(cellar_internal_tests)]
@@ -3539,7 +3554,7 @@ pub fn get_many_stored(scope: &str, keys: &[String]) -> anyhow::Result<Vec<(Stri
     let mut keys = keys.to_vec();
     keys.sort();
     keys.dedup();
-    with(scope, |c| {
+    read_cell_kv(scope, |c| {
         let mut statement = c.prepare_cached(KV_GET_SQL)?;
         let mut values = Vec::new();
         for key in keys {
@@ -3554,7 +3569,6 @@ pub fn get_many_stored(scope: &str, keys: &[String]) -> anyhow::Result<Vec<(Stri
         }
         Ok(values)
     })
-    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
 }
 
 #[cfg(cellar_internal_tests)]
@@ -3802,7 +3816,7 @@ pub fn list_stored_with_options(
     limit: Option<usize>,
     reverse: bool,
 ) -> anyhow::Result<Vec<(String, StoredValue)>> {
-    with(scope, |c| {
+    read_cell_kv(scope, |c| {
         let (query, parameters) =
             list_query(scope, begin, end, start_after, prefix, limit, reverse);
         let mut statement = c.prepare(&query)?;
@@ -3811,7 +3825,6 @@ pub fn list_stored_with_options(
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
-    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
 }
 
 fn list_query(
