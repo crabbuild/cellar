@@ -10,8 +10,8 @@ end-to-end implementation and hard cutover work is specified in the
 CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
-adds eight delivery packages and 32 required cases. CG17-01 is in progress;
-no primitive runtime case has been accepted.
+adds eight delivery packages and 32 required cases. CG17-01 and CG17-02 are in
+progress. The command Storage path has a scoped runtime regression.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -20,6 +20,36 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 command Storage checkpoint
+
+At `09c1ea11`, synchronous Raft commands acquire SDK `Storage` through
+`CommandContext::storage()`, and initializers acquire it through
+`CommandTransaction::storage()`. The Raft worker owns the private SQLite
+connection for the callback. The view carries callback identity, expires
+with that callback and refuses use in a later command. SQL, KV, savepoints
+and the command receipt share the existing transaction and LTX capture.
+Output still follows the applied receipt and requested durability proof.
+
+`command_storage_commits_sql_and_kv_together` passes in 20.699 seconds with
+host-native RF3 voters, two cells in one group and both image modes. It checks
+read-your-writes, nested and whole-command rollback, reserved-table and
+transaction-control refusal, expired views, exact replay, independent cell
+identities and Quorum/S3 acknowledgements. The S3 case uses the in-memory
+archive fixture. The native Storage and async transaction regressions pass,
+as do alarm delivery, lost inbox replies and verified S3 effects. All 44 plan
+tests, the partial 189-symbol inventory check and the layout check pass.
+Strict all-target Clippy passes at `52f9f9c1`, which adjusts only test fixture
+lint scope and the filesystem test's compiler recursion limit. The checkout's
+`.cellar/cell-groups-evidence/CG-17-storage-09c1ea11-01` directory retains the
+source and executable hashes.
+
+Next wire ordinary `Context` activation and read-only Storage over committed
+images. Finish compiled export reconciliation and deployment capacity checks.
+These boundaries precede Raft async transactions, durable work discovery and
+the primitive adapters. The complete CG-17 cases, constrained infrastructure
+matrix and CG-13 stable managed recovery remain open. Acceptance remains
+**13/17 tasks, 147/195 cases**.
 
 ## CG-17 checkpoint: primitive coverage admission
 
