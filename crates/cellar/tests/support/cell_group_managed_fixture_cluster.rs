@@ -542,14 +542,49 @@ impl ManagedCluster {
             }
         }
         if public_operator {
-            let selected = futures_util::future::try_join_all(hosts.iter().take(3).map(|voter| {
-                voter.start_managed_namespace_first_group(
-                    history.cluster,
-                    history.namespace,
-                    TIMEOUT,
-                )
-            }))
-            .await?;
+            let rooted = f.declaration.namespace.image_storage == RaftImageStorage::Extents;
+            let selected = futures_util::future::try_join_all(
+                hosts.iter().take(3).enumerate().map(|(index, voter)| {
+                    let startup = voter.start_managed_namespace_first_group(
+                        history.cluster,
+                        history.namespace,
+                        TIMEOUT,
+                    );
+                    async move {
+                        startup.await.with_context(|| format!("initial group readiness voter={index}, extents={rooted}, history={history:?}"))
+                    }
+                }),
+            ).await;
+            let selected = match selected {
+                Ok(selected) => selected,
+                Err(error) => {
+                    let failed: Vec<_> = hosts
+                        .iter()
+                        .map(|host| (host.resource_usage(), host.performance()))
+                        .collect();
+                    for (index, (host, (owners, performance))) in
+                        hosts.iter().zip(failed).enumerate()
+                    {
+                        let group = match host.group(history) {
+                            Ok(group) => format!("{:?}", group.observe(TIMEOUT).await),
+                            Err(error) => format!("{error:?}"),
+                        };
+                        eprintln!("initial group readiness failure voter={index}, extents={rooted}: group={group}; owners_at_failure={owners:?}; performance_at_failure={performance:?}");
+                    }
+                    let joined = movement::close(nodes, &hosts).await;
+                    for root in roots {
+                        eprintln!(
+                            "retained initial group readiness disk: {}",
+                            root.keep().display()
+                        );
+                    }
+                    f.domain.shutdown().await;
+                    if let Err(close_error) = joined {
+                        eprintln!("initial group readiness joined shutdown: {close_error:?}");
+                    }
+                    return Err(error);
+                }
+            };
             ensure!(
                 selected.iter().all(|selected| *selected == history),
                 "unexpected managed namespace group"

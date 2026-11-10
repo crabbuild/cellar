@@ -53,7 +53,7 @@ and its named RO/RL cases remain the acceptance contract:
 | --- | --- |
 | OPT-01 | Finish smallest-scope negative-path repair and validate membership, public authority isolation and ambiguous outcomes; RO-01/02 runtime cases pass below, while broader RO-03/04/07/08 gates remain open |
 | OPT-02 | Interval-proof/generation candidate below; coalesced bounded demand refresh and public transition/version qualification for RO-05/06/09 remain open |
-| OPT-03 | Consistency-aware replica ranking and fresh bounded ReadIndex cohorts; RO-10/11 |
+| OPT-03 | Consistency-aware replica ranking and RO-10 remain open; the public RO-11 cohort oracle passes at the source checkpoint below |
 | OPT-04 | Physical shared-file/segment release proof and once-only accounting qualification; RL-01 through RL-05 |
 | OPT-05 | Load telemetry, reserve-aware placement and repeated release-scale movement; RL-06 |
 | OPT-06 | Measured scheduling fairness, batching and queue isolation; RL-07 |
@@ -404,8 +404,9 @@ target. Comparing all source inputs with the 33-case campaign confirmed changes
 only in five test files; production inputs are identical.
 The retained 12-case `record.json` SHA-256 is
 `8c4d5e42d2b0bcae0e4345f0e18decdeee17ba8411f61c1104c6cee00ec4eeb2`.
-Replica preference ranking and the public SDK/native/Axum RO-11 oracle remain
-open; these component checks do not close OPT-03 or release qualification.
+At that checkpoint, replica preference ranking and the public SDK/native/Axum
+RO-11 oracle remained open; those component checks did not close OPT-03 or
+release qualification.
 
 ## Public read cohort verification candidate
 
@@ -442,9 +443,95 @@ Tested executables, operator CLI, source patches and logs are retained at
 its `record.json` SHA-256 is
 `f5fa796524142d63894f8e70f77ef26b251c3bc2e28a0a42e477fa169c79e9e6`.
 The public configuration change cut and replica preference ranking remain open;
-RO-11 and OPT-03 are not closed by these partial or component results. An isolated
-configuration-cut candidate has passed focused static Clippy only and has no
-runtime qualification yet.
+Those partial or component results did not close RO-11 or OPT-03. The first
+public configuration candidate held the leader's configuration fsync, but that
+did not force the new configuration to overtake follower read selection. Both
+reads could validly complete first. The failed development runs are retained at
+`qualification/public-config-red-0f7dab94` and
+`qualification/public-config-diagnosis-55096f6c`; they qualify no configuration
+invalidation behavior. Its proposed production counter and second filesystem
+provider were removed.
+
+The replacement candidate holds actual follower persistence/apply, queues the
+original two public reads, commits a rooted learner admission through the other
+voters, and admits a later S3 mutation's data before releasing apply. It requires
+one fresh shared barrier, refusal before callback entry, a changed local
+configuration with the same term, independently verified fresh cell versions,
+unchanged original quotas, and the exact pending movement debit. Its optimized
+Rust 1.98.1 development smoke passed in 46.044 seconds, with both storage modes
+and all three public ingress paths. Source inputs are pinned by
+`7c741c89be9724f8b95236c36e8f4f2223e865c0cd780c75bac5f9374af5fbae`;
+`qualification/public-config-apply-smoke-7c741c89` retains the executable, sources
+and logs. This is a development result, not the combined regression campaign.
+An initial diagnostic rebuild under the shell's Rust 1.99.1 default was stopped
+before runtime and supplies no qualification. The complete request/evidence
+ledger and replica preference ranking remain open. The expanded candidate adds
+a both-completed shared cohort, explicit HTTP query identities, a later arrival
+while a follower barrier remains pending, and a structured
+request/result/cancellation/receipt and physical-owner ledger. Malformed,
+duplicate and command-side query identity headers refuse before ReadIndex or
+application callback entry. Its development smoke passed in 68.791 seconds.
+The independent ledger audit passed 394 events: 76 valid queries, 50 verified
+results, 20 generation refusals, six joined cancellations, 34 S3 receipt
+observations, and 24 rejected malformed or misplaced identity requests.
+Source inputs are pinned by
+`8c4fb2f62d433c4a4e3d8afc57831eb299ce0a4035928cd619bc35cf69f558f7`;
+`qualification/public-read-ledger-smoke-8c4fb2f6` retains that smoke.
+
+The combined campaign passed focused Clippy, format/layout, dependency isolation,
+documentation and all 42 plan tests. It passed 31 native cases, then
+`election_repairs_leader_only` failed during initial group readiness with
+`Runtime(DeadlineExceeded)`, before reaching its election oracle. The remaining
+eight cases did not run. Replaying the exact election executable under the same
+source passed in 26.816 seconds; the intermittent startup cause remains
+unresolved. The failed campaign and replay are retained at
+`qualification/public-read-ledger-election-startup-failed-8c4fb2f6`.
+This is not a passing 40-case campaign or release qualification. The next
+candidate retains startup-failure disks and records voter/group/resource state
+before joined shutdown; it preserves the original deadline and assertions.
+
+The diagnostic candidate preserves the original eager startup admission. On
+failure it captures every voter's resource and performance counters before any
+awaited inspection, then records later group observations, joins shutdown and
+retains the disks. Its combined run passed 32 cases, including the election
+case, before `metadata_outage_on_cached_path` failed at the next extents-cluster
+startup. The materialized outage scenario had completed. Passive snapshots had
+zero read barriers and pending persistence; sequential group observations later
+showed a ready leader. Another checkout's formatter was observed after the
+failure, but that sample does not establish overlap or causality. The failure,
+executables and disks remain retained at
+`qualification/public-read-ledger-startup-state-failed-64b27b95`.
+
+The unchanged candidate subsequently passed all 40 selected native cases with
+Rust 1.98.1 and the CI test profile. Each case began after a five-second sampled
+quiet window and `sync`; the runner sampled competing compiler, formatter and
+native fixtures every 100 ms. Three passing attempts overlapped with observed
+external work and remain explicitly unqualified. Their later attempts passed
+without observed overlap. An uninterfered failure would stop the campaign;
+request deadlines, admission caps and assertions were unchanged. Sampling cannot
+exclude short unobserved activity, and the intermittent startup cause remains
+unresolved; this pass does not erase either earlier failure.
+
+Focused Clippy, formatting, layout, native dependency isolation, documentation
+and all 42 plan tests passed at those exact source inputs. The independent
+public-read audit also passed all 394 events. The SDK, native HTTP and Axum
+RO-11 oracle now covers two completed prequeued queries, cancelled waiters,
+later arrivals during pending and completed barriers, term changes and a real
+learner configuration change in both image modes. It verifies independent
+image pins, exact versions and S3 receipts, generation refusals before callback
+entry, unchanged two-slot admission, and joined resource drainage. The learner
+cut retains its exact pending movement debit; it does not qualify completed
+repair or reclaimed capacity.
+
+The source-input digest is
+`64b27b9500ee75f666fcd762077cc0e0dc18a5018f9eb7d0ffa14806700452aa`.
+The executables, source overlay, all 43 attempts, checker logs, evidence and
+auditor are retained at `qualification/public-read-ledger-isolated-64b27b95`
+under the checkout's workspace target. Its `record.json` SHA-256 is
+`84af9fd5f9afd698a5f679520441c484a6df3058722dfa92d2125dde07cf329b`.
+This closes the selected public RO-11 functional oracle. Replica preference
+ranking, RO-10, current-source RustFS verification, broader OPT-03 acceptance
+and release qualification remain open.
 
 ## Local container verification
 
