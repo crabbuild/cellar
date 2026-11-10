@@ -9,21 +9,12 @@ No physical-host ID is invented to bypass the SDK's old-host exclusion.
 import hashlib
 import ipaddress
 import json
-import re
 
 from group_disaster import verify_image
 from managed_group_configuration import copy as copy_managed
-from raft_disaster import LABEL, command, owned_container
+from managed_group_vm import DedicatedVM, profile
+from raft_disaster import LABEL, owned_container
 from raft_run import require
-
-
-def profile(context):
-    require(re.fullmatch(r'colima-cellar-multi-raft-[a-z0-9-]+',context),'explicit dedicated VM context required')
-    return context.removeprefix('colima-')
-
-
-def colima(context,*args):
-    return command(['colima',*args,'--profile',profile(context)])
 
 
 def prepare(driver):
@@ -32,9 +23,9 @@ def prepare(driver):
     require(not driver.docker('ps','-q').strip(),'source VM must have no running containers before setup')
     # Prepare image transport externally, while both VMs are idle and the source
     # has only 8 GiB. This preflight verifies it before any source disk can die.
-    colima(source,'stop')
-    colima(source,'start','--activate=false','--cpu','4','--memory','8')
-    colima(replacement,'start','--activate=false','--cpu','6','--memory','16')
+    DedicatedVM(source).stop()
+    DedicatedVM(source).start(4,8)
+    DedicatedVM(replacement).start(6,16)
     driver.args.context=replacement
     try:
         require(not driver.docker('ps','-q').strip(),'replacement VM must be idle before setup')
@@ -45,9 +36,9 @@ def prepare(driver):
         driver.report['prepared_replacement']={'context':replacement,'host':driver.prepared_host,'build':built}
     finally:
         driver.args.context=source
-    colima(replacement,'stop')
-    colima(source,'stop')
-    colima(source,'start','--activate=false','--cpu','8','--memory','24')
+    DedicatedVM(replacement).stop()
+    DedicatedVM(source).stop()
+    DedicatedVM(source).start(8,24)
     driver.save()
 
 
@@ -64,14 +55,14 @@ def handoff(driver):
     # and a 16-GiB replacement VM at once. No SDK request or voter is entered
     # during this declared object-store restart; its disk and identity persist.
     driver.docker('stop','--time','60',store)
-    colima(source,'stop')
-    colima(source,'start','--activate=false','--cpu','4','--memory','8')
+    DedicatedVM(source).stop()
+    DedicatedVM(source).start(4,8)
     info=json.loads(driver.docker('info','--format','{{json .}}'))
     require(hashlib.sha256(('docker-daemon/'+info['ID']).encode()).hexdigest()[:32]==old_host,
             'source VM identity changed')
     driver.docker('start',store)
     driver.until(driver.bucket,90)
-    colima(replacement,'start','--activate=false','--cpu','6','--memory','16')
+    DedicatedVM(replacement).start(6,16)
     driver.args.context=replacement
     driver.active_contexts.append(replacement)
     info=json.loads(driver.docker('info','--format','{{json .}}'))
@@ -93,7 +84,7 @@ def handoff(driver):
     require(subnet.version==4 and subnet.prefixlen<=24,'private replacement network required')
     driver.report['source_network']=driver.report['network']
     driver.report['network']={'id':value['Id'],'subnet':str(subnet)}
-    gateway=command(['colima','ssh','--profile',profile(replacement),'--','getent','ahostsv4','host.lima.internal']).stdout.split()[0]
+    gateway=DedicatedVM(replacement).shell('getent','ahostsv4','host.lima.internal').stdout.split()[0]
     require(ipaddress.ip_address(gateway).is_private,'private VM-to-host gateway required')
     relay=driver.docker('create','--label',driver.owner,'--network',driver.prefix,'--network-alias','rustfs',
         '--cpus','1','--memory','1g','--memory-swap','1g','-e','CELLAR_GROUP_ACTION=managed-s3-relay',driver.args.image)

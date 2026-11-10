@@ -705,7 +705,11 @@ any disk erasure, stops the replacement VM and starts the 24-GiB source phase.
 After fencing, it gracefully restarts the retained RustFS service on an 8-GiB
 source VM before starting the 16-GiB replacement. This keeps guest reservations
 within 24 GiB on the 32-GiB development machine. No SDK request is entered during
-the declared service restart. A one-CPU/1-GiB, 32-connection TCP bridge preserves
+the declared service restart. The driver controls those existing VMs through
+profile-scoped Lima commands, checks exact CPU/memory, and preserves matching
+Colima resource metadata. This avoids Colima's macOS filesystem-watcher startup
+without touching default/remote contexts or creating another VM. VM stop refuses
+running containers. A one-CPU/1-GiB, 32-connection TCP bridge preserves
 S3 bytes/headers and joins its execution-domain tasks on stop. The old-host
 exclusion remains unchanged; inventing a replacement host ID is forbidden. This qualifies one Counter/namespace
 scenario; published child tails, external effects and all six CG-13 cases still
