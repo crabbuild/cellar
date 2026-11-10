@@ -41,6 +41,60 @@ class ManagedDrillTests(unittest.TestCase):
         self.assertEqual(driver.physical.call_count,1)
         self.assertEqual(driver.event.call_count,1)
 
+    def recovery_driver(self,release_error=None):
+        driver=object.__new__(TransitionQualification)
+        rows=[{'node':str(i+1).zfill(32),'process':str(i+4).zfill(32),'member':11+i} for i in range(3)]
+        driver.model={'bootstrap':{'catalog_id':'catalog','namespace_digest':'namespace'},
+            'replacement':{'group':'01'*16,'incarnation':'02'*16,'creation':'03'*16},
+            'fenced':{'cuts':[{'epoch':1}]},'selection':{},'recovery':'original'}
+        driver.report={'checks':{}};driver.launcher=Mock();driver.save=Mock()
+        driver.launch_node=Mock(side_effect=rows);driver.admit=Mock();driver.target_nodes=Mock(return_value=rows)
+        driver.event=Mock(side_effect=lambda _label,_request,invoke:invoke())
+        driver.client=lambda row:Mock(seed=Mock(return_value={'seeded':True,'member':row['member'],'commitment':'same'}))
+        replies={'recovery-stage':{'plan_digest':'plan'},'recovery-select-seeds':{'seeds':{'seed_digest':'seeds'}},
+            'recovery-activation':{'activation':{'index':3,'term':2}},
+            'recovery-settle':{'promoted_ranges':1,'total_ranges':1},'recovery-complete':{'completion':'complete'},
+            'recovery-retire':{'retired_histories':3,'total_histories':3,'fleet_slot_released':True}}
+        def control(label,_request):
+            if label=='recovery-release' and release_error:raise release_error
+            return replies.get(label,{})
+        driver.control=Mock(side_effect=control);driver.attach_targets=Mock();driver.activate_target=Mock()
+        driver.target_leader=Mock(return_value=rows[0]);driver.grant_origins=Mock()
+        driver.until=Mock(return_value=rows[0]);driver.fresh_writes=Mock()
+        driver.restart_targets=Mock();driver.verify_targets=Mock()
+        return driver
+
+    def test_released_recovery_reopens_serving_owners_before_reading(self):
+        driver=self.recovery_driver()
+        def read(**_options):
+            self.assertEqual(driver.model['completion'],'complete')
+            self.assertEqual(driver.restart_targets.call_count,1,
+                'pre-release owners remain fenced; reopen them under the serving receipt')
+        driver.verify_targets.side_effect=read
+        driver.recover()
+        self.assertEqual(driver.restart_targets.call_count,2)
+        self.assertTrue(driver.report['full_dr_completed'])
+
+    def test_unknown_serving_release_never_reboots_or_reads(self):
+        driver=self.recovery_driver(VoterFailure('lost serving release reply'))
+        with self.assertRaises(VoterFailure):driver.recover()
+        driver.restart_targets.assert_not_called();driver.verify_targets.assert_not_called()
+        self.assertNotIn('completion',driver.model)
+
+    def test_retained_serving_startup_does_not_reattach_as_pending_recovery(self):
+        driver=object.__new__(TransitionQualification)
+        row={'process':'01'*16,'container':'owned'}
+        driver.target_nodes=Mock(return_value=[row]);driver.client=Mock()
+        driver.event=Mock(side_effect=lambda _label,_request,invoke:invoke())
+        driver.until=Mock(return_value=True);driver.joined_voter=Mock();driver.save=Mock()
+        driver.copy_node=Mock();driver.docker=Mock();driver.launcher=Mock()
+        driver.launcher.restart.side_effect=lambda _container,invoke:invoke()
+        driver.admit=Mock();driver.grant_origins=Mock();driver.target_leader=Mock();driver.verify_targets=Mock()
+        driver.attach_targets=Mock(side_effect=AssertionError('serving startup re-entered pending recovery'))
+        driver.restart_targets()
+        driver.copy_node.assert_called_once_with(row,True)
+        driver.verify_targets.assert_called_once_with()
+
     def test_source_quorum_and_replacement_cohort_remain_separate(self):
         driver=object.__new__(TransitionQualification)
         rows=[{'generation':generation,'index':index} for generation,count in ((0,5),(1,3))

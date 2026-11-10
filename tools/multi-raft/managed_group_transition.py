@@ -166,8 +166,10 @@ class TransitionQualification(ManagedQualification):
         complete=self.control('recovery-complete',{'step':'complete','request':request})
         self.control('recovery-release',{'step':'release','request':request,'completion':complete['completion']})
         self.model['completion']=complete['completion'];self.save()
-        self.grant_origins(rows)
-        self.until(self.target_leader,60)
+        # Pending-recovery owners retain their non-serving fence. Reopen the
+        # same disks under the released receipt and current Fleet boot before
+        # waiting for a fresh serving quorum or issuing application requests.
+        self.restart_targets()
         self.verify_targets(replay=True,old_tokens=True)
         self.fresh_writes()
         self.restart_targets()
@@ -271,7 +273,9 @@ class TransitionQualification(ManagedQualification):
                 return self.docker('start',row['container'])
             self.launcher.restart(row['container'],invoke)
             self.until(lambda:self.client(row).call({'action':'observe'}),60);self.admit(row)
-        self.attach_targets('retained');self.grant_origins(self.target_nodes())
+        # Retained startup independently validates the serving receipt and
+        # current boot. Pending-recovery attachment is only for activation.
+        self.grant_origins(self.target_nodes())
         self.until(self.target_leader,60);self.verify_targets()
 
     def drill(self):

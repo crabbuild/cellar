@@ -711,6 +711,14 @@ exclusion remains unchanged; inventing a replacement host ID is forbidden. This 
 scenario; published child tails, external effects and all six CG-13 cases still
 require their complete gate.
 
+Publication attachment starts non-serving recovery owners. After committed
+activation, Fleet settlement, directory completion and serving release, the
+driver joins those owners and restarts their retained disks with new process
+identities. Startup independently validates the released receipt and current
+Fleet authority before establishing a fresh serving quorum. It does not reuse
+pending-recovery attachment for serving. An unknown release stops the workflow
+before any serving restart or application request.
+
 The standalone controller adds `fleet_status`, transition basis/admission/status,
 archive preparation/capture, recovery basis, hold preparation/acquisition,
 intent staging/reopening, challenge and fence commands. A prepared hold intent
