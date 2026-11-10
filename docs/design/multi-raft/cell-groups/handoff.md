@@ -11,9 +11,26 @@ defines eight packages and 32 required cases. It is TODO and gates CG-15/16
 acceptance; the inventory and shared Storage/async foundations can begin beside
 CG-13 implementation. The [TiKV optimization proposal](tikv-informed-optimization.md)
 builds on accepted CG-11/12 foundations and introduces additional optimization
-oracles, not new runtime qualification. Read the latest [progress](progress.md)
+oracles. Delivered routing and fresh ReadIndex work is recorded in
+[optimization progress](optimization-progress.md). Read the latest [progress](progress.md)
 for the signed fence/controller checkpoint before using the earlier source-specific
 recovery entries below.
+
+## Current combined source
+
+PR #166 integrates committed optimization source `19982a1b` with the recovery
+branch at `79f2ccc5`. All 63 selected unit/native cases and focused strict Clippy
+pass with the CI test profile, including the cached-source published-child SQL
+regression in both image modes. The merge preserves the sealed-source routing
+fence and exact reserved-child publication authorization. See [progress](progress.md)
+for source, executable and log records. Matching peers and clients require a
+rebuild for the response-format cutover. Uncommitted work in other optimization
+checkouts was not included.
+
+Next qualify this combined source with real RustFS and all six CG-13 cases;
+the earlier four-run campaign below remains pinned to `320a40ce`. CG-17's design
+is included, but its implementation and all remaining OPT acceptance gates stay
+open. Acceptance remains 13/17 tasks and 147/195 cases.
 
 ## Current CG-13 disk-erasure recovery delivery
 

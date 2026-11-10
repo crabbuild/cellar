@@ -11,12 +11,47 @@ CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
 adds eight delivery packages and 32 required cases; implementation remains TODO.
-The [TiKV-informed optimization proposal](tikv-informed-optimization.md) adds
-routing, cache repair, cleanup and shared-worker acceptance targets, with no new
-performance qualification or change to accepted CG-11/12 status.
+The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
+routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
+routing/read work and its remaining gates are tracked in
+[optimization progress](optimization-progress.md); no measured speedup or change
+to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## Combined recovery and TiKV optimization source
+
+PR [#166](https://github.com/crabbuild/cellar/pull/166) combines recovery source
+`eb7c5403` with committed optimization source `19982a1b` at `79f2ccc5`, based on
+`origin/main` at `d0c2873f`. It includes authenticated leader advice/direct writes,
+targeted range-cache repair, coalesced membership refresh, bounded retries and
+fresh ReadIndex cohorts. The merge retains the sealed-source routing refusal and
+the exact-publication authorization for reserved children. Matching peers and
+clients must be rebuilt together for the marker-1 response-format cutover.
+
+At `79f2ccc5`, 63 selected Rust cases pass: 48 cache/refresh/routing/wire/cohort
+unit cases, all six public SDK/native/Axum routing cases, six consensus cohort
+cases, two follower linearizable-read cases and the published-child SQL case.
+The latter covers cached-source receipt replay, fresh writes and strong reads in
+both image formats. The CI test profile uses Rust 1.98.1, optimization level 1,
+no debug information and enabled debug assertions and overflow checks. Focused
+strict Clippy (library, SDK binary, routing and execution targets), formatting,
+layout, dependency isolation, documentation and 42 plan tests pass. The controller
+and tooling suite records 68 passes and one opt-in skip.
+
+Source, executable and log hashes are retained in the checkout-private
+`cg13-transition-process.jgb3z3v_/include-tikv-merged-*.json` records under this
+checkout's workspace target. The summary SHA-256 is
+`09d6f44a746d36b571f20955fdcb0dade299c7da5a8f3e3fa6681b22f1acf6c9`.
+An initial driver stopped on an empty codec selector after five passing groups;
+the corrected driver continued the remaining groups without repeating them.
+That control and all raw logs remain retained.
+
+The four RustFS runs below retain their earlier `320a40ce` source; they do not
+qualify this combined source. Next run the current-source RustFS and exact
+six-case CG-13 matrix, then CG-17 compatibility and CG-15/16 release gates. No OPT
+package or CG task is newly accepted by this integration checkpoint.
 
 ## CG-13 checkpoint: routed SQL and four-run RustFS recovery
 

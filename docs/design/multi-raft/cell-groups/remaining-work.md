@@ -20,6 +20,14 @@ linearizable reads and minimum-version reads before child Fleet promotion.
 The complete six-case CG-13 matrix remains open. See [progress](progress.md) for
 exact pins, profiles and scope.
 
+The same PR now integrates committed TiKV routing/read optimization source
+`19982a1b` at `79f2ccc5`; 63 selected Rust checks and focused strict Clippy pass
+with the CI test profile. CG-17's eight-package/32-case design remains included
+and TODO. See [optimization progress](optimization-progress.md) for delivered
+behavior and open OPT gates. The immediate qualification priority is the combined
+source against real RustFS and the exact six CG-13 cases; earlier RustFS results
+retain their original source pins.
+
 ## Current boundary
 
 CG-01–12 and CG-14 passed their recorded scoped acceptance gates. Shared group owners,
