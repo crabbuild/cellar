@@ -2745,11 +2745,14 @@
       "scope": [
         "crates/cellar/durability/raft/",
         "tools/cellar-recovery-tests/",
+        "tools/multi-raft/",
         "crates/cellar/tests/support/raft_daemon_recovery.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/disaster.rs",
-        "crates/cellar/tests/native_cell_groups_disaster.rs"
+        "crates/cellar/tests/native_cell_groups_disaster.rs",
+        "tools/multi-raft/managed_group_fence.py",
+        "tools/multi-raft/test_managed_group_fence.py"
       ],
       "test_target": "native_cell_groups_disaster",
       "steps": [

@@ -15,6 +15,25 @@ oracles, not new runtime qualification. Read the latest [progress](progress.md)
 for the signed fence/controller checkpoint before using the earlier source-specific
 recovery entries below.
 
+## Current CG-13 managed controller delivery
+
+At `5e179d75`, managed fence requests export the exact canonical intent and
+directory barrier. `ManagedLauncher` binds those authenticated request bytes to
+predeclared histories and identity-bearing historical launches. It durably
+revokes all matching generations and histories before checking completeness,
+including fully replaced cohorts. Exact-digest retries resume deletion; unknown
+launches and old-history redeployment refuse. The signing key stays external.
+
+The actual SDK challenge interoperates with the independent Python decoder in
+both native/RustFS managed root cases and both image modes. A nine-idle-process
+Docker probe qualifies historical inventory and resumed deletion separately;
+ordinary shared-group Docker disk-loss recovery also passes both modes.
+See the latest [progress checkpoint](progress.md) for source-pinned records,
+executable identity and the distinct qualification scopes. Owned actors/VM are
+stopped. CG-13 remains open: next deliver the managed voter/operator process
+bridge and its complete six-case gate with independent Docker voters. Do not
+relabel idle-process fencing or unmanaged Docker recovery as that gate.
+
 ## Current CG-13 outbox delivery
 
 `9fa5d932` adds authenticated old-origin refusal, public reconciliation status and

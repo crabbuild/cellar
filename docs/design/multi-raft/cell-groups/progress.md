@@ -18,6 +18,56 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: bind managed requests to historical launch inventory
+
+At `5e179d75`, the public managed fence request exports its exact canonical
+intent and directory barrier. The controller independently checks the original
+catalog framing/checksum and request digest, then derives the physical voter
+minimum from those bound bytes. The expected digest requires separate caller
+authentication; a supplied roster or checksum cannot authorize recovery.
+
+The managed launcher records deployment histories before starting writers and
+binds their node, disk and physical-host identities before launch. Binding a
+recovery request durably revokes all matching historical generations and the
+old histories before checking inventory completeness. It includes completely
+replaced cohorts absent from the minimum. Missing identities, unresolved launches
+and surviving disks refuse certification. Deletion resumes from the persisted
+request digest, and a new generation cannot redeploy a revoked history.
+
+Both exact managed root cases pass natively and against real RustFS in both
+image modes: closure selection takes 341.956 / 492.855 seconds and outbox
+ambiguity 208.821 / 248.093 seconds. The same retained native executable passes
+every actual SDK challenge through the independent Python decoder and compares
+its minimum with the owned voters before joined source-disk erasure. Native
+recovery still uses the fixture fencing authority, not Docker voter control.
+
+A separate nine-process Docker probe passes: the fully replaced three-process
+cohort is fenced alongside the six minimum writers, a new controller resumes a
+lost deletion reply, old-history redeployment refuses, and fresh-history restart
+succeeds. These are idle processes with synthetic wire vectors; they qualify the
+controller boundary. The ordinary three-voter shared-group Docker/RustFS disk-loss
+regression also passes both image modes (52.819 / 53.768 seconds), with one CPU/
+3 GiB per voter/operator and one CPU/2 GiB for RustFS, without extra swap.
+
+Focused Rust check and strict Clippy, format/layout, native dependencies and docs
+checks pass. Python controller regressions record 23 passes and one explicit
+Docker configuration skip. All owned actors and the VM are stopped; object data,
+fresh disks, source/log hashes and exact executables remain retained.
+
+Records under `.cellar/cell-groups-evidence/`:
+
+- `CG-13-managed-binding-5e179d75-native-01/record.json`
+- `CG-13-managed-binding-5e179d75-controller-01/record.json`
+- `CG-13-managed-binding-5e179d75-docker-01/record.json`
+- `CG-13-managed-binding-5e179d75-closure-rustfs-01/record.json`
+- `CG-13-managed-binding-5e179d75-outbox-rustfs-01/record.json`
+
+CG-13 remains `IN_PROGRESS`. Next connect the managed voter/operator process
+bridge to this controller and qualify all six planned recovery cases on one
+source with independent Docker voters. The separate native, controller and
+unmanaged Docker checks do not establish that combined gate, independent physical
+domains, sustained load or release qualification. CG-11/12 acceptance is unchanged.
+
 ## CG-13 checkpoint: signed permanent fences and component launch revocation
 
 At `044f7c9b`, `CellGroupPermanentFenceAuthority` supplies the public pinned-key

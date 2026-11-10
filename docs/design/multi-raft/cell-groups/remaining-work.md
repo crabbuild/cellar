@@ -116,7 +116,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | --- | --- | --- |
 | CG-11 | **Accepted: 5/5 cases and ten commands at `ddb545e4`.** Six focused regressions and the full 64-cell/seven-group native/RustFS workflow pass in both image modes. | Functional acceptance is closed. Release-scale profiles remain CG-15/16. |
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
-| CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
+| CG-13 | At `5e179d75`, closure selection and outbox ambiguity pass natively/against RustFS in both modes with actual SDK/controller challenge interoperability. Managed launch inventory includes replaced cohorts and permanently closes old histories; nine idle Docker processes qualify that controller boundary separately. | Connect the managed voter/operator process bridge and pass all six planned cases on one source with independent Docker voters. Native fixture fencing and ordinary shared-group Docker recovery do not establish the combined managed gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
 | CG-17 | TODO; no primitive compatibility cases are accepted. Existing SQL and alarm/outbox/inbox gates remain scoped foundations. The audit refines delivery into eight packages and 32 required cases. | Begin inventory/evidence enforcement and the shared activation/Storage/async execution foundation. Complete due work, provider fencing, payload closure, public binding/filesystem semantics, retention/schema/time rules and all primitive adapters, then pass the complete matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). Preserve ordinary Fleet/bucket regressions; missing providers or unsupported families keep the task open. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
@@ -135,9 +135,11 @@ CG-11's placement, adaptive partitioning and bounded request/control path are
 accepted at `ddb545e4`. CG-12's fenced parking and demand-driven fresh-quorum wake
 are accepted natively at `2cd71d32`. The next feature priorities are:
 
-1. **Finish CG-13 interrupted-transition recovery from S3.** Qualify closure
-   selection, permanent Docker revocation of every possible old writer, fresh
-   histories/quorum, exact retry and outbox ambiguity refusal using the CG-14 harness.
+1. **Finish CG-13 interrupted-transition recovery from S3.** Managed request
+   binding to historical launch inventory is implemented at `5e179d75`. Next
+   connect the managed voter/operator process bridge and qualify all six planned
+   cases on one source with independent Docker voters: closure selection,
+   permanent revocation, fresh histories/quorum, exact retry and outbox ambiguity.
 2. **Deliver CG-17 full primitive compatibility before broad cutover.** Start
    CG17-01 inventory/report validation and CG17-02 shared activation/Storage
    integration alongside transition work. Follow with async transaction/executor
