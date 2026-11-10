@@ -193,6 +193,7 @@ class TransitionQualification(ManagedQualification):
                     lambda:self.client(row).release_seed(scope['catalog_id'],scope['namespace_digest'],
                         history['group'],history['incarnation'],plan['plan_digest'],seeded['commitment']))
                 require(released['released'],'seed preparation release is unconfirmed')
+                self.released_preparation(row,history,plan,seeded)
         require(all(len(values)==1 for values in commitments.values()),'voters seeded different genesis commitments')
         seeds=self.control('recovery-select-seeds',{'step':'select_seeds','basis':selected})
         seed_digest=seeds['seeds']['seed_digest']
@@ -225,6 +226,9 @@ class TransitionQualification(ManagedQualification):
         self.report['checks'].update(fresh_genesis_quorum=True,restored_sql_and_receipts=True,
             old_tokens_refused=True,fresh_s3_writes=True,recovered_retained_restart=True,recovery_retired=True)
         self.report.update(completed=True,full_dr_completed=True);self.save()
+
+    def released_preparation(self,_row,_history,_plan,_seeded):
+        pass
 
     def physical(self,method,row,history=None):
         scope=self.model['bootstrap'];history=history or self.recovery_histories()[0];request=self.model['attach_request']

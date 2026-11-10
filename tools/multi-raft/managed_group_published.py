@@ -24,6 +24,26 @@ class PublishedTransitionQualification(TransitionQualification):
         by_node={row['node']:row for row in self.model['nodes'] if row['generation']==0}
         return [(by_node[voter['node_id']],voter['member_id']) for voter in child['voters']]
 
+    def released_preparation(self,row,history,plan,seeded):
+        scope=self.model['bootstrap'];client=self.client(row)
+        selector={'group':history['group'],'incarnation':history['incarnation'],
+            'plan_digest':plan['plan_digest'],'commitment':seeded['commitment']}
+        suffix=row['process']+'/'+history['group']
+        repeated=self.event('recovery/release-replay/'+suffix,selector,
+            lambda:client.release_seed(scope['catalog_id'],scope['namespace_digest'],history['group'],
+                history['incarnation'],plan['plan_digest'],seeded['commitment']))
+        require(repeated=={'released':True},'exact seed release did not reconcile')
+        def refuse():
+            try:client.prepare_seed(scope['catalog_id'],scope['namespace_digest'],history['group'],history['incarnation'])
+            except VoterFailure as error:
+                require(error.status==503 and 'range preparation already released' in str(error.reply),
+                        'completed preparation was refused for a different reason')
+                return {'status':error.status,'refused_before_preparation':True}
+            raise ValueError('released range acquired another preparation')
+        self.event('recovery/released-prepare-refusal/'+suffix,selector,refuse)
+        self.report['checks'].update(seed_release_exact_replay=True,released_seed_reprepare_refused=True)
+        self.save()
+
     def child_leader(self,child,ready=False):
         for row,member in self.child_rows(child):
             try:

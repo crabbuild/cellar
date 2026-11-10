@@ -404,6 +404,8 @@ impl State {
             Action::PrepareSeed { group, incarnation } => {
                 let history = self.history(group, incarnation)?;
                 let selected = self.selected_recovery()?;
+                let released = self.released_seeds.lock().unwrap().contains_key(&history);
+                ensure!(!released, "range preparation already released");
                 // The recovery pool admits one retained preparation. Never
                 // evict an unfinished range to prepare a second one: a lost
                 // seed reply must reconcile its original retained input.
@@ -502,10 +504,7 @@ impl State {
                     commitment,
                 };
                 if let Some(previous) = releases.get(&history) {
-                    ensure!(
-                        *previous == release,
-                        "different seed preparation release"
-                    );
+                    ensure!(*previous == release, "different seed preparation release");
                     return Ok(json!({"released":true}));
                 }
                 ensure!(
