@@ -236,7 +236,7 @@ impl CellPrivateExecutor {
             .ok_or(ExecutionError::RebuildRequired)?;
         working.begin_mutation();
         command::apply(
-            working.database(),
+            working.database_mut(),
             self.options.limits,
             &attempt,
             maintenance,

@@ -68,10 +68,16 @@ per request. `Node::start_raft_cells` connects these definitions to node-owned p
 bounded `RaftCellHandle` commands, stale queries, receipts and closure. A returned
 future is admitted immediately; its deadline and cancellation cannot discard a
 submitted producer. Native HTTP and Axum can call those same handles; see the
-[Raft counter](../../../examples/raft-counter/README.md). S3 archive and stronger
-read-consistency requests are refused until their work packages are implemented.
-The full delivery status is recorded in
-[MR-07](../../../docs/design/multi-raft/implementation-plan.md).
+[Raft counter](../../../examples/raft-counter/README.md).
+
+`CommandContext::storage()` opens the SDK's `Storage` view on the command's
+private SQLite image. Initializers can acquire the same view from
+`CommandTransaction::storage()`. SQL and KV changes join the command
+transaction, including work inside `Storage::tx` savepoints. The view expires
+with its callback. The cell handle returns the command receipt after the
+required Quorum or S3 proof. Ordinary `Context` activation and the remaining
+primitive adapters are tracked in the
+[cell-group implementation plan](../../../docs/design/multi-raft/cell-groups/implementation-plan.md).
 
 Within each component, private modules separate values, codecs and validation
 from runtime operations. Pass clocks and budgets explicitly to value helpers;

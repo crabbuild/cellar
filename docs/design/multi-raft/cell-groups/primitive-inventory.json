@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "a97b41d45ff21873ad0985918648c30a09eaf2c122e6308fdfcfe4dfdc060aa6"
+    "crates/cellar/application/mod.rs": "a3a97e542b905c63909b194f649fef6ac5e9323f266fd01fa715a4399f612605"
   },
   "entries": [
     {
@@ -30,7 +30,9 @@
         "cellar::sdk::Storage::sql_cursor",
         "cellar::sdk::Storage::sql_ingest",
         "cellar::sdk::Storage::transaction",
-        "cellar::sdk::Storage::transaction_sync"
+        "cellar::sdk::Storage::transaction_sync",
+        "cellar::sdk::Storage::tx",
+        "cellar::sdk::Storage::rollback"
       ],
       "owners": [
         "crates/cellar/application/storage/mod.rs",
@@ -437,7 +439,8 @@
         "cellar::sdk::CommandContext::sql",
         "cellar::sdk::CommandContext::inputs",
         "cellar::sdk::QueryContext",
-        "cellar::sdk::QueryContext::outbox_progress"
+        "cellar::sdk::QueryContext::outbox_progress",
+        "cellar::sdk::CommandContext::storage"
       ],
       "owners": [
         "crates/cellar/application/consensus/class.rs",

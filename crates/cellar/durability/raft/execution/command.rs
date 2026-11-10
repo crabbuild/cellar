@@ -63,28 +63,29 @@ pub(super) fn prepare(
 }
 
 pub(super) fn apply(
-    database: &crate::storage::CommandDatabase,
+    database: &mut crate::storage::CommandDatabase,
     limits: ExecutionLimits,
     attempt: &CommandAttempt,
     maintenance: Option<crate::raft::receipt_maintenance::Plan>,
     command: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
 ) -> Result<(), ExecutionError> {
     database
-        .transaction(attempt.inputs, |connection, transaction| {
+        .transaction(attempt.inputs, |transaction| {
             if let Some(maintenance) = maintenance {
                 maintenance
-                    .apply(connection, attempt.inputs.now_unix_millis)
+                    .apply(&*transaction.framework()?, attempt.inputs.now_unix_millis)
                     .map_err(anyhow::Error::new)?;
             }
             let result = command(transaction)?;
             if result.len() > limits.max_result_bytes {
                 return Err(anyhow::Error::new(CommandFailure::Overloaded));
             }
-            receipts::record(connection, &attempt.request, result)?;
+            let connection = transaction.framework()?;
+            receipts::record(&connection, &attempt.request, result)?;
             let limits = &limits;
             if limits.receipt_reserve_bytes != 0 {
                 let usage =
-                    crate::storage::CommandDatabase::capacity(connection, limits.max_image_bytes)?;
+                    crate::storage::CommandDatabase::capacity(&connection, limits.max_image_bytes)?;
                 limits
                     .check_capacity(
                         usage.application_bytes,

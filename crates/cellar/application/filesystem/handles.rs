@@ -203,8 +203,7 @@ impl File {
         }));
         let record = fs
             .storage
-            .0
-            .resources
+            .resources()
             .filesystem
             .allocate(fs, description)?;
         Ok(Self {
@@ -219,8 +218,7 @@ impl File {
             let record = self
                 .fs
                 .storage
-                .0
-                .resources
+                .resources()
                 .filesystem
                 .allocate(&self.fs, self.record.description.clone())?;
             Ok(Self {
@@ -512,7 +510,14 @@ impl Directory {
 
     pub(super) fn inode(&self, fs: &Filesystem) -> Result<u64> {
         self.file.record.check(&self.file.fs)?;
-        if !Arc::ptr_eq(&self.file.fs.storage.0, &fs.storage.0) {
+        if !Arc::ptr_eq(
+            self.file
+                .fs
+                .storage
+                .native_activation()
+                .map_err(Error::from)?,
+            fs.storage.native_activation().map_err(Error::from)?,
+        ) {
             return Err(Error::new(
                 Errno::EXDEV,
                 "directory belongs to another cell",

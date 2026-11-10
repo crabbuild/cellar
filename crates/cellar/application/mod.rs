@@ -724,7 +724,7 @@ impl Context {
             self.identity.is_some(),
             "stateless handlers have no cell storage"
         );
-        Ok(Storage(
+        Ok(Storage::native(
             self.io
                 .native_activation
                 .clone()

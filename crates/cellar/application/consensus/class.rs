@@ -83,7 +83,8 @@ impl fmt::Display for RegistrationError {
 impl std::error::Error for RegistrationError {}
 
 /// Borrowed for one synchronous command transaction. This context has no
-/// outbound network, cell-call, task-spawn or general storage capability.
+/// outbound network, cell-call or task-spawn capability. SQL and KV are
+/// scoped to the private command transaction.
 /// Explicitly declared alarms persist intents through the command transaction.
 /// Native code is trusted; this contract is not an operating-system sandbox.
 /// Mutable Fleet capabilities are absent from this context, including bindings
@@ -149,11 +150,18 @@ impl<'a> CommandContext<'a> {
         self.transaction
     }
 
+    /// Access SQL and KV storage inside this command's private transaction.
+    /// The view expires when the command callback ends. Successful local
+    /// operations are included in the command receipt's durability proof.
+    pub fn storage(&self) -> anyhow::Result<crate::application::Storage> {
+        self.transaction.storage()
+    }
+
     /// Retain actual immutable bytes in this command's transaction. Returned
     /// references supply no durability proof before the command commits.
     pub fn put_blob(&self, bytes: &[u8]) -> anyhow::Result<super::RaftBlobReference> {
         crate::raft::effects::put_blob(
-            self.transaction.framework(),
+            &*self.transaction.framework()?,
             self.blobs
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
             bytes,
@@ -162,7 +170,7 @@ impl<'a> CommandContext<'a> {
 
     pub fn blob(&self, reference: super::RaftBlobReference) -> anyhow::Result<Vec<u8>> {
         crate::raft::effects::get_blob(
-            self.transaction.framework(),
+            &*self.transaction.framework()?,
             self.blobs
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
             reference,
@@ -207,7 +215,7 @@ impl CommandContext<'_> {
             self.alarm_names.contains(name),
             super::CommandFailure::UnsupportedCapability
         );
-        crate::raft::effects::alarm::cancel(self.transaction.framework(), name)
+        crate::raft::effects::alarm::cancel(&*self.transaction.framework()?, name)
     }
 }
 

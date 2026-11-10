@@ -63,7 +63,7 @@ pub(crate) fn arm(
     payload: &[u8],
     limits: RaftAlarmLimits,
 ) -> Result<()> {
-    let connection = context.sql().framework();
+    let connection = context.sql().framework()?;
     let scope = context.identity();
     let command = context.command();
     ensure!(
@@ -71,7 +71,7 @@ pub(crate) fn arm(
         CommandFailure::Overloaded
     );
     let due = i64::try_from(due).map_err(|_| CommandFailure::UnsupportedCapability)?;
-    install(connection)?;
+    install(&connection)?;
     let (count, present):(usize,bool) = connection.query_row("SELECT count(*),EXISTS(SELECT 1 FROM __sys_raft_alarms WHERE name=?1) FROM __sys_raft_alarms",[name],|row|Ok((row.get(0)?,row.get(1)?)))?;
     ensure!(count <= limits.max_alarms, CommandFailure::CorruptState);
     ensure!(
@@ -114,8 +114,8 @@ pub(crate) fn fire(
 ) -> Result<Vec<u8>> {
     ensure!(input.len() <= 1024, CommandFailure::Overloaded);
     let fire: Fire = serde_json::from_slice(input)?;
-    let connection = context.sql().framework();
-    if !exists(connection)? {
+    let connection = context.sql().framework()?;
+    if !exists(&connection)? {
         return Ok(vec![0]);
     }
     let metadata: Option<(Vec<u8>, i64, i64)> = connection
@@ -153,6 +153,7 @@ pub(crate) fn fire(
     );
     // Rollback restores the generation if the callback fails. Deleting first
     // allows a successful callback to arm a distinct next generation atomically.
+    drop(connection);
     callback(context, &payload)?;
     Ok(vec![1])
 }

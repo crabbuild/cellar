@@ -40,8 +40,7 @@ impl SandboxCatalog {
         ensure!(
             context
                 .storage()?
-                .0
-                .resources
+                .resources()
                 .transaction
                 .lock()
                 .unwrap()

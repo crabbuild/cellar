@@ -183,12 +183,13 @@ impl Transaction {
     fn control(&self, storage: &Storage, action: &str) -> Result<()> {
         // Cleanup needs its original connection after a failed critical
         // section. It ignores the failure flag, never activation identity.
-        crate::native_worker::transaction_control(
-            storage.installed_activation_scope()?,
-            action,
-            self.nested,
-            &self.savepoint,
-        )
+        let scope = storage.installed_data_scope()?;
+        if matches!(&storage.0, Owner::Raft(_)) {
+            return crate::storage::transaction_control(scope, action, true, &self.savepoint)
+                .map(|_| ())
+                .map_err(anyhow::Error::msg);
+        }
+        crate::native_worker::transaction_control(scope, action, self.nested, &self.savepoint)
     }
 
     async fn drain(&self) {
@@ -207,18 +208,18 @@ impl Transaction {
 /// The active helper view is installed only while its callback is polling.
 /// Another future belonging to the same event cannot borrow it across awaits.
 pub(crate) struct Current {
-    activation: Arc<Activation>,
+    owner: Owner,
     previous: Option<Arc<Transaction>>,
 }
 
 impl Current {
     pub(crate) fn enter(view: &Storage) -> Self {
         let previous = std::mem::replace(
-            &mut *view.0.resources.transaction.lock().unwrap(),
+            &mut *view.resources().transaction.lock().unwrap(),
             view.1.clone(),
         );
         Self {
-            activation: view.0.clone(),
+            owner: view.0.clone(),
             previous,
         }
     }
@@ -226,7 +227,7 @@ impl Current {
 
 impl Drop for Current {
     fn drop(&mut self) {
-        *self.activation.resources.transaction.lock().unwrap() = self.previous.take();
+        *self.owner.resources().transaction.lock().unwrap() = self.previous.take();
     }
 }
 
@@ -241,11 +242,12 @@ impl Guard {
         parent: Option<Arc<Transaction>>,
         asynchronous: bool,
     ) -> Result<Self> {
-        storage.activation_scope()?;
+        storage.data_activation_scope()?;
         if let Some(parent) = &parent {
             parent.check_active()?;
         }
-        let previous_open = storage.0.resources.open_transaction.lock().unwrap().clone();
+        let resources = storage.resources();
+        let previous_open = resources.open_transaction.lock().unwrap().clone();
         anyhow::ensure!(
             match (&previous_open, &parent) {
                 (None, None) => true,
@@ -254,11 +256,7 @@ impl Guard {
             },
             "native transaction does not own the innermost savepoint"
         );
-        let serial = storage
-            .0
-            .resources
-            .transaction_serial
-            .fetch_add(1, Ordering::Relaxed);
+        let serial = resources.transaction_serial.fetch_add(1, Ordering::Relaxed);
         let transaction = Arc::new(Transaction {
             status: AtomicU8::new(ACTIVE),
             closed: AtomicBool::new(false),
@@ -271,7 +269,7 @@ impl Guard {
             filesystem_work: Mutex::new((0, 0)),
         });
         transaction.control(storage, "start")?;
-        *storage.0.resources.open_transaction.lock().unwrap() = Some(transaction.clone());
+        *resources.open_transaction.lock().unwrap() = Some(transaction.clone());
         Ok(Self {
             view: Storage(storage.0.clone(), Some(transaction), storage.2),
             previous_open,
@@ -289,7 +287,7 @@ impl Guard {
             "commit"
         };
         if action == "commit" {
-            self.view.activation_scope()?;
+            self.view.data_activation_scope()?;
         }
         transaction.control(&self.view, action)?;
         transaction.closed.store(true, Ordering::Release);
@@ -307,20 +305,22 @@ impl Drop for Guard {
             // An outer rollback destroys its children's savepoints. A child
             // cancelled afterwards must not roll back the next transaction.
             if !transaction.ancestor_closed()
-                && !self.view.0.resources.retired.load(Ordering::Acquire)
+                && !self.view.resources().retired.load(Ordering::Acquire)
             {
                 if let Err(error) = transaction.control(&self.view, "rollback") {
                     let reason = format!("a transaction rollback failed: {error}");
-                    if self.view.installed_activation_scope().is_ok() {
-                        crate::storage::poison_transaction(&self.view.0.scope, reason.clone());
+                    if let Ok(scope) = self.view.installed_data_scope() {
+                        crate::storage::poison_transaction(scope, reason.clone());
                     }
-                    self.view.0.fail(reason);
+                    if let Ok(activation) = self.view.native_activation() {
+                        activation.fail(reason);
+                    }
                 }
             }
             transaction.status.store(ROLLED_BACK, Ordering::Release);
             transaction.closed.store(true, Ordering::Release);
         }
-        let mut open = self.view.0.resources.open_transaction.lock().unwrap();
+        let mut open = self.view.resources().open_transaction.lock().unwrap();
         let mut current = open.as_ref();
         let mut owns = false;
         while let Some(layer) = current {
@@ -378,20 +378,20 @@ impl Storage {
         let prepared = (|| -> Result<_> {
             context.check_turn()?;
             self.activation_scope()?;
+            let activation = self.native_activation()?;
             anyhow::ensure!(
                 context
                     .io
                     .native_activation
                     .as_ref()
-                    .is_some_and(|activation| Arc::ptr_eq(activation, &self.0)),
+                    .is_some_and(|installed| Arc::ptr_eq(installed, activation)),
                 "native transaction context belongs to another cell"
             );
             if let Some(view) = &self.1 {
                 view.check_active()?;
             }
             let parent = self
-                .0
-                .resources
+                .resources()
                 .transaction
                 .lock()
                 .unwrap()
@@ -405,7 +405,7 @@ impl Storage {
                 );
             }
             let (slot, done) = parent.as_ref().map_or_else(
-                || self.0.resources.transaction_queue.reserve(),
+                || self.resources().transaction_queue.reserve(),
                 |parent| parent.queue.reserve(),
             );
             if let Some(parent) = &parent {
@@ -448,10 +448,9 @@ impl Storage {
     /// success. Errors and panics roll back; root helpers take the innermost
     /// active layer. An escaped view refuses use after its boundary.
     pub fn transaction_sync<T>(&self, callback: impl FnOnce(&Storage) -> Result<T>) -> Result<T> {
-        self.scope()?;
+        self.data_scope()?;
         let parent = self
-            .0
-            .resources
+            .resources()
             .transaction
             .lock()
             .unwrap()
@@ -477,8 +476,8 @@ impl Storage {
             return Ok(());
         }
         transaction.check_active()?;
-        self.activation_scope()?;
-        let mut current = self.0.resources.transaction.lock().unwrap().clone();
+        self.data_activation_scope()?;
+        let mut current = self.resources().transaction.lock().unwrap().clone();
         let mut owned = false;
         while let Some(layer) = current {
             if Arc::ptr_eq(&layer, transaction) {

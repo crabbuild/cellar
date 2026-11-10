@@ -84,7 +84,7 @@ impl RaftInbox {
             incoming.command == context.command(),
             CommandFailure::CommandConflict
         );
-        let connection = context.sql().framework();
+        let connection = context.sql().framework()?;
         connection.execute_batch(
             "CREATE TABLE IF NOT EXISTS __sys_raft_inbox (
             lane BLOB PRIMARY KEY CHECK(typeof(lane)='blob' AND length(lane)=32),
@@ -135,8 +135,10 @@ impl RaftInbox {
             incoming.command.sequence() == next,
             CommandFailure::SequenceGap { next }
         );
+        drop(connection);
         let result = callback(context, &incoming.payload)?;
         let receipt = delivery::receipt(&incoming, &result, &self.signer)?;
+        let connection = context.sql().framework()?;
         connection.execute("INSERT INTO __sys_raft_inbox(lane,sequence,digest,receipt) VALUES(?1,?2,?3,?4)
             ON CONFLICT(lane) DO UPDATE SET sequence=excluded.sequence,digest=excluded.digest,receipt=excluded.receipt",
             params![incoming.lane.as_slice(),incoming.command.sequence().to_be_bytes().as_slice(),incoming.digest.as_slice(),receipt])?;

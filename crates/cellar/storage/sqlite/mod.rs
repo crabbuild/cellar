@@ -20,6 +20,9 @@ use std::sync::Arc;
 
 mod command;
 pub(crate) use command::CommandDatabase;
+pub(crate) use command::{
+    require_storage as require_raft_storage, STORAGE_SCOPE as RAFT_STORAGE_SCOPE,
+};
 pub use command::{CommandInputs, CommandTransaction};
 mod console;
 pub(crate) mod container_bindings;
@@ -214,6 +217,8 @@ const KV_GET_SQL: &str = "SELECT v FROM __sys_cell_kv WHERE scope=?1 AND k=?2";
 const KV_PUT_SQL: &str = "INSERT INTO __sys_cell_kv(scope,k,v) VALUES(?1,?2,?3) \
      ON CONFLICT(scope,k) DO UPDATE SET v=excluded.v";
 const KV_DELETE_SQL: &str = "DELETE FROM __sys_cell_kv WHERE scope=?1 AND k=?2";
+const KV_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS __sys_cell_kv \
+         (scope TEXT, k TEXT, v TEXT, PRIMARY KEY(scope,k))";
 
 /// The number of SQL compilations so far, for a test assertion: a
 /// warm cell's gets and puts must not move it.
@@ -438,11 +443,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     let result = (|| -> anyhow::Result<()> {
         let transaction =
             rusqlite::Transaction::new_unchecked(c, rusqlite::TransactionBehavior::Immediate)?;
-        c.execute(
-            "CREATE TABLE IF NOT EXISTS __sys_cell_kv \
-         (scope TEXT, k TEXT, v TEXT, PRIMARY KEY(scope,k))",
-            [],
-        )?;
+        c.execute(KV_SCHEMA, [])?;
         c.execute(
             "CREATE TABLE IF NOT EXISTS __sys_cell_alarm \
          (scope TEXT PRIMARY KEY, at_ms INTEGER, retry INTEGER DEFAULT 0, \
@@ -1054,10 +1055,16 @@ pub(crate) fn reset_native_resources(scope: &str) {
 }
 
 fn with<T>(scope: &str, f: impl FnOnce(&Connection) -> T) -> Option<T> {
+    if scope == RAFT_STORAGE_SCOPE {
+        return command::with(f);
+    }
     dbs(|d| d.borrow().get(scope).map(|cell| f(&cell.connection)))
 }
 
 fn with_mut<T>(scope: &str, f: impl FnOnce(&mut Connection) -> T) -> Option<T> {
+    if scope == RAFT_STORAGE_SCOPE {
+        return command::with_mut(f);
+    }
     dbs(|d| {
         d.borrow_mut()
             .get_mut(scope)
@@ -2864,15 +2871,6 @@ impl SqlTransactionOperation {
     }
 }
 
-fn sql_poison_transaction(scope: &str, error: String) {
-    sql_critical_errors(|errors| {
-        errors
-            .borrow_mut()
-            .entry(scope.to_string())
-            .or_insert(error);
-    });
-}
-
 fn sql_rollback_after_commit_failure(scope: &str, connection: &Connection) -> Result<(), String> {
     #[cfg(cellar_internal_tests)]
     if let Some(result_code) = SQL_ROLLBACK_FAULT.with(std::cell::Cell::take) {
@@ -2944,7 +2942,7 @@ fn sql_transaction_control(
 
         if operation == SqlTransactionOperation::Commit && !connection.is_autocommit() {
             if let Err(rollback) = sql_rollback_after_commit_failure(scope, connection) {
-                sql_poison_transaction(
+                poison_transaction(
                     scope,
                     format!("failed to roll back after COMMIT failure: {rollback}"),
                 );
@@ -3868,6 +3866,9 @@ fn sqlite_failure(database: *mut rusqlite::ffi::sqlite3, operation: &str) -> any
 }
 
 pub fn sql_critical_error(scope: &str) -> Option<String> {
+    if scope == RAFT_STORAGE_SCOPE {
+        return command::failure();
+    }
     sql_critical_errors(|errors| errors.borrow().get(scope).cloned())
 }
 
@@ -3896,12 +3897,7 @@ fn record_sqlite_operation_failure(
     );
     let now_autocommit = unsafe { rusqlite::ffi::sqlite3_get_autocommit(database) != 0 };
     if cellar_logic::sqlite::poisons_actor(result_code, started_in_transaction, now_autocommit) {
-        sql_critical_errors(|errors| {
-            errors
-                .borrow_mut()
-                .entry(scope.to_string())
-                .or_insert_with(|| error.to_string());
-        });
+        poison_transaction(scope, error.to_string());
     }
 }
 
@@ -4078,6 +4074,10 @@ pub(crate) fn sync_list_close(cursor_id: u64) {
 /// A transaction whose rollback failed must not serve or publish another
 /// operation through a connection whose state is unknown.
 pub(crate) fn poison_transaction(scope: &str, error: String) {
+    if scope == RAFT_STORAGE_SCOPE {
+        command::poison(error);
+        return;
+    }
     sql_critical_errors(|errors| {
         errors
             .borrow_mut()

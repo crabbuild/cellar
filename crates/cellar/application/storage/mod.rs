@@ -168,11 +168,22 @@ pub struct ListOptions {
 }
 
 #[derive(Clone)]
-pub struct Storage(
-    pub(super) Arc<Activation>,
-    pub(super) Option<Arc<Transaction>>,
-    pub(super) u64,
-);
+pub struct Storage(Owner, pub(super) Option<Arc<Transaction>>, pub(super) u64);
+
+#[derive(Clone)]
+enum Owner {
+    Native(Arc<Activation>),
+    Raft(Arc<Resources>),
+}
+
+impl Owner {
+    fn resources(&self) -> &Resources {
+        match self {
+            Self::Native(activation) => &activation.resources,
+            Self::Raft(resources) => resources,
+        }
+    }
+}
 
 impl TryFrom<crate::storage::StoredValue> for StoredClone {
     type Error = anyhow::Error;
@@ -208,6 +219,29 @@ impl StoredClone {
 }
 
 impl Storage {
+    pub(super) fn native(
+        activation: Arc<Activation>,
+        transaction: Option<Arc<Transaction>>,
+        source_generation: u64,
+    ) -> Self {
+        Self(Owner::Native(activation), transaction, source_generation)
+    }
+
+    pub(crate) fn raft(resources: Arc<Resources>) -> Self {
+        Self(Owner::Raft(resources), None, 0)
+    }
+
+    pub(super) fn native_activation(&self) -> Result<&Arc<Activation>> {
+        match &self.0 {
+            Owner::Native(activation) => Ok(activation),
+            Owner::Raft(_) => Err(consensus::CommandFailure::UnsupportedCapability.into()),
+        }
+    }
+
+    pub(super) fn resources(&self) -> &Resources {
+        self.0.resources()
+    }
+
     pub(crate) fn clear_current_work(&self, reason: cellar_logic::work::Reason) -> Result<()> {
         if let Some(installation) = crate::storage::work::current(self.scope()?, reason)? {
             self.clear_work(installation)?;
@@ -303,6 +337,11 @@ impl Storage {
     }
 
     fn installed_activation_scope(&self) -> Result<&str> {
+        let activation = self.native_activation()?;
+        anyhow::ensure!(
+            !super::consensus::callback_active(),
+            "native storage cannot be used during a Raft callback"
+        );
         let io = crate::host_io::installed_context()
             .ok_or_else(|| anyhow!("native storage is outside an executing turn"))?;
         anyhow::ensure!(
@@ -312,21 +351,21 @@ impl Storage {
         anyhow::ensure!(
             io.native_activation
                 .as_ref()
-                .is_some_and(|activation| Arc::ptr_eq(activation, &self.0))
-                && crate::storage::activation_epoch(&self.0.scope) == Some(self.0.epoch)
-                && !self.0.resources.retired.load(Ordering::Acquire),
+                .is_some_and(|installed| Arc::ptr_eq(installed, activation))
+                && crate::storage::activation_epoch(&activation.scope) == Some(activation.epoch)
+                && !activation.resources.retired.load(Ordering::Acquire),
             "native storage belongs to another cell or a retired activation"
         );
         anyhow::ensure!(
-            self.0.resources.source_admitted(
+            activation.resources.source_admitted(
                 self.2,
                 io.framework_source.load(Ordering::Acquire),
                 io.erasure_cleanup.load(Ordering::Acquire),
             ),
             "source business admission is closed or its incarnation has changed"
         );
-        self.0.drain_resources();
-        Ok(&self.0.scope)
+        activation.drain_resources();
+        Ok(&activation.scope)
     }
 
     fn activation_scope(&self) -> Result<&str> {
@@ -344,21 +383,41 @@ impl Storage {
             crate::asyncrt::services().accepts_work(),
             "native storage execution domain is closed"
         );
-        if let Some(failure) = self.0.resources.failure.lock().unwrap().as_ref() {
+        if let Some(failure) = self.resources().failure.lock().unwrap().as_ref() {
             anyhow::bail!("native cell was reset: {failure}");
         }
         Ok(scope)
+    }
+
+    fn data_activation_scope(&self) -> Result<&str> {
+        match &self.0 {
+            Owner::Native(_) => self.activation_scope(),
+            Owner::Raft(resources) => {
+                crate::storage::require_raft_storage(resources, true)?;
+                Ok(crate::storage::RAFT_STORAGE_SCOPE)
+            }
+        }
+    }
+
+    fn installed_data_scope(&self) -> Result<&str> {
+        match &self.0 {
+            Owner::Native(_) => self.installed_activation_scope(),
+            Owner::Raft(resources) => {
+                crate::storage::require_raft_storage(resources, false)?;
+                Ok(crate::storage::RAFT_STORAGE_SCOPE)
+            }
+        }
     }
 
     fn check_transaction_authority(&self) -> Result<()> {
         if let Some(transaction) = &self.1 {
             transaction.check_active()?;
         }
-        let current = self.0.resources.transaction.lock().unwrap().clone();
+        let current = self.resources().transaction.lock().unwrap().clone();
         if let Some(current) = &current {
             current.check_active()?;
         }
-        if let Some(open) = self.0.resources.open_transaction.lock().unwrap().as_ref() {
+        if let Some(open) = self.resources().open_transaction.lock().unwrap().as_ref() {
             anyhow::ensure!(
                 current
                     .as_ref()
@@ -370,8 +429,13 @@ impl Storage {
     }
 
     pub(crate) fn scope(&self) -> Result<&str> {
+        self.native_activation()?;
+        self.data_scope()
+    }
+
+    fn data_scope(&self) -> Result<&str> {
         self.check_transaction_authority()?;
-        let scope = self.activation_scope()?;
+        let scope = self.data_activation_scope()?;
         if let Some(error) = crate::storage::sql_critical_error(scope) {
             anyhow::bail!(error);
         }
@@ -379,23 +443,23 @@ impl Storage {
     }
 
     fn cleanup(&self, cleanup: Cleanup) {
-        if self.0.resources.retired.load(Ordering::Acquire) {
+        if self.resources().retired.load(Ordering::Acquire) {
             return;
         }
         if self.activation_scope().is_ok() {
             cleanup.close();
         } else {
-            self.0.resources.cleanup.lock().unwrap().push(cleanup);
+            self.resources().cleanup.lock().unwrap().push(cleanup);
         }
     }
 
     /// Read the original representation without discarding persisted clone data.
     pub fn get(&self, key: &str) -> Result<Option<crate::storage::StoredValue>> {
-        crate::storage::get_stored(self.scope()?, key)
+        crate::storage::get_stored(self.data_scope()?, key)
     }
 
     pub fn get_many(&self, keys: &[String]) -> Result<Vec<(String, crate::storage::StoredValue)>> {
-        crate::storage::get_many_stored(self.scope()?, keys)
+        crate::storage::get_many_stored(self.data_scope()?, keys)
     }
 
     pub fn list(
@@ -403,7 +467,7 @@ impl Storage {
         options: &ListOptions,
     ) -> Result<Vec<(String, crate::storage::StoredValue)>> {
         crate::storage::list_stored_with_options(
-            self.scope()?,
+            self.data_scope()?,
             options.start.as_deref(),
             options.end.as_deref(),
             options.start_after.as_deref(),
@@ -420,7 +484,7 @@ impl Storage {
     }
 
     pub fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>> {
-        crate::storage::get_json_value(self.scope()?, key)
+        crate::storage::get_json_value(self.data_scope()?, key)
     }
 
     pub fn get_clone(&self, key: &str) -> Result<Option<StoredClone>> {
@@ -446,16 +510,16 @@ impl Storage {
         key: &str,
         value: &cellar_native::clone::StructuredValue,
     ) -> Result<()> {
-        let scope = self.scope()?;
+        let scope = self.data_scope()?;
         crate::storage::put_serialized(scope, key, &cellar_native::clone::encode(value)?)
     }
 
     pub fn put_stored_clone(&self, key: &str, value: &StoredClone) -> Result<()> {
-        crate::storage::put_serialized(self.scope()?, key, &value.encode()?)
+        crate::storage::put_serialized(self.data_scope()?, key, &value.encode()?)
     }
 
     pub fn put_many_stored_clone(&self, entries: &[(String, StoredClone)]) -> Result<()> {
-        let scope = self.scope()?;
+        let scope = self.data_scope()?;
         let entries = entries
             .iter()
             .map(|(key, value)| Ok((key.clone(), value.encode()?)))
@@ -467,7 +531,7 @@ impl Storage {
         &self,
         entries: &[(String, cellar_native::clone::StructuredValue)],
     ) -> Result<()> {
-        let scope = self.scope()?;
+        let scope = self.data_scope()?;
         let entries = entries
             .iter()
             .map(|(key, value)| Ok((key.clone(), cellar_native::clone::encode(value)?)))
@@ -476,25 +540,25 @@ impl Storage {
     }
 
     pub fn put_json(&self, key: &str, value: &serde_json::Value) -> Result<()> {
-        crate::storage::put_json(self.scope()?, key, value)
+        crate::storage::put_json(self.data_scope()?, key, value)
     }
 
     pub fn put_many_json(&self, entries: &[(String, serde_json::Value)]) -> Result<()> {
-        crate::storage::put_many_json(self.scope()?, entries)
+        crate::storage::put_many_json(self.data_scope()?, entries)
     }
 
     pub fn delete(&self, key: &str) -> Result<bool> {
-        crate::storage::delete(self.scope()?, key)
+        crate::storage::delete(self.data_scope()?, key)
     }
 
     pub fn delete_many(&self, keys: &[String]) -> Result<usize> {
-        crate::storage::delete_many(self.scope()?, keys)
+        crate::storage::delete_many(self.data_scope()?, keys)
     }
 
     /// The compatibility flag chooses whether deleteAll also removes alarms.
     pub fn delete_all(&self) -> Result<()> {
         let scope = self.scope()?;
-        if self.0.resources.filesystem.has_live() {
+        if self.resources().filesystem.has_live() {
             return Err(super::filesystem::Error::new(
                 super::filesystem::Errno::EBUSY,
                 "filesystem descriptors remain open",
@@ -502,7 +566,10 @@ impl Storage {
             .with_code("FilesystemPresent")
             .into());
         }
-        crate::storage::delete_all_with_alarm(scope, self.0.delete_all_deletes_alarm)?;
+        crate::storage::delete_all_with_alarm(
+            scope,
+            self.native_activation()?.delete_all_deletes_alarm,
+        )?;
         crate::native_worker::refresh_wake_gate(scope)
     }
 
@@ -514,7 +581,7 @@ impl Storage {
     }
 
     pub fn sql(&self, query: &str, bindings: &[serde_json::Value]) -> Result<SqlResult> {
-        crate::storage::sql_exec(self.scope()?, query, bindings).map_err(anyhow::Error::msg)
+        crate::storage::sql_exec(self.data_scope()?, query, bindings).map_err(anyhow::Error::msg)
     }
 
     pub fn sql_cursor(&self, query: &str, bindings: &[SqlValue]) -> Result<SqlCursor> {
@@ -522,7 +589,7 @@ impl Storage {
     }
 
     pub fn sql_database_size(&self) -> Result<u64> {
-        crate::storage::sql_database_size(self.scope()?).map_err(anyhow::Error::msg)
+        crate::storage::sql_database_size(self.data_scope()?).map_err(anyhow::Error::msg)
     }
 
     pub(crate) fn sqlite_allocation(&self) -> Result<(i64, i64)> {
@@ -534,7 +601,7 @@ impl Storage {
     /// Execute complete SQL statements and retain the unfinished suffix for
     /// incremental import, using SQLite's existing tokenizer.
     pub fn sql_ingest(&self, input: &str) -> Result<(String, u64, u64)> {
-        crate::storage::sql_ingest(self.scope()?, input).map_err(anyhow::Error::msg)
+        crate::storage::sql_ingest(self.data_scope()?, input).map_err(anyhow::Error::msg)
     }
 
     pub fn get_alarm(&self) -> Result<Option<i64>> {

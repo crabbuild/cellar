@@ -5,7 +5,13 @@
 use anyhow::{ensure, Context as _, Result};
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use rusqlite::{ffi, Connection, OpenFlags, Params, Row};
+use std::cell::{OnceCell, Ref, RefCell};
 use std::path::Path;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use crate::application::storage::Resources;
+use crate::application::Storage;
 
 #[path = "command_capacity.rs"]
 mod capacity;
@@ -20,13 +26,13 @@ pub struct CommandInputs {
 /// A callback can use SQL and captured inputs, but cannot retain or commit the
 /// framework transaction, obtain its connection, or start asynchronous work.
 pub struct CommandTransaction<'a> {
-    connection: &'a Connection,
+    frame: &'a CommandFrame,
     inputs: CommandInputs,
 }
 
 impl CommandTransaction<'_> {
-    pub(crate) fn framework(&self) -> &Connection {
-        self.connection
+    pub(crate) fn framework(&self) -> Result<Ref<'_, Connection>> {
+        self.frame.connection()
     }
 
     pub fn inputs(&self) -> CommandInputs {
@@ -35,12 +41,14 @@ impl CommandTransaction<'_> {
 
     pub fn execute(&self, sql: &str, params: impl Params) -> Result<usize> {
         super::check_sql_rename(sql).map_err(anyhow::Error::msg)?;
-        super::as_user_sql(|| self.connection.execute(sql, params)).map_err(Into::into)
+        let connection = self.framework()?;
+        super::as_user_sql(|| connection.execute(sql, params)).map_err(Into::into)
     }
 
     pub fn execute_batch(&self, sql: &str) -> Result<()> {
         super::check_sql_rename(sql).map_err(anyhow::Error::msg)?;
-        super::as_user_sql(|| self.connection.execute_batch(sql)).map_err(Into::into)
+        let connection = self.framework()?;
+        super::as_user_sql(|| connection.execute_batch(sql)).map_err(Into::into)
     }
 
     pub fn query_row<T>(
@@ -50,12 +58,134 @@ impl CommandTransaction<'_> {
         read: impl FnOnce(&Row<'_>) -> rusqlite::Result<T>,
     ) -> Result<T> {
         super::check_sql_rename(sql).map_err(anyhow::Error::msg)?;
-        super::as_user_sql(|| self.connection.query_row(sql, params, read)).map_err(Into::into)
+        let connection = self.framework()?;
+        super::as_user_sql(|| connection.query_row(sql, params, read)).map_err(Into::into)
+    }
+
+    /// Open an ordinary Storage view within this private transaction. Its
+    /// synchronous operations share the command's commit and durability.
+    pub fn storage(&self) -> Result<Storage> {
+        let connection = self.framework()?;
+        if self.frame.storage.get().is_none() {
+            super::as_framework_sql(|| connection.execute_batch(super::KV_SCHEMA))?;
+        }
+        let resources = self
+            .frame
+            .storage
+            .get_or_init(|| Arc::new(Resources::default()));
+        Ok(Storage::raft(resources.clone()))
     }
 }
 
+// Each Raft image belongs to exactly one cell. This internal row scope remains
+// stable across placement and disaster recovery, including new incarnations.
+pub(crate) const STORAGE_SCOPE: &str = "\0raft-command";
+
+struct CommandFrame {
+    connection: RefCell<Connection>,
+    storage: OnceCell<Arc<Resources>>,
+    failure: RefCell<Option<String>>,
+}
+
+thread_local! {
+    static CURRENT_COMMAND: RefCell<Option<Rc<CommandFrame>>> = const { RefCell::new(None) };
+}
+
+impl CommandFrame {
+    fn connection(&self) -> Result<Ref<'_, Connection>> {
+        let connection = self
+            .connection
+            .try_borrow()
+            .context("private SQLite is busy")?;
+        ensure!(
+            !connection.is_autocommit(),
+            "private command transaction ended"
+        );
+        if let Some(error) = self.failure.borrow().as_ref() {
+            anyhow::bail!("{error}");
+        }
+        Ok(connection)
+    }
+
+    fn run<T>(
+        frame: &Rc<Self>,
+        inputs: CommandInputs,
+        callback: impl FnOnce(&CommandTransaction<'_>) -> Result<T>,
+    ) -> Result<T> {
+        struct Installed;
+
+        impl Drop for Installed {
+            fn drop(&mut self) {
+                CURRENT_COMMAND.with(|current| current.borrow_mut().take());
+            }
+        }
+
+        let _installed = CURRENT_COMMAND.with(|current| {
+            let mut current = current.borrow_mut();
+            ensure!(current.is_none(), "nested Raft command");
+            *current = Some(frame.clone());
+            Ok::<_, anyhow::Error>(Installed)
+        })?;
+        super::as_storage_transaction(|| {
+            frame.connection.borrow().execute_batch("BEGIN IMMEDIATE")
+        })?;
+        let result = callback(&CommandTransaction { frame, inputs })?;
+        let connection = frame.connection()?;
+        super::as_storage_transaction(|| connection.execute_batch("COMMIT"))?;
+        Ok(result)
+    }
+}
+
+pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
+    CURRENT_COMMAND.with(|current| {
+        let current = current.borrow();
+        let connection = current.as_ref()?.connection.try_borrow().ok()?;
+        Some(read(&connection))
+    })
+}
+
+pub(super) fn with_mut<T>(write: impl FnOnce(&mut Connection) -> T) -> Option<T> {
+    CURRENT_COMMAND.with(|current| {
+        let current = current.borrow();
+        let mut connection = current.as_ref()?.connection.try_borrow_mut().ok()?;
+        Some(write(&mut connection))
+    })
+}
+
+pub(crate) fn require_storage(resources: &Arc<Resources>, healthy: bool) -> Result<()> {
+    CURRENT_COMMAND.with(|current| {
+        let current = current.borrow();
+        let frame = current
+            .as_ref()
+            .context("storage is outside its Raft command")?;
+        ensure!(
+            frame
+                .storage
+                .get()
+                .is_some_and(|owner| Arc::ptr_eq(owner, resources)),
+            "storage belongs to another Raft command"
+        );
+        if healthy {
+            frame.connection()?;
+        }
+        Ok(())
+    })
+}
+
+pub(super) fn failure() -> Option<String> {
+    CURRENT_COMMAND.with(|current| current.borrow().as_ref()?.failure.borrow().clone())
+}
+
+pub(super) fn poison(error: String) {
+    CURRENT_COMMAND.with(|current| {
+        if let Some(frame) = current.borrow().as_ref() {
+            frame.failure.borrow_mut().get_or_insert(error);
+        }
+    });
+}
+
 pub(crate) struct CommandDatabase {
-    connection: Connection,
+    connection: Option<Connection>,
 }
 
 impl CommandDatabase {
@@ -69,13 +199,14 @@ impl CommandDatabase {
     /// every writer quiescent, and this read transaction binds all observations
     /// to one SQLite view without modifying the disposable image.
     pub(crate) fn frozen_capacity(&self, quota: u64) -> Result<capacity::Usage> {
+        let connection = self.framework();
         ensure!(
-            self.connection.is_autocommit(),
+            connection.is_autocommit(),
             "capacity inspection requires a quiescent writer"
         );
-        super::as_storage_transaction(|| self.connection.execute_batch("BEGIN"))?;
-        let result = capacity::measure(&self.connection, quota);
-        super::as_storage_transaction(|| self.connection.execute_batch("ROLLBACK"))
+        super::as_storage_transaction(|| connection.execute_batch("BEGIN"))?;
+        let result = capacity::measure(connection, quota);
+        super::as_storage_transaction(|| connection.execute_batch("ROLLBACK"))
             .context("private capacity inspection rollback failed; rebuild is required")?;
         result
     }
@@ -125,54 +256,57 @@ impl CommandDatabase {
         }
         capacity::initialize(&connection)?;
         connection.authorizer(Some(authorize_command))?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection: Some(connection),
+        })
     }
 
     /// Only fixed framework receipt/schema statements receive this connection.
     pub(crate) fn framework(&self) -> &Connection {
-        &self.connection
+        self.connection
+            .as_ref()
+            .expect("working image owns its connection outside a command")
     }
 
     pub(crate) fn transaction<T>(
-        &self,
+        &mut self,
         inputs: CommandInputs,
-        callback: impl FnOnce(&Connection, &CommandTransaction<'_>) -> Result<T>,
+        callback: impl FnOnce(&CommandTransaction<'_>) -> Result<T>,
     ) -> Result<T> {
-        super::as_storage_transaction(|| self.connection.execute_batch("BEGIN IMMEDIATE"))?;
+        let frame = Rc::new(CommandFrame {
+            connection: RefCell::new(
+                self.connection
+                    .take()
+                    .context("private SQLite is unavailable")?,
+            ),
+            storage: OnceCell::new(),
+            failure: RefCell::new(None),
+        });
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            callback(
-                &self.connection,
-                &CommandTransaction {
-                    connection: &self.connection,
-                    inputs,
-                },
-            )
+            CommandFrame::run(&frame, inputs, callback)
         }))
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)));
-        let result = match result {
-            Ok(value) => super::as_storage_transaction(|| self.connection.execute_batch("COMMIT"))
-                .map(|()| value)
-                .map_err(anyhow::Error::from),
-            Err(error) => Err(error),
-        };
-        if result.is_err() && !self.connection.is_autocommit() {
-            super::as_storage_transaction(|| self.connection.execute_batch("ROLLBACK"))
+        // Storage handles retain only their authority, never the connection.
+        let frame = Rc::try_unwrap(frame)
+            .ok()
+            .context("private SQLite is still installed")?;
+        self.connection = Some(frame.connection.into_inner());
+        let connection = self.framework();
+        if result.is_err() && !connection.is_autocommit() {
+            super::as_storage_transaction(|| connection.execute_batch("ROLLBACK"))
                 .context("private command rollback failed; rebuild is required")?;
         }
         result
     }
 
     pub(crate) fn geometry(&self, max_image_bytes: u64) -> Result<(u64, u32)> {
+        let connection = self.framework();
         ensure!(
-            self.connection.is_autocommit(),
+            connection.is_autocommit(),
             "cannot freeze an active command transaction"
         );
-        let size: u32 = self
-            .connection
-            .query_row("PRAGMA page_size", [], |r| r.get(0))?;
-        let pages: u64 = self
-            .connection
-            .query_row("PRAGMA page_count", [], |r| r.get(0))?;
+        let size: u32 = connection.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+        let pages: u64 = connection.query_row("PRAGMA page_count", [], |r| r.get(0))?;
         let length = pages
             .checked_mul(size as u64)
             .context("image length overflow")?;

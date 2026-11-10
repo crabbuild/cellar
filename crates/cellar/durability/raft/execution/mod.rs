@@ -772,7 +772,7 @@ impl PrivateExecutor {
             .ok_or(ExecutionError::RebuildRequired)?;
         working.begin_mutation();
         command::apply(
-            working.database(),
+            working.database_mut(),
             self.options.limits,
             &attempt,
             maintenance,
@@ -801,12 +801,17 @@ impl PrivateExecutor {
             .ok_or(ExecutionError::RebuildRequired)?
             .begin_mutation();
         self.working
-            .as_ref()
+            .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?
-            .database()
-            .transaction(inputs, |connection, _| {
-                receipts::prune(connection, client, through, inputs.now_unix_millis)
-                    .map_err(anyhow::Error::new)
+            .database_mut()
+            .transaction(inputs, |transaction| {
+                receipts::prune(
+                    &*transaction.framework()?,
+                    client,
+                    through,
+                    inputs.now_unix_millis,
+                )
+                .map_err(anyhow::Error::new)
             })
             .map_err(private_failure)?;
         self.freeze(proposal, preview, Kind::Prune { client, through })
