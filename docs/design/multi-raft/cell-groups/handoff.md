@@ -4,6 +4,24 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current CG-13 delivery
+
+At `1c841f2a`, complete closure recovery passes natively and against real RustFS:
+unpublished parents and published child tails, both image modes, on the same exact
+executable. The owned source voter disks are erased before fresh-history restore,
+quorum activation, receipt inspection, old-token refusal, retained restart and new
+Quorum/S3 writes. A later acknowledged child receipt is explicitly restored.
+Single-range and multi-range seed-quorum refusals are checked at their actual
+incomplete boundaries. All build/lint gates pass; see [progress](progress.md).
+
+Records: `.cellar/cell-groups-evidence/CG-13-selected-closure-1c841f2a-native-01/record.json`
+and `.cellar/cell-groups-evidence/CG-13-selected-closure-1c841f2a-rustfs-01/record.json`.
+The native voters execute a fencing-authority contract. RustFS is constrained to
+one CPU/2 GiB; the owned backend and VM are stopped with objects retained.
+CG-13 remains `IN_PROGRESS`: deliver the other five named root cases, permanent
+Docker launch revocation and ambiguous external-outbox refusal before acceptance.
+This checkpoint does not qualify independent domains, load or the final cutover.
+
 ## Current CG-12 delivery
 
 CG-12 is `DONE` at `2cd71d32`: all five planned cases and ten required commands
@@ -56,9 +74,10 @@ remain in [progress](progress.md); release-scale qualification stays in CG-15/16
 
 ### Next feature delivery
 
-1. Finish CG-13 recovery of interrupted transitions from S3: select the complete
-   closure, permanently fence every possible old writer, restore fresh histories
-   and quorum, and refuse ambiguous outbox recovery. Use the CG-14 harness.
+1. Finish CG-13's remaining lifecycle, fence, disk-loss, retry and outbox gates.
+   Complete closure recovery now passes native/RustFS qualification; next prove
+   permanent Docker launch revocation and refuse ambiguous external delivery.
+   Use the CG-14 harness and preserve the current source-pinned checkpoint.
 2. Complete CG-15 load, reclamation, crash, partition, wake and disk-loss profiles
    with their original limits, including the unresolved occupancy-128 load failure.
 3. Complete CG-16 public default cutover and remaining legacy audit after the

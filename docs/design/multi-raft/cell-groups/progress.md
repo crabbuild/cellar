@@ -13,6 +13,40 @@ CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: recover unpublished parents and published child tails
+
+At `1c841f2a`, `transition_disaster_selects_complete_closure` passes all four
+combinations of unpublished-parent/published-child recovery and materialized/extent
+images. The native case takes 350.945 seconds; a focused published-child regression
+also passes. The registered `managed-transition-disaster-closure` RustFS suite
+passes the same combinations in 491.365 seconds on the same exact executable.
+
+The published path restores a later S3-acknowledged child receipt rather than
+stopping at archive verification. Both paths join all owned source voters, erase
+their disks, reopen the verifier, select fresh replacement identities, seed and
+activate a fresh quorum, inspect restored receipts, refuse old tokens, exercise
+retained restart, and complete new Quorum and S3 writes. Seed selection refuses
+one-voter and incomplete range sets; a complete single-range quorum is valid.
+The retained split fixture explicitly discovers the second restarted process
+before attaching its other child; no lease, deadline, budget or assertion limit
+is enlarged. Temporary transport diagnostics are removed.
+
+Native record: `.cellar/cell-groups-evidence/CG-13-selected-closure-1c841f2a-native-01/record.json`.
+RustFS record: `.cellar/cell-groups-evidence/CG-13-selected-closure-1c841f2a-rustfs-01/record.json`.
+The native record retains 4,813 source-file hashes, eight command/log records and
+the executable. All-target check, strict Clippy, format, layout and inventory pass.
+The RustFS server has one CPU/2 GiB and no extra swap; voters are host-native TLS
+fixtures. The owned backend and VM are stopped with objects retained.
+
+CG-13 remains `IN_PROGRESS`: this qualifies one of its six exact planned root
+cases. The five lifecycle/fence/disk-loss/retry/outbox root gates, permanent Docker
+launch revocation and combined release qualification remain open. Native fencing
+executes the authority contract; it does not certify production infrastructure
+revocation, independent failure domains or load. Earlier failed attachment and
+single-range seed controls retain their source patches, binaries and logs under
+`CG-13-child-attach-d616e850-failed-01` and
+`CG-13-published-seed-d616e850-diagnostic-failed-01` in the evidence directory.
+
 ## CG-12 accepted: fenced parking and demand-driven quorum wake
 
 At `2cd71d32`, all five planned native cases and all ten required commands pass
