@@ -13,7 +13,11 @@ use std::{io::Write as _, path::Path, process::Stdio};
 #[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
 async fn rustfs_managed_voter_process_boot_restart_and_stop() -> Result<()> {
     for rooted in [false, true] {
-        let (store, connection) = rustfs::process_store("managed-voter-process", rooted)?;
+        let connection = crate::rustfs_operator::OperatorStoreConfig {
+            rooted,
+            connection: rustfs::StoreConfig::load("managed-voter-process", rooted)?,
+        };
+        let store = connection.connection.open(None)?;
         let fixture = Fixture::with_store(
             rooted,
             managed_fixture::counter_class()?,
@@ -64,7 +68,7 @@ async fn rustfs_managed_voter_process_boot_restart_and_stop() -> Result<()> {
 
 async fn voter(
     f: &Fixture,
-    store: &rustfs::OperatorStoreConfig,
+    store: &crate::rustfs_operator::OperatorStoreConfig,
     root: &Path,
     generation: u8,
     retained: bool,
@@ -111,8 +115,8 @@ async fn voter(
             group_directory: Default::default(),
         }],
     };
-    let config = json!({"retained":retained, "endpoint":store.endpoint, "bucket":store.bucket, "prefix":store.prefix,
-        "access":store.access, "secret":store.secret, "bucket_prefix":"tenant/",
+    let config = json!({"retained":retained, "endpoint":store.connection.endpoint, "bucket":store.connection.bucket, "prefix":store.connection.prefix,
+        "access":store.connection.access, "secret":store.connection.secret, "bucket_prefix":"tenant/",
         "connection":connection, "principal":"managed-test", "token":hex::encode([121;32]),
         "node":f.spec.node.bytes(), "disk":f.spec.disk.bytes(), "process":vec![generation;16],
         "label":f.spec.label, "server_name":"localhost", "bind":"127.0.0.1", "advertise":"127.0.0.1",
@@ -299,8 +303,8 @@ async fn voter(
             std::fs::read_to_string(stdout).unwrap_or_default(),
             std::fs::read_to_string(stderr).unwrap_or_default()
         )
-        .replace(&store.access, "[REDACTED]")
-        .replace(&store.secret, "[REDACTED]");
+        .replace(&store.connection.access, "[REDACTED]")
+        .replace(&store.connection.secret, "[REDACTED]");
         return Err(error.context(format!("owned child join={joined:?}; {diagnostics}")));
     }
     checked

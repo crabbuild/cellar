@@ -1718,7 +1718,7 @@ async fn recover_selected(
         .eq(parent_holds.iter()));
     ensure!(authority.fences.load(Ordering::Acquire) == 1);
     ensure!(authority.verifications.load(Ordering::Acquire) == 2);
-    if let Some(store) = rustfs::operator_config() {
+    if let Some(store) = crate::rustfs_operator::config() {
         Box::pin(fence::verify_rustfs_operator(
             fixture,
             &portable,
@@ -1727,7 +1727,7 @@ async fn recover_selected(
             fenced.receipt_digest(),
         ))
         .await?;
-        rustfs::operator_verified()?;
+        crate::rustfs_operator::verified()?;
     }
     let cut = fleet.read(TIMEOUT).await?;
     Box::pin(fence::check_old_boot_refused(fixture)).await?;

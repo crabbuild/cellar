@@ -1,22 +1,14 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Explicit local RustFS configuration; never fall back to memory or ambient IAM.
-use anyhow::{ensure, Context as _, Result};
+use anyhow::{ensure, Result};
 use object_store::{aws::AmazonS3Builder, path::Path, prefix::PrefixStore, ObjectStore};
-use std::{
-    env,
-    future::Future,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
+use std::{env, sync::Arc};
 
 /// The same explicit connection opens the source store and the cold operator.
 /// Never infer a store prefix from a pending operation or publication request.
 #[derive(Clone)]
-pub struct OperatorStoreConfig {
-    pub rooted: bool,
+pub(crate) struct StoreConfig {
     pub endpoint: String,
     pub bucket: String,
     pub prefix: String,
@@ -24,50 +16,8 @@ pub struct OperatorStoreConfig {
     pub secret: String,
 }
 
-tokio::task_local! {
-    static OPERATOR: (OperatorStoreConfig, Arc<AtomicUsize>);
-}
-
-pub async fn with_operator_store<T, Work: Future<Output = Result<T>>>(
-    case: &str,
-    rooted: bool,
-    work: impl FnOnce(Arc<dyn ObjectStore>) -> Work,
-) -> Result<T> {
-    let config = OperatorStoreConfig::load(case, rooted)?;
-    let store = config.open(None)?;
-    let verified = Arc::new(AtomicUsize::new(0));
-    let result = OPERATOR
-        .scope((config, verified.clone()), work(store))
-        .await?;
-    ensure!(
-        verified.load(Ordering::Acquire) == 1,
-        "expected one completed cold operator verification"
-    );
-    Ok(result)
-}
-
-pub fn operator_config() -> Option<OperatorStoreConfig> {
-    OPERATOR.try_with(|(config, _)| config.clone()).ok()
-}
-
-pub fn operator_verified() -> Result<()> {
-    OPERATOR
-        .try_with(|(_, verified)| verified.fetch_add(1, Ordering::AcqRel))
-        .context("explicit cold operator store scope")?;
-    Ok(())
-}
-
 pub fn store(case: &str, rooted: bool) -> Result<Arc<dyn ObjectStore>> {
     configured_store(case, rooted, None)
-}
-
-/// One captured connection for a source fixture and independent voter process.
-pub fn process_store(
-    case: &str,
-    rooted: bool,
-) -> Result<(Arc<dyn ObjectStore>, OperatorStoreConfig)> {
-    let config = OperatorStoreConfig::load(case, rooted)?;
-    Ok((config.open(None)?, config))
 }
 
 pub fn outage_store(case: &str, rooted: bool) -> Result<Arc<dyn ObjectStore>> {
@@ -97,11 +47,11 @@ fn configured_store(
     rooted: bool,
     retry: Option<object_store::RetryConfig>,
 ) -> Result<Arc<dyn ObjectStore>> {
-    OperatorStoreConfig::load(case, rooted)?.open(retry)
+    StoreConfig::load(case, rooted)?.open(retry)
 }
 
-impl OperatorStoreConfig {
-    fn load(case: &str, rooted: bool) -> Result<Self> {
+impl StoreConfig {
+    pub(crate) fn load(case: &str, rooted: bool) -> Result<Self> {
         let endpoint = env::var("CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT")?;
         ensure!(
             endpoint.starts_with("http://127.0.0.1:"),
@@ -110,7 +60,6 @@ impl OperatorStoreConfig {
         let prefix = env::var("CELLAR_CELL_GROUPS_RUSTFS_PREFIX")?;
         ensure!(!prefix.is_empty(), "isolated RustFS prefix");
         Ok(Self {
-            rooted,
             endpoint,
             bucket: env::var("CELLAR_CELL_GROUPS_RUSTFS_BUCKET")?,
             prefix: Path::parse(format!(
@@ -123,7 +72,10 @@ impl OperatorStoreConfig {
         })
     }
 
-    fn open(&self, retry: Option<object_store::RetryConfig>) -> Result<Arc<dyn ObjectStore>> {
+    pub(crate) fn open(
+        &self,
+        retry: Option<object_store::RetryConfig>,
+    ) -> Result<Arc<dyn ObjectStore>> {
         let mut builder = AmazonS3Builder::new()
             .with_bucket_name(&self.bucket)
             .with_endpoint(&self.endpoint)

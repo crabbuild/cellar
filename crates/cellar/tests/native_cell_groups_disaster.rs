@@ -25,6 +25,8 @@ pub mod storage_fault;
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
 pub use source_fixture::rustfs;
+#[path = "support/cell_group_rustfs_operator.rs"]
+mod rustfs_operator;
 #[path = "support/cell_group_host_context.rs"]
 mod source_fixture;
 
@@ -71,7 +73,7 @@ async fn disaster_retry_and_old_token_refusal() -> Result<()> {
 #[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
 async fn rustfs_disaster_retry_and_old_token_refusal() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(rustfs::with_operator_store(
+        Box::pin(with_operator_store(
             "disaster-seeded-retries",
             rooted,
             |store| {
@@ -99,7 +101,7 @@ async fn rustfs_transition_disaster_selects_complete_closure() -> Result<()> {
             (RecoveryPoint::UnpublishedParents, "disaster-parent-cuts"),
             (RecoveryPoint::PublishedChildren, "disaster-child-tails"),
         ] {
-            Box::pin(rustfs::with_operator_store(cohort, rooted, |store| {
+            Box::pin(with_operator_store(cohort, rooted, |store| {
                 bootstrap::transition::qualify_disaster(
                     rooted,
                     Arc::new(catalog_fault::Store::around(store)),
@@ -130,15 +132,34 @@ async fn disaster_outbox_ambiguity_refuses() -> Result<()> {
 #[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
 async fn rustfs_disaster_outbox_ambiguity_refuses() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(rustfs::with_operator_store(
-            "disaster-outbox",
-            rooted,
-            |store| qualify_outbox(rooted, Arc::new(catalog_fault::Store::around(store))),
-        ))
+        Box::pin(with_operator_store("disaster-outbox", rooted, |store| {
+            qualify_outbox(rooted, Arc::new(catalog_fault::Store::around(store)))
+        }))
         .await
         .with_context(|| format!("RustFS uncertain outbox recovery, extents={rooted}"))?;
     }
     Ok(())
+}
+
+async fn with_operator_store<T, Work: std::future::Future<Output = Result<T>>>(
+    case: &str,
+    rooted: bool,
+    work: impl FnOnce(Arc<dyn object_store::ObjectStore>) -> Work,
+) -> Result<T> {
+    let config = rustfs_operator::OperatorStoreConfig {
+        rooted,
+        connection: rustfs::StoreConfig::load(case, rooted)?,
+    };
+    let store = config.connection.open(None)?;
+    let verified = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let result = rustfs_operator::OPERATOR
+        .scope((config, verified.clone()), work(store))
+        .await?;
+    ensure!(
+        verified.load(Ordering::Acquire) == 1,
+        "expected one completed cold operator verification"
+    );
+    Ok(result)
 }
 
 async fn qualify_outbox(rooted: bool, store: Arc<fault::Store>) -> Result<()> {

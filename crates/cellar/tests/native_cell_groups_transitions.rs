@@ -23,6 +23,8 @@ pub mod storage_fault;
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
 pub use source_fixture::rustfs;
+#[path = "support/cell_group_rustfs_operator.rs"]
+mod rustfs_operator;
 #[path = "support/cell_group_host_context.rs"]
 mod source_fixture;
 

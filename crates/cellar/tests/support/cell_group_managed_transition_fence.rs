@@ -16,7 +16,7 @@ pub(super) async fn verify_rustfs_operator(
     fixture: &Fixture,
     selected: &cellar::sdk::fleet_operations::RaftFleetTransitionRecoverySelection,
     principal: &str,
-    store: &rustfs::OperatorStoreConfig,
+    store: &crate::rustfs_operator::OperatorStoreConfig,
     receipt: [u8; 32],
 ) -> Result<()> {
     use cellar::sdk::fleet_operations::{
@@ -39,11 +39,11 @@ pub(super) async fn verify_rustfs_operator(
     };
     let config = json!({
         "rooted": store.rooted,
-        "endpoint": store.endpoint,
-        "bucket": store.bucket,
-        "prefix": store.prefix,
-        "access": store.access,
-        "secret": store.secret,
+        "endpoint": store.connection.endpoint,
+        "bucket": store.connection.bucket,
+        "prefix": store.connection.prefix,
+        "access": store.connection.access,
+        "secret": store.connection.secret,
         "bucket_prefix": "tenant/",
         "connection":connection,
         "principal":principal,
