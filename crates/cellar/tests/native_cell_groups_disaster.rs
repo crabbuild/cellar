@@ -56,10 +56,13 @@ async fn rustfs_transition_disaster_selects_complete_closure() -> Result<()> {
             (RecoveryPoint::UnpublishedParents, "disaster-parent-cuts"),
             (RecoveryPoint::PublishedChildren, "disaster-child-tails"),
         ] {
-            let store = Arc::new(catalog_fault::Store::around(rustfs::store(cohort, rooted)?));
-            Box::pin(bootstrap::transition::qualify_disaster(
-                rooted, store, point,
-            ))
+            Box::pin(rustfs::with_operator_store(cohort, rooted, |store| {
+                bootstrap::transition::qualify_disaster(
+                    rooted,
+                    Arc::new(catalog_fault::Store::around(store)),
+                    point,
+                )
+            }))
             .await
             .with_context(|| format!("RustFS managed disaster {point:?}, extents={rooted}"))?;
         }
@@ -84,12 +87,15 @@ async fn disaster_outbox_ambiguity_refuses() -> Result<()> {
 #[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
 async fn rustfs_disaster_outbox_ambiguity_refuses() -> Result<()> {
     for rooted in [false, true] {
-        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+        Box::pin(rustfs::with_operator_store(
             "disaster-outbox",
             rooted,
-        )?));
-        Box::pin(bootstrap::transition::disaster_effects::qualify(
-            rooted, store,
+            |store| {
+                bootstrap::transition::disaster_effects::qualify(
+                    rooted,
+                    Arc::new(catalog_fault::Store::around(store)),
+                )
+            },
         ))
         .await
         .with_context(|| format!("RustFS uncertain outbox recovery, extents={rooted}"))?;

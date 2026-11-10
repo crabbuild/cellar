@@ -1718,25 +1718,16 @@ async fn recover_selected(
         .eq(parent_holds.iter()));
     ensure!(authority.fences.load(Ordering::Acquire) == 1);
     ensure!(authority.verifications.load(Ordering::Acquire) == 2);
-    if std::env::var_os("CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT").is_some() {
-        let cohort = if uncertain.is_some() {
-            "disaster-outbox"
-        } else if phase == Some(TransitionPhase::Active) {
-            // Parents retain an uncommitted publish request for a later
-            // refusal probe. Only the rooted phase selects the child store.
-            "disaster-child-tails"
-        } else {
-            "disaster-parent-cuts"
-        };
+    if let Some(store) = rustfs::operator_config() {
         Box::pin(fence::verify_rustfs_operator(
             fixture,
             &portable,
             principal,
-            cohort,
-            rooted,
+            &store,
             fenced.receipt_digest(),
         ))
         .await?;
+        rustfs::operator_verified()?;
     }
     let cut = fleet.read(TIMEOUT).await?;
     Box::pin(fence::check_old_boot_refused(fixture)).await?;

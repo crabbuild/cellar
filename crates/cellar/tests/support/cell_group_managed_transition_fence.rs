@@ -16,8 +16,7 @@ pub(super) async fn verify_rustfs_operator(
     fixture: &Fixture,
     selected: &cellar::sdk::fleet_operations::RaftFleetTransitionRecoverySelection,
     principal: &str,
-    cohort: &str,
-    rooted: bool,
+    store: &rustfs::OperatorStoreConfig,
     receipt: [u8; 32],
 ) -> Result<()> {
     use cellar::sdk::fleet_operations::{
@@ -39,13 +38,12 @@ pub(super) async fn verify_rustfs_operator(
         }],
     };
     let config = json!({
-        "rooted": rooted,
-        "endpoint": std::env::var("CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT")?,
-        "bucket": std::env::var("CELLAR_CELL_GROUPS_RUSTFS_BUCKET")?,
-        "prefix": format!("{}/{cohort}/{}", std::env::var("CELLAR_CELL_GROUPS_RUSTFS_PREFIX")?,
-            if rooted {"extents"} else {"materialized"}),
-        "access": std::env::var("AWS_ACCESS_KEY_ID")?,
-        "secret": std::env::var("AWS_SECRET_ACCESS_KEY")?,
+        "rooted": store.rooted,
+        "endpoint": store.endpoint,
+        "bucket": store.bucket,
+        "prefix": store.prefix,
+        "access": store.access,
+        "secret": store.secret,
         "bucket_prefix": "tenant/",
         "connection":connection,
         "principal":principal,
