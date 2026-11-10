@@ -1,6 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Filesystem conformance through production invocation, transaction and proof paths.
+// Cell's auto-trait checks traverse the native activation and HTTP client types.
+#![recursion_limit = "256"]
+
 use anyhow::{anyhow, Result};
 use cellar::engine_api::{Compat, HttpResponse, RuntimeFetch, RuntimeOptions, WorkerConfigOptions};
 use cellar::fleet::LoadedDeployment;
