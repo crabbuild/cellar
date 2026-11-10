@@ -18,7 +18,68 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
-## CG-13 checkpoint: constrained managed RF3 source cohort
+## CG-13 checkpoint: managed recovery after permanent source-disk erasure
+
+At `b4dd07b5`, the unmodified `managed_group_transition.py` passes its full
+unpublished-split recovery workflow against real RustFS in both image modes:
+materialized **182.499 s**, extents **196.677 s**. Both use image
+`sha256:eab1685e008b54ac8e23e1b260e8dd77f8fcf95d871758b849ed8604dfc0158f`
+and Linux binary SHA-256
+`dbcb6987cfc1d1d40c6f07f3a1634911165d9d307b5562a6d8a1d1f882712612`.
+These are whole-workflow durations including VM handoff, not request latency.
+
+The SDK creates the managed namespace and RF3 group, then admits an actual split,
+prepares its archives, authorizes and commits source sealing, and captures the
+complete unpublished recovery basis. New hold APIs prepare persistable acquisition
+intents and acquire the exact namespace-owned holds. Each independent controller
+reopens its proofs; read-only inspection cannot allocate missing state.
+
+The Docker authority binds the SDK challenge to all five historical voters,
+permanently revokes their launch generation, SIGKILLs every source voter, deletes
+all five disks and proves restart refusal before signing the fence. Replacement
+placement uses a different actual Docker daemon/VM identity; the SDK's old-host,
+disk and node exclusions remain unchanged. Three fresh voters independently
+restore and seed the same genesis, commit activation, settle Fleet promotion,
+complete the directory and record serving release.
+
+Serving release does not thaw existing pending-recovery owners. The driver joins
+and restarts their retained disks with new process identities, current Fleet
+authority and the exact serving receipt. A fresh quorum then serves linearizable
+reads through all three voters. The oracle verifies restored SQL and original
+Quorum/S3 receipts, rejects old-incarnation tokens with `WrongHistory`, detects
+extra application through unchanged SQL/version around retries, acknowledges
+fresh S3 writes, repeats retained restart and retires all three old histories
+with the original Fleet slot released. Each run retains twelve joined-close
+records; all surviving containers exit 0 without OOM.
+
+Two failed controls remain retained. `587f52aa` attempts replacement on the old
+physical host and is correctly refused at reservation. `7192cdcf` reaches serving
+release but polls the intentionally fenced owners. The isolated restart probe
+observes all three fenced in term 2, then a serving leader in term 3 and a complete
+workflow pass. Two sequencing regressions fail before `b4dd07b5` and pass after;
+the third proves an unknown release cannot initiate serving restart or reads.
+All 33 controller tests, 42 plan tests, focused strict Clippy, formatting, layout,
+docs and native dependency checks pass on that clean source.
+
+Evidence is hash-verified in both checkouts under
+`.cellar/cell-groups-evidence/CG-13-unpublished-`: the two `b4dd07b5` image modes,
+`587f52aa-host-refusal-01`, `7192cdcf-serving-refusal-01`,
+`7192cdcf-serving-diagnostic-01` and `b4dd07b5-checkpoint-01`. Retained
+files exclude private configurations, launch ledgers and signing keys; scanning
+all fifteen generated credential values finds no matches. Both owned VMs and
+qualification actors are stopped; the default VM is unchanged.
+
+This qualifies one Counter namespace and one unpublished split on two VMs on the
+same Mac. Each voter has one CPU/3 GiB/no extra swap, RustFS one CPU/2 GiB, and
+the bounded S3 bridge one CPU/1 GiB with 32 connections. Guest reservations stay
+within 24 GiB; declared disk capacity is not a filesystem quota. Published child
+tails, multi-range recovery, external effects, independent hardware domains,
+load and the complete six-case CG-13 gate remain open. Earlier native merged-child,
+retirement and archive failures retain their own sources and are not resolved by
+this pass. Acceptance remains **13/17 tasks, 147/195 cases**; CG-17/15/16 and the
+full hard cutover remain required.
+
+## Earlier CG-13 checkpoint: constrained managed RF3 source cohort
 
 At `4eb4533b`, `managed_group_drill.py` provisions a fresh managed namespace
 through the public SDK, registers real Docker nodes, qualifies measured capacity,

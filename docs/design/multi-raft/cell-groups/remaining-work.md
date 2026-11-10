@@ -10,6 +10,12 @@ CG-01–17 objective in [tasks.json](tasks.json), [design](design.md) and
 [qualification](qualification.md). See [progress](progress.md) for exact source
 and validation boundaries and [handoff](handoff.md) for executor context.
 
+Follow-up PR [#166](https://github.com/crabbuild/cellar/pull/166) now qualifies
+managed unpublished-split recovery at `b4dd07b5`: permanent Docker fencing and
+deletion of all five source voter disks, a fresh RF3 cohort on another VM,
+restored SQL/receipts and serving operations pass both real RustFS image modes.
+This advances the recovery workflow without accepting the complete CG-13 matrix.
+
 ## Current boundary
 
 CG-01–12 and CG-14 passed their recorded scoped acceptance gates. Shared group owners,
@@ -74,8 +80,9 @@ parts of the qualification matrix. The task-level evidence remains open.
 The managed cold-recovery case now erases every owned source voter disk and
 reopens from RustFS in both image modes. It verifies restored SQL and receipts
 through a fresh quorum, resumes interrupted archive setup, and retires the old
-histories. Independent voter processes and permanent Docker launch revocation
-remain separate gates. The combined constrained Linux campaign at `27fde17e`
+histories. The independent Docker workflow at `b4dd07b5` adds permanent launch
+revocation and complete disk erasure for an unpublished split; broader transition
+and effect scenarios remain open. The combined constrained Linux campaign at `27fde17e`
 passed native and Axum SQL, leader loss, quorum refusal, archive outage,
 retained maintenance and failed-voter repair in both image modes. The voters
 had separate cgroups and disks in one VM. Independent process crashes during
@@ -116,7 +123,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | --- | --- | --- |
 | CG-11 | **Accepted: 5/5 cases and ten commands at `ddb545e4`.** Six focused regressions and the full 64-cell/seven-group native/RustFS workflow pass in both image modes. | Functional acceptance is closed. Release-scale profiles remain CG-15/16. |
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
-| CG-13 | Historical inventory, portable handoff, durable assignments, real SDK voters and standalone post-fence controls are delivered. At `4eb4533b`, the managed Docker RF3 source cohort passes both RustFS image modes: measured admission, first-group setup, Quorum/S3 SQL, strong reads, retained restart, exact retry results and joined close. Failed controls and their causal probes remain retained. | Extend the source driver with managed transition admission/archive/seal and recovery-intent preparation, permanent fencing, complete source-disk deletion and positive seed-to-serving recovery. Address earlier liveness failures within original bounds, then pass all six cases on one clean source. This source-cohort gate does not establish the combined recovery gate. |
+| CG-13 | At `b4dd07b5`, independent managed Docker voters/controllers pass unpublished-split recovery in both RustFS image modes: admission/archive/seal, durable intent, permanent fencing and deletion of all five source disks, a different actual replacement VM, fresh genesis/quorum, restored SQL/receipts, old-token refusal, fresh S3 writes, retained restart, retirement and joined close. Failed controls and causal probes are retained. | Add published child tails and bounded multi-range voter ownership; address the earlier native merged-child/retirement/archive failures within original bounds. Pass all six cases, including external-effect ambiguity, on one clean source. The unpublished-split pass does not establish the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
 | CG-17 | TODO; no primitive compatibility cases are accepted. Existing SQL and alarm/outbox/inbox gates remain scoped foundations. The audit refines delivery into eight packages and 32 required cases. | Begin inventory/evidence enforcement and the shared activation/Storage/async execution foundation. Complete due work, provider fencing, payload closure, public binding/filesystem semantics, retention/schema/time rules and all primitive adapters, then pass the complete matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). Preserve ordinary Fleet/bucket regressions; missing providers or unsupported families keep the task open. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
@@ -135,21 +142,15 @@ CG-11's placement, adaptive partitioning and bounded request/control path are
 accepted at `ddb545e4`. CG-12's fenced parking and demand-driven fresh-quorum wake
 are accepted natively at `2cd71d32`. The next feature priorities are:
 
-1. **Finish CG-13 interrupted-transition recovery from S3.** Managed request
-   binding to historical launch inventory is implemented at `5e179d75`; portable
-   operator handoff follows at `0c85daf5`/`3d780669`, with durable post-launch
-   assignments at `d589e538` and a real SDK managed voter process at `0c653ce9`.
-   Post-fence controller steps and immediate fresh/retained capacity admission
-   follow at `1095507e`. At `4eb4533b`, the constrained managed RF3 source cohort
-   passes both RustFS image modes, including Quorum/S3 SQL, strong reads, retained
-   restart and receipt replay. See [progress](progress.md). Extend that driver
-   with managed transition admission/archive/seal and recovery-intent preparation,
-   then permanent fencing and positive seed-to-serving after all source disks are deleted.
-   The earlier full native closure fails during merged-child installation before
-   recovery. Address that and the retained
-   retirement/archive failures within the original bounds, then qualify all six
-   cases on one clean source: closure selection,
-   permanent revocation, fresh histories/quorum, exact retry and outbox ambiguity.
+1. **Finish CG-13 interrupted-transition recovery from S3.** The independent
+   managed Docker unpublished-split workflow now passes both image modes at
+   `b4dd07b5`, including permanent fencing, deletion of all five source disks,
+   fresh genesis/quorum and serving SQL/receipts. Next deliver published child
+   tails and multi-range recovery with a bounded per-history seed owner map.
+   Reproduce and fix the earlier native merged-child, retirement and archive
+   liveness failures within the original bounds. Then qualify all six cases on
+   one clean source: closure selection, permanent revocation, fresh histories/
+   quorum, exact retry and outbox ambiguity. See [progress](progress.md).
 2. **Deliver CG-17 full primitive compatibility before broad cutover.** Start
    CG17-01 inventory/report validation and CG17-02 shared activation/Storage
    integration alongside transition work. Follow with async transaction/executor

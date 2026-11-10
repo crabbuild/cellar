@@ -15,7 +15,38 @@ oracles, not new runtime qualification. Read the latest [progress](progress.md)
 for the signed fence/controller checkpoint before using the earlier source-specific
 recovery entries below.
 
-## Current CG-13 controller delivery and qualification gap
+## Current CG-13 disk-erasure recovery delivery
+
+At `b4dd07b5`, the normal managed Docker driver passes unpublished-split recovery
+against real RustFS in both image modes on the same image and Linux executable.
+It covers managed admission/archive/seal, persisted intent and SDK-bound permanent
+fencing, SIGKILL and deletion of all five historical voter disks, replacement on
+a different actual VM host, three fresh seeds, committed activation, settlement,
+directory completion, serving release and retained serving startup. Restored
+SQL/receipts, old-token refusal, fresh S3 writes, another retained restart,
+retirement and joined shutdown pass. See [progress](progress.md) for exact pins,
+durations, resource limits, retained failures and evidence.
+
+Pending-recovery owners remain non-serving after release. Reopen their retained
+disks under current Fleet/serving authority before waiting for readiness. Never
+reattach them through the pending-recovery path for serving, and never reboot or
+read after an unknown release. The regression suite covers these boundaries.
+Do not weaken the old-host exclusion: source and replacement use actual different
+Docker daemon identities. The two VMs remain on one Mac; hardware independence
+is not qualified. Both owned VMs and actors are stopped, and the default VM is
+unchanged.
+
+Next implement and qualify published child tails and multi-range recovery. The
+voter helper currently retains one prepared recovery seed per process; use a
+bounded history-keyed owner map within its two-group profile before exercising
+multiple replacement ranges. Preserve immutable per-history requests, seed
+commitments, fence checks and current boot authorization. Reproduce and fix the
+earlier native merged-child/retirement/archive liveness controls within their
+original bounds, then pass all six CG-13 cases including outbox ambiguity on one
+clean source. CG-17/15/16 and full hard cutover remain open; the implementation
+index correctly remains 13/17 accepted tasks and 147/195 accepted cases.
+
+## Earlier CG-13 source cohort and controller checkpoint
 
 At `4eb4533b`, `managed_group_drill.py` passes the managed Docker source cohort
 in both image modes: SDK bootstrap, actual capacity admission, first-group
@@ -48,16 +79,12 @@ digest. Exact records, limits and timings are linked from [progress](progress.md
 All owned actors/backend/VM are stopped. No CG-13 acceptance follows from these
 scoped passes.
 
-Next extend the qualified source driver with managed split/merge admission and
-archive/seal preparation, then initial recovery intent, authenticated permanent
-fence, new-node capacity, reserved
-seed-to-publication, activation, settlement, serving release, retained restart and
-retirement. Persist original requests and reconcile unknown replies with the
-phase-appropriate read APIs. Bind launch inventory to the exact SDK catalog and
-namespace digests; the controller's namespace digest is not the raw NamespaceId.
-Prove serving reads/writes and restored receipts after deleting every source
-voter disk, preserve the retained setup/liveness failures, then pass all six cases
-on one clean source. CG-17/15/16 and full cutover remain open.
+The missing preparation-to-serving workflow at that source now passes for an
+unpublished split at `b4dd07b5`, as described above. Preserve original requests
+and use phase-appropriate read APIs after unknown replies. Bind launch inventory
+to the exact SDK catalog and namespace digests; the namespace digest is not the
+raw NamespaceId. The remaining published/multi-range, liveness and six-case gates
+are listed in the current checkpoint.
 
 ## Earlier CG-13 managed voter checkpoint
 
