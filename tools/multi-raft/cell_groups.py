@@ -321,6 +321,17 @@ SUITES = {
         "Host-native voters and fixture capacity. Phase-crash schedules, full effect continuity "
         "and permanent platform fencing remain separate gates.",
     ),
+    "managed-disaster-retry": (
+        "native_cell_groups_disaster",
+        ("rustfs_disaster_retry_and_old_token_refusal",),
+        "recovery-seeded SDK command retries retain results and fresh-history Quorum/S3 proofs",
+        "Both image modes and host-native RF3 TLS voters with real RustFS. The fixture erases "
+        "all source disks, restores the selected child tail, confirms archived receipts, then "
+        "replays their original command IDs and inputs through the ordinary SDK. Old tokens "
+        "refuse; unchanged cell versions and subsequent SQL values detect callback replay. "
+        "Cold operator verification is retained. Permanent Docker launch revocation and the "
+        "complete CG-13 profile remain separate gates.",
+    ),
     "managed-disaster-outbox": (
         "native_cell_groups_disaster",
         ("rustfs_disaster_outbox_ambiguity_refuses",),
@@ -486,7 +497,7 @@ def sources(suite):
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
                      or (suite in ("managed-scheduler-fanout", "managed-disjoint-partitions", "managed-automatic-repair", "managed-automatic-topology", "managed-automatic-partitions", "managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss", "managed-transition-disaster-closure", "managed-disaster-outbox")
+                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss", "managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]
@@ -625,7 +636,7 @@ def main():
                     record["operator_cli"] = {"path": operator_cli.name, "sha256": cli_hash}
                 if cli_hash != record["operator_cli"]["sha256"] or sha(operator_cli) != cli_hash:
                     raise RuntimeError("managed operator CLI changed during qualification")
-            if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox"):
+            if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry"):
                 current_operator = executable.parent.parent / "cellar-perf-cell-group" if match else None
                 if current_operator is None or not current_operator.is_file():
                     raise RuntimeError("missing cold managed recovery operator provenance")

@@ -142,6 +142,13 @@ and dispatches a fresh lane without reissuing the old request. Both image modes
 use real RustFS and unchanged limits. This does not qualify an external exactly-once
 service or permanent Docker launch revocation.
 
+Use `--suite managed-disaster-retry` to exercise recovery-seeded command retries
+through the normal SDK after confirming their archived receipts. It replays the
+original command IDs and inputs, requires fresh-history Quorum/S3 proofs, refuses
+old tokens and checks unchanged cell versions and subsequent SQL values. Both
+image modes use real RustFS and independent cold operator verification. The
+complete CG-13 profile and permanent Docker launch revocation remain separate gates.
+
 ## Published transfer closure after complete local erasure
 
 Use `--suite managed-publication-loss` with an owned RustFS backend and a fresh

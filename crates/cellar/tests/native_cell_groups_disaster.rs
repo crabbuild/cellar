@@ -51,6 +51,43 @@ async fn transition_disaster_selects_complete_closure() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn disaster_retry_and_old_token_refusal() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(bootstrap::transition::qualify_disaster(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+            bootstrap::transition::RecoveryPoint::PublishedChildren,
+        ))
+        .await
+        .with_context(|| format!("seeded command retries and old tokens, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_disaster_retry_and_old_token_refusal() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(rustfs::with_operator_store(
+            "disaster-seeded-retries",
+            rooted,
+            |store| {
+                bootstrap::transition::qualify_disaster(
+                    rooted,
+                    Arc::new(catalog_fault::Store::around(store)),
+                    bootstrap::transition::RecoveryPoint::PublishedChildren,
+                )
+            },
+        ))
+        .await
+        .with_context(|| {
+            format!("RustFS seeded command retries and old tokens, extents={rooted}")
+        })?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
 async fn rustfs_transition_disaster_selects_complete_closure() -> Result<()> {
     use bootstrap::transition::RecoveryPoint;

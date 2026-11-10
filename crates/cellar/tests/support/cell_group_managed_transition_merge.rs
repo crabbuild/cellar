@@ -2581,6 +2581,24 @@ async fn check_recovered_sql(
                     && restored.observation().version == query.version
                     && restored.observation().witness.group == history
             );
+            // The read-only lookup confirms this command committed before the
+            // disaster. Its normal SDK replay must consume the restored receipt,
+            // return the old result and prove it under the fresh cell history.
+            let replayed = handle
+                .command(
+                    &add,
+                    1i64.to_be_bytes().to_vec(),
+                    CommandOptions::new(original.id, retry),
+                )
+                .await
+                .context("replay recovery-seeded command through the SDK")?;
+            ensure!(
+                replayed.id == original.id
+                    && replayed.result == original.result
+                    && replayed.version == query.version
+                    && replayed.witness.group == history,
+                "recovery-seeded command changed its result or fresh-history proof"
+            );
             if let Some(tail) = sql.tail.filter(|tail| tail.version.history == *old_cell) {
                 let restored = handle
                     .receipt(
@@ -2600,6 +2618,25 @@ async fn check_recovered_sql(
                 ensure!(
                     restored.observation().version == query.version
                         && restored.observation().witness.group == history
+                );
+                let replayed = handle
+                    .command(
+                        &add,
+                        0i64.to_be_bytes().to_vec(),
+                        CommandOptions {
+                            durability: Durability::S3,
+                            ..CommandOptions::new(tail.id, retry)
+                        },
+                    )
+                    .await
+                    .context("replay recovery-seeded S3 tail through the SDK")?;
+                ensure!(
+                    replayed.id == tail.id
+                        && replayed.result == tail.result
+                        && replayed.version == query.version
+                        && replayed.witness.group == history
+                        && replayed.durability == Durability::S3,
+                    "recovery-seeded tail lost its result or S3 proof"
                 );
             }
             let id = CommandId::new(ClientId::new([212; 16])?, 1)?;
