@@ -21,6 +21,9 @@ const REQUEST_PURPOSE: &[u8] = b"cellar-fleet-stop-request-1";
 const RESPONSE_PURPOSE: &[u8] = b"cellar-fleet-stop-response-1";
 const MAX_BODY: usize = 4096;
 
+// SDK request/reply retention is separate from the transport's actual I/O banks.
+pub(crate) const STOP_REQUEST_BYTES: usize = MAX_BODY + 4096;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RequestHead {

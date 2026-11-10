@@ -84,7 +84,7 @@ fn node_metadata_rejects_missing_invalid_and_unbounded_fields() {
         "startup",
         "current",
         "profile",
-        "pending_history_registrations",
+        "pending_group_registrations",
         "boot",
         "bounds",
         "seed_workers",
@@ -121,4 +121,28 @@ fn node_metadata_rejects_missing_invalid_and_unbounded_fields() {
     changed["reserved_bytes"] = serde_json::json!("1");
     assert!(decode(&serde_json::to_vec(&changed).unwrap()).is_err());
     assert!(decode(&vec![0; MAX_BODY + 1]).is_err());
+}
+
+#[test]
+fn node_metadata_preserves_concurrent_group_admission_debt() {
+    let mut observed = view();
+    observed.pending_history_registrations = 7;
+    let bytes = encode(&observed).unwrap();
+    let decoded = decode(&bytes).unwrap();
+    assert_eq!(decoded.pending_history_registrations, 7);
+    assert_eq!(decoded.node.groups, 0);
+    assert_eq!(decoded.registered_histories, 0);
+    // A durable engine scan with zero slots cannot erase admitted provisioning
+    // debt. The old single-history counter is rejected by the hard cutover.
+    let mut old: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let n = old
+        .as_object_mut()
+        .unwrap()
+        .remove("pending_group_registrations")
+        .unwrap();
+    old["pending_history_registrations"] = n;
+    assert!(decode(&serde_json::to_vec(&old).unwrap()).is_err());
+    let mut overflow: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    overflow["pending_group_registrations"] = serde_json::json!(u64::from(u32::MAX) + 1);
+    assert!(decode(&serde_json::to_vec(&overflow).unwrap()).is_err());
 }

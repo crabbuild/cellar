@@ -20,33 +20,52 @@ impl Registry {
 }
 
 impl RaftTransport {
-    /// Routing may omit a permanently quarantined member. Its Raft vote and
-    /// physical placement still belong to the durable configuration until a
-    /// quorum commits removal. Missing discovery alone is never sufficient.
-    pub(crate) fn node_isolated(&self, node: NodeId) -> Result<bool, TransportError> {
-        let registry = self
-            .handle
-            .0
-            .registry
-            .lock()
-            .map_err(|_| TransportError::Closed)?;
-        Ok(registry
+    /// Resolve an endpoint only from an installed rooted trust cut and its
+    /// authenticated current node view. Discovery supplies no membership grant.
+    pub(crate) fn managed_group_peer(
+        &self,
+        scope: &GroupHistory,
+        node: NodeId,
+        minimum_revision: u64,
+    ) -> Result<RaftPeerNode, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let trust = registry
             .fleet_trust
             .as_ref()
-            .and_then(|trust| trust.node(node))
-            .is_some_and(|node| node.is_isolated()))
+            .ok_or(TransportError::Refused)?;
+        if trust.cluster() != scope.cluster || trust.revision() < minimum_revision {
+            return Err(TransportError::StalePeer);
+        }
+        let view = registry
+            .node_views
+            .get(&node)
+            .ok_or(TransportError::StalePeer)?;
+        let enrolled = trust.node(node).ok_or(TransportError::Refused)?;
+        if view.cluster() != scope.cluster
+            || enrolled.storage_instance() != Some(view.storage_instance())
+            || !enrolled.matches_peer(view.peer())
+        {
+            return Err(TransportError::StalePeer);
+        }
+        Ok(view.peer().clone())
     }
 
     /// Check a rooted admission against current trust and actual durable
     /// configuration. Exclusion may continue the exact reserved destination
     /// boot; it cannot substitute another process or admit fresh placement.
-    pub(crate) fn check_fleet_placement(
+    pub(crate) fn check_fleet_placement<S>(
         &self,
-        scope: &GroupScope,
+        scope: &S,
         members: &[NodeId],
         target: &JoiningMember,
         authorization: &FleetPermitAuthorization,
-    ) -> Result<(), TransportError> {
+    ) -> Result<(), TransportError>
+    where
+        for<'a> GroupHistory: From<&'a S>,
+    {
+        let scope = GroupHistory::from(scope);
         let state = &self.handle.0;
         let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
@@ -77,7 +96,7 @@ impl RaftTransport {
         if !destination.permits_transport()
             || (!destination.eligibility().receive_replicas && !continuing)
             || destination.boot_binding().ok().as_ref() != Some(original_boot)
-            || !authorization.matches_scope(scope)
+            || !authorization.matches_scope::<GroupHistory>(&scope)
             || destination.storage_instance().is_none()
         {
             return Err(TransportError::StalePeer);
@@ -97,6 +116,37 @@ impl RaftTransport {
             }
         }
         Ok(())
+    }
+
+    /// Reconcile independently entered refresh reads. A delayed reader may
+    /// adopt an already installed, verified successor; it cannot roll it back.
+    pub(crate) fn install_refreshed_fleet_trust(
+        &self,
+        trust: FleetTrustSnapshot,
+    ) -> Result<FleetTrustSnapshot, TransportError> {
+        match self.install_fleet_trust(trust.clone()) {
+            Ok(()) => Ok(trust),
+            Err(TransportError::StalePeer) => {
+                let registry = self
+                    .handle
+                    .0
+                    .registry
+                    .lock()
+                    .map_err(|_| TransportError::Closed)?;
+                self.handle.0.admit(&registry)?;
+                let current = registry
+                    .fleet_trust
+                    .as_ref()
+                    .ok_or(TransportError::Refused)?;
+                if current.revision() <= trust.revision()
+                    || current.check_successor(&trust).is_err()
+                {
+                    return Err(TransportError::StalePeer);
+                }
+                Ok(current.as_ref().clone())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Install one complete current-root cut atomically. Revoked task owners
@@ -163,9 +213,14 @@ impl RaftTransport {
         let Registry {
             origins,
             inspection_origins,
+            command_origins,
             ..
         } = &mut *registry;
-        for grant in origins.values_mut().chain(inspection_origins.values_mut()) {
+        for grant in origins
+            .values_mut()
+            .chain(inspection_origins.values_mut())
+            .chain(command_origins.values_mut())
+        {
             if grant.peer.as_ref().is_some_and(|peer| !allowed(peer)) {
                 grant.stop.send_replace(true);
                 // A boot supersession cancels this physical owner, but the
@@ -192,7 +247,6 @@ impl RaftTransport {
             state.control_connections.add_permits(inspections::SLOTS);
         }
         drop(registry);
-        state.invalidate_snapshot_routes();
         Ok(())
     }
 }

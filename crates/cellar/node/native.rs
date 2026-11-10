@@ -1,7 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use crate::application::Application;
+use crate::application::{
+    consensus::{ClusterId, GroupHistory, NamespaceId, RaftCells},
+    Application,
+};
 use crate::generation::GenerationId;
 use std::collections::{BTreeSet, HashMap};
 
@@ -13,6 +16,7 @@ pub(super) fn print_help() -> anyhow::Result<()> {
          USAGE:\n\
            APPLICATION [NODE OPTIONS]\n\
            APPLICATION cell|sql|kv|queue|outbox|blob [COMMAND OPTIONS]\n\
+           APPLICATION --provision-sql-namespace PLAN.json --bucket NAME [OPTIONS]\n\n\
            APPLICATION diagnose --bucket NAME [OPTIONS]\n\n\
          NODE OPTIONS:\n\
            --bucket [s3://|gs://|az://]NAME[/PREFIX]  Fleet storage\n\
@@ -117,7 +121,7 @@ impl NativeDaemon {
     /// authentication. Raft-enabled daemons pin their deployment until process restart;
     /// live deployment reload does not yet rebind Raft definitions safely.
     pub fn raft_cells<F, Fut>(
-        mut self,
+        self,
         script: impl Into<String>,
         prepare: F,
         bind: impl FnOnce(crate::application::consensus::RaftCells) -> anyhow::Result<()>
@@ -127,6 +131,61 @@ impl NativeDaemon {
     where
         F: FnOnce(super::NativeRaftNode) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = anyhow::Result<super::NativeRaftCells>> + Send + 'static,
+    {
+        self.raft_cells_with_startup(script, prepare, move |cells| {
+            std::future::ready(bind(cells))
+        })
+    }
+
+    /// Serve a newly provisioned managed SQL namespace from an initial voter.
+    /// The daemon discovers the first full-range group, checks its rooted archive,
+    /// and establishes a fresh quorum before handing the selected history to
+    /// `bind`. The same path can reopen a retained initial voter while that
+    /// first group and membership remain selected.
+    ///
+    /// Use the operator workflow to admit capacity and provision the group.
+    /// `timeout` bounds archive observation, local attachment and quorum together.
+    /// A failed or interrupted barrier closes the installed host before exit.
+    pub fn managed_sql_namespace<F, Fut, Bind, Bound>(
+        self,
+        script: impl Into<String>,
+        namespace: (ClusterId, NamespaceId),
+        timeout: std::time::Duration,
+        prepare: F,
+        bind: Bind,
+    ) -> anyhow::Result<Self>
+    where
+        F: FnOnce(super::NativeRaftNode) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = anyhow::Result<super::NativeRaftCells>> + Send + 'static,
+        Bind: FnOnce(RaftCells, GroupHistory) -> Bound + Send + 'static,
+        Bound: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        self.raft_cells_with_startup(script, prepare, move |cells| async move {
+            let (cluster, namespace) = namespace;
+            let history = cells
+                .start_managed_namespace_first_group(cluster, namespace, timeout)
+                .await?;
+            bind(cells, history).await
+        })
+    }
+
+    /// Run asynchronous application readiness after starting the node-owned
+    /// Raft transport and before opening public ingress. For the first managed
+    /// group, call [`RaftCells::start_managed_first_group`](crate::application::consensus::RaftCells::start_managed_first_group)
+    /// with the planned history. It can wait while the operator provisions the
+    /// group. Failure or cancellation closes the installed Raft owner and joins
+    /// its work.
+    pub fn raft_cells_with_startup<F, Fut, Bind, Bound>(
+        mut self,
+        script: impl Into<String>,
+        prepare: F,
+        bind: Bind,
+    ) -> anyhow::Result<Self>
+    where
+        F: FnOnce(super::NativeRaftNode) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = anyhow::Result<super::NativeRaftCells>> + Send + 'static,
+        Bind: FnOnce(crate::application::consensus::RaftCells) -> Bound + Send + 'static,
+        Bound: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         anyhow::ensure!(
             self.raft.is_none(),
@@ -140,7 +199,7 @@ impl NativeDaemon {
         self.raft = Some(super::native_raft::Startup {
             script,
             prepare: Box::new(move |node| Box::pin(prepare(node))),
-            bind: Box::new(bind),
+            bind: Box::new(move |cells| Box::pin(bind(cells))),
         });
         Ok(self)
     }
@@ -177,6 +236,12 @@ impl NativeDaemon {
         observer: Option<super::HostObserver>,
     ) -> anyhow::Result<()> {
         let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+        if arguments
+            .first()
+            .is_some_and(|arg| arg == super::native_namespace::FLAG)
+        {
+            return super::native_namespace::run(self.applications, arguments.into_iter().skip(1));
+        }
         if arguments
             .first()
             .is_some_and(|arg| arg == "--check-native-package")
@@ -311,6 +376,31 @@ impl CompiledApplications {
         );
         self.factories.insert(key, Arc::new(factory));
         Ok(self)
+    }
+
+    pub(super) fn namespace_class(
+        &self,
+        script: &str,
+        version: &str,
+        class: &str,
+    ) -> anyhow::Result<Arc<crate::application::consensus::RaftClass>> {
+        let factory = self
+            .factories
+            .get(&(script.to_owned(), version.to_owned()))
+            .ok_or_else(|| {
+                anyhow::anyhow!("no compiled application registered for {script} at {version}")
+            })?;
+        let application = factory()?;
+        anyhow::ensure!(
+            !application.supports_cell(class) && !application.supports_workflow(class),
+            crate::application::consensus::RegistrationError::UnsupportedFactory(class.into())
+        );
+        let definition = application.resolve_raft_class(class)?;
+        anyhow::ensure!(
+            definition.name() == class,
+            "compiled Raft class differs from the plan"
+        );
+        Ok(definition)
     }
 
     fn check_package(&self, package: &crate::native_deploy::Package) -> anyhow::Result<()> {

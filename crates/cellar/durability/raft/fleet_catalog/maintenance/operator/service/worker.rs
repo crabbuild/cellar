@@ -2,19 +2,19 @@
 
 //! Node job-set lifetime, bounded collection and independent shutdown signals.
 use super::*;
-use crate::raft::budget::Permit;
+use crate::application::consensus::group_client::{
+    ControlServiceCompletion, ControlServiceKind, ControlServiceLease,
+};
 use crate::raft::fleet_catalog::deadline::Deadline;
-use std::sync::atomic::Ordering;
 
 pub(crate) struct RestartServiceWork {
     driver: FleetRestartOperatorDriver,
     options: FleetRestartServiceOptions,
     stop: watch::Receiver<bool>,
-    done: watch::Sender<bool>,
     status: watch::Sender<FleetRestartServiceStatus>,
     node_stop: Option<watch::Receiver<bool>>,
-    memory: Option<Permit>,
-    admitted: bool,
+    _registration: Option<ControlServiceLease>,
+    _completion: ControlServiceCompletion,
 }
 
 impl RestartServiceWork {
@@ -29,11 +29,10 @@ impl RestartServiceWork {
             driver,
             options,
             stop,
-            done,
             status,
             node_stop: None,
-            memory: None,
-            admitted: false,
+            _registration: None,
+            _completion: ControlServiceCompletion::new(done),
         }
     }
 
@@ -42,23 +41,14 @@ impl RestartServiceWork {
             return Err(FleetCatalogError::Invalid("restart service fleet"));
         }
         let handle = &self.driver.observer.handle;
-        if handle.closing.load(Ordering::Acquire)
-            || handle.admission.is_draining()
-            || *self.stop.borrow()
+        if self.driver.observer.is_closed() || handle.admission.is_draining() || *self.stop.borrow()
         {
             return Err(FleetCatalogError::Closed);
         }
-        let mut slot = handle
-            .fleet_restart_service
-            .lock()
-            .map_err(|_| FleetCatalogError::Closed)?;
-        if slot.is_some() {
-            return Err(FleetCatalogError::Overloaded);
-        }
-        let memory = handle
-            .control_budget
-            .acquire(2 * ROOT_LIMIT)
-            .ok_or(FleetCatalogError::Overloaded)?;
+        let registration = self
+            .driver
+            .observer
+            .register_control_service(ControlServiceKind::Restart, 2 * ROOT_LIMIT)?;
         // Select the installed backend and Node domain. A caller cannot replace
         // either by constructing another client with the same descriptive ID.
         let source = &host.catalog.inner;
@@ -72,11 +62,8 @@ impl RestartServiceWork {
                 turn: Mutex::new(()),
             }),
         };
-        let (stop, wait) = watch::channel(false);
-        *slot = Some(stop);
-        self.node_stop = Some(wait);
-        self.memory = Some(memory);
-        self.admitted = true;
+        self.node_stop = Some(registration.stop_receiver());
+        self._registration = Some(registration);
         self.status.send_modify(|s| s.running = true);
         Ok(())
     }
@@ -99,7 +86,7 @@ impl RestartServiceWork {
     async fn poll(&mut self) {
         loop {
             let handle = &self.driver.observer.handle;
-            if handle.closing.load(Ordering::Acquire) || handle.admission.is_draining() {
+            if self.driver.observer.is_closed() || handle.admission.is_draining() {
                 return;
             }
             self.status
@@ -193,13 +180,6 @@ impl RestartServiceWork {
 
 impl Drop for RestartServiceWork {
     fn drop(&mut self) {
-        if self.admitted {
-            if let Ok(mut slot) = self.driver.observer.handle.fleet_restart_service.lock() {
-                slot.take();
-            }
-        }
-        self.memory.take();
         self.status.send_modify(|s| s.running = false);
-        self.done.send_replace(true);
     }
 }

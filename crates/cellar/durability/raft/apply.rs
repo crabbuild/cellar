@@ -247,22 +247,6 @@ impl ImageApplier {
         self.refresh_snapshot()
     }
 
-    /// Capture the exact durable cut covered by this pin. Protocol-only entries
-    /// may advance the marker while preserving the image. An unrelated newer
-    /// marker cannot relabel the old generation or satisfy a read barrier.
-    pub(crate) fn queryable(&self) -> Result<Option<PublishedImage>, ImageApplyError> {
-        let Some(mut image) = self.current() else {
-            return Ok(None);
-        };
-        let cache = self.group.read().map_err(ImageApplyError::Log)?;
-        let Some(position) = cache.coherent_image_position(&marker(&image.pin), image.position)
-        else {
-            return Ok(None);
-        };
-        image.position = position;
-        Ok(Some(image))
-    }
-
     /// Return only a runtime completion, never the prepared generation's pin.
     /// The caller submits it to the runtime and waits for durable application.
     pub fn prepare(

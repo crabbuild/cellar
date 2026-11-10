@@ -14,6 +14,8 @@ use serde::Deserialize;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FleetDockerResourcePolicy {
+    /// Explicit repair separation before a rooted topology policy exists.
+    pub placement: FleetTopologyPolicy,
     /// Upper bound on all durable data outside the host's per-group charge,
     /// including shared log, scratch, retained files and container writable data.
     pub durable_overhead_bytes: u64,
@@ -24,7 +26,9 @@ pub struct FleetDockerResourcePolicy {
 
 impl FleetDockerResourcePolicy {
     fn validate(&self) -> Result<()> {
-        if self.durable_overhead_bytes == 0
+        if self.placement.revision == 0
+            || !(1..=50_000_000).contains(&self.placement.max_work)
+            || self.durable_overhead_bytes == 0
             || self.resident.engine_slots != 1
             || self.peak.engine_slots != 1
             || self.resident.durable_bytes == 0
@@ -202,16 +206,15 @@ impl FleetIsolatedRepairEvidence for FleetDockerResources {
             self.isolation
                 .run(timeout, async {
                     context
-                        .group
-                        .validate()
-                        .map_err(|_| FleetCatalogError::Invalid("Docker repair scope"))?;
-                    context
                         .failed_boot
                         .validate()
                         .map_err(|_| FleetCatalogError::Invalid("Docker repair boot"))?;
                     let catalog = &self.isolation.inner.catalog;
                     let deadline = Deadline::new(catalog, timeout)?;
                     let cut = catalog.read(deadline.remaining()?).await?;
+                    catalog
+                        .authorize_group(&cut, &context.group, deadline.remaining()?)
+                        .await?;
                     let nodes = catalog
                         .run(deadline.remaining()?, catalog.node_records(&cut))
                         .await?;
@@ -233,8 +236,9 @@ impl FleetIsolatedRepairEvidence for FleetDockerResources {
                         return Err(FleetCatalogError::InventoryIncomplete);
                     }
                     Ok(FleetIsolatedRepairInputs {
+                        policy: self.policy.placement.clone(),
                         history: FleetTopologyHistoryResources {
-                            group: context.group.clone(),
+                            group: context.group,
                             resident: self.policy.resident,
                             peak: self.policy.peak,
                         },

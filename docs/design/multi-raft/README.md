@@ -10,6 +10,16 @@ Purpose: Navigate consensus contracts, ordered implementation packages, recovery
 
 Leaders execute private commands; replicas publish committed SQLite/LTX images. Quorum and S3 requests require their respective durability proofs. S3 recovery does not restore votes, leadership, or quorum.
 
+## Shared cell-group replacement
+
+The [density decision](density-decision.md) selects multiple independent SQLite
+cells per Raft group. The [cell-group package](cell-groups/README.md) specifies
+16 dependent tasks for complete manifests, shared execution, split/merge,
+hibernation and fenced recovery. Contracts/storage/routing gates have passed;
+shared execution is in progress. Production SDK cutover and final qualification
+remain required. A dedicated hot cell uses the same machinery at occupancy one.
+The MR evidence below retains the earlier one-cell implementation's scope.
+
 ## Delivery status
 
 The [task inventory](tasks.json) records these package boundaries:

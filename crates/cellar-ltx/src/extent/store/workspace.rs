@@ -87,6 +87,9 @@ impl Drop for Directory {
 
 /// A clone retains both the directory's complete reservation and the store's
 /// exclusive lock. The last pin removes files, syncs deletion, then refunds.
+/// Creation syncs the child and its parent before returning. This open store
+/// already established the parent's ancestor barriers; reopening establishes
+/// them again. This owner supplies no image or consensus authority.
 /// Call only on the owning blocking domain, including dropping the last pin.
 #[derive(Clone)]
 pub struct NodeWorkspace(Arc<Directory>);
@@ -164,7 +167,16 @@ impl NodeExtentStore {
                     Err(error) => return Err(StoreError::Io(error)),
                     Ok(_) => return Err(StoreError::Layout),
                 }
-                crate::host::create_dir_all_durable(self.inner.filesystem.as_ref(), &path)?;
+                // Open established this inventory's complete ancestor barriers
+                // and retains its exclusive lock. This validated child name is
+                // new: persist its contents and parent entry, without walking
+                // the same durable ancestors for every disposable workspace.
+                self.inner.filesystem.create_dir_all(&path)?;
+                if !self.inner.filesystem.symlink_metadata(&path)?.is_dir {
+                    return Err(StoreError::Layout);
+                }
+                self.inner.filesystem.sync_all(&path)?;
+                self.inner.filesystem.sync_all(&self.inner.directory)?;
                 Ok(())
             })();
             if let Err(error) = created {

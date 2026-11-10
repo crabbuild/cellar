@@ -2,28 +2,24 @@
 
 //! The receiving process independently resolves its current canonical permit.
 use super::*;
-use crate::application::consensus::{client::LearnerActivation, CommandFailure};
+use crate::application::consensus::LearnerActivation;
 use crate::raft::member_state::RepairStep;
 use cellar_logic::consensus::{LogIndex, MemberId};
 
-pub(crate) fn command_failure(error: CommandFailure) -> FleetCatalogError {
-    match error {
-        CommandFailure::Overloaded => FleetCatalogError::Overloaded,
-        CommandFailure::CommandConflict => FleetCatalogError::Conflict,
-        CommandFailure::CorruptState => FleetCatalogError::Corrupt("movement host state"),
-        CommandFailure::UnsupportedCapability => {
-            FleetCatalogError::Invalid("movement host capability")
-        }
-        _ => FleetCatalogError::Unconfirmed,
-    }
-}
-
 impl FleetHostAuthorization {
-    /// Only an active exact reservation may initialize a learner after placement
-    /// exclusion. A history descriptor or old member permit alone is insufficient.
-    pub(crate) async fn admitted_learner(
+    pub(crate) async fn admitted_learner_from(
         &self,
-        scope: &GroupScope,
+        scope: &GroupHistory,
+        source: &cellar_logic::consensus::ReplicaIdentity<GroupHistory>,
+        timeout: Duration,
+    ) -> Result<FleetPermitAuthorization> {
+        self.admitted_seed(scope, Some(source), timeout).await
+    }
+
+    async fn admitted_seed(
+        &self,
+        scope: &GroupHistory,
+        source: Option<&cellar_logic::consensus::ReplicaIdentity<GroupHistory>>,
         timeout: Duration,
     ) -> Result<FleetPermitAuthorization> {
         let catalog = &self.catalog;
@@ -45,10 +41,31 @@ impl FleetHostAuthorization {
                 if row.node != self.node()
                     || row.permit.as_ref() != Some(&permit)
                     || permit.binding() != &catalog.binding(scope)?
-                    || catalog.movement_boot(&snapshot, &row, self.node()).await?
+                    || catalog
+                        .movement_boot(&snapshot, &row, self.node(), false)
+                        .await?
+                        .0
                         != current.boot_binding()?
                 {
                     return Err(FleetCatalogError::Conflict);
+                }
+                if let Some(source) = source {
+                    if source.scope != *scope
+                        || !row.seed_owners.as_ref().is_some_and(|owners| {
+                            owners.iter().any(|owner| {
+                                owner.member == source.member.get()
+                                    && owner.node == source.node.bytes()
+                            })
+                        })
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    let (boot, _) = catalog
+                        .movement_boot(&snapshot, &row, source.node, false)
+                        .await?;
+                    if boot.disk != source.disk.bytes() || boot.process != source.process.bytes() {
+                        return Err(FleetCatalogError::Conflict);
+                    }
                 }
                 Ok(FleetPermitAuthorization::admitted(
                     permit,
@@ -95,7 +112,16 @@ impl FleetHostAuthorization {
                     .await?;
                 catalog.check_executable_movement(&snapshot, &row).await?;
                 if hash(&row.encode()?) != command.resource_digest
-                    || catalog.movement_boot(&snapshot, &row, self.node()).await? != command.target
+                    || catalog
+                        .movement_boot(
+                            &snapshot,
+                            &row,
+                            self.node(),
+                            command.action.finishes_joint(),
+                        )
+                        .await?
+                        .0
+                        != command.target
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -120,6 +146,7 @@ impl FleetHostAuthorization {
                             &snapshot,
                             &row,
                             NodeId::new(owner.node).map_err(|_| invalid())?,
+                            false,
                         )
                         .await?;
                 }
@@ -131,35 +158,56 @@ impl FleetHostAuthorization {
         let authorization = catalog
             .authorize_membership(&snapshot, &scope, deadline.remaining()?)
             .await?;
-        let cell = match gateway.cell(scope.namespace, &scope.cell) {
-            Ok(cell) if cell.scope() == &scope => cell,
-            _ if matches!(command.action, MovementAction::Activate { .. }) => {
-                let group = catalog
-                    .authorize_group(&snapshot, &scope, deadline.remaining()?)
-                    .await?;
-                gateway
-                    .register_managed_history(group, deadline.remaining()?)
+        if !matches!(command.action, MovementAction::Activate { .. }) {
+            let group = gateway
+                .group(scope)
+                .map_err(|_| FleetCatalogError::Conflict)?;
+            let history = catalog
+                .authorize_group(&snapshot, &scope, deadline.remaining()?)
+                .await?;
+            return match command.action {
+                MovementAction::Begin => group
+                    .begin_managed_repair(
+                        history,
+                        authorization,
+                        row.request.movement.as_ref().ok_or_else(invalid)?.plan()?,
+                        deadline.remaining()?,
+                    )
                     .await
-                    .map_err(command_failure)?
-            }
-            _ => return Err(FleetCatalogError::Conflict),
-        };
+                    .map(|_| ())
+                    .map_err(control_failure),
+                MovementAction::Promote { revision } | MovementAction::Finish { revision } => {
+                    let step = if matches!(command.action, MovementAction::Promote { .. }) {
+                        RepairStep::PromoteAndRemove
+                    } else {
+                        RepairStep::FinishJoint
+                    };
+                    group
+                        .advance_managed_repair(
+                            history,
+                            authorization,
+                            step,
+                            LogIndex::new(revision),
+                            deadline.remaining()?,
+                        )
+                        .await
+                        .map(|_| ())
+                        .map_err(control_failure)
+                }
+                MovementAction::Activate { .. } => Err(invalid()),
+            };
+        }
+        let history = catalog
+            .authorize_group(&snapshot, &scope, deadline.remaining()?)
+            .await?;
         match command.action {
-            MovementAction::Begin => cell
-                .begin_managed_repair(
-                    authorization,
-                    row.request.movement.as_ref().ok_or_else(invalid)?.plan()?,
-                    deadline.remaining()?,
-                )
-                .await
-                .map(|_| ())
-                .map_err(command_failure),
             MovementAction::Activate {
                 source,
                 source_node,
                 from_s3,
-            } => cell
-                .activate_managed_learner(
+            } => gateway
+                .activate_managed_learner_group(
+                    history,
                     authorization,
                     LearnerActivation {
                         member: permit.replacement().map_err(|_| invalid())?.member,
@@ -171,23 +219,74 @@ impl FleetHostAuthorization {
                 )
                 .await
                 .map(|_| ())
-                .map_err(command_failure),
-            MovementAction::Promote { revision } | MovementAction::Finish { revision } => {
-                let step = if matches!(command.action, MovementAction::Promote { .. }) {
-                    RepairStep::PromoteAndRemove
-                } else {
-                    RepairStep::FinishJoint
-                };
-                cell.advance_managed_repair(
-                    authorization,
-                    step,
-                    LogIndex::new(revision),
-                    deadline.remaining()?,
-                )
-                .await
-                .map(|_| ())
-                .map_err(command_failure)
+                .map_err(startup_failure),
+            _ => Err(invalid()),
+        }
+    }
+}
+
+fn control_failure(
+    error: crate::application::consensus::CellGroupControlError,
+) -> FleetCatalogError {
+    use crate::application::consensus::CellGroupControlError;
+    use crate::raft::completion::RuntimeError;
+    match error {
+        CellGroupControlError::Unconfirmed(_) => FleetCatalogError::Unconfirmed,
+        CellGroupControlError::Refused(RuntimeError::Overloaded) => FleetCatalogError::Overloaded,
+        CellGroupControlError::Refused(
+            RuntimeError::Invalid(_) | RuntimeError::StaleCompletion,
+        ) => FleetCatalogError::Conflict,
+        CellGroupControlError::Refused(RuntimeError::Storage(
+            crate::raft::storage::LogError::Corrupt(_),
+        )) => FleetCatalogError::Corrupt("group repair state"),
+        CellGroupControlError::Refused(_) => FleetCatalogError::Unconfirmed,
+    }
+}
+
+fn startup_failure(
+    error: crate::application::consensus::CellGroupStartupError,
+) -> FleetCatalogError {
+    use crate::application::consensus::CellGroupStartupError;
+    use crate::raft::cell_groups::CellGroupControllerError as C;
+    match error {
+        // Entered recovery may have synced or attached even if its delivery failed.
+        CellGroupStartupError::Unconfirmed(_) => FleetCatalogError::Unconfirmed,
+        CellGroupStartupError::Refused(C::Runtime(
+            crate::raft::completion::RuntimeError::Overloaded,
+        )) => FleetCatalogError::Overloaded,
+        CellGroupStartupError::Refused(C::Catalog(error)) => {
+            use crate::raft::catalog::CatalogError as E;
+            match error.as_ref() {
+                E::Invalid(reason) => FleetCatalogError::Invalid(reason),
+                E::Corrupt(reason) => FleetCatalogError::Corrupt(reason),
+                E::Limit => FleetCatalogError::Limit,
+                E::Log(crate::raft::storage::LogError::Corrupt(_)) | E::LostStableState => {
+                    FleetCatalogError::Corrupt("learner group state")
+                }
+                E::Conflict(_) | E::ManagedAdmissionRequired | E::NotInitialMember | E::Fenced => {
+                    FleetCatalogError::Conflict
+                }
+                E::FleetAuthority(authority) => match authority.as_ref() {
+                    FleetCatalogError::Invalid(reason) => FleetCatalogError::Invalid(reason),
+                    FleetCatalogError::Corrupt(reason) => FleetCatalogError::Corrupt(reason),
+                    FleetCatalogError::Overloaded => FleetCatalogError::Overloaded,
+                    FleetCatalogError::Limit => FleetCatalogError::Limit,
+                    FleetCatalogError::Conflict => FleetCatalogError::Conflict,
+                    FleetCatalogError::Closed => FleetCatalogError::Closed,
+                    // Preserve the complete typed cause for local diagnosis;
+                    // transport delivery still classifies unknown outcomes.
+                    _ => FleetCatalogError::Storage(
+                        CellGroupStartupError::Refused(C::Catalog(error)).into(),
+                    ),
+                },
+                _ => FleetCatalogError::Storage(
+                    CellGroupStartupError::Refused(C::Catalog(error)).into(),
+                ),
             }
         }
+        CellGroupStartupError::Refused(C::Invalid(_)) => {
+            FleetCatalogError::Invalid("learner group capability")
+        }
+        CellGroupStartupError::Refused(_) => FleetCatalogError::Unconfirmed,
     }
 }

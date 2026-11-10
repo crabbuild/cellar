@@ -159,6 +159,9 @@ struct RootEntry {
     bytes: u64,
     slots: usize,
     retained: bool,
+    // Only this open owner's completed file and directory barriers. Bytes are
+    // still read and checked before another seal; restart clears this observation.
+    persisted: bool,
     token: Arc<()>,
     data: Option<Arc<RootData>>,
 }
@@ -180,6 +183,7 @@ struct State {
     busy: bool,
     quarantined: bool,
     references_reconciled: bool,
+    reclaim_scan_needed: bool,
 }
 
 struct Inner {

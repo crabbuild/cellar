@@ -20,7 +20,7 @@ import time
 
 from raft_run import ROOT, RUSTFS, read_json, request, require, verify_image
 from run import create_bucket
-from raft_topology import members
+from raft_groups import Layout, MAX_OCCUPANCY
 from raft_fleet_storage import Storage, TMPFS_BYTES, validate_storage
 
 LABEL = 'io.cellar.fleet.lab'
@@ -65,14 +65,22 @@ def engine(context, failure_directory=None):
 
 def validate_policy(policy):
     require(type(policy['nodes']) is int and 3 <= policy['nodes'] <= 5, 'three to five nodes required')
-    require(1 <= policy['group_capacity'] <= 4096, 'invalid group capacity')
+    require(type(policy['group_capacity']) is int and 1 <= policy['group_capacity'] <= 4096, 'invalid group capacity')
+    require(type(policy['cells']) is int and 1 <= policy['cells'] <= 1000000
+            and type(policy['cells_per_group']) is int and 1 <= policy['cells_per_group'] <= MAX_OCCUPANCY,
+            'invalid cell-group population')
     require(1024**2 <= policy['image_bytes'] <= 64 * 1024**2 and policy['image_bytes'] % 4096 == 0,
             'invalid image quota')
     charge = policy['image_bytes'] * 8
-    require(policy['extent_bytes'] >= charge and policy['replay_extent_bytes'] >= charge,
+    group_charge = charge * policy['cells_per_group']
+    resources = policy['resources']
+    require(resources['resident']['durable_bytes'] >= group_charge
+            and resources['peak']['durable_bytes'] >= resources['resident']['durable_bytes'],
+            'resource policy undercharges shared-group images')
+    require(policy['extent_bytes'] >= group_charge and policy['replay_extent_bytes'] >= group_charge,
             'extent inventories cannot cover image work')
     validate_storage(policy)
-    require(policy['durable_bytes'] >= policy['group_capacity'] * policy['image_bytes'] * 8
+    require(policy['durable_bytes'] >= policy['group_capacity'] * policy['cells_per_group'] * policy['image_bytes'] * 8
             + policy['resources']['durable_overhead_bytes'], 'unbacked image reservations')
     owner = policy['owner']
     require(isinstance(owner, str) and 1 <= len(owner) <= 64
@@ -85,9 +93,9 @@ def provision(args):
     count = policy['nodes']
     require(1024 <= args.port_base <= 65535 - count, 'invalid port range')
     require(1 <= args.cells <= 10000, 'invalid cell count')
-    require(policy['group_capacity'] >= max(
-        sum(node in members(cell, count) for cell in range(args.cells))
-        for node in range(1, count + 1)),
+    require(policy['cells'] == args.cells, 'cell population differs from deployment policy')
+    layout = Layout(args.cells, policy['cells_per_group'], 'Counter')
+    require(policy['group_capacity'] >= max(row['replica_groups'] for row in layout.placement(count)),
             'group capacity is below the planned replicas per node')
     docker = engine(args.context)
     # An existing owned deployment is never replaced by an implicit cleanup.
@@ -109,6 +117,7 @@ def provision(args):
     for name in ('ca.der', 'server.der', 'key.der'):
         shutil.copyfile(ROOT / 'crates/cellar/transport/tcp/fixtures' / name, config / name)
     save_new(config / 'fleet.json', policy)
+    save_new(config / 'layout.json', layout.json(count))
     for path in config.iterdir():
         path.chmod(0o600)
     run_id = secrets.token_hex(12)
@@ -116,7 +125,7 @@ def provision(args):
     label = f'{LABEL}={run_id}'
     report = {'format': 1, 'run_id': run_id, 'context': args.context, 'prefix': prefix,
               'build': build, 'policy': policy, 'port_base': args.port_base,
-              'cells': args.cells, 'containers': [], 'registered': False,
+              'cells': args.cells, 'layout': layout.json(count), 'containers': [], 'registered': False,
               'capacity_qualified': False, 'deployed_recovery_qualified': False,
               'limits': {'cpu_millis': 1000, 'memory_bytes': 3 * 1024**3},
               'limitations': ['One shared VM; node separation only.',
@@ -170,10 +179,13 @@ def provision(args):
                   '--read-only', '--tmpfs', f'/tmp:rw,nosuid,nodev,size={TMPFS_BYTES}',
                   '--log-driver', 'local', '--log-opt', 'max-size=8m', '--log-opt', 'max-file=2',
                   '-v', config_volume + ':/config:ro', '-e', f'RAFT_NODES={count}',
-                  '-e', f'RAFT_CELLS={args.cells}', '-e', 'RAFT_FLEET_CONFIG=/config/fleet.json',
+                  '-e', f'RAFT_CELLS={args.cells}', '-e', f"RAFT_CELLS_PER_GROUP={policy['cells_per_group']}",
+                  '-e', 'RAFT_FLEET_CONFIG=/config/fleet.json',
                   '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
                   '-e', 'AWS_ACCESS_KEY_ID=' + access, '-e', 'AWS_SECRET_ACCESS_KEY=' + secret]
-        boot = json.loads(docker('run', '--rm', '--label', label, *common,
+        # Only the pre-voter initializer writes the persisted standby intent.
+        boot_common = [config_volume + ':/config' if item == config_volume + ':/config:ro' else item for item in common]
+        boot = json.loads(docker('run', '--rm', '--label', label, *boot_common,
                                 '-e', 'RAFT_NODE=1', '-e', 'RAFT_FLEET_INIT=1', args.image))
         report['bootstrap'] = boot
         for index in range(1, count + 1):

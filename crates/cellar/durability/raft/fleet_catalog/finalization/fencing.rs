@@ -262,7 +262,7 @@ impl FleetEvacuationCandidate {
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         observer: &RaftCells,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetFinalizationAdmission> {
         self.begin_finalization_inner(
@@ -284,7 +284,7 @@ impl FleetEvacuationCandidate {
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         isolation: ProposalId,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetFinalizationAdmission> {
         self.begin_finalization_inner(
@@ -306,7 +306,7 @@ impl FleetEvacuationCandidate {
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         source: FinalizationSource<'_>,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetFinalizationAdmission> {
         let catalog = &self.catalog;

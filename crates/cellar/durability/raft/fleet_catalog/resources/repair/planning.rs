@@ -37,6 +37,9 @@ impl Planning<'_, '_> {
         if inputs.nodes.is_empty() || inputs.nodes.len() > 64 || inputs.namespaces.len() > 64 {
             return Err(FleetCatalogError::Limit);
         }
+        if inputs.policy.revision == 0 || !(1..=50_000_000).contains(&inputs.policy.max_work) {
+            return Err(FleetCatalogError::Invalid("isolated repair policy"));
+        }
         let bounds = &inputs.history;
         if bounds.group != context.group
             || bounds.resident.engine_slots != 1
@@ -170,11 +173,7 @@ impl Planning<'_, '_> {
                 .inventory
                 .as_ref()
                 .ok_or(FleetCatalogError::InventoryIncomplete)?;
-            if inventory
-                .history(&context.group)
-                .map_err(|_| FleetCatalogError::Corrupt("isolated repair physical scope"))?
-                .is_some()
-            {
+            if inventory.group_history(&context.group).is_some() {
                 occupied.insert(node);
             }
             let observed_ms = catalog
@@ -203,10 +202,8 @@ impl Planning<'_, '_> {
             if let Some(initializing) = inventory.initializing() {
                 let mut attributed = false;
                 for reservation in &charged.reservations {
-                    attributed |=
-                        crate::raft::physical_inventory::scope_digest(&reservation.group).map_err(
-                            |_| FleetCatalogError::Corrupt("isolated repair initializer scope"),
-                        )? == initializing;
+                    attributed |= crate::raft::physical_inventory::group_digest(&reservation.group)
+                        == initializing;
                 }
                 if !attributed {
                     if group.voters.contains_key(&node) {
@@ -263,14 +260,9 @@ impl Planning<'_, '_> {
         let policy = placement
             .as_ref()
             .map(|p| p.policy.clone())
-            .unwrap_or(FleetTopologyPolicy {
-                revision: 1,
-                distinct_zones: false,
-                distinct_regions: false,
-                max_work: 1_000_000,
-            });
+            .unwrap_or_else(|| inputs.policy.clone());
         let view = IsolatedRepairView {
-            scope: context.group.clone(),
+            scope: context.group,
             revision: sample.membership().membership_revision(),
             high_water: sample.membership().member_high_water(),
             voters: voters
@@ -318,7 +310,7 @@ impl Planning<'_, '_> {
             request: FleetMovementRequest {
                 resources: FleetResourceRequest {
                     identity,
-                    group: context.group.clone(),
+                    group: context.group,
                     attestation,
                     peak: bounds.peak,
                 },

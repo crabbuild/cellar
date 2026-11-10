@@ -94,3 +94,33 @@ fn fleet_failure_detection_bounds_preserve_grace_and_probe_ceiling() {
     options.probe_timeout = Duration::ZERO;
     assert!(options.validate().is_err());
 }
+
+#[test]
+fn cancelled_observation_forgets_failure_grace() {
+    let mut detection = Detection::new(FleetFailureDetectionOptions::default());
+    let id = NodeId::new([3; 16]).unwrap();
+    detection.refresh_inventory(BTreeMap::from([(id, boot(8))]));
+    let policy = detection.options.policy();
+    let tracker = &mut detection.nodes.get_mut(&id).unwrap().tracker;
+    tracker.observe(policy, 100, 0, HealthObservation::DirectFailure);
+    tracker.observe(policy, 5100, 0, HealthObservation::DirectFailure);
+    assert_eq!(
+        detection.view(5100).nodes[0].health,
+        FleetNodeHealth::Unavailable
+    );
+    let mut future = Box::pin(async {
+        let _turn = ObservationTurn {
+            detection: &mut detection,
+            complete: false,
+        };
+        std::future::pending::<()>().await;
+    });
+    let mut context = std::task::Context::from_waker(futures_util::task::noop_waker_ref());
+    assert!(std::future::Future::poll(future.as_mut(), &mut context).is_pending());
+    drop(future);
+    assert_eq!(
+        detection.view(5100).nodes[0].health,
+        FleetNodeHealth::Unknown
+    );
+    assert_eq!(detection.view(5100).nodes[0].consecutive_failures, 0);
+}

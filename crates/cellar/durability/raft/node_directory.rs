@@ -172,6 +172,63 @@ pub struct NodePublication {
 }
 
 impl NamespaceCatalog {
+    /// Initial members' immutable pins remain available after host loss. A new
+    /// node ID cannot disguise reuse of an old disk lineage or engine instance.
+    pub(crate) async fn verify_recovery_storage_fresh(
+        &self,
+        log: &ReplicaLog,
+        source_nodes: &[NodeId],
+    ) -> Result<(), CatalogError> {
+        if source_nodes.len() > 64 {
+            return Err(CatalogError::Limit);
+        }
+        let local = log.limits();
+        let instance = log.storage_instance().map_err(CatalogError::Log)?;
+        for node in source_nodes {
+            let bytes = self
+                .inner
+                .read_versioned_bounded(
+                    &node_key(&self.inner, self.config.cluster, *node, "pin"),
+                    self.inner.limit,
+                )
+                .await?
+                .ok_or(CatalogError::Corrupt("missing recovery source storage pin"))?
+                .0;
+            let pin: Pin = wire::decode(NODE_PIN, &bytes, self.inner.limit)?;
+            let disk = DiskLineage::new(pin.disk)
+                .map_err(|_| CatalogError::Corrupt("source storage lineage"))?;
+            let old_instance = pin.validate(self.config.cluster, *node, disk)?;
+            if *node == local.node || disk == local.disk || old_instance == instance {
+                return Err(CatalogError::Conflict("reused recovery storage"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-admission requires the existing immutable pin; it must not recreate a
+    /// missing physical claim from a caller's proposed engine identity.
+    pub(crate) async fn verify_node_storage_identity(
+        &self,
+        node: NodeId,
+        disk: DiskLineage,
+        engine: EngineInstanceId,
+    ) -> Result<(), CatalogError> {
+        let bytes = self
+            .inner
+            .read_versioned_bounded(
+                &node_key(&self.inner, self.config.cluster, node, "pin"),
+                self.inner.limit,
+            )
+            .await?
+            .ok_or(CatalogError::LostStableState)?
+            .0;
+        let pin: Pin = wire::decode(NODE_PIN, &bytes, self.inner.limit)?;
+        if pin.validate(self.config.cluster, node, disk)? != engine {
+            return Err(CatalogError::LostStableState);
+        }
+        Ok(())
+    }
+
     /// Import reads the permanent physical pin without requiring a live
     /// advisory process view. Presence of an arbitrary fleet pin is insufficient.
     pub(crate) async fn verify_fleet_storage_pin(
@@ -266,6 +323,10 @@ impl NamespaceCatalog {
 }
 
 impl NodeRegistration {
+    pub(crate) fn cluster(&self) -> ClusterId {
+        self.cluster
+    }
+
     fn check(&self) -> Result<(), CatalogError> {
         let local = self.log.limits();
         let instance = self.log.storage_instance().map_err(CatalogError::Log)?;

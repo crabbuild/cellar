@@ -3,6 +3,7 @@
 //! One node-owned worker resumes admitted work. Explicit topology mode also
 //! collects and admits rooted desired placement. No timeout or local hint can
 //! release a reservation or establish convergence.
+mod automatic;
 mod detection;
 mod isolated;
 mod recovery;
@@ -11,6 +12,11 @@ mod schedule;
 mod topology;
 mod worker;
 use super::*;
+pub(crate) use automatic::ConfiguredAutomaticTopology;
+pub use automatic::{
+    FleetAutomaticRecoveryOptions, FleetAutomaticTopologyOptions, FleetAutomaticTopologyStatus,
+    FleetAutomaticTopologyWait,
+};
 pub use detection::{
     FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetNodeFailureStatus,
     FleetNodeHealth,
@@ -49,7 +55,7 @@ pub trait FleetTopologyEvidence: Send + Sync {
 
 pub struct FleetTopologyServiceInputs {
     pub request: FleetTopologyRequest,
-    pub namespaces: Vec<crate::raft::catalog::NamespaceCatalog>,
+    pub namespaces: Vec<crate::raft::catalog::RangeDirectory>,
 }
 
 /// Local diagnostics, not a convergence, membership or physical-release proof.
@@ -66,6 +72,9 @@ pub struct FleetTopologyServiceStatus {
 
 #[derive(Clone, Debug)]
 pub struct FleetMovementServiceOptions {
+    /// Explicitly authorize this worker to collect completed removed replicas
+    /// on its own node during movement backoff/idle turns. Default false.
+    pub reclaim_removed_members: bool,
     /// Minimum delay after a completed round. No missed-tick catch-up occurs.
     pub interval: Duration,
     pub retry_max_interval: Duration,
@@ -76,6 +85,7 @@ pub struct FleetMovementServiceOptions {
 impl Default for FleetMovementServiceOptions {
     fn default() -> Self {
         Self {
+            reclaim_removed_members: false,
             interval: Duration::from_millis(500),
             retry_max_interval: Duration::from_secs(10),
             turn_timeout: Duration::from_secs(5),
@@ -84,7 +94,11 @@ impl Default for FleetMovementServiceOptions {
 }
 
 impl FleetMovementServiceOptions {
-    fn validate(&self) -> Result<()> {
+    pub(in crate::raft) fn control_reservation_bytes(&self) -> usize {
+        2 * ROOT_LIMIT
+    }
+
+    pub(in crate::raft) fn validate(&self) -> Result<()> {
         if !(Duration::from_millis(50)..=Duration::from_secs(60)).contains(&self.interval)
             || !(self.interval..=Duration::from_secs(60)).contains(&self.retry_max_interval)
             || !(Duration::from_millis(1)..=Duration::from_secs(60)).contains(&self.turn_timeout)
@@ -162,12 +176,18 @@ pub struct FleetIsolatedRepairServiceStatus {
     pub histories_checked: u64,
     pub blocked_histories: u64,
     pub inventory_exhausted: bool,
-    pub last_blocked_group: Option<GroupScope>,
+    pub last_blocked_group: Option<GroupHistory>,
     pub last_blocked_failure: Option<FleetMovementServiceFailure>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FleetMovementServiceStatus {
+    pub automatic_topology: Option<FleetAutomaticTopologyStatus>,
+    /// Local queue diagnostics; only the rooted receipt proves settlement.
+    pub pending_member_cleanups: u32,
+    pub member_cleanup_attempts: u64,
+    pub reclaimed_members: u64,
+    pub last_member_cleanup_failure: Option<FleetMovementServiceFailure>,
     pub failure_detection: Option<FleetFailureDetectionStatus>,
     pub failure_recovery: Option<FleetFailureRecoveryStatus>,
     pub isolated_repair: Option<FleetIsolatedRepairServiceStatus>,
@@ -228,7 +248,12 @@ impl Drop for FleetMovementService {
 }
 
 enum ServiceMode {
+    Automatic(
+        Box<FleetAutomaticTopologyOptions>,
+        Vec<crate::raft::catalog::RangeDirectory>,
+    ),
     Admitted,
+    MemberCleanup,
     Topology(
         Arc<dyn FleetTopologyEvidence>,
         FleetTopologyCollectionOptions,
@@ -246,6 +271,52 @@ enum ServiceMode {
 }
 
 impl FleetCatalog {
+    /// Select whole-group placement from current enrolled capacity and resume
+    /// it through this node's sole movement worker. Bounds and optional fencing
+    /// are explicit configuration; callers supply no destination or plan IDs.
+    pub async fn start_automatic_topology_service(
+        &self,
+        observer: RaftCells,
+        namespaces: Vec<crate::raft::catalog::RangeDirectory>,
+        options: FleetAutomaticTopologyOptions,
+    ) -> Result<FleetMovementService> {
+        options.validate()?;
+        let movement = options.movement.clone();
+        self.start_fleet_service(
+            observer,
+            None,
+            ServiceMode::Automatic(Box::new(options), namespaces),
+            movement,
+        )
+        .await
+    }
+
+    /// Startup transfers the complete worker lifetime to the node registry.
+    /// No external handle must be leaked or retained to keep this job alive.
+    pub(crate) async fn start_node_member_cleanup(
+        &self,
+        observer: &RaftCells,
+        options: FleetMovementServiceOptions,
+    ) -> Result<()> {
+        options.validate()?;
+        let timeout = options.turn_timeout;
+        let (stop, wait) = watch::channel(false);
+        let (done, _finished) = watch::channel(false);
+        let (status, _view) = watch::channel(FleetMovementServiceStatus::default());
+        let mut work = MovementServiceWork::new(
+            self.clone(),
+            observer.clone(),
+            None,
+            options,
+            wait,
+            done,
+            status,
+        );
+        work.set_member_cleanup();
+        work.own_stop(stop);
+        observer.start_movement_worker(work, timeout).await
+    }
+
     /// Start one paced worker on this enrolled origin. A second service on the
     /// same RaftCells is refused, including through a different catalog adapter.
     /// No new reservation, optional balance or failure-driven repair is admitted.
@@ -255,7 +326,22 @@ impl FleetCatalog {
         evidence: Arc<dyn FleetMovementEvidence>,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
-        self.start_fleet_service(observer, evidence, ServiceMode::Admitted, options)
+        self.start_fleet_service(observer, Some(evidence), ServiceMode::Admitted, options)
+            .await
+    }
+
+    /// Resume this node's durable removed-member cleanup queue. No caller
+    /// supplies histories or reservation IDs. One bounded queue point read and
+    /// at most one physical cleanup run per turn; replacing the worker resumes
+    /// from the selected root. This uses the node's sole movement-worker slot.
+    /// Retained successor boots require the original source witness and fresh
+    /// capacity qualification. Erased/replaced engines remain refused.
+    pub async fn start_member_cleanup_service(
+        &self,
+        observer: RaftCells,
+        options: FleetMovementServiceOptions,
+    ) -> Result<FleetMovementService> {
+        self.start_fleet_service(observer, None, ServiceMode::MemberCleanup, options)
             .await
     }
 
@@ -300,7 +386,7 @@ impl FleetCatalog {
         collection.validate()?;
         self.start_fleet_service(
             observer,
-            movement_evidence,
+            Some(movement_evidence),
             ServiceMode::Topology(topology_evidence, collection),
             options,
         )
@@ -321,7 +407,7 @@ impl FleetCatalog {
     ) -> Result<FleetMovementService> {
         self.start_fleet_service(
             observer,
-            movement_evidence,
+            Some(movement_evidence),
             ServiceMode::Isolated(operation, repair_evidence),
             options,
         )
@@ -343,7 +429,7 @@ impl FleetCatalog {
         detection.validate()?;
         self.start_fleet_service(
             observer,
-            movement_evidence,
+            Some(movement_evidence),
             ServiceMode::Detection(detection),
             options,
         )
@@ -371,7 +457,7 @@ impl FleetCatalog {
         recovery.validate()?;
         self.start_fleet_service(
             observer,
-            movement_evidence,
+            Some(movement_evidence),
             ServiceMode::Recovery(platform, repair_evidence, recovery),
             options,
         )
@@ -381,7 +467,7 @@ impl FleetCatalog {
     async fn start_fleet_service(
         &self,
         observer: RaftCells,
-        evidence: Arc<dyn FleetMovementEvidence>,
+        evidence: Option<Arc<dyn FleetMovementEvidence>>,
         mode: ServiceMode,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
@@ -413,7 +499,9 @@ impl FleetCatalog {
             status,
         );
         match mode {
+            ServiceMode::Automatic(options, namespaces) => work.set_automatic(*options, namespaces),
             ServiceMode::Admitted => (),
+            ServiceMode::MemberCleanup => work.set_member_cleanup(),
             ServiceMode::Topology(evidence, collection) => {
                 work.set_topology(Some((evidence, collection)))
             }

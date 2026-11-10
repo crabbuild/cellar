@@ -27,7 +27,9 @@ fn config() -> Config {
         physical_host: [90; 16],
         owner: "managed-lab-test".into(),
         nodes: 5,
-        group_capacity: 8,
+        cells: 4,
+        cells_per_group: 2,
+        group_capacity: 4,
         image_bytes: 4 * 1024 * 1024,
         extent_bytes: 1024 * 1024 * 1024,
         replay_extent_bytes: 128 * 1024 * 1024,
@@ -42,10 +44,16 @@ fn config() -> Config {
             extent_cache_bytes: 64 << 20,
         },
         resources: FleetDockerResourcePolicy {
+            placement: FleetTopologyPolicy {
+                revision: 1,
+                distinct_zones: false,
+                distinct_regions: false,
+                max_work: 1_000_000,
+            },
             durable_overhead_bytes: 2176 * 1024 * 1024,
             resident: FleetResourceBounds {
                 engine_slots: 1,
-                durable_bytes: 32 * 1024 * 1024,
+                durable_bytes: 64 * 1024 * 1024,
                 memory_bytes: 8 * 1024 * 1024,
             },
             peak: FleetResourceBounds {
@@ -83,11 +91,12 @@ fn namespace() -> Result<NamespaceConfig> {
 async fn managed_bootstrap_reopens_exact_requests_without_activating_capacity() -> Result<()> {
     let bucket = bucket()?;
     let first = Managed::open(bucket.clone(), config(), namespace()?, "Counter", true).await?;
-    let before = first.bootstrap().await?;
+    let journal = tempfile::tempdir()?;
+    let before = first.bootstrap(journal.path()).await?;
     ensure!(before["revision"] == 7);
     first.domain.shutdown().await;
     let second = Managed::open(bucket, config(), namespace()?, "Counter", true).await?;
-    ensure!(second.bootstrap().await? == before);
+    ensure!(second.bootstrap(journal.path()).await? == before);
     let cut = second.catalog.read(TIMEOUT).await?;
     for index in 1..=5 {
         let auth = second
@@ -104,7 +113,7 @@ async fn managed_bootstrap_reopens_exact_requests_without_activating_capacity() 
     ensure!(
         second
             .catalog
-            .check_inventory(&cut, std::slice::from_ref(&second.namespace), TIMEOUT)
+            .check_inventory(&cut, std::slice::from_ref(&second.directory), TIMEOUT)
             .await?
             .histories()
             == 0
@@ -122,12 +131,13 @@ async fn managed_bootstrap_refuses_missing_fleet_and_changed_physical_identity()
             .is_err()
     );
     let first = Managed::open(bucket.clone(), config(), namespace()?, "Counter", true).await?;
-    first.bootstrap().await?;
+    let journal = tempfile::tempdir()?;
+    first.bootstrap(journal.path()).await?;
     first.domain.shutdown().await;
     let mut changed = config();
     changed.physical_host = [91; 16];
     let second = Managed::open(bucket, changed, namespace()?, "Counter", true).await?;
-    ensure!(second.bootstrap().await.is_err());
+    ensure!(second.bootstrap(journal.path()).await.is_err());
     ensure!(second.catalog.read(TIMEOUT).await?.revision() == 7);
     second.domain.shutdown().await;
     Ok(())
@@ -137,6 +147,15 @@ async fn managed_bootstrap_refuses_missing_fleet_and_changed_physical_identity()
 fn managed_config_refuses_unbacked_image_reservations_and_unknown_commands() -> Result<()> {
     let mut input = config();
     input.validate()?;
+    input.cells_per_group = 128;
+    ensure!(input.validate().is_err());
+    input = config();
+    input.cells = 0;
+    ensure!(input.validate().is_err());
+    input = config();
+    input.cells = 1000;
+    ensure!(input.validate().is_err());
+    input = config();
     input.durable_bytes = input.image_bytes * 8;
     ensure!(input.validate().is_err());
     input = config();
@@ -166,14 +185,18 @@ fn managed_config_refuses_unbacked_image_reservations_and_unknown_commands() -> 
 async fn managed_configuration_opens_the_native_runtime_with_its_installed_bounds() -> Result<()> {
     use cellar::sdk::consensus::verification::{RaftRuntime, ReplicaLog};
     let m = Managed::open(bucket()?, config(), namespace()?, "Counter", true).await?;
-    m.bootstrap().await?;
+    let journal = tempfile::tempdir()?;
+    m.bootstrap(journal.path()).await?;
     let root = tempfile::tempdir()?;
     let node = NodeId::new([1; 16])?;
     let disk = DiskLineage::new([11; 16])?;
     let process = ProcessGeneration::new([21; 16])?;
     let mut options = RaftCellsConfig {
         query_origins: vec![],
-        cells: vec![],
+        command_origins: vec![],
+        namespaces: vec![],
+        groups: vec![],
+        shared: crate::raft_limits::shared(&RaftHostOptions::default(), 2, 2)?,
         host: RaftHostOptions::default(),
         catalog: Managed::catalog_options(),
         peers: vec![RaftPeerNode {

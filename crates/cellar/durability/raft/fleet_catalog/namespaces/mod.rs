@@ -6,8 +6,13 @@ use crate::raft::catalog::{NamespaceCatalog, VoterPolicy};
 use cellar_logic::consensus::NamespaceId;
 use serde::Deserialize;
 
+mod archive;
+mod first_group;
 mod inventory;
+mod provisioning;
 mod records;
+pub use archive::RaftManagedArchiveProvisioning;
+pub use first_group::{RaftManagedFirstGroup, RaftManagedFirstGroupRequest};
 use records::{Declaration, Registry};
 
 pub(super) const KEY: &str = "compiled-namespaces";
@@ -67,80 +72,91 @@ impl FleetCatalog {
         validate_request(request)?;
         let declaration = Declaration::new(self, namespace, class)?;
         self.run(timeout, async {
-            // A reopened adapter may reconcile the original immutable candidate
-            // after later root changes, without reconstructing its former index.
-            let prior = self
-                .inner
-                .read::<FleetMutation>(
-                    &format!("requests/{}", hex::encode(request.id)),
-                    REQUEST_KIND,
-                    REQUEST_LIMIT,
-                )
+            let mutation = self
+                .prepare_namespace_declaration(snapshot, request, &declaration)
                 .await?;
-            if let Some((candidate, _)) = prior {
-                candidate.validate()?;
-                if candidate.id != request.id
-                    || candidate.operation != request.operation
-                    || candidate.principal != request.principal
-                    || candidate.expected_revision != request.expected_revision
-                    || candidate.changes.len() != 1
-                    || candidate.changes[0].table != FleetTable::Policy
-                    || candidate.changes[0].key != KEY
-                {
-                    return Err(FleetCatalogError::PayloadConflict);
-                }
-                let registry = Registry::decode(
-                    candidate.changes[0]
-                        .value
-                        .as_deref()
-                        .ok_or(FleetCatalogError::PayloadConflict)?,
-                )?;
-                let bytes = self
-                    .inner
-                    .lookup(registry.index, &declaration.key())
-                    .await?
-                    .ok_or(FleetCatalogError::PayloadConflict)?;
-                if decode::<Declaration>(DECLARATION_KIND, &bytes, 4096)? != declaration {
-                    return Err(FleetCatalogError::PayloadConflict);
-                }
-                return self.commit_inner(snapshot, &candidate).await;
-            }
-            let mut registry = self.registry(snapshot).await?.unwrap_or(Registry {
-                count: 0,
-                index: None,
-            });
-            if self
-                .inner
-                .lookup(registry.index, &declaration.key())
-                .await?
-                .is_some()
-            {
-                return Err(FleetCatalogError::Conflict);
-            }
-            if registry.count >= MAX_NAMESPACES {
-                return Err(FleetCatalogError::Limit);
-            }
-            registry.index = self
-                .inner
-                .update(
-                    registry.index,
-                    &declaration.key(),
-                    Some(encode(DECLARATION_KIND, &declaration, 4096)?),
-                    0,
-                )
-                .await?;
-            registry.count += 1;
-            let mutation = history_mutation(
-                request,
-                vec![FleetChange {
-                    table: FleetTable::Policy,
-                    key: KEY.into(),
-                    value: Some(encode(REGISTRY_KIND, &registry, 4096)?),
-                }],
-            );
             self.commit_inner(snapshot, &mutation).await
         })
         .await
+    }
+
+    async fn prepare_namespace_declaration(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        declaration: &Declaration,
+    ) -> Result<FleetMutation> {
+        // A reopened adapter may reconcile the original immutable candidate
+        // after later root changes, without reconstructing its former index.
+        let prior = self
+            .inner
+            .read::<FleetMutation>(
+                &format!("requests/{}", hex::encode(request.id)),
+                REQUEST_KIND,
+                REQUEST_LIMIT,
+            )
+            .await?;
+        if let Some((candidate, _)) = prior {
+            candidate.validate()?;
+            if candidate.id != request.id
+                || candidate.operation != request.operation
+                || candidate.principal != request.principal
+                || candidate.expected_revision != request.expected_revision
+                || candidate.changes.len() != 1
+                || candidate.changes[0].table != FleetTable::Policy
+                || candidate.changes[0].key != KEY
+            {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            let registry = Registry::decode(
+                candidate.changes[0]
+                    .value
+                    .as_deref()
+                    .ok_or(FleetCatalogError::PayloadConflict)?,
+            )?;
+            let bytes = self
+                .inner
+                .lookup(registry.index, &declaration.key())
+                .await?
+                .ok_or(FleetCatalogError::PayloadConflict)?;
+            if decode::<Declaration>(DECLARATION_KIND, &bytes, 4096)? != *declaration {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            return Ok(candidate);
+        }
+        let mut registry = self.registry(snapshot).await?.unwrap_or(Registry {
+            count: 0,
+            index: None,
+        });
+        if self
+            .inner
+            .lookup(registry.index, &declaration.key())
+            .await?
+            .is_some()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        if registry.count >= MAX_NAMESPACES {
+            return Err(FleetCatalogError::Limit);
+        }
+        registry.index = self
+            .inner
+            .update(
+                registry.index,
+                &declaration.key(),
+                Some(encode(DECLARATION_KIND, declaration, 4096)?),
+                0,
+            )
+            .await?;
+        registry.count += 1;
+        Ok(history_mutation(
+            request,
+            vec![FleetChange {
+                table: FleetTable::Policy,
+                key: KEY.into(),
+                value: Some(encode(REGISTRY_KIND, &registry, 4096)?),
+            }],
+        ))
     }
 
     async fn registry(&self, snapshot: &FleetSnapshot) -> Result<Option<Registry>> {
@@ -186,6 +202,28 @@ impl FleetCatalog {
         namespace: &NamespaceCatalog,
         class: Option<&str>,
     ) -> Result<()> {
+        self.namespace_declaration(snapshot, namespace, class)
+            .await?;
+        Ok(())
+    }
+
+    pub(super) async fn declared_class(
+        &self,
+        snapshot: &FleetSnapshot,
+        namespace: &NamespaceCatalog,
+    ) -> Result<String> {
+        Ok(self
+            .namespace_declaration(snapshot, namespace, None)
+            .await?
+            .class)
+    }
+
+    async fn namespace_declaration(
+        &self,
+        snapshot: &FleetSnapshot,
+        namespace: &NamespaceCatalog,
+        class: Option<&str>,
+    ) -> Result<Declaration> {
         let registry = self
             .registry(snapshot)
             .await?
@@ -199,30 +237,38 @@ impl FleetCatalog {
             .await?
             .ok_or(FleetCatalogError::InventoryIncomplete)?;
         let declaration: Declaration = decode(DECLARATION_KIND, &bytes, 4096)?;
-        declaration.check(self, namespace, class)
+        declaration.check(self, namespace, class)?;
+        Ok(declaration)
     }
 }
 
-impl FleetCatalog {
-    /// Verify the actual prepared catalogs, not only the caller's digest. This
-    /// check is independent of inventory completion so import hosts can boot.
+impl FleetHostAuthorization {
+    /// Verify this host and the prepared catalogs against one current root
+    /// before the caller opens mutable engine state. A saved capability cannot
+    /// reopen an already quarantined/finalized boot. This remains independent
+    /// of inventory completion so import hosts can boot; the later engine-bound
+    /// boot CAS must still recheck authority before publishing any endpoint.
     pub(crate) async fn check_declared_namespaces(
         &self,
         entries: &[crate::raft::host::NamespaceRegistration],
         timeout: Duration,
     ) -> Result<()> {
-        self.run(timeout, async {
-            let root = self.inner.current().await?;
-            for entry in entries {
-                self.require_namespace_declaration(
-                    &root,
-                    &entry.namespace,
-                    Some(entry.class.name()),
-                )
-                .await?;
-            }
-            Ok(())
-        })
-        .await
+        self.catalog
+            .run(timeout, async {
+                let root = self.catalog.inner.current().await?;
+                let current = self.catalog.host_from(&root, self.node()).await?;
+                self.require_successor(&current)?;
+                for entry in entries {
+                    self.catalog
+                        .require_namespace_declaration(
+                            &root,
+                            &entry.namespace,
+                            Some(entry.class.name()),
+                        )
+                        .await?;
+                }
+                Ok(())
+            })
+            .await
     }
 }

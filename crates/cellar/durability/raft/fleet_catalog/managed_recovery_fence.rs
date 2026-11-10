@@ -1,0 +1,385 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Exact infrastructure receipts for an interrupted managed transition.
+use super::{histories::catalog_error, managed_transitions::transfer_archive_error, *};
+use crate::raft::{
+    catalog::RangeDirectory,
+    cell_groups::{CellGroupArchiveCoverage, CellGroupArchivePool, CellGroupArchiveRegistry},
+};
+use cellar_logic::consensus::ProposalId;
+use serde::Deserialize;
+
+const KIND: u8 = 223;
+const LIMIT: usize = 20 * 1024;
+const MAX_EVIDENCE: usize = 4096;
+
+/// Bind the infrastructure fence to one durable intent and its directory barrier.
+/// The authority must also consult its complete inventory of possible old writers.
+pub struct FleetTransitionRecoveryFenceRequest {
+    intent: FleetTransitionRecoveryIntent,
+    barrier: FleetTransitionRecoveryBarrier,
+    digest: [u8; 32],
+}
+
+impl FleetTransitionRecoveryFenceRequest {
+    pub fn intent(&self) -> &FleetTransitionRecoveryIntent {
+        &self.intent
+    }
+
+    pub fn barrier(&self) -> FleetTransitionRecoveryBarrier {
+        self.barrier
+    }
+
+    pub fn digest(&self) -> [u8; 32] {
+        self.digest
+    }
+
+    /// Export the exact intent and directory barrier to an authenticated
+    /// infrastructure controller. The format-1 JSON contains hexadecimal
+    /// `request_digest`, `directory_digest` and `intent` fields. `intent` is the
+    /// complete canonical catalog record, including its framing and checksum.
+    /// Its hash and the directory digest reproduce this request's digest.
+    ///
+    /// Controllers must derive the minimum voter lineages from that record,
+    /// consult their complete historical launch inventory and durably revoke
+    /// every possible old writer. The challenge is not itself a fence proof or
+    /// caller authorization. Authenticate the expected request digest separately;
+    /// neither a caller-supplied roster nor a valid checksum grants authority.
+    ///
+    /// The output is bounded by twice the existing 4-MiB intent limit plus
+    /// 1 KiB of envelope space. This export does not change host/RPC quotas or
+    /// the separate bound on signed fence receipts.
+    pub fn encode_challenge(&self) -> Result<Vec<u8>> {
+        #[derive(Serialize)]
+        struct Challenge {
+            format: u8,
+            request_digest: String,
+            directory_digest: String,
+            intent: String,
+        }
+        let intent = self.intent.fence_encoding()?;
+        if managed_fence_digest(hash(&intent), self.barrier.directory_digest()) != self.digest {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        let encoded = serde_json::to_vec(&Challenge {
+            format: 1,
+            request_digest: hex::encode(self.digest),
+            directory_digest: hex::encode(self.barrier.directory_digest()),
+            intent: hex::encode(intent),
+        })
+        .map_err(|_| FleetCatalogError::Corrupt("fence challenge encoding"))?;
+        if encoded.len() > 2 * 4 * 1024 * 1024 + 1024 {
+            return Err(FleetCatalogError::Limit);
+        }
+        Ok(encoded)
+    }
+}
+
+/// Read-back proof of a verified permanent infrastructure fence. Retains the
+/// independently replayed source images for a subsequent recovery stage.
+pub struct FleetFencedTransitionRecovery {
+    request: FleetTransitionRecoveryFenceRequest,
+    receipt_digest: [u8; 32],
+    archives: Vec<CellGroupArchiveCoverage>,
+}
+
+impl FleetFencedTransitionRecovery {
+    pub fn request(&self) -> &FleetTransitionRecoveryFenceRequest {
+        &self.request
+    }
+
+    pub fn receipt_digest(&self) -> [u8; 32] {
+        self.receipt_digest
+    }
+
+    pub fn archives(&self) -> &[CellGroupArchiveCoverage] {
+        &self.archives
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Receipt {
+    request: [u8; 32],
+    evidence: Vec<u8>,
+}
+
+pub(crate) struct PreparedManagedRecoveryFence {
+    request: FleetTransitionRecoveryFenceRequest,
+    cuts: Vec<(CellGroupArchiveRegistry, CellGroupArchiveCoverage)>,
+    receipt: Option<Receipt>,
+}
+
+impl PreparedManagedRecoveryFence {
+    pub(crate) fn request(&self) -> &FleetTransitionRecoveryFenceRequest {
+        &self.request
+    }
+
+    pub(crate) fn evidence(&self) -> Option<&[u8]> {
+        self.receipt
+            .as_ref()
+            .map(|receipt| receipt.evidence.as_slice())
+    }
+
+    pub(crate) fn check_evidence(evidence: &[u8]) -> Result<()> {
+        if evidence.is_empty() || evidence.len() > MAX_EVIDENCE {
+            return Err(FleetCatalogError::Invalid(
+                "transition fence evidence length",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl FleetCatalog {
+    pub(crate) async fn prepare_managed_recovery_fence(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        principal: &str,
+        barrier: FleetTransitionRecoveryBarrier,
+        verifier: &FleetGroupArchiveVerifier,
+        timeout: Duration,
+    ) -> Result<PreparedManagedRecoveryFence> {
+        self.run(timeout, async {
+            let intent = self
+                .read_managed_recovery_intent(directory, operation, principal)
+                .await?
+                .ok_or(FleetCatalogError::Conflict)?;
+            if intent.digest() != barrier.intent_digest() {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            let digest = managed_fence_digest(intent.digest(), barrier.directory_digest());
+            let request = FleetTransitionRecoveryFenceRequest {
+                intent,
+                barrier,
+                digest,
+            };
+            self.require_managed_fence_barrier(directory, &request)
+                .await?;
+            let receipt = self
+                .inner
+                .read::<Receipt>(&receipt_key(operation.bytes()), KIND, LIMIT)
+                .await?
+                .map(|(receipt, _)| receipt);
+            if let Some(receipt) = &receipt {
+                if receipt.request != request.digest {
+                    return Err(FleetCatalogError::PayloadConflict);
+                }
+                PreparedManagedRecoveryFence::check_evidence(&receipt.evidence)?;
+            }
+            let transition = ProposalId::new(request.intent.transition())
+                .map_err(|_| FleetCatalogError::Corrupt("recovery transition operation"))?;
+            let domain = &self.inner.domain;
+            let storage = directory.namespace_config().image_storage;
+            let mut cuts = Vec::with_capacity(request.intent.archive_holds().len());
+            for hold in request.intent.archive_holds() {
+                let route = hold.marker().route();
+                let registry = domain
+                    .run(Box::pin(directory.open_managed_recovery_archive(
+                        domain,
+                        verifier.archives(),
+                        route,
+                        transition,
+                        barrier.directory_digest(),
+                    )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(transfer_archive_error)?;
+                registry.require_selected_hold(domain, hold).await?;
+                let receiver = verifier.receiver(domain, route, storage).await?;
+                let coverage =
+                    Box::pin(registry.verify_hold(domain, hold, verifier.tails(), receiver))
+                        .await?;
+                cuts.push((registry, coverage));
+            }
+            self.require_managed_fence_cuts(&cuts).await?;
+            self.require_managed_fence_barrier(directory, &request)
+                .await?;
+            Ok(PreparedManagedRecoveryFence {
+                request,
+                cuts,
+                receipt,
+            })
+        })
+        .await
+    }
+
+    /// Persist independently verified evidence before checking the cuts again.
+    /// A late archive write may make the cut unusable, even though the fence
+    /// completed. Retain its receipt so that this outcome survives a restart.
+    pub(crate) async fn confirm_managed_recovery_fence(
+        &self,
+        directory: &RangeDirectory,
+        prepared: PreparedManagedRecoveryFence,
+        evidence: Vec<u8>,
+        timeout: Duration,
+    ) -> Result<FleetFencedTransitionRecovery> {
+        self.run(timeout, async {
+            let PreparedManagedRecoveryFence {
+                request,
+                cuts,
+                receipt,
+            } = prepared;
+            let record = Receipt {
+                request: request.digest,
+                evidence,
+            };
+            let bytes = encode(KIND, &record, LIMIT)?;
+            if receipt.is_none() {
+                self.inner
+                    .create_exact(&receipt_key(request.intent.operation()), &bytes, LIMIT)
+                    .await?;
+            }
+            self.require_managed_fence_cuts(&cuts).await?;
+            self.require_managed_fence_barrier(directory, &request)
+                .await?;
+            Ok(FleetFencedTransitionRecovery {
+                request,
+                receipt_digest: hash(&bytes),
+                archives: cuts.into_iter().map(|(_, coverage)| coverage).collect(),
+            })
+        })
+        .await
+    }
+
+    pub(super) async fn require_confirmed_managed_fence(
+        &self,
+        directory: &RangeDirectory,
+        fenced: &FleetFencedTransitionRecovery,
+        archives: &CellGroupArchivePool,
+    ) -> Result<()> {
+        let request = fenced.request();
+        self.require_managed_fence_barrier(directory, request)
+            .await?;
+        self.require_durable_managed_fence(
+            request.intent.operation(),
+            request.digest,
+            fenced.receipt_digest(),
+        )
+        .await?;
+        let transition = ProposalId::new(request.intent.transition())
+            .map_err(|_| FleetCatalogError::Corrupt("recovery transition operation"))?;
+        let domain = &self.inner.domain;
+        for hold in request.intent.archive_holds() {
+            let registry = domain
+                .run(Box::pin(directory.open_managed_recovery_archive(
+                    domain,
+                    archives,
+                    hold.marker().route(),
+                    transition,
+                    request.barrier.directory_digest(),
+                )))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(transfer_archive_error)?;
+            registry.require_selected_hold(domain, hold).await?;
+        }
+        Ok(())
+    }
+
+    // Reconstruct the signed challenge after the directory has released its
+    // live fence. No archive, placement or mutation authority is returned.
+    pub(super) async fn read_recovery_retirement_fence(
+        &self,
+        intent: FleetTransitionRecoveryIntent,
+        plan: &FleetTransitionRecoveryReplacement,
+    ) -> Result<(FleetTransitionRecoveryFenceRequest, Vec<u8>)> {
+        let barrier = plan
+            .mutation()
+            .expected_directory_digest()
+            .ok_or(FleetCatalogError::Conflict)?;
+        let digest = managed_fence_digest(intent.digest(), barrier);
+        let (receipt, _) = self
+            .inner
+            .read::<Receipt>(&receipt_key(intent.operation()), KIND, LIMIT)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if receipt.request != digest
+            || hash(&encode(KIND, &receipt, LIMIT)?) != plan.receipt_digest()
+        {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        PreparedManagedRecoveryFence::check_evidence(&receipt.evidence)?;
+        let barrier = FleetTransitionRecoveryBarrier::from_selection(intent.digest(), barrier);
+        Ok((
+            FleetTransitionRecoveryFenceRequest {
+                intent,
+                barrier,
+                digest,
+            },
+            receipt.evidence,
+        ))
+    }
+
+    pub(super) async fn require_durable_managed_fence(
+        &self,
+        operation: [u8; 16],
+        request: [u8; 32],
+        expected: [u8; 32],
+    ) -> Result<()> {
+        let (receipt, _) = self
+            .inner
+            .read::<Receipt>(&receipt_key(operation), KIND, LIMIT)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if receipt.request != request || hash(&encode(KIND, &receipt, LIMIT)?) != expected {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        Ok(())
+    }
+
+    async fn require_managed_fence_barrier(
+        &self,
+        directory: &RangeDirectory,
+        request: &FleetTransitionRecoveryFenceRequest,
+    ) -> Result<()> {
+        let intent = &request.intent;
+        let snapshot = self.inner.current().await?;
+        let permit = self
+            .managed_recovery_permit_at(&snapshot, directory, intent.basis())
+            .await?;
+        let selected = self
+            .inner
+            .domain
+            .run(Box::pin(directory.observe_managed_recovery_barrier(
+                intent.digest(),
+                intent.basis(),
+                intent.archive_holds(),
+                &permit,
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(catalog_error)?;
+        if selected != Some(request.barrier.directory_digest()) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
+    async fn require_managed_fence_cuts(
+        &self,
+        cuts: &[(CellGroupArchiveRegistry, CellGroupArchiveCoverage)],
+    ) -> Result<()> {
+        for (registry, coverage) in cuts {
+            registry
+                .require_selected_hold(&self.inner.domain, coverage.hold())
+                .await?;
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn managed_fence_digest(intent: [u8; 32], barrier: [u8; 32]) -> [u8; 32] {
+    let mut binding = Vec::from(&b"cellar-managed-transition-fence-1 "[..]);
+    binding.extend_from_slice(&intent);
+    binding.extend_from_slice(&barrier);
+    hash(&binding)
+}
+
+fn receipt_key(operation: [u8; 16]) -> String {
+    format!(
+        "managed-transition-recovery-fences/{}",
+        hex::encode(operation)
+    )
+}

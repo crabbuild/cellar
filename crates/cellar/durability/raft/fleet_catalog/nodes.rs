@@ -360,6 +360,15 @@ impl fmt::Debug for FleetHostAuthorization {
 }
 
 impl FleetHostAuthorization {
+    pub(crate) fn same_boot_owner(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.catalog.inner, &other.catalog.inner)
+            && self
+                .boot_binding()
+                .ok()
+                .zip(other.boot_binding().ok())
+                .is_some_and(|(left, right)| left == right)
+    }
+
     pub(crate) fn is_isolated(&self) -> bool {
         self.record.isolation.is_some()
     }
@@ -371,16 +380,6 @@ impl FleetHostAuthorization {
 
     pub(crate) fn stop_catalog(&self) -> FleetCatalog {
         self.catalog.clone()
-    }
-
-    pub(crate) async fn check_declared_namespaces(
-        &self,
-        entries: &[crate::raft::host::NamespaceRegistration],
-        timeout: Duration,
-    ) -> Result<()> {
-        self.catalog
-            .check_declared_namespaces(entries, timeout)
-            .await
     }
 
     pub(crate) fn check_namespace(
@@ -396,10 +395,10 @@ impl FleetHostAuthorization {
         Ok(())
     }
 
-    /// The one owned discovery worker has its own bounded read turn. Sharing
-    /// the mutation adapter's turn would let a periodic read reject foreground
-    /// history admission while waiting on storage. Its caller retains the
-    /// separate physical metadata reservation through this reader's completion.
+    /// Give a metadata owner a private bounded catalog turn. Sharing the
+    /// mutation adapter's turn would let discovery or a remote read reject
+    /// foreground work while waiting on storage. The owner retains its metadata
+    /// reservation through the read.
     pub(crate) fn trust_reader(&self) -> FleetTrustReader {
         let source = &self.catalog.inner;
         let mut authorization = self.clone();
@@ -420,6 +419,49 @@ impl FleetHostAuthorization {
     /// entries, and removed identities remain in this cut as tombstones.
     pub(crate) async fn trust_snapshot(&self, timeout: Duration) -> Result<FleetTrustSnapshot> {
         self.refresh_trust(None, timeout).await
+    }
+
+    /// Startup may omit an isolated peer's endpoint after checking its permanent
+    /// root-admitted isolation receipt. This never changes durable membership.
+    pub(crate) async fn verified_transport_exclusions(
+        &self,
+        trust: &FleetTrustSnapshot,
+        timeout: Duration,
+    ) -> Result<FleetIsolatedTransportPeers> {
+        if !trust.nodes().iter().any(|host| host.is_isolated()) {
+            // Empty exclusions grant no exception and need no extra root read.
+            return Ok(FleetIsolatedTransportPeers {
+                nodes: Default::default(),
+            });
+        }
+        self.catalog
+            .run(timeout, async {
+                let cut = self.catalog.inner.current().await?;
+                if trust.catalog != self.catalog.birth_owner()?.catalog
+                    || trust.fleet != self.fleet()
+                    || trust.cluster != self.cluster()
+                    || trust.revision != cut.revision()
+                    || trust.root_digest != hash(&encode(HEAD_KIND, &cut.head, ROOT_LIMIT)?)
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let local = trust.node(self.node).ok_or(FleetCatalogError::Conflict)?;
+                self.require_running_successor(local)?;
+                let mut nodes = std::collections::BTreeSet::new();
+                for host in trust.nodes().iter().filter(|host| host.is_isolated()) {
+                    let proof = self
+                        .catalog
+                        .confirm_node_isolation(&cut, &host.record)
+                        .await?;
+                    if proof.boot.node != host.node.bytes() || proof.boot.disk != host.disk.bytes()
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    nodes.insert(host.node);
+                }
+                Ok(FleetIsolatedTransportPeers { nodes })
+            })
+            .await
     }
 
     pub(crate) async fn refresh_trust(
@@ -488,11 +530,24 @@ impl FleetHostAuthorization {
         &self,
         peer: &crate::raft::transport_options::RaftPeerNode,
     ) -> bool {
-        self.permits_transport()
-            && peer.node == self.node
-            && peer.disk == self.disk
-            && peer.label == self.record.label
-            && peer.server_name == self.record.server_name
+        self.permits_transport() && self.check_boot_endpoint(peer).is_ok()
+    }
+
+    /// Validate the immutable host descriptor before claiming a new boot. The
+    /// process and advertised addresses belong to that boot; transport admission
+    /// independently requires a currently pinned, permitted process.
+    pub(crate) fn check_boot_endpoint(
+        &self,
+        peer: &crate::raft::transport_options::RaftPeerNode,
+    ) -> Result<()> {
+        if peer.node != self.node
+            || peer.disk != self.disk
+            || peer.label != self.record.label
+            || peer.server_name != self.record.server_name
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
     }
 
     pub fn node(&self) -> NodeId {
@@ -547,15 +602,9 @@ impl FleetHostAuthorization {
         self.record.capability_digest
     }
 
-    pub(crate) fn instance_matches(&self, instance: EngineInstanceId) -> bool {
-        self.record
-            .storage_instance
-            .is_none_or(|expected| expected == instance.bytes())
-    }
-
     pub(crate) async fn group_authorization(
         &self,
-        scope: &cellar_logic::consensus::GroupScope,
+        scope: &cellar_logic::cell_group::GroupHistory,
         timeout: Duration,
     ) -> Result<FleetGroupAuthorization> {
         self.group_authorization_at_least(scope, 0, timeout).await
@@ -563,7 +612,7 @@ impl FleetHostAuthorization {
 
     pub(crate) async fn group_authorization_at_least(
         &self,
-        scope: &cellar_logic::consensus::GroupScope,
+        scope: &cellar_logic::cell_group::GroupHistory,
         minimum_revision: u64,
         timeout: Duration,
     ) -> Result<FleetGroupAuthorization> {
@@ -644,19 +693,62 @@ impl FleetHostAuthorization {
     }
 }
 
-/// Read-only surface of the single separately budgeted directory adapter.
+/// Read-only surface of a separately budgeted metadata adapter.
 #[derive(Clone)]
 pub(crate) struct FleetTrustReader {
     authorization: FleetHostAuthorization,
 }
 
 impl FleetTrustReader {
+    /// Conservative complete-cut memory envelope shared with directory reads.
+    pub(crate) const RESERVATION_BYTES: usize = 4 * 1024 * 1024;
+
     pub(crate) async fn refresh(
         &self,
         previous: Option<&FleetTrustSnapshot>,
         timeout: Duration,
     ) -> Result<FleetTrustSnapshot> {
         self.authorization.refresh_trust(previous, timeout).await
+    }
+
+    pub(crate) async fn authorize_group_at_least(
+        &self,
+        scope: &cellar_logic::cell_group::GroupHistory,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Result<FleetGroupAuthorization> {
+        self.authorization
+            .group_authorization_at_least(scope, minimum_revision, timeout)
+            .await
+    }
+
+    /// Resolve one router group using the directory's isolated read turn.
+    pub(crate) async fn authorize_router_group(
+        &self,
+        trust: &FleetTrustSnapshot,
+        scope: &cellar_logic::cell_group::GroupHistory,
+        timeout: Duration,
+    ) -> Result<Option<super::permits::RouterDiscovery>> {
+        let catalog = &self.authorization.catalog;
+        let expected = catalog.binding(scope)?;
+        let key = expected
+            .key()
+            .map_err(|_| FleetCatalogError::Invalid("group binding"))?;
+        catalog
+            .run(timeout, async {
+                let cut = catalog.inner.current().await?;
+                if cut.revision() != trust.revision {
+                    return Ok(None);
+                }
+                if hash(&encode(HEAD_KIND, &cut.head, ROOT_LIMIT)?) != trust.root_digest {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                catalog
+                    .authorize_router_discovery(&cut, expected, &key)
+                    .await
+                    .map(Some)
+            })
+            .await
     }
 }
 
@@ -672,6 +764,17 @@ pub(crate) struct FleetTrustSnapshot {
     replica_separation: FleetReplicaSeparation,
     root_digest: [u8; 32],
     nodes: Arc<[FleetHostAuthorization]>,
+}
+
+/// Verified endpoint exclusions only. Configuration and quorum stay in the log.
+pub(crate) struct FleetIsolatedTransportPeers {
+    nodes: std::collections::BTreeSet<NodeId>,
+}
+
+impl FleetIsolatedTransportPeers {
+    pub(crate) fn contains(&self, node: NodeId) -> bool {
+        self.nodes.contains(&node)
+    }
 }
 
 impl FleetTrustSnapshot {

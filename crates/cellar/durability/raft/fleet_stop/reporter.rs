@@ -142,6 +142,46 @@ impl Reporter {
         if self.remaining(deadline)? > Duration::from_secs(60) {
             return Err(FleetCatalogError::Invalid("stop deadline"));
         }
+        // Peer maintenance stop/resume renew proof via the survivor leader,
+        // which in turn inspects this node. Holding this transport waiter
+        // through that exchange consumes a third slot in the same two-slot
+        // peer metadata bank. The existing bounded worker owns proof and guard
+        // sync after enqueue; return uncertainty, never acceptance, until an
+        // exact retry observes the synced effect.
+        let release_peer_waiter = if origin.is_some()
+            && request.selector.purpose == LifecyclePurpose::Maintenance
+            && matches!(
+                request.action,
+                FleetStopAction::Stop | FleetStopAction::Resume
+            ) {
+            let guard = self
+                .log
+                .lifecycle_guard()
+                .map_err(log_error)?
+                .ok_or(FleetCatalogError::Corrupt("missing local guard"))?;
+            match request.action {
+                FleetStopAction::Stop => guard.accepted() != Some(&request.selector),
+                FleetStopAction::Resume => guard
+                    .resumed()
+                    .is_none_or(|(selector, _)| *selector != request.selector),
+                _ => false,
+            }
+        } else {
+            false
+        };
+        if release_peer_waiter {
+            // Preserve typed authority/payload refusals before handing work to
+            // the bounded owner. The worker rechecks this exact context after
+            // queueing, then gathers fresh physical/quorum evidence before sync.
+            self.catalog
+                .verify_local_stop(
+                    &request.selector,
+                    request.action,
+                    origin.as_deref(),
+                    self.remaining(deadline)?,
+                )
+                .await?;
+        }
         let (reply, response) = oneshot::channel();
         self.sender
             .try_send(Job {
@@ -154,6 +194,9 @@ impl Reporter {
                 mpsc::error::TrySendError::Full(_) => FleetCatalogError::Overloaded,
                 mpsc::error::TrySendError::Closed(_) => FleetCatalogError::Closed,
             })?;
+        if release_peer_waiter {
+            return Err(FleetCatalogError::Unconfirmed);
+        }
         let result = crate::asyncrt::timeout(self.remaining(deadline)?, response)
             .await
             .map_err(|_| FleetCatalogError::Unconfirmed)?

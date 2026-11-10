@@ -7,7 +7,6 @@
 pub(super) mod marker;
 mod query;
 
-pub(crate) use query::query_registered_rooted_controlled;
 pub use query::{query_registered_rooted, RootQueryOptions};
 
 use super::{
@@ -169,38 +168,6 @@ impl RootImageApplier {
 
     pub fn current(&self) -> Option<RootPublishedImage> {
         self.current.clone()
-    }
-
-    pub(crate) fn retained_snapshot(
-        &mut self,
-        expected: &::raft::prelude::Snapshot,
-        workspace: &mut [u8],
-    ) -> Result<Option<Arc<SealedImageRoot>>, ImageApplyError> {
-        self.refresh_snapshot(workspace)?;
-        if self.group.read().map_err(ImageApplyError::Log)?.snapshot != *expected {
-            return Err(ImageApplyError::Unpublished);
-        }
-        Ok(self.snapshot.as_ref().map(|(_, image)| image.clone()))
-    }
-
-    pub(crate) fn publish_empty_snapshot(
-        &mut self,
-        group: &GroupLog,
-        snapshot: &::raft::prelude::Snapshot,
-    ) -> Result<(), ImageApplyError> {
-        if self.pending.is_some() || self.current.is_some() || self.snapshot.is_some() {
-            return Err(ImageApplyError::Busy);
-        }
-        let cache = self.group.read().map_err(ImageApplyError::Log)?;
-        if group.identity() != self.group.identity()
-            || !Arc::ptr_eq(&group.owner, &self.group.owner)
-            || cache.snapshot != *snapshot
-            || cache.applied.image.is_some()
-            || cache.applied.position.index.get() < snapshot.get_metadata().index
-        {
-            return Err(ImageApplyError::Unpublished);
-        }
-        Ok(())
     }
 
     /// Capture a coherent durable engine cut for this exact image. The query

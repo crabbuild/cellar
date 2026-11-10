@@ -23,13 +23,13 @@ class EvidenceTests(unittest.TestCase):
         return {
             'seed-journal.jsonl': [{'event': 'outcome', 'status': 200, 'cell': c,
                 'command_id': str(c), 'response': {'value': 1, 'index': 3}} for c in range(3)],
-            'report.json': {'completed': True, 'cells': 3, 'measurements': [summary],
+            'report.json': {'completed': True, 'cells': 3, 'cells_per_group': 32, 'physical_groups': 1, 'measurements': [summary],
                             'limits': [{'NanoCpus': 1_000_000_000, 'Memory': 3*1024**3,
                                         'MemorySwap': 3*1024**3}] * 3},
             'write-r1-c1.json': raw,
             'replica-verification.json': [{'node': n, 'cell': c, 'value': 2 if c == 0 else 1,
                                            'index': 3} for n in range(1, 4) for c in range(3)],
-            'archive-verification.json': [[200, {'cell': c, 'ready': True, 'leader': c+1,
+            'archive-verification.json': [[200, {'cell': c, 'ready': True, 'leader': 1,
                                                 'archived': 3}] for c in range(3)],
         }
 
@@ -137,13 +137,14 @@ class EvidenceTests(unittest.TestCase):
         report.update(sql_workers=4, sql_worker_queue=16)
         for phase in ('initial_resources', 'final_resources'):
             report[phase] = [{'sql': {'running_workers': 4, 'worker_capacity': 4,
-                'work_reservations': 0, 'work_capacity': 64, 'queue_closed': False}}
+                'limits': {'workers': 4, 'queue_per_worker': 16, 'max_pending_cells': 256, 'node_bytes': 536870912},
+                'queued_or_running': 0, 'completion_reservations': 0, 'retained_bytes': 0, 'closing': False}}
                 for _ in range(3)]
         self.assertTrue(self.run_evidence(evidence)['verified'])
         corruptions = {
             'wrong_workers': lambda r: r['initial_resources'][0]['sql'].update(running_workers=2),
-            'larger_queue': lambda r: r['final_resources'][1]['sql'].update(work_capacity=128),
-            'closed_queue': lambda r: r['final_resources'][2]['sql'].update(queue_closed=True),
+            'larger_queue': lambda r: r['final_resources'][1]['sql']['limits'].update(queue_per_worker=128),
+            'closed_queue': lambda r: r['final_resources'][2]['sql'].update(closing=True),
             'missing_observer': lambda r: r['initial_resources'][0].update(sql=None),
             'missing_node': lambda r: r['final_resources'].pop(),
         }
@@ -226,7 +227,7 @@ class LoadTests(unittest.TestCase):
             def close(self): pass
         output = io.StringIO()
         with patch('raft.http.client.HTTPConnection', Connection), contextlib.redirect_stdout(output):
-            load({'cells': 3, 'token': 'test'}, .12, 3, 20)
+            load({'cells': 3, 'cells_per_group': 32, 'token': 'test'}, .12, 3, 20)
         result = json.loads(output.getvalue())
         self.assertGreaterEqual(result['elapsed_seconds'], .12)
         self.assertGreaterEqual(result['successful_writes'], 1)
@@ -250,7 +251,7 @@ class IsolationTests(unittest.TestCase):
         from raft import main
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / 'report.json'
-            before = json.dumps({'measurements': [], 'completed': False, 'cells': 3,
+            before = json.dumps({'measurements': [], 'completed': False, 'cells': 3, 'cells_per_group': 32,
                 'context': 'colima-cellar-multi-raft', 'port_base': 19800, 'tick_ms': 100})
             report.write_text(before)
             argv = ['raft.py', '--continue-setup', directory, '--cells-per-primary', '1',

@@ -25,7 +25,7 @@ def write_events(path, events):
 
 def fixture(root, adapter='raft', *, no_op=False):
     source = read_json(Path(__file__).with_name('raft_profiles.json'))['profiles']['local-q0-s3']
-    source['cells'] = {'total': 1, 'active': 1}
+    source['cells'] = {'total': 1, 'active': 1, 'per_group': 32}
     source['read_fraction'] = 0
     profile = source if adapter == 'raft' else effective_profile(source, adapter)
     config = read_json(Path(__file__).with_name('store_recovery_profile.json'))
@@ -39,7 +39,8 @@ def fixture(root, adapter='raft', *, no_op=False):
     def reply(state, changed, sequence):
         shared = {'state': state, 'changed': changed, 'durability': profile['durability']}
         if adapter == 'raft':
-            return {**shared, 'index': sequence, 'term': 1, 'group': 'group', 'incarnation': 'history', 'version_token': f'token-{sequence}', 'served_by': None}
+            return {**shared, 'sequence': sequence + 1, 'index': sequence + 2, 'term': 1, 'cell': 'Workload:0',
+                    'group': 'group', 'group_incarnation': 'physical-history', 'incarnation': 'history', 'version_token': f'token-{sequence}', 'served_by': None}
         return {**shared, 'sequence': sequence, 'command_id': f'{client}:{sequence}', 'receipt_kind': 'application-transaction', 'scope': 'owned:/cells/0', 'owner': 'node1'}
     change = {'kind': 'transfer', 'expected_revision': 0, 'value': 1000001 if no_op else 100, 'payload': 'x'}
     expected, changed = model(initial, change)

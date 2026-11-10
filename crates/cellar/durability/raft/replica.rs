@@ -291,6 +291,7 @@ impl Replica {
                 self.transfer_leadership(transfer)?;
                 Ok(Response::Unit)
             }
+            #[cfg(test)]
             GroupAction::RestartLeadership(check) => {
                 self.restart_leadership(*check)?;
                 Ok(Response::Unit)

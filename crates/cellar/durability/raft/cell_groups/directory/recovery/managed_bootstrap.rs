@@ -1,0 +1,317 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Attach retained recovery state under the pending or released directory decision.
+use super::*;
+use crate::raft::{
+    cache::GroupLog,
+    cell_groups::GroupManifest,
+    fleet_catalog::{
+        FleetHistory, FleetHistoryState, FleetHostAuthorization, FleetPublishedRecoveryVoter,
+        FleetRecoveryAttachRequest,
+    },
+    member_state::FleetGroupBinding,
+    storage::{LogError, ReplicaLog},
+};
+use cellar_logic::consensus::{EngineInstanceId, MemberId};
+
+pub(in crate::raft::catalog::range_directory) struct ManagedRecoveryStartup {
+    pub(in crate::raft::catalog::range_directory) request: FleetRecoveryAttachRequest,
+    pub(in crate::raft::catalog::range_directory) host: FleetHostAuthorization,
+    pub(in crate::raft::catalog::range_directory) deadline: u64,
+}
+
+impl RangeDirectory {
+    /// A retained seed can keep its verified images on boot without starting
+    /// Raft. Publication and attachment still require independent Fleet authority.
+    pub(crate) async fn park_retained_managed_recovery(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        marker: &GroupManifest,
+        history: &FleetHistory,
+        engine: EngineInstanceId,
+    ) -> Result<bool, CatalogError> {
+        self.bounded(async {
+            let local = group.identity();
+            let route = marker.route();
+            let plan = marker.recovery_request().ok_or(CatalogError::Fenced)?;
+            let activated = marker.recovery_activation().is_some();
+            let (view, _) = self.current().await?;
+            let phase = view
+                .head
+                .recovery
+                .as_deref()
+                .map(|lock| (&lock.phase, lock));
+            let publication = match phase {
+                Some((RecoveryPhase::ManagedSource { .. }, lock))
+                    if !activated && !lock.blocks_startup(self, route)? =>
+                {
+                    None
+                }
+                Some((
+                    RecoveryPhase::ManagedPublished {
+                        replacement,
+                        publication,
+                        ..
+                    },
+                    lock,
+                )) if *replacement == plan && lock.blocks_startup(self, route)? => {
+                    self.selected_route_in(&view, route).await?;
+                    Some(*publication)
+                }
+                _ if activated => return Ok(false),
+                _ => return Err(CatalogError::Fenced),
+            };
+            match history.state() {
+                FleetHistoryState::Reserved => (),
+                FleetHistoryState::Live if activated && publication.is_some() => (),
+                _ => return Err(CatalogError::Fenced),
+            }
+            if !history.allows_managed_genesis()
+                || history.birth_digest() != route.birth_digest
+                || !history.binding().matches_scope(&local.scope)
+            {
+                return Err(CatalogError::Fenced);
+            }
+            let (birth, origin) = self.birth_reservation(route).await?;
+            if origin != Some(plan)
+                || !birth
+                    .voters()
+                    .iter()
+                    .any(|voter| voter.node == local.node && voter.member == local.member)
+            {
+                return Err(CatalogError::Fenced);
+            }
+            let (genesis, commitment) = self
+                .require_retained_managed_seed(group, route, plan, history.binding(), engine, false)
+                .await?;
+            check_managed_recovery_member(
+                group,
+                marker,
+                &genesis,
+                (commitment, publication),
+                local.member,
+                history.binding(),
+            )?;
+            Ok(true)
+        })
+        .await
+    }
+
+    pub(in crate::raft::catalog::range_directory) async fn require_serving_managed_recovery_member(
+        &self,
+        birth: &CellGroupBirth,
+        group: &GroupLog<GroupHistory>,
+        marker: &GroupManifest,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+    ) -> Result<(), CatalogError> {
+        let boot = self
+            .require_managed_retained_group_boot(birth, log, host)
+            .await?;
+        let route = birth.route();
+        let (publication, commitment, position) =
+            marker.recovery_activation().ok_or(CatalogError::Fenced)?;
+        let plan = marker.recovery_request().ok_or(CatalogError::Fenced)?;
+        let operation = ProposalId::new(marker.recovery_operation().ok_or(CatalogError::Fenced)?)
+            .map_err(|_| CatalogError::Corrupt("managed recovery operation"))?;
+        let (view, _) = self.current().await?;
+        let (released, _) = self
+            .managed_recovery_serving_record(&view, operation)
+            .await?
+            .ok_or(CatalogError::Fenced)?;
+        if released.plan != plan || released.publication != publication {
+            return Err(CatalogError::Fenced);
+        }
+
+        let (reserved, origin) = self.birth_reservation(route).await?;
+        let local = group.identity();
+        if origin != Some(plan)
+            || marker.route() != route
+            || !reserved
+                .voters()
+                .iter()
+                .any(|voter| voter.node == local.node && voter.member == local.member)
+        {
+            return Err(CatalogError::Fenced);
+        }
+        let authorization = host
+            .group_authorization(
+                &route.history,
+                Duration::from_millis(self.limits.operation_timeout_ms),
+            )
+            .await
+            .map_err(CatalogError::from)?;
+        if !authorization.check_birth(self, birth)
+            || !authorization
+                .matches_replica(local, &group.membership().map_err(CatalogError::Log)?)
+        {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        let (genesis, seeded) = self
+            .require_retained_managed_seed(
+                group,
+                route,
+                plan,
+                authorization.binding(),
+                log.storage_instance().map_err(CatalogError::Log)?,
+                true,
+            )
+            .await?;
+        if commitment != seeded
+            || self
+                .observe_managed_recovery_activation(route, plan, publication, commitment)
+                .await?
+                != Some(position)
+        {
+            return Err(CatalogError::LostStableState);
+        }
+        check_managed_recovery_member(
+            group,
+            marker,
+            &genesis,
+            (commitment, Some(publication)),
+            local.member,
+            authorization.binding(),
+        )?;
+        self.require_current_group_birth(birth).await?;
+        if self
+            .require_managed_retained_group_boot(birth, log, host)
+            .await?
+            != boot
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn bootstrap_managed_pending_recovery_voter<'a>(
+        &'a self,
+        request: &'a FleetRecoveryAttachRequest,
+        history: GroupHistory,
+        log: &'a ReplicaLog,
+        host: &'a FleetHostAuthorization,
+        deadline: u64,
+    ) -> futures_util::future::BoxFuture<'a, Result<CellGroupBootstrapPermit, CatalogError>> {
+        Box::pin(self.bounded(async move {
+            let (group, authority) = self
+                .verify_published_managed_recovery_member(request, history, log, host, deadline)
+                .await?;
+            Ok(CellGroupBootstrapPermit::managed_pending_recovery(
+                group,
+                authority.birth,
+                self.clone(),
+                log.clone(),
+                ManagedRecoveryStartup {
+                    request: request.clone(),
+                    host: host.clone(),
+                    deadline,
+                },
+            ))
+        }))
+    }
+
+    pub(super) async fn verify_published_managed_recovery_member(
+        &self,
+        request: &FleetRecoveryAttachRequest,
+        history: GroupHistory,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+        deadline: u64,
+    ) -> Result<(GroupLog<GroupHistory>, FleetPublishedRecoveryVoter), CatalogError> {
+        let now = log
+            .domain()
+            .mono_ms()
+            .map_err(|_| CatalogError::Runtime(crate::raft::completion::RuntimeError::Closed))?;
+        let timeout = deadline
+            .checked_sub(now)
+            .filter(|remaining| *remaining > 0)
+            .map(Duration::from_millis)
+            .ok_or(CatalogError::Unconfirmed)?;
+        let authority = host
+            .authorize_published_recovery_voter(self, request, history, timeout)
+            .await
+            .map_err(CatalogError::from)?;
+        let boot = self.require_managed_group_boot(log, host).await?;
+        if boot != authority.current_boot {
+            return Err(CatalogError::Fenced);
+        }
+        self.namespace
+            .verify_node_storage_identity(
+                log.limits().node,
+                log.limits().disk,
+                log.storage_instance().map_err(CatalogError::Log)?,
+            )
+            .await?;
+        let voter = authority
+            .birth
+            .voters()
+            .iter()
+            .find(|voter| voter.node == log.limits().node)
+            .ok_or(CatalogError::NotInitialMember)?;
+        let genesis = self
+            .require_published_managed_voter_seed(
+                &authority.birth,
+                request.plan_digest,
+                &authority.seeds,
+                voter.member,
+                &authority.seeded_boot,
+            )
+            .await?;
+        let group = log.cell_group(&history).map_err(|error| match error {
+            LogError::NotFound => CatalogError::LostStableState,
+            error => CatalogError::Log(error),
+        })?;
+        let marker = group
+            .group_manifest()
+            .map_err(CatalogError::Log)?
+            .ok_or(CatalogError::LostStableState)?;
+        check_managed_recovery_member(
+            &group,
+            &marker,
+            &genesis,
+            (
+                authority.seeds.genesis_commitment(),
+                Some(authority.publication.journal_digest()),
+            ),
+            voter.member,
+            &authority.group,
+        )?;
+        Ok((group, authority))
+    }
+}
+
+fn check_managed_recovery_member(
+    group: &GroupLog<GroupHistory>,
+    marker: &GroupManifest,
+    genesis: &GroupManifest,
+    expected: ([u8; 32], Option<[u8; 32]>),
+    member: MemberId,
+    binding: &FleetGroupBinding,
+) -> Result<(), CatalogError> {
+    let (commitment, publication) = expected;
+    if group.identity().member != member
+        || group
+            .recovery_genesis()
+            .map_err(CatalogError::Log)?
+            .as_deref()
+            != Some(genesis)
+        || marker.route() != genesis.route()
+        || marker.source_seal().is_some()
+        || marker.recovery_request() != genesis.recovery_request()
+        || marker
+            .recovery_activation()
+            .is_some_and(|(observed, _, _)| Some(observed) != publication)
+        || marker
+            .recovery_commitment()
+            .map_err(|_| CatalogError::Corrupt("managed recovery lineage"))?
+            != Some(commitment)
+        || group
+            .membership()
+            .map_err(CatalogError::Log)?
+            .fleet_status()
+            .is_none_or(|status| &status.binding != binding)
+    {
+        return Err(CatalogError::LostStableState);
+    }
+    super::super::bootstrap::check_member(group)
+}

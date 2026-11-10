@@ -1,7 +1,9 @@
 //! Bounded CAS coordination. These records never grant Raft membership or votes.
 //! A retained mutation journal resolves ambiguous writes after later revisions.
 
+mod archive_replay;
 mod boots;
+pub use archive_replay::{FleetGroupArchiveReplayOptions, FleetGroupArchiveVerifier};
 mod capacity;
 mod deadline;
 mod disruption;
@@ -15,8 +17,55 @@ mod imports;
 mod index;
 mod isolation;
 mod maintenance;
+mod managed_park;
+mod managed_partition_cancel;
+mod managed_partition_work;
+pub(crate) use managed_park::{
+    ManagedParkOperation, ManagedParkPermit, ManagedParkPhase, ManagedParkSettlement,
+};
+mod managed_transition_admission;
+pub(crate) use managed_transition_admission::TransitionOperatorStep;
+mod managed_source_quiescence;
+mod managed_source_settlement;
+mod managed_transition_capacity;
+mod managed_transition_execution;
+pub(crate) use managed_transition_execution::ManagedTransitionExecution;
+mod managed_recovery_fence;
+pub(crate) use managed_recovery_fence::PreparedManagedRecoveryFence;
+pub use managed_recovery_fence::{
+    FleetFencedTransitionRecovery, FleetTransitionRecoveryFenceRequest,
+};
+mod managed_recovery_intent;
+pub use managed_recovery_intent::{FleetTransitionRecoveryBarrier, FleetTransitionRecoveryIntent};
+pub(crate) use managed_recovery_intent::{ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput};
+mod managed_recovery_inventory;
+mod managed_recovery_quorum;
+pub(crate) use managed_recovery_quorum::FleetPublishedRecoveryVoter;
+pub use managed_recovery_quorum::{FleetRecoveryAttachRequest, FleetRecoverySeedQuorums};
+mod managed_recovery_replacement;
+mod managed_recovery_reservation;
+mod managed_recovery_retirement;
+pub use managed_recovery_retirement::FleetRecoveryRetirement;
+mod managed_recovery_settlement;
+pub use managed_recovery_replacement::FleetTransitionRecoveryReplacement;
+pub use managed_recovery_reservation::FleetRecoveryRangeReservation;
+pub(crate) use managed_recovery_reservation::{
+    ManagedRecoverySeedAuthority, ManagedRecoverySeedSelection,
+};
+pub(crate) use managed_recovery_settlement::FleetManagedRecoveryCompletion;
+pub use managed_recovery_settlement::FleetRecoverySettlement;
+mod managed_transfer_baseline;
+mod managed_transition_replay;
+pub use managed_recovery_inventory::FleetRecoveryVoterLineage;
+mod managed_transitions;
+pub use managed_transitions::ReopenedManagedCellGroupTransition;
+pub(crate) use managed_transitions::{
+    ManagedTransitionPermit, ManagedTransitionRecoveryObservation, TransferVoterAdmission,
+};
 mod namespaces;
 mod nodes;
+mod partition_placement;
+pub(crate) use partition_placement::PartitionPlacementRequest;
 mod permits;
 mod placement;
 mod records;
@@ -64,12 +113,15 @@ pub use maintenance::{
 pub(crate) use maintenance::{
     RestartActionContext, RestartLeadershipCommand, ResumeLeadershipCommand,
 };
-pub use namespaces::FleetInventory;
+pub use namespaces::{
+    FleetInventory, RaftManagedArchiveProvisioning, RaftManagedFirstGroup,
+    RaftManagedFirstGroupRequest,
+};
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
     FleetRequestIdentity,
 };
-pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
+pub(crate) use nodes::{FleetIsolatedTransportPeers, FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use placement::FleetReplicaSeparation;
 pub(crate) use resources::MovementServiceWork;
@@ -79,13 +131,14 @@ pub use resources::{
     FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 pub use resources::{
-    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
-    FleetFailureRecoveryOptions, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
-    FleetFailureRecoveryStatus, FleetIsolatedRepairContext, FleetIsolatedRepairEvidence,
-    FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus, FleetMovementEvidence,
-    FleetMovementService, FleetMovementServiceEntry, FleetMovementServiceFailure,
-    FleetMovementServiceOptions, FleetMovementServiceStatus, FleetNodeFailureStatus,
-    FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetAutomaticRecoveryOptions, FleetAutomaticTopologyOptions, FleetAutomaticTopologyStatus,
+    FleetAutomaticTopologyWait, FleetFailureDetectionOptions, FleetFailureDetectionStatus,
+    FleetFailureRecoveryContext, FleetFailureRecoveryOptions, FleetFailureRecoveryPhase,
+    FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus, FleetIsolatedRepairContext,
+    FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus,
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetNodeFailureStatus, FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
     FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use resources::{
@@ -148,7 +201,25 @@ impl From<super::catalog::CatalogError> for FleetCatalogError {
             super::catalog::CatalogError::Corrupt(reason) => Self::Corrupt(reason),
             super::catalog::CatalogError::Limit => Self::Limit,
             super::catalog::CatalogError::Storage(error) => Self::Storage(error.into()),
+            super::catalog::CatalogError::FleetAuthority(error) => *error,
             _ => Self::Corrupt("index storage contract"),
+        }
+    }
+}
+
+impl From<crate::raft::cell_groups::CellGroupArchiveError> for FleetCatalogError {
+    fn from(error: crate::raft::cell_groups::CellGroupArchiveError) -> Self {
+        use crate::raft::cell_groups::CellGroupArchiveError;
+        match error {
+            CellGroupArchiveError::Invalid(reason) => Self::Invalid(reason),
+            CellGroupArchiveError::Limit => Self::Limit,
+            CellGroupArchiveError::Busy => Self::Overloaded,
+            CellGroupArchiveError::Conflict => Self::Conflict,
+            CellGroupArchiveError::Timeout
+            | CellGroupArchiveError::Expired
+            | CellGroupArchiveError::Unconfirmed => Self::Unconfirmed,
+            CellGroupArchiveError::Stopped => Self::Closed,
+            error => Self::Storage(error.into()),
         }
     }
 }
@@ -207,6 +278,21 @@ pub struct FleetCommit {
 }
 
 impl FleetCatalog {
+    // A registered worker shares installed addressing and backend authority,
+    // with its own bounded request turn under the owning node's domain.
+    pub(crate) fn owned_client(&self, domain: DomainToken) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                bucket: self.inner.bucket.clone(),
+                domain,
+                prefix: self.inner.prefix.clone(),
+                cluster: self.inner.cluster,
+                incarnation: self.inner.incarnation,
+                turn: Mutex::new(()),
+            }),
+        }
+    }
+
     /// Immutable cluster, fleet-incarnation and addressing binding. This is a
     /// descriptive request pin, not a current-root or mutation capability.
     pub fn catalog_id(&self) -> Result<[u8; 32]> {
@@ -355,36 +441,46 @@ impl FleetCatalog {
         Ok(())
     }
 
-    async fn run<T>(&self, timeout: Duration, work: impl Future<Output = Result<T>>) -> Result<T> {
-        if timeout.is_zero() || timeout > Duration::from_secs(60) {
-            return Err(FleetCatalogError::Invalid("timeout"));
+    fn run<'a, T: 'a>(
+        &'a self,
+        timeout: Duration,
+        work: impl Future<Output = Result<T>> + 'a,
+    ) -> impl Future<Output = Result<T>> + 'a {
+        // Retain admitted work behind one owned pointer before constructing the
+        // catalog turn. Large replay futures must not inflate the turn and each
+        // caller's poll frame on the way into the object-store HTTP client.
+        let work = Box::pin(work);
+        async move {
+            if timeout.is_zero() || timeout > Duration::from_secs(60) {
+                return Err(FleetCatalogError::Invalid("timeout"));
+            }
+            let _turn = self
+                .inner
+                .turn
+                .try_lock()
+                .map_err(|_| FleetCatalogError::Overloaded)?;
+            let deadline = self
+                .inner
+                .domain
+                .mono_ms()
+                .map_err(|_| FleetCatalogError::Closed)?
+                .checked_add(timeout.as_millis() as u64)
+                .ok_or(FleetCatalogError::Limit)?;
+            let timer = self
+                .inner
+                .domain
+                .sleep_until(deadline)
+                .map_err(|_| FleetCatalogError::Closed)?;
+            let result = crate::asyncrt::select! {
+                _=timer=>Err(FleetCatalogError::Unconfirmed),
+                result=work=>result,
+            };
+            self.inner
+                .domain
+                .mono_ms()
+                .map_err(|_| FleetCatalogError::Closed)?;
+            result
         }
-        let _turn = self
-            .inner
-            .turn
-            .try_lock()
-            .map_err(|_| FleetCatalogError::Overloaded)?;
-        let deadline = self
-            .inner
-            .domain
-            .mono_ms()
-            .map_err(|_| FleetCatalogError::Closed)?
-            .checked_add(timeout.as_millis() as u64)
-            .ok_or(FleetCatalogError::Limit)?;
-        let timer = self
-            .inner
-            .domain
-            .sleep_until(deadline)
-            .map_err(|_| FleetCatalogError::Closed)?;
-        let result = crate::asyncrt::select! {
-            _=timer=>Err(FleetCatalogError::Unconfirmed),
-            result=work=>result,
-        };
-        self.inner
-            .domain
-            .mono_ms()
-            .map_err(|_| FleetCatalogError::Closed)?;
-        result
     }
 
     async fn commit_inner(
@@ -392,7 +488,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,
     ) -> Result<FleetCommit> {
-        self.commit_checked(snapshot, mutation, || Ok(())).await
+        Box::pin(self.commit_checked(snapshot, mutation, || Ok(()))).await
     }
 
     async fn commit_checked(
@@ -401,8 +497,16 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         check: impl FnOnce() -> Result<()>,
     ) -> Result<FleetCommit> {
-        self.commit_with_disruption(snapshot, mutation, None, resources::Authority::None, check)
-            .await
+        // The full root transaction contains nested S3 and index futures.
+        // Keep them off the startup polling frame when a voter binds a boot.
+        Box::pin(self.commit_with_disruption(
+            snapshot,
+            mutation,
+            None,
+            resources::Authority::None,
+            check,
+        ))
+        .await
     }
 
     // Only owned proof paths supply terminal release or movement authority.
@@ -428,6 +532,9 @@ impl FleetCatalog {
         if current.token != snapshot.token || mutation.expected_revision != snapshot.revision() {
             return Err(FleetCatalogError::Conflict);
         }
+        Box::pin(self.check_managed_transition_mutation(snapshot, mutation, movement)).await?;
+        self.check_park_mutation(snapshot, mutation, movement)
+            .await?;
         self.check_failure_recovery_mutation(snapshot, mutation, movement)
             .await?;
         self.check_isolation_mutation(snapshot, mutation, movement)
@@ -464,6 +571,7 @@ impl FleetCatalog {
                         mutation,
                         next.disruption,
                         change.value.as_deref(),
+                        movement,
                     )?)
                 };
             }
@@ -671,3 +779,5 @@ fn convert(error: super::catalog::CatalogError) -> FleetCatalogError {
 fn hash(bytes: &[u8]) -> [u8; 32] {
     super::catalog_wire::digest(bytes)
 }
+
+pub(crate) use resources::ConfiguredAutomaticTopology;

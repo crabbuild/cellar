@@ -109,6 +109,40 @@ impl From<RootPrivateOptions> for Options {
 }
 
 impl Options {
+    pub(super) fn prepare_directory(&self) -> Result<(), ExecutionError> {
+        let filesystem = self.host.filesystem();
+        if let Some(workspace) = self.images.workspace() {
+            // This exact live owner already created and synced the directory
+            // under its locked inventory. Keep its pin; neither a pathname nor
+            // materialized execution can reuse that completed creation proof.
+            if workspace.directory() != self.directory.as_path()
+                || !filesystem
+                    .symlink_metadata(workspace.directory())
+                    .map_err(storage)?
+                    .is_dir
+            {
+                return Err(ExecutionError::Invalid("private workspace directory"));
+            }
+            return Ok(());
+        }
+        cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &self.directory)
+            .map_err(storage)
+    }
+
+    /// Only shared-cell private scratch is disposable here. Keep the lock inode
+    /// and sealed image stores; an unresolved producer still owns this directory
+    /// until its physical callback/settlement has joined.
+    pub(super) fn discard_cell_scratch(&self) -> anyhow::Result<()> {
+        if let Images::Materialized(_) = &self.images {
+            crate::raft::working::clean(
+                self.host.filesystem().as_ref(),
+                &self.directory,
+                &self.directory.join("working.sqlite"),
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn materialized(&self) -> anyhow::Result<PrivateOptions> {
         let Images::Materialized(images) = &self.images else {
             anyhow::bail!("materialized private storage required");
@@ -256,6 +290,58 @@ impl WorkingImage {
         }
     }
 
+    pub(super) fn open_cell(
+        options: &Options,
+        base: &crate::raft::cell_groups::CellImagePin,
+        history: [u8; 32],
+    ) -> anyhow::Result<Self> {
+        use crate::raft::cell_groups::CellImagePin;
+        match (&options.images, base) {
+            (Images::Materialized(_), CellImagePin::Materialized(pin)) => {
+                Ok(Self::Materialized(Box::new(
+                    crate::raft::working::Working::open_pin(&options.materialized()?, Some(pin))?,
+                )))
+            }
+            (Images::Materialized(_), CellImagePin::Empty) => Ok(Self::Materialized(Box::new(
+                crate::raft::working::Working::open_pin(&options.materialized()?, None)?,
+            ))),
+            (Images::Extents { .. }, CellImagePin::Extents(pin)) => Ok(Self::Rooted(Box::new(
+                super::rooted_working::RootWorking::open_pin(options, Some(pin.clone()), history)?,
+            ))),
+            _ => anyhow::bail!("cell image storage differs"),
+        }
+    }
+
+    pub(super) fn capture_cell(
+        &mut self,
+        options: &Options,
+        base: &crate::raft::cell_groups::CellImagePin,
+    ) -> anyhow::Result<crate::raft::working::CapturedUpdate> {
+        use crate::raft::cell_groups::CellImagePin;
+        match (self, base) {
+            (Self::Materialized(working), CellImagePin::Materialized(pin)) => {
+                working.capture_pin(&options.materialized()?, Some(pin))
+            }
+            (Self::Materialized(working), CellImagePin::Empty) => {
+                working.capture_pin(&options.materialized()?, None)
+            }
+            (Self::Rooted(working), CellImagePin::Extents(pin)) => {
+                working.capture_pin(options, Some(pin))
+            }
+            _ => anyhow::bail!("cell image storage differs"),
+        }
+    }
+
+    pub(super) fn capture_initial(
+        &mut self,
+        options: &Options,
+    ) -> anyhow::Result<crate::raft::working::CapturedUpdate> {
+        match self {
+            Self::Materialized(working) => working.capture_pin(&options.materialized()?, None),
+            Self::Rooted(working) => working.capture_pin(options, None),
+        }
+    }
+
     pub fn database(&self) -> &crate::storage::CommandDatabase {
         match self {
             Self::Materialized(working) => &working.database,
@@ -275,6 +361,14 @@ impl WorkingImage {
             Self::Materialized(working) => (*working).close(),
             Self::Rooted(working) => (*working).close(),
         }
+    }
+
+    pub(super) fn close_cell(self, options: &Options) -> anyhow::Result<()> {
+        // Close SQLite/WAL capture before removing any path, including when its
+        // close reports an error. The caller still owns the private lock.
+        let closed = self.close();
+        options.discard_cell_scratch()?;
+        closed
     }
 
     pub fn trim(&self, options: &Options, base: Option<&Published>) -> anyhow::Result<()> {
@@ -326,13 +420,6 @@ impl Preview {
         match self {
             Self::Materialized(pin) => State::Materialized(pin.state()),
             Self::Rooted(root) => State::Rooted(RootState::of(root)),
-        }
-    }
-
-    pub fn length(&self) -> u64 {
-        match self.state() {
-            State::Materialized(state) => state.length,
-            State::Rooted(state) => state.geometry.length(),
         }
     }
 }
@@ -404,37 +491,101 @@ impl Images {
         update: &CellUpdate,
         history: [u8; 32],
     ) -> anyhow::Result<Preview> {
-        match self {
-            Self::Materialized(_) => {
-                Ok(Preview::Materialized(crate::raft::working::verify_preview(
-                    &options.materialized()?,
-                    base.map(Published::flat).transpose()?,
-                    id,
-                    update,
-                )?))
+        let pin = base.map(|base| match base {
+            Published::Materialized(image) => {
+                crate::raft::cell_groups::CellImagePin::Materialized(image.pin())
             }
+            Published::Rooted(image) => {
+                crate::raft::cell_groups::CellImagePin::Extents(image.image())
+            }
+        });
+        self.preview_payload(
+            options,
+            pin.as_ref(),
+            id,
+            crate::raft::working::CapturedUpdateRef {
+                base: update.base,
+                result: update.result,
+                files: &update.files,
+            },
+            history,
+        )
+    }
+
+    pub(super) fn preview_cell(
+        &self,
+        options: &Options,
+        base: &crate::raft::cell_groups::CellImagePin,
+        id: ImageId,
+        update: &crate::raft::working::CapturedUpdate,
+        history: [u8; 32],
+    ) -> anyhow::Result<Preview> {
+        self.preview_payload(options, Some(base), id, update.as_ref(), history)
+    }
+
+    pub(super) fn preview_initial(
+        &self,
+        options: &Options,
+        id: ImageId,
+        update: &crate::raft::working::CapturedUpdate,
+        history: [u8; 32],
+    ) -> anyhow::Result<Preview> {
+        self.preview_payload(options, None, id, update.as_ref(), history)
+    }
+
+    fn preview_payload(
+        &self,
+        options: &Options,
+        base: Option<&crate::raft::cell_groups::CellImagePin>,
+        id: ImageId,
+        update: crate::raft::working::CapturedUpdateRef<'_>,
+        history: [u8; 32],
+    ) -> anyhow::Result<Preview> {
+        let crate::raft::working::CapturedUpdateRef {
+            base: before,
+            result: after,
+            files,
+        } = update;
+        match self {
+            Self::Materialized(_) => Ok(Preview::Materialized(
+                crate::raft::working::verify_preview_pin(
+                    &options.materialized()?,
+                    match base {
+                        None | Some(crate::raft::cell_groups::CellImagePin::Empty) => None,
+                        Some(crate::raft::cell_groups::CellImagePin::Materialized(pin)) => {
+                            Some(pin)
+                        }
+                        _ => anyhow::bail!("materialized base required"),
+                    },
+                    id,
+                    before,
+                    after,
+                    files,
+                )?,
+            )),
             Self::Extents { store, .. } => {
-                let result = match update.result.commitment {
+                let result = match after.commitment {
                     ImageCommitment::Extents(reference) => reference,
                     _ => anyhow::bail!("extent result required"),
                 };
-                let before = match update.base.commitment {
+                let before = match before.commitment {
                     ImageCommitment::Extents(reference) => reference,
                     _ => anyhow::bail!("extent base required"),
                 };
                 let header = cellar_ltx::ltx::Header::parse(
-                    &update
-                        .files
+                    &files
                         .last()
                         .ok_or_else(|| anyhow::anyhow!("empty update"))?
                         .bytes,
                 )?;
-                let base = base
-                    .map(Published::rooted)
-                    .transpose()?
-                    .map(RootPublishedImage::image);
-                let segments = update
-                    .files
+                let base = match base {
+                    Some(crate::raft::cell_groups::CellImagePin::Extents(pin)) => {
+                        Some(pin.as_ref())
+                    }
+                    None => None,
+                    _ => anyhow::bail!("extent base required"),
+                };
+                let segments = files
                     .iter()
                     .map(|file| {
                         Ok(cellar_ltx::apply::LtxSegment {
@@ -447,16 +598,16 @@ impl Images {
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
                 let prepared = store.prepare_image_root(
-                    base.as_deref(),
+                    base,
                     &ImageRootUpdate {
                         base: before,
                         result,
                         binding: ImageBinding {
                             history,
                             schema: options.application_digest,
-                            epoch: update.result.epoch,
-                            txid: update.result.txid,
-                            checksum: update.result.checksum,
+                            epoch: after.epoch,
+                            txid: after.txid,
+                            checksum: after.checksum,
                         },
                         geometry: Geometry::new(
                             header.page_size,
@@ -477,10 +628,27 @@ impl Images {
         options: &Options,
         image: &Published,
     ) -> anyhow::Result<cellar_ltx::generation::ImmutableDatabase> {
+        let image = match image {
+            Published::Materialized(image) => {
+                crate::raft::cell_groups::CellImagePin::Materialized(image.pin())
+            }
+            Published::Rooted(image) => {
+                crate::raft::cell_groups::CellImagePin::Extents(image.image())
+            }
+        };
+        self.read_cell(options, &image)
+    }
+
+    pub(super) fn read_cell(
+        &self,
+        options: &Options,
+        image: &crate::raft::cell_groups::CellImagePin,
+    ) -> anyhow::Result<cellar_ltx::generation::ImmutableDatabase> {
+        use crate::raft::cell_groups::CellImagePin;
         match (self, image) {
-            (Self::Materialized(_), Published::Materialized(image)) => {
+            (Self::Materialized(_), CellImagePin::Materialized(image)) => {
                 Ok(cellar_ltx::generation::open_immutable(
-                    image.pin(),
+                    image.clone(),
                     options.query_services.clone(),
                 )?)
             }
@@ -491,10 +659,9 @@ impl Images {
                     cache,
                     ..
                 },
-                Published::Rooted(image),
+                CellImagePin::Extents(image),
             ) => Ok(cellar_ltx::internal::open_extent_image(
                 image
-                    .image()
                     .view()
                     .image(cache_directory.clone(), cache_pool.clone(), *cache)?,
                 options.query_services.clone(),

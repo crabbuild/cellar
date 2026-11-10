@@ -23,7 +23,6 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 
 pub(crate) mod bundle;
 mod configuration;
-mod coverage;
 mod physical;
 mod publication;
 mod replay;
@@ -40,8 +39,6 @@ pub use retention::{
 };
 pub use rooted::{RootArchiveReference, RootArchiveSnapshot};
 pub use verifier::ArchiveVerifier;
-
-pub use coverage::VerifiedArchiveCoverage;
 
 const READ_WINDOW: usize = 4;
 
@@ -304,22 +301,6 @@ impl MaterializedCut {
         self.image.as_ref().map(|image| image.pin().state().into())
     }
 
-    pub(crate) fn memory_bytes(&self) -> usize {
-        self.membership.reserved_bytes()
-            + self.scope.cell.len()
-            + 128
-            + self
-                .entries
-                .iter()
-                .map(|entry| entry.compute_size() as usize + 128)
-                .sum::<usize>()
-            + self
-                .dependencies
-                .iter()
-                .map(|dependency| dependency.0.len())
-                .sum::<usize>()
-    }
-
     fn snapshot(
         &self,
         limits: ArchiveLimits,
@@ -358,13 +339,11 @@ pub struct CellArchive {
     schema: [u8; 32],
     limits: ArchiveLimits,
     host: LtxHost,
-    cancellation: Option<tokio::sync::watch::Receiver<bool>>,
     io_domain: Option<crate::asyncrt::DomainToken>,
     read_retention: Option<Arc<super::budget::Permit>>,
     bundle_client: Option<bundle::Client>,
     verification_deadline: Option<u64>,
     root_store: Option<cellar_ltx::internal::NodeExtentStore>,
-    root_verification: Option<Arc<verifier::ExtentLease>>,
     image_storage: super::catalog::RaftImageStorage,
 }
 
@@ -499,13 +478,11 @@ impl CellArchive {
             schema,
             limits,
             host,
-            cancellation: None,
             io_domain: crate::asyncrt::runtime_services().domain_token(),
             read_retention: None,
             bundle_client: None,
             verification_deadline: None,
             root_store: None,
-            root_verification: None,
             image_storage: super::catalog::RaftImageStorage::Materialized,
         }
     }
@@ -532,32 +509,16 @@ impl CellArchive {
             && Arc::ptr_eq(&self.store, &other.store)
     }
 
+    #[cfg(test)]
     pub(crate) fn read_memory_bound(&self) -> usize {
         self.limits.max_set_bytes
             + READ_WINDOW * bundle::MAX_BYTES.min(self.limits.max_object_bytes)
             + physical::READ_BYTES
     }
 
+    #[cfg(test)]
     pub(crate) fn with_read_retention(mut self, retention: Arc<super::budget::Permit>) -> Self {
         self.read_retention = Some(retention);
-        self
-    }
-
-    pub(crate) fn with_cancellation(
-        mut self,
-        cancellation: tokio::sync::watch::Receiver<bool>,
-    ) -> Self {
-        self.cancellation = Some(cancellation);
-        self
-    }
-
-    /// Only the captured publication clone joins this node-wide queue. The
-    /// resident archive retains its original host for foreground restoration.
-    pub(crate) fn with_publication_budget(
-        mut self,
-        budget: &super::host_archive::PhysicalBudget,
-    ) -> Self {
-        self.host = budget.host(self.host);
         self
     }
 
@@ -572,22 +533,7 @@ impl CellArchive {
             .ok_or(ArchiveError::Stopped)?
             .sleep_until(deadline)
             .map_err(|_| ArchiveError::Stopped)?;
-        let cancelled = async {
-            if let Some(mut cancellation) = self.cancellation.clone() {
-                loop {
-                    if *cancellation.borrow_and_update() {
-                        break;
-                    }
-                    if cancellation.changed().await.is_err() {
-                        break;
-                    }
-                }
-            } else {
-                std::future::pending::<()>().await;
-            }
-        };
-        crate::asyncrt::select_biased! { "archive shutdown refuses further object-store work before the owned producer is joined";
-            _ = cancelled => Err(ArchiveError::Stopped),
+        crate::asyncrt::select_biased! { "a completed archive operation wins over its deadline";
             result = future => result.map_err(ArchiveError::Storage),
             _ = timer => Err(ArchiveError::Timeout),
         }

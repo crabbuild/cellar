@@ -1194,7 +1194,7 @@ Stop conditions: Stop if full-image publication dominates the declared SLO; redu
 | `harness_rejects_stale_binary` | Benchmark cannot attribute results to a different executable |
 | `archived_progress_wakes_commands_without_maintenance_poll` | Committed images and accepted archive coverage wake eight sequential S3 commands while preserving normal proof checks |
 
-Verification target: `native_raft_multigroup`. Run the exact list/test commands shown by `plan.py show MR-14`; the manifest is authoritative for arguments.
+The `native_raft_multigroup` target and its `plan.py show MR-14` commands apply to the former per-cell runtime at the revisions recorded in its evidence. The [cell-group plan](cell-groups/implementation-plan.md) governs the shared runtime. Current archive qualification uses independently verified group holds, and the benchmark freshness test runs in `native_cell_groups_public`.
 
 ### MR-15 Qualify failure histories and release the isolated mode
 
@@ -1227,6 +1227,12 @@ Verification target: `native_raft_qualification`. Run the exact list/test comman
 ### MR-16 Qualify density improvements and larger cluster tiers
 
 Dependencies: MR-15. Phase: scale. Initial status: TODO.
+
+The [density decision](density-decision.md) selects shared cell groups as the
+replacement for one-cell consensus. The [cell-group plan](cell-groups/README.md)
+tracks runtime, manifests, archive, recovery and SDK conversion. This does not
+complete MR-16 or relax its MR-15 dependency and physical-tier release gates.
+
 
 Modify: `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/durability/raft/apply.rs`, `tools/perf/raft_profiles.json`.
 

@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 
 from raft_run import (capacity, main, matched_comparison, parse_manifest, read_json,
                       summarize_ledger, validate_profile, verify_image)
+from raft_groups import Layout, group_members
 from raft_workload import Ledger, input_digest, model, run_load
 
 
@@ -24,11 +25,21 @@ class Profiles(unittest.TestCase):
 
     def test_q1_preserves_the_real_capacity_gap(self):
         catalog = read_json(Path(__file__).with_name('raft_profiles.json'))
-        result = capacity(validate_profile(catalog['profiles']['q1-capacity-plan']))
+        profile = validate_profile(catalog['profiles']['q1-capacity-plan'])
+        original = copy.deepcopy(profile)
+        original['cells']['per_group'] = 1
+        result = capacity(original)
         self.assertEqual(result['average_replicas_per_node'], 5000)
         self.assertEqual(result['minimum_peak_with_20_percent_repair_reserve'], 6000)
         self.assertFalse(result['host_bound_admits_balanced_placement'])
         self.assertFalse(result['density_qualified'])
+        shared = capacity(profile)
+        self.assertEqual(shared['physical_groups'], 313)
+        self.assertEqual(shared['total_voter_replicas'], 939)
+        self.assertEqual(shared['planned_peak_replicas_per_node'], 157)
+        self.assertEqual(shared['minimum_peak_with_20_percent_repair_reserve'], 189)
+        self.assertTrue(shared['host_bound_admits_balanced_placement'])
+        self.assertFalse(shared['density_qualified'])
 
     def test_density_ladder_changes_only_live_cell_population(self):
         catalog = read_json(Path(__file__).with_name('raft_profiles.json'))['profiles']
@@ -39,7 +50,10 @@ class Profiles(unittest.TestCase):
             expected['cells']['total'] = cells
             expected['qualification'] = profile['qualification']
             self.assertEqual(profile, expected)
-            self.assertEqual({r['replica_cells'] for r in local_placement(profile)}, {cells * 3 // 5})
+            placement = local_placement(profile)
+            self.assertEqual(sum(r['replica_cells'] for r in placement), cells * 3)
+            self.assertEqual(sum(r['replica_groups'] for r in placement), ((cells + 31) // 32) * 3)
+            self.assertLessEqual(max(r['replica_groups'] for r in placement) - min(r['replica_groups'] for r in placement), 2)
             self.assertFalse(capacity(profile)['density_qualified'])
 
     def test_missing_and_unknown_workload_fields_are_refused(self):
@@ -95,44 +109,57 @@ class Profiles(unittest.TestCase):
 
     def test_local_placement_enforces_actual_peak_and_the_five_node_ceiling(self):
         from raft_topology import local_placement, members, placement, vm_requirements
-        self.assertEqual(members(4, 5), (5, 1, 2))
-        self.assertEqual([row['replica_cells'] for row in placement(3, 5)], [1, 2, 3, 2, 1])
+        self.assertEqual(group_members(4, 5), (5, 1, 2))
+        self.assertEqual([row['replica_cells'] for row in placement(3, 5, 1)], [1, 2, 3, 2, 1])
         for nodes in (3, 4, 5):
             profile = self.profile()
             profile['topology']['nodes'] = nodes
-            profile['cells'] = {'total': nodes * 7, 'active': 1}
+            profile['cells'] = {'total': nodes * 7, 'active': 1, 'per_group': 1}
             self.assertTrue(all(row['replica_cells'] == 21 and row['leader_cells'] == 7 for row in local_placement(profile)))
             self.assertEqual(vm_requirements(nodes)['cpus'], nodes + 3)
-        for nodes, cells in ((2, 12), (6, 12), (5, 1), (5, 6827), (3, 4097)):
+        for nodes, cells in ((2, 12), (6, 12), (5, 6827), (3, 4097)):
             profile = self.profile()
             profile['topology']['nodes'] = nodes
-            profile['cells'] = {'total': cells, 'active': 1}
+            profile['cells'] = {'total': cells, 'active': 1, 'per_group': 1}
             with self.subTest(nodes=nodes, cells=cells), self.assertRaises(ValueError):
                 local_placement(profile)
         profile = self.profile()
         profile['topology']['nodes'] = 5
-        profile['cells'] = {'total': 6826, 'active': 1}
+        profile['cells'] = {'total': 6826, 'active': 1, 'per_group': 1}
         self.assertEqual(max(row['replica_cells'] for row in local_placement(profile)), 4096)
+        profile['cells'] = {'total': 1, 'active': 1, 'per_group': 32}
+        self.assertEqual([r['replica_groups'] for r in local_placement(profile)], [1, 1, 1, 0, 0])
         for nodes in (2, 6, True):
             with self.assertRaises(ValueError):
-                members(0, nodes)
+                vm_requirements(nodes)
 
 
 class SeedDiagnostics(unittest.TestCase):
+    def test_exited_or_foreign_voters_refuse_startup_without_waiting_for_elections(self):
+        from raft_run import startup_processes
+        for state in ({'owner': 'owned', 'running': False, 'exit_code': 1},
+                      {'owner': 'foreign', 'running': True, 'exit_code': 0}):
+            docker = Mock(return_value=json.dumps(state))
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                startup_processes(docker, ['node-1', 'node-2'], 'owned')
+            self.assertEqual(docker.call_count, 1)
+
     def test_failed_seed_inspects_all_assigned_peers_and_preserves_partial_errors(self):
         from raft_run import observe_failed_seed
+        layout = Layout(1000, 32, 'Workload')
+        assigned = layout.members(781, 5)
         bases = ['node1', 'node2', 'node3', 'node4', 'node5']
         nodes = bases + ['store']
         with patch('raft_run.request', side_effect=[TimeoutError('private context'), (200, {'leader': None}), (200, {'leader': 2})]) as request, \
              patch('raft_run.capture_kernel', side_effect=[ValueError('private context')] + [[{'node': node}] for node in nodes[1:]]) as kernel:
-            result = observe_failed_seed(781, bases, 'private-token', Mock(), nodes, 'owner')
-        self.assertEqual([row['node'] for row in result['replicas']], [2, 3, 4])
+            result = observe_failed_seed(781, bases, 'private-token', Mock(), nodes, 'owner', layout)
+        self.assertEqual([row['node'] for row in result['replicas']], list(assigned))
         self.assertEqual(result['replicas'][0]['error_type'], 'TimeoutError')
         self.assertEqual(result['kernel'][0]['error_type'], 'ValueError')
         self.assertEqual(len(result['kernel']), 6)
         self.assertNotIn('private', json.dumps(result))
         self.assertEqual(kernel.call_count, 6)
-        for call, base in zip(request.call_args_list, bases[1:4]):
+        for call, base in zip(request.call_args_list, [bases[n-1] for n in assigned]):
             self.assertEqual(call.args, (base, '/admin/781', 'private-token'))
             self.assertEqual(call.kwargs, {'timeout': .5})
 
@@ -372,14 +399,15 @@ class HistoryOracle(unittest.TestCase):
         state, _ = model(None, initial)
         change = {'kind': 'set', 'expected_revision': 0, 'value': 7, 'payload': 'abc'}
         next_state, _ = model(state, change)
-        scope = {'group': 'group1', 'incarnation': 'incarnation1', 'durability': 'quorum'}
+        scope = {'group': Layout(1, 2, 'Workload').group(0)['group'], 'group_incarnation': '04' * 16,
+                 'cell': 'Workload:0', 'incarnation': '04' * 16, 'term': 1, 'durability': 'quorum'}
         return [
             {'event': 'seed_invoke', 'cell': 0, 'command_id': 'client:1', 'input': initial, 'input_sha256': input_digest(initial)},
-            {'event': 'seed_complete', 'cell': 0, 'status': 200, 'response': {**scope, 'state': state, 'changed': True, 'index': 2, 'version_token': 'v2'}},
+            {'event': 'seed_complete', 'cell': 0, 'status': 200, 'response': {**scope, 'state': state, 'changed': True, 'sequence': 2, 'index': 4, 'version_token': 'v2'}},
             {'event': 'invoke', 'cell': 0, 'phase': 'measurement', 'id': 'm:1', 'operation': 'command', 'command_id': 'client:2', 'input': change, 'input_sha256': input_digest(change)},
-            {'event': 'complete', 'cell': 0, 'phase': 'measurement', 'id': 'm:1', 'operation': 'command', 'status': 200, 'outcome': 'completed', 'response': {**scope, 'state': next_state, 'changed': True, 'index': 3, 'version_token': 'v3'}},
+            {'event': 'complete', 'cell': 0, 'phase': 'measurement', 'id': 'm:1', 'operation': 'command', 'status': 200, 'outcome': 'completed', 'response': {**scope, 'state': next_state, 'changed': True, 'sequence': 3, 'index': 5, 'version_token': 'v3'}},
             {'event': 'invoke', 'cell': 0, 'phase': 'measurement', 'id': 'm:2', 'operation': 'query', 'min_version': 'v3', 'input': {'consistency': 'at-least'}, 'input_sha256': input_digest({'consistency': 'at-least'})},
-            {'event': 'complete', 'cell': 0, 'phase': 'measurement', 'id': 'm:2', 'operation': 'query', 'status': 200, 'outcome': 'completed', 'response': {**scope, 'state': next_state, 'index': 3, 'version_token': 'v3'}}]
+            {'event': 'complete', 'cell': 0, 'phase': 'measurement', 'id': 'm:2', 'operation': 'query', 'status': 200, 'outcome': 'completed', 'response': {**scope, 'state': next_state, 'sequence': 3, 'index': 5, 'version_token': 'v3'}}]
 
     def check(self, events):
         from raft_workload import reconcile
@@ -393,6 +421,9 @@ class HistoryOracle(unittest.TestCase):
         for name, corrupt in {
             'wrong_value': lambda e: e[3]['response']['state'].update(left=8),
             'wrong_scope': lambda e: e[3]['response'].update(incarnation='other'),
+            'wrong_cell': lambda e: e[3]['response'].update(cell='Workload:1'),
+            'wrong_group_history': lambda e: e[3]['response'].update(group_incarnation='other'),
+            'wrong_logical_sequence': lambda e: e[3]['response'].update(sequence=4),
             'wrong_sequence': lambda e: e[2].update(command_id='client:3'),
             'old_read': lambda e: e[5]['response'].update(index=2),
             'weaker_durability': lambda e: e[3]['response'].update(durability='local'),
@@ -411,6 +442,8 @@ class IndependentReport(unittest.TestCase):
         from raft_metrics import phases
         from test_raft_metrics import rows
         total = 1 if node_count == 3 else node_count
+        occupancy = 2
+        layout = Layout(total, occupancy, 'Workload')
         events = []
         for cell in range(total):
             for event in copy.deepcopy(HistoryOracle().events()):
@@ -418,16 +451,18 @@ class IndependentReport(unittest.TestCase):
                 if 'id' in event:
                     event['id'] = str(cell) + ':' + event['id']
                 if 'response' in event:
-                    event['response']['group'] = 'group-' + str(cell)
+                    event['response'].update(group=layout.group(cell)['group'],
+                                             group_incarnation=layout.group(cell)['incarnation'],
+                                             cell=f'Workload:{cell}')
                 if event['event'] == 'complete':
                     event['latency_ms'] = 10.0
-                    event['response']['served_by'] = members(cell, node_count)[1]
+                    event['response']['served_by'] = members(cell, node_count, layout)[1]
                 events.append(event)
         path = root / 'operations.jsonl'
         path.write_text(''.join(json.dumps({**event, 'order': index}) + '\n' for index, event in enumerate(events, 1)))
         profile = Profiles().profile()
         profile['topology']['nodes'] = node_count
-        profile['cells'] = {'total': total, 'active': total}
+        profile['cells'] = {'total': total, 'active': total, 'per_group': occupancy}
         profile['arrival']['rate_per_second'] = total
         profile['timing']['measurement_seconds'] = 2
         planned = local_placement(profile)
@@ -435,7 +470,7 @@ class IndependentReport(unittest.TestCase):
             'run_id': 'owned',
             'scenario': 'healthy', 'fault_profile': None, 'fault_profile_sha256': input_digest(None), 'fault_result': None,
             'profile_sha256': input_digest(profile), 'summary': summarize_ledger(path, 'measurement', 2),
-            'measurement': {'offered': 2 * total}, 'final_archive': [[200, {'cell': cell, 'archived': 3}] for cell in range(total)],
+            'measurement': {'offered': 2 * total}, 'final_archive': [[200, {'cell': cell, 'archived': 5}] for cell in range(total)],
             'cgroups': [{'node': f'fixture-node{n}', 'cpu_max': '100000 100000', 'memory_max': 3 * 1024**3, 'swap_max': 0} for n in range(1, node_count + 1)],
             'placement': planned, 'vm': vm_requirements(node_count),
             'limits': [{'NanoCpus': 10**9, 'CpusetCpus': str(n), 'Memory': 3 * 1024**3, 'MemorySwap': 3 * 1024**3, 'Tmpfs': {}} for n in range(node_count)],
@@ -444,7 +479,7 @@ class IndependentReport(unittest.TestCase):
         def physical(stamp):
             result = rows(stamp, node_count)
             for sample, node in zip(result, planned):
-                sample['sample']['resources']['groups'].update(durable_groups=node['replica_cells'], attached_groups=node['replica_cells'], parked_groups=0)
+                sample['sample']['resources']['physical_counts'].update(durable_groups=node['replica_groups'], attached_groups=node['replica_groups'], unattached_groups=0, dormant_groups=0, pending_groups=0)
             return result
         measurements = {'measurement': {'before': physical(3), 'after': physical(4)}}
         if profile['timing']['warmup_seconds']:
@@ -455,11 +490,15 @@ class IndependentReport(unittest.TestCase):
         replicas = []
         topology = []
         for cell in range(total):
-            assigned = members(cell, node_count)
+            assigned = members(cell, node_count, layout)
             response = next(event['response'] for event in reversed(events) if event['cell'] == cell)
             replicas.extend({'cell': cell, 'node': n, 'response': {**response, 'served_by': n}} for n in assigned)
             for node in range(1, node_count + 1):
-                view = {'cell': cell, 'node': node, 'registered': node in assigned}
+                group = layout.group(cell)
+                view = {'cell': cell, 'node': node, 'registered': node in assigned,
+                        'group': group['group'], 'group_incarnation': group['incarnation'],
+                        'group_ordinal': group['ordinal'], 'group_cells': group['cells'],
+                        'observed_cells': group['cells']}
                 if node in assigned:
                     view.update(leader=assigned[0], role='Leader' if node == assigned[0] else 'Voter',
                                 voters=sorted(assigned) if node == assigned[0] else None)
@@ -491,8 +530,10 @@ class IndependentReport(unittest.TestCase):
                         raw['measurement']['after'][0]['identity']['started'] = 'changed-process'
                         (root / 'kernel-measurements.json').write_text(json.dumps(raw))
                     if corrupt == 'unassigned_replica':
-                        replicas[0]['node'] = 4
-                        replicas[0]['response']['served_by'] = 4
+                        layout = Layout(report['profile']['cells']['total'], 2, 'Workload')
+                        unassigned = next(n for n in range(1, nodes+1) if n not in layout.members(replicas[0]['cell'], nodes))
+                        replicas[0]['node'] = unassigned
+                        replicas[0]['response']['served_by'] = unassigned
                     elif corrupt == 'missing_node':
                         raw = json.loads((root / 'measurements.json').read_text())
                         raw['measurement']['after'].pop()
@@ -500,13 +541,13 @@ class IndependentReport(unittest.TestCase):
                     elif corrupt in ('extra_registration', 'wrong_voters'):
                         raw = json.loads((root / 'topology.json').read_text())
                         if corrupt == 'extra_registration':
-                            raw['before'][3]['response']['registered'] = True
+                            next(r for r in raw['before'] if not r['response']['registered'])['response']['registered'] = True
                         else:
-                            raw['before'][0]['response']['voters'] = [1, 2, 4]
+                            next(r for r in raw['before'] if r['response'].get('role') == 'Leader')['response']['voters'] = [1, 1, 2]
                         (root / 'topology.json').write_text(json.dumps(raw))
                     elif corrupt == 'wrong_population':
                         raw = json.loads((root / 'node-samples.jsonl').read_text())
-                        raw[-1]['sample']['resources']['groups']['durable_groups'] += 1
+                        raw[-1]['sample']['resources']['physical_counts']['durable_groups'] += 1
                         (root / 'node-samples.jsonl').write_text(json.dumps(raw) + '\n')
                     elif corrupt == 'shared_cpu':
                         report['limits'][-1]['CpusetCpus'] = '0'
@@ -522,7 +563,7 @@ class IndependentReport(unittest.TestCase):
                     if corrupt == 'valid':
                         result = analyze(root)
                         self.assertEqual(result['replicas'], nodes * 3)
-                        self.assertTrue(all(row['leader_cells'] == 1 and row['replica_cells'] == 3 for row in result['placement']))
+                        self.assertEqual(result['placement'], Layout(nodes, 2, 'Workload').placement(nodes))
                     else:
                         with self.assertRaises(ValueError):
                             analyze(root)

@@ -719,12 +719,16 @@ unchanged.
 
 The focused cases cover a large waiter, mixed leader/follower roles, independent
 progress and election while a hot group is stalled, and process kills before
-sync, after sync and after acknowledgement of a shared three-group batch.
+sync, after sync and after acknowledgement of a shared three-group batch. The
+storage crash case reopens all three group histories and checks that their
+committed entries and applied manifests select the same batch.
 
 ```sh
 python3 tools/perf/raft_run.py --profile tools/perf/raft_profiles.json \
   --profile-name q1-capacity-plan --capacity-only
-cargo test -p cellar --test native_raft_multigroup --locked -- --test-threads=1
+cargo test --locked -p cellar --test native_cell_groups_execution many_groups_mixed_roles
+cargo test --locked -p cellar --test native_cell_groups_execution hot_group_fairness
+cargo test --locked -p cellar --test native_cell_groups_storage cross_group_batch_crash
 python3 -m unittest discover -s tools/perf -p test_raft_run.py
 ```
 
@@ -736,11 +740,19 @@ registered cells establishes measured capacity.
 
 ## Remaining milestone gates
 
-The native `repair_budget_under_load` case holds real TLS snapshot transfers for
-two lagging cells while a third completes 24 commands and 24 AtLeast follower
-queries. It samples actual node-wide reservations, checks both distinct restored
-histories and waits for physical reservation release. This is bounded catch-up
-coverage on three embedded nodes, not replacement throughput or an SLO.
+The `repair_budget_under_load` case in `native_cell_groups_execution` holds a TLS
+checkpoint receive and submits a competing restore for another group. A third
+group completes 24 SQL commands and 24 receipt-backed follower queries while the
+receive reservation stays charged. Both restored groups must select their exact
+checkpoint and release the physical reservations. The test covers bounded
+catch-up on three embedded nodes.
+
+The `short_archived_groups_checkpoint_and_recover_independently` case checks
+that three archived groups retain their committed tails while publication is
+held. It then interrupts one group's archive and requires the other two to
+compact and all three to recover their exact SQLite images. The separate
+`rustfs_group_reclaim_restart_keeps_history` case checks physical file
+reclamation and retained-restart receipt replay in both image modes.
 
 The native archive producer can coalesce snapshot/tail payloads for two cells in
 one bounded object. The bundle index binds each exact history; recovery verifies

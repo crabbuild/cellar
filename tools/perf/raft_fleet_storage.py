@@ -27,6 +27,15 @@ MOUNTS = {'metadata': '/data', 'raft': '/data/node/raft',
 
 
 def validate_storage(policy):
+    resources = policy.get('resources')
+    placement = resources.get('placement') if isinstance(resources, dict) else None
+    require(isinstance(placement, dict)
+            and set(placement) == {'revision', 'distinct_zones', 'distinct_regions', 'max_work'}
+            and type(placement['revision']) is int and 1 <= placement['revision'] < 2 ** 64
+            and type(placement['distinct_zones']) is bool
+            and type(placement['distinct_regions']) is bool
+            and type(placement['max_work']) is int and 1 <= placement['max_work'] <= 50_000_000,
+            'explicit repair placement policy required')
     limits = policy['storage']
     require(set(limits) == {'metadata_bytes', 'raft_bytes', 'images_bytes',
                            'replay_bytes', 'object_store_bytes', 'snapshot_scratch_bytes',
@@ -40,10 +49,10 @@ def validate_storage(policy):
     # Conservative lab preflight for current native workspace policy: 512 MiB
     # WAL, up to 64 MiB per capture (three), 16 MiB housekeeping and five images.
     # Native Config also derives and validates the actual execution reservation.
-    require(policy['extent_bytes'] >= 720 * MIB + 5 * policy['image_bytes'],
+    require(policy['extent_bytes'] >= 720 * MIB + policy['image_bytes'] + policy['group_capacity'] * policy['cells_per_group'] * charge,
             'extent inventory cannot cover native WAL and capture ownership')
     require(limits['snapshot_scratch_bytes'] >= charge, 'snapshot scratch below image work')
-    images = policy['group_capacity'] * charge + policy['extent_bytes'] + charge + limits['extent_cache_bytes']
+    images = policy['group_capacity'] * policy['cells_per_group'] * charge + policy['extent_bytes'] + charge + limits['extent_cache_bytes']
     require(images <= limits['images_bytes'] * 9 // 10,
             'image filesystem cannot cover private images, extents and archive replay')
     require(policy['replay_extent_bytes'] + charge <= limits['replay_bytes'] * 9 // 10,

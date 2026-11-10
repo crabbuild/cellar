@@ -56,7 +56,12 @@ impl FleetCatalog {
         if let Some(record) = &active {
             if change.changes.iter().any(|c| {
                 c.table == FleetTable::Policy && c.key == super::super::super::evacuation::SLOT_KEY
-            }) {
+            }) && !(record.phase == FleetTopologyPhase::Cancelling
+                && authority == Authority::FailureAdmission)
+            {
+                // A durable cancellation already fences new topology work.
+                // Exact-boot failure isolation may unblock its admitted moves;
+                // their permits/debits remain owned until ordinary settlement.
                 return Err(FleetCatalogError::DisruptionInProgress {
                     operation: record.request.operation,
                 });

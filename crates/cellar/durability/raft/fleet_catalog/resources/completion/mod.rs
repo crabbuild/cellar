@@ -9,7 +9,8 @@ use super::*;
 use crate::application::consensus::RaftCells;
 use crate::raft::host::RaftPeerNodeObservation;
 use cellar_logic::consensus::ProposalId;
-use records::{Completion, Floor};
+use records::Completion;
+pub(super) use records::Floor;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -226,9 +227,10 @@ impl FleetCatalog {
                 if row.permit.is_none()
                     || row.seed_owners.is_none()
                     || row.request.identity.operation != request.identity.operation
-                    || row.request.attestation.boot != request.attestation.boot
-                    || row.request.attestation.profile_revision
-                        != request.attestation.profile_revision
+                    || !row.matches_target_attestation(
+                        &request.attestation,
+                        settlement == Settlement::Complete,
+                    )
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -238,6 +240,14 @@ impl FleetCatalog {
                     digest: hash(&row.encode()?),
                 }) {
                     return Err(FleetCatalogError::Conflict);
+                }
+                if request.attestation.boot != row.request.attestation.boot {
+                    self.confirm_retained_movement_target(
+                        snapshot,
+                        &row,
+                        &request.attestation.boot,
+                    )
+                    .await?;
                 }
                 let scope = row
                     .permit
@@ -377,8 +387,15 @@ impl FleetCatalog {
             }
             match settlement {
                 Settlement::Complete => {
-                    self.check_movement_completion(snapshot, &row, &quorum, &target, &sources)
-                        .await?;
+                    self.check_movement_completion(
+                        snapshot,
+                        &row,
+                        &request.attestation.boot,
+                        &quorum,
+                        &target,
+                        &sources,
+                    )
+                    .await?;
                 }
                 Settlement::Fenced | Settlement::Aborted => {
                     self.check_cancelled_movement(
@@ -471,8 +488,7 @@ impl FleetCatalog {
                     .inventory
                     .as_ref()
                     .ok_or(FleetCatalogError::Unconfirmed)?
-                    .history(&scope)
-                    .map_err(|_| invalid())?
+                    .group_history(&scope)
                     .is_some(),
                 membership_revision: quorum.membership().membership_revision().get(),
                 barrier: quorum.membership().barrier().get(),
@@ -489,7 +505,7 @@ impl FleetCatalog {
                 .position(|r| r == &reference)
                 .ok_or(FleetCatalogError::Conflict)?;
             book.rows.remove(index);
-            let mutation = FleetMutation {
+            let mut mutation = FleetMutation {
                 id: request.identity.id,
                 operation: request.identity.operation,
                 principal: request.identity.principal.clone(),
@@ -512,6 +528,11 @@ impl FleetCatalog {
                     },
                 ],
             };
+            if record.needs_cleanup() {
+                mutation
+                    .changes
+                    .push(self.enqueue_member_cleanup(snapshot, &row).await?);
+            }
             if previous.as_ref().is_some_and(|(old, _)| old != &mutation) {
                 return Err(FleetCatalogError::Conflict);
             }

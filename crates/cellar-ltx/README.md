@@ -37,6 +37,13 @@ identities, files, cached images and persistent storage live together in
 [`src/extent/`](src/extent/mod.rs), with the node inventory in `store/`.
 Public `Db`/`db` paths and the `internal` verification facade remain unchanged.
 
+`GenerationStore::pin_prepared` reopens an exactly identified materialized image
+for a preparation retry. It verifies cold image bytes and persistence barriers,
+preserves the existing host retention flag, and refuses missing or mismatched
+images. Its pin prevents reclamation while borrowed; it supplies no apply,
+publication or serving authority. The caller must obtain the expected state from
+its committed input and publish the resulting complete manifest separately.
+
 `RootView::read_extent` supplies one complete dependency to an admitted blocking
 transfer owner. The caller reserves its at-most-4-MiB output. It refuses objects
 outside the pinned root and returns bytes only after the full extent identity
@@ -46,15 +53,46 @@ reads. This does not create a recovery or native admission capability.
 image seal. An identical root from another directory cannot substitute for that
 local physical capability.
 
+`NodeExtentStore::prepare_transient_image_root` runs the same bounded LTX,
+geometry, closure and persistence checks as `prepare_image_root`, but a fresh
+root does not keep an additional permanent host reference. Its returned image
+pin protects the complete closure; an existing root keeps its prior retention.
+The shared-group host transfers that pin into its complete manifest graph,
+whose current, checkpoint and uncertain publication roots stay pinned. Startup
+recovers every local group's selected graphs before releasing conservative
+filename retention. Collection still requires a reconciled node inventory,
+respects reader/archive pins, and refunds capacity only after synced deletion.
+`NodeExtentStore::needs_reclaim` provides a metadata-only scheduling hint after
+reference reconciliation. It notices the last reader's release without requiring
+another write; an idle, already marked inventory needs no file scan. It supplies
+no collection authority. `reclaim_working_bytes` computes checked temporary-memory
+admission for a bounded physical turn. Marking includes only locally present
+objects, preserving dependencies imported under a pinned, incomplete receive.
+The shared-group host schedules one node-owned collector for the serving and
+independent verifier stores. Its existing control admission and shutdown registry
+retain inventory handles and working memory through physical completion. This
+does not authorize manifest-page collection, Raft log truncation or S3 coverage,
+and does not qualify sustained load.
+
+Root metadata keeps a volatile observation of completed file and directory
+barriers on its exact open inventory owner. A repeated seal still reads and
+checks the entire root file and SQLite image bytes, while reusing those completed
+barriers for unchanged immutable files. Reopening clears the observation; a failed
+root read also invalidates it. A metadata-only read supplies no persistence proof,
+and an incomplete or failed barrier cannot be reused. This observation supplies
+neither a SQLite image seal by itself nor remote archive coverage.
+
 `NodeExtentStore::put_extent_bytes` borrows a complete, already admitted extent
 through the existing at-most-4-MiB positional write window. Native providers
 avoid splitting it into allocated 64 KiB source chunks; injected providers keep
 their bounded positional-write fallback. Capacity admission, exclusive creation,
 source identity, file sync, independent destination verification and directory
-sync still precede a reusable local proof. Existing objects are independently
-reverified rather than overwritten. Peer and archive receives share this path,
-as does an image update whose changed extent already occupies its admitted
-workspace. Streaming source callbacks retain the separate 64 KiB contract.
+sync still precede a reusable local proof. Buffered imports check their supplied
+bytes against the extent identity even when the destination already exists.
+Existing objects are independently reverified rather than overwritten. Peer and
+archive receives share this path, as does an image update whose changed extent
+already occupies its admitted workspace. Streaming source callbacks retain the
+separate 64 KiB contract.
 
 `RootView::image` caches read-only handles to its pinned local extents. Full
 independent verification derives bounded block hashes that the inventory retains
@@ -100,6 +138,17 @@ restart must discard that workspace; captured bytes need a separate durability
 proof before acknowledgement. Ordinary `Db` constructors retain durable capture.
 The Raft host uses this mode only for private command execution: its verified
 preview, committed immutable image and Raft log keep their persistence barriers.
+
+`NodeWorkspace` is created under an exclusively locked extent inventory whose
+open already completed the ancestor barriers. Creation still syncs the new child
+directory and its parent before returning its owner. Rooted private execution
+validates and retains that exact owner instead of repeating the ancestor walk;
+arbitrary materialized paths establish their own barriers. Child or parent sync
+failure quarantines the inventory and retains the complete reservation until
+recovery. Last-pin cleanup still syncs deletion before refunding capacity.
+Anonymous read-cache directories use ordinary creation because they are rebuilt
+after a crash. Neither those files nor the directory owner supplies an immutable
+image seal, a Raft acknowledgement or recovery authority.
 
 `Db::require_incremental_capture` restricts disposable capture to incremental
 updates after its initial or seeded TXID. A lost WAL continuation or checkpoint

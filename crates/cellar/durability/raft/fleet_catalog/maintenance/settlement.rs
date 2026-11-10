@@ -2,7 +2,7 @@
 
 //! Complete rooted pending work, distinct from live survivor/stop readiness.
 use super::*;
-use cellar_logic::consensus::GroupScope;
+use cellar_logic::cell_group::GroupHistory;
 
 /// Descriptive work at one current root. Memory is bounded to the next birth,
 /// one owned birth action and the active resource book (at most two rows). An empty result proves no
@@ -11,7 +11,7 @@ use cellar_logic::consensus::GroupScope;
 pub struct FleetRestartPendingWork {
     pub observed_revision: u64,
     pub pending_births: u64,
-    pub next_birth: Option<GroupScope>,
+    pub next_birth: Option<GroupHistory>,
     pub active_birth: Option<FleetRestartBirthAction>,
     pub movements: Vec<FleetPendingMovement>,
     pub reservations: Vec<FleetPendingReservation>,
@@ -25,7 +25,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         operation: ProposalId,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetRestartPendingWork> {
         self.check_snapshot(snapshot)?;

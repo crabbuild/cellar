@@ -10,9 +10,11 @@ mod cron;
 mod events;
 mod nodes;
 mod raft;
+mod raft_first_group;
 mod raft_lifecycle;
 mod raft_maintenance;
 mod raft_nodes;
+mod raft_park;
 
 pub use audit::{AuditStore, Operation};
 pub use auth::{Permission, Principal};
@@ -108,6 +110,82 @@ pub fn router(console: Console) -> Result<Router> {
         .route(
             "/fleets/{fleet}/raft/nodes",
             post(raft_nodes::register).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/first-group/standby",
+            get(raft_first_group::standby),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/first-group/reserve",
+            post(raft_first_group::reserve),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/first-group/publish",
+            post(raft_first_group::publish),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/first-group/archive",
+            post(raft_first_group::archive),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/parks/{operation}/{action}",
+            post(raft_park::dispatch).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}",
+            get(raft::transition),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/resume",
+            post(raft::resume_transition).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transition-basis",
+            get(raft::transition_basis),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/admit",
+            post(raft::admit_transition).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/prepare",
+            post(raft::prepare_transition).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/authorize-seal",
+            post(raft::authorize_transition_seal).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/seal-source",
+            post(raft::seal_transition_source).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/retire-source",
+            post(raft::retire_transition_source).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/capture-source",
+            post(raft::capture_transition_source).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/setup-child",
+            post(raft::setup_transition_child).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/verify-archive",
+            post(raft::verify_transition_archive).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/verify-child-archives",
+            post(raft::verify_transition_child_archives).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/publish",
+            post(raft::publish_transition).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/activate",
+            post(raft::activate_transition_child).layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route("/fleets/{fleet}/raft/nodes/{node}", get(raft_nodes::status))
         .route(

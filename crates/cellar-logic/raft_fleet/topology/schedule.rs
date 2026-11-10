@@ -145,7 +145,7 @@ fn materialize(
             peaks[a.target].high_water(add(retained[a.target], model.groups[a.group].peak)?);
         retained[a.target] = add(retained[a.target], model.groups[a.group].resident)?;
         moves.push(ReplicaMove {
-            group: model.groups[a.group].scope.clone(),
+            group: model.groups[a.group].scope,
             source: model.view.nodes[a.source].ledger.scope,
             target: model.view.nodes[a.target].ledger.scope,
             after: i.checked_sub(1),

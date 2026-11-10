@@ -84,6 +84,7 @@ pub use embedded::*;
 #[cfg(not(cellar_internal_tests))]
 pub use ingress::{IngressBody, IngressHandle, IngressResponse};
 mod native;
+mod native_namespace;
 mod native_raft;
 use native::Backend;
 pub use native::{CompiledApplications, NativeDaemon};
@@ -105,15 +106,16 @@ pub struct NodeRaftListeners {
 }
 
 /// Infrastructure handles owned by the embedded node's execution domain. The
-/// host dispatcher consumes events, routes messages and supplies verified image
-/// completions. Transport admission itself is never a write acknowledgement.
-/// Recovered groups remain parked until catalog/bootstrap admission attaches them.
+/// group controller consumes events, routes messages and supplies verified
+/// whole-group manifest completions. Transport admission itself is never a write
+/// acknowledgement. Recovered groups remain parked until their exact catalog
+/// member permit and complete selected root authorize attachment.
 #[doc(hidden)]
 pub struct NodeRaftService {
-    pub log: crate::application::consensus::verification::ReplicaLog,
-    pub runtime: crate::application::consensus::verification::RaftRuntime,
-    pub events: crate::application::consensus::verification::RuntimeEvents,
-    pub transport: crate::application::consensus::verification::RaftTransport,
+    pub log: crate::raft::storage::ReplicaLog,
+    pub runtime: crate::raft::cell_groups::CellGroupRuntime,
+    pub events: crate::raft::cell_groups::CellGroupRuntimeEvents,
+    pub transport: crate::raft::transport::RaftTransport,
 }
 
 /// Let an admitted HTTP request finish, then close the transport even when a
@@ -5159,7 +5161,7 @@ async fn async_main(
         }
     }
     let durability_owner = durability_owner.select();
-    let channels = driver::Channels::install(websocket_rx);
+    let mut channels = driver::Channels::install(websocket_rx);
     // KV large values live in the fleet bucket. The cloneable handle follows
     // the Blob binding's startup pattern, so independent cells issue bucket I/O
     // independently instead of queueing behind one task. Blob I/O takes no
@@ -5185,6 +5187,7 @@ async fn async_main(
             crate::asyncrt::select! {
                 result = raft.start(&app, data_dir.clone(), node.clone(), fleet_bucket.is_some()) => result,
                 _ = supplied_stop => Err(anyhow::anyhow!("Raft startup cancelled by host")),
+                _ = channels.shutdown_rx.recv() => Err(anyhow::anyhow!("Raft startup interrupted by fleet stop")),
                 _ = sigterm.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGTERM")),
                 _ = sigint.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGINT")),
             }

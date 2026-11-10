@@ -33,6 +33,7 @@ pub struct Metrics {
     pub corrupt_read_countdown: AtomicUsize,
     pub create_mode: AtomicUsize,
     pub fail_dir_sync: AtomicBool,
+    pub fail_dir_sync_countdown: AtomicUsize,
     pub fail_remove: AtomicBool,
     pub fail_dir_remove_after: AtomicBool,
     pub refuse_dir_remove_with_handles: AtomicBool,
@@ -304,7 +305,12 @@ impl FileSystem for BoundedFiles {
     fn sync_all(&self, path: &Path) -> io::Result<()> {
         if DirectFileSystem.metadata(path)?.is_dir {
             self.metrics.dir_sync_calls.fetch_add(1, Ordering::AcqRel);
-            if self.metrics.fail_dir_sync.swap(false, Ordering::AcqRel) {
+            let countdown = self.metrics.fail_dir_sync_countdown.fetch_update(
+                Ordering::AcqRel,
+                Ordering::Acquire,
+                |n| n.checked_sub(1),
+            );
+            if self.metrics.fail_dir_sync.swap(false, Ordering::AcqRel) || countdown == Ok(1) {
                 return Err(io::Error::other("injected directory sync failure"));
             }
         }

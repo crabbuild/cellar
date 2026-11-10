@@ -87,7 +87,8 @@ jobs:
           cargo test --locked -p cellar-rpc-codegen -- --test-threads=1
           python3 tools/python/test_bridge_report.py
           python3 -m unittest discover -s tools/perf -p test_python_fleet.py
-          cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings
+          # Keep dead code visible during the cell-group cutover.
+          cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings --force-warn dead_code
           cargo test --locked -p cellar-rpc-qualification --features full -- --test-threads=1
       - name: Finish build writeback before live qualification
         run: |

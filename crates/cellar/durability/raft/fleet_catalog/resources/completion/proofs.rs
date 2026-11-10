@@ -10,6 +10,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         row: &Record,
+        target_boot: &BootBinding,
         quorum: &RaftPeerFleetMembershipObservation,
         target: &RaftPeerNodeObservation,
         sources: &[OwnerClosure],
@@ -33,12 +34,12 @@ impl FleetCatalog {
         if latest != permit.encode().map_err(|_| invalid())?
             || proof.replica().node != row.node
             || proof.replica().member != replacement.member
-            || proof.replica().disk.bytes() != row.request.attestation.boot.disk
-            || proof.replica().process.bytes() != row.request.attestation.boot.process
+            || proof.replica().disk.bytes() != target_boot.disk
+            || proof.replica().process.bytes() != target_boot.process
             || proof.status().binding != *history.binding()
             || proof.birth_digest() != history.birth_digest()
             || proof.schema_digest() != history.schema_digest()
-            || quorum.node().fleet_boot.as_ref() != Some(&row.request.attestation.boot)
+            || quorum.node().fleet_boot.as_ref() != Some(target_boot)
             || status.permit.as_ref() != Some(permit)
             || status.consumed_sequence != permit.sequence()
             || status.phase != Some(FleetPermitPhase::Complete)
@@ -111,16 +112,17 @@ impl FleetCatalog {
                 .as_ref()
                 .ok_or(FleetCatalogError::Unconfirmed)?;
             if !owner.matches(boot)? {
-                return Err(FleetCatalogError::Unconfirmed);
+                self.confirm_retained_movement_source(snapshot, owner, boot)
+                    .await
+                    .map_err(|error| match error {
+                        FleetCatalogError::Conflict => FleetCatalogError::Unconfirmed,
+                        other => other,
+                    })?;
             }
             bindings.push((sample, boot, owner.member));
         }
-        for (sample, boot, member) in std::iter::once((
-            target,
-            &row.request.attestation.boot,
-            replacement.member.get(),
-        ))
-        .chain(bindings)
+        for (sample, boot, member) in
+            std::iter::once((target, target_boot, replacement.member.get())).chain(bindings)
         {
             self.check_movement_physical(
                 snapshot,
@@ -298,7 +300,7 @@ impl FleetCatalog {
             .ok_or(FleetCatalogError::Unconfirmed)?;
         let history = self.history_inner(snapshot, &row.request.group).await?;
         let scope = history.binding().scope().map_err(|_| invalid())?;
-        let physical = inventory.history(&scope).map_err(|_| invalid())?;
+        let physical = inventory.group_history(&scope);
         let matches = match (role, physical) {
             (PhysicalRole::EmptyTarget, None) => true,
             (PhysicalRole::AbortedTarget { .. }, None) => true,

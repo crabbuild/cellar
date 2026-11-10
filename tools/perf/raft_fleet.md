@@ -35,7 +35,11 @@ The bounded JSON policy is the `Config` type in
 `incarnation` and `physical_host`, an alphanumeric/hyphen `owner`, `nodes`,
 `group_capacity`, `image_bytes`, `extent_bytes`, `replay_extent_bytes`,
 `durable_bytes`, `storage`, and the explicit
-`FleetDockerResourcePolicy` under `resources`. Image reservations charge eight
+`FleetDockerResourcePolicy` under `resources`, including required `placement`
+fields `revision`, `distinct_zones`, `distinct_regions` and `max_work`. These
+constraints govern repair before a rooted topology policy exists; omission
+refuses preflight. Rooted physical-host separation is checked independently.
+Image reservations charge eight
 copies per slot. Capacity must cover those reservations and durable overhead.
 The node and replay extent inventories enforce their separate explicit byte
 ceilings. Overhead covers the entire metadata, shared-log and replay filesystems,

@@ -6,7 +6,7 @@ use super::histories::validate_request;
 use super::nodes::NODE_KIND;
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::fleet_stop::BootBinding;
 use crate::raft::host::RaftPeerNodeObservation;
 use crate::raft::inspection::RaftNodeProfile;
@@ -195,6 +195,47 @@ impl FleetCapacityAuthorization {
 }
 
 impl FleetCatalog {
+    // Content-addressed advisory metadata. The rooted capacity digest, current
+    // boot and live inventory remain mandatory; this object grants no authority.
+    pub(super) async fn retain_capacity_profile(&self, profile: &RaftNodeProfile) -> Result<()> {
+        let digest = fleet_capacity_profile_digest(profile)?;
+        let bytes = encode(
+            241,
+            &crate::raft::inspection_wire::Profile::from(profile),
+            4096,
+        )?;
+        self.inner
+            .create_exact(
+                &format!("capacity-profiles/{}", hex::encode(digest)),
+                &bytes,
+                4096,
+            )
+            .await
+    }
+
+    pub(super) async fn capacity_profile(
+        &self,
+        attestation: &FleetCapacityAttestation,
+    ) -> Result<RaftNodeProfile> {
+        let (profile, _) = self
+            .inner
+            .read::<crate::raft::inspection_wire::Profile>(
+                &format!(
+                    "capacity-profiles/{}",
+                    hex::encode(attestation.profile_digest)
+                ),
+                241,
+                4096,
+            )
+            .await?
+            .ok_or(FleetCatalogError::InventoryIncomplete)?;
+        let profile = profile.into();
+        if fleet_capacity_profile_digest(&profile)? != attestation.profile_digest {
+            return Err(FleetCatalogError::Corrupt("capacity placement profile"));
+        }
+        Ok(profile)
+    }
+
     /// Own the authenticated probe and complete inventory scan; caller-built or
     /// deserialized observation values cannot substitute for either. Exact
     /// committed retries reconcile before live inputs, with no hidden CAS retry.
@@ -203,7 +244,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetCapacityRequest,
         observer: &RaftCells,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetCapacityAdmission> {
         self.check_snapshot(snapshot)?;
@@ -282,6 +323,8 @@ impl FleetCatalog {
         deadline.remaining()?;
         check_observation(&target, &request.attestation, &observation)?;
         self.run(deadline.remaining()?, async {
+            self.retain_capacity_profile(&observation.view.node.profile)
+                .await?;
             if self.inner.current().await?.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
             }

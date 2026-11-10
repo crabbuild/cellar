@@ -2,16 +2,15 @@
 //! only ordered, committed changes can consume or fence a permit sequence.
 use super::*;
 use ::raft::prelude::ConfChangeSingle;
-use cellar_logic::consensus::{
-    ClusterId, GroupId, GroupScope, IncarnationId, NamespaceId, ProposalId,
-};
+use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::consensus::{ClusterId, GroupId, IncarnationId, NamespaceId, ProposalId};
 use sha2::{Digest, Sha256};
 
 #[cfg(test)]
 #[path = "member_fleet_tests.rs"]
 mod tests;
 
-/// Exact fleet and cell-history identity. Encoding this descriptor does not
+/// Exact fleet and physical group-history identity. Encoding this descriptor does not
 /// enroll a group; enrollment requires a rooted catalog authorization.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,7 +19,6 @@ pub struct FleetGroupBinding {
     catalog: [u8; 32],
     cluster: [u8; 16],
     namespace: [u8; 16],
-    cell: String,
     group: [u8; 16],
     incarnation: [u8; 16],
 }
@@ -28,10 +26,9 @@ pub struct FleetGroupBinding {
 impl FleetGroupBinding {
     pub fn new(
         fleet: IncarnationId,
-        scope: &GroupScope,
+        scope: &GroupHistory,
         catalog: [u8; 32],
     ) -> Result<Self, LogError> {
-        scope.validate().map_err(|_| invalid())?;
         if catalog == [0; 32] {
             return Err(invalid());
         }
@@ -40,7 +37,6 @@ impl FleetGroupBinding {
             catalog,
             cluster: scope.cluster.bytes(),
             namespace: scope.namespace.bytes(),
-            cell: scope.cell.clone(),
             group: scope.group.bytes(),
             incarnation: scope.incarnation.bytes(),
         })
@@ -54,12 +50,11 @@ impl FleetGroupBinding {
         self.catalog
     }
 
-    pub fn scope(&self) -> Result<GroupScope, LogError> {
+    pub fn scope(&self) -> Result<GroupHistory, LogError> {
         self.validate()?;
-        Ok(GroupScope {
+        Ok(GroupHistory {
             cluster: ClusterId::new(self.cluster).map_err(|_| invalid())?,
             namespace: NamespaceId::new(self.namespace).map_err(|_| invalid())?,
-            cell: self.cell.clone(),
             group: GroupId::new(self.group).map_err(|_| invalid())?,
             incarnation: IncarnationId::new(self.incarnation).map_err(|_| invalid())?,
         })
@@ -68,11 +63,11 @@ impl FleetGroupBinding {
     pub fn key(&self) -> Result<String, LogError> {
         self.validate()?;
         let bytes = serde_json::to_vec(&(
+            "cellar-cell-group-fleet-binding-1",
             self.fleet,
             self.catalog,
             self.cluster,
             self.namespace,
-            &self.cell,
             self.group,
             self.incarnation,
         ))
@@ -94,16 +89,16 @@ impl FleetGroupBinding {
         NamespaceId::new(self.namespace).map_err(|_| invalid())?;
         GroupId::new(self.group).map_err(|_| invalid())?;
         IncarnationId::new(self.incarnation).map_err(|_| invalid())?;
-        if !cellar_logic::cell::valid_cell_scope(&self.cell) {
-            return Err(invalid());
-        }
         Ok(())
     }
 
-    pub(crate) fn matches_scope(&self, scope: &GroupScope) -> bool {
+    pub(crate) fn matches_scope<S>(&self, scope: &S) -> bool
+    where
+        for<'a> GroupHistory: From<&'a S>,
+    {
+        let scope = GroupHistory::from(scope);
         self.cluster == scope.cluster.bytes()
             && self.namespace == scope.namespace.bytes()
-            && self.cell == scope.cell
             && self.group == scope.group.bytes()
             && self.incarnation == scope.incarnation.bytes()
     }
@@ -374,6 +369,23 @@ impl GroupMembership {
         Ok(initial)
     }
 
+    /// A non-serving seed base preserves whether the source was fleet guarded
+    /// at genesis or enrolled later. The real full snapshot must still succeed
+    /// this base; this projection grants no startup or membership authority.
+    pub(crate) fn seed_initial(&self, conf: &ConfState) -> Result<Self, LogError> {
+        let initial = Self::initial(conf);
+        if !self.same_birth(&initial) {
+            return Err(invalid());
+        }
+        match &self.fleet {
+            Some(state) => match state.origin {
+                EnrollmentOrigin::Genesis => Self::managed_initial(conf, state.binding.clone()),
+                EnrollmentOrigin::Committed => Ok(initial),
+            },
+            None => Ok(initial),
+        }
+    }
+
     pub fn fleet_status(&self) -> Option<FleetMembershipStatus> {
         self.fleet.as_ref().map(|state| FleetMembershipStatus {
             binding: state.binding.clone(),
@@ -462,7 +474,10 @@ impl GroupMembership {
         )
     }
 
-    pub(crate) fn validate_scope(&self, scope: &GroupScope) -> Result<(), LogError> {
+    pub(crate) fn validate_scope<S>(&self, scope: &S) -> Result<(), LogError>
+    where
+        for<'a> GroupHistory: From<&'a S>,
+    {
         if self
             .fleet
             .as_ref()
@@ -473,12 +488,15 @@ impl GroupMembership {
         Ok(())
     }
 
-    pub(crate) fn admit_scoped(
+    pub(crate) fn admit_scoped<S>(
         &self,
         change: &ConfChangeV2,
         conf: &ConfState,
-        scope: &GroupScope,
-    ) -> Result<(), LogError> {
+        scope: &S,
+    ) -> Result<(), LogError>
+    where
+        for<'a> GroupHistory: From<&'a S>,
+    {
         self.validate_scope(scope)?;
         let binding = match self.intent(change)?.fleet {
             Some(FleetIntent::Enroll { binding }) => Some(binding),

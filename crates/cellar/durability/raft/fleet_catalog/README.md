@@ -96,6 +96,13 @@ mutation, bounded to 10,000 entries without a per-birth full inventory scan.
 Each record is at most 4 KiB. The initial references describe genesis, never
 current membership or absence from a node.
 
+Managed ingress uses the current rooted, settled membership journal to locate
+replacement voters. Each candidate still supplies an authenticated fresh-quorum
+observation before installing an advisory route. Unsettled or untracked placement
+retains bounded discovery; corrupt metadata refuses. A cold router can refresh
+its first read or write within the original request deadline after every birth
+voter has retired. Healthy cached routes do not require foreground catalog I/O.
+
 `resolve_managed_birth` writes only the reserved decision and checks its exact
 winner. `cancel_managed_birth` competes at that same immutable name key.
 `confirm_birth` observes the exact winner and commits its disposition in the
@@ -152,6 +159,107 @@ roots, fresh namespaces, fresh engine directories and matching binaries. Fleet h
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
 Numeric format markers remain 1.
+
+## Automatic group sizing and placement
+
+Set `RaftHostOptions::automatic_partitions` to explicit
+`RaftFleetAutomaticPartitionOptions` on managed voters. This starts the standard
+RF3 planner and existing transition worker with the node, using compiled
+namespaces and their rooted class declarations. Applications supply sizing,
+placement, execution and recovery policies; they supply no child identities or
+placement callback. `Complete` explicitly consents to irreversible execution.
+The node owns startup failure cleanup, stop and joined shutdown.
+
+The planner discovers Active capacity-qualified nodes in the declared pool.
+Qualification and retained resume persist immutable profile descriptions pinned
+by the existing capacity digest. Missing or mismatched descriptions refuse
+planning. At most six selected nodes receive physical inventory requests per
+attempt. The planner includes unmaterialized reservations, retained sources,
+resource floors, installed limits and separation constraints. It allocates both
+split children together and retains the configured aggregate recovery slots.
+Empty destinations win equal-load ties before sharing retained source nodes.
+Candidate ranking includes each selected parent's rooted settled voter occupancy,
+including births that followed capacity qualification. A zero resource floor
+therefore cannot make an occupied parent appear empty. The six live probes still
+revalidate complete physical occupancy and available capacity.
+Selection remains advisory; existing admission and seal owners revalidate it.
+
+Sampling rotates over locally hosted active groups and their immediate right
+neighbors. An immutable directory seek verifies the selected anchor and adjacency
+through bounded tree paths. Each local group retains at most one remote neighbor;
+the scheduler charges 64 KiB per configured local group plus 64 KiB fixed metadata
+for both tracker sets. One turn samples one local group and at most one neighbor,
+without enumerating all namespace ranges or cells.
+Active-owner inventory is indexed by namespace under the roster's existing slot
+owner. A scoped generation changes on activation, retirement or quarantine;
+unrelated namespaces leave that cut valid. Changes rebuild the complete local
+cut in pages of at most sixteen histories, one page per service turn. Partial
+cuts cannot select work, and the complete configured group bound still refuses
+overflow before returning a favored prefix. Stable turns reuse an immutable cut
+instead of walking the roster. Empty namespace entries are removed; a fresh
+generation prevents a removed-and-returned owner from reusing an old cursor.
+Status exposes copied inventory pages, complete local groups and retained tracker
+counts without per-cell labels. These remain advisory counters, not authority.
+Service turns can run faster to resume durable operations, but repeated sampling
+within the policy interval performs no catalog or peer-inspection work for that
+group. This prevents fast service polling from flooding leader inspection and
+discarding neighbor hysteresis on retryable overload.
+
+For a remote-only neighbor, the current Fleet root locates three settled voters.
+An authenticated quorum observation identifies the actual leader, whose counters
+and geometry arrive through the existing purpose-bound inspection RPC. A cached
+leader only selects the first target; a failed target falls back to the three
+settled voters within the original turn deadline. Rate calculation uses that
+owner's counter clock; freshness and cooldown use receiver-local request-start
+time. A new policy sample requires a complete interval on both clocks, so RPC
+jitter cannot clear hysteresis with an early receiver sample. Different leader
+clocks are never compared. Failed remote telemetry clears
+its merge history. Adjacent groups on disjoint voter sets can use the same
+archive-backed merge protocol; admission still revalidates both source quorums,
+routes, placement and recovery capacity.
+Configured whole-group balancing uses the controller described below.
+
+`RaftCells::partition_service_status` reports bounded progress, failures and
+remote sample counts. `suspend_automatic_partitions` joins the configured owner;
+`resume_automatic_partitions` rebuilds it from configuration and restores rooted
+work before planning. Identity and physical debt remain with their journals.
+Replay shares the existing private archive inventory, archive/checkpoint/tail
+pools and bounded scratch. The configured recovery memory quota is included in
+the reported startup buffer bound. No separate verifier inventory is opened.
+CPU-only scheduling hints remain outside the built-in planner; it uses the
+measured group bytes, cell count, write/apply rates, queues and archive lag.
+
+The required Fleet inspection fields add `/partition-placement-1` to the
+protocol digest. Use fresh namespaces, fleet roots and engine directories with
+matching binaries. Numeric markers remain 1; there is no earlier-format reader.
+
+## Cancelling selected partition work
+
+`RaftFleetControl::cancel_staged_partition` and
+`RaftFleetPartitionScheduler::cancel_pending` cancel a rooted request before
+managed transition admission. One root CAS selects a permanent operation fence
+and protects its existing reserved children. A delayed child reservation or
+transition admission loses its original root CAS; a fresh attempt still observes
+the fence. Exact historical receipts remain readable. Proposed children belonging
+to another operation are neither fenced nor cancelled.
+
+The original namespace birth-decision key arbitrates cancellation against a
+saved birth capability. The cursor clears only after every owned child has a
+permanent cancellation winner. Unknown replies retain the original work, and a
+cold scheduler or node-owned partition service resumes it before admission or
+planning. A live birth winner refuses completion and retains the fenced cursor;
+existing admitted transitions require their pre-seal transition cancellation
+owner. Reserved histories, identity references and physical charges remain.
+The existing restart settlement owner may later reconcile a proved Cancelled
+birth without changing its metadata or claiming physical release.
+`RangeDirectory::fleet_group_birth_disposition` observes the exact immutable
+Live or Cancelled winner for a managed reservation, including an unselected
+child. An absent decision is only an observation; it grants no materialization,
+serving or resource-release authority.
+
+This adds `/partition-cancellation-1` to the immutable protocol digest. Numeric
+markers remain 1. Use fresh namespaces, fleet roots, engine directories and
+matching binaries; older binaries cannot attach and ignore the new fences.
 
 ## Inventory-consuming evacuation admission
 
@@ -295,33 +403,14 @@ archive, settle permits and fence or join physical work. Cold canonical-empty
 histories use explicit empty archives; the terminal verifier must select and
 verify their exact history-bound set rather than waive the archive gate.
 
-`CellArchive::verify_published_at(reference, minimum, verifier, timeout)` now
-provides that archive sub-proof. It downloads the exact selected immutable set,
-checks complete coverage of the fixed `FleetPublishedCut`, physically replays the
-SQL image or verifies canonical-empty state, and reclaims the exclusive scratch
-generations before returning an opaque `VerifiedArchiveCoverage`. Metadata-only
-reads cannot mint it. Missing/corrupt selected material never falls back to a
-newer mutable head. Failed replay quarantines the verifier until its storage
-owner recovers it.
-
-The proof binds the fleet/catalog/history, birth/schema, membership revision,
-archive reference, applied position, original image-publication position and image state. It handles protocol-only
-progress and intact-restore aliases, while a changed configuration requires a
-new attempt. The manifest requires `image_position`: populated state has a
-bounded non-null publication origin, canonical-empty state has explicit null,
-and tail replay refuses an origin preceding its last data entry. A full snapshot
-does not manufacture a later SQL publication position. An old archive cannot cover later data, and a later no-op cannot
-make a conflicting earlier SQL image appear current. One original deadline
-covers object reads, workspace waiting, replay and delivery; completed work
-cannot issue a proof after expiry. Blocking work retains its inputs until its
-execution owner joins it. The caller owns scratch storage and admission for the
-configured recovery-memory bound.
-
-This is historical archive coverage. Candidate preparation consumes this proof
-with complete inventory, quorum publications and exact permit settlement as
-described below. The terminal removal API combines that coverage with renewed
-survivor proofs and exact signed closure before its atomic receipt/node/slot CAS.
-Business-write acknowledgement calls none of this metadata work.
+Managed evacuation uses `FleetGroupArchiveVerifier` to reopen the exact
+history's archive and replay its selected checkpoint and tail into independent
+scratch storage. The resulting complete root covers the fixed
+`FleetPublishedCut`. A missing or corrupt object prevents proof delivery.
+Candidate preparation also needs complete inventory, quorum publications and
+exact permit settlement. Terminal removal combines archive coverage with
+renewed survivor proofs and signed closure before the atomic receipt, node and
+slot update. Business-write acknowledgement runs independently of this work.
 
 The opaque response includes the installed node enrollment and whole invocation
 age through SDK delivery. Per-node and per-peer 1 MiB transport reservations cover
@@ -572,6 +661,14 @@ The receiver independently checks those current rooted values, current settled
 placement and original-member identity, then invokes the existing guarded
 registration and initial-member pipeline. An imported birth, dynamic member,
 retired slot or claimed blank engine cannot grant fresh genesis.
+
+Live voting verification divides its remaining observation budget among the
+unobserved members and final validation. A lost read-only membership reply can
+therefore return Unavailable before consuming the complete turn. The pending
+history remains unverified; the owning walk must obtain all three fresh safe
+ReadIndex/durable-apply observations again. Root-input, boot, configuration and
+proof-age checks remain mandatory. This allocation extends no deadline and
+introduces no mutation retry or stale-proof fallback.
 
 The shared fleet action lane now carries explicit Movement and RestartGenesis
 variants. Their receiving authorities remain separate; a movement permit cannot
@@ -832,8 +929,23 @@ origin, including an origin with no business groups. Each invocation obtains
 fresh safe-ReadIndex progress from a current leader and performs at most one
 learner activation and one configuration action, or one terminal settlement CAS.
 Leader discovery has at most four pinned candidates and a 500-ms budget per
-probe under the original operation deadline. Missing or changed boots never
-supply a replacement identity. A minority remains unconfirmed.
+probe under the original operation deadline. A minority remains unconfirmed.
+
+A replacement that reopens its retained disk and engine can finish a committed
+joint move under a newer rooted boot. It must qualify capacity again for the
+same profile revision. Fresh membership must prove the exact Joint or Complete
+permit. The original reservation, peak charge and permit stay rooted through
+restart. Completion checks current target inventory and original seed-owner
+closure before it releases the active charge and advances the physical floor.
+Starting a move, seeding and promotion still require their original boot grants.
+
+An original voter can finish or attest closure after the same kind of retained
+restart. Before ordinary startup replaces its rooted boot, the catalog preserves
+the exact boot binding if an active move pins its digest. This immutable record
+lets execution match the current qualified engine against the admission.
+Settlement still requires the original membership sequence and an authenticated
+physical observation with seed work joined. Fenced and aborted settlement
+continues to require exact admitted boot evidence.
 
 The receiving process independently resolves the current active reservation,
 resource digest, live history and exact rooted membership permit. It validates
@@ -880,11 +992,24 @@ generic mutations cannot erase the receipt, clear quarantine or change its boot.
 A lost confirmation reconciles the exact original journal before current live
 prerequisites. Changed evidence under the same request identity conflicts.
 
+Shared-host startup checks the current host authorization together with namespace
+declarations against one rooted cut before opening the mutable Raft engine. A
+saved pre-isolation capability therefore refuses without changing an already
+quarantined engine. This is an early refusal check, not a disk fence against a
+concurrent platform action: the later engine-bound boot CAS still rechecks current
+authority before publishing endpoints or attaching groups.
+
 A resource-backed repair can pin the quarantined obsolete voter while obtaining
 fresh quorum from surviving voters. Route construction omits only an explicitly
 quarantined endpoint; placement validation still uses the full durable membership,
 including that voter's node and failure domain. Raft configuration and quorum
 thresholds do not change until the membership protocol commits them.
+
+Shared physical route refresh also removes explicitly quarantined initial
+endpoints when membership is otherwise unchanged. Keeping such an endpoint would
+make the refreshed route fail trust validation and prevent an admitted learner
+from receiving its seed. Missing discovery or an unreachable surviving voter does
+not establish isolation and cannot supply its settlement closure.
 
 Successful movement completion can substitute the admitted isolation proof only
 for the exact original obsolete boot, after fresh target quorum proves that
@@ -1463,7 +1588,10 @@ the durable handoff; neither a timeout nor Unavailable can evict a voter.
 
 `start_failure_recovery_service(observer, movement_evidence, repair_evidence,
 platform, options, recovery)` uses the same exclusive Node-owned worker and
-existing probe bounds. It is explicitly enabled and default-off. Installing
+existing probe bounds. It is explicitly enabled and default-off. The worker
+must have an exact rooted boot whose state permits admitted movement actions.
+Each recovery turn revalidates that authority before changing the catalog or
+calling the platform. Installing
 `FleetFailureRecoveryPlatform` authorizes permanent isolation of a failed boot;
 operators must select and authenticate that deployment integration.
 `FleetDockerIsolation` supplies a Linux Docker/Colima adapter for exclusively
@@ -1483,16 +1611,19 @@ occupancy and a single Engine memory sample under a five-second ceiling. It
 checks the exact CPU/memory/swap limits and live boot before and after sampling,
 charges memory cache, and retains a digest-addressed evidence object. Missing
 measurements or a changed boot/profile refuse admission. Construction requires
-`FleetDockerResourcePolicy`: explicit non-group disk overhead, resident and peak
-copy/seed/worker bounds, and headroom. Those disk bounds must be enforced by the
+`FleetDockerResourcePolicy`: explicit repair `placement` constraints, non-group
+disk overhead, resident and peak copy/seed/worker bounds, and headroom. Those disk bounds must be enforced by the
 deployment; they are not inferred from Engine block-I/O counters or a filesystem
 scan. This homogeneous-policy provider covers Ready/Active recovery targets;
 departure/return settlement still needs its own retained evidence. Complete
 deployment wiring and resource-limit qualification remain separate gates.
-`FleetFailureRecoveryOptions` supplies detection bounds plus an explicit LTX host,
-archive verifier and archive limits. The embedding runtime owns the verifier's
-private scratch store and disk/memory admission, including extent storage when
-required by its namespace. Startup validates both detection and archive bounds.
+`FleetFailureRecoveryOptions` supplies detection bounds and an explicit
+`FleetGroupArchiveVerifier`. The embedding runtime owns its private image/page
+inventories and shared checkpoint, archive, tail and scratch admission, including
+extent storage when required by its namespace. Receiver setup creates and syncs
+the private spool directory on the execution domain before materialized image
+replay. Startup validates both detection and archive bounds. Serving image pins
+cannot replace physical archive verification.
 
 The worker first advances due admitted movements. During their retry/backoff
 windows it collects direct failure observations and complete namespace handles,
@@ -1545,6 +1676,16 @@ slot; it cannot release that newer operation or authorize data deletion.
 VerifyingRemoval and Removed, with checked/total history counts and the confirmed
 terminal revision. Only Removed follows an accepted terminal receipt. Status
 grants no current health lease; observation timestamps remain local.
+
+Catalog turns box their work before constructing the turn future, keeping large
+replay state out of enclosing poll frames before object-store HTTP calls.
+Control turns, recovery/removal phases and complete live verification retain
+boxed futures under the existing worker admission, stop owner and original
+deadline. This bounds nested poll-frame stack use without increasing the
+worker stack or changing failure grace. Receiver rejection returns its typed
+checkpoint failure after joining the consumer, rather than hiding it behind a
+closed-channel message. An archive outage retains the intent and disruption;
+controller restart repeats physical replay before finalization/removal.
 
 The SDK handoff includes the opt-in Docker/Colima isolation adapter described
 above. Simultaneous-failure policy, deployment startup integration and deployed fleet
@@ -1626,3 +1767,96 @@ node operation. The exact-boot monitor above supplies failure classifications;
 the automatic SDK handoff above composes it with failure admission. A production
 isolation provider, simultaneous-isolation policy, lifecycle CLI
 integration and deployed scale/performance qualification remain open.
+
+## Configured whole-group topology
+
+Set `RaftHostOptions::automatic_topology` to explicit
+`FleetAutomaticTopologyOptions` on a managed node. The standard controller
+collects qualified fleet nodes and complete shared-group inventory, selects
+eligible destinations, and roots its own immutable topology operation. It moves
+whole replicas through the existing learner, Joint and removal executor. Cell
+identities, SQLite histories and directory assignments remain unchanged. This
+is fleet-wide equal-copy balancing; workload-weighted placement is separate.
+
+Supply conservative `resident` and `peak` bounds for every compiled namespace,
+and explicit additional per-node `reserve`. Even a zero additional reserve
+requires the unchanged planner's complete RF3 restoration witness for every
+kept-node loss. Current physical inventories, retained copies, installed limits
+and rooted resource floors are checked independently. Missing capacity or proof
+refuses admission. A newly registered, unqualified spare supplies no capacity;
+a missing live voter's evidence still blocks verification.
+
+Managed startup installs the controller before capacity qualification finishes.
+It remains in `OriginUnqualified` until its exact installed boot is Active with
+matching activated capacity; it cannot create intents or execute moves during
+that interval. A replaced boot cannot satisfy this gate.
+
+The controller waits for unresolved births and node disruptions. It records a
+new desired operation after relevant node, history or admission changes. It
+retains the exact operation across controller replacement and does not append
+empty operations for unchanged completed input. Changes to its own eligible
+node set cancel the old definition through the ordinary durable fence before
+re-planning. An operator's governing topology takes precedence over automatic
+selection; its existing explicit intent can still be executed by this worker.
+A principal label does not distinguish modes. Use
+`FleetAutomaticTopologyOptions::intent` and the existing `begin_topology` API
+for an explicit handover back to automatic policy. Retain the complete generated
+request for exact retries after an unknown mutation outcome.
+
+Partition and transition workers back off successful turns that make no progress,
+using the same configured maximum as retry backoff. A new operation, journal
+phase, local child step or archive initialization restores the base interval;
+inventory-page assembly also counts as partition progress. Quiet voters and
+spares therefore reduce metadata polling while another node owns entered work.
+Failure counters retain their existing meaning, and no RPC deadline is extended.
+
+Automatic partition placement inspects at most nine ranked nodes per decision.
+This window includes two RF3 children and three recovery slots even when each
+candidate has only one free slot. The pure selector and physical adapter share
+that bound. Each observation retains its SDK response permit through the owned
+planning turn, including cancellation; the planner charges 64 KiB separately for
+map/projection metadata. This avoids reserving the same response twice and keeps
+the window inside the existing control-memory limit. A stale or infeasible window
+still refuses, and physical/memory/byte limits remain unchanged.
+
+Optional `FleetAutomaticRecoveryOptions` installs the permanent exact-boot
+fencing contract and the existing failure-recovery executor in the same worker.
+Detection alone never proves isolation. Managed startup binds replay to the
+actual node's private image inventories and existing archive pools. Admitted
+movements and fenced recovery take priority over new balance collection.
+
+Before a governing topology policy exists, isolated repair uses the explicit
+`FleetIsolatedRepairInputs::policy`; configured recovery supplies the controller's
+zone/region policy. It never defaults to weaker separation. A governing rooted
+operator policy still takes precedence, and rooted physical-host separation is
+checked independently.
+
+Repeated unavailable-boot observations may cancel the controller's own automatic
+balance through its ordinary durable no-new-movement fence. They cannot cancel
+an operator intent or certify isolation. A cancelling intent permits only the
+private exact-boot failure admission to claim the disruption slot; admitted
+movements retain their permits and resource charges. Cancellation completes only
+after those debits settle. Platform isolation remains mandatory before repair,
+and controller replacement recovers the same permanent failure operation.
+Completed exact-boot observations retain their grace across unrelated planning
+errors. A failed or cancelled observation turn clears that history; sample age
+still expires while the worker makes no observation progress.
+
+A retained voter may return while another voter is permanently isolated. Startup
+verifies that peer's exact root-admitted isolation receipt under the existing
+directory deadline, then omits its transport endpoint. The full durable voting
+configuration remains unchanged; quorum still requires its original majority.
+An unreachable peer, an unverified isolation flag or a missing endpoint supplies
+no exception, and fresh genesis cannot use retained-route omissions.
+
+The node's sole movement-worker slot also performs explicitly enabled removed
+member cleanup. Configuring `member_cleanup` alongside automatic topology joins
+that work into this owner rather than starting a second worker. The worker
+retains two MiB of control admission; collection has its own bounded reservations.
+Co-hosted partition control must have the declared combined headroom. Defaults
+and physical resource limits are not raised to admit configuration.
+
+`RaftCells::automatic_topology_status` exposes diagnostic movement, topology and
+recovery progress. `suspend_automatic_topology` joins the configured worker;
+`resume_automatic_topology` rebuilds it from stored configuration. Neither call
+cancels durable intent, grants membership authority or releases physical debt.

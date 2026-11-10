@@ -20,7 +20,10 @@ fn config() -> RaftCellsConfig {
             transport: Default::default(),
         },
         catalog: Default::default(),
-        cells: vec![],
+        namespaces: vec![],
+        groups: vec![],
+        command_origins: vec![],
+        shared: crate::raft::group_host::test_support::limits(),
         peers: vec![],
         query_origins: vec![],
         host: Default::default(),
@@ -158,31 +161,18 @@ fn extent_profile_refuses_inadequate_shared_inventory() {
 #[test]
 fn extent_profile_requires_an_explicit_namespace_choice() {
     let mut configured = config();
-    let scope = GroupScope {
-        cluster: ClusterId::new([1; 16]).unwrap(),
-        namespace: NamespaceId::new([2; 16]).unwrap(),
-        cell: "Counter:policy".into(),
-        group: GroupId::new([4; 16]).unwrap(),
-        incarnation: IncarnationId::new([5; 16]).unwrap(),
-    };
-    configured.cells.push(RaftCellRegistration {
-        placement: RaftCellPlacement::Replica,
-        namespace: NamespaceConfig::new(
-            scope.cluster,
-            scope.namespace,
-            cellar_logic::NamespaceMode::Raft,
-            [6; 32],
-        ),
-        class: "Counter".into(),
-        birth: BirthProposal {
-            scope,
-            voters: vec![InitialMember {
-                member: MemberId::new(1).unwrap(),
-                node: NodeId::new([1; 16]).unwrap(),
-            }],
-            learners: vec![],
-        },
-    });
+    configured
+        .namespaces
+        .push(crate::raft::group_host::RaftNamespaceConfig {
+            namespace: NamespaceConfig::new(
+                cellar_logic::consensus::ClusterId::new([1; 16]).unwrap(),
+                cellar_logic::consensus::NamespaceId::new([2; 16]).unwrap(),
+                cellar_logic::NamespaceMode::Raft,
+                [6; 32],
+            ),
+            class: "Counter".into(),
+            initialize: None,
+        });
     assert!(configured
         .with_extent_image_limit(10_000_000_000, Default::default())
         .is_err());

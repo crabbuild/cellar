@@ -24,7 +24,7 @@ def fixture(adapter='raft', durability='s3'):
     profile = read_json(Path(__file__).with_name('raft_profiles.json'))['profiles']['local-q0-s3']
     profile['timing']['measurement_seconds'] = 1
     profile['timing']['warmup_seconds'] = 0
-    profile['cells'] = {'total': 1, 'active': 1}
+    profile['cells'] = {'total': 1, 'active': 1, 'per_group': 32}
     profile['read_fraction'] = 0
     if adapter != 'raft':
         profile = effective_profile(profile, adapter)

@@ -104,6 +104,10 @@ fn maintenance_reopens_application_without_resetting_permanent_shutdown() {
     gate.seal_raft(&selector).unwrap();
     admission.barrier().unwrap();
     assert!(matches!(
+        admission.registration_reason(Access::Application),
+        Err(RegistrationRefusal::Maintenance)
+    ));
+    assert!(matches!(
         admission.registration(Access::Application),
         Err(CommandFailure::Unavailable)
     ));
@@ -120,6 +124,10 @@ fn maintenance_reopens_application_without_resetting_permanent_shutdown() {
     admission.seal().unwrap();
     gate.fence(&next).unwrap();
     assert!(admission.is_draining());
+    assert!(matches!(
+        admission.registration_reason(Access::Application),
+        Err(RegistrationRefusal::Closed)
+    ));
     assert!(admission.application_paused());
     assert!(!admission.maintenance_paused());
     assert!(matches!(

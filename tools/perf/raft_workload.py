@@ -219,12 +219,14 @@ def reconcile(path, *, resolutions=()):
                 invocation = seeds.pop(cell)
                 expected, changed = model(None, invocation['input'])
                 reply = event['response']
-                if event['status'] != 200 or reply['state'] != expected or reply['changed'] != changed:
+                if (event['status'] != 200 or reply['state'] != expected or reply['changed'] != changed
+                        or reply['cell'] != f'Workload:{cell}' or reply['sequence'] != 2):
                     raise ValueError('seed result mismatch')
                 states[cell] = {'state': expected, 'index': reply['index'], 'next_sequence': 2,
                                 'client': invocation['command_id'].split(':')[0], 'group': reply['group'],
-                                'incarnation': reply['incarnation'], 'durability': reply['durability'],
-                                'version_token': reply['version_token'], 'prefixes': {json.dumps(expected, sort_keys=True)}}
+                                'incarnation': reply['incarnation'], 'group_incarnation': reply['group_incarnation'],
+                                'cell': reply['cell'], 'sequence': reply['sequence'], 'durability': reply['durability'],
+                                'version_token': reply['version_token'], 'prefixes': {reply['sequence']: json.dumps(expected, sort_keys=True)}}
                 commands += 1
             elif kind in ('invoke', 'reject'):
                 key = event['id']
@@ -263,25 +265,27 @@ def reconcile(path, *, resolutions=()):
                 if event['outcome'] != 'completed':
                     raise ValueError('successful response outcome mismatch')
                 reply = event['response']
-                if reply['group'] != current['group'] or reply['incarnation'] != current['incarnation']:
+                if any(reply[key] != current[key] for key in ('cell', 'group', 'group_incarnation', 'incarnation')):
                     raise ValueError('wrong history scope')
                 if event['operation'] == 'command':
                     expected, changed = model(current['state'], invocation['input'])
                     if (invocation['command_id'] != f"{current['client']}:{current['next_sequence']}" or
                             reply['state'] != expected or reply['changed'] != changed or
-                            reply['index'] <= current['index'] or reply['durability'] != current['durability']):
+                            reply['index'] <= current['index'] or reply['sequence'] != current['sequence'] + 1
+                            or reply['durability'] != current['durability']):
                         raise ValueError('command sequence, transition or durability mismatch')
-                    current.update(state=expected, index=reply['index'], version_token=reply['version_token'], next_sequence=current['next_sequence']+1)
-                    current['prefixes'].add(json.dumps(expected, sort_keys=True))
+                    current.update(state=expected, index=reply['index'], sequence=reply['sequence'], version_token=reply['version_token'], next_sequence=current['next_sequence']+1)
+                    current['prefixes'][reply['sequence']] = json.dumps(expected, sort_keys=True)
                     commands += 1
                 else:
                     consistency = invocation['input']['consistency']
                     if consistency in ('at-least', 'linearizable'):
-                        if reply['state'] != current['state'] or reply['index'] < current['index']:
+                        if (reply['state'] != current['state'] or reply['index'] < current['index']
+                                or reply['sequence'] != current['sequence']):
                             raise ValueError('query does not cover preceding write')
                         if consistency == 'at-least' and invocation['min_version'] != current['version_token']:
                             raise ValueError('query minimum token mismatch')
-                    elif json.dumps(reply['state'], sort_keys=True) not in current['prefixes']:
+                    elif current['prefixes'].get(reply['sequence']) != json.dumps(reply['state'], sort_keys=True):
                         raise ValueError('stale query is not an acknowledged prefix')
                     queries += 1
             else:

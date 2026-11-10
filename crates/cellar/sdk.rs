@@ -186,7 +186,9 @@
 //! ```
 pub use crate::actor::{Actor, ActorIdentity, ActorOptions, ActorServices};
 pub use crate::application::consensus::{
-    CommandContext, OperationContract, OperationKind, QueryContext, RaftClass, RegistrationError,
+    CellGroupPartitionCell, CellGroupPartitionContext, CellGroupPartitionObservation,
+    CellGroupPartitionWriter, CellGroupWorkload, CommandContext, OperationContract, OperationKind,
+    QueryContext, QueryVersion, RaftClass, RegistrationError,
 };
 pub use crate::application::filesystem::FilesystemLimits;
 pub use crate::application::limits::{
@@ -197,21 +199,53 @@ pub use crate::application::*;
 pub mod fleet_operations {
     pub use crate::management::{
         FleetRestartService, FleetRestartServiceOptions, FleetRestartServiceStatus,
-        RaftFleetAcceptance, RaftFleetBegin, RaftFleetBirthResolution, RaftFleetCancel,
-        RaftFleetCapacityAttestation, RaftFleetConnection, RaftFleetControl,
-        RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
-        RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetFailure,
-        RaftFleetFailureCode, RaftFleetMaintenanceAcceptance, RaftFleetMaintenanceAction,
+        RaftFleetAcceptance, RaftFleetAutomaticPartitionOptions, RaftFleetBegin,
+        RaftFleetBirthResolution, RaftFleetCancel, RaftFleetCapacityAttestation,
+        RaftFleetConnection, RaftFleetControl, RaftFleetEvacuationAcceptance,
+        RaftFleetEvacuationDebt, RaftFleetEvacuationPhase, RaftFleetEvacuationProgress,
+        RaftFleetEvacuationStatus, RaftFleetFailure, RaftFleetFailureCode,
+        RaftFleetFirstGroupAcceptance, RaftFleetFirstGroupMutation, RaftFleetFirstGroupPlan,
+        RaftFleetFirstGroupPublish, RaftFleetFirstGroupStage, RaftFleetFirstGroupStandby,
+        RaftFleetFirstGroupVoter, RaftFleetMaintenanceAcceptance, RaftFleetMaintenanceAction,
         RaftFleetMaintenanceCancel, RaftFleetMaintenancePhase, RaftFleetMaintenancePrepare,
         RaftFleetMaintenanceReturnContext, RaftFleetMaintenanceStatus, RaftFleetMovement,
         RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetNodeAcceptance,
         RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCancel, RaftFleetNodeCapacity,
         RaftFleetNodeDescriptor, RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeState,
         RaftFleetNodeStatus, RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome,
-        RaftFleetRegisterNode, RaftFleetStatus, RaftFleetVerificationBlocker,
-        RaftFleetVerificationReason, RaftFleetVerificationStage,
+        RaftFleetParkPhase, RaftFleetParkRequest, RaftFleetParkStatus,
+        RaftFleetPartitionExecutionPolicy, RaftFleetPartitionPlacementPolicy,
+        RaftFleetPartitionPlanContext, RaftFleetPartitionPlanner, RaftFleetPartitionPressure,
+        RaftFleetPartitionRecommendation, RaftFleetPartitionScheduler, RaftFleetPartitionService,
+        RaftFleetPartitionServiceOptions, RaftFleetPartitionServiceStatus,
+        RaftFleetPreparedRecoveryRange, RaftFleetRegisterNode, RaftFleetStatus,
+        RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
+        RaftFleetTransitionActivationRequest, RaftFleetTransitionAdmission,
+        RaftFleetTransitionAdmissionRequest, RaftFleetTransitionArchiveVerification,
+        RaftFleetTransitionBasis, RaftFleetTransitionChild, RaftFleetTransitionChildSetup,
+        RaftFleetTransitionChildSetupRequest, RaftFleetTransitionChildSetupResult,
+        RaftFleetTransitionChildStep, RaftFleetTransitionExecutionRequest,
+        RaftFleetTransitionGroup, RaftFleetTransitionPartition, RaftFleetTransitionPreparation,
+        RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublication,
+        RaftFleetTransitionPublishRequest, RaftFleetTransitionRecoveryBasis,
+        RaftFleetTransitionRecoverySelection, RaftFleetTransitionResume,
+        RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
+        RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
+        RaftFleetTransitionService, RaftFleetTransitionServiceOptions,
+        RaftFleetTransitionServiceStatus, RaftFleetTransitionSourceArchive,
+        RaftFleetTransitionSourceCut, RaftFleetTransitionSourceRetirement,
+        RaftFleetTransitionSourceSeal, RaftFleetTransitionSourceSealRequest,
+        RaftFleetTransitionStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
+        RaftFleetVerificationStage, RaftFleetVerifiedTransitionRecovery, RaftFleetWakeStatus,
     };
-    pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
+    pub use crate::raft::catalog::{ManagedRecoverySeedQuorum, ManagedRecoveryVoterSeed};
+    pub use crate::raft::fleet_catalog::{
+        FleetFencedTransitionRecovery, FleetRecoveryAttachRequest, FleetRecoveryRangeReservation,
+        FleetRecoveryRetirement, FleetRecoverySeedQuorums, FleetRecoverySettlement,
+        FleetRecoveryVoterLineage, FleetTopologyPolicy, FleetTransitionRecoveryBarrier,
+        FleetTransitionRecoveryFenceRequest, FleetTransitionRecoveryIntent,
+        FleetTransitionRecoveryReplacement,
+    };
 }
 pub use crate::assets::{AssetCache, AssetCacheOptions, AssetResolver};
 #[cfg(not(cellar_internal_tests))]

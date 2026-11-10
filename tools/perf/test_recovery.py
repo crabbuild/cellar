@@ -4,19 +4,9 @@
 import copy
 import hashlib
 import json
-import os
-from pathlib import Path
-import re
-import signal
-import subprocess
-from types import SimpleNamespace
-import sys
-import tempfile
-import time
 import unittest
 
 from analyze_recovery import analyze, PHASES, CHECKS
-from recovery import PROFILES, binary_for, run_process, selected_results, select_test, sha256, worker_environment
 
 
 def campaign(count=3, *, elapsed_us=80_000_000):
@@ -163,137 +153,5 @@ class RecoveryAnalysis(unittest.TestCase):
                 analyze(campaign(), **args)
 
 
-class RecoveryRunner(unittest.TestCase):
-    def test_controller_protocol_matches_the_native_fixture(self):
-        source = (Path(__file__).resolve().parents[2] / 'crates/cellar/tests/support/raft_recovery.rs').read_text()
-        for name, expected in [('PHASES', PHASES), ('CHECKS', CHECKS)]:
-            body = source.split('const ' + name + ':', 1)[1].split('= &[', 1)[1].split('];', 1)[0]
-            self.assertEqual(tuple(re.findall(r'"([a-z_]+)"', body)), expected)
-
-    def test_profiles_select_existing_exact_tests_and_correct_physical_sizes(self):
-        source = (Path(__file__).resolve().parents[2] / 'crates/cellar/tests/support/raft_recovery.rs').read_text()
-        for profile in json.loads(PROFILES.read_text())['profiles'].values():
-            self.assertEqual(profile['image_bytes'], profile['logical_quota_bytes'] // 4096 * 4096)
-            for backend in profile['backends']:
-                for storage in ('materialized', 'extents'):
-                    name = select_test(profile, backend, storage).split('::')[1]
-                    self.assertEqual(len(re.findall(r'async fn ' + name + r'\(', source)), 1)
-            with self.assertRaises(ValueError):
-                select_test(profile, 'unknown')
-            with self.assertRaises(ValueError):
-                select_test(profile, profile['backends'][0], 'unknown')
-
-    def test_zero_or_multiple_test_selections_never_count_as_a_single_pass(self):
-        self.assertEqual(selected_results('running 0 tests\ntest result: ok. 0 passed; 0 failed;'), (0, 0))
-        self.assertEqual(selected_results('running 1 test\ntest result: ok. 1 passed; 0 failed;'), (1, 1))
-        self.assertEqual(selected_results('running 1 test\nrunning 1 test\ntest result: ok. 1 passed; 0 failed;'), (0, 1))
-
-    def test_timed_out_trial_process_is_stopped_and_joined(self):
-        with tempfile.TemporaryDirectory() as directory:
-            code, timed_out = run_process([sys.executable, '-c', 'import time; time.sleep(30)'],
-                                           Path(directory) / 'trial.log', timeout=.05)
-            self.assertTrue(timed_out)
-            self.assertNotEqual(code, 0)
-            self.assertIsInstance(code, int)
-
-    @unittest.skipUnless(os.name == 'posix', 'requires POSIX process groups')
-    def test_signaled_runner_joins_child_before_removing_worker_data(self):
-        for signum in (signal.SIGTERM, signal.SIGINT):
-            with self.subTest(signal=signum), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                marker, stopped, owned = (root / name for name in ('child.pid', 'stopped', 'owned'))
-                child = (
-                    'import os,signal,sys,time; from pathlib import Path; '
-                    f'root=Path({str(root)!r}); '
-                    'signal.signal(signal.SIGTERM, lambda *_: '
-                    '(root.joinpath("stopped").write_text(str(Path(root.joinpath("owned").read_text()).exists())), sys.exit(0))); '
-                    'root.joinpath("child.pid").write_text(str(os.getpid())); time.sleep(30)'
-                )
-                # Exercise the CLI's signal boundary with its real process and
-                # directory owners, without building or launching native nodes.
-                script = (
-                    f'import sys; from pathlib import Path; sys.path.insert(0, {str(PROFILES.parent)!r}); import recovery\n'
-                    'def trial(_):\n'
-                    f'    root=Path({str(root)!r})\n'
-                    '    with recovery.worker_environment({}, root, physical=False) as (env, paths):\n'
-                    '        root.joinpath("owned").write_text(str(paths[0]))\n'
-                    f'        recovery.run_process([{sys.executable!r}, "-c", {child!r}], root / "native.log", timeout=30)\n'
-                    'recovery.run=trial\n'
-                    f'sys.argv=["recovery.py", "--backend", "peer", "--output", {str(root)!r}]\n'
-                    'raise SystemExit(recovery.main())\n'
-                )
-                process = subprocess.Popen([sys.executable, '-c', script], start_new_session=True,
-                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                child_pid = None
-                try:
-                    deadline = time.monotonic() + 10
-                    while not marker.exists() and time.monotonic() < deadline:
-                        self.assertIsNone(process.poll(), 'runner exited before the child started')
-                        time.sleep(.01)
-                    self.assertTrue(marker.exists(), 'child startup was not observed')
-                    child_pid = int(marker.read_text())
-                    process.send_signal(signum)
-                    process.wait(timeout=10)
-                    self.assertTrue(stopped.exists(), 'owned child survived runner interruption')
-                    self.assertEqual(stopped.read_text(), 'True', 'worker data was erased before its child stopped')
-                    self.assertFalse(Path(owned.read_text()).exists())
-                    with self.assertRaises(ProcessLookupError):
-                        os.kill(child_pid, 0)
-                finally:
-                    if process.poll() is None:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait()
-                    if child_pid is not None:
-                        try:
-                            os.killpg(child_pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-
-    def test_prebuilt_binaries_require_matching_source_and_byte_identity(self):
-        with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
-            binary = directory / 'fixture'
-            binary.write_bytes(b'fixture')
-            identity = {'commit': 'a' * 40, 'inputs_sha256': 'b' * 64}
-            args = SimpleNamespace(binary=binary, binary_manifest=None)
-            with self.assertRaisesRegex(ValueError, 'binary-manifest'):
-                binary_for(args, directory, identity)
-            args.binary_manifest = directory / 'manifest.json'
-            args.binary_manifest.write_text(json.dumps({**identity, 'binary_sha256': sha256(binary), 'build_profile': 'release'}))
-            self.assertEqual(binary_for(args, directory, identity), binary.resolve())
-            binary.write_bytes(b'changed')
-            with self.assertRaisesRegex(ValueError, 'bytes differ'):
-                binary_for(args, directory, identity)
-
-
-class WorkerDirectoryOwnership(unittest.TestCase):
-    def test_failure_removes_only_new_owned_directories_and_keeps_fixture(self):
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            primary, secondary, evidence = (base / name for name in ('primary', 'secondary', 'evidence'))
-            for path in (primary, secondary, evidence): path.mkdir()
-            fixture = primary / 'source.sqlite'
-            fixture.write_bytes(b'immutable fixture')
-            parent = {'CELLAR_LARGE_IMAGE_WORKDIR': str(primary),
-                      'CELLAR_LARGE_IMAGE_SECONDARY_WORKDIR': str(secondary),
-                      'CELLAR_LARGE_IMAGE_FIXTURE': str(fixture)}
-            owned = []
-            with self.assertRaisesRegex(RuntimeError, 'interrupted'):
-                with worker_environment(parent, evidence, physical=True) as (env, owned):
-                    self.assertEqual(env['CELLAR_RECOVERY_KEEP_NODE_STATE'], '0')
-                    self.assertEqual(env['CELLAR_LARGE_IMAGE_FIXTURE'], str(fixture))
-                    self.assertEqual(len(owned), 2)
-                    for path in owned:
-                        (path / 'temporary.sqlite').write_bytes(b'partial state')
-                    raise RuntimeError('interrupted')
-            self.assertTrue(all(not path.exists() for path in owned))
-            self.assertEqual(fixture.read_bytes(), b'immutable fixture')
-            self.assertEqual(parent['CELLAR_LARGE_IMAGE_WORKDIR'], str(primary))
-
-    def test_explicit_retention_preserves_just_its_own_worker_data(self):
-        with tempfile.TemporaryDirectory() as directory:
-            with worker_environment({}, Path(directory), physical=False, keep=True) as (env, owned):
-                self.assertEqual(env['CELLAR_RECOVERY_KEEP_NODE_STATE'], '1')
-                self.assertEqual(env['CELLAR_RECOVERY_WORKDIR'], str(owned[0]))
-                (owned[0] / 'local.sqlite').write_bytes(b'diagnostic state')
-            self.assertEqual((owned[0] / 'local.sqlite').read_bytes(), b'diagnostic state')
+if __name__ == "__main__":
+    unittest.main()

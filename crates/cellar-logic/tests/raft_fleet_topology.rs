@@ -3,8 +3,9 @@
 //! Executable topology witnesses. No catalog, deployed fleet or performance
 //! qualification is implied by these pure decision-core cases.
 
+use cellar_logic::cell_group::GroupHistory;
 use cellar_logic::{consensus::*, raft_fleet::*};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn node(n: usize) -> NodeId {
     NodeId::new([n as u8 + 1; 16]).unwrap()
@@ -79,10 +80,10 @@ fn fixture(count: usize, triples: &[[usize; 3]]) -> (TopologyView, Vec<TopologyT
             let mut id = [0; 16];
             id[..8].copy_from_slice(&(i as u64 + 1).to_be_bytes());
             TopologyGroup {
-                scope: GroupScope {
+                scope: GroupHistory {
                     cluster,
                     namespace: NamespaceId::new([2; 16]).unwrap(),
-                    cell: format!("Counter:{i:05}"),
+
                     group: GroupId::new(id).unwrap(),
                     incarnation: IncarnationId::new([4; 16]).unwrap(),
                 },
@@ -97,7 +98,7 @@ fn fixture(count: usize, triples: &[[usize; 3]]) -> (TopologyView, Vec<TopologyT
     let targets = groups
         .iter()
         .map(|g| TopologyTarget {
-            group: g.scope.clone(),
+            group: g.scope,
             voters: g.voters,
         })
         .collect();
@@ -125,11 +126,7 @@ fn symmetric() -> Vec<[usize; 3]> {
 }
 
 fn replay(view: &TopologyView, targets: &[TopologyTarget], moves: &[ReplicaMove]) {
-    let mut voters: BTreeMap<_, _> = view
-        .groups
-        .iter()
-        .map(|g| (g.scope.clone(), g.voters))
-        .collect();
+    let mut voters: BTreeMap<_, _> = view.groups.iter().map(|g| (g.scope, g.voters)).collect();
     for (i, m) in moves.iter().enumerate() {
         assert_eq!(m.after, i.checked_sub(1));
         let set = voters.get_mut(&m.group).unwrap();
@@ -360,7 +357,7 @@ fn incomplete_stale_and_unsettled_inputs_cannot_authorize_preview() {
     let scope = view.nodes[3].ledger.scope;
     view.nodes[3].ledger.reservations.push(Reservation {
         id: ProposalId::new([5; 16]).unwrap(),
-        group: view.groups[0].scope.clone(),
+        group: view.groups[0].scope,
         scope,
         peak: resources(1, 10, 10),
         materialized: None,
@@ -651,7 +648,7 @@ fn automatic_balance_requires_complete_stable_fresh_inputs() {
     let scope = view.nodes[3].ledger.scope;
     view.nodes[3].ledger.reservations.push(Reservation {
         id: ProposalId::new([5; 16]).unwrap(),
-        group: view.groups[0].scope.clone(),
+        group: view.groups[0].scope,
         scope,
         peak: resources(1, 10, 10),
         materialized: None,
@@ -744,4 +741,34 @@ fn automatic_balance_all_small_two_group_layouts_preserve_rf3() {
             }
         }
     }
+}
+
+#[test]
+fn topology_refuses_two_current_incarnations_of_one_physical_group() {
+    let (mut view, mut targets) = fixture(4, &[[0, 1, 2], [1, 2, 3]]);
+    view.groups[1].scope = view.groups[0].scope;
+    view.groups[1].scope.incarnation = IncarnationId::new([77; 16]).unwrap();
+    targets[1].group = view.groups[1].scope;
+    assert_eq!(
+        preview_topology(&view, policy(), &targets, 100),
+        Err(TopologyError::InvalidInput)
+    );
+}
+
+#[test]
+fn topology_binds_opaque_group_ids_to_their_namespace() {
+    let (mut view, mut targets) = fixture(4, &[[0, 1, 2], [1, 2, 3]]);
+    view.groups[1].scope.group = view.groups[0].scope.group;
+    view.groups[1].scope.namespace = NamespaceId::new([78; 16]).unwrap();
+    targets[1].group = view.groups[1].scope;
+    let plan = preview_topology(&view, policy(), &targets, 100).unwrap();
+    assert!(plan.moves.is_empty());
+    assert_eq!(plan.assignments.len(), 2);
+    assert_eq!(
+        plan.assignments
+            .iter()
+            .map(|a| a.group)
+            .collect::<BTreeSet<_>>(),
+        view.groups.iter().map(|g| g.scope).collect::<BTreeSet<_>>()
+    );
 }

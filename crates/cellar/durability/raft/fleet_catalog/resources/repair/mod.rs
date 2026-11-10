@@ -5,7 +5,7 @@
 mod membership;
 mod planning;
 use super::*;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use cellar_logic::consensus::ProposalId;
 pub(super) use planning::Planning;
 use std::pin::Pin;
@@ -14,7 +14,7 @@ use std::pin::Pin;
 pub struct FleetIsolatedRepairContext {
     pub operation: ProposalId,
     pub failed_boot: BootBinding,
-    pub group: GroupScope,
+    pub group: GroupHistory,
 }
 
 /// Conservative deployment inputs for one history and at most 64 candidate or
@@ -22,8 +22,11 @@ pub struct FleetIsolatedRepairContext {
 /// repair. Callbacks cannot choose a source, target, member ID or repair plan.
 pub struct FleetIsolatedRepairInputs {
     pub history: FleetTopologyHistoryResources,
+    /// Deployment policy before any governing topology intent exists. A rooted
+    /// operator policy takes precedence; omission must never weaken separation.
+    pub policy: FleetTopologyPolicy,
     pub nodes: Vec<FleetTopologyNodeResources>,
-    pub namespaces: Vec<NamespaceCatalog>,
+    pub namespaces: Vec<RangeDirectory>,
 }
 
 /// The owned service cancels/joins the callback future with its original round
@@ -54,7 +57,7 @@ impl FleetCatalog {
         cut: &FleetSnapshot,
         selected: &Selected,
         observer: &crate::application::consensus::RaftCells,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetMovementAdmission> {
         let mut canonical = super::records::Request::new(self, &selected.request.resources)?;

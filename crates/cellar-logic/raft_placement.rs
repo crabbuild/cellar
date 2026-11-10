@@ -323,3 +323,7 @@ pub fn select_repair(
         },
     }))
 }
+
+#[cfg(test)]
+#[path = "raft_placement_tests.rs"]
+mod tests;

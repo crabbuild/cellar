@@ -205,3 +205,58 @@ fn strict_header_identity_sequence_and_protocol() {
     bytes.insert_str(1, "\"sequence\":\"2\",");
     assert!(serde_json::from_str::<RequestHeader>(&bytes).is_err());
 }
+
+#[test]
+fn physical_history_is_typed_authenticated_and_refuses_old_wire() {
+    let physical = |n| {
+        let peer = replica(n);
+        ReplicaIdentity {
+            scope: GroupHistory::from(&peer.scope),
+            member: peer.member,
+            node: peer.node,
+            disk: peer.disk,
+            process: peer.process,
+        }
+    };
+    let route = Route::new_group(&physical(1), "node-1", &physical(2), "node-2", [5; 32]).unwrap();
+    assert!(route.decode().is_err());
+    assert_eq!(route.decode_group().unwrap(), (physical(1), physical(2)));
+    let (mut request, body) = request();
+    request.route = route.clone();
+    let auth = PeerAuth::new([8; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let exporter = [7; 32];
+    let head = request_head(&auth, &exporter, &request, body.len(), &options).unwrap();
+    let decoded = head.request(&auth, &exporter).unwrap();
+    assert!(decoded.verify_body(&body, &options).is_ok());
+    let response = response_head(
+        &auth,
+        &exporter,
+        &request,
+        &head.tag,
+        Disposition::Accepted,
+        &options,
+    )
+    .unwrap();
+    let mut changed = request.clone();
+    let mut target = physical(2);
+    target.scope.incarnation = IncarnationId::new([77; 16]).unwrap();
+    let mut source = physical(1);
+    source.scope = target.scope;
+    changed.route = Route::new_group(&source, "node-1", &target, "node-2", [5; 32]).unwrap();
+    assert_eq!(
+        response.response(&auth, &exporter, &changed, &head.tag),
+        Err(TransportError::Authentication)
+    );
+    let mut invalid = route.clone();
+    invalid.scope = History::Group([[0; 16]; 4]);
+    assert!(invalid.validate().is_err());
+    let mut old = serde_json::to_value(route).unwrap();
+    old["scope"] = serde_json::to_value(WireScope::from(&replica(1).scope)).unwrap();
+    assert!(serde_json::from_value::<Route>(old).is_err());
+    request.protocol = Sha256::digest(
+        b"cellar-raft-peer-1:tls13-exporter:hmac-sha256:protobuf2:bounded-strict:extent-stream",
+    )
+    .into();
+    assert_eq!(request.validate(), Err(TransportError::Protocol));
+}

@@ -1,98 +1,80 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! One rooted physical intent per step, including cancelled pending groups.
 use super::*;
-use crate::raft::catalog::{BirthDisposition, GroupBirth};
-use crate::raft::fleet_catalog::histories::{Member, Origin};
+use crate::raft::cell_groups::{CellGroupBirth, CellGroupBirthDisposition};
 
 impl FleetCatalog {
     pub(super) async fn import_inventory_step(
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         record: &mut Record,
-        timeout: Duration,
     ) -> Result<Vec<FleetChange>> {
-        let step = namespace
-            .import_birth_step(&record.cut, &self.birth_owner()?, record.cursor.as_deref())
+        directory
+            .check_group_import(&record.cut, &self.birth_owner()?, false)
             .await
             .map_err(catalog_error)?;
-        let Some(entry) = step.entry else {
+        let step = directory
+            .namespace()
+            .cell_group_import_step(
+                directory,
+                &record.cut,
+                &self.birth_owner()?,
+                record.cursor.as_deref(),
+            )
+            .await
+            .map_err(catalog_error)?;
+        let Some(proposal) = step.entry else {
             if record.cut.count != 0 || record.inventoried != 0 || step.next.is_some() {
-                return Err(FleetCatalogError::Corrupt("incomplete import inventory"));
+                return Err(FleetCatalogError::Corrupt(
+                    "incomplete group import inventory",
+                ));
             }
             record.phase = FleetImportPhase::Coverage;
             return Ok(Vec::new());
         };
-        let proposal = entry.proposal();
-        let class = proposal
-            .scope
-            .cell
-            .split_once(':')
-            .ok_or(FleetCatalogError::Invalid("import history class"))?
-            .0;
-        self.require_namespace_declaration(snapshot, namespace, Some(class))
+        self.require_namespace_declaration(snapshot, directory.namespace(), None)
             .await?;
-        let decision = match namespace
-            .birth_disposition(&proposal.scope.cell)
+        let decision = directory
+            .settle_import_group(&proposal, &record.cut, &self.birth_owner()?)
             .await
-            .map_err(catalog_error)?
-        {
-            Some(decision) => decision,
-            None => namespace
-                .cancel_birth(
-                    proposal.clone(),
-                    ProposalId::new(record.cut.operation)
-                        .map_err(|_| FleetCatalogError::Corrupt("import cancellation"))?,
-                    timeout,
-                )
-                .await
-                .map_err(catalog_error)?,
-        };
+            .map_err(catalog_error)?;
+        let admission = ProposalId::new(request.id)
+            .map_err(|_| FleetCatalogError::Invalid("group import admission"))?;
+        let operation = ProposalId::new(request.operation)
+            .map_err(|_| FleetCatalogError::Invalid("group import operation"))?;
         let history = match &decision {
-            BirthDisposition::Live(birth)
-                if birth.scope() == &proposal.scope
-                    && birth.digest() == entry.expected_digest() =>
-            {
+            CellGroupBirthDisposition::Live(birth) if birth.route() == proposal.route() => {
                 FleetHistory::observed(
-                    self.binding(birth.scope())?,
-                    namespace,
+                    self.binding(&proposal.route().history)?,
+                    directory,
                     birth,
-                    ProposalId::new(request.id)
-                        .map_err(|_| FleetCatalogError::Invalid("import admission"))?,
-                    ProposalId::new(request.operation)
-                        .map_err(|_| FleetCatalogError::Invalid("import operation"))?,
+                    admission,
+                    operation,
                 )?
             }
-            BirthDisposition::Cancelled { scope, operation } if scope == &proposal.scope => {
-                FleetHistory {
-                    binding: self.binding(scope)?,
-                    schema_digest: namespace.config().schema_digest,
-                    namespace_root: namespace.root_digest(),
-                    birth_digest: entry.expected_digest(),
-                    admission: request.id,
-                    operation: request.operation,
-                    voters: proposal.voters.iter().copied().map(Member::from).collect(),
-                    learners: proposal
-                        .learners
-                        .iter()
-                        .copied()
-                        .map(Member::from)
-                        .collect(),
-                    state: FleetHistoryState::Cancelled {
-                        operation: operation.bytes(),
-                    },
-                    origin: Origin::Observed,
-                }
-            }
+            CellGroupBirthDisposition::Cancelled {
+                history,
+                operation: cancellation,
+            } if *history == proposal.route().history => FleetHistory::cancelled_group(
+                self.binding(history)?,
+                directory,
+                &proposal,
+                admission,
+                operation,
+                *cancellation,
+            )?,
             _ => return Err(FleetCatalogError::Conflict),
         };
-        history.validate()?;
         let changes = self
             .import_history_changes(
                 snapshot,
-                namespace,
+                directory,
                 &history,
                 match &decision {
-                    BirthDisposition::Live(birth) => Some(birth),
+                    CellGroupBirthDisposition::Live(birth) => Some(birth),
                     _ => None,
                 },
             )
@@ -102,10 +84,10 @@ impl FleetCatalog {
             .checked_add(1)
             .ok_or(FleetCatalogError::Limit)?;
         if record.inventoried > record.cut.count
-            || (step.next.is_none() != (record.inventoried == record.cut.count))
+            || step.next.is_none() != (record.inventoried == record.cut.count)
         {
             return Err(FleetCatalogError::Corrupt(
-                "import inventory count/continuation",
+                "group import count/continuation",
             ));
         }
         record.cursor = step.next;
@@ -118,9 +100,9 @@ impl FleetCatalog {
     async fn import_history_changes(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         history: &FleetHistory,
-        birth: Option<&GroupBirth>,
+        birth: Option<&CellGroupBirth>,
     ) -> Result<Vec<FleetChange>> {
         let binding_key = history
             .binding
@@ -143,7 +125,7 @@ impl FleetCatalog {
                 || saved.voters != history.voters
                 || saved.learners != history.learners
                 || saved.state != history.state
-                || birth.is_some_and(|birth| !saved.check_birth(namespace, birth))
+                || birth.is_some_and(|birth| !saved.check_birth(directory, birth))
             {
                 return Err(FleetCatalogError::Conflict);
             }

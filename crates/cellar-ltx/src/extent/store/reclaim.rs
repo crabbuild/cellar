@@ -4,6 +4,55 @@ use super::inventory::{object_name, root_name};
 use super::*;
 
 impl NodeExtentStore {
+    /// Metadata-only hint. A reader's last root pin can make progress possible
+    /// without another write. Idle, already marked inventories need no file scan.
+    /// This grants neither collection authority nor a promise of deletion.
+    pub fn needs_reclaim(&self) -> Result<bool, StoreError> {
+        let state = self.inner.state()?;
+        if state.quarantined {
+            return Err(StoreError::Quarantined);
+        }
+        if !state.references_reconciled {
+            return Err(StoreError::Unreconciled);
+        }
+        Ok(state.reclaim_scan_needed
+            || state.roots.iter().any(|(root, entry)| {
+                !entry.retained
+                    && Arc::strong_count(&entry.token) == 1
+                    && !state
+                        .references
+                        .values()
+                        .any(|r| r.active && r.reference.root == *root)
+            }))
+    }
+
+    /// Conservative temporary-memory admission for one collection turn. Marks
+    /// include only objects present in this inventory, even when pinned receive
+    /// roots also name objects that have not arrived yet. The host retains this
+    /// admission through physical completion; this does not authorize collection.
+    pub fn reclaim_working_bytes(&self, max_files: usize) -> Result<usize, StoreError> {
+        if !(1..=4096).contains(&max_files) {
+            return Err(StoreError::Limit);
+        }
+        // One encoded/decoded manifest, its persistent tree and unique IDs;
+        // complete root references; local object marks; deletion lists and I/O.
+        MAX_MANIFEST_BYTES
+            .checked_mul(16)
+            .and_then(|n| n.checked_add(self.inner.limits.max_roots.checked_mul(64)?))
+            .and_then(|n| {
+                n.checked_add(
+                    self.inner
+                        .limits
+                        .max_objects
+                        .min(self.inner.limits.max_root_extents)
+                        .checked_mul(128)?,
+                )
+            })
+            .and_then(|n| n.checked_add(max_files.checked_mul(128)?))
+            .and_then(|n| n.checked_add(65536))
+            .ok_or(StoreError::Limit)
+    }
+
     /// Retain an already sealed image without I/O or waiting for a physical
     /// mutation. The live exact-owner capability pins its root throughout GC;
     /// native control loops can therefore publish retention using metadata only.
@@ -73,6 +122,7 @@ impl NodeExtentStore {
                 entry.retained = selected.contains(root);
             }
             state.references_reconciled = true;
+            state.reclaim_scan_needed = true;
             Ok(())
         })();
         operation.finish()?;
@@ -150,23 +200,35 @@ impl NodeExtentStore {
                 state.bytes -= entry.bytes;
                 state.root_extents -= entry.slots;
             }
+            state.reclaim_scan_needed = true;
         }
         if roots.len() == limit {
             return Ok(roots.len());
         }
-        let references = self
-            .inner
-            .state()?
-            .roots
-            .iter()
-            .map(|(root, entry)| ExtentRootReference::new(*root, entry.bytes as u32))
-            .collect::<Result<Vec<_>, _>>()?;
+        let references = {
+            let state = self.inner.state()?;
+            let mut references = Vec::with_capacity(state.roots.len());
+            for (root, entry) in &state.roots {
+                references.push(ExtentRootReference::new(*root, entry.bytes as u32)?);
+            }
+            references
+        };
         let mut live = BTreeSet::new();
         for reference in references {
             // Metadata-only traversal, one bounded manifest at a time. Do not
             // load every root tree into the persistent in-memory cache for GC.
             let data = self.read_root_file(reference)?;
-            live.extend(data.objects.iter().copied());
+            // The physical operation excludes imports/publication throughout
+            // this scan. Missing receive dependencies cannot be deleted here;
+            // filter them before allocating marks, rather than charging the sum
+            // of every remote root's slots to a live node's collector.
+            let state = self.inner.state()?;
+            live.extend(
+                data.objects
+                    .iter()
+                    .filter(|id| state.objects.contains_key(*id))
+                    .copied(),
+            );
             if live.len() > self.inner.limits.max_root_extents {
                 return Err(StoreError::Limit);
             }
@@ -199,6 +261,10 @@ impl NodeExtentStore {
                 state.bytes -= entry.bytes;
             }
         }
+        // A full deletion batch may leave more orphans. Other physical writes
+        // cannot interleave this operation. Pin release is checked separately by
+        // needs_reclaim, so clearing this hint cannot hide a retired reader root.
+        self.inner.state()?.reclaim_scan_needed = objects.len() == limit - roots.len();
         Ok(roots.len() + objects.len())
     }
 

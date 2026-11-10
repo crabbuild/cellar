@@ -96,7 +96,7 @@ class History(unittest.TestCase):
 
     def test_shared_scheduler_records_baseline_without_raft_tokens(self):
         source = read_json(Path(__file__).with_name('raft_profiles.json'))['profiles']['local-q0']
-        source['cells'] = {'total': 1, 'active': 1}
+        source['cells'] = {'total': 1, 'active': 1, 'per_group': 32}
         source['read_fraction'] = 0
         profile = effective_profile(source, 'bucket')
         initial = self.events()[-1]['response']['state']
@@ -117,7 +117,7 @@ class History(unittest.TestCase):
 
     def test_shared_scheduler_rejects_late_arrival_before_transport(self):
         source = read_json(Path(__file__).with_name('raft_profiles.json'))['profiles']['local-q0']
-        source['cells'] = {'total': 1, 'active': 1}
+        source['cells'] = {'total': 1, 'active': 1, 'per_group': 32}
         profile = effective_profile(source, 'bucket')
         state = {0: {'state': self.events()[-1]['response']['state'], 'next_sequence': 2, 'sequence': 1}}
         before = copy.deepcopy(state)

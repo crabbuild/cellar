@@ -38,6 +38,14 @@ impl RootWorking {
         base: Option<&crate::raft::rooted::RootPublishedImage>,
         history: [u8; 32],
     ) -> Result<Self> {
+        Self::open_pin(options, base.map(|base| base.image()), history)
+    }
+
+    pub fn open_pin(
+        options: &Options,
+        base: Option<Arc<cellar_ltx::internal::SealedImageRoot>>,
+        history: [u8; 32],
+    ) -> Result<Self> {
         let Images::Extents {
             store,
             workspace: admission,
@@ -56,9 +64,9 @@ impl RootWorking {
         let path = options.directory.join("working.sqlite");
         crate::raft::working::clean(filesystem.as_ref(), &options.directory, &path)?;
         let image = match base {
-            Some(image) => image.image(),
-            None => Arc::new(store.seal_image_root(
-                ExtentManifest::new(
+            Some(image) => image,
+            None => {
+                let manifest = ExtentManifest::new(
                     ImageBinding {
                         history,
                         schema: options.application_digest,
@@ -68,9 +76,14 @@ impl RootWorking {
                     },
                     Geometry::new(0, 0)?,
                     &[],
-                )?,
-                &mut vec![0; EXTENT_BYTES as usize],
-            )?),
+                )?;
+                // This empty base belongs only to the disposable workspace.
+                // Pin before sealing so concurrent collection cannot remove it.
+                let receiving = store.stage_transient_root(manifest.clone())?;
+                let image = store.seal_image_root(manifest, &mut vec![0; EXTENT_BYTES as usize])?;
+                drop(receiving);
+                Arc::new(image)
+            }
         };
         ensure!(
             image.manifest().binding().history == history
@@ -78,7 +91,10 @@ impl RootWorking {
             "working extent history/schema differs"
         );
         let initial = RootState::of(&image);
-        cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), cache_directory)?;
+        // Anonymous read-cache files are disposable and never supply recovery
+        // authority. Their directory need not survive a crash; immutable image
+        // publication still requires the inventory's own persistence barriers.
+        filesystem.create_dir_all(cache_directory)?;
         let workspace = ExtentWorkspace::new(
             image,
             WorkspaceOptions {
@@ -170,9 +186,17 @@ impl RootWorking {
         proposal: ProposalId,
         base: Option<&crate::raft::rooted::RootPublishedImage>,
     ) -> Result<CellUpdate> {
-        let before = base
-            .map(|base| RootState::of(&base.image()))
-            .unwrap_or(self.initial);
+        Ok(self
+            .capture_pin(options, base.map(|base| base.image()).as_deref())?
+            .bind(scope.clone(), options.application_digest, proposal))
+    }
+
+    pub fn capture_pin(
+        &mut self,
+        options: &Options,
+        base: Option<&cellar_ltx::internal::SealedImageRoot>,
+    ) -> Result<crate::raft::working::CapturedUpdate> {
+        let before = base.map(RootState::of).unwrap_or(self.initial);
         let (position, files) = crate::raft::working::capture_update(
             &mut self.capture,
             &self.database,
@@ -213,10 +237,7 @@ impl RootWorking {
             geometry: observed.manifest().geometry(),
         });
         self.observation = Some(observed);
-        Ok(CellUpdate {
-            scope: scope.clone(),
-            application_digest: options.application_digest,
-            proposal,
+        Ok(crate::raft::working::CapturedUpdate {
             base: before.image,
             result,
             files,

@@ -16,7 +16,7 @@ import time
 from raft_fleet import apply, engine, save_new
 from raft_fleet_storage import GIB, MOUNTS, Storage, loop_binding, validate_storage
 from raft_run import read_json, request, require
-from raft_topology import members
+from raft_groups import Layout, group_members
 
 
 def kernel_limits(lines):
@@ -178,19 +178,35 @@ class Run:
     def seed(self):
         require(all(self.status(n)['state'] == 'Active' for n in range(1, self.policy['nodes'] + 1)),
                 'all intended initial voters must have Active capacity')
-        for cell in range(self.report['cells']):
-            digest = hashlib.sha256(f"{self.report['run_id']}:cell:{cell}".encode()).digest()
-            history = {'cell': cell, 'group': list(digest[:16]), 'incarnation': list(digest[16:])}
-            voters = members(cell, self.policy['nodes'])
-            for action in ('Reserve', 'Confirm'):
-                key = f'birth-{cell}-{action}'
-                self.command(1, key, lambda: {'action': action, 'history': history,
-                    'request': self.identity(key, self.status(1)['revision']),
-                    **({'voters': voters} if action == 'Reserve' else {})})
-            for node in voters:
-                self.command(node, f'birth-{cell}-activate-{node}',
+        layout = Layout(self.policy['cells'], self.policy['cells_per_group'], 'Counter')
+        require(self.report['layout'] == layout.json(self.policy['nodes']), 'frozen population changed')
+        histories = [{'ordinal': g['ordinal'], 'group': list(bytes.fromhex(g['group'])),
+                      'incarnation': list(bytes.fromhex(g['incarnation']))} for g in layout.groups]
+        # The first complete range map requires every physical birth. Never
+        # publish a per-cell or partial topology while other births are pending.
+        for history in histories:
+            ordinal = history['ordinal']
+            voters = group_members(ordinal, self.policy['nodes'])
+            key = f'birth-{ordinal}-Reserve'
+            self.command(1, key, lambda: {'action': 'Reserve', 'history': history,
+                'request': self.identity(key, self.status(1)['revision']), 'voters': voters})
+        for history in histories:
+            ordinal = history['ordinal']
+            key = f'birth-{ordinal}-Confirm'
+            self.command(1, key, lambda: {'action': 'Confirm', 'history': history,
+                'request': self.identity(key, self.status(1)['revision'])})
+            self.command(1, f'archive-{ordinal}', lambda: {'action': 'InitializeArchive', 'history': history})
+        for history in histories:
+            ordinal = history['ordinal']
+            for node in group_members(ordinal, self.policy['nodes']):
+                self.command(node, f'birth-{ordinal}-activate-{node}',
                              lambda: {'action': 'ActivateInitial', 'history': history})
-            print(f'Cell {cell}: initial members activated on {voters}', flush=True)
+            print(f'Group {ordinal}: initial RF3 members attached', flush=True)
+        for cell in range(layout.total):
+            node = layout.members(cell, self.policy['nodes'])[0]
+            self.command(node, f'enroll-{cell}', lambda: {'action': 'Enroll', 'cell': cell})
+        print(f'Enrolled {layout.total} logical cells in {len(layout.groups)} physical groups', flush=True)
+
 
 
 def main():

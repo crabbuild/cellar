@@ -37,6 +37,7 @@ pub(crate) enum GroupAction {
     Campaign,
     ReplicationStatus,
     TransferLeadership(LeadershipTransfer),
+    #[cfg(test)]
     RestartLeadership(Box<RestartLeadershipCheck>),
     Checkpoint(Box<SnapshotCheckpoint>),
     Step(Message),
@@ -143,13 +144,20 @@ impl Drop for Requests {
     }
 }
 
-struct Terminal {
+pub(crate) struct Terminal {
     result: Mutex<Option<Result<(), RuntimeError>>>,
     changed: Notify,
 }
 
 impl Terminal {
-    fn complete(&self, result: Result<(), RuntimeError>) {
+    pub(crate) fn new() -> Self {
+        Self {
+            result: Mutex::new(None),
+            changed: Notify::new(),
+        }
+    }
+
+    pub(crate) fn complete(&self, result: Result<(), RuntimeError>) {
         let mut terminal = self.result.lock().unwrap_or_else(|e| e.into_inner());
         if terminal.is_none() {
             *terminal = Some(result);
@@ -158,7 +166,7 @@ impl Terminal {
         self.changed.notify_waiters();
     }
 
-    async fn wait(&self) -> Result<(), RuntimeError> {
+    pub(crate) async fn wait(&self) -> Result<(), RuntimeError> {
         loop {
             let changed = self.changed.notified();
             tokio::pin!(changed);
@@ -199,10 +207,6 @@ impl RuntimeEvents {
 }
 
 impl RaftRuntime {
-    pub(crate) fn limits(&self) -> &RaftRuntimeOptions {
-        &self.inner.options
-    }
-
     pub(crate) fn claim_transport(&self) -> Result<TransportClaim, RuntimeError> {
         self.admit()?;
         self.inner
@@ -246,10 +250,7 @@ impl RaftRuntime {
         let (ready, wait) = oneshot::channel();
         let closed = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
-        let terminal = Arc::new(Terminal {
-            result: Mutex::new(None),
-            changed: Notify::new(),
-        });
+        let terminal = Arc::new(Terminal::new());
         let stop = Arc::new(Notify::new());
         let requests = Requests {
             receiver: requests,
@@ -656,16 +657,6 @@ impl RaftRuntime {
         transfer: LeadershipTransfer,
     ) -> Result<(), RuntimeError> {
         self.group(scope, GroupAction::TransferLeadership(transfer), 4096)
-            .await
-            .map(|_| ())
-    }
-
-    pub(crate) async fn restart_leadership(
-        &self,
-        scope: &GroupScope,
-        check: Box<RestartLeadershipCheck>,
-    ) -> Result<(), RuntimeError> {
-        self.group(scope, GroupAction::RestartLeadership(check), 4096)
             .await
             .map(|_| ())
     }
@@ -1154,29 +1145,14 @@ impl Worker {
                     // catalog cancellation CAS was lost. Read-only observation
                     // on a surviving leader needs no local quiescence.
                     let gate = match &action {
-                        GroupAction::RestartLeadership(check)
-                            if self
-                                .domain
-                                .mono_ms()
-                                .map_or(true, |now| now >= check.deadline) =>
-                        {
-                            Err(RuntimeError::Closed)
-                        }
-                        GroupAction::RestartLeadership(check) => match &check.transfer {
-                            Some((_, selector)) => self
-                                .log
-                                .lifecycle_guard()
-                                .map_err(RuntimeError::from)
-                                .and_then(|guard| {
-                                    if guard.as_ref().and_then(|g| g.quiescing()) == Some(selector)
-                                    {
-                                        Ok(())
-                                    } else {
-                                        Err(RuntimeError::NotReady)
-                                    }
-                                }),
-                            None => Ok(()),
-                        },
+                        #[cfg(test)]
+                        GroupAction::RestartLeadership(check) => self
+                            .domain
+                            .mono_ms()
+                            .map_err(|_| RuntimeError::Closed)
+                            .and_then(|now| {
+                                super::restart_leadership::check_gate(&self.log, now, check)
+                            }),
                         _ => Ok(()),
                     };
                     let result = if new_read && pending_reads >= self.options.max_pending_reads {

@@ -1,26 +1,29 @@
-use super::super::histories::Origin;
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Bidirectional physical-group inventory. Selected ranges must be rooted in
+//! the fleet, and all rooted reservations keep their node/debt references.
 use super::*;
-use crate::raft::catalog::{BirthDisposition, ManagedBirthInventory};
+use crate::raft::cell_groups::{CellGroupBirthDisposition, CellGroupBirthRequest, RangeDirectory};
 use std::collections::BTreeMap;
 
 impl FleetCatalog {
-    /// Verify the entire rooted namespace set and all histories. Caller handles
-    /// select adapters, never the coverage set. Missing/offline namespaces refuse
-    /// success; pending births retain references and do not become absence proof.
+    /// Verify every declared namespace and every retained physical history at
+    /// this fleet cut. Caller adapters select neither the coverage set nor its
+    /// count. An inventory is not a current eligibility or release certificate.
     pub async fn check_inventory(
         &self,
         snapshot: &FleetSnapshot,
-        namespaces: &[NamespaceCatalog],
+        directories: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetInventory> {
         self.check_snapshot(snapshot)?;
-        if namespaces.len() > MAX_NAMESPACES {
+        if directories.len() > MAX_NAMESPACES {
             return Err(FleetCatalogError::Limit);
         }
         self.run(timeout, async {
             self.inner
                 .domain
-                .run(Box::pin(self.check_inventory_inner(snapshot, namespaces)))
+                .run(Box::pin(self.check_inventory_inner(snapshot, directories)))
                 .await
                 .map_err(|_| FleetCatalogError::Closed)?
         })
@@ -30,13 +33,13 @@ impl FleetCatalog {
     pub(in super::super) async fn check_inventory_inner(
         &self,
         snapshot: &FleetSnapshot,
-        namespaces: &[NamespaceCatalog],
+        directories: &[RangeDirectory],
     ) -> Result<FleetInventory> {
         let declarations = self.declarations(snapshot).await?;
         let mut catalogs = BTreeMap::new();
-        for namespace in namespaces {
+        for directory in directories {
             if catalogs
-                .insert(namespace.config().namespace.bytes(), namespace)
+                .insert(directory.namespace_config().namespace.bytes(), directory)
                 .is_some()
             {
                 return Err(FleetCatalogError::Invalid("duplicate inventory namespace"));
@@ -45,53 +48,59 @@ impl FleetCatalog {
         if catalogs.len() != declarations.len() {
             return Err(FleetCatalogError::InventoryIncomplete);
         }
+        let owner = self.birth_owner()?;
         for declaration in &declarations {
-            let namespace = catalogs
+            let directory = *catalogs
                 .get(&declaration.namespace)
                 .ok_or(FleetCatalogError::InventoryIncomplete)?;
-            declaration.check(self, namespace, None)?;
-            if namespace.config().managed_fleet.is_none() {
-                self.verify_imported_inventory(snapshot, namespace).await?;
+            declaration.check(self, directory.namespace(), None)?;
+            // Import must pin and certify the complete range directory before
+            // it can acquire this owner. The predecessor cell-birth inventory
+            // cannot certify a shared namespace.
+            if self.managed_owner_for_birth(snapshot, directory).await? != owner {
+                return Err(FleetCatalogError::InventoryIncomplete);
             }
-            let cut: ManagedBirthInventory = namespace
-                .managed_birth_inventory(&self.birth_owner()?)
-                .await
-                .map_err(catalog_error)?;
-            if cut.count > HISTORY_LIMIT {
+            if directory.namespace_config().managed_fleet.is_none() {
+                self.verify_imported_inventory(snapshot, directory).await?;
+            }
+            let view = directory.observe().await.map_err(catalog_error)?;
+            if u64::from(view.groups()) > HISTORY_LIMIT {
                 return Err(FleetCatalogError::Limit);
             }
             let mut cursor = None;
             let mut count = 0u64;
             loop {
-                let page = namespace
-                    .managed_birth_page(&cut, cursor.as_ref())
+                let page = directory
+                    .group_page(&view, cursor.as_ref(), 16)
                     .await
                     .map_err(catalog_error)?;
-                for entry in page.entries {
+                for route in page.routes {
                     count = count
                         .checked_add(1)
-                        .filter(|n| *n <= cut.count)
-                        .ok_or(FleetCatalogError::Corrupt("extra managed birth intent"))?;
-                    let binding = self.binding(&entry.proposal().scope)?;
-                    let history = self
-                        .history_inner(
-                            snapshot,
-                            &binding
-                                .key()
-                                .map_err(|_| FleetCatalogError::Corrupt("inventory binding"))?,
+                        .filter(|n| *n <= u64::from(view.groups()))
+                        .ok_or(FleetCatalogError::Corrupt("directory inventory count"))?;
+                    let binding = self.binding(&route.history)?;
+                    let key = binding
+                        .key()
+                        .map_err(|_| FleetCatalogError::Corrupt("inventory binding"))?;
+                    let history =
+                        self.history_inner(snapshot, &key)
+                            .await
+                            .map_err(|error| match error {
+                                FleetCatalogError::Conflict => {
+                                    FleetCatalogError::InventoryIncomplete
+                                }
+                                error => error,
+                            })?;
+                    let expected = self.inventory_birth(directory, &history)?;
+                    if history.binding != binding
+                        || expected.route() != &route
+                        || !matches!(
+                            history.state,
+                            FleetHistoryState::Reserved | FleetHistoryState::Live
                         )
-                        .await
-                        .map_err(|error| match error {
-                            FleetCatalogError::Conflict => FleetCatalogError::InventoryIncomplete,
-                            error => error,
-                        })?;
-                    let initial = history.initial_placement()?;
-                    if history.birth_digest != entry.expected_digest()
-                        || initial.scope != entry.proposal().scope
-                        || initial.voters != entry.proposal().voters
-                        || initial.learners != entry.proposal().learners
                     {
-                        return Err(FleetCatalogError::Corrupt("uninventoried canonical birth"));
+                        return Err(FleetCatalogError::Corrupt("uninventoried selected group"));
                     }
                 }
                 cursor = page.next;
@@ -99,8 +108,8 @@ impl FleetCatalog {
                     break;
                 }
             }
-            if count != cut.count {
-                return Err(FleetCatalogError::Corrupt("missing managed birth intent"));
+            if count != u64::from(view.groups()) {
+                return Err(FleetCatalogError::Corrupt("missing selected group"));
             }
         }
         let nodes = self.node_records(snapshot).await?;
@@ -129,7 +138,7 @@ impl FleetCatalog {
                     .iter()
                     .find(|d| d.namespace == scope.namespace.bytes())
                     .ok_or(FleetCatalogError::InventoryIncomplete)?;
-                let namespace = catalogs[&declaration.namespace];
+                let directory = catalogs[&declaration.namespace];
                 if entry.key
                     != history
                         .binding
@@ -138,8 +147,6 @@ impl FleetCatalog {
                     || history.binding != self.binding(&scope)?
                     || history.namespace_root != declaration.root
                     || history.schema_digest != declaration.schema
-                    || scope.cell.split_once(':').map(|(class, _)| class)
-                        != Some(declaration.class.as_str())
                 {
                     return Err(FleetCatalogError::Corrupt("inventory history declaration"));
                 }
@@ -155,48 +162,57 @@ impl FleetCatalog {
                     }
                 }
                 for member in history.voters.iter().chain(&history.learners) {
-                    if !nodes.iter().any(|n| n.node == member.node) {
+                    if !nodes.iter().any(|node| node.node == member.node) {
                         return Err(FleetCatalogError::InventoryIncomplete);
                     }
                 }
-                namespace
-                    .verify_group_identity(&scope)
+                let request = self.inventory_birth(directory, &history)?;
+                let birth = directory
+                    .group_birth_disposition(&request)
                     .await
                     .map_err(catalog_error)?;
-                let decision = namespace
-                    .birth_disposition(&scope.cell)
-                    .await
-                    .map_err(catalog_error)?;
-                match (&history.state, decision) {
-                    (FleetHistoryState::Reserved, decision) => {
-                        let (_, digest) = namespace
-                            .prepare_birth_with_owner(
-                                history.initial_placement()?,
-                                Some(&self.birth_owner()?),
-                            )
-                            .map_err(catalog_error)?;
-                        if history.origin != Origin::Managed
-                            || digest != history.birth_digest
-                            || decision.as_ref().is_some_and(|d| match d {
-                                BirthDisposition::Live(b) => !history.check_birth(namespace, b),
-                                BirthDisposition::Cancelled { scope: actual, .. } => {
-                                    actual != &scope
-                                }
-                            })
-                        {
-                            return Err(FleetCatalogError::Corrupt("reserved inventory history"));
-                        }
+                match (&history.state, birth) {
+                    (FleetHistoryState::Reserved, None) if history.allows_managed_genesis() => (),
+                    (
+                        FleetHistoryState::Reserved | FleetHistoryState::Live,
+                        Some(CellGroupBirthDisposition::Live(birth)),
+                    ) if history.check_birth(directory, &birth) => (),
+                    (
+                        FleetHistoryState::Retired {
+                            operation,
+                            retirement,
+                        },
+                        disposition,
+                    ) => {
+                        let materialized = match disposition {
+                            Some(CellGroupBirthDisposition::Live(birth))
+                                if history.check_birth(directory, &birth) =>
+                            {
+                                true
+                            }
+                            None => false,
+                            _ => return Err(FleetCatalogError::InventoryIncomplete),
+                        };
+                        self.require_retired_history(
+                            snapshot,
+                            directory,
+                            request.route(),
+                            *operation,
+                            *retirement,
+                            (&nodes, materialized),
+                        )
+                        .await?;
                     }
-                    (FleetHistoryState::Live, Some(BirthDisposition::Live(birth)))
-                        if history.check_birth(namespace, &birth) => {}
                     (
                         FleetHistoryState::Cancelled { operation },
-                        Some(BirthDisposition::Cancelled {
-                            scope: actual,
-                            operation: actual_op,
+                        Some(CellGroupBirthDisposition::Cancelled {
+                            history: actual,
+                            operation: decision,
                         }),
-                    ) if actual == scope && actual_op.bytes() == *operation => {}
-                    _ => return Err(FleetCatalogError::Corrupt("inventory birth disposition")),
+                    ) if actual == scope && decision.bytes() == *operation => (),
+                    // Cancellation is a terminal directory decision, not a
+                    // caller-supplied enum value or an observation of absence.
+                    _ => return Err(FleetCatalogError::InventoryIncomplete),
                 }
             }
             cursor = page.next;
@@ -212,5 +228,24 @@ impl FleetCatalog {
             namespaces: declarations.len(),
             histories,
         })
+    }
+
+    fn inventory_birth(
+        &self,
+        directory: &RangeDirectory,
+        history: &FleetHistory,
+    ) -> Result<CellGroupBirthRequest> {
+        let request = directory
+            .prepare_fleet_group_birth(history.initial_placement()?, &self.birth_owner()?)
+            .map_err(catalog_error)?;
+        if request.route().birth_digest != history.birth_digest
+            || directory.namespace().root_digest() != history.namespace_root
+            || request.route().schema_digest != history.schema_digest
+        {
+            return Err(FleetCatalogError::Corrupt(
+                "inventory immutable group birth",
+            ));
+        }
+        Ok(request)
     }
 }

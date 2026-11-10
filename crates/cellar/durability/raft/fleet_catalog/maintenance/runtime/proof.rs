@@ -340,6 +340,9 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
             observer,
             paused,
         } = cut;
+        if expected.len() != 3 {
+            return Err(FleetCatalogError::InventoryIncomplete);
+        }
         let first = if expected.contains_key(&target) {
             target
         } else {
@@ -361,12 +364,22 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
         for peer in
             std::iter::once(first).chain(expected.keys().copied().filter(|peer| *peer != first))
         {
+            // One lost metadata reply must leave time for the owning walk to
+            // retry. Divide only this read-only observation budget; the final
+            // validation and original freshness/deadline checks stay intact.
+            let shares =
+                u32::try_from(4 - observations.len()).map_err(|_| FleetCatalogError::Limit)?;
+            let timeout = deadline
+                .remaining()?
+                .checked_div(shares)
+                .filter(|budget| budget.as_millis() > 0)
+                .ok_or(FleetCatalogError::Unconfirmed)?;
             let observation = observer
                 .observe_peer_fleet_membership(
                     peer,
                     authorization.clone(),
                     snapshot.revision(),
-                    deadline.remaining()?,
+                    timeout,
                 )
                 .await
                 .map_err(FleetCatalogError::Observation)?;
@@ -380,9 +393,7 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
         if observations.len() != 3 {
             return Err(FleetCatalogError::InventoryIncomplete);
         }
-        let fixed = observations[0]
-            .published_cut()
-            .ok_or(FleetCatalogError::Unconfirmed)?;
+        let fixed = observations[0].published_cut();
         let result = catalog
             .run(deadline.remaining()?, async {
                 let first = observations[0].membership();
@@ -415,9 +426,7 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
                         state,
                         replica.node == target && paused,
                     )?;
-                    let cut = observed
-                        .published_cut()
-                        .ok_or(FleetCatalogError::Unconfirmed)?;
+                    let cut = observed.published_cut();
                     let member = observed
                         .progress()
                         .member
@@ -476,7 +485,7 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
                         ),
                         epoch: auth.epoch(),
                         member: replica.member.get(),
-                        publication: hash(&encode(57, &Publication::from(cut), records::LIMIT)?),
+                        publication: hash(&encode(57, &Publication::from(cut), PAGE_LIMIT)?),
                         leader_load: observed
                             .progress()
                             .leader_load

@@ -98,6 +98,20 @@ pub(super) struct Record {
 }
 
 impl Record {
+    pub(super) fn is_retained_target_boot(&self, boot: &BootBinding) -> bool {
+        boot.is_retained_successor_of(&self.request.attestation.boot)
+    }
+
+    pub(super) fn matches_target_attestation(
+        &self,
+        attestation: &FleetResourceAttestation,
+        retained: bool,
+    ) -> bool {
+        attestation.profile_revision == self.request.attestation.profile_revision
+            && (attestation.boot == self.request.attestation.boot
+                || retained && self.is_retained_target_boot(&attestation.boot))
+    }
+
     pub fn new(
         catalog: &FleetCatalog,
         request: Request,
@@ -267,6 +281,17 @@ impl Book {
 }
 
 impl FleetCatalog {
+    pub(in crate::raft::fleet_catalog) async fn require_transition_membership_idle(
+        &self,
+        snapshot: &FleetSnapshot,
+    ) -> Result<()> {
+        let book = self.resource_book(snapshot).await?;
+        if !book.rows.is_empty() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
     pub(in super::super) async fn check_resource_mutation(
         &self,
         snapshot: &FleetSnapshot,
@@ -377,6 +402,12 @@ impl FleetCatalog {
                 .ok_or(FleetCatalogError::Invalid("resource book deletion"))?,
         )?;
         let previous = self.resource_book(snapshot).await?;
+        self.check_member_cleanup_room(
+            snapshot,
+            &record,
+            &self.resource_rows(snapshot, &previous).await?,
+        )
+        .await?;
         let added = Reference {
             id: mutation.id,
             digest: hash(row_bytes),

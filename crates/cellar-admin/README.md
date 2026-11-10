@@ -99,7 +99,14 @@ For an existing managed fleet, add `raft` to its private dashboard configuration
       "catalog_prefix": "raft/",
       "scope": "bucket",
       "managed": true,
-      "image_storage": "Materialized"
+      "image_storage": "Materialized",
+      "group_directory": {
+        "max_groups": 1000000,
+        "max_mutations": 1000000,
+        "max_cached_pages": 64,
+        "max_cache_bytes": 4194304,
+        "operation_timeout_ms": 5000
+      }
     }
   ]
 }
@@ -145,18 +152,27 @@ Graceful node departure adds independent `fleet_evacuate`, `fleet_remove` and
 then exclude it, prepare the complete-inventory finalization fence, explicitly
 request the exact process stop, and consume its signed joined closure in terminal
 removal. The embedding server must additionally configure
-`RaftFleetControl::with_removal_verifier` with its private bounded replay store;
-extent namespaces additionally require `ArchiveVerifier::with_extent_store`
-with a separate exclusively owned, initially empty `NodeExtentStore`. Never
-supply a live node's inventory. Each proof freshly downloads and seals the exact
-remote extent closure in this scratch owner. Entered physical work retains the
-owner after cancellation; a subsequent attempt reconciles scratch only after that
-work exits. Physical inventory quarantine still refuses verification.
+`RaftFleetControl::with_removal_verifier` with a `FleetGroupArchiveVerifier`.
+Its explicit replay options supply private bounded materialized/extent inventories,
+page limits and node-shared archive, checkpoint, tail and scratch pools. Never
+supply a live node's inventory. Each proof downloads the complete group checkpoint
+and replays its contiguous committed tail. An exact acquire intent is journaled
+before S3 mutation, and restart restores its original fixed cut and allocation.
+Entered physical work retains page/image ownership and memory admission after
+cancellation; physical inventory quarantine still refuses verification. Persistent
+holds remain retained until an explicit owner can fence users and join their work;
+dropping a controller or timing out does not release remote retention.
 Standalone existing-root connections cannot perform live proof or dispatch stop.
 Status and exact committed receipt reconciliation remain metadata operations.
 See the [departure workflow](../../docs/design/multi-raft/fleet-operations/operator-workflows.md#evacuate-and-permanently-remove-a-node)
 for CLI syntax, restart behavior and retained reservation reporting. Removal
 retains volumes and archives.
+
+Operator split and merge preparation uses `RaftFleetControl::with_transition_preparer`.
+Configure a private `FleetGroupArchiveVerifier` and a shared `CellGroupRecoveryPool`
+on the embedding management server. The request identifies an admitted plan.
+The server selects its archive cuts and returns the preparation digest for the
+separate seal authorization request.
 
 The `fleet_cancel` grant also authorizes node `cancel-evacuation`. Before
 finalization this is a metadata operation. Afterwards the server owns an exact

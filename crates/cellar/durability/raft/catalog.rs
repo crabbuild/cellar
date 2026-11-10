@@ -22,9 +22,34 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 mod births;
 pub use births::BirthDisposition;
 
+#[path = "cell_groups/directory/mod.rs"]
+mod range_directory;
+pub(crate) use range_directory::ManagedTransitionRecoverySelection;
+pub(crate) use range_directory::RouteCache;
+pub use range_directory::{
+    CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthDisposition, CellGroupBirthRequest,
+    CellGroupBirthSpec, CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
+    CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
+    CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
+    CellGroupSealPermit, CellGroupSourceRetirementAck, CellGroupSourceRetirementPermit,
+    CellGroupTransferActivationAck, CellGroupTransferActivationPermit, CellGroupTransferArchive,
+    CellGroupTransitionPreparationInputs, CellGroupTransitionSource, CellRouteAttempt,
+    CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
+    CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, FencedCellGroupRecovery, InstalledTransferVoter,
+    ManagedRecoverySeedQuorum, ManagedRecoveryVoterSeed, PreparedCellGroupArchiveBinding,
+    PreparedManagedCellGroupTransition, RangeDirectory, ResolvedCellRoute, TransferInstallQuorum,
+    TransitionJournal, TransitionPhase, VerifiedCellGroupTransitionSources,
+};
+pub(crate) use range_directory::{
+    ManagedRecoveryPublicationInput, RecoverySeedPermit, TransferSeedPermit,
+};
+
 #[path = "catalog_inventory/mod.rs"]
 mod inventory;
-pub(crate) use inventory::{BirthImportCut, ManagedBirthInventory};
+pub(crate) use inventory::groups::group_key as cell_group_import_key;
+pub(crate) use inventory::groups::CellGroupImportCut;
+pub use inventory::groups::FrozenCellGroupInventory;
 pub use inventory::{
     BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage, FrozenBirthInventory,
 };
@@ -34,7 +59,6 @@ mod directory;
 pub use directory::{NodePublication, NodeRegistration, NodeView};
 #[path = "catalog_disaster.rs"]
 mod disaster;
-pub(crate) use disaster::DisasterSeedPermit;
 pub use disaster::{DisasterFenceAuthority, DisasterFenceRequest, DisasterRecoveryRequest};
 
 #[derive(Debug)]
@@ -48,6 +72,8 @@ pub enum CatalogError {
     BirthCancelled,
     BirthsFrozen,
     ManagedAdmissionRequired,
+    /// Preserve the owning fleet's conflict, pressure and uncertain outcome.
+    FleetAuthority(Box<super::fleet_catalog::FleetCatalogError>),
     LostStableState,
     Unconfirmed,
     Storage(object_store::Error),
@@ -65,7 +91,20 @@ impl fmt::Display for CatalogError {
     }
 }
 
-impl std::error::Error for CatalogError {}
+impl std::error::Error for CatalogError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::FleetAuthority(error) => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}
+
+impl From<super::fleet_catalog::FleetCatalogError> for CatalogError {
+    fn from(error: super::fleet_catalog::FleetCatalogError) -> Self {
+        Self::FleetAuthority(Box::new(error))
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct CatalogOptions {
@@ -288,32 +327,12 @@ impl Catalog {
         config: NamespaceConfig,
         create: bool,
     ) -> Result<NamespaceCatalog, CatalogError> {
-        if config.schema_digest == [0; 32] {
-            return Err(CatalogError::Invalid("namespace schema digest"));
-        }
-        let data_prefix = match config.mode {
-            NamespaceMode::Raft => format!(
-                "{}raft/{}/{}/",
-                self.inner.prefix,
-                hex::encode(config.cluster.bytes()),
-                hex::encode(config.namespace.bytes())
-            ),
-            NamespaceMode::Fleet => format!("{}cells/", self.inner.prefix),
-        };
-        let expected = wire::Root::new(&config, data_prefix.clone());
-        expected.validate()?;
+        let (namespace, expected, bytes) = self.namespace_candidate(config)?;
         let key = Path::from(format!(
             "{}namespaces/{}/root",
             self.inner.prefix,
-            hex::encode(config.namespace.bytes())
+            hex::encode(namespace.config.namespace.bytes())
         ));
-        let bytes = wire::encode(wire::ROOT, &expected, self.inner.limit)?;
-        let namespace = NamespaceCatalog {
-            inner: self.inner.clone(),
-            config,
-            root_digest: wire::digest(&bytes),
-            data_prefix,
-        };
         let found = self.inner.read(&key).await?;
         let observed = match found {
             Some(bytes) => bytes,
@@ -342,6 +361,43 @@ impl Catalog {
             namespace.require_birth_inventory().await?;
         }
         Ok(namespace)
+    }
+
+    /// Derive the exact descriptor before publishing any namespace objects.
+    pub(super) fn describe_namespace(
+        &self,
+        config: NamespaceConfig,
+    ) -> Result<NamespaceCatalog, CatalogError> {
+        self.namespace_candidate(config)
+            .map(|(namespace, _, _)| namespace)
+    }
+
+    fn namespace_candidate(
+        &self,
+        config: NamespaceConfig,
+    ) -> Result<(NamespaceCatalog, wire::Root, Vec<u8>), CatalogError> {
+        if config.schema_digest == [0; 32] {
+            return Err(CatalogError::Invalid("namespace schema digest"));
+        }
+        let data_prefix = match config.mode {
+            NamespaceMode::Raft => format!(
+                "{}raft/{}/{}/",
+                self.inner.prefix,
+                hex::encode(config.cluster.bytes()),
+                hex::encode(config.namespace.bytes())
+            ),
+            NamespaceMode::Fleet => format!("{}cells/", self.inner.prefix),
+        };
+        let expected = wire::Root::new(&config, data_prefix.clone());
+        expected.validate()?;
+        let bytes = wire::encode(wire::ROOT, &expected, self.inner.limit)?;
+        let namespace = NamespaceCatalog {
+            inner: self.inner.clone(),
+            config,
+            root_digest: wire::digest(&bytes),
+            data_prefix,
+        };
+        Ok((namespace, expected, bytes))
     }
 }
 
@@ -481,34 +537,6 @@ impl NamespaceCatalog {
         self.bootstrap_initial(birth, log, None).await
     }
 
-    pub(crate) async fn bootstrap_managed_member(
-        &self,
-        birth: &GroupBirth,
-        log: &ReplicaLog,
-        authorization: &super::fleet_catalog::FleetGroupAuthorization,
-    ) -> Result<BootstrapPermit, CatalogError> {
-        if !birth
-            .managed_owner()
-            .is_some_and(|owner| owner.fleet == authorization.binding().fleet())
-            || !authorization.check_birth(self, birth)
-            || birth.voters.len() != 3
-            || !birth.learners.is_empty()
-        {
-            return Err(CatalogError::Conflict(
-                "managed initial birth authorization",
-            ));
-        }
-        if !authorization.allows_managed_genesis() {
-            match log.group(birth.scope()) {
-                Ok(_) => (),
-                Err(LogError::NotFound) => return Err(CatalogError::ManagedAdmissionRequired),
-                Err(error) => return Err(CatalogError::Log(error)),
-            }
-        }
-        self.bootstrap_initial(birth, log, Some(authorization.binding()))
-            .await
-    }
-
     async fn bootstrap_initial(
         &self,
         birth: &GroupBirth,
@@ -608,97 +636,6 @@ impl NamespaceCatalog {
             birth: birth.clone(),
             namespace: self.clone(),
         })
-    }
-
-    /// Resume a joined member or establish that a first seed is still legal.
-    /// A permanent claim with missing local stable state is never reset.
-    pub(crate) async fn resume_joined(
-        &self,
-        birth: &GroupBirth,
-        log: &ReplicaLog,
-        member: MemberId,
-    ) -> Result<Option<BootstrapPermit>, CatalogError> {
-        self.require_mode(NamespaceMode::Raft)?;
-        self.check_birth(birth)?;
-        self.require_current(birth).await?;
-        if birth
-            .voters
-            .iter()
-            .chain(&birth.learners)
-            .any(|m| m.member == member)
-        {
-            return Err(CatalogError::Conflict("joined member is initial"));
-        }
-        self.require_node_storage(log).await?;
-        let expected = BootstrapClaim {
-            scope: birth.scope.clone(),
-            member,
-            disk: log.limits().disk,
-            birth_digest: birth.digest,
-        };
-        let key = self.claim_key(birth, member);
-        let remote = self.read_claim(&key, birth).await?;
-        if remote.as_ref().is_some_and(|claim| claim != &expected) {
-            return Err(CatalogError::Conflict("permanent joined claim"));
-        }
-        let local = match log.group(&birth.scope) {
-            Ok(local) => local,
-            Err(LogError::NotFound) if remote.is_none() => return Ok(None),
-            Err(LogError::NotFound) => return Err(CatalogError::LostStableState),
-            Err(error) => return Err(CatalogError::Log(error)),
-        };
-        let mut initial = ::raft::prelude::ConfState::default();
-        initial.set_voters(birth.voters.iter().map(|m| m.member.get()).collect());
-        initial.set_learners(birth.learners.iter().map(|m| m.member.get()).collect());
-        let valid = {
-            let cache = local.read().map_err(CatalogError::Log)?;
-            local.birth_digest == birth.digest
-                && local.identity().member == member
-                && cache
-                    .membership
-                    .same_birth(&super::member_state::GroupMembership::initial(&initial))
-                && cache.membership.permits(local.identity())
-                && cache
-                    .membership
-                    .joined(member)
-                    .map_err(CatalogError::Log)?
-                    .is_some()
-                && cache
-                    .conf_state
-                    .voters
-                    .iter()
-                    .chain(&cache.conf_state.voters_outgoing)
-                    .chain(&cache.conf_state.learners)
-                    .chain(&cache.conf_state.learners_next)
-                    .any(|id| *id == member.get())
-        };
-        if !valid {
-            return Err(CatalogError::Conflict("joined stable state"));
-        }
-        let payload = wire::Claim {
-            root_digest: self.root_digest,
-            scope: WireScope::from(&birth.scope),
-            member: member.get(),
-            disk: expected.disk.bytes(),
-            birth_digest: birth.digest,
-        };
-        let bytes = wire::encode(wire::CLAIM, &payload, self.inner.limit)?;
-        let observed = self.inner.create_and_observe(&key, &bytes).await?;
-        if observed != bytes {
-            return Err(CatalogError::Conflict("permanent joined claim"));
-        }
-        let confirmed = self
-            .read_claim(&key, birth)
-            .await?
-            .ok_or(CatalogError::Unconfirmed)?;
-        expected
-            .reconcile(Some(&expected), Some(&confirmed))
-            .map_err(|_| CatalogError::LostStableState)?;
-        Ok(Some(BootstrapPermit {
-            local,
-            birth: birth.clone(),
-            namespace: self.clone(),
-        }))
     }
 
     async fn read_claim(

@@ -9,18 +9,17 @@ fn request() -> RequestHead {
     route.identities().unwrap();
     let binding = crate::raft::member_state::FleetGroupBinding::new(
         cellar_logic::consensus::IncarnationId::new([80; 16]).unwrap(),
-        &cellar_logic::consensus::GroupScope {
+        &cellar_logic::cell_group::GroupHistory {
             cluster: cellar_logic::consensus::ClusterId::new([1; 16]).unwrap(),
             namespace: cellar_logic::consensus::NamespaceId::new([2; 16]).unwrap(),
             group: cellar_logic::consensus::GroupId::new([3; 16]).unwrap(),
             incarnation: cellar_logic::consensus::IncarnationId::new([4; 16]).unwrap(),
-            cell: "Counter:quorum".into(),
         },
         [81; 32],
     )
     .unwrap();
     let history: History = serde_json::from_value(serde_json::json!({
-        "binding":binding, "birth":vec![6;32], "schema":vec![5;32],
+        "binding":binding, "birth":vec![6;32], "schema":vec![5;32], "partition":false,
     }))
     .unwrap();
     RequestHead {

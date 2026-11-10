@@ -1,9 +1,10 @@
-//! Fixed publication cuts pair the durable configuration with its SQL image.
-//! A data position can precede configuration-only applied progress.
+//! Fixed complete-group roots pair durable membership with all cell state.
+//! Authenticated mutation summaries distinguish data from protocol-only apply.
 use super::*;
 use crate::application::consensus::ImageCommitment;
-use crate::raft::cache::{CommittedImage, DurableApply};
-use crate::raft::inspection::MemberInspection;
+use crate::raft::cache::CommittedImage;
+#[cfg(test)]
+use crate::raft::cache::DurableApply;
 use crate::raft::member_state::FleetGroupBinding;
 use cellar_ltx::{apply::ImageState, TXID};
 use serde::{Deserialize, Serialize};
@@ -35,26 +36,6 @@ impl FleetImageState {
             page_size: image.page_size,
             length: image.length,
             commitment: image.commitment,
-        };
-        state.validate()?;
-        Ok(state)
-    }
-
-    pub(crate) fn new(
-        epoch: u64,
-        txid: u64,
-        checksum: u64,
-        page_size: u32,
-        length: u64,
-        commitment: ImageCommitment,
-    ) -> Result<Self, CommandFailure> {
-        let state = Self {
-            epoch,
-            txid,
-            checksum,
-            page_size,
-            length,
-            commitment,
         };
         state.validate()?;
         Ok(state)
@@ -127,7 +108,8 @@ impl FleetImageState {
         })
     }
 
-    pub(crate) fn same_representation(&self, other: &Self) -> bool {
+    #[cfg(test)]
+    fn same_representation(&self, other: &Self) -> bool {
         matches!(
             (self.commitment, other.commitment),
             (ImageCommitment::Sha256(_), ImageCommitment::Sha256(_))
@@ -219,13 +201,15 @@ impl FleetPublishedImage {
 
 /// Captured under the same cache read as the membership inspection. Ordinary
 /// status inspection does not transport this stronger publication statement.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Publication {
+enum Publication {
     Empty,
     Pending,
     Image(FleetPublishedImage),
 }
 
+#[cfg(test)]
 impl Publication {
     pub(crate) fn capture(
         applied: &DurableApply,
@@ -264,57 +248,49 @@ impl Publication {
             _ => Err(CommandFailure::CorruptState),
         }
     }
-
-    pub(crate) fn validate(&self, member: &MemberInspection) -> Result<(), CommandFailure> {
-        match self {
-            Self::Empty if member.published.is_none() => Ok(()),
-            Self::Pending => Ok(()),
-            Self::Image(image)
-                if member.published == Some(image.position)
-                    && image.position.index <= member.applied.index
-                    && image.position.term <= member.applied.term
-                    && (image.position.index != member.applied.index
-                        || image.position.term == member.applied.term) =>
-            {
-                FleetPublishedImage::new_state(image.position, image.state).map(|_| ())
-            }
-            _ => Err(CommandFailure::CorruptState),
-        }
-    }
 }
 
+#[cfg(test)]
 fn marker_state(image: &CommittedImage) -> Result<FleetImageState, CommandFailure> {
     FleetImageState::from_marker(image)
 }
 
-/// Historical proof that a published image (or canonical empty state) covers
-/// the complete durable apply at this configuration cut after safe ReadIndex.
+/// Historical proof of a complete group publication at a safe ReadIndex cut.
 /// Holding it supplies no current health, archive coverage or removal lease.
 #[derive(Clone, Debug)]
 pub struct FleetPublishedCut {
     binding: FleetGroupBinding,
-    replica: ReplicaIdentity,
+    replica: ReplicaIdentity<cellar_logic::cell_group::GroupHistory>,
     storage_instance: EngineInstanceId,
-    birth: [u8; 32],
-    schema: [u8; 32],
-    revision: LogIndex,
-    applied: LogPosition,
-    image: Option<FleetPublishedImage>,
+    root: crate::raft::cell_groups::GroupManifest,
+    configuration_digest: [u8; 32],
 }
 
 impl FleetPublishedCut {
-    /// Re-establish a stored historical prefix from an actual current quorum
-    /// publication. Serialized receipt material alone cannot construct a cut.
+    pub(crate) fn capture_group(
+        membership: &FleetMembershipObservation,
+        storage_instance: EngineInstanceId,
+    ) -> Self {
+        Self {
+            binding: membership.status().binding.clone(),
+            replica: membership.replica().clone(),
+            storage_instance,
+            root: membership.root().clone(),
+            configuration_digest: membership.configuration_digest(),
+        }
+    }
+
+    /// Stored journal data is historical material, never an independently minted
+    /// proof. Re-establish its prefix through an actual current quorum cut.
     pub(crate) fn checked_prefix(
         &self,
-        applied: LogPosition,
-        revision: LogIndex,
-        image: Option<FleetPublishedImage>,
+        root: crate::raft::cell_groups::GroupManifest,
+        configuration_digest: [u8; 32],
     ) -> Result<Self, CommandFailure> {
+        root.check().map_err(|_| CommandFailure::CorruptState)?;
         let prefix = Self {
-            applied,
-            revision,
-            image,
+            root,
+            configuration_digest,
             ..self.clone()
         };
         if !self.covers(&prefix)? {
@@ -323,33 +299,11 @@ impl FleetPublishedCut {
         Ok(prefix)
     }
 
-    pub(crate) fn capture(
-        membership: &FleetMembershipObservation,
-        storage_instance: EngineInstanceId,
-        publication: &Publication,
-    ) -> Option<Self> {
-        let image = match publication {
-            Publication::Pending => return None,
-            Publication::Empty => None,
-            Publication::Image(image) => Some(image.clone()),
-        };
-        Some(Self {
-            binding: membership.status().binding.clone(),
-            replica: membership.replica().clone(),
-            storage_instance,
-            birth: membership.birth_digest(),
-            schema: membership.schema_digest(),
-            revision: membership.membership_revision(),
-            applied: membership.applied(),
-            image,
-        })
-    }
-
     pub fn binding(&self) -> &FleetGroupBinding {
         &self.binding
     }
 
-    pub fn replica(&self) -> &ReplicaIdentity {
+    pub fn replica(&self) -> &ReplicaIdentity<cellar_logic::cell_group::GroupHistory> {
         &self.replica
     }
 
@@ -358,85 +312,83 @@ impl FleetPublishedCut {
     }
 
     pub fn birth_digest(&self) -> [u8; 32] {
-        self.birth
+        self.root.route().birth_digest
     }
 
     pub fn schema_digest(&self) -> [u8; 32] {
-        self.schema
+        self.root.route().schema_digest
     }
 
     pub fn membership_revision(&self) -> LogIndex {
-        self.revision
+        LogIndex::new(self.root.membership_revision())
     }
 
-    /// Includes configuration-only progress even when the SQL data position
-    /// has not advanced. The image state was checked against this durable cut.
     pub fn applied(&self) -> LogPosition {
-        self.applied
+        self.root.position()
     }
 
-    /// None is proven canonical empty state, not missing publication metadata.
-    pub fn image(&self) -> Option<&FleetPublishedImage> {
-        self.image.as_ref()
+    /// The complete group commitment includes the route, every cell's image,
+    /// enrollment/receipt summary and recovery lineage. Empty is an explicit
+    /// zero-cell manifest; missing/pending publication cannot construct a cut.
+    pub fn root(&self) -> &crate::raft::cell_groups::GroupManifest {
+        &self.root
     }
 
-    /// Compare committed prefix coverage at the same exact configuration.
-    /// Physical replicas may differ. Configuration changes require a fresh
-    /// verification attempt; inconsistent same-position images are corruption.
+    pub fn configuration_digest(&self) -> [u8; 32] {
+        self.configuration_digest
+    }
+
     pub fn covers(&self, minimum: &Self) -> Result<bool, CommandFailure> {
         if self.binding != minimum.binding
-            || self.birth != minimum.birth
-            || self.schema != minimum.schema
-            || self.revision != minimum.revision
+            || self.membership_revision() != minimum.membership_revision()
+            || self.configuration_digest != minimum.configuration_digest
+            || self.root.route() != minimum.root.route()
         {
             return Err(CommandFailure::CommandConflict);
         }
-        if self
-            .image
-            .as_ref()
-            .zip(minimum.image.as_ref())
-            .is_some_and(|(a, b)| !a.state.same_representation(&b.state))
-        {
-            return Err(CommandFailure::CorruptState);
-        }
-        if self.applied.index < minimum.applied.index {
-            return Ok(false);
-        }
-        if self.applied.term < minimum.applied.term
-            || self.applied.index == minimum.applied.index
-                && self.applied.term != minimum.applied.term
-        {
-            return Err(CommandFailure::CorruptState);
-        }
-        match (&self.image, &minimum.image) {
-            (None, None) => Ok(true),
-            (None, Some(_)) => Err(CommandFailure::CorruptState),
-            (Some(current), prior) => {
-                if !consistent_positions(current.position, minimum.applied)
-                    || prior.as_ref().is_some_and(|prior| {
-                        !consistent_positions(current.position, prior.position)
-                    })
-                {
-                    return Err(CommandFailure::CorruptState);
-                }
-                // Live and restored replicas can publish exactly the same
-                // state at different protocol-only positions. Changed state
-                // must instead follow the entire minimum applied prefix.
-                if prior
-                    .as_ref()
-                    .is_some_and(|prior| current.state == prior.state)
-                {
-                    return Ok(true);
-                }
-                if current.position.index <= minimum.applied.index {
-                    return Err(CommandFailure::CorruptState);
-                }
-                Ok(true)
-            }
-        }
+        group_prefix(&self.root, &minimum.root)
     }
 }
 
+pub(crate) fn group_prefix(
+    current: &crate::raft::cell_groups::GroupManifest,
+    minimum: &crate::raft::cell_groups::GroupManifest,
+) -> Result<bool, CommandFailure> {
+    current
+        .check()
+        .and_then(|()| minimum.check())
+        .map_err(|_| CommandFailure::CorruptState)?;
+    if current.route() != minimum.route()
+        || current.membership_revision() != minimum.membership_revision()
+    {
+        return Err(CommandFailure::CommandConflict);
+    }
+    let (a, b) = (current.position(), minimum.position());
+    if a.index < b.index {
+        return Ok(false);
+    }
+    if a.term < b.term
+        || a.index == b.index && current != minimum
+        || !current.preserves_recovery(minimum)
+        || !current.preserves_transfer(minimum)
+        || !current.preserves_source_seal(minimum)
+        || !current.preserves_park_cut(minimum)
+    {
+        return Err(CommandFailure::CorruptState);
+    }
+    if current.root() != minimum.root() {
+        let mutation = current
+            .root()
+            .last_mutation()
+            .ok_or(CommandFailure::CorruptState)?;
+        if mutation.index <= b.index || mutation.term < b.term {
+            return Err(CommandFailure::CorruptState);
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(test)]
 fn consistent_positions(a: LogPosition, b: LogPosition) -> bool {
     match a.index.cmp(&b.index) {
         std::cmp::Ordering::Equal => a.term == b.term,

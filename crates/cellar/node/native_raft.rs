@@ -28,7 +28,7 @@ pub struct NativeRaftCells {
 
 type Prepare =
     Box<dyn FnOnce(NativeRaftNode) -> BoxFuture<'static, anyhow::Result<NativeRaftCells>> + Send>;
-type Bind = Box<dyn FnOnce(RaftCells) -> anyhow::Result<()> + Send>;
+type Bind = Box<dyn FnOnce(RaftCells) -> BoxFuture<'static, anyhow::Result<()>> + Send>;
 
 pub(super) struct Startup {
     pub script: String,
@@ -83,7 +83,7 @@ impl Startup {
                 .iter()
                 .any(|origin| origin.peer.node != local_node);
         anyhow::ensure!(
-            !remote_routes || shared_peer_auth,
+            !(remote_routes || prepared.config.host.managed.is_some()) || shared_peer_auth,
             "multi-node Raft CLI startup requires a fleet bucket for shared peer authentication"
         );
         let services = crate::asyncrt::services();
@@ -92,12 +92,12 @@ impl Startup {
                 .domain_token()
                 .ok_or(crate::asyncrt::DomainClosed)?,
             data_dir: &data_dir,
-            node: &node,
             auth: app.peer_auth.clone(),
         }
         .start(
             prepared.config,
             RaftCellsServices {
+                recovery: None,
                 listeners: prepared.listeners,
                 tls: prepared.tls,
                 store: prepared.store,
@@ -106,6 +106,6 @@ impl Startup {
             },
         )
         .await?;
-        (self.bind)(service)
+        (self.bind)(service).await
     }
 }

@@ -178,3 +178,76 @@ fn corrupt_clone_and_ambiguous_creation_never_publish_or_refund_uncertain_capaci
         .is_err());
     assert_eq!(std::fs::read(original).unwrap(), bytes);
 }
+
+#[test]
+fn prepared_image_retry_verifies_identity_without_restoring_retention() {
+    let root = tempfile::tempdir().unwrap();
+    let original = root.path().join("source.sqlite");
+    let bytes = source(&original);
+    let directory = root.path().join("images");
+    let id = ImageId::new([1; 16]).unwrap();
+    let expected = state(&bytes, 1);
+    let store = GenerationStore::open(
+        directory.clone(),
+        Arc::new(DirectFileSystem),
+        GenerationLimits::default(),
+    )
+    .unwrap();
+    drop(store.prepare_image_file(id, &original, expected).unwrap());
+    store.retire(id).unwrap();
+    assert_eq!(store.usage().unwrap().retained, 0);
+    let pin = store.pin_prepared(id, expected).unwrap();
+    assert_eq!(store.usage().unwrap().retained, 0);
+    assert_eq!(store.reclaim(10).unwrap().files, 0);
+    assert!(matches!(
+        store.pin_prepared(
+            id,
+            ImageState {
+                txid: TXID(2),
+                ..expected
+            }
+        ),
+        Err(GenerationError::Identity)
+    ));
+    drop(pin);
+    drop(store);
+    // Restart must verify the file, not infer publication from directory order.
+    let store = GenerationStore::open(
+        directory.clone(),
+        Arc::new(DirectFileSystem),
+        GenerationLimits::default(),
+    )
+    .unwrap();
+    store.retire(id).unwrap();
+    let pin = store.pin_prepared(id, expected).unwrap();
+    assert_eq!(pin.state(), expected);
+    assert_eq!(store.usage().unwrap().retained, 0);
+    drop(pin);
+    assert!(store.reclaim(10).unwrap().files > 0);
+    assert!(matches!(
+        store.pin_prepared(id, expected),
+        Err(GenerationError::Missing)
+    ));
+    drop(store);
+    let store = GenerationStore::open(
+        directory.clone(),
+        Arc::new(DirectFileSystem),
+        GenerationLimits::default(),
+    )
+    .unwrap();
+    drop(store.prepare_image_file(id, &original, expected).unwrap());
+    drop(store);
+    let image = std::fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "sqlite"))
+        .unwrap();
+    std::fs::write(image, b"corrupt immutable image").unwrap();
+    let store = GenerationStore::open(
+        directory,
+        Arc::new(DirectFileSystem),
+        GenerationLimits::default(),
+    )
+    .unwrap();
+    assert!(store.pin_prepared(id, expected).is_err());
+}

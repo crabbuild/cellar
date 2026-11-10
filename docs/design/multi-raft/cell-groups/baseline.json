@@ -1,0 +1,153 @@
+{
+  "format": 1,
+  "source_revision": "a3792fd047e41cf4e4f3b1246ffec1361db3635c",
+  "runtime_revision": "bc4e08c440d4a22baca7d9e05faf85c14c88614a",
+  "review_note": "Reviewed confirmed local source-quiescence reuse at bc4e08c4: bounded to the current two parents, cleared for a new operation/worker, with fresh coordinator inventory checks and cleanup ownership unchanged. At a3792fd0 strict host/core Clippy, five native retirement/reclamation/capacity/merge/fanout regressions and the full native/RustFS 64-cell/seven-group workflows pass both image modes under original leases, deadlines and resource/reserve limits. Owned backend and VM are stopped with objects retained; earlier failures remain and no failover SLA is claimed. All anchored bytes/excerpts remain unchanged. CG-11 stays IN_PROGRESS for automatic admitted-move handoff, relevant ownership accounting, bounded controller/journal behavior and its five-case/ten-command acceptance. Full load/physical/independent-domain/soak profiles remain CG-15/16 gates, preserving the whole design. See progress.md for exact records.",
+  "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
+  "anchors": {
+    "identity": {
+      "path": "crates/cellar-logic/consensus.rs",
+      "sha256": "624ccbc21e7c83a8039444fa243d9e9a9eca12da8e32bf14e46893f8a44a83a8",
+      "line": 83,
+      "excerpt": "pub struct GroupScope {\n    pub cluster: ClusterId,\n    pub namespace: NamespaceId,\n    pub cell: String,\n    pub group: GroupId,\n    pub incarnation: IncarnationId,\n}\n\nimpl GroupScope {"
+    },
+    "codec": {
+      "path": "crates/cellar/application/consensus/protocol.rs",
+      "sha256": "39197ea0186510129f8de3de1e42f97bb90f00c6a37b1186435fabbddfb112b9",
+      "line": 160,
+      "excerpt": "pub struct CellUpdate {\n    pub scope: GroupScope,\n    pub application_digest: [u8; 32],\n    pub proposal: ProposalId,\n    pub base: LtxImage,\n    pub result: LtxImage,\n    pub files: Vec<LtxUpdate>,\n}\n"
+    },
+    "manifest": {
+      "path": "crates/cellar/durability/raft/cache.rs",
+      "sha256": "915b6538f4e19a966d588f1941568d96e5a404f7372e7e17b2cd5d52f2b3c017",
+      "line": 508,
+      "excerpt": "pub(crate) struct CachedGroup {\n    pub archive_required: bool,\n    pub hard_state: HardState,\n    pub conf_state: ConfState,\n    pub membership: GroupMembership,\n    pub snapshot: Snapshot,\n    pub entries: BTreeMap<u64, Entry>,\n    pub applied: DurableApply,\n    pub group_manifest: Option<GroupManifest>,\n    /// Derived from the immutable mapping; never supplied by a write/snapshot.\n    pub recovery_genesis: Option<Arc<GroupManifest>>,\n    pub manifest_pins: Option<ManifestPins>,\n    pub checkpoint_manifest: Option<GroupManifest>,\n    /// Local receipt; never imported from another node's checkpoint.\n    pub group_seed: Option<u64>,\n    /// Immutable first-seed lineage, recovered from the atomic local mapping.\n    /// Historical metadata only: no image pins, serving or archive authority.\n    pub seed_anchor: Option<Arc<GroupManifest>>,\n    pub(crate) local_park: Option<super::cell_groups::LocalParkRecord>,\n}"
+    },
+    "apply": {
+      "path": "crates/cellar/durability/raft/apply.rs",
+      "sha256": "bb288016102a672aadca759c84979ced56c76e8597c6e307274901327007071b",
+      "line": 80,
+      "excerpt": "pub struct ImageApplier {\n    group: GroupLog,\n    images: GenerationStore,\n    application_digest: [u8; 32],\n    limits: EnvelopeLimits,\n    current: Option<PublishedImage>,\n    snapshot_pin: Option<GenerationPin>,\n    pending: Option<Pending>,\n}"
+    },
+    "extent": {
+      "path": "crates/cellar/durability/raft/rooted/marker.rs",
+      "sha256": "b354ad8c64957569d21e8002b4f26082c41581140513fd31827e703c15076d43",
+      "line": 59,
+      "excerpt": "pub(super) fn adopt(\n    group: &GroupLog,\n    store: &NodeExtentStore,\n    schema: [u8; 32],\n    marker: &CommittedImage,\n    max_image_bytes: u64,\n    buffer: &mut [u8],\n) -> Result<SealedImageRoot, ImageApplyError> {\n    marker.validate().map_err(ImageApplyError::Log)?;"
+    },
+    "host": {
+      "path": "crates/cellar/durability/raft/host.rs",
+      "sha256": "2f073b103af3ff2af92e7fd0b1483e1599d64d55210bcae0bca0da55bbeaa42e",
+      "line": 76,
+      "excerpt": "pub struct RaftHostOptions {\n    /// Shared inventory and caches for namespaces selecting extent images.\n    pub extents: Option<RaftExtentOptions>,\n    pub close_report: super::operations::RaftCloseReportLimits,\n    /// Explicit committed alarm/outbox scheduling. Definitions refuse activation when\n    /// this capability is absent; ordinary classes do not start a scheduler.\n    pub effects: Option<super::effects::RaftEffectOptions>,\n    /// Opt in to bounded automatic repair and optional leadership balancing.\n    pub controller: Option<RaftControllerOptions>,\n    /// Bounded complete node-wide resource scans. Peer inspection still requires\n    /// its independent explicit profile and grants.\n    pub inspection_scan: RaftInspectionScanOptions,"
+    },
+    "sql": {
+      "path": "crates/cellar/durability/raft/host_sql/mod.rs",
+      "sha256": "816329ac5f2842cd865411b81b1ec2d6ce2ebdce11707b36a5d7327e3f781316",
+      "line": 110,
+      "excerpt": "pub(crate) struct Pool {\n    performance: Arc<Performance>,\n    domain: crate::asyncrt::DomainToken,\n    senders: Vec<mpsc::SyncSender<Envelope>>,\n    completion_slots: Vec<Arc<Semaphore>>,\n    slots: Vec<Arc<Semaphore>>,\n    workers: Vec<crate::asyncrt::TaskHandle<Result<(), ExecutionError>>>,\n    stopped: Arc<AtomicBool>,\n    running: Arc<AtomicUsize>,"
+    },
+    "runtime": {
+      "path": "crates/cellar/durability/raft/runtime.rs",
+      "sha256": "8bda902b5a217a5149096bd002436851b9a962aa4aa6a1f007b2c58517651873",
+      "line": 746,
+      "excerpt": "struct Group {\n    replica: Replica,\n    scheduled: bool,\n    write_scheduled: bool,\n    deferred: VecDeque<Request>,\n    inbound: Arc<Budget>,\n    hints: BTreeMap<u64, PeerHint>,\n    tick: bool,\n    failed: Option<RuntimeError>,"
+    },
+    "ticks": {
+      "path": "crates/cellar/durability/raft/runtime.rs",
+      "sha256": "8bda902b5a217a5149096bd002436851b9a962aa4aa6a1f007b2c58517651873",
+      "line": 1071,
+      "excerpt": "    fn tick(&mut self) {\n        for (scope, group) in &mut self.groups {\n            group.tick = true;\n            group.wake(scope, &mut self.order);\n        }\n    }\n\n    fn progress(&mut self) -> Result<bool, RuntimeError> {\n        let mut made = false;"
+    },
+    "catalog": {
+      "path": "crates/cellar/durability/raft/catalog.rs",
+      "sha256": "9d173369140668e0f635353324f0e0aec341bc06402ed47b09d0ee7c2670b24d",
+      "line": 143,
+      "excerpt": "pub struct NamespaceConfig {\n    pub cluster: ClusterId,\n    pub namespace: NamespaceId,\n    pub mode: NamespaceMode,\n    pub schema_digest: [u8; 32],\n    pub minimum_durability: Durability,\n    pub voters: VoterPolicy,\n    /// Immutable birth-admission owner. Managed namespaces refuse the ordinary\n    /// creation API; each birth needs an inventoried fleet reservation."
+    },
+    "birth": {
+      "path": "crates/cellar/durability/raft/catalog.rs",
+      "sha256": "9d173369140668e0f635353324f0e0aec341bc06402ed47b09d0ee7c2670b24d",
+      "line": 212,
+      "excerpt": "pub struct BirthProposal {\n    pub scope: GroupScope,\n    pub voters: Vec<InitialMember>,\n    pub learners: Vec<InitialMember>,\n}\n\n/// Constructed only after a canonical immutable record and its reservation have\n/// been read back from the selected namespace. Its placement never overrides\n/// committed Raft configuration once a member has initialized."
+    },
+    "version": {
+      "path": "crates/cellar/durability/raft/version.rs",
+      "sha256": "1b5294e02c9a5299e752fa5656ee153876d1b76fa5ffaa06c7da2d53defe53fe",
+      "line": 73,
+      "excerpt": "pub enum VersionError {\n    Invalid,\n    Expired,\n    WrongHistory,\n    WrongSchema,\n    KeyRetention,\n    Limit,\n}\n"
+    },
+    "snapshot": {
+      "path": "crates/cellar/durability/raft/snapshot.rs",
+      "sha256": "e69ea8386ef10690f8603be9152892784a5203a88efa10878503d4b7e5fc5413",
+      "line": 293,
+      "excerpt": "pub struct SnapshotPackage {\n    group: GroupLog,\n    snapshot: Snapshot,\n    bytes: Option<stream_snapshot::SnapshotFile>,\n    root: Option<rooted::RootPayload>,\n    pin: Option<SnapshotPin>,\n    limits: SnapshotLimits,\n    membership: super::member_state::GroupMembership,\n}"
+    },
+    "archive": {
+      "path": "crates/cellar/durability/raft/archive/mod.rs",
+      "sha256": "e2704e755c8a2d7f6fae81f2e9253de7c4cf2563fe04539b0904b3614bd69051",
+      "line": 327,
+      "excerpt": "pub struct CellArchive {\n    coordination: Option<publication::Coordination>,\n    activity: Option<IoActivity>,\n    snapshot_scratch: stream_snapshot::ScratchPool,\n    scratch_directory: Option<std::path::PathBuf>,\n    store: Arc<dyn ObjectStore>,\n    prefix: String,\n    bundle_prefix: String,\n    scope: GroupScope,"
+    },
+    "disaster": {
+      "path": "crates/cellar/durability/raft/disaster.rs",
+      "sha256": "8214156072b8fe4296869223596defbf75660f676635a85071b41d843a71c81c",
+      "line": 17,
+      "excerpt": "pub struct S3DisasterRecovery {\n    namespace: NamespaceCatalog,\n    host: cellar_ltx::LtxHost,\n    limits: ArchiveLimits,\n}\n\nimpl S3DisasterRecovery {\n    pub async fn open(\n        store: Arc<dyn object_store::ObjectStore>,"
+    },
+    "membership": {
+      "path": "crates/cellar/durability/raft/member_state.rs",
+      "sha256": "c28af47a50d9c55700a7b4c67d64bc09e3e0a8d1cd25f497be046fd8d7d32617",
+      "line": 68,
+      "excerpt": "pub struct GroupMembership {\n    format: u32,\n    initial: Vec<u64>,\n    high_water: u64,\n    revision: u64,\n    bindings: Vec<Binding>,\n    #[serde(deserialize_with = \"required_nullable\")]\n    repair: Option<RepairRecord>,"
+    },
+    "effects": {
+      "path": "crates/cellar/durability/raft/cell_groups/controller/effects/mod.rs",
+      "sha256": "e113108dfc779057e3437fb2ed9a01614a915fd973d6cd18547999045433cc08",
+      "line": 162,
+      "excerpt": "pub(super) struct Manager {\n    group: Option<GroupHistory>,\n    cells: BTreeMap<GroupHistory, CellId>,\n    hints: BTreeMap<GroupHistory, (LogIndex, Option<u64>)>,\n    waiting: BTreeSet<(u64, GroupHistory)>,\n    ready: BTreeSet<GroupHistory>,\n    next_at: u64,\n    jobs: FuturesUnordered<BoxFuture<'static, Completed>>,\n}"
+    },
+    "placement": {
+      "path": "crates/cellar-logic/raft_placement.rs",
+      "sha256": "0145dbdbda8ca19525055dc2b93641faccd69613ec9b17113f8e784cda9b1f78",
+      "line": 10,
+      "excerpt": "pub struct PlacementPolicy {\n    pub revision: u64,\n    pub pool: String,\n    pub distinct_zones: bool,\n    pub distinct_regions: bool,\n    pub max_sample_age_ms: u64,\n    /// Durable-storage working-set reservation for this cell, including copies.\n    pub required_bytes: u64,\n}"
+    },
+    "fleet": {
+      "path": "crates/cellar/durability/raft/fleet_catalog/mod.rs",
+      "sha256": "f73a72a01abd05583672c39a9d74e90c4746303edbf8b7a355032c936e948aae",
+      "line": 26,
+      "excerpt": "mod managed_transition_admission;\npub(crate) use managed_transition_admission::TransitionOperatorStep;\nmod managed_source_quiescence;\nmod managed_source_settlement;\nmod managed_transition_capacity;\nmod managed_transition_execution;\npub(crate) use managed_transition_execution::ManagedTransitionExecution;\nmod managed_recovery_fence;\npub(crate) use managed_recovery_fence::PreparedManagedRecoveryFence;\npub use managed_recovery_fence::{\n    FleetFencedTransitionRecovery, FleetTransitionRecoveryFenceRequest,\n};\nmod managed_recovery_intent;\npub use managed_recovery_intent::{FleetTransitionRecoveryBarrier, FleetTransitionRecoveryIntent};\npub(crate) use managed_recovery_intent::{ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput};"
+    },
+    "public": {
+      "path": "crates/cellar/durability/raft/host_node.rs",
+      "sha256": "91f1c8edf32faf1772ed42d7f3325f6f0549509f3215b83998bc2581fc6a3c12",
+      "line": 39,
+      "excerpt": "pub struct RaftHostObservation {\n    pub node: super::super::inspection::NodeInspection,\n    /// Synced physical boot, independent of a caller-provided process hint.\n    pub fleet_boot: Option<super::super::fleet_stop::BootBinding>,\n    pub startup_bounds: RaftHostStartupBounds,\n    /// Rooted observation used by this boot, never a fresh eligibility proof.\n    pub startup_enrollment: Option<RaftHostEnrollmentObservation>,\n    /// Enrollment in the installed current trust cut. It may differ from boot.\n    pub current_enrollment: Option<RaftHostEnrollmentObservation>,"
+    },
+    "fixture": {
+      "path": "crates/cellar/tests/native_raft_snapshot.rs",
+      "sha256": "c0b76562411e9be48f9c9bc05d1da2145280212455f87e88c4fe24d0baa12416",
+      "line": 36,
+      "excerpt": "async fn snapshot_member_binding_and_retirement_survive_restart() -> Result<()> {\n    let root = tempfile::tempdir()?;\n    let source = Fixture::open(&root.path().join(\"source\"), 1, LogOpenMode::Create).await?;\n    let target = Fixture::open(&root.path().join(\"target\"), 2, LogOpenMode::Create).await?;\n    source.empty_configuration_cut().await?;\n    let joined = SnapshotPackage::capture_empty(&source.group, [9; 32], SnapshotLimits::default())?;"
+    },
+    "harness": {
+      "path": "tools/perf/raft_fleet.py",
+      "sha256": "9a3d81a1083b63f7374264e27d510a0cb13d85d5e9928f440602688e74e2629b",
+      "line": 258,
+      "excerpt": "def main():\n    parser = argparse.ArgumentParser(description=__doc__)\n    commands = parser.add_subparsers(dest='mode', required=True)\n    setup = commands.add_parser('provision')\n    setup.add_argument('--context', default='colima-cellar-raft-perf')\n    setup.add_argument('--image', required=True)\n    setup.add_argument('--policy', type=Path, required=True)\n    setup.add_argument('--output', type=Path, required=True)\n    setup.add_argument('--backing-disk', type=Path, default=Path.home()"
+    },
+    "recovery": {
+      "path": "tools/multi-raft/daemon.py",
+      "sha256": "acef91d5644227a83e8318c02d365ab1caa158e083149ba3553b3adc9ad3c594",
+      "line": 356,
+      "excerpt": "def main():\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument(\"--image\", required=True)\n    parser.add_argument(\"--backend\", type=Path, required=True)\n    parser.add_argument(\"--output\", type=Path, required=True)\n    extension = parser.add_mutually_exclusive_group()"
+    },
+    "ci": {
+      "path": ".github/workflows/native-sdk.yml",
+      "sha256": "561e170bfcb193754a6166aedfbd04678f58370aef07057b0013e20cda0a6c0d",
+      "line": 67,
+      "excerpt": "  RUST_VERSION: 1.98.1\n  # Process tests publish executable artifacts; DWARF makes those fixtures huge.\n  # Keep debug assertions and test behavior while omitting symbol information.\n  CARGO_PROFILE_DEV_DEBUG: \"0\"\n  CARGO_PROFILE_TEST_DEBUG: \"0\"\n\njobs:\n  filesystem_release:\n    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'"
+    }
+  }
+}

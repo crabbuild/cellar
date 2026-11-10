@@ -142,7 +142,8 @@ impl Sink {
             .as_ref()
             .map_err(|_| FleetCatalogError::Unconfirmed)?;
         if raft.startup_incomplete
-            || !closed.unfinished.is_empty()
+            || closed.mutation_outcomes
+                != crate::application::consensus::MutationOutcomes::NoUnresolvedLocalProducers
             || closed.node.node.bytes() != selector.boot.node
             || closed.node.disk.bytes() != selector.boot.disk
             || closed.node.process.bytes() != selector.boot.process

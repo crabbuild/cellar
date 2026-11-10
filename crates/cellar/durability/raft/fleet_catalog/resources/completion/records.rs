@@ -5,7 +5,7 @@ use super::*;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Floor {
+pub(in super::super) struct Floor {
     pub format: u8,
     pub boot: BootBinding,
     pub physical: FleetResourceBounds,
@@ -48,6 +48,10 @@ pub(super) struct Completion {
 }
 
 impl Completion {
+    pub fn needs_cleanup(&self) -> bool {
+        self.settlement == Settlement::Complete && self.isolated_sources.is_empty()
+    }
+
     pub fn encode(&self) -> Result<Vec<u8>> {
         encode(COMPLETE_KIND, self, 8192)
     }
@@ -96,8 +100,10 @@ impl Completion {
                 })
             })
             || self.request.identity.operation != row.request.identity.operation
-            || self.request.attestation.boot != row.request.attestation.boot
-            || self.request.attestation.profile_revision != row.request.attestation.profile_revision
+            || !row.matches_target_attestation(
+                &self.request.attestation,
+                self.settlement == Settlement::Complete,
+            )
             || self.resource != hash(&row.encode()?)
             || self.permit
                 != hash(
@@ -143,7 +149,7 @@ impl FleetCatalog {
         Ok(row)
     }
 
-    pub(in super::super) async fn resource_floor(
+    pub(in crate::raft::fleet_catalog) async fn resource_floor(
         &self,
         snapshot: &FleetSnapshot,
         attestation: &FleetResourceAttestation,
@@ -247,7 +253,7 @@ impl FleetCatalog {
             || mutation.operation != request.identity.operation
             || mutation.principal != request.identity.principal
             || mutation.expected_revision != request.identity.expected_revision
-            || mutation.changes.len() != 3
+            || !(3..=4).contains(&mutation.changes.len())
             || mutation.changes[0].table != FleetTable::Operations
             || mutation.changes[0].key != completion_key(request.reservation)
             || mutation.changes[1].table != FleetTable::Operations
@@ -259,7 +265,10 @@ impl FleetCatalog {
         }
         let completion =
             Completion::decode(mutation.changes[0].value.as_deref().ok_or_else(invalid)?)?;
-        if completion.request != *request || completion.settlement != settlement {
+        if mutation.changes.len() != if completion.needs_cleanup() { 4 } else { 3 }
+            || completion.request != *request
+            || completion.settlement != settlement
+        {
             return Err(FleetCatalogError::PayloadConflict);
         }
         let floor = Floor::decode(
@@ -288,7 +297,17 @@ impl FleetCatalog {
         }) {
             return Ok(false);
         }
-        if authority != Authority::Completion || mutation.changes.len() != 3 {
+        if authority == Authority::MemberSettlement {
+            self.check_member_settlement_mutation(snapshot, mutation)
+                .await?;
+            return Ok(true);
+        }
+        if authority == Authority::SourceSettlement {
+            self.check_source_settlement_mutation(snapshot, mutation)
+                .await?;
+            return Ok(true);
+        }
+        if authority != Authority::Completion || !(3..=4).contains(&mutation.changes.len()) {
             return Err(FleetCatalogError::Invalid("resource completion authority"));
         }
         let completion =
@@ -315,6 +334,15 @@ impl FleetCatalog {
             .admitted_resource(snapshot, request.reservation)
             .await?;
         completion.matches(&row)?;
+        if completion.needs_cleanup() {
+            if mutation.changes.len() != 4
+                || mutation.changes[3] != self.enqueue_member_cleanup(snapshot, &row).await?
+            {
+                return Err(invalid());
+            }
+        } else if mutation.changes.len() != 3 {
+            return Err(invalid());
+        }
         if self
             .inner
             .lookup(
@@ -354,5 +382,70 @@ impl FleetCatalog {
             return Err(invalid());
         }
         Ok(true)
+    }
+}
+
+impl FleetCatalog {
+    pub(in crate::raft::fleet_catalog) async fn source_floor_capture_change(
+        &self,
+        snapshot: &FleetSnapshot,
+        attestation: &FleetResourceAttestation,
+        observed: FleetResourceBounds,
+    ) -> Result<FleetChange> {
+        let physical = self
+            .resource_floor(snapshot, attestation)
+            .await?
+            .high_water(attestation.used)
+            .high_water(observed);
+        Ok(FleetChange {
+            table: FleetTable::Operations,
+            key: floor_key(attestation.boot.node),
+            value: Some(
+                Floor {
+                    format: 1,
+                    boot: attestation.boot.clone(),
+                    physical,
+                }
+                .encode()?,
+            ),
+        })
+    }
+
+    pub(in crate::raft::fleet_catalog) async fn source_slot_floor_change(
+        &self,
+        snapshot: &FleetSnapshot,
+        attestation: &FleetResourceAttestation,
+        release: &crate::raft::fleet_catalog::managed_source_settlement::SlotRelease,
+    ) -> Result<FleetChange> {
+        let old = self.resource_floor(snapshot, attestation).await?;
+        if old.engine_slots != release.floor
+            || release.before < release.removed
+            || release.removed == 0
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        // Unknown pre-existing debt stays charged. Only a fully materialized
+        // captured floor can release this operation's exact source occupancy.
+        let reduced = if release.before >= old.engine_slots {
+            old.engine_slots.saturating_sub(release.removed)
+        } else {
+            old.engine_slots
+        };
+        let mut physical = old
+            .high_water(attestation.used)
+            .high_water(release.physical);
+        physical.engine_slots = reduced.max(release.physical.engine_slots);
+        Ok(FleetChange {
+            table: FleetTable::Operations,
+            key: floor_key(attestation.boot.node),
+            value: Some(
+                Floor {
+                    format: 1,
+                    boot: attestation.boot.clone(),
+                    physical,
+                }
+                .encode()?,
+            ),
+        })
     }
 }

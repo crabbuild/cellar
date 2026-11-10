@@ -15,9 +15,11 @@ anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 cellar.workspace = true
+cellar-admin.workspace = true
 cellar-logic.workspace = true
 cellar-ltx.workspace = true
 futures-util.workspace = true
+getrandom.workspace = true
 hex.workspace = true
 object_store = { workspace = true, features = ["aws"] }
 protobuf.workspace = true

@@ -10,20 +10,24 @@ mod execution;
 mod intent;
 mod ledger;
 mod maintenance;
+pub(super) mod member_cleanup;
+mod member_reclamation;
+mod member_settlement;
 mod membership;
 mod repair;
 pub use completion::{
     FleetAbortedMovementCompletion, FleetFencedMovementCompletion, FleetMovementCompletion,
     FleetMovementCompletionRequest,
 };
-pub(crate) use execution::MovementServiceWork;
+pub(crate) use execution::{ConfiguredAutomaticTopology, MovementServiceWork};
 pub use execution::{
-    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
-    FleetFailureRecoveryOptions, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
-    FleetFailureRecoveryStatus, FleetIsolatedRepairServiceStatus, FleetMovementEvidence,
-    FleetMovementService, FleetMovementServiceEntry, FleetMovementServiceFailure,
-    FleetMovementServiceOptions, FleetMovementServiceStatus, FleetNodeFailureStatus,
-    FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetAutomaticRecoveryOptions, FleetAutomaticTopologyOptions, FleetAutomaticTopologyStatus,
+    FleetAutomaticTopologyWait, FleetFailureDetectionOptions, FleetFailureDetectionStatus,
+    FleetFailureRecoveryContext, FleetFailureRecoveryOptions, FleetFailureRecoveryPhase,
+    FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus, FleetIsolatedRepairServiceStatus,
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetNodeFailureStatus, FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
     FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use execution::{
@@ -54,9 +58,20 @@ pub(super) enum Authority {
     RestartReturn,
     RestartResume,
     RestartOperator,
+    ManagedPark,
+    PartitionWork,
+    ManagedTransition,
+    ManagedTransferChildren,
+    ManagedTransferCompletion,
+    SourceSettlement,
+    MemberSettlement,
+    ManagedRecoveryReservation,
+    ManagedRecoveryRetirement,
+    ManagedRecoverySettlement,
 }
 mod movement;
 mod records;
+mod recovery;
 mod topology;
 
 pub use topology::{
@@ -68,12 +83,31 @@ pub use movement::{FleetMovementAdmission, FleetMovementRequest};
 
 use super::*;
 use crate::raft::fleet_stop::BootBinding;
-use cellar_logic::consensus::{GroupScope, NodeId};
+use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::consensus::NodeId;
 use cellar_logic::raft_fleet::{LedgerError, Resources};
 use serde::Deserialize;
 
 // Initial execution profile: two active membership moves fleet-wide and at
 // most two on any node. Queued plan entries are not active resource admissions.
+impl FleetCatalog {
+    pub(super) async fn charge_recovery_movement_slots(
+        &self,
+        snapshot: &FleetSnapshot,
+        slots: &mut std::collections::BTreeMap<NodeId, u32>,
+    ) -> Result<()> {
+        let book = self.resource_book(snapshot).await?;
+        for record in self.resource_rows(snapshot, &book).await? {
+            if let Some(count) = slots.get_mut(&record.node) {
+                *count = count
+                    .checked_add(record.request.peak.engine_slots)
+                    .ok_or(FleetCatalogError::Limit)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 const MAX_MOVES: usize = 2;
 const MAX_SAMPLE_AGE_MS: u64 = 5000;
 const BOOK_KEY: &str = "resource-reservations";
@@ -140,7 +174,7 @@ impl FleetResourceAttestation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FleetResourceRequest {
     pub identity: FleetRequestIdentity,
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub attestation: FleetResourceAttestation,
     /// Conservative incremental learner bound, including seed, image, tail
     /// and worker obligations. Actual host admission can still refuse it.

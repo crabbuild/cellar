@@ -16,6 +16,8 @@ pub(super) struct RunPolicy {
 }
 
 pub(super) struct Channels {
+    pub shutdown_tx: mpsc::UnboundedSender<ShutdownMode>,
+    pub shutdown_rx: mpsc::UnboundedReceiver<ShutdownMode>,
     pub do_call_rx: mpsc::UnboundedReceiver<DoCallReq>,
     pub gate_rx: mpsc::UnboundedReceiver<crate::host_channels::GateReq>,
     pub facet_rx: mpsc::UnboundedReceiver<crate::host_channels::FacetReq>,
@@ -30,6 +32,7 @@ pub(super) struct Channels {
 
 impl Channels {
     /// Install dispatch once in the owning domain, after predecessor recovery.
+    /// The daemon's Raft stop reporter can start before the driver first polls.
     pub(super) fn install(websocket_rx: mpsc::UnboundedReceiver<WebSocketFuture>) -> Self {
         let (tx, do_call_rx) = mpsc::unbounded_channel();
         crate::host_channels::set_do_call_tx(tx);
@@ -49,7 +52,13 @@ impl Channels {
         crate::host_channels::set_asset_call_tx(tx);
         let (tx, outbound_ws_rx) = mpsc::unbounded_channel();
         crate::host_channels::set_outbound_ws_tx(tx);
+        let (shutdown_tx, shutdown_rx) = mpsc::unbounded_channel();
+        crate::asyncrt::services()
+            .raft_lifecycle()
+            .configure_shutdown(shutdown_tx.clone());
         Self {
+            shutdown_tx,
+            shutdown_rx,
             do_call_rx,
             gate_rx,
             facet_rx,
@@ -229,6 +238,8 @@ where
         .and_then(|runtime| runtime.replication());
     let local_cache_max_bytes = policy.local_cache_max_bytes;
     let Channels {
+        shutdown_tx,
+        mut shutdown_rx,
         mut do_call_rx,
         mut gate_rx,
         mut facet_rx,
@@ -241,10 +252,6 @@ where
         mut outbound_ws_rx,
     } = channels;
     let mut stop = std::pin::pin!(stop);
-    let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel();
-    crate::asyncrt::services()
-        .raft_lifecycle()
-        .configure_shutdown(shutdown_tx.clone());
     #[cfg(all(test, cellar_internal_tests))]
     if shutdown_accept_failure_test_active {
         let _ = shutdown_tx.send(ShutdownMode::Handoff);

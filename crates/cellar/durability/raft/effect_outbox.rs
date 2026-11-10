@@ -14,8 +14,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, sync::Arc};
 
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "effect_outbox_tests.rs"]
+mod tests;
+
 pub(crate) const CLAIM: &str = "__sys_raft_outbox_claim";
 pub(crate) const COMPLETE: &str = "__sys_raft_outbox_complete";
+pub(crate) const MAX_LANES: usize = 32;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RaftOutboxLimits {
@@ -33,11 +38,16 @@ pub struct RaftOutboxLimits {
 pub struct RaftOutboxProgress {
     pub emitted: u64,
     pub settled: u64,
+    /// The pending lane head belongs to an earlier cell incarnation. Recovery
+    /// preserves its signed identity; external reconciliation is required.
+    pub requires_reconciliation: bool,
 }
 
 pub(crate) fn progress(
     connection: &Connection,
     outbox: &RaftOutbox,
+    scope: &cellar_logic::cell_group::CellHistory,
+    schema: [u8; 32],
     lane: &str,
 ) -> Result<RaftOutboxProgress> {
     ensure!(
@@ -48,21 +58,30 @@ pub(crate) fn progress(
         return Ok(RaftOutboxProgress {
             emitted: 0,
             settled: 0,
+            requires_reconciliation: false,
         });
     }
-    let row: Option<(Vec<u8>, Vec<u8>)> = connection
-        .query_row(
-            "SELECT CASE WHEN typeof(emitted)='blob' AND length(emitted)=8 THEN emitted ELSE NULL END,CASE WHEN typeof(settled)='blob' AND length(settled)=8 THEN settled ELSE NULL END FROM __sys_raft_outbox_lanes WHERE lane=?1",
-            [lane],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?;
+    let row: Option<(Vec<u8>, Vec<u8>)> = connection.query_row(
+        "SELECT CASE WHEN typeof(emitted)='blob' AND length(emitted)=8 THEN emitted ELSE NULL END,CASE WHEN typeof(settled)='blob' AND length(settled)=8 THEN settled ELSE NULL END FROM __sys_raft_outbox_lanes WHERE lane=?1",
+        [lane], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional()?;
     let (emitted, settled) = row
         .map(|(emitted, settled)| Ok::<_, anyhow::Error>((number(emitted)?, number(settled)?)))
         .transpose()?
         .unwrap_or((0, 0));
     ensure!(settled <= emitted, CommandFailure::CorruptState);
-    Ok(RaftOutboxProgress { emitted, settled })
+    let requires_reconciliation = if settled < emitted {
+        let sequence = settled.checked_add(1).ok_or(CommandFailure::CorruptState)?;
+        let stored = load(connection, lane, sequence)?.ok_or(CommandFailure::CorruptState)?;
+        outbox.needs_reconciliation(scope, schema, lane, sequence, &stored.bytes)?
+    } else {
+        false
+    };
+    Ok(RaftOutboxProgress {
+        emitted,
+        settled,
+        requires_reconciliation,
+    })
 }
 
 impl Default for RaftOutboxLimits {
@@ -80,7 +99,7 @@ impl Default for RaftOutboxLimits {
 impl RaftOutboxLimits {
     fn validate(self) -> Result<()> {
         ensure!(
-            (1..=32).contains(&self.max_lanes)
+            (1..=MAX_LANES).contains(&self.max_lanes)
                 && (1..=128).contains(&self.max_pending)
                 && (1..=delivery::MAX_PAYLOAD).contains(&self.max_payload_bytes)
                 && (delivery::MAX_REQUEST..=16 * 1024 * 1024).contains(&self.max_total_bytes)
@@ -171,9 +190,10 @@ impl RaftOutbox {
         Ok(hash.finalize().into())
     }
 
-    fn stored_request(
+    fn request(
         &self,
-        context: &CommandContext<'_>,
+        scope: &cellar_logic::cell_group::CellHistory,
+        schema: [u8; 32],
         lane: &str,
         sequence: u64,
         bytes: &[u8],
@@ -185,14 +205,52 @@ impl RaftOutbox {
         delivery::restore_request(
             bytes,
             DeliveryOrigin {
-                scope: context.identity(),
-                schema: context.schema_digest(),
+                scope,
+                schema,
                 binding: lane,
                 digest: binding.digest,
                 sequence,
             },
             binding.target.clone(),
             &self.signer,
+        )
+    }
+
+    fn needs_reconciliation(
+        &self,
+        scope: &cellar_logic::cell_group::CellHistory,
+        schema: [u8; 32],
+        lane: &str,
+        sequence: u64,
+        bytes: &[u8],
+    ) -> Result<bool> {
+        match self.request(scope, schema, lane, sequence, bytes) {
+            Ok(_) => Ok(false),
+            Err(error)
+                if matches!(
+                    error.downcast_ref::<CommandFailure>(),
+                    Some(CommandFailure::WrongIncarnation)
+                ) =>
+            {
+                Ok(true)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn stored_request(
+        &self,
+        context: &CommandContext<'_>,
+        lane: &str,
+        sequence: u64,
+        bytes: &[u8],
+    ) -> Result<RaftDeliveryRequest> {
+        self.request(
+            context.identity(),
+            context.schema_digest(),
+            lane,
+            sequence,
+            bytes,
         )
     }
 
@@ -494,6 +552,8 @@ pub(crate) fn completion_input(
 pub(crate) fn due(
     connection: &Connection,
     outbox: &RaftOutbox,
+    scope: &cellar_logic::cell_group::CellHistory,
+    schema: [u8; 32],
     now: u64,
 ) -> Result<Option<(Selected, Durability)>> {
     if !exists(connection)? {
@@ -506,26 +566,33 @@ pub(crate) fn due(
             && lanes <= outbox.limits.max_lanes,
         CommandFailure::CorruptState
     );
-    let selected:Option<(String,Vec<u8>,i64)>=connection.query_row("SELECT CASE WHEN typeof(a.lane)='text' AND length(CAST(a.lane AS BLOB)) BETWEEN 1 AND 64 THEN a.lane ELSE NULL END,CASE WHEN typeof(a.sequence)='blob' AND length(a.sequence)=8 THEN a.sequence ELSE NULL END,a.minimum FROM __sys_raft_outbox a WHERE a.next_at<=?1 AND NOT EXISTS(SELECT 1 FROM __sys_raft_outbox b WHERE b.lane=a.lane AND b.sequence<a.sequence) ORDER BY a.next_at,a.lane LIMIT 1",[i64::try_from(now)?],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
-    selected
-        .map(|(lane, sequence, minimum)| {
-            ensure!(
-                delivery::valid_name(&lane) && outbox.bindings.contains_key(&lane),
-                CommandFailure::CorruptState
-            );
-            let selected = Selected {
-                lane,
-                sequence: number(sequence)?.to_string(),
-            };
-            selected.number()?;
-            let minimum = match minimum {
-                0 => Durability::Quorum,
-                1 => Durability::S3,
-                _ => return Err(CommandFailure::CorruptState.into()),
-            };
-            Ok((selected, minimum))
-        })
-        .transpose()
+    let mut statement = connection.prepare("SELECT CASE WHEN typeof(a.lane)='text' AND length(CAST(a.lane AS BLOB)) BETWEEN 1 AND 64 THEN a.lane ELSE NULL END,CASE WHEN typeof(a.sequence)='blob' AND length(a.sequence)=8 THEN a.sequence ELSE NULL END FROM __sys_raft_outbox a WHERE a.next_at<=?1 AND NOT EXISTS(SELECT 1 FROM __sys_raft_outbox b WHERE b.lane=a.lane AND b.sequence<a.sequence) ORDER BY a.next_at,a.lane")?;
+    let mut rows = statement.query([i64::try_from(now)?])?;
+    let mut visited = 0;
+    while let Some(row) = rows.next()? {
+        visited += 1;
+        ensure!(
+            visited <= outbox.limits.max_lanes,
+            CommandFailure::CorruptState
+        );
+        let lane: String = row.get(0)?;
+        let sequence = number(row.get(1)?)?;
+        let selected = Selected {
+            lane,
+            sequence: sequence.to_string(),
+        };
+        selected.number()?;
+        let stored =
+            load(connection, &selected.lane, sequence)?.ok_or(CommandFailure::CorruptState)?;
+        // One bounded envelope at a time, under the existing effect reservation.
+        // Skip only authenticated old origins. Their bytes and progress remain
+        // untouched while another independent lane may make forward progress.
+        if outbox.needs_reconciliation(scope, schema, &selected.lane, sequence, &stored.bytes)? {
+            continue;
+        }
+        return Ok(Some((selected, stored.minimum)));
+    }
+    Ok(None)
 }
 
 pub(crate) struct ClaimedDelivery {
@@ -536,7 +603,7 @@ pub(crate) struct ClaimedDelivery {
 
 pub(crate) fn claimed(
     outbox: &RaftOutbox,
-    scope: &crate::application::consensus::GroupScope,
+    scope: &cellar_logic::cell_group::CellHistory,
     schema: [u8; 32],
     selected: &Selected,
     bytes: &[u8],

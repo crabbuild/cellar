@@ -22,6 +22,22 @@ pub(super) enum Mode {
         catalog: [u8; 32],
         cut: BirthImportCut,
     },
+    GroupFreezing {
+        operation: [u8; 16],
+    },
+    GroupFrozen {
+        cut: groups::CellGroupImportCut,
+    },
+    GroupImporting {
+        fleet: [u8; 16],
+        catalog: [u8; 32],
+        cut: groups::CellGroupImportCut,
+    },
+    GroupAdopted {
+        fleet: [u8; 16],
+        catalog: [u8; 32],
+        cut: groups::CellGroupImportCut,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +84,49 @@ impl Head {
             return Err(CatalogError::Corrupt("birth inventory identity/count"));
         }
         match (&self.mode, &namespace.config.managed_fleet) {
+            (Mode::GroupFreezing { operation }, None) if self.revision > 1 => {
+                ProposalId::new(*operation)
+                    .map_err(|_| CatalogError::Corrupt("group freeze operation"))?;
+            }
+            (Mode::GroupFrozen { cut }, None) => {
+                cut.validate(namespace)?;
+                if self.revision != cut.revision
+                    || self.count != cut.count
+                    || self.index != cut.index
+                {
+                    return Err(CatalogError::Corrupt("changed frozen group set"));
+                }
+            }
+            (
+                Mode::GroupImporting {
+                    fleet,
+                    catalog,
+                    cut,
+                },
+                None,
+            )
+            | (
+                Mode::GroupAdopted {
+                    fleet,
+                    catalog,
+                    cut,
+                },
+                None,
+            ) => {
+                cut.validate(namespace)?;
+                validate_owner(*fleet, *catalog)?;
+                let delta = if matches!(self.mode, Mode::GroupAdopted { .. }) {
+                    2
+                } else {
+                    1
+                };
+                if self.revision != cut.revision.checked_add(delta).ok_or(CatalogError::Limit)?
+                    || self.count != cut.count
+                    || self.index != cut.index
+                {
+                    return Err(CatalogError::Corrupt("changed imported group set"));
+                }
+            }
             (Mode::Open, None) => (),
             (Mode::Owned { fleet, catalog }, Some(owner)) => {
                 if fleet != &owner.fleet || catalog != &owner.catalog {

@@ -15,6 +15,7 @@ import threading
 import time
 
 from raft_topology import members
+from raft_groups import profile_layout
 from raft_workload import Ledger, input_digest
 from raft_probe_http import ProbeTrace
 
@@ -79,7 +80,7 @@ def validate_fault(config, profile):
     require(10 <= config['pause_ms'] < config['max_pause_ms'] < config['interval_ms'], 'invalid pause bounds')
     require(config['max_pause_ms'] < profile['timing']['request_timeout_ms'], 'pause exceeds request budget')
     probes = [cell for cell in range(profile['cells']['active'])
-              if members(cell, profile['topology']['nodes'])[2] == config['node']]
+              if members(cell, profile['topology']['nodes'], profile_layout(profile))[2] == config['node']]
     require(1 <= len(probes) <= 32, 'fault needs one to 32 active third-voter probe cells')
     end = profile['timing']['measurement_seconds'] - config['stop_before_seconds']
     start = config['start_after_seconds']
@@ -230,7 +231,7 @@ def verify_fault(report, events, operations, *, recovery=None):
                 continue
             invoked, finished = invocation['invoke_seconds'], event['complete_seconds']
             require(all(type(t) in (int, float) and math.isfinite(t) for t in (invoked, finished)) and 0 <= invoked <= finished, 'invalid command witness clock')
-            receipt = {key: event['response'][key] for key in ('group', 'incarnation', 'term', 'index')}
+            receipt = {key: event['response'][key] for key in ('group', 'group_incarnation', 'incarnation', 'term', 'index')}
             completed[event['cell']].append((began + invoked, began + finished, invocation['command_id'], receipt))
     require(not invokes, 'incomplete fault witness commands')
     starts = {}
@@ -253,9 +254,12 @@ def verify_fault(report, events, operations, *, recovery=None):
             cell, response = observation['cell'], observation['response']
             require(cell == expected_cell and observation['status'] == 200, 'missing leader probe')
             require(held['monotonic_seconds'] <= observation['started_monotonic_seconds'] <= observation['monotonic_seconds'] <= release['monotonic_seconds'], 'probe outside pause window')
-            assigned = members(cell, profile['topology']['nodes'])
+            assigned = members(cell, profile['topology']['nodes'], profile_layout(profile))
             require(response['cell'] == cell and response['node'] == assigned[0] and response['leader'] == assigned[0] and response['role'] == 'Leader', 'probe is not the expected leader')
             progress = response['replication']
+            group = profile_layout(profile).group(cell)
+            require(progress['group'] == group['group'] and progress['incarnation'] == group['incarnation'],
+                    'probe physical history differs from frozen layout')
             require(progress['term'] == response['term'], 'incoherent replication term')
             peers = progress['members']
             require(len(peers) == 3 and {p['member'] for p in peers} == set(assigned) and all(type(p['member']) is int and p['voter'] is True for p in peers), 'probe voter set changed')
@@ -268,7 +272,8 @@ def verify_fault(report, events, operations, *, recovery=None):
             for invoked, finished, command_id, receipt in completed[cell][first:last]:
                 if not held['monotonic_seconds'] <= invoked <= finished <= observation['started_monotonic_seconds']:
                     continue
-                require(receipt['group'] == progress['group'] and receipt['incarnation'] == progress['incarnation'] and receipt['term'] == progress['term'], 'fault witness history or term changed')
+                require(receipt['group'] == progress['group'] and receipt['group_incarnation'] == progress['incarnation']
+                        and receipt['incarnation'] == bytes([4] * 16).hex() and receipt['term'] == progress['term'], 'fault witness history or term changed')
                 index = receipt['index']
                 if matched[config['node']] < index <= progress['committed'] and all(matched[node] >= index for node in assigned[:2]):
                     witnesses.append({'cycle': cycle, 'cell': cell, 'command_id': command_id, 'index': index})
@@ -283,7 +288,7 @@ def verify_fault(report, events, operations, *, recovery=None):
     require(math.isfinite(recovery) and 0 <= recovery <= profile['slo']['max_recovery_seconds'], 'replica recovery exceeded declared bound')
     cohorts = {role: [] for role in ('target_leader', 'target_query_follower', 'target_third_voter', 'unaffected')}
     for cell in range(profile['cells']['active']):
-        assigned = members(cell, profile['topology']['nodes'])
+        assigned = members(cell, profile['topology']['nodes'], profile_layout(profile))
         role = ('target_leader', 'target_query_follower', 'target_third_voter')[assigned.index(config['node'])] if config['node'] in assigned else 'unaffected'
         cohorts[role].append(cell)
     return {'cycles': len(offsets), 'target_node': config['node'], 'cohorts': cohorts,

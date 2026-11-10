@@ -3,10 +3,16 @@
 //! Isolated one-process-per-container native multi-Raft measurement node.
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]
-mod counter;
+pub mod counter;
+#[cfg(test)]
+#[path = "../../crates/cellar/tests/support/cell_group_disaster_public_node.rs"]
+pub mod public_node;
 mod raft_disaster;
 mod raft_fleet;
+mod raft_groups;
+mod raft_limits;
 mod raft_probe;
+mod raft_setup;
 mod raft_workload;
 mod reference_workload;
 use anyhow::{ensure, Context, Result};
@@ -70,8 +76,8 @@ impl Placement {
         Ok(Self { nodes })
     }
 
-    fn voters(self, cell: usize) -> [u8; 3] {
-        let first = cell % usize::from(self.nodes);
+    fn voters(self, group: usize) -> [u8; 3] {
+        let first = group % usize::from(self.nodes);
         std::array::from_fn(|offset| ((first + offset) % usize::from(self.nodes) + 1) as u8)
     }
 
@@ -85,6 +91,57 @@ impl Placement {
             })
             .sum())
     }
+}
+
+fn peer_directory(
+    placement: Placement,
+    network: &str,
+    generation: u8,
+) -> Result<Vec<RaftPeerNode>> {
+    (1..=placement.nodes)
+        .map(|n| {
+            let address = |port| format!("{network}.{}:{port}", n + 10).parse();
+            Ok(RaftPeerNode {
+                node: raft_disaster::node_id(n, generation)?,
+                disk: DiskLineage::new([n + 10 + generation * 32; 16])?,
+                process: ProcessGeneration::new(
+                    std::fs::read(format!("/config/process{n}"))?
+                        .try_into()
+                        .map_err(|_| anyhow::anyhow!("process identity length"))?,
+                )?,
+                label: format!("raft-node{n}"),
+                server_name: "localhost".into(),
+                control_address: address(9100)?,
+                data_address: address(9101)?,
+                query_address: address(9102)?,
+            })
+        })
+        .collect()
+}
+
+async fn resource_snapshot(service: &RaftCells) -> Result<serde_json::Value> {
+    let observation = service
+        .observe_node(Duration::from_secs(5))
+        .await
+        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let mut resources = serde_json::json!(service.resource_usage());
+    resources["physical_counts"] = serde_json::json!({
+        "durable_groups":observation.node.groups,
+        "attached_groups":observation.registered_histories,
+        "unattached_groups":observation.unattached_engine_histories,
+        "dormant_groups":observation.dormant_histories,
+        "pending_groups":observation.pending_history_registrations,
+    });
+    Ok(resources)
+}
+
+async fn bind_raft_listeners(peer: &RaftPeerNode) -> Result<NodeRaftListeners> {
+    // Shared transport registers the exact bound endpoint as physical identity.
+    Ok(NodeRaftListeners {
+        control: tokio::net::TcpListener::bind(peer.control_address).await?,
+        data: tokio::net::TcpListener::bind(peer.data_address).await?,
+        query: tokio::net::TcpListener::bind(peer.query_address).await?,
+    })
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
@@ -104,11 +161,20 @@ async fn main() -> Result<()> {
             .parse()?,
     )?;
     ensure!((1..=1_000_000).contains(&total), "invalid cell count");
-    let local_count = placement.local_count(total, i)?;
+    let occupancy: usize = std::env::var("RAFT_CELLS_PER_GROUP")
+        .unwrap_or_else(|_| raft_groups::DEFAULT_OCCUPANCY.to_string())
+        .parse()?;
     ensure!(
-        (1..=4096).contains(&local_count),
-        "invalid local replica count"
+        (1..=raft_groups::MAX_OCCUPANCY).contains(&occupancy),
+        "invalid group occupancy"
     );
+    let startup_ms: u64 = std::env::var("RAFT_STARTUP_TIMEOUT_MS")
+        .unwrap_or_else(|_| "900000".into())
+        .parse()?;
+    ensure!((1..=900000).contains(&startup_ms), "invalid setup deadline");
+    let group_count = total.div_ceil(occupancy);
+    let local_count = placement.local_count(group_count, i)?;
+    ensure!(local_count <= 4096, "invalid local replica count");
     let queue_items: usize = std::env::var("RAFT_QUEUE_ITEMS")
         .unwrap_or_else(|_| "256".into())
         .parse()?;
@@ -210,6 +276,14 @@ async fn main() -> Result<()> {
         String::new(),
     )?;
     let store = bucket.raft_store();
+    let image_storage = match std::env::var("RAFT_IMAGE_STORAGE")
+        .unwrap_or_else(|_| "extents".into())
+        .as_str()
+    {
+        "extents" => RaftImageStorage::Extents,
+        "materialized" => RaftImageStorage::Materialized,
+        _ => anyhow::bail!("invalid RAFT_IMAGE_STORAGE"),
+    };
     let namespace = NamespaceId::new([2; 16])?;
     let cluster = ClusterId::new([1; 16])?;
     let label = format!("raft-node{i}");
@@ -228,6 +302,57 @@ async fn main() -> Result<()> {
             || (generation == 0 && std::env::var_os("RAFT_DISASTER_ACTION").is_none()),
         "managed fleet and disaster fixture modes cannot be combined"
     );
+    let class_name = if workload { "Workload" } else { "Counter" };
+    let layout = Arc::new(raft_groups::Layout::new(
+        total, occupancy, class_name, generation,
+    )?);
+    let peers = peer_directory(placement, &network, generation)?;
+    let mut host = RaftHostOptions {
+        max_groups: local_count.max(1),
+        max_requests: 256,
+        blocking_workers: sql_workers,
+        worker_queue: sql_worker_queue,
+        ..Default::default()
+    };
+    host.extents = Some(raft_limits::extents(&host)?);
+    host.close_report.max_groups = host.max_groups;
+    host.archive.max_producers = archive_producers;
+    host.archive.max_blocking_jobs = archive_blocking_jobs;
+    host.archive.max_batch_groups = archive_batch_groups;
+    host.archive.max_unarchived_bytes = archive_max_unarchived_bytes;
+    host.node_profile = Some(RaftNodeProfile {
+        pool: "static-perf".into(),
+        region: "local".into(),
+        zone: "shared-colima".into(),
+        group_capacity: u32::try_from(host.max_groups)?,
+        byte_capacity: host.images.max_bytes,
+        bytes_per_group: host.images.max_bytes,
+        leader_capacity: u32::try_from(host.max_groups)?,
+        draining: false,
+    });
+    let initialize = std::env::var("RAFT_INITIALIZE").as_deref() == Ok("1");
+    if initialize {
+        ensure!(
+            i == 1
+                && generation == 0
+                && std::env::var_os("RAFT_FLEET_CONFIG").is_none()
+                && std::env::var_os("RAFT_DISASTER_ACTION").is_none(),
+            "invalid shared setup owner"
+        );
+        raft_setup::prepare(
+            &root,
+            store.clone(),
+            raft_setup::namespace_with_storage(&layout, schema, image_storage)?,
+            &layout,
+            &peers,
+            true,
+            raft_limits::shared(&host, group_count, occupancy)?,
+        )
+        .await?;
+        cellar::cli_output::Output::new(cellar::cli_output::Format::Json)
+            .line(format_args!("{}", serde_json::json!({"initialized_groups":group_count,"cells":total,"cells_per_group":occupancy})))?;
+        return Ok(());
+    }
     if let Ok(action) = std::env::var("RAFT_DISASTER_ACTION") {
         ensure!(
             workload && placement.nodes == 3 && generation == 0,
@@ -235,7 +360,6 @@ async fn main() -> Result<()> {
         );
         return raft_disaster::run(&action, store, schema, total).await;
     }
-    let class_name = if workload { "Workload" } else { "Counter" };
     let managed = if let Some(path) = std::env::var_os("RAFT_FLEET_CONFIG") {
         use std::io::Read;
         let mut bytes = Vec::new();
@@ -259,6 +383,11 @@ async fn main() -> Result<()> {
             !primary_only,
             "managed fleet does not use static leadership controls"
         );
+        ensure!(
+            fleet_config.cells as usize == total
+                && fleet_config.cells_per_group as usize == occupancy,
+            "fleet population differs from the frozen layout"
+        );
         let initialize = std::env::var("RAFT_FLEET_INIT").as_deref() == Ok("1");
         let managed = raft_fleet::Managed::open(
             bucket,
@@ -269,7 +398,9 @@ async fn main() -> Result<()> {
         )
         .await?;
         if initialize {
-            let result = managed.bootstrap().await;
+            let result = managed
+                .bootstrap(std::path::Path::new("/config/initialization"))
+                .await;
             managed.domain.shutdown().await;
             cellar::cli_output::Output::new(cellar::cli_output::Format::Text)
                 .line(format_args!("{}", result?))?;
@@ -284,10 +415,23 @@ async fn main() -> Result<()> {
         None
     };
 
+    if managed.is_none() {
+        raft_setup::prepare(
+            &root,
+            store.clone(),
+            raft_setup::namespace_with_storage(&layout, schema, image_storage)?,
+            &layout,
+            &peers,
+            false,
+            raft_limits::shared(&host, group_count, occupancy)?,
+        )
+        .await?;
+    }
+
     let reference = if workload {
         Some(raft_workload::Api::new(
             secret.clone(),
-            namespace,
+            layout.clone(),
             &class,
             durability,
         )?)
@@ -297,7 +441,12 @@ async fn main() -> Result<()> {
     let api = if workload {
         None
     } else {
-        Some(counter::CounterApi::new(secret.clone(), namespace, &class)?)
+        let selected = layout.clone();
+        Some(counter::CounterApi::with_history_resolver(
+            secret.clone(),
+            &class,
+            move |name| selected.named_history(name),
+        )?)
     };
     let application = match &api {
         Some(api) => counter::application(api.clone(), class)?,
@@ -359,53 +508,10 @@ async fn main() -> Result<()> {
     )
     .await?;
     let result = async {
-    let mut peers = Vec::new();
-    for n in 1..=placement.nodes {
-        let address = |port| format!("{network}.{}:{port}", n + 10).parse();
-        peers.push(RaftPeerNode {
-            node: raft_disaster::node_id(n, generation)?,
-            disk: DiskLineage::new([n + 10 + generation * 32; 16])?,
-            process: ProcessGeneration::new(
-                std::fs::read(format!("/config/process{n}"))?
-                    .try_into()
-                    .map_err(|_| anyhow::anyhow!("process identity length"))?,
-            )?,
-            label: format!("raft-node{n}"),
-            server_name: "localhost".into(),
-            control_address: address(9100)?,
-            data_address: address(9101)?,
-            query_address: address(9102)?,
-        });
-    }
-    // Fresh process identity on every restart; peers authenticate physical routes.
-    // The runner persists the peer directory per run and replaces all processes together.
-    let mut config = NamespaceConfig::new(cluster, namespace, NamespaceMode::Raft, schema);
-    config.voters = VoterPolicy::ThreeVoters;
-    let cells = (0..total)
-        .filter(|cell| placement.voters(*cell).contains(&i))
-        .map(|c| -> Result<_> {
-            Ok(RaftCellRegistration {
-                placement: RaftCellPlacement::Replica,
-                namespace: config.clone(),
-                class: class_name.into(),
-                birth: BirthProposal {
-                    scope: raft_disaster::scope(c, class_name, generation)?,
-                    voters: peers
-                        .iter()
-                        .enumerate()
-                        .filter(|(p, _)| placement.voters(c).contains(&(*p as u8 + 1)))
-                        .map(|(p, peer)| {
-                            Ok(InitialMember {
-                                node: peer.node,
-                                member: MemberId::new(p as u64 + 1)?,
-                            })
-                        })
-                        .collect::<Result<Vec<_>>>()?,
-                    learners: vec![],
-                },
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let groups = layout.groups.iter().enumerate()
+        .filter(|(ordinal,_)| placement.voters(*ordinal).contains(&i))
+        .map(|(_,group)| RaftGroupAssignment { history: group.history, placement: RaftGroupPlacement::Replica })
+        .collect::<Vec<_>>();
     let log_dir = node.info().data_dir.join("raft");
     // A fresh mounted filesystem already has a directory. Create validates its
     // contents and refuses retained state; managed startup never resumes it.
@@ -414,21 +520,11 @@ async fn main() -> Result<()> {
     } else {
         LogOpenMode::Resume
     };
-    let peer = &peers[i as usize - 1];
-    let mut host = RaftHostOptions {
-        max_groups: local_count,
-        max_requests: 256,
-        blocking_workers: sql_workers,
-        worker_queue: sql_worker_queue,
-        ..Default::default()
-    };
-    host.close_report.max_groups = local_count;
-    host.archive.max_producers = archive_producers;
-    host.archive.max_blocking_jobs = archive_blocking_jobs;
-    host.archive.max_batch_groups = archive_batch_groups;
-    host.archive.max_unarchived_bytes = archive_max_unarchived_bytes;
+    let peer = peers[i as usize - 1].clone();
     let mut raft_config = RaftCellsConfig {
         query_origins: vec![],
+        command_origins: vec![],
+        shared: raft_limits::shared(&host, group_count, occupancy)?,
         infrastructure: NodeRaftConfig {
             log: ReplicaLogOptions::new(log_dir, peer.node, peer.disk, peer.process, mode),
             consensus: RaftRuntimeOptions {
@@ -444,11 +540,9 @@ async fn main() -> Result<()> {
                 ..Default::default()
             },
         },
-        catalog: CatalogOptions {
-            prefix: "perf/multi-raft".into(),
-            ..Default::default()
-        },
-        cells,
+        catalog: raft_setup::catalog_options(),
+        namespaces: vec![raft_setup::namespace_with_storage(&layout, schema, image_storage)?],
+        groups,
         peers,
         host,
     };
@@ -463,15 +557,16 @@ async fn main() -> Result<()> {
             "managed lab startup requires a fresh volume"
         );
     }
+    raft_config.infrastructure.log.max_groups = raft_config.host.max_groups;
+    raft_config.infrastructure.consensus.max_groups = raft_config.host.max_groups;
+    raft_limits::retention(&mut raft_config.infrastructure.log, archive_max_unarchived_bytes)?;
+    let effective_log_bytes = raft_config.infrastructure.log.cell_group_retention.node.bytes;
     let service = node
         .start_raft_cells(
             raft_config,
             RaftCellsServices {
-                listeners: NodeRaftListeners {
-                    control: tokio::net::TcpListener::bind("0.0.0.0:9100").await?,
-                    data: tokio::net::TcpListener::bind("0.0.0.0:9101").await?,
-                    query: tokio::net::TcpListener::bind("0.0.0.0:9102").await?,
-                },
+                recovery: None,
+                listeners: bind_raft_listeners(&peer).await?,
                 tls,
                 store,
                 application,
@@ -483,6 +578,9 @@ async fn main() -> Result<()> {
             },
         )
         .await?;
+    if managed.is_none() {
+        raft_setup::enroll(&service, &layout, placement, i, Duration::from_millis(startup_ms)).await?;
+    }
     let router = if let Some(api) = api {
         *api.cells
             .lock()
@@ -519,7 +617,10 @@ async fn main() -> Result<()> {
             if headers.get("authorization").and_then(|value| value.to_str().ok()) != Some(format!("Bearer {secret}").as_str()) {
                 return (axum::http::StatusCode::UNAUTHORIZED, axum::Json(serde_json::json!({"error":"unauthorized"})));
             }
-            (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"resources":metrics.resource_usage(), "performance":metrics.performance()})))
+            match resource_snapshot(&metrics).await {
+                Ok(resources) => (axum::http::StatusCode::OK,axum::Json(serde_json::json!({"resources":resources,"performance":metrics.performance()}))),
+                Err(error) => (axum::http::StatusCode::SERVICE_UNAVAILABLE,axum::Json(serde_json::json!({"error":format!("{error:?}")}))),
+            }
         }
     }));
     let admin = service.clone();
@@ -539,8 +640,13 @@ async fn main() -> Result<()> {
                 if !authorized {
                     return (axum::http::StatusCode::FORBIDDEN, "unauthorized".to_owned());
                 }
-                let mut usage = serde_json::json!(service.resource_usage());
+                let mut usage = match resource_snapshot(&service).await {
+                    Ok(usage) => usage,
+                    Err(error) => return (axum::http::StatusCode::SERVICE_UNAVAILABLE,format!("{error:?}")),
+                };
                 usage["archive_max_unarchived_bytes"] = archive_max_unarchived_bytes.into();
+                usage["effective_log_retained_bytes"] = effective_log_bytes.into();
+                usage["effective_archive_parallel_groups"] = 1.into();
                 usage["archive_batch_groups"] = archive_batch_groups.into();
                 usage["archive_blocking_jobs"] = archive_blocking_jobs.into();
                 (axum::http::StatusCode::OK, usage.to_string())
@@ -581,7 +687,7 @@ async fn main() -> Result<()> {
     let router = router.route("/admin/{id}", axum::routing::any(
         move |axum::extract::Path(id): axum::extract::Path<usize>, request: axum::extract::Request| {
             let service = admin.clone(); let secret = secret.clone();
-            let probes = probes.clone(); let domain = admin_domain.clone();
+            let probes = probes.clone(); let domain = admin_domain.clone(); let layout = layout.clone();
             async move {
               domain.run(async move {
                 let authorized = request.headers().get("authorization").and_then(|v| v.to_str().ok()) == Some(format!("Bearer {secret}").as_str());
@@ -600,34 +706,46 @@ async fn main() -> Result<()> {
                         ensure!(!transfer, "only read probes may be timed");
                         probe = Some(probes.start(&probe_id, id)?);
                     }
-                    let cell = match service.cell(namespace, &format!("{class_name}:{id}")) {
-                        Ok(cell) => cell,
+                    let selected = layout.group(id)?;
+                    let group = match service.group(selected.history) {
+                        Ok(group) => group,
                         Err(error) => {
                             ensure!(!transfer && !service.is_closed(), "unavailable registration: {error:?}");
-                            return Ok(serde_json::json!({"cell":id, "node":i, "registered":false}));
+                            return Ok(serde_json::json!({"cell":id,"node":i,"registered":false,
+                                "group_ordinal":layout.group_ordinal(id)?, "group_cells":selected.cells,
+                                "group":hex::encode(selected.history.group.bytes()),
+                                "group_incarnation":hex::encode(selected.history.incarnation.bytes())}));
                         }
                     };
-                    let status = cell.status().await;
+                    let observed = group.observe(Duration::from_secs(5)).await;
                     if let Some(probe) = &probe { probe.status_finished(); }
-                    let status = status.map_err(|e| anyhow::anyhow!("{e:?}"))?;
-                    if transfer && status.command_ready {
-                        let target = MemberId::new(if primary_only { 1 } else { u64::from(placement.voters(id)[0]) })?;
-                        if status.leader != Some(target) {
-                            cell.transfer_leadership(LeadershipTransfer {target,
-                                expected_term: status.term, expected_revision: status.membership_revision}, Duration::from_secs(5))
-                                .await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                    let observed = observed?;
+                    let status = &observed.status;
+                    if transfer && status.ready {
+                        let target = MemberId::new(if primary_only { 1 } else {
+                            u64::from(placement.voters(layout.group_ordinal(id)?)[0]) })?;
+                        if status.leader != Some(target.get()) {
+                            group.transfer_leadership(LeadershipTransfer { target,
+                                expected_term: status.term, expected_revision: observed.membership_revision },
+                                Duration::from_secs(5)).await?;
                         }
                     }
-                    let replication = if status.role == RaftReplicaRole::Leader && !transfer {
+                    let replication = if observed.role == RaftReplicaRole::Leader && !transfer {
                         if let Some(probe) = &probe { probe.replication_started(); }
-                        let progress = cell.replication_status().await;
+                        let progress = group.replication_status(Duration::from_secs(5)).await;
                         if let Some(probe) = &probe { probe.replication_finished(); }
-                        let progress = progress.map_err(|e| anyhow::anyhow!("{e:?}"))?;
-                        ensure!(progress.term == status.term && progress.membership_revision == status.membership_revision
+                        let progress = progress?;
+                        ensure!(progress.term == status.term && progress.membership_revision == observed.membership_revision
                             && (is_managed || progress.replica.member.get() == u64::from(i)), "changed replication observation");
                         ensure!(is_managed || progress.members.iter().all(|member| member.voter), "unexpected learner");
                         Some(progress)
                     } else { None };
+                    let archive = group.archive_status()?;
+                    let archived = archive.as_ref().and_then(|a|a.published.as_ref()).map(|root|root.position().index.get());
+                    let archive = archive.map(|archive|serde_json::json!({"attempts":archive.attempts,
+                        "stopped":archive.stopped,"error":archive.error.as_ref().map(|e|format!("{e:?}")),
+                        "published":archive.published.map(|root|serde_json::json!({
+                            "index":root.position().index.get(),"term":root.position().term.get()}))}));
                     let voters = replication.as_ref().map(|progress| {
                         let mut voters: Vec<_> = progress.members.iter().filter(|member| member.voter).map(|member| member.member.get()).collect();
                         voters.sort_unstable();
@@ -641,12 +759,15 @@ async fn main() -> Result<()> {
                             "member":member.member.get(), "matched":member.matched.get(), "voter":member.voter
                         })).collect::<Vec<_>>()
                     }));
-                    Ok::<_,anyhow::Error>(serde_json::json!({"cell":id, "node":i, "registered":true, "voters":voters, "leader":status.leader.map(MemberId::get),
+                    Ok::<_,anyhow::Error>(serde_json::json!({"cell":id, "node":i, "registered":true, "voters":voters, "leader":status.leader,
+                        "group_ordinal":layout.group_ordinal(id)?, "group_cells":selected.cells,
+                        "observed_cells":observed.cells,"group":hex::encode(selected.history.group.bytes()),
+                        "group_incarnation":hex::encode(selected.history.incarnation.bytes()),
                         "replication":replication,
-                        "ready": status.command_ready, "role":format!("{:?}",status.role),
-                        "term":status.term.get(), "persisted":status.persisted.get(),
-                        "checkpoint":status.checkpoint.index.get(), "committed":status.committed.get(),
-                        "applied":status.applied.index.get(), "archived":status.archived.get(), "archive":status.archive}))
+                        "ready": status.ready, "role":format!("{:?}",observed.role),
+                        "term":status.term.get(), "persisted":observed.persisted.get(),
+                        "checkpoint":observed.checkpoint.index.get(), "committed":status.committed.get(),
+                        "applied":status.applied.index.get(), "archived":archived, "archive":archive}))
                 }.await;
                 if let Some(probe) = &probe { probe.finish(result.is_ok()); }
                 match result { Ok(v) => (axum::http::StatusCode::OK, v.to_string()),
@@ -693,6 +814,17 @@ async fn main() -> Result<()> {
         .close()
         .await
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!(
+        "CELLAR_CG14_CLOSE {}",
+        serde_json::json!({
+            "node": i, "groups_total": report.groups_total, "reported_groups": report.groups.len(), "omitted_groups": report.omitted_groups,
+            "failed_groups": report.groups.iter().filter(|group| group.failed).count(),
+            "groups_with_archive_lag": report.groups_with_archive_lag,
+            "groups_with_unknown_archive": report.groups_with_unknown_archive,
+            "retained_calls_at_shutdown": report.retained_calls_at_shutdown,
+            "mutation_outcomes": report.mutation_outcomes,
+        })
+    ))?;
     cellar::note!("raft_perf_closed {:?}", report);
     Ok(())
 }

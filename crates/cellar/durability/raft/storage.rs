@@ -2,7 +2,13 @@
 
 //! One domain-owned engine worker. Every successful mutation has crossed fsync.
 
-use super::cache::{genesis, validate_conf, CachedGroup, GroupLog, GroupWrite, SnapshotChange};
+use super::cache::{
+    genesis, validate_conf, CachedGroup, GroupLog, GroupWrite, SnapshotChange, StoredGroup,
+};
+use super::cell_groups::{
+    reclaim::ReclaimCells, CellGroupApplier, CellGroupReclaimError, CellGroupReclaimLimits,
+    CellGroupReclaimReport, PreparedGroupManifest,
+};
 use super::filesystem::EngineFileSystem;
 use super::fleet_stop::{Guard, LifecycleRecord, LifecycleUpdate};
 use super::options::{LogOpenMode, ReplicaLogOptions};
@@ -13,7 +19,10 @@ use super::records::{
     self, GroupRecord, MappingRecord, NodeRecord, RootRecord, GROUP_KEY, ROOT_KEY,
 };
 use ::raft::prelude::{ConfState, Entry};
-use cellar_logic::consensus::{GroupScope, MemberId, OperationId, ReplicaIdentity};
+use cellar_logic::cell_group::{GroupHistory, GroupRoute};
+use cellar_logic::consensus::{
+    EngineInstanceId, GroupScope, MemberId, OperationId, ReplicaIdentity,
+};
 use cellar_ltx::{FileSystem, HostFileLock};
 use protobuf::Message;
 use raft_engine::{Command, Engine, LogBatch, MessageExt, ReadableSize, RecoveryMode};
@@ -23,6 +32,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
+
+#[cfg(test)]
+#[path = "storage_cell_genesis_tests.rs"]
+mod cell_genesis_tests;
 
 #[cfg(test)]
 #[path = "storage_genesis_tests.rs"]
@@ -36,7 +49,7 @@ const LIFECYCLE_KEY: &[u8] = b"cellar-node-lifecycle";
 
 #[derive(Clone)]
 struct EngineCaches {
-    usage: Arc<AtomicUsize>,
+    log_retention: Arc<super::cell_groups::log_retention::NodeLogRetention>,
     lifecycle: Arc<Mutex<LifecycleRecord>>,
 }
 
@@ -96,30 +109,71 @@ impl GroupBootstrap {
         self.scope
             .validate()
             .map_err(|error| LogError::Invalid(error.to_string()))?;
-        let mut conf = ConfState::default();
-        conf.set_voters(self.voters.iter().map(|id| id.get()).collect());
-        conf.set_learners(self.learners.iter().map(|id| id.get()).collect());
-        validate_conf(&conf).map_err(|error| LogError::Invalid(error.to_string()))?;
-        super::member_state::GroupMembership::initial(&conf)
-            .validate(&conf, 1)
-            .map_err(|error| LogError::Invalid(error.to_string()))?;
-        if !conf.voters.contains(&self.member.get()) && !conf.learners.contains(&self.member.get())
-        {
-            return Err(LogError::WrongIdentity);
-        }
-        Ok(conf)
+        initial_configuration(self.member, &self.voters, &self.learners)
     }
+}
+
+/// Physical genesis for a whole cell range. Construction supplies no membership
+/// claim or serving authority; those require the catalog bootstrap protocol.
+#[derive(Clone, Debug)]
+pub struct CellGroupBootstrap {
+    pub route: GroupRoute,
+    pub member: MemberId,
+    pub voters: Vec<MemberId>,
+    pub learners: Vec<MemberId>,
+}
+
+impl CellGroupBootstrap {
+    fn configuration(&self) -> Result<ConfState, LogError> {
+        super::cell_groups::GroupManifest::genesis(self.route.clone())
+            .map_err(|error| LogError::Invalid(error.to_string()))?;
+        initial_configuration(self.member, &self.voters, &self.learners)
+    }
+}
+
+fn initial_configuration(
+    member: MemberId,
+    voters: &[MemberId],
+    learners: &[MemberId],
+) -> Result<ConfState, LogError> {
+    let mut conf = ConfState::default();
+    conf.set_voters(voters.iter().map(|id| id.get()).collect());
+    conf.set_learners(learners.iter().map(|id| id.get()).collect());
+    validate_conf(&conf).map_err(|error| LogError::Invalid(error.to_string()))?;
+    super::member_state::GroupMembership::initial(&conf)
+        .validate(&conf, 1)
+        .map_err(|error| LogError::Invalid(error.to_string()))?;
+    if !conf.voters.contains(&member.get()) && !conf.learners.contains(&member.get()) {
+        return Err(LogError::WrongIdentity);
+    }
+    Ok(conf)
 }
 
 /// Identity-bound observation of one successfully synced batch.
 #[derive(Clone, Debug)]
-pub struct SyncReceipt {
+pub struct SyncReceipt<S = GroupScope> {
     pub operation: OperationId,
     pub sequence: u64,
-    pub groups: Vec<ReplicaIdentity>,
+    pub groups: Vec<ReplicaIdentity<S>>,
 }
 
-type Catalog = Arc<RwLock<BTreeMap<GroupScope, GroupLog>>>;
+type Catalog = Arc<RwLock<BTreeMap<GroupHistory, StoredGroup>>>;
+
+fn release_closed_pins(groups: &Catalog) -> Result<(), LogError> {
+    let (groups, mut result) = match groups.read() {
+        Ok(groups) => (groups, Ok(())),
+        Err(error) => (
+            error.into_inner(),
+            Err(LogError::Corrupt("closed log catalog poisoned".into())),
+        ),
+    };
+    for group in groups.values() {
+        let released = group.release_closed_pins();
+        result = result.and(released);
+    }
+    result
+}
+
 type Reply<T> = oneshot::Sender<Result<T, LogError>>;
 
 #[derive(Clone)]
@@ -128,6 +182,7 @@ pub struct ReplicaLog {
 }
 
 struct LogHandle {
+    log_retention: Arc<super::cell_groups::log_retention::NodeLogRetention>,
     snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     performance: Arc<Performance>,
     instance: std::sync::OnceLock<cellar_logic::consensus::EngineInstanceId>,
@@ -136,11 +191,11 @@ struct LogHandle {
     domain: crate::asyncrt::DomainToken,
     groups: Catalog,
     pending: Arc<AtomicUsize>,
-    cache_usage: Arc<AtomicUsize>,
     lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     options: ReplicaLogOptions,
     closing: Arc<AtomicBool>,
     runtime_claimed: AtomicBool,
+    sql_claimed: AtomicBool,
     abort: Arc<AtomicBool>,
     closed: Arc<AtomicBool>,
     terminal: Arc<Terminal>,
@@ -204,6 +259,38 @@ struct Request {
     _permit: Permit,
 }
 
+struct ManagedCells {
+    binding: super::member_state::FleetGroupBinding,
+    allow_genesis: bool,
+    boot: super::fleet_stop::BootBinding,
+}
+
+enum ImportedGenesis {
+    Recovery(Box<super::cell_groups::RecoverySeed>),
+    Transfer(Box<super::cell_groups::TransferSeed>),
+}
+
+impl ImportedGenesis {
+    fn binding(&self) -> (&CellGroupBootstrap, &super::cell_groups::GroupManifest) {
+        match self {
+            Self::Recovery(seed) => (seed.bootstrap(), seed.genesis()),
+            Self::Transfer(seed) => (seed.bootstrap(), seed.genesis()),
+        }
+    }
+
+    fn check(
+        &self,
+        owner: &Arc<()>,
+        identity: &ReplicaIdentity<GroupHistory>,
+        engine: EngineInstanceId,
+    ) -> Result<(), LogError> {
+        match self {
+            Self::Recovery(seed) => seed.check(owner, identity, engine),
+            Self::Transfer(seed) => seed.check(owner, identity, engine),
+        }
+    }
+}
+
 enum Work {
     NodeFence(Reply<u64>),
     Lifecycle(Box<LifecycleUpdate>, Reply<Guard>),
@@ -212,13 +299,130 @@ enum Work {
         Option<Box<super::member_state::FleetGroupBinding>>,
         Reply<GroupLog>,
     ),
-    Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
+    CreateCells(
+        CellGroupBootstrap,
+        Option<Arc<super::transport::CellGroupSeedGrant>>,
+        Option<Box<ManagedCells>>,
+        Reply<GroupLog<GroupHistory>>,
+    ),
+    ImportCells(ImportedGenesis, Reply<GroupLog<GroupHistory>>),
     Persist(OperationId, Vec<GroupWrite>, Reply<SyncReceipt>),
+    PersistCells(
+        OperationId,
+        Vec<GroupWrite<GroupHistory>>,
+        Reply<SyncReceipt<GroupHistory>>,
+    ),
+    ReclaimCells(
+        Box<ReclaimCells>,
+        MaintenanceLease,
+        Reply<Result<CellGroupReclaimReport, CellGroupReclaimError>>,
+    ),
+    ReclaimSource(
+        Box<super::cell_groups::source_reclaim::Permit>,
+        Reply<SourceReclaimAck>,
+    ),
+    SourceStatus(GroupHistory, Reply<Option<SourceReclaimAck>>),
+    FinishSource(Box<SourceReclaimAck>, Reply<SourceReclaimAck>),
+    ReclaimMember(
+        Box<super::cell_groups::member_reclaim::Permit>,
+        Reply<MemberReclaimAck>,
+    ),
+    MemberStatus(GroupHistory, Reply<Option<MemberReclaimAck>>),
+    FinishMember(Box<MemberReclaimAck>, Reply<MemberReclaimAck>),
     Purge(Reply<()>),
+}
+
+/// Opaque engine-bound acknowledgement. Only this engine worker creates it.
+#[derive(Clone)]
+pub(crate) struct SourceReclaimAck {
+    owner: Arc<()>,
+    record: super::cell_groups::source_reclaim::Record,
+}
+
+/// Local engine authority is retained through page/image collection and the
+/// caller's root settlement. A deserialized record cannot construct this ack.
+#[derive(Clone)]
+pub(crate) struct MemberReclaimAck {
+    owner: Arc<()>,
+    record: super::cell_groups::member_reclaim::Record,
+}
+
+impl MemberReclaimAck {
+    pub(crate) fn record(&self) -> &super::cell_groups::member_reclaim::Record {
+        &self.record
+    }
+
+    pub(crate) fn check(&self, log: &ReplicaLog) -> Result<(), LogError> {
+        if !Arc::ptr_eq(&self.owner, &log.inner.owner) {
+            return Err(LogError::WrongIdentity);
+        }
+        self.record.validate(
+            log.storage_instance()?.bytes(),
+            log.limits().node,
+            log.limits().disk,
+        )
+    }
+}
+
+impl SourceReclaimAck {
+    /// Completed engine/page collection permits dropping bounded in-memory
+    /// retirement fences. The permanent source refusal remains in this engine;
+    /// this acknowledgement never permits a new mapping for the source.
+    pub(crate) fn reclaimed_history(&self, log: &ReplicaLog) -> Result<GroupHistory, LogError> {
+        self.check(log)?;
+        let history = self.record.source.scope()?;
+        if !self.record.complete {
+            return Err(LogError::Overloaded);
+        }
+        match log.cell_group(&history) {
+            Err(LogError::NotFound) => Ok(history),
+            Ok(_) => Err(LogError::Overloaded),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(crate) fn record(&self) -> &super::cell_groups::source_reclaim::Record {
+        &self.record
+    }
+
+    pub(crate) fn check(&self, log: &ReplicaLog) -> Result<(), LogError> {
+        if !Arc::ptr_eq(&self.owner, &log.inner.owner) {
+            return Err(LogError::WrongIdentity);
+        }
+        self.record.validate(
+            log.storage_instance()?.bytes(),
+            log.limits().node,
+            log.limits().disk,
+        )
+    }
 }
 
 /// Exclusive consensus ownership; normal release follows a final storage fence.
 pub(crate) struct RuntimeLease(Arc<LogHandle>);
+
+/// Held by the SQL owner, physical workers and retained response admission.
+pub(crate) struct SqlPoolLease(Arc<LogHandle>);
+
+// Maintenance performs no consensus writes of its own. It may refund an
+// unqueued reservation, but an entered operation retains both claims to exit.
+struct MaintenanceLease {
+    runtime: Option<RuntimeLease>,
+    _sql: Arc<SqlPoolLease>,
+}
+
+impl Drop for MaintenanceLease {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            runtime.release();
+        }
+    }
+}
+
+impl Drop for SqlPoolLease {
+    fn drop(&mut self) {
+        self.0.sql_claimed.store(false, Ordering::Release);
+    }
+}
 
 impl RuntimeLease {
     /// Dropping an unfenced worker deliberately leaves the claim poisoned.
@@ -228,6 +432,15 @@ impl RuntimeLease {
 }
 
 impl ReplicaLog {
+    /// Advisory node-wide logical retained-entry debt and reservation use.
+    /// This is not physical file accounting or an admission capability.
+    pub fn cell_group_log_retention_usage(
+        &self,
+    ) -> Result<super::cell_groups::CellGroupLogRetentionUsage, LogError> {
+        self.admit()?;
+        self.inner.log_retention.usage()
+    }
+
     pub(crate) fn performance(&self) -> Arc<Performance> {
         self.inner.performance.clone()
     }
@@ -278,6 +491,15 @@ impl ReplicaLog {
         Ok(RuntimeLease(self.inner.clone()))
     }
 
+    pub(crate) fn claim_sql_pool(&self) -> Result<Arc<SqlPoolLease>, LogError> {
+        self.admit()?;
+        self.inner
+            .sql_claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| LogError::AlreadyExists)?;
+        Ok(Arc::new(SqlPoolLease(self.inner.clone())))
+    }
+
     pub(crate) fn domain(&self) -> crate::asyncrt::DomainToken {
         self.inner.domain.clone()
     }
@@ -288,12 +510,6 @@ impl ReplicaLog {
 
     pub(crate) fn limits(&self) -> &ReplicaLogOptions {
         &self.inner.options
-    }
-
-    /// Advisory maintenance signal. The writer still enforces the hard bound
-    /// against the complete candidate batch before crossing its sync boundary.
-    pub(crate) fn cache_under_pressure(&self) -> bool {
-        self.inner.cache_usage.load(Ordering::Acquire) >= self.inner.options.max_cache_bytes / 2
     }
 
     pub async fn open(
@@ -328,6 +544,10 @@ impl ReplicaLog {
         let (ready, wait) = oneshot::channel();
         let groups = Arc::new(RwLock::new(BTreeMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
+        let log_retention = super::cell_groups::log_retention::NodeLogRetention::new(
+            options.cell_group_retention,
+            closed.clone(),
+        );
         let abort = Arc::new(AtomicBool::new(false));
         let terminal = Arc::new(Terminal {
             result: Mutex::new(None),
@@ -335,10 +555,10 @@ impl ReplicaLog {
         });
         let closing = Arc::new(AtomicBool::new(false));
         let owner = Arc::new(());
-        let cache_usage = Arc::new(AtomicUsize::new(0));
         let lifecycle_cache = Arc::new(Mutex::new(LifecycleRecord::empty()));
         let handle = Self {
             inner: Arc::new(LogHandle {
+                log_retention: log_retention.clone(),
                 snapshot_scratch,
                 performance: performance.clone(),
                 instance: std::sync::OnceLock::new(),
@@ -347,11 +567,11 @@ impl ReplicaLog {
                 domain: domain.clone(),
                 groups: groups.clone(),
                 pending: Arc::new(AtomicUsize::new(0)),
-                cache_usage: cache_usage.clone(),
                 lifecycle_cache: lifecycle_cache.clone(),
                 options: options.clone(),
                 closing: closing.clone(),
                 runtime_claimed: AtomicBool::new(false),
+                sql_claimed: AtomicBool::new(false),
                 abort: abort.clone(),
                 closed: closed.clone(),
                 terminal: terminal.clone(),
@@ -362,11 +582,12 @@ impl ReplicaLog {
         // if the open waiter or public handle is dropped.
         let _worker = domain
             .blocking(move || {
-                struct ClosedOnDrop(Arc<AtomicBool>, Arc<Terminal>);
+                struct ClosedOnDrop(Arc<AtomicBool>, Arc<Terminal>, Catalog);
 
                 impl Drop for ClosedOnDrop {
                     fn drop(&mut self) {
                         self.0.store(true, Ordering::Release);
+                        let _ = release_closed_pins(&self.2);
                         // Worker/resources unwind before this outer guard. A
                         // panic may close admission early, but cannot fake join.
                         let mut terminal = self
@@ -381,7 +602,7 @@ impl ReplicaLog {
                         self.1.changed.notify_waiters();
                     }
                 }
-                let _guard = ClosedOnDrop(closed.clone(), terminal.clone());
+                let guard = ClosedOnDrop(closed.clone(), terminal.clone(), groups.clone());
                 let result = Worker::open(
                     options,
                     files,
@@ -389,7 +610,7 @@ impl ReplicaLog {
                     owner,
                     closed.clone(),
                     EngineCaches {
-                        usage: cache_usage,
+                        log_retention,
                         lifecycle: lifecycle_cache,
                     },
                     performance,
@@ -413,6 +634,9 @@ impl ReplicaLog {
                 // Engine drop joins its metrics thread; directory locks are owned
                 // by this same worker and cannot outlive its completion.
                 drop(worker);
+                // Closed public metadata handles may outlive this worker. They
+                // must not keep image/page-directory locks through cache pins.
+                let result = result.and(release_closed_pins(&guard.2));
                 *terminal
                     .result
                     .lock()
@@ -442,29 +666,210 @@ impl ReplicaLog {
     ) -> Result<usize, LogError> {
         self.admit()?;
         let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        let additional = match pending {
+            Some(scope) => {
+                scope.validate().map_err(|_| LogError::WrongIdentity)?;
+                match groups.get(&GroupHistory::from(scope)) {
+                    Some(group) => {
+                        if &group.as_cell()?.identity.scope != scope {
+                            return Err(LogError::WrongIdentity);
+                        }
+                        false
+                    }
+                    None => true,
+                }
+            }
+            None => false,
+        };
         groups
             .len()
-            .checked_add(usize::from(
-                pending.is_some_and(|scope| !groups.contains_key(scope)),
-            ))
+            .checked_add(usize::from(additional))
             .ok_or(LogError::Overloaded)
     }
 
     pub fn groups(&self) -> Result<Vec<GroupLog>, LogError> {
         self.admit()?;
-        Ok(self
-            .inner
+        self.inner
             .groups
             .read()
             .map_err(|_| LogError::Closed)?
             .values()
+            .map(|group| group.as_cell().cloned())
+            .collect()
+    }
+
+    pub fn cell_groups(&self) -> Result<Vec<GroupLog<GroupHistory>>, LogError> {
+        self.admit()?;
+        self.inner
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .values()
+            .map(|group| group.as_cells().cloned())
+            .collect()
+    }
+
+    /// Reconcile every physical group in this engine, then collect a bounded
+    /// batch of unselected image/page files. Supply one exact applier per group,
+    /// including unattached/retired groups, and every additional durable archive
+    /// or transition root. Image stores must belong exclusively to this node
+    /// engine. Live reader/transfer pins remain protected independently.
+    ///
+    /// Runtime and SQL ownership must have joined shutdown before maintenance;
+    /// the engine reserves both claims until verification/deletion finishes.
+    /// A busy applier refuses instead of waiting. Cancellation retains work and admission;
+    /// log.close() joins physical completion. This supplies no serving, archive
+    /// coverage, log truncation or voting authority.
+    pub async fn reclaim_cell_storage(
+        &self,
+        appliers: Vec<CellGroupApplier>,
+        retained: Vec<PreparedGroupManifest>,
+        limits: CellGroupReclaimLimits,
+    ) -> Result<CellGroupReclaimReport, CellGroupReclaimError> {
+        let work = ReclaimCells::new(appliers, retained, limits)?;
+        let bytes = work.reservation_bytes()?;
+        let runtime = self.claim_runtime().map_err(|e| match e {
+            LogError::AlreadyExists => CellGroupReclaimError::Busy,
+            e => CellGroupReclaimError::Log(e),
+        })?;
+        let sql = match self.claim_sql_pool() {
+            Ok(sql) => sql,
+            Err(error) => {
+                runtime.release();
+                return Err(match error {
+                    LogError::AlreadyExists => CellGroupReclaimError::Busy,
+                    e => CellGroupReclaimError::Log(e),
+                });
+            }
+        };
+        let lease = MaintenanceLease {
+            runtime: Some(runtime),
+            _sql: sql,
+        };
+        self.request(bytes, |reply| {
+            Work::ReclaimCells(Box::new(work), lease, reply)
+        })
+        .await
+        .map_err(CellGroupReclaimError::Log)?
+    }
+
+    pub fn cell_group(&self, history: &GroupHistory) -> Result<GroupLog<GroupHistory>, LogError> {
+        self.admit()?;
+        self.inner
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .get(history)
+            .ok_or(LogError::NotFound)?
+            .as_cells()
             .cloned()
-            .collect())
+    }
+
+    pub async fn create_cell_group(
+        &self,
+        bootstrap: CellGroupBootstrap,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        bootstrap.configuration()?;
+        self.request(16 * 1024, |reply| {
+            Work::CreateCells(bootstrap, None, None, reply)
+        })
+        .await
+    }
+
+    pub(crate) async fn stage_cell_group(
+        &self,
+        bootstrap: CellGroupBootstrap,
+        grant: Arc<super::transport::CellGroupSeedGrant>,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        grant.check_log(self)?;
+        self.request(96 * 1024, |reply| {
+            Work::CreateCells(bootstrap, Some(grant), None, reply)
+        })
+        .await
+    }
+
+    /// The catalog-selected initial membership and fleet guard are persisted
+    /// in the same first engine sync. An existing unguarded history refuses.
+    pub(crate) async fn create_managed_cell_group(
+        &self,
+        bootstrap: CellGroupBootstrap,
+        authorization: &super::fleet_catalog::FleetGroupAuthorization,
+        boot: &super::fleet_stop::BootBinding,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        let conf = bootstrap.configuration()?;
+        if !authorization.matches_scope(&bootstrap.route.history)
+            || authorization.history_digests()
+                != (bootstrap.route.birth_digest, bootstrap.route.schema_digest)
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        let binding = authorization.binding().clone();
+        boot.validate()?;
+        if boot.fleet != binding.fleet()
+            || boot.catalog != binding.catalog()
+            || boot.node != self.limits().node.bytes()
+            || boot.disk != self.limits().disk.bytes()
+            || boot.engine != self.storage_instance()?.bytes()
+            || boot.process != self.limits().process.bytes()
+            || self
+                .lifecycle_guard()?
+                .is_none_or(|guard| !guard.admits_group_start(boot))
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        super::member_state::GroupMembership::managed_initial(&conf, binding.clone())?;
+        self.request(24 * 1024, |reply| {
+            Work::CreateCells(
+                bootstrap,
+                None,
+                Some(Box::new(ManagedCells {
+                    binding,
+                    allow_genesis: authorization.allows_managed_genesis(),
+                    boot: boot.clone(),
+                })),
+                reply,
+            )
+        })
+        .await
+    }
+
+    pub(crate) async fn install_recovery_seed(
+        &self,
+        seed: super::cell_groups::RecoverySeed,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        self.install_imported_seed(ImportedGenesis::Recovery(Box::new(seed)))
+            .await
+    }
+
+    pub(crate) async fn install_transfer_seed(
+        &self,
+        seed: super::cell_groups::TransferSeed,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        self.install_imported_seed(ImportedGenesis::Transfer(Box::new(seed)))
+            .await
+    }
+
+    async fn install_imported_seed(
+        &self,
+        seed: ImportedGenesis,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        let (bootstrap, _) = seed.binding();
+        let identity = ReplicaIdentity {
+            scope: bootstrap.route.history,
+            member: bootstrap.member,
+            node: self.limits().node,
+            disk: self.limits().disk,
+            process: self.limits().process,
+        };
+        seed.check(&self.owner(), &identity, self.storage_instance()?)?;
+        self.request(96 * 1024, |reply| Work::ImportCells(seed, reply))
+            .await
     }
 
     /// Read occupied identities and locally durable completed membership under
     /// the engine catalog lock and short per-group cache reads. This catalog is
     /// append-only for an engine instance; retired bindings remain.
+    #[cfg(test)]
     pub(crate) fn physical_inventory(
         &self,
         pending: Option<&GroupScope>,
@@ -474,15 +879,30 @@ impl ReplicaLog {
         super::physical_inventory::capture(&groups, pending)
     }
 
+    /// Complete physical occupancy for a cell-group engine, including retained
+    /// histories and an optional initializing group. This is not serving or
+    /// membership authority. Legacy application engines refuse this accessor.
+    pub fn cell_group_inventory(
+        &self,
+        pending: Option<&GroupHistory>,
+    ) -> Result<super::physical_inventory::RaftPhysicalInventory, LogError> {
+        self.admit()?;
+        let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        super::physical_inventory::capture_cells(&groups, pending)
+    }
+
     pub fn group(&self, scope: &GroupScope) -> Result<GroupLog, LogError> {
         self.admit()?;
-        self.inner
-            .groups
-            .read()
-            .map_err(|_| LogError::Closed)?
-            .get(scope)
-            .cloned()
-            .ok_or(LogError::NotFound)
+        scope.validate().map_err(|_| LogError::WrongIdentity)?;
+        let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        let group = groups
+            .get(&GroupHistory::from(scope))
+            .ok_or(LogError::NotFound)?
+            .as_cell()?;
+        if &group.identity.scope != scope {
+            return Err(LogError::WrongIdentity);
+        }
+        Ok(group.clone())
     }
 
     pub async fn create_group(&self, bootstrap: GroupBootstrap) -> Result<GroupLog, LogError> {
@@ -507,15 +927,36 @@ impl ReplicaLog {
         .await
     }
 
-    pub(crate) async fn create_seeded(
+    pub async fn persist_cells(
         &self,
-        seed: super::snapshot::PreparedSeed,
-    ) -> Result<GroupLog, LogError> {
-        if !seed.authorized(&self.inner.owner, seed.local()) {
-            return Err(LogError::WrongIdentity);
-        }
-        self.request(96 * 1024, |reply| Work::Seeded(Box::new(seed), reply))
+        operation: OperationId,
+        writes: Vec<GroupWrite<GroupHistory>>,
+    ) -> Result<SyncReceipt<GroupHistory>, LogError> {
+        let bytes = self.write_bytes(operation, &writes)?;
+        self.request(bytes, |reply| Work::PersistCells(operation, writes, reply))
             .await
+    }
+
+    /// Enable a local irreversible retention requirement before archive I/O.
+    /// The fixed nonzero operation correlates only this private idempotent
+    /// metadata write. Its receipt is never a business or durability response;
+    /// the storage worker assigns the actual durable sync sequence.
+    pub(crate) async fn require_cell_group_archive(
+        &self,
+        history: &GroupHistory,
+        activation: Arc<super::cell_groups::archive_compaction::ArchiveActivation>,
+    ) -> Result<(), LogError> {
+        let group = self.cell_group(history)?;
+        activation.drained(&group.archive_compaction)?;
+        let required = group.read()?.archive_required;
+        if !required {
+            let mut write = GroupWrite::new(&group);
+            write.require_archive = Some(activation);
+            self.persist_cells(OperationId::new(1), vec![write]).await?;
+        } else {
+            activation.published(&group.archive_compaction)?;
+        }
+        Ok(())
     }
 
     pub async fn persist(
@@ -523,11 +964,21 @@ impl ReplicaLog {
         operation: OperationId,
         writes: Vec<GroupWrite>,
     ) -> Result<SyncReceipt, LogError> {
+        let bytes = self.write_bytes(operation, &writes)?;
+        self.request(bytes, |reply| Work::Persist(operation, writes, reply))
+            .await
+    }
+
+    fn write_bytes<S: Clone>(
+        &self,
+        operation: OperationId,
+        writes: &[GroupWrite<S>],
+    ) -> Result<usize, LogError> {
         if operation.get() == 0 {
             return Err(LogError::Invalid("zero persistence operation".into()));
         }
         let mut bytes = 1024_usize;
-        for write in &writes {
+        for write in writes {
             bytes = bytes
                 .checked_add(write.estimated_bytes()?)
                 .ok_or(LogError::Overloaded)?;
@@ -535,12 +986,65 @@ impl ReplicaLog {
         if bytes > self.inner.options.max_batch_bytes {
             return Err(LogError::Overloaded);
         }
-        self.request(bytes, |reply| Work::Persist(operation, writes, reply))
-            .await
+        Ok(bytes)
     }
 
     /// Reclaim obsolete shared engine files, retaining every group's live log,
     /// votes and checkpoint. This does not authorize logical compaction.
+    pub(crate) async fn reclaim_source(
+        &self,
+        permit: super::cell_groups::source_reclaim::Permit,
+    ) -> Result<SourceReclaimAck, LogError> {
+        self.request(32 * 1024, |reply| {
+            Work::ReclaimSource(Box::new(permit), reply)
+        })
+        .await
+    }
+
+    pub(crate) async fn reclaim_member(
+        &self,
+        permit: super::cell_groups::member_reclaim::Permit,
+    ) -> Result<MemberReclaimAck, LogError> {
+        self.request(32 * 1024, |reply| {
+            Work::ReclaimMember(Box::new(permit), reply)
+        })
+        .await
+    }
+
+    pub(crate) async fn member_reclamation(
+        &self,
+        history: GroupHistory,
+    ) -> Result<Option<MemberReclaimAck>, LogError> {
+        self.request(4096, |reply| Work::MemberStatus(history, reply))
+            .await
+    }
+
+    pub(crate) async fn finish_member_reclamation(
+        &self,
+        ack: MemberReclaimAck,
+    ) -> Result<MemberReclaimAck, LogError> {
+        ack.check(self)?;
+        self.request(4096, |reply| Work::FinishMember(Box::new(ack), reply))
+            .await
+    }
+
+    pub(crate) async fn source_reclamation(
+        &self,
+        history: GroupHistory,
+    ) -> Result<Option<SourceReclaimAck>, LogError> {
+        self.request(4096, |reply| Work::SourceStatus(history, reply))
+            .await
+    }
+
+    pub(crate) async fn finish_source_reclamation(
+        &self,
+        ack: SourceReclaimAck,
+    ) -> Result<SourceReclaimAck, LogError> {
+        ack.check(self)?;
+        self.request(4096, |reply| Work::FinishSource(Box::new(ack), reply))
+            .await
+    }
+
     pub async fn purge(&self) -> Result<(), LogError> {
         self.request(1024, Work::Purge).await
     }
@@ -608,6 +1112,7 @@ impl MessageExt for EntryCodec {
 }
 
 struct Worker {
+    log_retention: Arc<super::cell_groups::log_retention::NodeLogRetention>,
     filesystem: Arc<dyn FileSystem>,
     snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     performance: Arc<Performance>,
@@ -620,7 +1125,6 @@ struct Worker {
     owner: Arc<()>,
     closed: Arc<AtomicBool>,
     cache_bytes: usize,
-    cache_usage: Arc<AtomicUsize>,
     lifecycle: LifecycleRecord,
     lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     purge_pending: bool,
@@ -767,6 +1271,7 @@ impl Worker {
         }
         *caches.lifecycle.lock().map_err(|_| LogError::Closed)? = lifecycle.clone();
         let mut worker = Self {
+            log_retention: caches.log_retention,
             filesystem: fs.clone(),
             snapshot_scratch,
             performance,
@@ -779,20 +1284,23 @@ impl Worker {
             owner,
             closed,
             cache_bytes: 0,
-            cache_usage: caches.usage,
             lifecycle,
             lifecycle_cache: caches.lifecycle,
             // A previous process may have synced compaction without purging.
             purge_pending: true,
         };
         worker.recover()?;
-        worker
-            .cache_usage
-            .store(worker.cache_bytes, Ordering::Release);
         Ok(worker)
     }
 
     fn recover(&mut self) -> Result<(), LogError> {
+        self.cache_bytes = usize::try_from(self.source_budget()?)
+            .map_err(|_| LogError::Overloaded)?
+            .checked_mul(super::cell_groups::source_reclaim::CACHE_BYTES)
+            .ok_or(LogError::Overloaded)?;
+        if self.cache_bytes > self.options.max_cache_bytes {
+            return Err(LogError::Overloaded);
+        }
         let mut mappings = Vec::new();
         let mut failure = None;
         self.engine
@@ -822,7 +1330,37 @@ impl Worker {
             return Err(error);
         }
         let mut known = BTreeSet::from([0]);
+        let mut application = None;
         for mapping in mappings {
+            if self
+                .engine
+                .get(
+                    0,
+                    &super::cell_groups::source_reclaim::key(mapping.history()?.group),
+                )
+                .is_some()
+            {
+                return Err(LogError::Corrupt(
+                    "live mapping also has source tombstone".into(),
+                ));
+            }
+            if let Some(previous) = self.member_status(mapping.history()?)? {
+                if !mapping.is_cells()
+                    || !previous.record.permits_mapping(
+                        mapping.history()?,
+                        mapping.birth_digest,
+                        mapping.member,
+                    )
+                {
+                    return Err(records::corrupt("live mapping violates member refusal"));
+                }
+            }
+            if application
+                .replace(mapping.is_cells())
+                .is_some_and(|kind| kind != mapping.is_cells())
+            {
+                return Err(LogError::Corrupt("mixed engine application domains".into()));
+            }
             if mapping.key == 0 || mapping.key >= self.root.next_key || !known.insert(mapping.key) {
                 return Err(LogError::Corrupt(
                     "reused or unallocated numeric group key".into(),
@@ -877,7 +1415,7 @@ impl Worker {
                 .groups
                 .write()
                 .map_err(|_| LogError::Closed)?
-                .insert(handle.identity.scope.clone(), handle)
+                .insert(handle.history(), handle)
                 .is_some()
             {
                 return Err(LogError::Corrupt("duplicate logical group mapping".into()));
@@ -895,7 +1433,7 @@ impl Worker {
         Ok(())
     }
 
-    fn handle(&self, mapping: &MappingRecord, cache: CachedGroup) -> Result<GroupLog, LogError> {
+    fn handle(&self, mapping: &MappingRecord, cache: CachedGroup) -> Result<StoredGroup, LogError> {
         let initial =
             ConfState::parse_from_bytes(&mapping.initial_conf).map_err(records::corrupt)?;
         validate_conf(&initial)?;
@@ -910,10 +1448,47 @@ impl Worker {
         {
             return Err(LogError::Corrupt("member binding birth mismatch".into()));
         }
-        let scope = mapping.scope.clone().decode().map_err(records::corrupt)?;
-        scope.validate().map_err(records::corrupt)?;
-        cache.membership.validate_scope(&scope)?;
+        mapping.validate_cache(&cache)?;
+        if mapping.is_cells() {
+            Ok(StoredGroup::Cells(self.scoped_handle(
+                mapping,
+                cache,
+                mapping.history()?,
+            )?))
+        } else {
+            Ok(StoredGroup::Cell(self.scoped_handle(
+                mapping,
+                cache,
+                mapping.application_scope()?,
+            )?))
+        }
+    }
+
+    fn scoped_handle<S>(
+        &self,
+        mapping: &MappingRecord,
+        mut cache: CachedGroup,
+        scope: S,
+    ) -> Result<GroupLog<S>, LogError> {
+        cache.recovery_genesis = mapping.recovery_genesis().cloned().map(Arc::new);
+        cache.seed_anchor = mapping.seed_anchor().cloned().map(Arc::new);
+        let log_retention = if mapping.is_cells() {
+            Some(
+                self.log_retention
+                    .register(mapping.key, cache.entries.values())?,
+            )
+        } else {
+            None
+        };
         Ok(GroupLog {
+            reclaimed: Arc::new(AtomicBool::new(false)),
+            archive_compaction: Arc::new(
+                super::cell_groups::archive_compaction::ArchiveCompaction::new(
+                    cache.archive_required,
+                    log_retention,
+                ),
+            ),
+            consensus_claimed: Arc::new(AtomicBool::new(false)),
             scratch_directory: self.options.directory.clone(),
             snapshot_scratch: self.snapshot_scratch.clone(),
             filesystem: self.filesystem.clone(),
@@ -990,13 +1565,15 @@ impl Worker {
             .groups
             .read()
             .map_err(|_| LogError::Closed)?
-            .get(&bootstrap.scope)
+            .get(&GroupHistory::from(&bootstrap.scope))
         {
+            let group = group.as_cell()?;
             let mapping = self
                 .mappings
                 .get(&group.key)
                 .ok_or(LogError::LostStableState)?;
-            if mapping.member == bootstrap.member.get()
+            if group.identity.scope == bootstrap.scope
+                && mapping.member == bootstrap.member.get()
                 && mapping.birth_digest == bootstrap.birth_digest
                 && mapping.initial_conf == conf.write_to_bytes().map_err(records::corrupt)?
             {
@@ -1025,32 +1602,7 @@ impl Worker {
             cache.membership =
                 super::member_state::GroupMembership::managed_initial(&conf, binding)?;
         }
-        self.create_cache(bootstrap, conf, cache, None)
-    }
-
-    fn seeded(&mut self, seed: super::snapshot::PreparedSeed) -> Result<GroupLog, LogError> {
-        let identity = ReplicaIdentity {
-            scope: seed.local().scope.clone(),
-            member: seed.local().member,
-            node: self.options.node,
-            disk: self.options.disk,
-            process: self.options.process,
-        };
-        if !seed.authorized(&self.owner, &identity) {
-            return Err(LogError::WrongIdentity);
-        }
-        if self
-            .groups
-            .read()
-            .map_err(|_| LogError::Closed)?
-            .contains_key(&identity.scope)
-        {
-            return Err(LogError::AlreadyExists);
-        }
-        let bootstrap = seed.bootstrap()?;
-        let conf = seed.initial().clone();
-        let cache = seed.cache().map_err(|e| LogError::Invalid(e.to_string()))?;
-        self.create_cache(bootstrap, conf, cache, Some(&seed))
+        self.create_cache(bootstrap, conf, cache)
     }
 
     fn create_cache(
@@ -1058,24 +1610,245 @@ impl Worker {
         bootstrap: GroupBootstrap,
         conf: ConfState,
         cache: CachedGroup,
-        seed: Option<&super::snapshot::PreparedSeed>,
     ) -> Result<GroupLog, LogError> {
-        if self.mappings.len() >= self.options.max_groups {
-            return Err(LogError::Overloaded);
+        let mapping = MappingRecord::new(self.root.next_key, &bootstrap, &conf)?;
+        self.insert_mapping(mapping, cache, None)?
+            .as_cell()
+            .cloned()
+    }
+
+    fn create_cells(
+        &mut self,
+        bootstrap: CellGroupBootstrap,
+        seed: Option<&super::transport::CellGroupSeedGrant>,
+        managed: Option<ManagedCells>,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        if seed.is_some() && managed.is_some() {
+            return Err(LogError::WrongIdentity);
         }
-        // A group identifier cannot be reused for a different logical history.
-        if self
+        if managed.as_ref().is_some_and(|managed| {
+            self.lifecycle
+                .guard
+                .as_ref()
+                .is_none_or(|guard| !guard.admits_group_start(&managed.boot))
+        }) {
+            return Err(LogError::WrongIdentity);
+        }
+        let conf = if let Some(seed) = seed {
+            seed.check(
+                &self.owner,
+                bootstrap.route.history,
+                &ReplicaIdentity {
+                    scope: bootstrap.route.history,
+                    node: self.options.node,
+                    disk: self.options.disk,
+                    process: self.options.process,
+                    member: bootstrap.member,
+                },
+            )?;
+            seed.check_lifecycle(self.lifecycle.guard.as_ref())?;
+            seed.initial_configuration(&bootstrap)?
+        } else {
+            bootstrap.configuration()?
+        };
+        if let Some(group) = self
             .groups
             .read()
             .map_err(|_| LogError::Closed)?
-            .keys()
-            .any(|scope| scope.group == bootstrap.scope.group)
+            .get(&bootstrap.route.history)
         {
+            let group = group.as_cells()?;
+            let mapping = self
+                .mappings
+                .get(&group.key)
+                .ok_or(LogError::LostStableState)?;
+            let mut expected = MappingRecord::new_cells(group.key, &bootstrap, &conf)?;
+            if let Some(anchor) = mapping.seed_anchor() {
+                expected = expected.with_seed_anchor(anchor)?;
+            }
+            if mapping != &expected {
+                return Err(LogError::WrongIdentity);
+            }
+            let cache = group.read()?;
+            mapping.validate_cache(&cache)?;
+            let binding = managed
+                .as_ref()
+                .map(|m| &m.binding)
+                .or_else(|| seed.and_then(|grant| grant.managed_binding()));
+            let staged = seed
+                .map(|seed| seed.initial_membership(&conf))
+                .transpose()?;
+            match (binding, cache.membership.fleet_status()) {
+                (Some(binding), Some(status)) if binding == &status.binding => {
+                    if seed.is_none()
+                        && (!super::member_state::members(&cache.conf_state)
+                            .contains(&bootstrap.member.get())
+                            || !cache.membership.permits_group(group.identity()))
+                    {
+                        return Err(LogError::WrongIdentity);
+                    }
+                }
+                (Some(_), None)
+                    if staged.as_ref() == Some(&cache.membership)
+                        && cache.group_seed.is_none()
+                        && cache.applied.position.index.get() == 1
+                        && cache.group_manifest.as_ref().is_some_and(|root| {
+                            root.root().cells() == 0 && root.position().index.get() == 1
+                        }) => {}
+                (None, None) => (),
+                _ => return Err(LogError::WrongIdentity),
+            }
+            return Ok(group.clone());
+        }
+        let mapping = MappingRecord::new_cells(self.root.next_key, &bootstrap, &conf)?;
+        let mut cache = genesis(conf.clone());
+        if let Some(managed) = managed {
+            if !managed.allow_genesis {
+                return Err(LogError::WrongIdentity);
+            }
+            let binding = managed.binding;
+            if !binding.matches_scope(&bootstrap.route.history) {
+                return Err(LogError::WrongIdentity);
+            }
+            cache.membership =
+                super::member_state::GroupMembership::managed_initial(&conf, binding)?;
+        }
+        if let Some(seed) = seed {
+            // Preserve the source's real genesis/enrollment origin. The learner
+            // remains outside this birth configuration until authenticated install.
+            cache.membership = seed.initial_membership(&conf)?;
+        }
+        let bootstrap_history = bootstrap.route.history;
+        cache.group_manifest = Some(
+            super::cell_groups::GroupManifest::genesis(bootstrap.route)
+                .map_err(|error| LogError::Invalid(error.to_string()))?,
+        );
+        let rejoin = if let Some(previous) = self.member_status(bootstrap_history)? {
+            seed.and_then(|grant| grant.managed_binding())
+                == Some(previous.record.member.authorization()?.binding())
+        } else {
+            false
+        };
+        self.insert_mapping_with_member_admission(mapping, cache, None, rejoin)?
+            .as_cells()
+            .cloned()
+    }
+
+    fn import_cells(
+        &mut self,
+        seed: &ImportedGenesis,
+        domain: &crate::asyncrt::DomainToken,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        let (bootstrap, marker) = seed.binding();
+        seed.check(
+            &self.owner,
+            &ReplicaIdentity {
+                scope: bootstrap.route.history,
+                member: bootstrap.member,
+                node: self.options.node,
+                disk: self.options.disk,
+                process: self.options.process,
+            },
+            EngineInstanceId::new(self.root.identity.storage_instance).map_err(records::corrupt)?,
+        )?;
+        let conf = bootstrap.configuration()?;
+        let guard = self.lifecycle.guard.as_ref();
+        let now = domain.mono_ms().map_err(|_| LogError::Closed)?;
+        let managed = match seed {
+            ImportedGenesis::Recovery(seed) => seed.managed_binding(guard, now)?,
+            ImportedGenesis::Transfer(seed) => seed.managed_binding(guard, now)?,
+        }
+        .map(|binding| {
+            super::member_state::GroupMembership::managed_initial(&conf, binding.clone())
+        })
+        .transpose()?;
+        if let Some(group) = self
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .get(&bootstrap.route.history)
+        {
+            let group = group.as_cells()?;
+            let expected = MappingRecord::new_imported_cells(group.key, bootstrap, &conf, marker)?;
+            let cache = group.read()?;
+            if self.mappings.get(&group.key) != Some(&expected)
+                || cache.group_manifest.as_ref() != Some(marker)
+                || managed
+                    .as_ref()
+                    .is_some_and(|membership| membership != &cache.membership)
+            {
+                return Err(LogError::WrongIdentity);
+            }
+            return Ok(group.clone());
+        }
+        let mapping =
+            MappingRecord::new_imported_cells(self.root.next_key, bootstrap, &conf, marker)?;
+        let mut cache = genesis(conf);
+        if let Some(membership) = managed {
+            cache.membership = membership;
+        }
+        cache.group_manifest = Some(marker.clone());
+        if marker.is_recovery_genesis() {
+            cache.recovery_genesis = Some(Arc::new(marker.clone()));
+        }
+        self.insert_mapping(mapping, cache, Some(seed))?
+            .as_cells()
+            .cloned()
+    }
+
+    fn insert_mapping(
+        &mut self,
+        mapping: MappingRecord,
+        cache: CachedGroup,
+        imported: Option<&ImportedGenesis>,
+    ) -> Result<StoredGroup, LogError> {
+        self.insert_mapping_with_member_admission(mapping, cache, imported, false)
+    }
+
+    fn insert_mapping_with_member_admission(
+        &mut self,
+        mapping: MappingRecord,
+        mut cache: CachedGroup,
+        imported: Option<&ImportedGenesis>,
+        admitted_member: bool,
+    ) -> Result<StoredGroup, LogError> {
+        let history = mapping.history()?;
+        if let Some(previous) = self.member_status(history)? {
+            if !admitted_member
+                || !previous
+                    .record
+                    .permits_mapping(history, mapping.birth_digest, mapping.member)
+            {
+                return Err(LogError::WrongIdentity);
+            }
+        }
+        if self
+            .engine
+            .get(0, &super::cell_groups::source_reclaim::key(history.group))
+            .is_some()
+        {
+            // Validate the stored refusal as well as refusing identity reuse.
+            self.source_status(history)?;
             return Err(LogError::WrongIdentity);
         }
+        if self.mappings.len() >= self.options.max_groups {
+            return Err(LogError::Overloaded);
+        }
+        {
+            let groups = self.groups.read().map_err(|_| LogError::Closed)?;
+            if groups.keys().any(|h| h.group == history.group)
+                || groups
+                    .values()
+                    .any(|group| group.is_cells() != mapping.is_cells())
+            {
+                return Err(LogError::WrongIdentity);
+            }
+        }
         let key = self.root.next_key;
+        if mapping.key != key {
+            return Err(LogError::WrongIdentity);
+        }
         let next_key = key.checked_add(1).ok_or(LogError::Overloaded)?;
-        let mapping = MappingRecord::new(key, &bootstrap, &conf)?;
         cache.validate(self.options.max_entries_per_group)?;
         let bytes = cache.bytes();
         if self
@@ -1085,6 +1858,15 @@ impl Worker {
         {
             return Err(LogError::Overloaded);
         }
+        let prepared = match imported {
+            Some(ImportedGenesis::Recovery(seed)) => Some(seed.prepare(&self.closed)?),
+            Some(ImportedGenesis::Transfer(seed)) => Some(seed.prepare(&self.closed)?),
+            None => None,
+        };
+        let mut publication = prepared.map(|(root, publication)| {
+            cache.manifest_pins = Some(root.images.clone());
+            publication
+        });
         let mut batch = LogBatch::default();
         batch
             .put(0, mapping.catalog_key()?, records::encode(&mapping)?)
@@ -1096,45 +1878,120 @@ impl Worker {
                 records::encode(&GroupRecord::from_cache(mapping.clone(), &cache)?)?,
             )
             .map_err(engine_error)?;
-        if let Some(seed) = seed {
-            seed.retain_pending()
-                .map_err(|e| LogError::Io(e.to_string()))?;
-        }
         let previous_key = self.root.next_key;
         self.root.next_key = next_key;
+        if let Some(publication) = &mut publication {
+            publication.arm();
+        }
         if let Err(error) = self.fence(&mut batch) {
             self.root.next_key = previous_key;
             return Err(error);
         }
-        if let Some(seed) = seed {
-            seed.retain().map_err(|e| LogError::Io(e.to_string()))?;
+        if let Some(publication) = publication {
+            publication
+                .commit()
+                .map_err(|error| LogError::Io(error.to_string()))?;
         }
         let handle = self.handle(&mapping, cache)?;
         self.groups
             .write()
             .map_err(|_| LogError::Closed)?
-            .insert(bootstrap.scope, handle.clone());
+            .insert(history, handle.clone());
         self.mappings.insert(key, mapping);
         self.cache_bytes += bytes;
-        self.cache_usage.store(self.cache_bytes, Ordering::Release);
         Ok(handle)
     }
 
-    fn persist(
+    fn persist<S: Clone>(
         &mut self,
         operation: OperationId,
-        writes: Vec<GroupWrite>,
-    ) -> Result<SyncReceipt, LogError> {
+        writes: Vec<GroupWrite<S>>,
+    ) -> Result<SyncReceipt<S>, LogError> {
         let mut unique = BTreeSet::new();
         let mut candidates = Vec::with_capacity(writes.len());
         let mut next_bytes = self.cache_bytes;
         let mut batch = LogBatch::default();
+        let mut archive_admissions = Vec::new();
+        let mut log_admissions = Vec::new();
         for write in &writes {
             if !Arc::ptr_eq(&write.group.owner, &self.owner) || !unique.insert(write.group.key) {
                 return Err(LogError::WrongIdentity);
             }
+            let mapping = self
+                .mappings
+                .get(&write.group.key)
+                .ok_or(LogError::WrongIdentity)?;
             let old = write.group.read()?;
-            let next = old.changed(write, self.options.max_entries_per_group)?;
+            if write.checkpoint_admission.is_some()
+                && (write.require_archive.is_some()
+                    || !matches!(
+                        &write.snapshot,
+                        Some(SnapshotChange::CellGroupCheckpoint(_))
+                    ))
+            {
+                return Err(LogError::WrongIdentity);
+            }
+            if let Some(activation) = &write.require_archive {
+                activation.drained(&write.group.archive_compaction)?;
+            }
+            if let Some(SnapshotChange::CellGroupCheckpoint(prepared)) = &write.snapshot {
+                let admission = match &write.checkpoint_admission {
+                    Some(admission) => {
+                        admission.validate(&write.group.archive_compaction, prepared.marker())?;
+                        admission.clone()
+                    }
+                    None => write
+                        .group
+                        .archive_compaction
+                        .admit(prepared.marker())?
+                        .ok_or(LogError::Overloaded)?,
+                };
+                archive_admissions.push(admission);
+            }
+            let next = old.changed(
+                write,
+                self.options.max_entries_per_group,
+                mapping.history()?,
+            )?;
+            let persisted_mapping = if let Some(anchor) = &next.seed_anchor {
+                if old.group_seed.is_none() && write.seed_grant.is_none() {
+                    return Err(LogError::WrongIdentity);
+                }
+                mapping.with_seed_anchor(anchor)?
+            } else {
+                mapping.clone()
+            };
+            if persisted_mapping != *mapping {
+                batch
+                    .put(
+                        0,
+                        persisted_mapping.catalog_key()?,
+                        records::encode(&persisted_mapping)?,
+                    )
+                    .map_err(engine_error)?;
+            }
+            let mut leases = Vec::new();
+            if let Some(retention) = write.group.log_retention() {
+                let indices: BTreeSet<_> = write.entries.iter().map(|e| e.index).collect();
+                if !write
+                    .log_reservations
+                    .keys()
+                    .all(|index| indices.contains(index))
+                {
+                    return Err(LogError::WrongIdentity);
+                }
+                for entry in &write.entries {
+                    if let Some(lease) = write.log_reservations.get(&entry.index) {
+                        lease.validate(retention, entry)?;
+                        leases.push(lease.clone());
+                    } else if old.entries.get(&entry.index) != Some(entry) {
+                        leases.push(retention.reserve_entry(entry)?);
+                    }
+                }
+            } else if !write.log_reservations.is_empty() {
+                return Err(LogError::WrongIdentity);
+            }
+            log_admissions.push(leases);
             next_bytes = next_bytes
                 .checked_sub(old.bytes())
                 .and_then(|size| size.checked_add(next.bytes()))
@@ -1143,15 +2000,17 @@ impl Worker {
                 return Err(LogError::Overloaded);
             }
             drop(old);
-            let mapping = self
-                .mappings
-                .get(&write.group.key)
-                .ok_or(LogError::WrongIdentity)?;
             if let Some(change) = &write.snapshot {
                 match change {
-                    SnapshotChange::Install { .. } => {
+                    SnapshotChange::Install { .. } | SnapshotChange::CellGroup(_) => {
                         batch.add_command(write.group.key, Command::Clean)
                     }
+                    SnapshotChange::CellGroupCheckpoint(prepared) => batch.add_command(
+                        write.group.key,
+                        Command::Compact {
+                            index: prepared.snapshot().get_metadata().index + 1,
+                        },
+                    ),
                     SnapshotChange::Checkpoint(snapshot) => batch.add_command(
                         write.group.key,
                         Command::Compact {
@@ -1167,21 +2026,59 @@ impl Worker {
                 .put(
                     write.group.key,
                     GROUP_KEY.to_vec(),
-                    records::encode(&GroupRecord::from_cache(mapping.clone(), &next)?)?,
+                    records::encode(&GroupRecord::from_cache(persisted_mapping.clone(), &next)?)?,
                 )
                 .map_err(engine_error)?;
-            candidates.push(next);
+            candidates.push((persisted_mapping, next));
+        }
+        // Retain both closures before any engine I/O. Failed preflight drops
+        // unarmed reservations; once armed, an unknown outcome keeps both roots
+        // and quarantines collection until recovery reconstructs the selection.
+        let mut publications = Vec::new();
+        for write in &writes {
+            if let Some(prepared) = write.prepared_group_manifest() {
+                let previous = write.group.group_manifest()?;
+                publications.push(
+                    prepared
+                        .begin_publication(
+                            &write.group,
+                            previous.as_ref(),
+                            matches!(
+                                &write.snapshot,
+                                Some(
+                                    SnapshotChange::CellGroup(_)
+                                        | SnapshotChange::CellGroupCheckpoint(_)
+                                )
+                            ),
+                        )
+                        .map_err(|e| LogError::Invalid(e.to_string()))?,
+                );
+            }
+        }
+        for write in &writes {
+            if let Some(grant) = &write.seed_grant {
+                grant.check(
+                    &self.owner,
+                    self.mappings[&write.group.key].history()?,
+                    write.group.identity(),
+                )?;
+                grant.check_lifecycle(self.lifecycle.guard.as_ref())?;
+            }
+        }
+        for publication in &mut publications {
+            publication.arm();
         }
         let sequence = self.fence(&mut batch)?;
         // No cache write lock is held during engine I/O. Readers may continue
         // to observe the previous durable prefix while a sync is stalled.
-        for (write, next) in writes.iter().zip(candidates) {
+        for (write, (mapping, next)) in writes.iter().zip(candidates) {
             let mut cache = write
                 .group
                 .cache
                 .write()
                 .map_err(|_| LogError::Corrupt("cache publication lock poisoned".into()))?;
             *cache = next;
+            self.mappings.insert(write.group.key, mapping);
             // Publish invalidation while still holding the cache write lock.
             // A reader observing this revision can only acquire the new cache;
             // an older revision observed before this publication is refreshed
@@ -1191,8 +2088,31 @@ impl Worker {
                 .cache_revision
                 .store(sequence, Ordering::Release);
         }
+        for publication in publications {
+            publication
+                .commit()
+                .map_err(|e| LogError::Corrupt(e.to_string()))?;
+        }
+        for (write, leases) in writes.iter().zip(&log_admissions) {
+            if let Some(retention) = write.group.log_retention() {
+                let cache = write.group.read()?;
+                retention
+                    .publish(cache.entries.values(), leases)
+                    .map_err(|error| {
+                        LogError::Corrupt(format!("retained log publication: {error}"))
+                    })?;
+            }
+        }
+        for write in &writes {
+            if let Some(activation) = &write.require_archive {
+                activation
+                    .published(&write.group.archive_compaction)
+                    .map_err(|error| {
+                        LogError::Corrupt(format!("archive policy publication: {error}"))
+                    })?;
+            }
+        }
         self.cache_bytes = next_bytes;
-        self.cache_usage.store(self.cache_bytes, Ordering::Release);
         self.performance
             .increment(MeasuredCounter::PersistGroups, writes.len() as u64);
         for write in &writes {
@@ -1213,6 +2133,410 @@ impl Worker {
                 .map(|write| write.group.identity)
                 .collect(),
         })
+    }
+
+    fn source_budget(&self) -> Result<u32, LogError> {
+        let Some(bytes) = self
+            .engine
+            .get(0, super::cell_groups::source_reclaim::BUDGET_KEY)
+        else {
+            return Ok(0);
+        };
+        if bytes.len() > 128 {
+            return Err(records::corrupt("oversized retired-source budget"));
+        }
+        let budget: super::cell_groups::source_reclaim::Budget = records::decode(&bytes)?;
+        if budget.format != 1 || budget.count == 0 || u64::from(budget.count) >= self.root.next_key
+        {
+            return Err(records::corrupt("invalid retired-source budget"));
+        }
+        if budget.count > self.options.max_source_tombstones {
+            return Err(LogError::Overloaded);
+        }
+        Ok(budget.count)
+    }
+
+    fn source_status(&self, history: GroupHistory) -> Result<Option<SourceReclaimAck>, LogError> {
+        let Some(bytes) = self
+            .engine
+            .get(0, &super::cell_groups::source_reclaim::key(history.group))
+        else {
+            return Ok(None);
+        };
+        if bytes.len() > super::cell_groups::source_reclaim::MAX_RECORD_BYTES
+            || self.source_budget()? == 0
+        {
+            return Err(records::corrupt("source tombstone size or budget"));
+        }
+        let record: super::cell_groups::source_reclaim::Record = records::decode(&bytes)?;
+        record
+            .validate(
+                self.root.identity.storage_instance,
+                self.options.node,
+                self.options.disk,
+            )
+            .map_err(|_| records::corrupt("invalid source tombstone"))?;
+        if record.source.scope()? != history {
+            return Err(LogError::WrongIdentity);
+        }
+        if record.old_key >= self.root.next_key
+            || record.sequence > self.root.sequence
+            || self.engine.get(record.old_key, GROUP_KEY).is_some()
+            || self.engine.last_index(record.old_key).is_some()
+        {
+            return Err(records::corrupt("source tombstone disagrees with engine"));
+        }
+        Ok(Some(SourceReclaimAck {
+            owner: self.owner.clone(),
+            record,
+        }))
+    }
+
+    fn member_status(&self, history: GroupHistory) -> Result<Option<MemberReclaimAck>, LogError> {
+        use super::cell_groups::{member_reclaim, source_reclaim};
+        let Some(bytes) = self.engine.get(0, &member_reclaim::key(history.group)) else {
+            return Ok(None);
+        };
+        if bytes.len() > source_reclaim::MAX_RECORD_BYTES || self.source_budget()? == 0 {
+            return Err(records::corrupt("member fence size or budget"));
+        }
+        let record: member_reclaim::Record = records::decode(&bytes)?;
+        record
+            .validate(
+                self.root.identity.storage_instance,
+                self.options.node,
+                self.options.disk,
+            )
+            .map_err(|_| records::corrupt("invalid member fence"))?;
+        if record.member.scope()? != history {
+            return Err(LogError::WrongIdentity);
+        }
+        if record.old_key >= self.root.next_key
+            || record.sequence > self.root.sequence
+            || self.engine.get(record.old_key, GROUP_KEY).is_some()
+            || self.engine.last_index(record.old_key).is_some()
+            || self
+                .engine
+                .get(0, &source_reclaim::key(history.group))
+                .is_some()
+        {
+            return Err(records::corrupt("member fence disagrees with engine"));
+        }
+        Ok(Some(MemberReclaimAck {
+            owner: self.owner.clone(),
+            record,
+        }))
+    }
+
+    fn reclaim_member(
+        &mut self,
+        permit: super::cell_groups::member_reclaim::Permit,
+    ) -> Result<MemberReclaimAck, LogError> {
+        use super::cell_groups::{member_reclaim, source_reclaim};
+        permit.check(
+            &self.owner,
+            self.root.identity.storage_instance,
+            self.options.node,
+            self.options.disk,
+        )?;
+        let history = permit.member.scope()?;
+        let previous = self.member_status(history)?;
+        if let Some(previous) = &previous {
+            if previous.record.member == permit.member {
+                return Ok(previous.clone());
+            }
+            if !previous
+                .record
+                .permits_mapping(history, permit.member.birth, permit.member.member)
+            {
+                return Err(LogError::WrongIdentity);
+            }
+        }
+        if self
+            .engine
+            .get(0, &source_reclaim::key(history.group))
+            .is_some()
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        let group = self
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .get(&history)
+            .ok_or(LogError::NotFound)?
+            .as_cells()?
+            .clone();
+        permit.check_group(&group)?;
+        let mapping = self
+            .mappings
+            .get(&group.key)
+            .ok_or(LogError::WrongIdentity)?
+            .clone();
+        let bytes = group.read()?.bytes();
+        let record = member_reclaim::Record {
+            format: 1,
+            member: permit.member,
+            engine: self.root.identity.storage_instance,
+            node: self.options.node.bytes(),
+            disk: self.options.disk.bytes(),
+            old_key: group.key,
+            before_groups: u32::try_from(self.mappings.len()).map_err(|_| LogError::Overloaded)?,
+            bytes_per_group: permit.bytes_per_group,
+            sequence: self
+                .root
+                .sequence
+                .checked_add(1)
+                .ok_or(LogError::Overloaded)?,
+            complete: false,
+        };
+        // One bounded high-water fence per group. Repeated removals replace it;
+        // all earlier member IDs remain forbidden without growing metadata.
+        let extra = u32::from(previous.is_none());
+        let count = self
+            .source_budget()?
+            .checked_add(extra)
+            .ok_or(LogError::Overloaded)?;
+        if count > self.options.max_source_tombstones {
+            return Err(LogError::Overloaded);
+        }
+        let cache_bytes = self
+            .cache_bytes
+            .checked_sub(bytes)
+            .and_then(|n| n.checked_add(extra as usize * source_reclaim::CACHE_BYTES))
+            .ok_or_else(|| records::corrupt("member fence cache accounting"))?;
+        if cache_bytes > self.options.max_cache_bytes {
+            return Err(LogError::Overloaded);
+        }
+        let encoded = records::encode(&record)?;
+        if encoded.len() > source_reclaim::MAX_RECORD_BYTES {
+            return Err(LogError::Overloaded);
+        }
+        let retention = group.log_retention().ok_or(LogError::WrongIdentity)?;
+        let mut batch = LogBatch::default();
+        batch
+            .put(
+                0,
+                source_reclaim::BUDGET_KEY.to_vec(),
+                records::encode(&source_reclaim::Budget { format: 1, count })?,
+            )
+            .map_err(engine_error)?;
+        batch.add_command(group.key, Command::Clean);
+        batch.delete(0, mapping.catalog_key()?);
+        batch
+            .put(0, member_reclaim::key(history.group), encoded)
+            .map_err(engine_error)?;
+        retention.freeze_reclamation()?;
+        group.reclaimed.store(true, Ordering::Release);
+        self.fence(&mut batch)?;
+        retention
+            .finish_reclamation()
+            .map_err(|_| records::corrupt("reclaimed member retention ledger"))?;
+        Self::clear_reclaimed_cache(&group)?;
+        self.groups
+            .write()
+            .map_err(|_| records::corrupt("reclaimed member catalog lock"))?
+            .remove(&history);
+        self.mappings.remove(&group.key);
+        self.cache_bytes = cache_bytes;
+        Ok(MemberReclaimAck {
+            owner: self.owner.clone(),
+            record,
+        })
+    }
+
+    fn finish_member(&mut self, ack: MemberReclaimAck) -> Result<MemberReclaimAck, LogError> {
+        if !Arc::ptr_eq(&ack.owner, &self.owner) {
+            return Err(LogError::WrongIdentity);
+        }
+        let mut current = self
+            .member_status(ack.record.member.scope()?)?
+            .ok_or(LogError::NotFound)?;
+        if current.record.member != ack.record.member {
+            return Err(LogError::WrongIdentity);
+        }
+        if !current.record.complete {
+            current.record.complete = true;
+            current.record.sequence = self
+                .root
+                .sequence
+                .checked_add(1)
+                .ok_or(LogError::Overloaded)?;
+            let mut batch = LogBatch::default();
+            batch
+                .put(
+                    0,
+                    super::cell_groups::member_reclaim::key(current.record.member.scope()?.group),
+                    records::encode(&current.record)?,
+                )
+                .map_err(engine_error)?;
+            self.fence(&mut batch)?;
+        }
+        Ok(current)
+    }
+
+    fn clear_reclaimed_cache(group: &GroupLog<GroupHistory>) -> Result<(), LogError> {
+        let mut cache = group
+            .cache
+            .write()
+            .map_err(|_| records::corrupt("reclaimed cache lock"))?;
+        cache.manifest_pins.take();
+        cache.group_manifest.take();
+        cache.checkpoint_manifest.take();
+        cache.recovery_genesis.take();
+        cache.entries.clear();
+        cache.snapshot = ::raft::prelude::Snapshot::default();
+        cache.conf_state = ConfState::default();
+        cache.membership = super::member_state::GroupMembership::initial(&cache.conf_state);
+        cache.local_park.take();
+        cache.applied.image.take();
+        Ok(())
+    }
+
+    fn reclaim_source(
+        &mut self,
+        permit: super::cell_groups::source_reclaim::Permit,
+    ) -> Result<SourceReclaimAck, LogError> {
+        permit.check(
+            &self.owner,
+            self.root.identity.storage_instance,
+            self.options.node,
+            self.options.disk,
+        )?;
+        let history = permit.source.scope()?;
+        if let Some(previous) = self.source_status(history)? {
+            return if previous.record.source == permit.source {
+                Ok(previous)
+            } else {
+                Err(LogError::WrongIdentity)
+            };
+        }
+        let group = self
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .get(&history)
+            .ok_or(LogError::NotFound)?
+            .as_cells()?
+            .clone();
+        permit.check_group(&group)?;
+        let mapping = self
+            .mappings
+            .get(&group.key)
+            .ok_or(LogError::WrongIdentity)?
+            .clone();
+        let bytes = group.read()?.bytes();
+        let record = super::cell_groups::source_reclaim::Record {
+            format: 1,
+            source: permit.source,
+            engine: self.root.identity.storage_instance,
+            node: self.options.node.bytes(),
+            disk: self.options.disk.bytes(),
+            old_key: group.key,
+            sequence: self
+                .root
+                .sequence
+                .checked_add(1)
+                .ok_or(LogError::Overloaded)?,
+            complete: false,
+        };
+        let retention = group.log_retention().ok_or(LogError::WrongIdentity)?;
+        // A permanent history tombstone subsumes a completed member fence.
+        let previous = self.member_status(history)?;
+        if previous.as_ref().is_some_and(|ack| {
+            !ack.record
+                .permits_mapping(history, mapping.birth_digest, mapping.member)
+        }) {
+            return Err(LogError::WrongIdentity);
+        }
+        let extra = u32::from(previous.is_none());
+        let count = self
+            .source_budget()?
+            .checked_add(extra)
+            .ok_or(LogError::Overloaded)?;
+        if count > self.options.max_source_tombstones {
+            return Err(LogError::Overloaded);
+        }
+        let cache_bytes = self
+            .cache_bytes
+            .checked_sub(bytes)
+            .and_then(|n| {
+                n.checked_add(extra as usize * super::cell_groups::source_reclaim::CACHE_BYTES)
+            })
+            .ok_or_else(|| records::corrupt("source cache accounting"))?;
+        if cache_bytes > self.options.max_cache_bytes {
+            return Err(LogError::Overloaded);
+        }
+        let encoded = records::encode(&record)?;
+        if encoded.len() > super::cell_groups::source_reclaim::MAX_RECORD_BYTES {
+            return Err(LogError::Overloaded);
+        }
+        let mut batch = LogBatch::default();
+        batch
+            .put(
+                0,
+                super::cell_groups::source_reclaim::BUDGET_KEY.to_vec(),
+                records::encode(&super::cell_groups::source_reclaim::Budget { format: 1, count })?,
+            )
+            .map_err(engine_error)?;
+        batch.delete(0, super::cell_groups::member_reclaim::key(history.group));
+        batch.add_command(group.key, Command::Clean);
+        batch.delete(0, mapping.catalog_key()?);
+        batch
+            .put(
+                0,
+                super::cell_groups::source_reclaim::key(history.group),
+                encoded,
+            )
+            .map_err(engine_error)?;
+        retention.freeze_reclamation()?;
+        group.reclaimed.store(true, Ordering::Release);
+        self.fence(&mut batch)?;
+        // No capacity/pin refund precedes the atomic Clean plus refusal record.
+        retention
+            .finish_reclamation()
+            .map_err(|_| records::corrupt("reclaimed retention ledger"))?;
+        Self::clear_reclaimed_cache(&group)?;
+        self.groups
+            .write()
+            .map_err(|_| records::corrupt("reclaimed group catalog lock"))?
+            .remove(&history);
+        self.mappings.remove(&group.key);
+        self.cache_bytes = cache_bytes;
+        Ok(SourceReclaimAck {
+            owner: self.owner.clone(),
+            record,
+        })
+    }
+
+    fn finish_source(&mut self, ack: SourceReclaimAck) -> Result<SourceReclaimAck, LogError> {
+        if !Arc::ptr_eq(&ack.owner, &self.owner) {
+            return Err(LogError::WrongIdentity);
+        }
+        let mut current = self
+            .source_status(ack.record.source.scope()?)?
+            .ok_or(LogError::NotFound)?;
+        if current.record.source != ack.record.source {
+            return Err(LogError::WrongIdentity);
+        }
+        if !current.record.complete {
+            current.record.complete = true;
+            current.record.sequence = self
+                .root
+                .sequence
+                .checked_add(1)
+                .ok_or(LogError::Overloaded)?;
+            let mut batch = LogBatch::default();
+            batch
+                .put(
+                    0,
+                    super::cell_groups::source_reclaim::key(current.record.source.scope()?.group),
+                    records::encode(&current.record)?,
+                )
+                .map_err(engine_error)?;
+            self.fence(&mut batch)?;
+        }
+        Ok(current)
     }
 
     fn purge(&mut self) -> Result<(), LogError> {
@@ -1302,8 +2626,8 @@ impl Worker {
                     let _ = reply.send(result);
                     fatal
                 }
-                Work::Seeded(seed, reply) => {
-                    let result = self.seeded(*seed);
+                Work::CreateCells(bootstrap, seed, binding, reply) => {
+                    let result = self.create_cells(bootstrap, seed.as_deref(), binding.map(|b| *b));
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);
@@ -1311,10 +2635,101 @@ impl Worker {
                     let _ = reply.send(result);
                     fatal
                 }
+                Work::ImportCells(seed, reply) => {
+                    let result = self.import_cells(&seed, domain);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::PersistCells(operation, writes, reply) => {
+                    let timer = self.performance.timer(Measured::EnginePersist);
+                    let result = self.persist(operation, writes);
+                    timer.finish(result.is_ok());
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::ReclaimCells(work, lease, reply) => {
+                    let result = (|| {
+                        let groups = self
+                            .groups
+                            .read()
+                            .map_err(|_| LogError::Closed)?
+                            .values()
+                            .map(|g| g.as_cells().cloned())
+                            .collect::<Result<Vec<_>, _>>()?;
+                        Ok(work.run(&self.owner, groups))
+                    })();
+                    // Physical stores quarantine their own uncertain deletes;
+                    // a refused maintenance request cannot relabel log state.
+                    drop(lease);
+                    let _ = reply.send(result);
+                    None
+                }
                 Work::Persist(operation, writes, reply) => {
                     let timer = self.performance.timer(Measured::EnginePersist);
                     let result = self.persist(operation, writes);
                     timer.finish(result.is_ok());
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::ReclaimSource(permit, reply) => {
+                    let result = self.reclaim_source(*permit);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::ReclaimMember(permit, reply) => {
+                    let result = self.reclaim_member(*permit);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::MemberStatus(history, reply) => {
+                    let result = self.member_status(history);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::FinishMember(ack, reply) => {
+                    let result = self.finish_member(*ack);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::SourceStatus(history, reply) => {
+                    let result = self.source_status(history);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::FinishSource(ack, reply) => {
+                    let result = self.finish_source(*ack);
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

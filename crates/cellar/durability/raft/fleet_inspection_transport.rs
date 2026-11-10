@@ -54,7 +54,18 @@ impl RaftTransport {
         minimum_revision: u64,
         deadline: u64,
     ) -> Result<Delivery<Received>, InspectionError> {
-        self.begin_fleet_inspection(node, authorization, minimum_revision, deadline)
+        self.begin_fleet_inspection(node, authorization, false, minimum_revision, deadline)
+            .map_err(|error| classify(error, 0))
+    }
+
+    pub(crate) fn inspect_fleet_partition(
+        &self,
+        node: NodeId,
+        authorization: &FleetGroupAuthorization,
+        minimum_revision: u64,
+        deadline: u64,
+    ) -> Result<Delivery<Received>, InspectionError> {
+        self.begin_fleet_inspection(node, authorization, true, minimum_revision, deadline)
             .map_err(|error| classify(error, 0))
     }
 
@@ -62,6 +73,7 @@ impl RaftTransport {
         &self,
         node: NodeId,
         authorization: &FleetGroupAuthorization,
+        partition: bool,
         minimum_revision: u64,
         deadline: u64,
     ) -> Result<Delivery<Received>, TransportError> {
@@ -71,7 +83,11 @@ impl RaftTransport {
             return Err(TransportError::Timeout);
         }
         let (peer, route, peer_budget) = state.node_metadata_route(node, minimum_revision)?;
-        let history = History::new(authorization);
+        let history = if partition {
+            History::for_partition(authorization)
+        } else {
+            History::new(authorization)
+        };
         validate_history_route(&route, &history)?;
         let epoch = state.seed_peer_epoch(&peer)?;
         let node = state
@@ -222,6 +238,7 @@ impl State {
         exporter: &[u8; 32],
         prefix: [u8; frame::PREFIX],
     ) -> Result<(), TransportError> {
+        let admitted = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let _node = self
             .inspection_metadata
             .acquire(META_BYTES)
@@ -242,8 +259,16 @@ impl State {
         if frame::decimal(&request.nonce)? == 0 || !(1..=60_000).contains(&request.timeout_ms) {
             return Err(TransportError::Protocol);
         }
-        let authorized = validate_history_route(&request.route, &request.history)
-            .and_then(|()| self.authorize_node_inspection(&request.route));
+        let deadline = admitted
+            .checked_add(request.timeout_ms)
+            .ok_or(TransportError::Limit)?;
+        let authorized = match validate_history_route(&request.route, &request.history) {
+            Ok(()) => {
+                self.authorize_current_node_inspection(&request.route, deadline)
+                    .await
+            }
+            Err(error) => Err(error),
+        };
         let (peer, peer_budget) = match authorized {
             Ok(result) => result,
             Err(error) => {
@@ -265,21 +290,20 @@ impl State {
                     },
                     &[],
                 )?;
-                return self.bounded(None, write_head(stream, &response)).await;
+                return crate::asyncrt::timeout_at(
+                    deadline,
+                    self.bounded(None, write_head(stream, &response)),
+                )
+                .await
+                .map_err(|_| TransportError::Timeout)?;
             }
         };
         let _peer = peer_budget
             .acquire(META_BYTES)
             .ok_or(TransportError::Overloaded)?;
         let epoch = self.seed_peer_epoch(&peer)?;
-        let deadline = self
-            .domain
-            .mono_ms()
-            .map_err(|_| TransportError::Closed)?
-            .checked_add(request.timeout_ms)
-            .ok_or(TransportError::Limit)?;
         let handle = self
-            .query_gateway
+            .fleet_gateway
             .lock()
             .map_err(|_| TransportError::Closed)?
             .as_ref()
@@ -290,7 +314,7 @@ impl State {
                 .checked_sub(self.domain.mono_ms().map_err(|_| TransportError::Closed)?)
                 .filter(|ms| *ms > 0)
                 .ok_or(TransportError::Timeout)?;
-            let work = RaftCells { handle }.observe_local_fleet_membership(
+            let work = RaftCells::from_internal_handle(handle).observe_local_fleet_membership(
                 request.history.clone(), request.route.minimum_revision()?, std::time::Duration::from_millis(remaining),
             );
             let mut extra = [0; 1];

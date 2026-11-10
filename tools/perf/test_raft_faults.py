@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from raft_faults import SlowFollower, preflight_pause, validate_fault, validate_scenario, verify_fault
+from raft_groups import Layout
 from raft_run import read_json
 from raft_workload import input_digest
 from raft_probe_http import ProbeTrace
@@ -17,15 +18,16 @@ from raft_probe_http import ProbeTrace
 def fixture():
     profile = read_json(Path(__file__).with_name('raft_profiles.json'))['profiles']['local-q0']
     profile['timing']['measurement_seconds'] = 1
-    profile['cells'] = {'total': 3, 'active': 3}
+    profile['cells'] = {'total': 3, 'active': 3, 'per_group': 1}
     config = {'format': 1, 'node': 3, 'pause_ms': 10, 'max_pause_ms': 500,
               'interval_ms': 1000, 'start_after_seconds': 0, 'stop_before_seconds': 0, 'max_start_lateness_ms': 100}
     report = {'scenario': 'slow-follower', 'profile': profile, 'fault_profile': config,
               'fault_profile_sha256': input_digest(config), 'run_id': 'owned',
               'measurement': {'started_monotonic_seconds': 100, 'elapsed_seconds': 1}, 'replicas_verified_monotonic_seconds': 101.1}
     state = {'owner': 'owned', 'running': True, 'paused': False}
+    group = Layout(3, 1, 'Workload').group(0)
     response = {'cell': 0, 'node': 1, 'leader': 1, 'role': 'Leader', 'term': 2,
-                'replication': {'group': 'group', 'incarnation': 'history', 'term': 2, 'committed': 5,
+                'replication': {'group': group['group'], 'incarnation': group['incarnation'], 'term': 2, 'committed': 5,
                                 'members': [{'member': n, 'matched': 3 if n == 3 else 5, 'voter': True} for n in (1, 2, 3)]}}
     events = [
         {'event': 'begin', 'monotonic_seconds': 100.01, 'scheduled_seconds': 0, 'state': state},
@@ -38,7 +40,7 @@ def fixture():
     operations = [
         {'event': 'invoke', 'phase': 'measurement', 'id': 'm:0', 'cell': 0, 'operation': 'command', 'command_id': 'client:2', 'invoke_seconds': .03},
         {'event': 'complete', 'phase': 'measurement', 'id': 'm:0', 'cell': 0, 'operation': 'command', 'status': 200, 'complete_seconds': .08,
-         'response': {'group': 'group', 'incarnation': 'history', 'term': 2, 'index': 5}},
+         'response': {'group': group['group'], 'group_incarnation': group['incarnation'], 'incarnation': '04' * 16, 'term': 2, 'index': 5}},
     ]
     return report, events, operations
 
@@ -65,7 +67,7 @@ class Evidence(unittest.TestCase):
         result = verify_fault(report, events, operations)
         self.assertEqual(result['healthy_majority_witnesses'], [{'cycle': 0, 'cell': 0, 'command_id': 'client:2', 'index': 5}])
         self.assertEqual(result['lag_samples'], [{'cycle': 0, 'cell': 0, 'entries': 2}])
-        self.assertEqual(result['cohorts'], {'target_leader': [2], 'target_query_follower': [1], 'target_third_voter': [0], 'unaffected': []})
+        self.assertEqual(result['cohorts'], {'target_leader': [1], 'target_query_follower': [2], 'target_third_voter': [0], 'unaffected': []})
         self.assertAlmostEqual(result['recovery_upper_seconds'], .94)
 
     def test_missing_injection_wrong_proof_and_unbounded_recovery_refuse(self):

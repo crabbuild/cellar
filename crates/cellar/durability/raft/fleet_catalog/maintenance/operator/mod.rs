@@ -14,7 +14,7 @@ mod service;
 mod status;
 use super::super::resources::Authority;
 use super::*;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 pub use cancellation::{
     FleetRestartOperatorCancelAdmission, FleetRestartOperatorCancelRequest,
     FleetRestartOperatorCancelled,
@@ -80,7 +80,7 @@ impl FleetCatalog {
         &'a self,
         snapshot: &'a FleetSnapshot,
         request: &'a FleetRestartOperatorRequest,
-        namespaces: &'a [NamespaceCatalog],
+        namespaces: &'a [RangeDirectory],
         timeout: Duration,
     ) -> BoxFuture<'a, Result<FleetRestartOperatorAdmission>> {
         Box::pin(async move {
@@ -234,7 +234,7 @@ impl FleetCatalog {
         }))
     }
 
-    async fn active_restart_operator_inner(
+    pub(in crate::raft::fleet_catalog) async fn active_restart_operator_inner(
         &self,
         snapshot: &FleetSnapshot,
     ) -> Result<Option<FleetRestartOperatorAdmission>> {
