@@ -33,6 +33,16 @@ def nonce():
     return value
 
 
+def verify_retry(original, replay):
+    # CommandReceipt.version is an observation. S3 settlement may return a
+    # later complete image containing the same command receipt, not its first
+    # observation. The surrounding SQL/version checks detect extra application.
+    require(all(replay[key]==original[key]
+            for key in ('result','group','incarnation','durability'))
+            and replay['version']>=original['version'],
+            'original command receipt changed')
+
+
 class ManagedQualification(Qualification):
     def __init__(self, args):
         super().__init__(args)
@@ -313,12 +323,11 @@ class ManagedQualification(Qualification):
         # Prove the retained state before replay could mask a lost SQL image.
         self.verify_source()
         for cell,record in self.model['cells'].items():
-            for original in (record,record['quorum']):
+            for kind,original in (('s3',record),('quorum',record['quorum'])):
                 leader=self.until(self.source_leader,60)
-                replay=self.client(leader).call(original['request'])
-                require(all(replay[key]==original['receipt'][key]
-                        for key in ('result','version','group','incarnation','durability')),
-                        'original command receipt changed')
+                replay=self.event('retry/'+cell+'/'+kind,original['request'],
+                    lambda:self.client(leader).call(original['request']))
+                verify_retry(original['receipt'],replay)
         self.verify_source()
 
     def joined_voter(self, row, groups):

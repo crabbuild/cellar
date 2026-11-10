@@ -676,6 +676,9 @@ linearizable reads at every ingress, retained
 restart with new process IDs, original receipt replay and joined SDK shutdown.
 Peer listeners bind the exact advertised container IP; wildcard listeners do not
 satisfy the physical group's local endpoint identity check.
+Retry results, histories and durability stay fixed; their SDK observation may
+advance to a later complete archived image. Reads before and after replay require
+the same current SQL value and version, so an extra application cannot pass.
 Only config and peer TLS snapshots enter stopped containers; the fencing key and
 launch ledger stay with the controller. Request identities are persisted before
 entry; lost mutations are retained for reconciliation without automatic retry.
