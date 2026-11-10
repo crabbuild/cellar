@@ -116,7 +116,7 @@ async fn rustfs_transition_disaster_selects_complete_closure() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn disaster_outbox_ambiguity_refuses() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(bootstrap::transition::disaster_effects::qualify(
+        Box::pin(qualify_outbox(
             rooted,
             Arc::new(catalog_fault::Store::default()),
         ))
@@ -133,15 +133,30 @@ async fn rustfs_disaster_outbox_ambiguity_refuses() -> Result<()> {
         Box::pin(rustfs::with_operator_store(
             "disaster-outbox",
             rooted,
-            |store| {
-                bootstrap::transition::disaster_effects::qualify(
-                    rooted,
-                    Arc::new(catalog_fault::Store::around(store)),
-                )
-            },
+            |store| qualify_outbox(rooted, Arc::new(catalog_fault::Store::around(store))),
         ))
         .await
         .with_context(|| format!("RustFS uncertain outbox recovery, extents={rooted}"))?;
     }
     Ok(())
+}
+
+async fn qualify_outbox(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
+    use bootstrap::transition::disaster_effects::{State, SCENE};
+    let state = Arc::new(State::default());
+    SCENE
+        .scope(state.clone(), async {
+            Box::pin(bootstrap::transition::qualify_disaster(
+                rooted,
+                store,
+                bootstrap::transition::RecoveryPoint::PublishedChildren,
+            ))
+            .await?;
+            ensure!(
+                state.checked.load(Ordering::Acquire),
+                "recovered outbox audit was not reached"
+            );
+            Ok(())
+        })
+        .await
 }
