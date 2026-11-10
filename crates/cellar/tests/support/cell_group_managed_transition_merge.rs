@@ -1721,7 +1721,9 @@ async fn recover_selected(
     if std::env::var_os("CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT").is_some() {
         let cohort = if uncertain.is_some() {
             "disaster-outbox"
-        } else if publication.is_some() {
+        } else if phase == Some(TransitionPhase::Active) {
+            // Parents retain an uncommitted publish request for a later
+            // refusal probe. Only the rooted phase selects the child store.
             "disaster-child-tails"
         } else {
             "disaster-parent-cuts"
