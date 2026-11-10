@@ -15,15 +15,42 @@ oracles, not new runtime qualification. Read the latest [progress](progress.md)
 for the signed fence/controller checkpoint before using the earlier source-specific
 recovery entries below.
 
-## Current CG-13 operator process delivery and qualification gap
+## Current CG-13 managed voter delivery and qualification gap
+
+`0c653ce9` delivers a real SDK `Node`/`RaftCells` process in
+`tools/multi-raft/node/managed_voter/`, plus the controller-side
+`managed_group_voter.py`. Physical start/prepare/seed/attach/activate calls use
+durable launcher assignments. Receiving voters reopen persisted S3 proofs and
+existing reservations with their pinned fence verifier; no in-memory proof or
+controller signing key crosses into a voter. The new SDK range reopening API is
+read-only. The process supports Counter and one namespace with the existing
+functional fixture limits; it does not widen recovery budgets or serving admission.
+
+The real RustFS process case passes both image modes: fresh boot, retained restart,
+exact process authentication/refusal, empty-standby read/write refusal and joined
+shutdown. The complete native closure case fails earlier, installing the merged
+child in the first materialized unpublished-parent setup, with
+`Runtime(DeadlineExceeded)`. It does not reach the new range assertions. Do not
+repeat that unchanged command or relabel the earlier diagnostic passes. The
+complete RustFS closure is not run on this source after the native failure.
+Both exact records and the check inventory are linked from [progress](progress.md).
+The owned backend/VM are stopped. CG-13 acceptance remains open.
+
+Next implement the controller/operator stage/reserve/select/publish/settle/release
+commands and the full managed Docker driver around these voters. Persist original
+operation identities and reconcile unknown replies; voter observations and seed
+descriptions are not portable proofs. Qualify positive seed-to-serving, permanent
+launch revocation and deletion of every old voter disk, then all six CG-13 cases
+on one source. Keep the retained setup and archive failures as explicit gates.
+
+## Earlier CG-13 operator process checkpoints
 
 Post-merge controller work at `d589e538` adds durable post-launch assignments.
 Use `ManagedLauncher.assign_histories` before the first seed/attach action;
 lost replies keep the history in every possible old writer's fencing inventory.
 The callback holds the same lock as launch/restart/revocation. New independent
-voter processes must still use real `Node`/`RaftCells` and rederive recovery proofs
-from the existing S3 roots and pinned fence authority; the unmanaged tool service
-cannot stand in for that path.
+voter processes now use real `Node`/`RaftCells` and rederive recovery proofs as
+described above; the unmanaged tool service cannot stand in for that path.
 
 Diagnostic source `ae6f0d66` passes the complete closure and outbox RustFS roots
 in both image modes on one executable (510.210 / 250.807 seconds). It includes

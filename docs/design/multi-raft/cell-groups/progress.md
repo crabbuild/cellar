@@ -18,6 +18,55 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-13 checkpoint: real managed voter process
+
+At `0c653ce9`, `cellar-perf-cell-group managed-node` owns a real public SDK
+`Node` and `RaftCells`. It opens explicit existing S3 roots, verifies the persisted
+fence with its pinned public key, and reopens the selected replacement and range
+reservation. The new read-only range API never allocates or repairs missing state.
+Its bounded control protocol exposes local preparation, seeding, attachment and
+activation, plus quorum/S3 writes and linearizable/minimum-version reads. SDK
+admission still controls when recovered groups may serve.
+
+The controller client records each physical history assignment under the shared
+launch/fencing lock before sending the request. It does not retry mutations;
+lost replies retain the assignment. Requests authenticate the exact node, disk and
+process, reject ambiguous identity headers, and use the original operation budget.
+Shutdown closes and joins the node, group owners and private execution domain.
+This qualification adapter supports the compiled Counter class and one namespace;
+it is not the complete CG-17 application adapter or a release resource envelope.
+
+The new `process::rustfs_managed_voter_process_boot_restart_and_stop` case passes
+against real RustFS in both image modes. It checks fresh and retained processes,
+stable engine/disk ownership, changed process/boot identities, authentication and
+stale/duplicate identity refusals, empty-standby read/write refusal and joined stop.
+The test reports 5.30 seconds. Voters are host-native; RustFS is one CPU/2 GiB.
+The backend and owned VM stop successfully. This does not exercise the positive
+cross-process seed-to-serving path or establish RF3 quorum-loss qualification.
+
+**The current complete native closure case fails.** At the same clean source and
+executable it returns `Runtime(DeadlineExceeded)` while installing the merged child
+in the first materialized unpublished-parent setup, before recovery and the new
+read-only reservation assertions. Its failed control is retained; there is no
+unchanged retry or causal liveness-fix claim. The complete RustFS closure is not
+run on this source after that failure. Earlier diagnostic passes retain their own
+sources and do not qualify this implementation.
+
+Build, focused strict Clippy, formatting, layout, native dependency checks,
+17 managed-controller tests and 42 plan tests pass. Source/executable/input hashes
+and failed controls are retained under `.cellar/cell-groups-evidence/`:
+
+- `CG-13-managed-voter-0c653ce9-process-01/record.json` — scoped RustFS process pass.
+- `CG-13-managed-voter-0c653ce9-native-closure-01/record.json` — failed native root case.
+- `CG-13-managed-voter-0c653ce9-checkpoint-01/record.json` — source and check inventory.
+
+CG-13 remains `IN_PROGRESS`; accepted task/case counts are unchanged. Next connect
+the independent operator and Docker coordinator through replacement staging,
+capacity/range reservation, seed-quorum selection, publication, settlement and
+serving release. Use the actual managed voter processes for the all-source-disks
+deleted drill, address the retained setup/liveness failures within the original
+bounds, and pass all six cases on one clean source. CG-17/15/16 remain required.
+
 ## CG-13 checkpoint: post-launch assignments and recovery diagnostics
 
 At `d589e538`, `ManagedLauncher.assign_histories` durably appends group histories
