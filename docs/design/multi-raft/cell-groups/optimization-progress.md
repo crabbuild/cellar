@@ -1381,7 +1381,7 @@ Source `5231fdd2` passed `cached_advice_respects_origin_revocation` in 26.419
 seconds: SDK, native HTTP and Axum in both image modes, using two fresh RF3
 fixtures with a replica-free ingress. Each interaction warms a direct route,
 revokes the ingress's write grant on every voter, and observes one cached
-application RPC with no probe, range or membership repair. Neither SQL staging
+application RPC attempt with no probe, range or membership repair. Neither SQL staging
 nor the application callback enters while permission is absent. An independent
 read grant still serves the latest minimum-version token.
 
@@ -1403,13 +1403,18 @@ SDK ambiguity; fixture observations cannot grant the client non-commit proof.
 The no-SQL, no-callback, one-attempt and exact S3 replay assertions remain.
 No production retry or authority behavior changed.
 
-The `routing-authority` RustFS entry point uses this same case and verifies
-complete caller/image coverage, no entry during revocation, preserved ambiguity
-and S3 proof in its ledger. It also invokes the recorded operator CLI. That
-entry point still requires its own real-backend run. This case covers current
-origin permission, rather than forged/lower/conflicting-term advice or restarted
-endpoint wire cuts. Full RO-03, current-source composed qualification and the
-broader optimization/release gates remain open.
+The `routing-authority` RustFS entry point passed the same six interactions
+in 31.321 seconds at revision `52dcf964`, recorded in
+`rustfs-origin-campaign-5231fdd2`. Its six-row ledger verifies complete
+caller/image coverage, no entry during revocation, preserved ambiguity and
+S3 proof. The retained test executable and operator CLI are byte-identical to
+the native run. The backend observation confirms the owned pinned RustFS image
+`sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858`,
+one CPU, 2 GiB memory and no additional swap. Cellar voters were host-native
+TLS processes; constrained Linux voter verification still requires its own run.
+This case covers current origin permission, rather than forged/lower/conflicting
+term advice or restarted endpoint wire cuts. Full RO-03, current-source composed
+qualification and the broader optimization/release gates remain open.
 
 The same source passed the format check for 2,194 Rust files, module layout,
 native dependencies, documentation and all 44 design tests, recorded in
