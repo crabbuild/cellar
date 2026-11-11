@@ -82,13 +82,11 @@ pub(super) async fn exercise(
         coordinator,
         first,
         client,
-        retry,
     } = prepare(cluster, rooted, workers, roots).await?;
     let ingress = Ingress {
         cluster,
         web,
         client: &client,
-        retry,
     };
     // No query-router worker can steal the first physical lookup. The other
     // range is warmed below, after this caller owns its old head response.
@@ -123,15 +121,13 @@ pub(super) async fn exercise(
     let publication = store.range_tree_change.clone();
     let head_gate = Arc::new(fault::RegistryGate::default());
     let before_callbacks = callbacks.load(Ordering::Acquire);
-    let old_options = options(old_index, cells[old_index].sequence, retry)?;
-    let replay_options = old_options.clone();
+    let old_sequence = cells[old_index].sequence;
     let old_name = cells[old_index].name;
     let unchanged_history = cells[order[5]].history.clone();
     let unchanged_receipt = cells[order[5]].original.clone();
     let old_history = cells[old_index].history.clone();
     let fresh_history = cells[new_index].history.clone();
-    let mut fresh_options = options(new_index, cells[new_index].sequence, retry)?;
-    fresh_options.durability = Durability::Quorum;
+    let fresh_sequence = cells[new_index].sequence;
     let ingress_store = &cluster.fixtures[INGRESS].store;
     let observer = RaftFleetControl::new(
         domain,
@@ -146,6 +142,8 @@ pub(super) async fn exercise(
         tokio::time::timeout(Duration::from_secs(60), publication.entered.notified())
             .await
             .context("physical tree-changing publication CAS entered")?;
+        let old_options = new_options(old_index, old_sequence)?;
+        let replay_options = old_options.clone();
         let deadline = tokio::time::Instant::now() + TIMEOUT;
         head_gate.armed.store(true, Ordering::Release);
         *ingress_store.routing_read_after.lock().unwrap() =
@@ -220,6 +218,8 @@ pub(super) async fn exercise(
             .await
             .context("fresh child activation before old call expires")??;
             let fresh = cluster.hosts[INGRESS].cell(fresh_history)?;
+            let mut fresh_options = new_options(new_index, fresh_sequence)?;
+            fresh_options.durability = Durability::Quorum;
             fresh_options.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
             let anchor_id = fresh_options.id;
             let selected_timeout = fresh_options.timeout;
@@ -281,7 +281,7 @@ pub(super) async fn exercise(
         ensure!(
             after_rpc == before_rpc && callbacks.load(Ordering::Acquire) == before_callbacks + 1
         );
-        Ok::<_, anyhow::Error>(receipt)
+        Ok::<_, anyhow::Error>((receipt, replay_options))
     };
     // Both cells selected above share the first new child. The successful fresh
     // lookup therefore covers the held command's cell before its old head response returns.
@@ -298,7 +298,7 @@ pub(super) async fn exercise(
         Box::pin(flow),
     );
     *ingress_store.routing_read_after.lock().unwrap() = None;
-    let fresh_receipt = held?;
+    let (fresh_receipt, replay_options) = held?;
     cells[new_index].latest = fresh_receipt;
     cells[new_index].value += 1;
     cells[new_index].sequence += 1;
@@ -306,7 +306,12 @@ pub(super) async fn exercise(
     let current = [children[0].clone(), children[1].clone(), first[1].clone()];
     let before = directory_lookups(cluster)?;
     ingress
-        .write(&mut cells[old_index], &children[0], old_index, None)
+        .write_with_options(
+            &mut cells[old_index],
+            &children[0],
+            replay_options.clone(),
+            None,
+        )
         .await?;
     ensure!(
         directory_lookups(cluster)? == before,
@@ -341,7 +346,7 @@ pub(super) async fn exercise(
             "old lookup invalidated an unrelated interval"
         );
     }
-    verify(cluster, web, &client, &cells, &current, retry, callbacks).await?;
+    verify(cluster, web, &client, &cells, &current, callbacks).await?;
     let records: Vec<_> = cells
         .iter()
         .enumerate()
@@ -359,7 +364,7 @@ pub(super) async fn exercise(
         serde_json::json!({
             "schema": 1, "case": "old_lookup_cannot_resurrect_parent", "extents": rooted,
             "event": "verified", "caller": format!("{caller:?}"), "cells": records,
-            "old_request": {"client": hex::encode(replay_options.id.client.bytes()), "sequence": replay_options.id.sequence(), "required": "S3"},
+            "old_request": {"client": hex::encode(replay_options.id.client.bytes()), "sequence": replay_options.id.sequence(), "required": "S3", "retry_until_ms": replay_options.retry_until_ms},
             "fresh_anchor_required": "Quorum", "stale_completion_without_rpc": true,
             "routes": current.iter().map(|route| format!("{route:?}")).collect::<Vec<_>>(),
             "nodes": cluster.hosts.iter().map(|host| format!("{:?}", host.identity())).collect::<Vec<_>>(),

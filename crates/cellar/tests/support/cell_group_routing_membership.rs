@@ -218,11 +218,6 @@ pub(super) async fn exercise(
 ) -> Result<()> {
     let source = leader(&cluster.hosts[..3], cluster.history).await?;
     let obsolete = (source + 1) % 3;
-    let retry = u64::try_from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis(),
-    )? + 60_000;
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
@@ -231,7 +226,6 @@ pub(super) async fn exercise(
         cluster,
         web,
         client: &client,
-        retry,
     };
     let logical = history(cluster.history, "one")?;
     let cell = cluster.hosts[INGRESS].cell(logical.clone())?;
@@ -245,11 +239,12 @@ pub(super) async fn exercise(
             TIMEOUT,
         )
         .await?;
+    let original_options = new_options(0, 1)?;
     let original = cell
         .command(
             &cell.contract("Increment")?,
             1_i64.to_be_bytes().to_vec(),
-            options(0, 1, retry)?,
+            original_options.clone(),
         )
         .await?;
     ensure!(original.result == 1_i64.to_be_bytes() && original.durability == Durability::S3);
@@ -265,6 +260,7 @@ pub(super) async fn exercise(
     let mut state = Cell {
         name: "one",
         history: logical.clone(),
+        original_options,
         original: original.clone(),
         latest: original,
         value: 1,
@@ -360,7 +356,7 @@ pub(super) async fn exercise(
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     gate.armed.store(true, Ordering::Release);
     *store.denied_prefix.lock().unwrap() = None;
-    let selected = options(0, state.sequence, retry)?;
+    let selected = new_options(0, state.sequence)?;
 
     enum Reply {
         Sdk(Box<CommandReceipt>),
@@ -431,7 +427,7 @@ pub(super) async fn exercise(
         }
     };
     ensure!(
-        updated.id == options(0, 2, retry)?.id
+        updated.id == selected.id
             && updated.result == 2_i64.to_be_bytes()
             && updated.durability == Durability::S3
             && updated.witness.group == cluster.history
@@ -548,7 +544,7 @@ pub(super) async fn exercise(
 
     // Its independent namespace command grant still permits this node to be an
     // ingress. Removal must withdraw the replica without revoking that grant.
-    let mut forwarded = options(0, 1, retry)?;
+    let mut forwarded = new_options(0, 1)?;
     forwarded.id = CommandId::new(ClientId::new([247; 16])?, 1)?;
     let forwarded_receipt = old
         .command(
@@ -574,7 +570,7 @@ pub(super) async fn exercise(
         .command(
             &cell.contract("Increment")?,
             1_i64.to_be_bytes().to_vec(),
-            options(0, 1, retry)?,
+            state.original_options.clone(),
         )
         .await?;
     // The result belongs to the original command. Its selected image proof

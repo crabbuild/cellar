@@ -288,7 +288,10 @@ async fn split(
     ordinal: u8,
 ) -> Result<[GroupRoute; 2]> {
     let namespace = hex::encode(parent.namespace.bytes());
-    let basis = coordinator.transition_basis(&namespace, TIMEOUT).await?;
+    let basis = coordinator
+        .transition_basis(&namespace, TIMEOUT)
+        .await
+        .with_context(|| format!("split {ordinal} basis parent={parent:?}"))?;
     let first_id = 130 + ordinal * 8;
     let request = RaftFleetTransitionAdmissionRequest {
         catalog_id: basis.catalog_id,
@@ -330,9 +333,14 @@ async fn split(
             &request,
             TIMEOUT,
         )
-        .await?;
+        .await
+        .with_context(|| format!("split {ordinal} admission parent={parent:?}"))?;
     ensure!(admitted.phase == TransitionPhase::Planned);
-    let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+    let cut = cluster.fixtures[0]
+        .catalog
+        .read(TIMEOUT)
+        .await
+        .with_context(|| format!("split {ordinal} execution cut"))?;
     coordinator
         .authorize_transition_execution(
             "range-routing-test",
@@ -346,14 +354,21 @@ async fn split(
             },
             TIMEOUT,
         )
-        .await?;
+        .await
+        .with_context(|| format!("split {ordinal} authorize execution"))?;
     // Same preparation bound as the existing automatic-transition fixture;
     // every individual SDK turn retains the original five-second limit.
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             let state = coordinator
                 .transition_status(&namespace, &request.operation_id, TIMEOUT)
-                .await?;
+                .await
+                .with_context(|| {
+                    format!(
+                        "split {ordinal} observe publication operation={}",
+                        request.operation_id
+                    )
+                })?;
             if state.phase == Some(TransitionPhase::Retired) && !state.fleet_slot_held {
                 return Ok::<_, anyhow::Error>(());
             }
@@ -376,7 +391,8 @@ async fn split(
         let birth = cluster.fixtures[0]
             .domain
             .run(cluster.directory.materialize_selected_history(history))
-            .await??;
+            .await?
+            .with_context(|| format!("split {ordinal} materialize child={history:?}"))?;
         routes.push(birth.route().clone());
     }
     Ok(routes.try_into().unwrap())
@@ -385,13 +401,23 @@ async fn split(
 struct Cell {
     name: &'static str,
     history: CellHistory,
+    original_options: CommandOptions,
     original: CommandReceipt,
     latest: CommandReceipt,
     value: i64,
     sequence: u64,
 }
 
-fn options(index: usize, sequence: u64, retry: u64) -> Result<CommandOptions> {
+// Capture a horizon only for a new logical command, after transition setup.
+// Reconciliation must pass its saved options instead of constructing new ones.
+fn new_options(index: usize, sequence: u64) -> Result<CommandOptions> {
+    let retry = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?
+    .checked_add(60_000)
+    .context("command retry horizon")?;
     Ok(CommandOptions {
         durability: Durability::S3,
         timeout: TIMEOUT,
@@ -429,7 +455,6 @@ struct Ingress<'a> {
     cluster: &'a ManagedCluster,
     web: &'a http::Web,
     client: &'a reqwest::Client,
-    retry: u64,
 }
 
 impl Ingress<'_> {
@@ -460,15 +485,50 @@ impl Ingress<'_> {
         index: usize,
         adapter: Option<bool>,
     ) -> Result<()> {
+        let selected = new_options(index, cell.sequence)?;
+        self.write_with_options(cell, expected, selected, adapter)
+            .await
+    }
+
+    async fn write_with_options(
+        &self,
+        cell: &mut Cell,
+        expected: &GroupRoute,
+        selected: CommandOptions,
+        adapter: Option<bool>,
+    ) -> Result<()> {
+        ensure!(
+            selected.id.client == cell.original.id.client
+                && selected.id.sequence() == cell.sequence
+                && selected.durability == Durability::S3
+                && selected.timeout == TIMEOUT
+        );
         let handle = self.cluster.hosts[INGRESS].cell(cell.history.clone())?;
-        let selected = options(index, cell.sequence, self.retry)?;
         if let Some(axum) = adapter {
-            let reply = http::Web::send(
-                self.http_request(axum, cell.name, &selected),
-                format!("split write {} axum={axum}", cell.name),
-            )
-            .await?
-            .success()?;
+            let reply = async {
+                http::Web::send(
+                    self.http_request(axum, cell.name, &selected),
+                    format!("split write {} axum={axum}", cell.name),
+                )
+                .await?
+                .success()
+            }
+            .await;
+            if reply.is_err() {
+                crate::managed_fixture::diagnostics::record_parts(
+                    &self.cluster.hosts,
+                    &self.cluster.fixtures,
+                    expected.history,
+                    "split-http-selected-group",
+                )
+                .await;
+            }
+            let reply = reply.with_context(|| {
+                format!(
+                    "split HTTP command {:?}, retry_until_ms={}",
+                    selected.id, selected.retry_until_ms
+                )
+            })?;
             http::value(&reply, cell.name, cell.value + 1)?;
             ensure!(
                 reply["group"] == hex::encode(expected.history.group.bytes())
@@ -483,7 +543,22 @@ impl Ingress<'_> {
                 1_i64.to_be_bytes().to_vec(),
                 selected.clone(),
             )
-            .await?;
+            .await;
+        if receipt.is_err() {
+            crate::managed_fixture::diagnostics::record_parts(
+                &self.cluster.hosts,
+                &self.cluster.fixtures,
+                expected.history,
+                "split-sdk-selected-group",
+            )
+            .await;
+        }
+        let receipt = receipt.with_context(|| {
+            format!(
+                "split SDK command {:?}, retry_until_ms={}",
+                selected.id, selected.retry_until_ms
+            )
+        })?;
         ensure!(receipt.id == selected.id && receipt.result == (cell.value + 1).to_be_bytes());
         ensure!(
             receipt.version.history == cell.history
@@ -503,7 +578,6 @@ struct Prepared {
     coordinator: RaftFleetControl,
     first: [GroupRoute; 2],
     client: reqwest::Client,
-    retry: u64,
 }
 
 async fn prepare(
@@ -512,11 +586,6 @@ async fn prepare(
     workers: &mut Vec<RaftFleetTransitionService>,
     roots: &mut Vec<tempfile::TempDir>,
 ) -> Result<Prepared> {
-    let retry = u64::try_from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis(),
-    )? + 60_000;
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
@@ -535,17 +604,19 @@ async fn prepare(
                 TIMEOUT,
             )
             .await?;
+        let original_options = new_options(index, 1)?;
         let original = handle
             .command(
                 &handle.contract("Increment")?,
                 1_i64.to_be_bytes().to_vec(),
-                options(index, 1, retry)?,
+                original_options.clone(),
             )
             .await?;
         ensure!(original.result == 1_i64.to_be_bytes());
         cells.push(Cell {
             name,
             history,
+            original_options,
             latest: original.clone(),
             original,
             value: 1,
@@ -592,7 +663,6 @@ async fn prepare(
         coordinator,
         first,
         client,
-        retry,
     })
 }
 
@@ -610,13 +680,11 @@ async fn exercise(
         coordinator,
         first,
         client,
-        retry,
     } = prepare(cluster, rooted, workers, roots).await?;
     let ingress = Ingress {
         cluster,
         web,
         client: &client,
-        retry,
     };
     for (index, cell) in cells.iter_mut().enumerate() {
         let expected = route(&first, &cell.history)?;
@@ -664,7 +732,7 @@ async fn exercise(
         directory_lookups(cluster)? == before,
         "interval repair evicted an unrelated cached range"
     );
-    verify(cluster, web, &client, &cells, &current, retry, callbacks).await?;
+    verify(cluster, web, &client, &cells, &current, callbacks).await?;
     let records: Vec<_> = cells
         .iter()
         .map(|cell| {
@@ -698,7 +766,6 @@ async fn verify(
     client: &reqwest::Client,
     cells: &[Cell],
     current: &[GroupRoute; 3],
-    retry: u64,
     callbacks: &AtomicUsize,
 ) -> Result<()> {
     for (index, cell) in cells.iter().enumerate() {
@@ -708,7 +775,7 @@ async fn verify(
             .command(
                 &handle.contract("Increment")?,
                 1_i64.to_be_bytes().to_vec(),
-                options(index, 1, retry)?,
+                cell.original_options.clone(),
             )
             .await?;
         ensure!(
