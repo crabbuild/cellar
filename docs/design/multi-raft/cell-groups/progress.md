@@ -11,8 +11,9 @@ CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
 adds eight delivery packages and 32 required cases. CG17-01, CG17-02 and
-CG17-03 are in progress. Ordinary JSON cell RPC handlers can suspend and resume inside
-a private Raft transaction while the SQL worker serves other cells.
+CG17-03 are in progress. Ordinary JSON cell RPC handlers and async Storage
+transaction callbacks can suspend inside a private Raft transaction while the
+SQL worker serves other cells.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -21,6 +22,51 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 async transaction callbacks
+
+Source `8481febf` connects ordinary `Storage::transaction()` to the owned
+Raft RPC driver. Nested callbacks use the existing savepoint, child-drainage
+and rollback rules. Root siblings retain call order. Dropping a result future
+leaves the callback owned by the RPC; successful output waits for all of its
+callbacks to finish. Expiry, leadership revocation and invocation failure
+cancel owned callbacks before rolling back the outer private transaction.
+
+`ExecutionLimits::max_pending_transactions` bounds outstanding callbacks per
+RPC, including queued and active children. The default is 32, the maximum is
+1024, and zero disables scheduling with `UnsupportedCapability`. Saturation
+returns `Overloaded` before invoking the refused callback. Synchronous
+registered commands still cannot schedule asynchronous work.
+
+Each callback owns a savepoint within the current RPC transaction. Releasing
+that savepoint does not produce an independent consensus commit. SQL/KV work
+and the RPC result become durable with the outer applied receipt. Independent
+multi-transaction invocation settlement remains the next execution dependency.
+
+`ordinary_json_rpc_uses_raft_owned_context` passes in 34.594 seconds at
+`8481febf`. Host-native RF3 runs both image modes with two cells sharing a
+group and one SQL worker per node. The case covers nested explicit rollback,
+callback errors, constructor/poll panics, ordered siblings, expired views and
+drainage after dropping child and root result futures. A four-callback limit
+refuses a fifth before its constructor runs. The committed query observes all
+four queued mutations after the handler returns. A later outer rejection must
+reach the rejection branch after all nested work and preserve the previous
+committed image/version. The existing deadline and live guarded leader-transfer
+scenarios now suspend inside the async Storage transaction.
+
+The committed Storage read/write case and six further regressions pass at the
+same source. They cover native async transaction lifecycle, ordinary Storage,
+due work, lost-reply effect identity, registered execution and rollback/result
+limits. All eight exact selections run one case each, without ignored cases.
+Formatting, layout, docs, native dependencies, catalog checks, 13 verifier tests,
+44 plan tests and the six reviewed source anchors pass. The full historical
+artifact rehash was stopped; this checkpoint does not requalify earlier tasks.
+Strict Clippy passes for the owning library and all five affected integration
+targets.
+
+The archive fixture is in memory. Real RustFS, process-kill, topology and full
+CG-17 qualification remain open. Evidence is retained in
+`.cellar/cell-groups-evidence/CG-17-async-tx-8481febf-01`.
 
 ## CG-17 suspended cell RPC
 

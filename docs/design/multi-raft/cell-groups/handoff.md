@@ -13,8 +13,10 @@ delivers the starter catalog and CI/acceptance verifier. The
 [suspended RPC checkpoint](progress.md#cg-17-suspended-cell-rpc) lets
 ordinary JSON RPC retain one private Storage transaction across polls
 while other cells use the same worker. Registered queries use pinned
-committed Storage. Extend the driver to independent async transactions
-and nested callback settlement, and complete the compiled export and
+committed Storage. The [async transaction checkpoint](progress.md#cg-17-async-transaction-callbacks)
+adds nested savepoints, owned child drainage and bounded callback scheduling
+within that RPC transaction. Extend the driver to independently committed
+transactions and exact invocation settlement, and complete the compiled export and
 deployment audit. That foundation supports durable work and family
 adapters. The catalog remains partial
 and CG-17 acceptance stays open. CG-13 can progress

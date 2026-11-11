@@ -63,6 +63,20 @@ and escaped views refuse access after termination. Synchronous helpers cannot
 start asynchronous transaction blocks. Use parameterized SQL and bound values
 for untrusted inputs. Close or drop cursors promptly and cap scans.
 
+For ordinary JSON cell RPC registered through `RaftClass::json_cell_rpc`,
+`Storage::transaction(&context, callback)` schedules an owned async savepoint
+inside the RPC's private transaction. Dropping its returned future leaves the
+callback owned by that invocation. The RPC waits for its children before
+producing a successful receipt. Nested errors and panics roll back the
+savepoint; failure of the outer RPC rolls back all of its changes.
+
+Releasing these savepoints does not commit separate Raft commands. Their changes
+become durable with the outer RPC's applied receipt. Outstanding callbacks are
+bounded by `ExecutionLimits::max_pending_transactions` (32 by default); excess
+callbacks receive `Overloaded` before they run. Independent transaction commits
+and the other primitive adapters remain in the
+[CG-17 implementation scope](design/multi-raft/cell-groups/remaining-work.md).
+
 ## Per-cell filesystem
 
 The opt-in `context.fs()` primitive stores regular files and directories in this
