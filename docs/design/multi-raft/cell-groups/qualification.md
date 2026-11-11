@@ -446,6 +446,22 @@ transaction refuses before scheduling: it cannot publish a savepoint or split an
 atomic callback. Synchronous registered commands and immutable queries retain
 their separate completion contracts and cannot schedule RPC checkpoints.
 
+Canonical SDK commands, queries, receipt inspection and enrollment from ordinary
+RPCs capture target bounds, namespace admission and an absolute deadline at the
+call boundary. Their owned task proves the ordered source checkpoint before
+actual dispatch. Target durability and consistency remain independent, and the
+caller persists its original target identity/input. A dropped response retains
+admitted child work and gates parent output; this is not a cross-cell transaction
+or an automatic handler-recovery protocol. Synchronous callbacks, immutable
+queries and open atomic transactions cannot acquire this dispatch permit.
+
+A proven SDK wait can release the source writer, including for a recursive call
+to the same cell. If the child reaches admission before its parent parks, only
+a received writer-lease refusal before enqueue grants a wait under the original
+request identity, inputs, route ticket and deadline. A worker/callback error or
+lost reply never grants callback replay. Leader, route, history, activation and
+original deadline checks fence the continuation and preserve uncertain outcomes.
+
 Ordinary cell instances are activation-owned caches, not replayable application
 state. Constructor Storage handles may enter later invocations of that same live
 activation; invocation handles retain a distinct non-reusable token. A successful

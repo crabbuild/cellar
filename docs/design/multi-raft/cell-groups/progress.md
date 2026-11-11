@@ -15,7 +15,9 @@ CG17-03 are in progress. Ordinary JSON cell RPC handlers and async Storage
 transaction callbacks can suspend while the SQL worker serves other cells.
 Independent root checkpoints, ordinary Storage sync and persistent native
 activation pass scoped native RF3 and real-RustFS qualification; see the current
-checkpoint below.
+checkpoint below. Canonical dependent SDK calls now pass the
+[native and RustFS checkpoint](#cg-17-dependent-canonical-sdk-dispatch), including
+recursive forwarding and independent source/target durability.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -24,6 +26,70 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 dependent canonical SDK dispatch
+
+Source `fcab2005` connects ordinary native RPCs to canonical SDK command,
+query, receipt and enrollment calls. Target input, namespace admission and
+absolute deadline are captured at the call boundary. The invocation owns an
+ordered source checkpoint before dispatch, including exact archive proof when
+its source requires S3. The target retains its separate request identity, input,
+durability, consistency and deadline. The caller persists its target identity;
+this does not introduce a cross-cell transaction or automatic handler recovery.
+
+Dropping a child response keeps the admitted work owned and parent output gated.
+Only proven framework SDK waits can release the writer. Recursive calls can
+reuse the same native activation between roots. A pre-enqueue writer-lease
+refusal waits under the original deadline and routing ticket; a worker or
+callback error cannot acquire that retry proof. Term loss fences the continuation
+and preserves uncertainty under the original target identity. Synchronous
+commands, immutable queries and open atomic transactions still refuse dispatch.
+Oversized target input refuses before publishing source private changes.
+
+The exact native case passes in **86.288 seconds**, across both image modes and
+Quorum/S3 source durability. It includes Quorum source to S3 target and S3 source
+to Quorum target, authenticated follower-origin forwarding, independent receipt
+inspection and enrollment, dropped response drainage, original deadline expiry,
+recursive calls, stale-leader cancellation and callback-error refusal without
+replay. The existing interleaving case passes in **133.601 seconds**.
+
+All **25 selected native tests** pass on this source: fourteen host cases,
+the SDK and interleaving cases above, plus nine execution regressions for
+ordinary RPC, activation, committed Storage, async transactions, Storage/HTML,
+due effects, joined closure and lost replies. The existing production daemon/CLI
+campaign passes in **97.971 seconds**, covering startup refusals, retained state
+and native/Axum SQL requests. That process fixture uses existing SQL classes;
+it does not qualify all ordinary factories, bindings or provider modes.
+All **four exact real-RustFS cases** pass at the same source and primitive
+executable SHA256
+`cce67f7939c9c4c1e7d27ca42152adf7f45d8db8b3dbb00e38b86adc7f78deea`.
+Ordinary RPC, activation, interleaving and dependent SDK dispatch take 64.638,
+212.176, 205.066 and **136.900 seconds**, respectively. Both image modes run
+against the owned digest-pinned backend with one CPU, 2 GiB and no additional
+swap. It exits zero without OOM, its VM is stopped, and target/default VMs are
+unchanged. Voters remain host-native TLS tasks; constrained voter processes,
+complete public factory/provider modes, disk-loss/load profiles and performance
+SLOs remain unqualified.
+Strict all-target Clippy passes in **547.827 seconds**. Formatting, layout,
+documentation, native dependencies, the partial catalog and its thirteen verifier
+tests, plus all six reviewed source anchors pass. Source, executable and log
+hashes and the original controls are retained under
+`.cellar/cell-groups-evidence/CG-17-dispatch-fcab2005-01`.
+
+The original controls remain retained and excluded from acceptance. Two observer
+fixtures attempted a third read on a leader whose two controller slots were
+already retained. The corrected observations use another voter's default
+linearizable reads, preserving assertions, five-second basic requests,
+one-second refusal controls, twenty-second multistage requests and all capacity
+bounds. A local-origin recursive control exposed pre-entry Busy; final acceptance
+restores follower origin. An admitted callback deliberately returns the same
+Busy error and is observed exactly once with its private writes rolled back.
+
+Generation-aware ordinary named bindings, other output/dispatch adapters,
+remaining Storage methods, committed due work, provider/family adapters and the
+full CG-17 matrix remain open. Stable managed S3 recovery and combined release
+qualification remain separate priorities. Acceptance stays **13/17 tasks and
+147/195 cases**; this component checkpoint does not accept CG-17 or hard cutover.
 
 ## CG-17 same-cell RPC interleaving
 

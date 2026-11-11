@@ -43,8 +43,19 @@ RustFS cases pass with matching primitive executable hashes and both image modes
 The new case also runs both Quorum and explicit S3. Owned RustFS exits zero without
 OOM and its VM is stopped; constrained voters and the full compatibility matrix
 remain separate gates.
-Next complete automatic output/dispatch gates, generation-aware ordinary named
-bindings and remaining Storage methods
+Canonical dependent SDK dispatch now passes the
+[current checkpoint](progress.md#cg-17-dependent-canonical-sdk-dispatch) at
+`fcab2005`. Commands, queries, receipt inspection and enrollment capture bounded
+target admission before source quorum/S3 proof, then preserve independent target
+policy, original identity and deadline. Owned child work survives a dropped
+response. Recursive forwarding parks the source writer; only a proven
+pre-enqueue writer refusal can wait, while an admitted callback error never
+replays. Twenty-five selected native tests, the existing production daemon/CLI
+campaign and four real-RustFS cases pass with matching primitive executable
+hashes. Strict all-target Clippy and repository checks pass. The owned backend
+exits zero without OOM and its VM is stopped; failed controls are retained.
+Next complete generation-aware ordinary named bindings, other output/dispatch
+adapters and remaining Storage methods
 and the compiled export/deployment audit. Binding delivery spans
 `NativeCellFactory::context`, `Registry::validate_configuration` and the typed RPC
 catalog: deployment declarations still treat those factories as Fleet classes.
