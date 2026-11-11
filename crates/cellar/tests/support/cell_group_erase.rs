@@ -24,6 +24,7 @@ pub(super) fn register(class: RaftClass) -> Result<RaftClass> {
         })?
         .command("EraseRollback", [226; 32], |context, _| {
             let storage = context.storage()?;
+            sql_exec_batches::check(&storage)?;
             let before = storage.get_json("value")?;
             storage.tx(|tx| {
                 tx.delete_all()?;

@@ -43,6 +43,8 @@ mod names;
 pub mod rustfs;
 #[path = "support/cell_group_sql_cursors.rs"]
 mod sql_cursors;
+#[path = "support/sql_exec_batches.rs"]
+mod sql_exec_batches;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
 

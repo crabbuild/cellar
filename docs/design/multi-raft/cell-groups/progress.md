@@ -47,6 +47,12 @@ failure; previously deferred violations are not cleared to permit a commit.
 Rollback/restoration failures poison the invocation. New tests cover quoted names,
 foreign-key cycles, pending delivery, failed DROP rollback, outer rollback,
 read-only refusal, sandbox retention, exact retries and isolation between cells.
+The erasure run also exposed semicolon-count based SQL batch selection: a
+DDL/DML pair without the final terminator failed during premature tail preparation,
+and quoted/comment semicolons could discard query rows. SQL batch detection now
+uses SQLite preparation without executing the prefix and propagates critical
+prepare failures. A shared native/Raft oracle covers dependent DDL, comments,
+quoted semicolons and parameterized statements.
 Compilation and runtime qualification are pending for this checkpoint. The prior
 SQL cursor campaign's independent RPC/SDK deadline failures remain release gates.
 No complete primitive family, CG-17 acceptance or release qualification is claimed.
