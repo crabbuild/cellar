@@ -27,6 +27,38 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-17 SQL cursor execution ownership: qualification pending
+
+Source `89fe63fb` implements public lazy `Storage::sql_cursor` in private Raft
+commands and committed queries using the existing native cursor engine. Each
+execution frame owns its statements/cache and finalizes them before its
+connection/image is released. Public tokens retain owned buffers and cancellation
+signals. Dropping a token outside its original turn cannot access SQLite or queue
+unbounded cleanup work. Unfinished `RETURNING` writers refuse checkpoint/output
+publication. Read VMs keep their connection; idle caches are cleared before park.
+
+Both SQL and KV cursors now bind the actual invocation even when created through
+constructor-cached Storage. That Storage may be reused by a persistent native
+instance, but its cursors cannot be adopted by a subsequent invocation. SQL
+limits add explicit live-count and sampled statement/bind-byte budgets, retained
+by the unrestricted profile; they do not claim to bound RSS or result buffers.
+
+Committed-source locked library/affected-integration `cargo check` passes in
+283.245 seconds. Formatting, module layout and docs checks pass. The executable
+build and strict affected-target Clippy are running; the four selected native
+runtime cases and real RustFS qualification are **not yet complete**. Do not
+attribute the six earlier RustFS passes below to this changed implementation.
+The extended cases require typed values, prefixes/counters, concurrent cursors,
+capacity refusal, escaped handles, constructor-cached fencing, live SQL reads
+across independent roots and unfinished-write refusal at both durability levels.
+
+The remaining proof includes real checkpoint pressure, connection-bound cursor
+interaction with recursive same-cell dispatch, cancellation and joined teardown.
+Keep the full ordinary SQL contract and family/scenario matrix as the target;
+this ownership checkpoint does not narrow or accept that scope. Full CG-17
+acceptance remains open, as do the earlier intermittent S3 overload failure and
+the combined release/recovery gates.
+
 ## CG-17 Storage keyset cursors
 
 Source `3200321f` implements public `Storage::list_cursor` in Raft commands

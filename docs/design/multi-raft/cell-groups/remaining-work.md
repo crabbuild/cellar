@@ -63,6 +63,11 @@ adapter passes its three owning native selections and focused strict Clippy at
 native/build inputs. The earlier intermittent interleaving failure remains open.
 These checkpoints establish neither complete named-binding support nor a full
 primitive-family case.
+The SQL cursor execution owner and constructor-cached SQL/KV invocation fence are
+implemented at `89fe63fb`; committed-source compile, formatting and layout pass.
+Native executable/runtime, strict Clippy and RustFS qualification remain pending.
+Its read-VM/checkpoint/recursive-dispatch lifetime proof must precede a complete
+Storage or family claim.
 
 ## Current boundary
 
