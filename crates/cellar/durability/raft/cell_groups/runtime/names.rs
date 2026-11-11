@@ -13,6 +13,17 @@ impl CellGroupRuntime {
         deadline: u64,
     ) -> Result<Option<super::super::EnrollmentRecord>, RuntimeError> {
         let cut = self.quorum_membership(route.history, deadline).await?;
+        self.resolve_cell_name_at(route, candidate, cut).await
+    }
+
+    /// Resolve only after the current-term barrier has made the enrollment view
+    /// available, including on a follower immediately after leader transfer.
+    pub(crate) async fn resolve_cell_name_at(
+        &self,
+        route: GroupRoute,
+        candidate: cellar_logic::cell_group::CellHistory,
+        cut: super::super::CellGroupQuorumMembership,
+    ) -> Result<Option<super::super::EnrollmentRecord>, RuntimeError> {
         let state = self
             .enrollment_state(route.history, candidate.clone())
             .await?;

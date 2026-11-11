@@ -96,7 +96,10 @@ impl Cell for Resolver {
                     anyhow::bail!("atomic callback unexpectedly completed")
                 }
                 update(&self.storage, 1)?;
-                let selected = lookup(&target).await?.context("enrolled target")?;
+                let selected = lookup(&target)
+                    .await
+                    .context("resolve target inside RPC")?
+                    .context("enrolled target")?;
                 ensure!(selected == target.history);
                 self.gate.entered.notify_one();
                 self.gate.release.notified().await;
@@ -236,7 +239,10 @@ pub async fn run(
             *target.lock().unwrap() = Some(binding.clone());
             // Current voter identity supplies the existing implicit read grant.
             // No command-origin grant has been installed at this point.
-            ensure!(lookup(&binding).await? == Some(destination.history().clone()));
+            ensure!(
+                lookup(&binding).await.context("resolve enrolled name")?
+                    == Some(destination.history().clone())
+            );
             ensure!(
                 calls.load(Ordering::Acquire) == 0,
                 "read-only discovery invoked the application"
@@ -253,7 +259,10 @@ pub async fn run(
                     }
                 }
             }
-            ensure!(lookup(&binding).await? == Some(destination.history().clone()));
+            ensure!(
+                lookup(&binding).await.context("resolve enrolled name")?
+                    == Some(destination.history().clone())
+            );
             ensure!(
                 calls.load(Ordering::Acquire) == 0,
                 "name lookup constructed an application"
@@ -334,8 +343,8 @@ pub async fn run(
                     Ok::<_, anyhow::Error>(())
                 }
             );
-            observed?;
-            let response = response?;
+            observed.context("source proof observer")?;
+            let response = response.context("dependent name RPC")?;
             ensure!(response.result == br#"{"source":1,"target":2}"#);
             ensure!(
                 source
@@ -404,7 +413,10 @@ pub async fn run(
             })
             .await??;
             ensure!(
-                lookup(&binding).await? == Some(destination.history().clone()),
+                lookup(&binding)
+                    .await
+                    .context("resolve on follower after transfer")?
+                    == Some(destination.history().clone()),
                 "follower name lookup lost the current incarnation"
             );
             let mut stopped = Vec::new();

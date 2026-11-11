@@ -76,11 +76,11 @@ impl State {
         let result = async {
             // Name discovery needs a namespace read grant, independently of
             // voting membership or permission to initialize/invoke the name.
-            let state = runtime
-                .enrollment_state(target.scope, candidate.clone())
+            let cut = runtime
+                .quorum_membership(target.scope, deadline)
                 .await
                 .map_err(|_| CommandFailure::Unavailable)?;
-            let selected = state.route();
+            let selected = cut.root().route();
             if selected.schema_digest != wire.schema()
                 || selected.epoch.get() != call.route_epoch
                 || selected.birth_digest != call.birth_digest
@@ -88,7 +88,7 @@ impl State {
                 return Err(CommandFailure::Unavailable);
             }
             runtime
-                .resolve_cell_name(selected.clone(), candidate.clone(), deadline)
+                .resolve_cell_name_at(selected.clone(), candidate.clone(), cut)
                 .await
                 .map_err(|_| CommandFailure::Unavailable)
         }
