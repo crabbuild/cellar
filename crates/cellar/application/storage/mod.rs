@@ -23,6 +23,9 @@ use transaction::Transaction;
 
 #[derive(Default)]
 pub(crate) struct Resources {
+    /// Installed from the admitted native definition before exposing Context.
+    /// Plain registered SQL callbacks retain the default compatibility policy.
+    pub(crate) delete_all_deletes_alarm: AtomicBool,
     pub(crate) provider_lifecycle: super::container_bindings::LifecycleLocks,
     pub(crate) retired: AtomicBool,
     pub(crate) source_generation: AtomicU64,
@@ -630,9 +633,12 @@ impl Storage {
         crate::storage::delete_many(self.write_scope()?, keys)
     }
 
-    /// The compatibility flag chooses whether deleteAll also removes alarms.
+    /// Delete business storage in the current transaction. Raft receipt and
+    /// client-sequence metadata survive erasure, so an exact retry cannot erase
+    /// state created afterward. Committed queries refuse this operation.
+    /// The admitted compatibility flag chooses whether alarms are also removed.
     pub fn delete_all(&self) -> Result<()> {
-        let scope = self.scope()?;
+        let scope = self.write_scope()?;
         if self.resources().filesystem.has_live() {
             return Err(super::filesystem::Error::new(
                 super::filesystem::Errno::EBUSY,
@@ -641,11 +647,19 @@ impl Storage {
             .with_code("FilesystemPresent")
             .into());
         }
-        crate::storage::delete_all_with_alarm(
-            scope,
-            self.native_activation()?.delete_all_deletes_alarm,
-        )?;
-        crate::native_worker::refresh_wake_gate(scope)
+        let delete_alarm = match &self.0 {
+            Owner::Native(activation) => activation.delete_all_deletes_alarm,
+            Owner::RaftCommand(_) => self
+                .resources()
+                .delete_all_deletes_alarm
+                .load(Ordering::Acquire),
+            Owner::RaftQuery(_) => unreachable!("write_scope refuses committed queries"),
+        };
+        crate::storage::delete_all_with_alarm(scope, delete_alarm)?;
+        match &self.0 {
+            Owner::Native(_) => crate::native_worker::refresh_wake_gate(scope),
+            _ => Ok(()),
+        }
     }
 
     /// Wait for the current cell's write durability. In an ordinary Raft RPC,

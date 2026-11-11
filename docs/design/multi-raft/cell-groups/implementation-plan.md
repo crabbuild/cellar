@@ -13,7 +13,7 @@ The full release requires a combined run on one source revision.
 CG-07 gates the default shared-group backend for new SQL namespaces.
 CG-17 requires full public primitive compatibility before CG-15 qualification and CG-16 cutover.
 
-Start with the [quorum SQL delivery priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
+Start with the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next release gate and [progress](progress.md) for exact qualification results.
 
 Use `python3 docs/design/multi-raft/cell-groups/plan.py show CG-01` for a complete

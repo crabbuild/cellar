@@ -24,8 +24,64 @@ routing/read work and its remaining gates are tracked in
 [optimization progress](optimization-progress.md); no measured speedup or change
 to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
-Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
+Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
+
+## CG-17 transactional business-state erasure
+
+The shared Storage adapter now admits `Storage::delete_all` only in a writable
+private Raft invocation. Its savepoint drops business tables and recreates KV
+storage without committing the outer command, removing the Raft authorizer or
+erasing protocol metadata. Raft inbox floors, named alarms, outbox frontiers and
+retained payloads survive alongside receipt/client-sequence floors. Exact retries
+must retain their original identity/result, including an old erase retried after
+state has been recreated. Receipt observations may use a later same-history
+version covering that result; the retry itself cannot advance logical state.
+Native definitions install their admitted alarm compatibility policy; this does
+not complete ordinary alarm scheduling or committed due-work discovery.
+
+The active-filesystem, nonempty-filesystem and native pending-outbox guards
+remain. Raft pending delivery, including uncertain old-incarnation intent, also
+refuses erasure before any DROP. Foreign-key enforcement returns to its original
+setting after success or failure; previously deferred violations are not cleared
+to permit a commit.
+Rollback/restoration failures poison the invocation. New tests cover quoted names,
+foreign-key cycles, pending delivery, failed DROP rollback, outer rollback,
+read-only refusal, sandbox retention, exact retries and isolation between cells.
+The erasure run also exposed semicolon-count based SQL batch selection: a
+DDL/DML pair without the final terminator failed during premature tail preparation,
+and quoted/comment semicolons could discard query rows. SQL batch detection now
+uses SQLite preparation without executing the prefix and propagates critical
+prepare failures. A shared native/Raft oracle covers dependent DDL, comments,
+quoted semicolons and parameterized statements.
+At `2f6b7735`, all four owning native selections pass: production native Storage
+(0.211 seconds), RF3 Storage (41.461), ordinary RPC (92.586), and bounded/fenced
+activation (204.364). The three RF3 cases run both image forms. The exact real
+RustFS Storage case passes in both forms (42.838 seconds), including Quorum and
+explicit S3 commands, erase/recreate retries and the shared SQL oracle. Native and
+RustFS use the same primitive executable SHA-256:
+`6be1fd1ab2253d475da1f61a9707c964af6c2d6417c7c55805694e24db371f12`.
+Focused strict Clippy, formatting, layout, dependency, docs and partial-catalog
+checks pass. Owned RustFS exits zero without OOM; its VM is stopped and the
+recorded target/default VMs are unchanged.
+
+Five erasure/outbox owner checks passed at `3fa040c8`; their original binary and
+source remain separate from the later SQL adapter change. That native control
+failed the new test's incorrect expectation that an old retry must
+report its original observation version. Existing receipt contracts and movement
+conformance establish a same-history covering version. The corrected test checks
+exact identity/result/durability, the expected current version and unchanged
+logical state/callback count. The `4f0c83cf` control then reproduced the eager SQL
+batch bug above; the final fix preserves that original recreate input. Failed
+controls and exact binaries/logs are retained with the passing scopes under
+`.cellar/cell-groups-evidence/CG-17-erase-2f6b7735-01`.
+
+This is a host-native RF3 component checkpoint with real RustFS in one owned VM.
+It does not qualify all ordinary primitive adapters, constrained voters, movement,
+disk loss, load or the complete recovery matrix. The prior full six-case SQL
+cursor/RustFS campaign remains failed on RPC/SDK deadlines; this targeted Storage
+pass does not resolve it. No complete primitive family, CG-17 acceptance or
+release qualification is claimed.
 
 ## CG-17 SQL cursor execution ownership: qualification pending
 

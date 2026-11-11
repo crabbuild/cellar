@@ -29,6 +29,7 @@ pub use command::{CommandInputs, CommandTransaction};
 mod console;
 pub(crate) mod container_bindings;
 pub(crate) mod container_maintenance;
+mod erase;
 mod event_schema;
 pub(crate) mod filesystem;
 #[cfg(test)]
@@ -1608,7 +1609,7 @@ pub fn sql_exec(scope: &str, query: &str, binds: &[serde_json::Value]) -> Result
     let run = with(scope, |c| {
         as_user_sql(|| {
             let changes_before = total_changes(c);
-            if binds.is_empty() && query.matches(';').count() > 1 {
+            if binds.is_empty() && query.contains(';') && sql_exec_batch(scope, c, query)? {
                 c.execute_batch(query).map_err(|e| e.to_string())?;
                 return Ok((
                     Vec::new(),
@@ -1635,6 +1636,65 @@ pub fn sql_exec(scope: &str, query: &str, binds: &[serde_json::Value]) -> Result
         })
     });
     run.unwrap_or_else(|| Err(format!("no db for {scope}")))
+}
+
+/// Probe statement boundaries without executing a schema-changing prefix.
+/// Preparing a dependent tail may report ERROR until that prefix executes;
+/// this still establishes a batch. Critical prepare failures must propagate,
+/// rather than implicitly retrying them through execute_batch.
+fn sql_exec_batch(scope: &str, connection: &Connection, query: &str) -> Result<bool, String> {
+    struct Probe(*mut rusqlite::ffi::sqlite3_stmt);
+
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                // SAFETY: this probe exclusively owns the statement and its
+                // connection outlives both boundary probes.
+                unsafe { rusqlite::ffi::sqlite3_finalize(self.0) };
+            }
+        }
+    }
+
+    let source = CString::new(query).map_err(|error| error.to_string())?;
+    // SAFETY: the live connection and owned NUL-terminated source outlive all
+    // prepares; SQLite's tail points within that source. Probe finalizes each
+    // statement on every return path, including a preparation failure.
+    unsafe {
+        let database = connection.handle();
+        let started = !connection.is_autocommit();
+        let mut statement = std::ptr::null_mut();
+        let mut tail = std::ptr::null();
+        let prepared = rusqlite::ffi::sqlite3_prepare_v2(
+            database,
+            source.as_ptr(),
+            -1,
+            &mut statement,
+            &mut tail,
+        );
+        let _first = Probe(statement);
+        if prepared != rusqlite::ffi::SQLITE_OK {
+            return Err(sql_sqlite_failure(scope, database, started, prepared));
+        }
+        if tail.is_null() {
+            return Ok(false);
+        }
+        let mut statement = std::ptr::null_mut();
+        let prepared = rusqlite::ffi::sqlite3_prepare_v2(
+            database,
+            tail,
+            -1,
+            &mut statement,
+            std::ptr::null_mut(),
+        );
+        let second = Probe(statement);
+        if !matches!(
+            prepared,
+            rusqlite::ffi::SQLITE_OK | rusqlite::ffi::SQLITE_ERROR | rusqlite::ffi::SQLITE_AUTH
+        ) {
+            return Err(sql_sqlite_failure(scope, database, started, prepared));
+        }
+        Ok(!second.0.is_null() || prepared != rusqlite::ffi::SQLITE_OK)
+    }
 }
 
 /// Execute every complete statement at the front of `input`, returning the
@@ -4307,6 +4367,9 @@ fn actor_name(connection: &Connection, scope: &str) -> anyhow::Result<Option<Str
 /// ActorCache exposes this distinction internally; compatibility flags decide
 /// which form the public JS deleteAll() operation selects.
 pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<()> {
+    if scope == RAFT_STORAGE_SCOPE {
+        return erase::raft_delete_all(scope, delete_alarm);
+    }
     let result = with_application_storage_write(scope, |c| -> anyhow::Result<()> {
         filesystem::check_clear(c)?;
         let has_outbox: bool = c.query_row(

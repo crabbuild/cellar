@@ -30,6 +30,8 @@ mod configuration;
 mod cursor_rollback;
 #[path = "support/cell_group_dispatch.rs"]
 mod dispatch;
+#[path = "support/cell_group_erase.rs"]
+mod erase;
 #[path = "support/cell_group_interleaving.rs"]
 mod interleaving;
 #[path = "support/cell_group_managed_fixture.rs"]
@@ -41,6 +43,8 @@ mod names;
 pub mod rustfs;
 #[path = "support/cell_group_sql_cursors.rs"]
 mod sql_cursors;
+#[path = "support/sql_exec_batches.rs"]
+mod sql_exec_batches;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
 
@@ -345,6 +349,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 .is_err());
             Ok(value.to_be_bytes().to_vec())
         })?;
+    let class = erase::register(class)?;
     let fixture = Box::pin(Fixture::with_store(rooted, class, store)).await?;
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
         fixture,
@@ -487,7 +492,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 &second.contract("Get")?,
                 Vec::new(),
                 QueryOptions {
-                    consistency: QueryConsistency::AtLeast(archived.version_token),
+                    consistency: QueryConsistency::AtLeast(archived.version_token.clone()),
                     ..QueryOptions::default()
                 },
             )
@@ -503,6 +508,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             )
             .await?;
         ensure!(checked.result == 0i64.to_be_bytes() && calls.load(Ordering::Acquire) == 3);
+        erase::exercise(first, second, retry, &receipt, &archived, &calls).await?;
         Ok::<_, anyhow::Error>(())
     }
     .await;

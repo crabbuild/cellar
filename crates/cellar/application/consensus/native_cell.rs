@@ -260,6 +260,10 @@ impl NativeCellFactory {
         identity: CellIdentity,
         storage: crate::application::storage::RaftStorageAuthority,
     ) -> Context {
+        storage.resources.delete_all_deletes_alarm.store(
+            self.config.compat.delete_all_deletes_alarm,
+            std::sync::atomic::Ordering::Release,
+        );
         Context {
             raft_storage: Some(storage),
             container_supervision: None,
