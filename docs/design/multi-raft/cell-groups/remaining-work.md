@@ -67,9 +67,12 @@ The SQL cursor execution owner and constructor-cached SQL/KV invocation fence ar
 implemented at `89fe63fb`; committed-source compile, formatting and layout pass.
 At `d8974158`, four owning native selections and strict Clippy pass, including
 paired native/Raft schema-rollback behavior, root checkpoints and the existing
-RPC fault gates with live VMs. The awaited sync extension and real RustFS
-qualification remain pending. Its read-VM/checkpoint/recursive-dispatch lifetime
-proof must precede a complete Storage or family claim.
+RPC fault gates with live VMs. At `3f1fd59d`, the awaited sync extension passes natively, but real RustFS
+qualification fails RPC and dependent SDK deadlines; Storage, activation,
+interleaving and name discovery pass. A contextual RPC rerun passes while SDK
+fails at a different earlier observer wait. Keep both failures as release gates.
+Its read-VM/checkpoint/recursive-dispatch lifetime proof must precede a complete
+Storage or family claim.
 
 ## Current boundary
 

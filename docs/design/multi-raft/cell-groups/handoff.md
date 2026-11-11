@@ -14,12 +14,31 @@ paired native/Raft schema-rollback/deferred-error oracle corrects the original
 RPC test's invalid expectation while preserving its separate root-checkpoint
 success assertion. Live VM fault gates and capacity-before-mutation checks pass.
 Original failed `89fe63fb` and passing `d8974158` binaries/logs remain retained.
-The awaited sync case is being extended to hold a cursor across Quorum/S3 proof.
-Production library inputs remain unchanged. Finish that case and run all six
-real RustFS primitive cases before accepting this component's S3 scope. The owned
-SQL-cursor backend is ready; shutdown remains mandatory. Connection-bound
-recursive dispatch, checkpoint pressure and the complete family/scenario matrix
-remain required. See
+At `3f1fd59d`, the awaited sync/cursor extension and three fresh native
+selections pass with strict Clippy and repository checks. The real RustFS
+campaign fails RPC's S3 sync observer and recursive SDK child deadlines; its
+other four cases pass. Evidence is retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-3f1fd59d-control-03`.
+Contextual source `c71d1121` passes the full RPC rerun but fails SDK at an earlier
+Quorum-source observer wait; it does not reproduce the same recursive failure.
+Source `10e3aea9` identifies SDK gate 1 after the first target/source observation;
+the original parent deadline also expires. The phase-probed follow-up passes all
+SDK configurations and therefore establishes no cause. Diagnostics 05/06,
+original binary/patch hashes and owned shutdown are retained separately; the
+probe is removed. Do not select a speculative runtime fix or waive the failed
+campaign. Keep all original budgets, ambiguity and callback replay rules.
+
+The next feature boundary is complete Storage and ordinary bindings. A live SQL
+VM currently makes `ActiveCommand::can_park` return false; qualify a cursor held
+through same-cell recursive SDK dispatch and implement bounded connection/image
+ownership as required. Preserve the original invocation, latest committed state,
+no exposure of another callback's private writes, term fencing and joined close.
+Generation-aware named/typed bindings need durable child identities before
+committed due work and family adapters can be completed. `delete_all` cannot
+simply use the Raft scope: its native implementation starts its own transaction
+and lacks Raft receipt-table preservation. Alarm/work adapters also need logged
+generations and committed discovery rather than native local timers or SQLite
+randomness. Keep these main features ahead of optional optimization. See
 [progress](progress.md#cg-17-sql-cursor-execution-ownership-qualification-pending).
 
 ## Published design scope

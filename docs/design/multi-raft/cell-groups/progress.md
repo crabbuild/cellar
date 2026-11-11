@@ -62,12 +62,42 @@ rollback controls. Existing rollback/data assertions and budgets remain. The
 original failed source, executable and diagnostic controls are retained under
 `.cellar/cell-groups-evidence/CG-17-sql-cursors-89fe63fb-control-01`.
 
-The existing awaited `storage.sync()` case is additionally being qualified with
-a live read cursor across its Quorum/S3 proof, including queued preceding work.
-The production implementation is unchanged from `89fe63fb`; these later changes
-are test/docs only. Real RustFS qualification of SQL cursors is **not yet
-complete**. Do not attribute the six earlier KV-cursor RustFS passes below to
-this changed implementation or accept a full CG-17 family from native checks.
+At `3f1fd59d`, the awaited `storage.sync()` extension passes natively with a
+live read cursor across ordered Quorum/S3 checkpoint proof. Three fresh native
+selections pass: Storage in 28.454 seconds, RPC in 73.962 seconds and native
+Storage in 0.161 seconds. Strict affected-target Clippy, formatting, layout,
+dependencies, docs and partial-inventory checks pass. Production library inputs
+remain identical to `89fe63fb`; test/docs changes have explicit source bridges.
+
+The six-case real RustFS campaign is **FAILED**, with four passes: Storage,
+activation, same-cell interleaving and current-incarnation discovery. RPC fails
+in materialized mode on an awaited-S3-sync observer deadline. Retained voter and
+verifier images contain value 176 and an unfinished S3 receipt at checkpoint
+steps 1/2; those bytes alone do not prove response or verification completion.
+Dependent SDK dispatch fails in materialized/S3-source recursion: parent 194's
+child 226 exceeds its original deadline, preserving ambiguity. All original
+budgets remain. The owned one-CPU/2-GiB RustFS exits zero without OOM; its VM is
+stopped and target/default VMs are unchanged. Exact source/binary/log hashes and
+shutdown evidence are retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-3f1fd59d-control-03`.
+
+Context-only source `c71d1121` reruns the full RPC case successfully in both
+image modes (97.739 seconds), but SDK fails earlier in a materialized/Quorum-source
+observer wait (19.642 seconds). This establishes different observed failures,
+not a recursive-child cause or a fix. The diagnostic is retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-c71d1121-diagnostic-04` and never
+qualifies the original campaign. Both owned services stop cleanly again.
+Source `10e3aea9` adds precise SDK gate labels and paired command/observer error
+context. Its targeted diagnostic fails at SDK gate 1, after target entry and the
+first source-proof observation, with the original parent deadline also expired.
+A subsequent dirty-source phase probe passes all SDK configurations; it does not
+identify the cause or qualify the original campaign. Both diagnostics, source
+patch/binary hashes and verified owned shutdown are retained under
+`.cellar/cell-groups-evidence/CG-17-sdk-stage-10e3aea9-diagnostic-05` and `-06`.
+The temporary probe is removed from both worktrees. No speculative production
+fix is selected from these intermittent observations. Do not raise deadlines,
+loosen admission, replay an entered callback or treat an ambiguous response as
+non-commit.
 
 The remaining proof includes real checkpoint pressure, connection-bound cursor
 interaction with recursive same-cell dispatch, cancellation and joined teardown.
