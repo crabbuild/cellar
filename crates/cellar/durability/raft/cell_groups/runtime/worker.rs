@@ -628,8 +628,15 @@ impl Worker {
     }
 
     fn tick(&mut self) {
+        use crate::raft::performance::Counter;
+        let performance = self.log.performance();
+        performance.increment(Counter::CellGroupTickRounds, 1);
         for history in &self.ticking {
             if let Some(group) = self.groups.get_mut(history) {
+                performance.increment(Counter::CellGroupTicksRequested, 1);
+                if group.tick {
+                    performance.increment(Counter::CellGroupTicksCoalesced, 1);
+                }
                 group.tick = true;
                 group.wake(*history, &mut self.order);
             }

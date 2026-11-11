@@ -1591,6 +1591,7 @@ impl CellGroupOwner {
     }
 
     pub fn tick(&mut self) -> Result<(), RuntimeError> {
+        use crate::raft::performance::Counter;
         self.live()?;
         if self.parked.is_some() {
             return Ok(());
@@ -1605,10 +1606,28 @@ impl CellGroupOwner {
         let admission = if self.node.raft.state == StateRole::Leader {
             Default::default()
         } else {
-            self.log_admission
-                .election(&self.group, &self.node, Default::default())?
+            match self
+                .log_admission
+                .election(&self.group, &self.node, Default::default())
+            {
+                Ok(admission) => admission,
+                Err(error) => {
+                    if matches!(error, RuntimeError::Overloaded) {
+                        self.log
+                            .performance()
+                            .increment(Counter::CellGroupTickAdmissionRefusals, 1);
+                    }
+                    return Err(error);
+                }
+            }
         };
-        self.node.tick();
+        let election_tick = self.node.raft.state != StateRole::Leader;
+        let ready = self.node.tick();
+        let performance = self.log.performance();
+        performance.increment(Counter::CellGroupTicksExecuted, 1);
+        if election_tick && ready {
+            performance.increment(Counter::CellGroupElectionTimeouts, 1);
+        }
         self.refresh_execution_fence();
         self.finish_log_admission(admission)?;
         Ok(())

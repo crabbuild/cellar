@@ -54,6 +54,9 @@ OPERATIONS = (
     'archive_physical_admission',
     'archive_physical_queue',
     'engine_purge',
+    'first_group_archive',
+    'first_group_attach',
+    'first_group_quorum',
 )
 COUNTERS = (
     'engine_file_read_bytes',
@@ -98,6 +101,28 @@ COUNTERS = (
     'snapshot_prepared_hits',
     'snapshot_prepared_misses',
     'snapshot_prepared_reused_bytes',
+    'cell_command_rpc_attempts',
+    'cell_command_leader_probes',
+    'cell_command_pre_admission_refusals',
+    'cell_command_unconfirmed_replies',
+    'cell_leader_advice_hits',
+    'cell_command_directory_lookups',
+    'cell_membership_demand_refreshes',
+    'cell_membership_background_observations',
+    'cell_membership_discovery_owners',
+    'cell_membership_refresh_joins',
+    'cell_linearizable_read_barriers',
+    'cell_linearizable_read_cohort_joins',
+    'cell_linearizable_read_cohorts_started',
+    'cell_leader_probe_owners',
+    'cell_leader_probe_joins',
+    'cell_leader_probe_finishes',
+    'cell_group_tick_rounds',
+    'cell_group_ticks_requested',
+    'cell_group_ticks_coalesced',
+    'cell_group_ticks_executed',
+    'cell_group_election_timeouts',
+    'cell_group_tick_admission_refusals',
 )
 LEGACY_OPERATIONS = ('engine_queue', 'engine_file_sync', 'engine_directory_sync', 'engine_persist',
               'sql_queue', 'sql_stage', 'sql_prepare', 'sql_publish', 'sql_query',
@@ -128,6 +153,10 @@ LEGACY_BOUNDS = BOUNDS[:15] + (None,)
 SCHEMAS = ((LEGACY_OPERATIONS, LEGACY_COUNTERS, LEGACY_BOUNDS),
            (ARCHIVE_OPERATIONS, ARCHIVE_COUNTERS, LEGACY_BOUNDS),
            (ARCHIVE_OPERATIONS + ('engine_purge',), ARCHIVE_COUNTERS, LEGACY_BOUNDS),
+           # Retained measurement artifacts have a source-frozen vocabulary.
+           # These schemas parse evidence only; they are not runtime readers.
+           (OPERATIONS[:-3], COUNTERS[:COUNTERS.index('cell_command_rpc_attempts')], BOUNDS),
+           (OPERATIONS[:-3], COUNTERS[:-6], BOUNDS),
            (OPERATIONS, COUNTERS, BOUNDS))
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')
 
