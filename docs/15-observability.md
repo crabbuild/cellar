@@ -51,6 +51,13 @@ cohort. `cell_linearizable_read_cohort_joins` counts reads added before that
 first submission. Each read retains its own deadline and image pin. A local
 group observation reports linearizable reads waiting in the actor queue.
 
+`cell_endpoint_demand_refreshes` counts selected-node endpoint repair requests.
+`cell_endpoint_discovery_owners` counts admitted discovery owners, and
+`cell_endpoint_refresh_joins` counts callers joining the same authenticated
+boot observation. These are separate from range/membership refresh and leader
+probe counters. They report bounded routing work; endpoint metadata grants no
+membership, application permission or durability proof.
+
 ## Event-delivery observations
 
 ### Host counters and histograms

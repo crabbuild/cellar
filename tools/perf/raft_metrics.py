@@ -123,6 +123,9 @@ COUNTERS = (
     'cell_group_ticks_executed',
     'cell_group_election_timeouts',
     'cell_group_tick_admission_refusals',
+    'cell_endpoint_demand_refreshes',
+    'cell_endpoint_discovery_owners',
+    'cell_endpoint_refresh_joins',
 )
 LEGACY_OPERATIONS = ('engine_queue', 'engine_file_sync', 'engine_directory_sync', 'engine_persist',
               'sql_queue', 'sql_stage', 'sql_prepare', 'sql_publish', 'sql_query',
