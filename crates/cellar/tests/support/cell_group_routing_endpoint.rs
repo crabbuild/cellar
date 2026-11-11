@@ -278,6 +278,7 @@ pub(super) async fn exercise(
         let before_stages = sql_stages(cluster)?;
         selected = options(ordinal as u64 + 2)?;
         let deadline = tokio::time::Instant::now() + TIMEOUT;
+
         enum Reply {
             Sdk(Box<CommandReceipt>),
             Http(serde_json::Value),
