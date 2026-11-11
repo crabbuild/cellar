@@ -10,6 +10,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 #[path = "receipts_tests.rs"]
 mod tests;
 
+/// User-state erasure must retain exact retries and non-reusable sequence floors.
+pub(crate) fn is_control_table(name: &str) -> bool {
+    matches!(name, "__sys_raft_clients" | "__sys_raft_receipts")
+}
+
 pub(super) fn install(connection: &Connection) -> anyhow::Result<()> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS __sys_raft_clients (
         client_id BLOB PRIMARY KEY CHECK(typeof(client_id)='blob' AND length(client_id)=16),

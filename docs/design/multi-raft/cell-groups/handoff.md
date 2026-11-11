@@ -34,9 +34,12 @@ through same-cell recursive SDK dispatch and implement bounded connection/image
 ownership as required. Preserve the original invocation, latest committed state,
 no exposure of another callback's private writes, term fencing and joined close.
 Generation-aware named/typed bindings need durable child identities before
-committed due work and family adapters can be completed. `delete_all` cannot
-simply use the Raft scope: its native implementation starts its own transaction
-and lacks Raft receipt-table preservation. Alarm/work adapters also need logged
+committed due work and family adapters can be completed. A Raft-specific
+`delete_all` implementation now preserves receipts/client floors, uses an inner
+savepoint and retains the authorizer and existing filesystem/outbox guards.
+Its erasure/retry/rollback/isolation qualification is pending. See the
+[erasure checkpoint](progress.md#cg-17-transactional-business-state-erasure).
+Alarm/work adapters also need logged
 generations and committed discovery rather than native local timers or SQLite
 randomness. Keep these main features ahead of optional optimization. See
 [progress](progress.md#cg-17-sql-cursor-execution-ownership-qualification-pending).

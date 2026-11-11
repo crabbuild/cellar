@@ -43,6 +43,7 @@ mod query_identity;
 mod query_wire;
 pub(crate) mod receipt_maintenance;
 mod receipts;
+pub(crate) use receipts::is_control_table as is_receipt_table;
 mod records;
 mod recovery;
 mod replica;

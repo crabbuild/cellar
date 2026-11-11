@@ -27,6 +27,26 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-17 transactional business-state erasure
+
+The shared Storage adapter now admits `Storage::delete_all` only in a writable
+private Raft invocation. Its savepoint drops business tables and recreates KV
+storage without committing the outer command, removing the Raft authorizer or
+erasing receipt/client-sequence floors. Exact retries must retain their original
+result/version, including an old erase retried after state has been recreated.
+Native definitions install their admitted alarm compatibility policy; this does
+not complete ordinary alarm scheduling or committed due-work discovery.
+
+The existing active-filesystem, nonempty-filesystem and pending-outbox guards
+remain. Foreign-key enforcement returns to its original setting after success or
+failure; previously deferred violations are not cleared to permit a commit.
+Rollback/restoration failures poison the invocation. New tests cover quoted names,
+foreign-key cycles, pending delivery, failed DROP rollback, outer rollback,
+read-only refusal, sandbox retention, exact retries and isolation between cells.
+Compilation and runtime qualification are pending for this checkpoint. The prior
+SQL cursor campaign's independent RPC/SDK deadline failures remain release gates.
+No complete primitive family, CG-17 acceptance or release qualification is claimed.
+
 ## CG-17 SQL cursor execution ownership: qualification pending
 
 Source `89fe63fb` implements public lazy `Storage::sql_cursor` in private Raft

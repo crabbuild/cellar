@@ -73,6 +73,11 @@ interleaving and name discovery pass. A contextual RPC rerun passes while SDK
 fails at a different earlier observer wait. Keep both failures as release gates.
 Its read-VM/checkpoint/recursive-dispatch lifetime proof must precede a complete
 Storage or family claim.
+The next Storage implementation adds transactional `delete_all` with preserved
+Raft receipt/client floors and the admitted alarm compatibility setting. Its
+new erase/retry/rollback/isolation tests are awaiting qualification; see the
+[erasure checkpoint](progress.md#cg-17-transactional-business-state-erasure).
+This does not close the cursor recursion or ordinary-binding gaps above.
 
 ## Current boundary
 

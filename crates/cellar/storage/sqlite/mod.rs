@@ -29,6 +29,7 @@ pub use command::{CommandInputs, CommandTransaction};
 mod console;
 pub(crate) mod container_bindings;
 pub(crate) mod container_maintenance;
+mod erase;
 mod event_schema;
 pub(crate) mod filesystem;
 #[cfg(test)]
@@ -4307,6 +4308,9 @@ fn actor_name(connection: &Connection, scope: &str) -> anyhow::Result<Option<Str
 /// ActorCache exposes this distinction internally; compatibility flags decide
 /// which form the public JS deleteAll() operation selects.
 pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<()> {
+    if scope == RAFT_STORAGE_SCOPE {
+        return erase::raft_delete_all(scope, delete_alarm);
+    }
     let result = with_application_storage_write(scope, |c| -> anyhow::Result<()> {
         filesystem::check_clear(c)?;
         let has_outbox: bool = c.query_row(
