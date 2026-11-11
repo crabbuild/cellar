@@ -111,6 +111,7 @@ pub(super) async fn start_observer(
                 NativeRaftNode {
                     node: spec.label.clone(),
                     data_dir: node.info().data_dir.clone(),
+                    application: application.clone(),
                 },
                 OBSERVER,
                 false,

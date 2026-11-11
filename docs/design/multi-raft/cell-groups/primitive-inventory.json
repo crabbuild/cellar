@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "6d83cb732dd30766a739d9c802355a17b727c6681bccff507c2272c9300d9a61"
+    "crates/cellar/application/mod.rs": "d1fca2fcb33efdce56b55b65bc277acace66e52928b217465cb1040ff9acb38e"
   },
   "entries": [
     {
@@ -450,7 +450,8 @@
         "crates/cellar/application/consensus/group_client/mod.rs",
         "crates/cellar/application/consensus/native_cell.rs",
         "crates/cellar/storage/sqlite/command.rs",
-        "crates/cellar/storage/sqlite/immutable.rs"
+        "crates/cellar/storage/sqlite/immutable.rs",
+        "crates/cellar/application/consensus/native_configuration.rs"
       ],
       "schemas": [
         "Private command image and receipts"
@@ -595,6 +596,7 @@
       "id": "auxiliary",
       "family": "other",
       "symbols": [
+        "cellar::sdk::Context::var",
         "cellar::sdk::Context::assets",
         "cellar::sdk::Context::caches",
         "cellar::sdk::Context::loader",
@@ -609,6 +611,7 @@
         "cellar::sdk::html_rewriter::HtmlRewriter"
       ],
       "owners": [
+        "crates/cellar/application/mod.rs",
         "crates/cellar/application/assets.rs",
         "crates/cellar/application/cache.rs",
         "crates/cellar/application/loader.rs",
@@ -647,7 +650,8 @@
       ],
       "owners": [
         "crates/cellar/sdk.rs",
-        "crates/cellar/node/native.rs"
+        "crates/cellar/node/native.rs",
+        "crates/cellar/node/native_raft.rs"
       ],
       "schemas": [],
       "bindings": [

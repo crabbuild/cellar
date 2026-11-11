@@ -53,6 +53,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         catalog: f.catalog.clone(),
         declaration: f.declaration.clone(),
         application: f.application.clone(),
+        configuration: f.configuration.clone(),
         // A newly registered peer owns independent physical I/O.
         filesystem: Arc::new(cellar_ltx::DirectFileSystem),
         effects: f.effects,
@@ -410,13 +411,7 @@ impl ManagedCluster {
         let mut hosts = Vec::new();
         let mut peers = Vec::new();
         for (i, fixture) in fixtures.iter().enumerate() {
-            let node = start_node_with_filesystem(
-                roots[i].path(),
-                fixture.application.clone(),
-                &fixture.spec.label,
-                fixture.filesystem.clone(),
-            )
-            .await?;
+            let node = fixture.start_node(roots[i].path()).await?;
             let (mut config, services) = fixture
                 .config(&node, LogOpenMode::Create, 24 + i as u8)
                 .await?;

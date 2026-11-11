@@ -29,6 +29,8 @@ pub struct Fixture {
     pub catalog: FleetCatalog,
     pub declaration: RaftNamespaceRegistration,
     pub application: Arc<dyn Application>,
+    /// One deployed application declaration, independent of each voter label.
+    pub configuration: Option<cellar::engine_api::WorkerConfigOptions>,
     /// Captured physical I/O provider for the initial node owner.
     pub filesystem: Arc<dyn cellar_ltx::FileSystem>,
     pub effects: Option<RaftEffectOptions>,
@@ -155,6 +157,7 @@ impl Fixture {
             catalog,
             declaration,
             application,
+            configuration: None,
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             effects: None,
             sql_workers: 2,
@@ -167,6 +170,17 @@ impl Fixture {
             placement_domains: None,
             spec,
         })
+    }
+
+    pub async fn start_node(&self, directory: &Path) -> Result<Node> {
+        Box::pin(start_configured_node(
+            directory,
+            self.application.clone(),
+            &self.spec.label,
+            self.filesystem.clone(),
+            self.configuration.clone(),
+        ))
+        .await
     }
 
     pub fn open_catalog(
@@ -425,6 +439,23 @@ pub async fn start_node_with_filesystem(
     label: &str,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
 ) -> Result<Node> {
+    Box::pin(start_configured_node(
+        directory,
+        application,
+        label,
+        filesystem,
+        None,
+    ))
+    .await
+}
+
+async fn start_configured_node(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    label: &str,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    options: Option<cellar::engine_api::WorkerConfigOptions>,
+) -> Result<Node> {
     let classes = vec![];
     let shutdown = ShutdownPolicy::default();
     let bucket: Option<Bucket> = None;
@@ -506,14 +537,17 @@ pub async fn start_node_with_filesystem(
         containers: None,
         metrics: None,
     };
-    let compiled =
-        CompiledApplications::default().register(label, "test", move || Ok(application.clone()))?;
-    Node::start_with_filesystem(
-        config,
-        services,
-        graph::graph(label, "", classes),
-        compiled,
-        filesystem,
-    )
-    .await
+    let script = options
+        .as_ref()
+        .map_or(label, |options| &options.script_name);
+    let mut graph = graph::graph(script, "", classes);
+    if let Some(options) = options {
+        graph.primary.options = options;
+    }
+    let compiled = CompiledApplications::default().register(
+        &graph.primary.script_name,
+        "test",
+        move || Ok(application.clone()),
+    )?;
+    Node::start_with_filesystem(config, services, graph, compiled, filesystem).await
 }

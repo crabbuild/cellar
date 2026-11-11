@@ -8,8 +8,84 @@ use crate::raft::{cache::GroupLog, completion::RuntimeError};
 use cellar_logic::{cell_group::*, consensus::Term};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc,
+    Arc, RwLock, Weak,
 };
+
+/// A weak cache fence, never execution, image or durability authority.
+#[derive(Clone)]
+pub(crate) struct CellActivationFence {
+    owner: Weak<()>,
+    closed: Weak<std::sync::atomic::AtomicBool>,
+    reclaimed: Weak<std::sync::atomic::AtomicBool>,
+    cache: Weak<RwLock<crate::raft::cache::CachedGroup>>,
+    leader_term: Weak<AtomicU64>,
+    identity: cellar_logic::consensus::ReplicaIdentity<GroupHistory>,
+    route: GroupRoute,
+    term: Term,
+    version: CellVersion,
+}
+
+impl CellActivationFence {
+    /// Select a proven successor without acquiring execution or image custody.
+    /// The caller must match its prepared final image to the committed receipt;
+    /// cache admission still checks the original leader and current image.
+    pub(crate) fn advanced(&self, version: &CellVersion) -> Option<Self> {
+        if !version.covers(&self.version).ok()? {
+            return None;
+        }
+        let mut fence = self.clone();
+        fence.version = version.clone();
+        Some(fence)
+    }
+
+    pub(crate) fn accepts(&self, authority: &CellExecutionAuthority) -> bool {
+        self.owner.ptr_eq(&Arc::downgrade(&authority.group.owner))
+            && self.route == authority.route
+            && self.term == authority.term
+            && self.version == authority.leaf.version
+            && self.current()
+    }
+
+    pub(crate) fn current(&self) -> bool {
+        let (Some(closed), Some(reclaimed), Some(leader), Some(cache)) = (
+            self.closed.upgrade(),
+            self.reclaimed.upgrade(),
+            self.leader_term.upgrade(),
+            self.cache.upgrade(),
+        ) else {
+            return false;
+        };
+        if self.owner.strong_count() == 0
+            || closed.load(Ordering::Acquire)
+            || reclaimed.load(Ordering::Acquire)
+            || leader.load(Ordering::Acquire) != self.term.get()
+        {
+            return false;
+        }
+        let Ok(cache) = cache.read() else {
+            return false;
+        };
+        let key = cell_routing_key(self.route.history.namespace, &self.version.history.cell);
+        cache
+            .group_manifest
+            .as_ref()
+            .is_some_and(|manifest| manifest.is_active() && manifest.route() == &self.route)
+            && cache.hard_state.term == self.term.get()
+            && cache.membership.permits_group(&self.identity)
+            && cache
+                .conf_state
+                .voters
+                .iter()
+                .chain(&cache.conf_state.voters_outgoing)
+                .any(|id| *id == self.identity.member.get())
+            && cache
+                .manifest_pins
+                .as_ref()
+                .and_then(|pins| pins.get(&key))
+                .is_some_and(|(leaf, _)| leaf.version == self.version)
+            && leader.load(Ordering::Acquire) == self.term.get()
+    }
+}
 
 /// Issued only by the actual leader after its current-term applied barrier.
 /// It pins one cell, not every image in the group. Other cells may advance while
@@ -25,6 +101,20 @@ pub struct CellExecutionAuthority {
 }
 
 impl CellExecutionAuthority {
+    pub(crate) fn activation_fence(&self) -> CellActivationFence {
+        CellActivationFence {
+            owner: Arc::downgrade(&self.group.owner),
+            closed: Arc::downgrade(&self.group.closed),
+            reclaimed: Arc::downgrade(&self.group.reclaimed),
+            cache: Arc::downgrade(&self.group.cache),
+            leader_term: Arc::downgrade(&self.leader_term),
+            identity: self.group.identity().clone(),
+            route: self.route.clone(),
+            term: self.term,
+            version: self.leaf.version.clone(),
+        }
+    }
+
     pub(crate) fn reserve_log(
         &self,
         envelope: crate::application::consensus::EnvelopeLimits,

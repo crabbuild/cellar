@@ -195,7 +195,8 @@ impl std::error::Error for CellOverloaded {}
 /// Per-worker compatibility switches, derived from the manifest's
 /// compatibility date and flags (Workerd compatibility-date.capnp). `Default`
 /// is every switch off; production derives real values in `main`.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Compat {
     pub delete_all_deletes_alarm: bool,
     /// `js_rpc`: RPC on a Durable Object class that does not extend

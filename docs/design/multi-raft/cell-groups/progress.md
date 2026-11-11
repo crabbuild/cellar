@@ -13,8 +13,9 @@ CG-17's [full primitive compatibility design](qualification.md#full-primitive-co
 adds eight delivery packages and 32 required cases. CG17-01, CG17-02 and
 CG17-03 are in progress. Ordinary JSON cell RPC handlers and async Storage
 transaction callbacks can suspend while the SQL worker serves other cells.
-Independent root checkpoint settlement and ordinary Storage sync pass scoped
-native RF3 and real-RustFS qualification; see the current checkpoint below.
+Independent root checkpoints, ordinary Storage sync and persistent native
+activation pass scoped native RF3 and real-RustFS qualification; see the current
+checkpoint below.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -23,6 +24,122 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 declared native deployment configuration
+
+Implementation source `ae64adeb` carries native deployment variables through
+ordinary Raft cell construction and invocation. Registry validation compiles one
+immutable definition before activation. Script identity, canonical variable
+values and compatibility switches bind the namespace schema; node identity and
+variable declaration order do not. Revalidation preserves the same factory and
+rejects conflicting values. Factory class identity remains independent of the
+script name.
+
+The one-shot namespace provisioning plan accepts the same configuration. Daemon
+preparation receives its active validated application through
+`NativeRaftNode.application`, avoiding a second unconfigured registry. No existing
+root is rewritten or migrated. Declarations for unimplemented binding, service,
+loader, cron, container and SQLite-vector adapters refuse activation, rather than
+producing an empty environment. Registration failures omit variable values and
+leave a valid retry possible. Admission bounds are 256 variables and 64 KiB of
+script, variable names and values; the CLI plan retains its 16 KiB file limit.
+
+At `f09613c1`, all fourteen owning host tests and nine exact native runtime
+selections pass without ignored or empty selections. The request case takes
+67.414 seconds and the activation case 212.823 seconds, each covering both
+image modes with host-native RF3 TLS. They exercise configuration identity,
+invalid-declaration refusal and values used by actual persisted writes, including
+cache reuse, leader replacement and retained restart. The existing production
+daemon/CLI regression campaign also passes in 100.776 seconds, preserving startup
+refusals, joined closure, retained histories and public SQL requests.
+
+Both exact real-RustFS cases pass at the same source: RPC in 33.615 seconds and
+activation in 166.989 seconds. Both image modes use the native executable SHA256
+`5f51948f00cb1fbc3c02336c9ae265d37f85ca646dcf36c27f6082ffc2ded7b4`.
+The owned, digest-pinned backend has one CPU and 2 GiB with no extra swap. It exits
+zero without OOM; its VM is stopped and target/default VMs are unchanged.
+The RustFS primitive voters are host-native TLS tasks. These runs do not qualify
+constrained voter processes, disk loss, the full compatibility matrix or a
+latency/throughput SLO. The process campaign covers existing synchronous SQL
+classes; separate-process ordinary factory configuration, its CLI provisioning
+and the full feature/deployment matrix remain open.
+
+Strict all-target Clippy, formatting, layout, docs, native dependencies, the
+191-symbol partial catalog, its thirteen verifier tests and all six reviewed
+source anchors pass. Source, executable and log hashes, public RustFS evidence,
+failed controls and verified shutdown are retained under
+`.cellar/cell-groups-evidence/CG-17-configuration-f09613c1-01`.
+
+The first build caught a fixture variable shadowing its command-options helper.
+The first runtime control then correctly refused a different script declaration:
+the fixture had used each voter's label as its deployed script. Its declared
+graph now follows the same configuration on every voter and retained restart,
+while node identities remain distinct. Admission assertions are unchanged and
+failed controls remain retained.
+
+This delivery does not complete ordinary named
+bindings, generation-aware dispatch, same-cell interleaving, automatic output
+barriers, the remaining primitive adapters or the complete CG-17 matrix.
+Acceptance stays **13/17 tasks and 147/195 cases**; none of the full 32 CG-17
+cases is accepted by this component checkpoint.
+
+## CG-17 persistent native activation
+
+Runtime source `435ecf01` retains ordinary native cell instances across successful
+RPCs. Constructor Storage follows that activation; each invocation has a distinct
+non-reusable token, so an escaped invocation Context or Storage cannot enter a
+later call. Cache reuse requires the same factory, cell version, engine, route
+and leader term. Its weak fence holds no image pin or engine owner, and idle
+instances retain no private SQLite connection or per-cell task.
+
+One node-wide cache shares the configured SQL pending-cell count ceiling across
+all workers. Global LRU eviction and sixty-second idle expiry run on the existing
+worker tick, with at most eight entries inspected per prune turn. Resource
+reports expose idle/retained instances and the capacity. Joined shutdown closes
+instances and reports retirement failures.
+
+Normal public receipt reconciliation retains an instance only at its exact
+prepared final image while the original leader fence is current. Unexecuted
+receipt/input refusals preserve untouched state. Preparation failures, rejected
+proposals and changed-term reconciliation retire the instance.
+
+All nine exact native selections pass at `435ecf01`. The ordinary RPC case takes
+60.130 seconds; the activation case takes 195.817 seconds. Both run materialized
+and extent images with host-native RF3 TLS. The activation case observes two SQL
+workers, fills their global eight-instance cache with nine cells, checks eviction
+and real idle expiry, transfers leadership, and restarts all retained voters.
+It verifies persistent SQL/KV and ephemeral constructor/memory counts, expired
+invocation handles, and original receipts replaying without construction. Seven
+further selections cover committed Storage, native transactions, Storage/HTML,
+due effects, joined shutdown and lost receiver replies.
+
+Two failed controls found real lifecycle gaps: normal public settlement uses
+reconciliation, and refused pending-identity retries must not evict an untouched
+instance. The unchanged reuse assertions pass after both fixes. A separate cache
+fixture control now waits for the transfer target's fresh quorum before issuing
+its replay; cache revocation alone does not establish that readiness.
+
+Strict all-target Clippy, formatting, layout, documentation, native dependencies,
+the partial catalog and all six reviewed source anchors pass. The real-RustFS
+`ordinary-primitives` suite also passes both exact cases at `435ecf01`: ordinary
+RPC in 35.212 seconds and activation lifecycle in 168.615 seconds. Both image
+modes use the same executable SHA256 as the native cases:
+`52f7a53a9eb757084fbbd8055ed19a114ed752ba767e2ccd571e39330dfe35db`.
+The owned, digest-pinned RustFS container has one CPU and 2 GiB with no extra
+swap. It exits zero without OOM; its VM is stopped and target/default VMs are
+unchanged. Voters are host-native TLS tasks. Source, executable and log hashes,
+public RustFS evidence and verified shutdown are retained under
+`.cellar/cell-groups-evidence/CG-17-activation-435ecf01-01`.
+
+Basic request deadlines remain five seconds and the cancellation control one
+second; multi-stage requests retain their upfront twenty-second budgets. The
+new cache case waits for actual transfer-target readiness and sixty-second idle
+expiry without extending those request budgets. This checkpoint does not qualify
+the full CG-17 matrix, constrained voter processes, crash/disk-loss profiles or
+any latency/throughput SLO.
+Declared binding configuration, same-cell interleaving, automatic output/dispatch
+gates, remaining Storage methods, due work and family/provider adapters remain
+open. Acceptance stays **13/17 tasks and 147/195 cases**.
 
 ## CG-17 ordinary Storage sync
 
