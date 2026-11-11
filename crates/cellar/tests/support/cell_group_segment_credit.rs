@@ -101,13 +101,7 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
                 // Response delivery can precede the producer's final admission
                 // release. Two maximum-input reservations exceed this fixture's
                 // byte bank, so serialize the workload through physical exit.
-                tokio::time::timeout(TIMEOUT, async {
-                    while host.resource_usage().host.controller.ordinary.items != 0 {
-                        tokio::time::sleep(Duration::from_millis(2)).await;
-                    }
-                })
-                .await
-                .context("previous command owner did not release its admission")?;
+                wait_for_command_exit(host).await?;
                 let receipt = cell.command(&add, payload.clone(), options.clone()).await?;
                 ensure!(receipt.result == (7 + sequence as i64).to_be_bytes());
                 last = Some((receipt, payload, options));
@@ -264,6 +258,9 @@ async fn exercise_periodic(cluster: &ManagedCluster, store: &catalog_fault::Stor
     let ((), ()) = tokio::try_join!(
         async {
             for sequence in 1..=2 * WRITES {
+                // Maximum-input reservations must wait for actual producer
+                // exit, including when its receipt has already been delivered.
+                wait_for_command_exit(&cluster.hosts[selected]).await?;
                 let receipt = cell
                     .command(
                         &contract,
@@ -313,6 +310,16 @@ async fn exercise_periodic(cluster: &ManagedCluster, store: &catalog_fault::Stor
     .await
     .context("periodic worker did not settle its retry")??;
     Ok(())
+}
+
+async fn wait_for_command_exit(host: &RaftCells) -> Result<()> {
+    tokio::time::timeout(TIMEOUT, async {
+        while host.resource_usage().host.controller.ordinary.items != 0 {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .context("previous command owner did not release its admission")
 }
 
 async fn floor_at(
