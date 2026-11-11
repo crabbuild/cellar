@@ -78,6 +78,14 @@ pub(super) fn exercise(storage: &Storage, mutate: bool) -> Result<()> {
         .context("cursor count is bounded")?
         .to_string()
         .contains("cursor count"));
+    if mutate {
+        ensure!(storage
+            .sql_cursor("INSERT INTO cursor_items VALUES(99,x'ff') RETURNING n", &[])
+            .err()
+            .context("capacity must refuse before mutation")?
+            .to_string()
+            .contains("cursor count"));
+    }
     drop(held);
     ensure!(
         storage

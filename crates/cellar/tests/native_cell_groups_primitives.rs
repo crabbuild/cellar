@@ -663,6 +663,14 @@ impl Cell for NativeCounter {
                     let mut next = update(&storage, delta)?;
                     ensure!(scope.storage()?.get_json("value")? == Some(json!(next)));
                     if let Some(index) = input["gate"].as_u64() {
+                        let mut cursor = storage.sql_cursor(
+                            "SELECT value FROM counter UNION ALL SELECT value FROM counter",
+                            &[],
+                        )?;
+                        ensure!(
+                            cursor.next_raw()?
+                                == Some(vec![cellar::sdk::storage::SqlValue::Integer(next)])
+                        );
                         let gate = original
                             .gates
                             .get(usize::try_from(index)?)
@@ -673,6 +681,11 @@ impl Cell for NativeCounter {
                         gate.resumed.fetch_add(1, Ordering::AcqRel);
                         let resumed = scope.storage()?;
                         ensure!(resumed.get_json("value")? == Some(json!(next)));
+                        ensure!(
+                            cursor.next_raw()?
+                                == Some(vec![cellar::sdk::storage::SqlValue::Integer(next)])
+                        );
+                        ensure!(cursor.next_raw()?.is_none());
                         next = update(&resumed, input["after"].as_i64().context("resumed delta")?)?;
                     }
                     if input["malformed_reply"] == json!(true) {
