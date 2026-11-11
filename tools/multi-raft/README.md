@@ -110,7 +110,7 @@ python3 tools/multi-raft/cell_groups.py --suite ordinary-primitives \
   --target-directory /absolute/checkout-private/target
 ```
 
-This selects four exact cases that run both image modes on host-native RF3.
+This selects five exact cases that run both image modes on host-native RF3.
 The checkpoint case uses two cells sharing a group and one SQL worker per node. It checks ordinary
 Storage SQL/KV, independently committed async transactions, ordered explicit
 sync, nested rollback/refusal, bounded work, partial failures, exact replay and
@@ -133,6 +133,11 @@ deadlines, leader fencing and synchronous/atomic callback refusal. Its observer
 uses the unused voter with linearizable reads while the parent and forwarded
 child retain both leader controller slots. A writer-lease refusal before enqueue
 can wait under the original deadline; an admitted callback error cannot replay.
+The name-discovery case uses a namespace read grant to resolve an enrolled name's
+current incarnation, constructs its handle inside an ordinary RPC, then issues a
+separate command after source proof. It checks absence, unpolled deadline expiry,
+synchronous/query/atomic refusal, leader transfer and quorum-loss refusal.
+Discovery cannot create a cell or reconcile an unknown command outcome.
 The runner retains source, executable and log hashes. It does not accept the
 complete CG-17 primitive matrix or qualify declared bindings, other automatic
 output/dispatch gates, independent voter processes or disk loss.

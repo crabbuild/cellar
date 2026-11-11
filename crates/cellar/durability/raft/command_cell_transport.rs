@@ -23,6 +23,10 @@ use cellar_logic::{
 use queries::{QueryConnection, SendQuery};
 use std::time::Duration;
 
+#[path = "name_cell_transport.rs"]
+mod names;
+pub(crate) use names::CellRemoteNameResponse;
+
 /// Host-owned registration. The transport retains only a weak reference, so it
 /// cannot extend the host's lifetime or create a runtime/transport ownership cycle.
 #[derive(Clone)]
@@ -158,6 +162,7 @@ enum WriteCall {
     Probe(CellCommandProbe),
     Enrollment(CellEnrollmentCall),
     Receipt(CellReceiptCall),
+    Name(wire::name::CellNameCall),
 }
 
 impl WriteCall {
@@ -167,6 +172,7 @@ impl WriteCall {
             Self::Probe(c) => c.encode(limit),
             Self::Enrollment(c) => c.encode(limit),
             Self::Receipt(c) => c.encode(limit),
+            Self::Name(c) => c.encode(limit),
         }
     }
 
@@ -176,6 +182,7 @@ impl WriteCall {
             Self::Probe(c) => &mut c.timeout_ms,
             Self::Enrollment(c) => &mut c.timeout_ms,
             Self::Receipt(c) => &mut c.timeout_ms,
+            Self::Name(c) => &mut c.timeout_ms,
         };
         *timeout = (*timeout).min(remaining);
     }
@@ -183,7 +190,7 @@ impl WriteCall {
     fn input_bytes(&self) -> usize {
         match self {
             Self::Command(c) => c.request.input.len(),
-            Self::Enrollment(_) | Self::Probe(_) => 0,
+            Self::Enrollment(_) | Self::Probe(_) | Self::Name(_) => 0,
             Self::Receipt(c) => c.request.input.len(),
         }
     }
@@ -194,6 +201,7 @@ enum WriteValue {
     Probe(bool),
     Enrollment(CellEnrollmentValue),
     Receipt(CellReceiptValue),
+    Name(Option<EnrollmentRecord>),
 }
 
 struct WriteResponse {
@@ -210,7 +218,7 @@ pub(super) struct SendCellWrite {
     call: WriteCall,
     started_at: u64,
     leader_generation: Option<std::sync::Weak<()>>,
-    keys: VersionKeys,
+    keys: Option<VersionKeys>,
     deadline: u64,
     cancel: watch::Receiver<bool>,
     reply: oneshot::Sender<Result<WriteResponse, TransportError>>,
@@ -295,7 +303,7 @@ impl RaftTransport {
                 cell,
                 member,
                 WriteCall::Command(call),
-                keys,
+                Some(keys),
                 deadline,
             )
             .await?;
@@ -339,7 +347,7 @@ impl RaftTransport {
             .sleep_until(deadline)
             .map_err(|_| TransportError::Closed)?;
         let response = crate::asyncrt::select! {
-            result = self.write_cell(route, cell, member, WriteCall::Probe(call), keys, deadline) => result?,
+            result = self.write_cell(route, cell, member, WriteCall::Probe(call), Some(keys), deadline) => result?,
             _ = timer => return Err(TransportError::Timeout),
         };
         match response.value {
@@ -363,7 +371,7 @@ impl RaftTransport {
                 cell,
                 member,
                 WriteCall::Enrollment(call),
-                keys,
+                Some(keys),
                 deadline,
             )
             .await?;
@@ -398,7 +406,7 @@ impl RaftTransport {
                 cell,
                 member,
                 WriteCall::Receipt(call),
-                keys,
+                Some(keys),
                 deadline,
             )
             .await?;
@@ -433,7 +441,7 @@ impl RaftTransport {
         cell: &CellHistory,
         member: MemberId,
         call: WriteCall,
-        keys: VersionKeys,
+        keys: Option<VersionKeys>,
         deadline: u64,
     ) -> Result<WriteResponse, TransportError> {
         let state = &self.handle.0;
@@ -612,6 +620,7 @@ impl State {
                         WriteCall::Probe(_) => route.for_command_probe()?,
                         WriteCall::Enrollment(_) => route.for_enrollment()?,
                         WriteCall::Receipt(_) => route.for_receipt()?,
+                        WriteCall::Name(_) => route.for_name()?,
                     };
                     use crate::raft::performance::Counter;
                     match request.call {
@@ -637,7 +646,7 @@ impl State {
                                 &body,
                                 (call.request.id, &request.cell, call.request.durability),
                                 request.route.schema_digest,
-                                &request.keys,
+                                request.keys.as_ref().ok_or(TransportError::Protocol)?,
                                 now,
                                 self.options.max_query_response_bytes,
                                 request.peer.replica.member,
@@ -703,7 +712,7 @@ impl State {
                                 &body,
                                 (call.request.id, &request.cell, call.request.durability),
                                 request.route.schema_digest,
-                                &request.keys,
+                                request.keys.as_ref().ok_or(TransportError::Protocol)?,
                                 now,
                                 self.options.max_query_response_bytes,
                                 request.peer.replica.member,
@@ -718,6 +727,16 @@ impl State {
                             self.options.max_query_response_bytes,
                         )?
                         .map(WriteValue::Enrollment),
+                        WriteCall::Name(_) => {
+                            return wire::name::decode_result(
+                                &body,
+                                &request.cell,
+                                request.route.schema_digest,
+                                self.options.max_query_response_bytes,
+                            )?
+                            .map(WriteValue::Name)
+                            .map_err(TransportError::Query);
+                        }
                     }
                     .map_err(TransportError::Command)
                 },

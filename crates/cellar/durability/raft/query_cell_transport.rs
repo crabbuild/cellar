@@ -268,6 +268,23 @@ impl CellQueryGateway {
 }
 
 impl State {
+    pub(in crate::raft::transport) fn check_cell_name_gateway(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<(), TransportError> {
+        let gateway = self
+            .cell_query_gateways
+            .lock()
+            .map_err(|_| TransportError::Closed)?
+            .get(&(cell.cluster, cell.namespace))
+            .and_then(|entry| entry.upgrade())
+            .ok_or(TransportError::Refused)?;
+        if !gateway.accepting.load(Ordering::Acquire) {
+            return Err(TransportError::Refused);
+        }
+        Ok(())
+    }
+
     pub(super) fn authorize_cell_query(
         &self,
         wire: &QueryRoute,
@@ -401,6 +418,7 @@ pub(super) enum IncomingCall {
     CommandProbe(crate::raft::query_wire::command::CellCommandProbe),
     Enrollment(crate::raft::query_wire::enrollment::CellEnrollmentCall),
     Receipt(crate::raft::query_wire::receipt::CellReceiptCall),
+    Name(crate::raft::query_wire::name::CellNameCall),
 }
 
 impl IncomingCall {
@@ -409,6 +427,11 @@ impl IncomingCall {
         bytes: &[u8],
         limit: usize,
     ) -> Result<Self, TransportError> {
+        if route.is_name() {
+            return Ok(Self::Name(
+                crate::raft::query_wire::name::CellNameCall::decode(bytes, limit)?,
+            ));
+        }
         if route.is_receipt() {
             return Ok(Self::Receipt(
                 crate::raft::query_wire::receipt::CellReceiptCall::decode(bytes, limit)?,
@@ -439,6 +462,7 @@ impl IncomingCall {
             Self::CommandProbe(call) => call.timeout_ms,
             Self::Enrollment(call) => call.timeout_ms,
             Self::Receipt(call) => call.timeout_ms,
+            Self::Name(call) => call.timeout_ms,
         }
     }
 
@@ -449,6 +473,7 @@ impl IncomingCall {
         deadline: u64,
     ) -> Result<super::query_replies::Reply, TransportError> {
         match self {
+            Self::Name(call) => state.execute_cell_name(route, call, deadline).await,
             Self::Command(call) => state.execute_cell_command(route, call, deadline).await,
             Self::CommandProbe(call) => {
                 state

@@ -9,7 +9,7 @@ use futures_util::future::BoxFuture;
 
 type PreparedCall<T, E> = Result<BoxFuture<'static, Result<T, Arc<E>>>, Arc<E>>;
 
-fn failure(error: anyhow::Error) -> CellDispatchError {
+pub(super) fn failure(error: anyhow::Error) -> CellDispatchError {
     let error = match error.downcast::<CellDispatchError>() {
         Ok(error) => return error,
         Err(error) => error,

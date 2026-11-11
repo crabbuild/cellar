@@ -37,6 +37,10 @@ impl RaftDispatchPermit {
 }
 
 impl RaftDispatch {
+    pub(crate) fn check_current(&self) -> Result<()> {
+        self.remaining().map(|_| ())
+    }
+
     pub(crate) fn new(authority: RaftStorageAuthority, context: RaftDispatchContext) -> Self {
         Self {
             authority,

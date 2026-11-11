@@ -144,6 +144,16 @@ impl CellGroupHost {
     /// Each invocation still obtains exact runtime/catalog authority.
     pub fn cell(&self, history: CellHistory) -> Result<CellGroupCellHandle, CellDispatchError> {
         self.inner.check_open()?;
+        self.cell_metadata(history)
+    }
+
+    /// The SDK validates the original ordinary RPC before metadata-only
+    /// construction. Actual dispatch still requires its proven source permit.
+    pub(crate) fn cell_metadata(
+        &self,
+        history: CellHistory,
+    ) -> Result<CellGroupCellHandle, CellDispatchError> {
+        self.inner.check_lifecycle()?;
         let binding = self
             .inner
             .namespaces
@@ -155,6 +165,20 @@ impl CellGroupHost {
             binding,
             history,
         })
+    }
+
+    pub(crate) fn name_directory(
+        &self,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+    ) -> Result<RangeDirectory, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let binding = self
+            .inner
+            .namespaces
+            .get(&(cluster, namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        Ok(binding.dispatcher.directory())
     }
 
     pub(crate) async fn refresh_namespace_routes(

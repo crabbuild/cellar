@@ -119,6 +119,7 @@ mod hibernation;
 mod learner;
 mod member_reclamation;
 mod membership;
+mod names;
 mod node;
 mod observation;
 mod origins;
@@ -313,7 +314,19 @@ impl RaftCells {
 
     pub fn cell(&self, history: CellHistory) -> Result<RaftCellHandle, CellDispatchError> {
         self.check_open()?;
-        let cell = self.handle.core.host.cell(history)?;
+        let cell = if crate::application::consensus::class::callback_active() {
+            let scope = crate::storage::capture_raft_dispatch()
+                .map_err(scoped_dispatch::failure)?
+                .ok_or(CellDispatchError::Execution(
+                    crate::raft::execution::ExecutionError::Refused(
+                        cellar_logic::consensus::CommandFailure::UnsupportedCapability,
+                    ),
+                ))?;
+            scope.check_current().map_err(scoped_dispatch::failure)?;
+            self.handle.core.host.cell_metadata(history)?
+        } else {
+            self.handle.core.host.cell(history)?
+        };
         Ok(RaftCellHandle {
             owner: self.clone(),
             cell,

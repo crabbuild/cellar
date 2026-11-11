@@ -500,6 +500,33 @@ outcome. Require real provider enforcement only where that adapter promises it;
 otherwise report the weaker external contract explicitly without weakening the
 cell's replicated state proof.
 
+### Logical-name discovery
+
+`RaftCells::resolve_cell_history` observes an existing name's current enrollment
+through a fresh quorum read. It returns the selected incarnation or absence and
+never initializes a name. Only linearizable consistency is admitted. The lookup
+uses the namespace read grant and authenticated, purpose-specific bounded wire
+frames; a command grant or version-token signing key is not required. Source and
+replica routing retain the original admission, attempt budget and deadline,
+including a future first polled after its deadline.
+
+Inside an ordinary JSON RPC, lookup waits for the source root's exact requested
+durability proof. The resulting exact-history handle may be constructed in the
+current invocation, while its command/query still requires separate admission and
+source proof. Synchronous commands, immutable queries and open atomic callbacks
+refuse before dispatch. Discovery neither supplies invocation authority nor
+resolves whether an earlier mutation committed; a returned absence cannot clear
+an uncertain outcome. A caller persists and reuses the original child identity.
+
+The native and isolated RustFS name-discovery cases must check read-only remote
+resolution without constructing the application, absent names, source-proof
+ordering, handle construction inside an ordinary RPC, exact replay, callback
+refusal/rollback, original deadline expiry, follower resolution after leader
+transfer and refusal without quorum. The wire tests must reject cross-purpose,
+truncated, oversized and foreign-name/schema frames. These component cases do
+not establish declared `Context` binding support, automatic enrollment, a typed
+RPC port, automatic invocation recovery or complete CG-17 acceptance.
+
 ### Additional primitive-specific oracles
 
 The twelve audit-driven cases supplement all twenty original cases:

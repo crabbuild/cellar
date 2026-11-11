@@ -33,6 +33,8 @@ mod interleaving;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
+#[path = "support/cell_group_names.rs"]
+mod names;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
 #[path = "support/raft_storage_fault.rs"]
@@ -1336,6 +1338,47 @@ async fn rustfs_ordinary_cell_sdk_dispatch_requires_source_proof() -> Result<()>
                 .await
                 .with_context(|| {
                     format!("RustFS SDK dispatch extents={rooted} durability={durability:?}")
+                })?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_cell_sdk_resolves_current_histories() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            Box::pin(names::run(
+                rooted,
+                durability,
+                Arc::new(catalog_fault::Store::default()),
+            ))
+            .await
+            .with_context(|| {
+                format!("name discovery extents={rooted} durability={durability:?}")
+            })?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ordinary_cell_sdk_resolves_current_histories() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+                if durability == Durability::S3 {
+                    "ordinary-names-s3"
+                } else {
+                    "ordinary-names-quorum"
+                },
+                rooted,
+            )?));
+            Box::pin(names::run(rooted, durability, store))
+                .await
+                .with_context(|| {
+                    format!("RustFS name discovery extents={rooted} durability={durability:?}")
                 })?;
         }
     }

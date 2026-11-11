@@ -58,6 +58,7 @@ SUITES = {
             "rustfs_ordinary_cell_activation_cache_is_bounded_and_fenced",
             "rustfs_ordinary_cell_rpcs_interleave_between_proven_roots",
             "rustfs_ordinary_cell_sdk_dispatch_requires_source_proof",
+            "rustfs_ordinary_cell_sdk_resolves_current_histories",
         ),
         "ordinary JSON cell RPC, Storage checkpoints and bounded native activation on shared RF3",
         "Both image modes. Checkpoints use two cells sharing a group and one SQL worker per node. "
@@ -77,6 +78,9 @@ SUITES = {
         "source proof with independent target durability. It checks dropped child drainage, "
         "ordered-root deadline accounting, callback refusal, recursive calls and leader fencing "
         "with the original child identity and uncertainty. Proven SDK waits release the writer. "
+        "A fifth case resolves current cell histories through authenticated read-only quorum discovery, "
+        "then constructs and invokes a target handle inside an ordinary RPC after source proof. "
+        "It checks absent names, original deadlines, callback refusal, leader transfer and quorum loss. "
         "Declared bindings, automatic dispatch gates, other primitive families, process "
         "faults, disk-loss recovery and full CG-17 acceptance remain separate gates.",
     ),
