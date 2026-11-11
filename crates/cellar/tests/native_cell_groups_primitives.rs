@@ -415,7 +415,7 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
         FirstGroupSetup::Normal,
     ))
     .await?;
-    let work = async {
+    let work = cluster.fixtures[0].domain.run(async {
         let group = cluster.history;
         let leader = managed_fixture::leader(&cluster.hosts, group).await?;
         let mut cells = Vec::new();
@@ -569,7 +569,7 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
         check_rpc_read(&current, 249, &resumed.version, json!([15, 2])).await?;
         ensure!(calls.load(Ordering::Acquire) == 6);
         Ok::<_, anyhow::Error>(())
-    }
+    })
     .await;
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
