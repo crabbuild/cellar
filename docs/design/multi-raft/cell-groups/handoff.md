@@ -54,9 +54,18 @@ replays. Twenty-five selected native tests, the existing production daemon/CLI
 campaign and four real-RustFS cases pass with matching primitive executable
 hashes. Strict all-target Clippy and repository checks pass. The owned backend
 exits zero without OOM and its VM is stopped; failed controls are retained.
-Next complete generation-aware ordinary named bindings, other output/dispatch
-adapters and remaining Storage methods
-and the compiled export/deployment audit. Binding delivery spans
+The [Storage cursor checkpoint](progress.md#cg-17-storage-keyset-cursors) adds
+public KV keyset iteration to Raft commands and committed queries at `3200321f`.
+Three owning native selections, focused strict Clippy and all six exact
+real-RustFS primitive cases pass at runner source `2f42cb5f`; its Rust/build
+inputs are unchanged. The owned backend exits zero without OOM and its VM is
+stopped. Source/log/binary hashes and shutdown proof are retained under
+`.cellar/cell-groups-evidence/CG-17-cursors-2f42cb5f-01`. The earlier intermittent
+materialized-S3 interleaving failure remains unresolved. No complete CG-17 family
+or release gate is accepted by this checkpoint.
+Next deliver SQL cursors, the remaining Storage methods, generation-aware ordinary
+named/typed bindings with durable child identities, other output/dispatch
+adapters and the compiled export/deployment audit. Binding delivery spans
 `NativeCellFactory::context`, `Registry::validate_configuration` and the typed RPC
 catalog: deployment declarations still treat those factories as Fleet classes.
 Complete binding/provider configuration and carry generation authority through shared dispatch,

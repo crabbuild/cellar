@@ -27,6 +27,57 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-17 Storage keyset cursors
+
+Source `3200321f` implements public `Storage::list_cursor` in Raft commands
+and committed queries, sharing the ordinary native range algorithm. Each step
+copies one owned row and retains no SQLite statement, worker, connection or image
+pin. A single current range per Storage owner bounds retained metadata.
+Non-wrapping generation tokens keep stale handles from erasing a newer iterator.
+Every step checks its original execution authority. A live command cursor can
+cross a transaction boundary or independent root checkpoint and observes the
+current surviving image.
+
+Three exact native selections pass: RF3 Storage conformance in 24.974 seconds,
+ordinary RPC in 73.871 seconds and the existing native Storage regression in
+0.361 seconds. Coverage includes both image forms, Quorum/S3 policies, range
+bounds, reverse traversal, limits, structured values, empty storage, mutation
+between steps, rollback, stale handles, expired callbacks and cell/version
+isolation. Affected-library/integration-target strict Clippy passes in
+172.814 seconds. Formatting, layout, dependency, documentation and partial catalog
+checks pass; the catalog remains a requirements list, not full API acceptance.
+
+Runner source `2f42cb5f` changes only the RustFS Python harness and its guide;
+native/build inputs are byte-identical to `3200321f`. Its optional `--keep-going`
+collects all six independent primitive cases, preserving aggregate failure when
+any case fails. Managed fault/process suites refuse that option. All six exact
+real-RustFS cases pass in both image forms with the same primitive executable SHA256
+`afdeb80ec3a3f8232cf3f75e4036d45c7f7325595c2e5bf63dec1c1abc0303bd`:
+
+| Case | Seconds |
+| --- | ---: |
+| Ordinary JSON RPC | 90.654 |
+| Bounded/fenced native activation | 229.145 |
+| Same-cell interleaving | 221.233 |
+| Dependent SDK dispatch | 140.511 |
+| Current-incarnation discovery | 65.353 |
+| Storage conformance and keyset cursors | 24.939 |
+
+The fixtures use host-native RF3 TLS voters and a digest-pinned RustFS container
+limited to one CPU and 2 GiB without additional swap. The backend exits zero
+without OOM and its VM is stopped; target/default VMs are unchanged. This is a
+functional checkpoint on a shared development host, not constrained-voter,
+independent-domain, load or latency-SLO qualification. The original
+materialized-S3 interleaving failure below remains unresolved despite this passing
+campaign. Do not waive it or the full matrix. Native/build input equivalence,
+command/log/binary hashes, original compilation controls and verified shutdown
+are retained in `.cellar/cell-groups-evidence/CG-17-cursors-2f42cb5f-01`.
+
+This delivers the KV cursor API boundary. SQL cursors, other Storage methods,
+named namespace bindings, durable child identities, committed due work and the
+remaining family/provider adapters stay open. Acceptance remains **13/17 tasks
+and 147/195 cases**; no full CG-17 family or release gate is accepted here.
+
 ## CG-17 current-incarnation discovery qualification control
 
 Source `f2dcf1b0` adds namespace-authorized logical-name discovery through a fresh
@@ -52,8 +103,8 @@ The targeted materialized-S3 capacity diagnostic passes with temporary probes;
 it does not clear the original failure or qualify the omitted configurations.
 Keep the original request budgets, two-command limit and uncertainty rules.
 
-The public Storage keyset-cursor adapter and its conformance extensions are in
-implementation. They do not yet have Rust compilation/runtime qualification.
+The subsequent [Storage cursor checkpoint](#cg-17-storage-keyset-cursors) records
+its separate native execution and RustFS qualification boundary.
 Full named bindings, due work and family/provider adapters remain required.
 Acceptance remains **13/17 tasks and 147/195 cases**; no full CG-17 case closes
 from this control.
