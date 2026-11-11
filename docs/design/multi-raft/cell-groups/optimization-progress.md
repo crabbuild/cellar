@@ -862,3 +862,31 @@ session. An isolated extent rerun of the identical image, using a fresh owned
 cluster and the original limits and deadlines, failed at acknowledgement of the
 original receipt after archive restoration. Both failures and their process
 ledgers remain retained; neither extent run is counted as qualified.
+
+
+## Retired-parent retry repair
+
+The repeated-split failure was a stale cached parent whose retired peers closed
+preflight connections before returning a typed group refusal. All four original
+attempts retried that unreachable placement. A repeated wholly unreachable probe
+plan now checks its exact history through the existing joined discovery owner.
+Only the trusted directory's fenced result requests interval repair; readiness,
+busy responses and the first unreachable plan retain their ordinary retry scope.
+No application mutation is replayed from an unknown response, and the original
+tickets, deadline, control banks and engine slots remain in force.
+
+Repair source manifest `82a17791`, component commit `a7bd8b0c`, passed the original
+64-cell repeated-split test in both image modes in 335 seconds. Each mode formed
+seven groups while preserving all existing receipt, SQL and reserve assertions.
+The trace records the formerly stuck parent becoming typed `StalePlacement` on
+its second probe plan, followed by successful enrollment. Focused strict Clippy
+for the library, scheduler and routing targets, formatting, layout, native
+dependency and documentation checks passed. The shared routing fixtures now reuse
+the test-root storage-fault module instead of loading that file twice.
+
+The separate coalesced-leader source manifest `e88191c7` passed 52 selected Rust
+unit cases, all seven public routing cases, both public read-ledger verifiers and
+focused strict Clippy/static checks with the shared fixture module. These are
+component results. The composed leader-owner and retired-parent repair source is
+awaiting combined qualification; public probe-storm and broader OPT-01 through
+OPT-08 gates remain open.

@@ -91,7 +91,10 @@ async fn refresh_membership(
         Ok(RouterRefreshOutcome::StalePlacement) => Err(MutationSelectionError::StalePlacement),
         // Unmanaged hosts may lack the joined discovery service.
         Err(RuntimeError::NotFound) => Ok(false),
-        Err(RuntimeError::NotReady) => Err(retry(CommandFailure::Unavailable)),
+        Err(RuntimeError::NotReady) => {
+            tracing::debug!(?history, "mutation membership discovery is not ready");
+            Err(retry(CommandFailure::Unavailable))
+        }
         Err(RuntimeError::Overloaded) => Err(retry(CommandFailure::Overloaded)),
         Err(error) => Err(CellDispatchError::Runtime(error).into()),
     }
@@ -143,7 +146,10 @@ pub(super) async fn mutation_peer(
                 .map_err(|_| CellDispatchError::Invalid("mutation leader identity").into());
         }
         Err(RuntimeError::NotFound) => (),
-        Err(RuntimeError::NotReady) => return Err(retry(CommandFailure::Unavailable)),
+        Err(RuntimeError::NotReady) => {
+            tracing::debug!(history = ?route.history, ordinal = attempt.ordinal(), "local mutation routing observation is not ready");
+            return Err(retry(CommandFailure::Unavailable));
+        }
         Err(RuntimeError::Overloaded) => return Err(retry(CommandFailure::Overloaded)),
         Err(error) => return Err(CellDispatchError::Runtime(error).into()),
     }
@@ -205,9 +211,21 @@ pub(super) async fn mutation_peer(
         Err(TransportError::Overloaded) => return Err(retry(CommandFailure::Overloaded)),
         Err(error) => return Err(CellDispatchError::Transport(error).into()),
     };
+    tracing::debug!(history = ?route.history, ordinal = attempt.ordinal(), ?outcome, refreshed, "mutation probe plan completed");
     match outcome {
         LeaderProbeOutcome::Leader(member) => Ok(Some(member)),
-        LeaderProbeOutcome::Retry(reason) => Err(retry(reason)),
+        LeaderProbeOutcome::Retry(reason) => {
+            if reason == CommandFailure::Unavailable && refreshed.is_none() && attempt.ordinal() > 1
+            {
+                // An unbound peer can close its socket before returning a typed
+                // refusal. Repeated connection failures therefore cannot prove
+                // that a cached parent is still selected. Check this exact
+                // history once, without inferring a placement change from I/O.
+                // Only the directory's fenced result requests interval repair.
+                refresh_membership(transport, route.history, session.deadline_ms()).await?;
+            }
+            Err(retry(reason))
+        }
         LeaderProbeOutcome::Membership => {
             if refreshed.is_none() {
                 refresh_membership(transport, route.history, session.deadline_ms()).await?;

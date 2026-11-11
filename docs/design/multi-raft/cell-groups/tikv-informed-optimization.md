@@ -250,9 +250,14 @@ work nor cancels other admitted waiters. Closing joins the refresh owner.
 
 Mutation destination selection carries a typed repair outcome before submission.
 Transient readiness, overload and unreachable probes consume the original retry
-budget on the installed cell placement. Missing or stale peer observations use
-the coalesced membership refresh. Only a local sealed or replaced route, or the
-trusted directory fencing the selected history, requests cell-placement repair.
+budget on the installed cell placement. A repeated wholly unreachable probe plan
+also validates that exact history through the joined membership-discovery owner.
+A retired peer can close its connection before returning a typed refusal; the
+connection error itself does not prove placement drift. Only a trusted directory
+fence changes that retry into interval repair, using the same original tickets
+and deadline. Missing or stale peer observations use the coalesced membership
+refresh. Only a local sealed or replaced route, or the trusted directory fencing
+the selected history, requests cell-placement repair.
 Membership discovery preserves namespace cache entries. Explicit recovery
 discovery still refreshes the affected namespace routes.
 

@@ -41,7 +41,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 fn trace_scheduler() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            "off,cellar::raft::transition_setup=debug,cellar::raft::group_host::directory=debug,cellar::raft::fleet_catalog::managed_transitions=debug,cellar::raft::cell_groups::directory::transition_retirement=debug,cellar::actor=warn",
+            "off,cellar::raft::cell_groups::dispatch=debug,cellar::raft::transition_setup=debug,cellar::raft::group_host::directory=debug,cellar::raft::fleet_catalog::managed_transitions=debug,cellar::raft::cell_groups::directory::transition_retirement=debug,cellar::actor=warn",
         )
         .with_test_writer()
         .try_init();

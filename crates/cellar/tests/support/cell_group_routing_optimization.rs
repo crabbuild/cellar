@@ -2,6 +2,7 @@
 
 //! One actual ingress RPC per warm write, with exact SDK and HTTP receipts.
 use super::*;
+use crate::storage_fault;
 use std::sync::atomic::AtomicUsize;
 
 #[path = "cell_group_routing_busy.rs"]
@@ -18,10 +19,6 @@ mod read_preferences;
 
 #[path = "cell_group_routing_reads.rs"]
 mod reads;
-
-#[path = "raft_storage_fault.rs"]
-#[allow(dead_code)]
-mod storage_fault;
 
 const COUNTERS: [&str; 6] = [
     "cell_command_rpc_attempts",

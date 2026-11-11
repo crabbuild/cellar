@@ -336,6 +336,9 @@ impl CellEnrollmentInvocation {
                     &self.dispatcher.domain,
                 ))
                 .await;
+                if let Err(error) = &selected {
+                    tracing::debug!(history = ?attempt.route().history, ordinal = attempt.ordinal(), ?error, "enrollment destination selection refused");
+                }
                 match selected {
                     Ok(member) => break member,
                     Err(MutationSelectionError::Retry(_))
