@@ -10,9 +10,9 @@ end-to-end implementation and hard cutover work is specified in the
 CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
-adds eight delivery packages and 32 required cases. CG17-01 and CG17-02 are in
-progress. Ordinary cell factories and single-turn JSON RPC handlers can
-use SDK Storage inside a registered Raft command.
+adds eight delivery packages and 32 required cases. CG17-01, CG17-02 and
+CG17-03 are in progress. Ordinary JSON cell RPC handlers can suspend and resume inside
+a private Raft transaction while the SQL worker serves other cells.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -21,6 +21,56 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 suspended cell RPC
+
+At `d6c4eae8`, the shared SQL worker retains a suspended handler, its
+private SQLite transaction and the existing cell, byte and log reservations.
+The original command attempt still owns the receipt and proposal identities.
+Each poll reinstalls Storage on that worker and checks the selected cell and
+leader authority. Pending polls release the worker queue slot. Other cells
+and immutable queries can proceed while the transaction is open.
+
+Worker turns rotate across ready continuations using coalesced wakes. Idle
+wake detection uses the existing 10 ms worker tick. Expiry, a closed
+preparation waiter, a revoked leader term or worker shutdown rolls back
+before submission. Successful completion records the result in the same
+transaction and follows the existing capture, proposal and exact receipt
+settlement path.
+
+`ordinary_json_rpc_uses_raft_owned_context` passed in 37.066 seconds at
+`5dbd90ba`, whose changes after `d6c4eae8` are confined to the test harness.
+It runs host-native RF3 in both image modes, two cells sharing
+a group and one SQL worker per node. A waiting handler retains private
+SQL/KV changes while an unrelated command and a committed query complete.
+Release resumes on the same private values and produces the exact quorum
+receipt. Replay skips the factory. Deadline expiry and a live guarded
+leadership transfer drop suspended handlers, reject stale continuation
+settlement and preserve the prior committed cell version.
+
+The first attempt failed because fixture timers lacked an execution domain.
+Clippy then caught an unpropagated inner scenario result in the domain wrapper.
+The corrected test propagates both results. Earlier pass-looking runs are
+excluded from qualification.
+
+The committed Storage case passed at the same test source. Six further
+regressions pass for due alarms, inbox replay, query cancellation, direct
+registered execution, rollback/result limits and native Storage. The archive
+fixture is in memory. This scope covers one atomic RPC transaction across
+polls. Real process-kill, topology, RustFS and full primitive qualification
+remain open.
+
+Strict Clippy for the affected libraries and five integration targets,
+formatting, layout, docs, native dependency, catalog and 44 plan checks pass.
+The reviewed SQL baseline anchor is re-pinned to the changed worker loop,
+with its source/excerpt assertion preserved. Source and executable hashes
+are retained in `.cellar/cell-groups-evidence/CG-17-async-rpc-5dbd90ba-01`.
+
+Next extend ordinary async `Storage::transaction()` and nested callback
+ownership on this driver. Track each independently committed mutation before
+advancing a multi-transaction invocation. Durable background work and
+provider adapters still need committed intents and recovery. The CG-17
+acceptance matrix and CG-13 stable managed recovery remain open.
 
 ## CG-17 ordinary cell RPC
 
@@ -53,13 +103,8 @@ passed. The partial catalog lists 192 SDK symbols. The checkout retains
 source and executable hashes in
 `.cellar/cell-groups-evidence/CG-17-cell-rpc-d8632d84-01`.
 
-Next give ordinary invocations an owned async driver. Carry stable invocation
-and transaction identities across polls, bind each continuation to current
-leadership and cell history, and settle submitted work from the original
-receipt. Connect ordinary activation and binding lifetimes to that driver,
-then port durable work and the remaining primitive families. Complete the
-SDK export and deployment audit alongside this work. The CG-17 acceptance
-matrix and CG-13 stable managed recovery remain open.
+See the [suspended RPC checkpoint](#cg-17-suspended-cell-rpc) for the current
+driver and remaining async work.
 
 ## CG-17 committed query Storage
 
