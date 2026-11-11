@@ -15,7 +15,7 @@ use cellar_logic::cell_group::{CellVersion, MutationSequence};
 
 #[path = "cell_rpc.rs"]
 mod rpc;
-pub(crate) use rpc::{CellRpcStart, CellRpcTurn};
+pub(crate) use rpc::{CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 
 /// A receipt read from the exact committed cell image. This is not S3 coverage.
 pub struct CellCommittedReceipt {
@@ -441,6 +441,15 @@ impl CellPrivateExecutor {
         self.pending = None;
         self.poisoned = true;
         Ok(receipt)
+    }
+
+    /// Native state can survive only a receipt at this exact final image.
+    /// Intermediate RPC checkpoints cannot return an instance to the idle cache.
+    pub(crate) fn prepared_final_version(&self) -> Option<CellVersion> {
+        self.pending
+            .as_ref()
+            .filter(|pending| pending.rpc_step.is_none())
+            .map(|pending| pending.result.clone())
     }
 
     /// Resolve the original request without requiring the original log entry.

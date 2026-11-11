@@ -32,6 +32,8 @@ struct Plan {
     operation_id: String,
     expected_revision: u64,
     #[serde(default)]
+    configuration: crate::application::consensus::NativeCellConfiguration,
+    #[serde(default)]
     image_storage: ImageStorage,
 }
 
@@ -132,7 +134,12 @@ async fn provision(
         principal: plan.principal,
         expected_revision: plan.expected_revision,
     };
-    let class = applications.namespace_class(&plan.script, &plan.version, &plan.class)?;
+    let class = applications.namespace_class(
+        &plan.script,
+        &plan.version,
+        &plan.class,
+        &plan.configuration,
+    )?;
     let bucket = storage.open().await?;
     let fleet = FleetCatalog::new(
         domain,

@@ -82,9 +82,12 @@ pub(crate) enum Operation {
     ArchivePhysicalAdmission,
     ArchivePhysicalQueue,
     EnginePurge,
+    FirstGroupArchive,
+    FirstGroupAttach,
+    FirstGroupQuorum,
 }
 
-const OPERATIONS: [Operation; 45] = [
+const OPERATIONS: [Operation; 48] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -130,6 +133,9 @@ const OPERATIONS: [Operation; 45] = [
     Operation::ArchivePhysicalAdmission,
     Operation::ArchivePhysicalQueue,
     Operation::EnginePurge,
+    Operation::FirstGroupArchive,
+    Operation::FirstGroupAttach,
+    Operation::FirstGroupQuorum,
 ];
 
 impl Operation {
@@ -180,6 +186,9 @@ impl Operation {
             Self::ArchivePhysicalAdmission => "archive_physical_admission",
             Self::ArchivePhysicalQueue => "archive_physical_queue",
             Self::EnginePurge => "engine_purge",
+            Self::FirstGroupArchive => "first_group_archive",
+            Self::FirstGroupAttach => "first_group_attach",
+            Self::FirstGroupQuorum => "first_group_quorum",
         }
     }
 }
@@ -244,9 +253,15 @@ pub(crate) enum Counter {
     CellLeaderProbeOwners,
     CellLeaderProbeJoins,
     CellLeaderProbeFinishes,
+    CellGroupTickRounds,
+    CellGroupTicksRequested,
+    CellGroupTicksCoalesced,
+    CellGroupTicksExecuted,
+    CellGroupElectionTimeouts,
+    CellGroupTickAdmissionRefusals,
 }
 
-const COUNTERS: [Counter; 58] = [
+const COUNTERS: [Counter; 64] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -305,11 +320,23 @@ const COUNTERS: [Counter; 58] = [
     Counter::CellLeaderProbeOwners,
     Counter::CellLeaderProbeJoins,
     Counter::CellLeaderProbeFinishes,
+    Counter::CellGroupTickRounds,
+    Counter::CellGroupTicksRequested,
+    Counter::CellGroupTicksCoalesced,
+    Counter::CellGroupTicksExecuted,
+    Counter::CellGroupElectionTimeouts,
+    Counter::CellGroupTickAdmissionRefusals,
 ];
 
 impl Counter {
     fn name(self) -> &'static str {
         match self {
+            Self::CellGroupTickRounds => "cell_group_tick_rounds",
+            Self::CellGroupTicksRequested => "cell_group_ticks_requested",
+            Self::CellGroupTicksCoalesced => "cell_group_ticks_coalesced",
+            Self::CellGroupTicksExecuted => "cell_group_ticks_executed",
+            Self::CellGroupElectionTimeouts => "cell_group_election_timeouts",
+            Self::CellGroupTickAdmissionRefusals => "cell_group_tick_admission_refusals",
             Self::CellLeaderProbeOwners => "cell_leader_probe_owners",
             Self::CellLeaderProbeJoins => "cell_leader_probe_joins",
             Self::CellLeaderProbeFinishes => "cell_leader_probe_finishes",
@@ -462,7 +489,6 @@ impl Registry {
 
     /// The timer follows the future's lifetime. Errors count as failures;
     /// cancellation drops the timer as abandoned rather than inventing success.
-    #[cfg(test)]
     pub(crate) async fn measure<T, E>(
         self: &Arc<Self>,
         operation: Operation,

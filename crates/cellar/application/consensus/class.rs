@@ -3,7 +3,7 @@
 //! Compiled Raft operations and their private application callbacks.
 
 use super::{
-    native_cell::{CellRpcHandler, NativeCellFactory},
+    native_cell::{CellRpcActivation, CellRpcFactory, NativeCellFactory},
     CommandId, CommittedVersion, Durability, RouteEpoch,
 };
 use crate::application::HandlerFuture;
@@ -299,16 +299,19 @@ type QueryCallback =
 type InitializerCallback =
     dyn Fn(&CellHistory, &CommandTransaction<'_>) -> anyhow::Result<()> + Send + Sync;
 
+#[derive(Clone)]
 struct Initializer {
     digest: [u8; 32],
     callback: Arc<InitializerCallback>,
 }
 
+#[derive(Clone)]
 struct Command {
     digest: [u8; 32],
     handler: CommandHandler,
 }
 
+#[derive(Clone)]
 enum CommandHandler {
     Registered(Arc<CommandCallback>),
     JsonCellRpc,
@@ -324,6 +327,7 @@ enum RegisteredCommand<'a> {
     System(&'a OperationContract),
 }
 
+#[derive(Clone)]
 struct Query {
     digest: [u8; 32],
     callback: Arc<QueryCallback>,
@@ -346,7 +350,7 @@ pub struct RaftClass {
     alarm_names: BTreeSet<String>,
     inboxes: BTreeMap<String, super::RaftInbox>,
     outbox: Option<Arc<super::RaftOutbox>>,
-    cell_factory: Option<Arc<CellRpcHandler>>,
+    cell_factory: Option<Arc<CellRpcFactory>>,
 }
 
 impl RaftClass {
@@ -404,7 +408,9 @@ impl RaftClass {
     /// Namespace/application identity binding class name, explicit version and
     /// the supplied schema-definition digest and required command contracts.
     /// Query contracts are checked independently and do not change voting
-    /// compatibility. Read this value after registering commands for the catalog.
+    /// compatibility. Ordinary cell factories also bind their admitted deployment
+    /// configuration. Resolve the active application definition before provisioning
+    /// or preparing a host; unconfigured definitions cannot serve its history.
     pub fn schema_digest(&self) -> [u8; 32] {
         self.schema_digest
     }
@@ -671,6 +677,37 @@ impl RaftClass {
         Ok(self)
     }
 
+    pub(in crate::application) fn has_cell_factory(&self) -> bool {
+        self.cell_factory.is_some()
+    }
+
+    pub(in crate::application) fn configured_cell(
+        &self,
+        configuration: &super::AdmittedCellConfiguration,
+    ) -> Self {
+        let mut class = Self {
+            name: self.name.clone(),
+            schema_version: self.schema_version,
+            base_schema_digest: self.base_schema_digest,
+            schema_digest: self.schema_digest,
+            commands: self.commands.clone(),
+            initializer: self.initializer.clone(),
+            system_commands: self.system_commands.clone(),
+            queries: self.queries.clone(),
+            blobs: self.blobs,
+            alarm_limits: self.alarm_limits,
+            alarm_names: self.alarm_names.clone(),
+            inboxes: self.inboxes.clone(),
+            outbox: self.outbox.clone(),
+            cell_factory: self.cell_factory.clone(),
+        };
+        if let Some(factory) = &self.cell_factory {
+            class.cell_factory = Some(factory.configured(configuration));
+            class.bind_command_manifest();
+        }
+        class
+    }
+
     pub(crate) fn validate_cell_factory(&self) -> Result<(), RegistrationError> {
         if self.uses_cell_factory() && self.cell_factory.is_none() {
             return Err(RegistrationError::UnsupportedFactory(self.name.clone()));
@@ -696,6 +733,7 @@ impl RaftClass {
         target: CommandTarget<'_>,
         input: &[u8],
         transaction: &CommandTransaction<'_>,
+        activation: &mut Option<CellRpcActivation>,
     ) -> anyhow::Result<HandlerFuture<Vec<u8>>> {
         self.validate_operation(contract)?;
         anyhow::ensure!(
@@ -710,7 +748,20 @@ impl RaftClass {
             .route_epoch
             .ok_or(super::CommandFailure::UnsupportedCapability)?;
         let _guard = CallbackGuard::enter()?;
-        factory(target.cell, epoch, &contract.operation, input, transaction)
+        factory.start(
+            target.cell,
+            epoch,
+            &contract.operation,
+            input,
+            transaction,
+            activation,
+        )
+    }
+
+    pub(crate) fn accepts_cell_activation(&self, activation: &CellRpcActivation) -> bool {
+        self.cell_factory
+            .as_ref()
+            .is_some_and(|factory| factory.accepts(activation))
     }
 
     pub(crate) fn poll_cell_rpc(
@@ -986,12 +1037,21 @@ impl RaftClass {
             .ok_or(RegistrationError::KindMismatch)?
             .handler;
         let CommandHandler::Registered(callback) = handler else {
-            let future = self.start_cell_rpc(contract, target, input, transaction)?;
-            // The low-level synchronous verification entry point cannot park.
-            let _guard = CallbackGuard::enter()?;
-            return future
-                .now_or_never()
-                .ok_or(super::CommandFailure::UnsupportedCapability)?;
+            let mut activation = None;
+            let result = (|| {
+                let future =
+                    self.start_cell_rpc(contract, target, input, transaction, &mut activation)?;
+                // The low-level synchronous verification entry point cannot park
+                // or retain a native instance after returning its private view.
+                let _guard = CallbackGuard::enter()?;
+                future
+                    .now_or_never()
+                    .ok_or(super::CommandFailure::UnsupportedCapability)?
+            })();
+            if let Some(activation) = activation {
+                activation.close()?;
+            }
+            return result;
         };
         let _guard = CallbackGuard::enter()?;
         callback(
@@ -1124,6 +1184,14 @@ impl RaftClass {
             hash.update(command.digest);
         }
         if self.uses_cell_factory() {
+            if let Some(configuration) = self
+                .cell_factory
+                .as_ref()
+                .and_then(|f| f.configuration_digest())
+            {
+                hash.update(b"cell-configuration-1");
+                hash.update(configuration);
+            }
             hash.update(b"json-cell-rpc-1");
             for (name, command) in &self.commands {
                 if matches!(command.handler, CommandHandler::JsonCellRpc) {

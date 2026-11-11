@@ -127,8 +127,24 @@ The JSON plan contains `catalog_id`, `cluster_id`, `incarnation_id`,
 `class`, `principal`, `request_id`, `operation_id` and `expected_revision`.
 Use the exact compiled script version and Raft class. The optional
 `image_storage` field accepts `materialized` (the default) or `extents`.
+For an ordinary Raft cell factory, supply `configuration` with `vars` as an
+array of `[name, value]` pairs and optional `compat` switches matching the
+application deployment. Script identity, variables and every compatibility
+switch participate in voting compatibility; declaration order and the local
+node name do not. Omitted configuration selects empty variables and default
+switches. The daemon validates and freezes these values before Raft startup.
+Its preparation callback resolves the configured class from
+`NativeRaftNode.application`, rather than constructing another application.
+Changing immutable configuration requires a new namespace; existing histories
+are not silently rebound. Configuration admission performs no cell construction
+or provider I/O. Values are limited to 256 variables and 64 KiB total names,
+values and script bytes; the provisioning plan still has its 16 KiB file limit.
+Ordinary factory bindings to external resources and remaining deployment
+adapters, including the SQLite vector extension, refuse startup until their
+shared execution adapters are implemented.
+
 The receipt includes the selected image policy and schema digest for the
-admin and voter configuration.
+admin and voter configuration. It does not echo variable values.
 Retain the plan and retry it byte for byte after an unknown result.
 
 ```sh

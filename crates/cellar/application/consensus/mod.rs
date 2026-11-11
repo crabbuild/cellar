@@ -15,6 +15,10 @@ mod group_contracts;
 pub(crate) use group_contracts::cell_routing_key;
 pub(crate) mod group_protocol;
 mod native_cell;
+mod native_configuration;
+pub(crate) use native_cell::CellRpcActivation;
+pub(in crate::application) use native_configuration::AdmittedCellConfiguration;
+pub(crate) use native_configuration::NativeCellConfiguration;
 mod performance;
 pub use performance::{
     RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,

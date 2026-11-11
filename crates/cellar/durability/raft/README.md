@@ -1010,6 +1010,24 @@ random source. Limits bound queued work, outbox events and retained apply work;
 complete resident-memory and scale qualification remains in the resource and
 qualification packages of the delivery plan.
 
+Shared cell-group tick observations distinguish scheduler dispatch from actual
+consensus entry. `cell_group_tick_rounds` counts timer or explicit tick turns,
+including turns with no ticking groups. `cell_group_ticks_requested` counts their
+ticking replicas, and `cell_group_ticks_coalesced` counts requests already pending.
+`cell_group_ticks_executed` counts actual RawNode ticks after Ready work drains and
+log admission permits progress. `cell_group_election_timeouts` counts nonleader
+ticks that trigger election work; it does not count successful elections.
+`cell_group_tick_admission_refusals` counts ticks refused by election log admission.
+These cumulative node totals retain fixed dimensions and supply no progress or
+capacity guarantee for an individual group.
+
+Managed first-group readiness records `first_group_archive`, `first_group_attach`
+and `first_group_quorum` duration/outcome observations. They cover archive
+authorization, durable local attachment and fresh quorum establishment within the
+existing startup deadline. Cancelled phase futures count as abandoned; returned
+errors count as failed. Successful attachment still requires fresh quorum and
+final catalog revalidation before readiness can succeed.
+
 `RaftTransport` runs on that runtime's execution domain. One persistent TLS
 connection per peer and traffic class multiplexes every registered group;
 separate control/data listeners, workers and byte/item banks reserve control

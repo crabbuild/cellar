@@ -275,6 +275,9 @@ impl RaftResourceUsage {
                 ("worker_capacity", sql.worker_capacity),
                 ("work_reservations", sql.work_reservations),
                 ("work_capacity", sql.work_capacity),
+                ("idle_activations", sql.idle_activations),
+                ("retained_activations", sql.retained_activations),
+                ("activation_capacity", sql.activation_capacity),
                 ("queue_closed", usize::from(sql.queue_closed)),
             ] {
                 sample(

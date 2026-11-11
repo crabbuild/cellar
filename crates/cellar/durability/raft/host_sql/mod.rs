@@ -107,6 +107,7 @@ impl<T: Scheduled> RequestQueue<T> {
 }
 
 pub(crate) struct Pool {
+    activations: Arc<cell_groups::RpcCache>,
     performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
     senders: Vec<mpsc::SyncSender<Envelope>>,
@@ -120,6 +121,8 @@ pub(crate) struct Pool {
 
 /// Retains only semaphore/counter metadata, never a worker, image or connection.
 pub(crate) struct ResourceObserver {
+    activations: std::sync::Weak<cell_groups::RpcCache>,
+    activation_capacity: usize,
     slots: Vec<Arc<Semaphore>>,
     stopped: Arc<AtomicBool>,
     running: Arc<AtomicUsize>,
@@ -139,11 +142,20 @@ impl ResourceObserver {
         if running_workers > self.slots.len() {
             return None;
         }
+        let (idle_activations, retained_activations, activation_capacity) =
+            match self.activations.upgrade() {
+                Some(cache) => cache.usage().ok()?,
+                None if self.stopped.load(Ordering::Acquire) => (0, 0, self.activation_capacity),
+                None => return None,
+            };
         Some(crate::application::consensus::RaftSqlUsage {
             running_workers,
             worker_capacity: self.slots.len(),
             work_reservations,
             work_capacity,
+            idle_activations,
+            retained_activations,
+            activation_capacity,
             queue_closed: self.stopped.load(Ordering::Acquire),
         })
     }
@@ -186,6 +198,7 @@ impl Pool {
         let stopped = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicUsize::new(0));
         let mut pool = Self {
+            activations: cell_groups::RpcCache::new(max_cells),
             performance: performance.clone(),
             domain: domain.clone(),
             senders: vec![],
@@ -205,13 +218,14 @@ impl Pool {
             let performance = performance.clone();
             let stopped = stopped.clone();
             let running = running.clone();
+            let activations = pool.activations.clone();
             let task = domain
                 .blocking(move || {
                     // This guard drops after cells/connections finish cleanup,
                     // including errors and callback unwinding. A waiter cannot
                     // retire this physical worker count.
                     let _running = Running::enter(running);
-                    let mut shared = cell_groups::Cells::default();
+                    let mut shared = cell_groups::Cells::new(activations);
                     let mut requests = RequestQueue::new(receiver, capacity);
                     loop {
                         if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
@@ -251,6 +265,8 @@ impl Pool {
 
     pub(crate) fn resource_observer(&self) -> ResourceObserver {
         ResourceObserver {
+            activations: Arc::downgrade(&self.activations),
+            activation_capacity: self.activations.capacity(),
             slots: self.slots.clone(),
             stopped: self.stopped.clone(),
             running: self.running.clone(),

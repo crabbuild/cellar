@@ -77,7 +77,7 @@ async fn run(case: Case) -> Result<()> {
             apis.push(api);
         }
         // Six data nodes provide overlap reservations without changing the
-        // original two-history or byte limits. Node seven is only an ingress.
+        // original two-history or byte limits. INGRESS owns no local replica.
         let mut cluster = Box::pin(ManagedCluster::start_with_applications(
             first,
             &[7, 8, 9, 10],
