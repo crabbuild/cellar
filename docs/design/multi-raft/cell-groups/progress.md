@@ -25,6 +25,68 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-17 same-cell RPC interleaving
+
+Source `3150398c` lets ordinary native RPCs share one cell activation between
+independently proven root transactions. A waiting continuation releases its
+exclusive writer lease, private SQLite connection, workspace, file lock and old
+image authority. Its future, original invocation/receipt identity and bounded
+admission ownership remain live. Another invocation can commit on the same
+instance. Resume acquires the writer and a fresh authority, verifies the original
+unfinished receipt, and reattaches the original continuation to the latest image.
+It never reruns the constructor or handler to resume work.
+
+Parking requires a completed root, no pending callback/checkpoint or resource
+cleanup, and no private SQL/schema changes. Open transactions and private DML/DDL
+retain exclusive ownership. The framework's protected dbstat temp table is
+recreated on open and does not prevent parking; application temporary tables
+remain refused. Shared activations consume one global cache slot and cannot be
+evicted or expired as idle while an invocation owns them. Term, route, history,
+engine, deadline and shutdown checks continue to fence resumption.
+
+The exact native RF3 case passes in 162.655 seconds with both image modes and
+Quorum/S3 durability. One SQL worker per node serves two invocations from the same
+client on one native instance: the later sequence commits while the first waits,
+then the first observes that newer image. Original retries retain their results.
+The case also checks private/atomic exclusion, temporary-table and protected-table
+refusals, leader transfer, joined stop while parked, retained RF3 restart, and
+unfinished receipt refusal without handler replay. Basic five-second requests,
+one-second refusal controls, twenty-second multistage requests and capacity
+bounds are unchanged.
+
+All fourteen owning host tests and nine further exact native runtime selections
+also pass: **24 native tests** including the new interleaving case. The ordinary
+RPC, activation-cache and committed-Storage selections take 57.950, 188.148 and
+23.104 seconds. Further selections cover native transactions, Storage/HTML, due
+effects, joined close and lost receiver replies.
+
+All three exact real-RustFS cases pass at the same source: ordinary RPC in 65.814
+seconds, activation lifecycle in 193.414 seconds and interleaving in 167.272
+seconds. Both image modes use primitive executable SHA256
+`952254f68e95692b07b734caa6e2ade4f469efe1470b896d59e4bfffa82e2533`,
+matching the native campaign. The owned digest-pinned backend has one CPU,
+2 GiB and no additional swap. It exits zero without OOM; its VM is stopped and
+target/default VMs are unchanged. Voters are host-native TLS tasks. Constrained
+voter processes, full public factory/ingress and provider/feature matrices,
+disk-loss/load profiles and performance SLOs remain unqualified.
+
+Strict all-target Clippy passes in 496.686 seconds. Formatting, layout,
+documentation, native dependencies, the partial catalog, its thirteen verifier
+tests and all six reviewed source anchors pass. Source, executable and log hashes,
+public RustFS evidence, excluded controls and verified shutdown are retained under
+`.cellar/cell-groups-evidence/CG-17-interleaving-3150398c-01`.
+
+The first controls exposed two fixture/runtime issues: initialization needed the
+batch SQL API, and the connection's permanent protected dbstat table made the
+initial no-temp-object guard reject every parking candidate. A proposed user-temp
+fixture was corrected to preserve the existing SQL-authorizer refusal. Failed and
+diagnostic controls retain their original records and do not count as acceptance.
+
+Automatic output/dispatch barriers, named bindings, remaining Storage methods,
+committed due work, family/provider adapters and the full compatibility matrix
+remain open. Acceptance stays **13/17 tasks and 147/195 cases**; this component
+checkpoint does not accept a complete CG-17 case or the release gate.
+
 ## CG-17 declared native deployment configuration
 
 Implementation source `ae64adeb` carries native deployment variables through
