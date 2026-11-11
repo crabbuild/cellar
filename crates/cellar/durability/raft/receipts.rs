@@ -238,7 +238,7 @@ fn inspect_identity_state(
             _ => return Err(corrupt()),
         };
         let rpc_step = row.6.map(number).transpose()?;
-        if rpc_step == Some(0) {
+        if rpc_step == Some(0) || (rpc_step.is_some() && !row.3.is_empty()) {
             return Err(corrupt());
         }
         if rpc_step.is_some() && !allow_pending {

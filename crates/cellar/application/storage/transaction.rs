@@ -406,8 +406,10 @@ impl Storage {
     /// callback errors and panics roll back without resetting the cell. Root
     /// transactions reserve slots in call order; nested children finish before
     /// this boundary commits or rolls back, even if their futures are dropped.
-    /// Within a Raft RPC these callbacks own savepoints in the RPC transaction.
-    /// Their work becomes durable with that RPC's applied receipt.
+    /// Within a Raft RPC each root callback waits for its independently applied
+    /// checkpoint and required archive proof. Nested callbacks own savepoints
+    /// within that root. A later RPC failure preserves already committed roots;
+    /// retries of an unfinished invocation cannot reexecute those callbacks.
     pub fn transaction<T, F, Fut>(&self, context: &Context, callback: F) -> HandlerFuture<T>
     where
         T: Send + 'static,

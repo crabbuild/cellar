@@ -166,10 +166,15 @@ impl CellPrivateExecutor {
             .database_mut()
             .settle(transaction, result)
             .map_err(private_failure)?;
-        self.capture_stage(
+        let outcome = self.capture_stage(
             attempt,
             preparation.ok_or(ExecutionError::Invalid("RPC preparation missing"))?,
-        )
+        )?;
+        self.pending
+            .as_mut()
+            .ok_or(ExecutionError::Uncertain)?
+            .rpc_prior_steps = step;
+        Ok(outcome)
     }
 
     pub(crate) fn stage_rpc_checkpoint(

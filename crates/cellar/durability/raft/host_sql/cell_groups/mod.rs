@@ -636,7 +636,6 @@ impl CellGroupSqlPool {
             class,
             input,
             CellSqlStageMode::verification(allow_new),
-            None,
         )
         .await
         .map_err(|failure| failure.error)
@@ -650,7 +649,6 @@ impl CellGroupSqlPool {
         class: Arc<crate::application::consensus::RaftClass>,
         input: Vec<u8>,
         mode: CellSqlStageMode,
-        commits: Option<RpcCommitContext>,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         self.stage_compiled_owned(
             options,
@@ -661,7 +659,31 @@ impl CellGroupSqlPool {
                 class,
                 input: input.into_boxed_slice(),
                 system: false,
-                commits,
+                commits: None,
+            },
+        )
+        .await
+    }
+
+    pub(crate) async fn stage_rpc_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Vec<u8>,
+        commits: RpcCommitContext,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        self.stage_compiled_owned(
+            options,
+            authority,
+            attempt,
+            CellSqlStageMode::InvokeBefore(commits.deadline),
+            worker::Callback::Registered {
+                class,
+                input: input.into_boxed_slice(),
+                system: false,
+                commits: Some(commits),
             },
         )
         .await
