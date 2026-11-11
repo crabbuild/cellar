@@ -286,6 +286,7 @@ async fn storage_reads_and_writes_exact_cell_versions() -> Result<()> {
 
 struct NativeCounter {
     storage: Storage,
+    rejected: Arc<AtomicUsize>,
 }
 
 impl Cell for NativeCounter {
@@ -305,9 +306,11 @@ impl Cell for NativeCounter {
             let next = update(&self.storage, delta)?;
             ensure!(context.storage()?.get_json("value")? == Some(json!(next)));
             if input["suspend"] == json!(true) {
+                self.rejected.fetch_add(1, Ordering::AcqRel);
                 std::future::pending::<()>().await;
             }
             if input["malformed_reply"] == json!(true) {
+                self.rejected.fetch_add(1, Ordering::AcqRel);
                 return Ok(Output::Rpc(RpcData::Json("malformed".into())));
             }
             Ok(Output::Rpc(RpcData::Json(json!(next).to_string())))
@@ -317,8 +320,10 @@ impl Cell for NativeCounter {
 
 async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
+    let rejected = Arc::new(AtomicUsize::new(0));
     let saved_context = Arc::new(Mutex::new(None::<Context>));
     let factory_calls = calls.clone();
+    let factory_rejected = rejected.clone();
     let factory_context = saved_context.clone();
     let class = RaftClass::new("Counter", 1, [231; 32])?
         .initializer([232; 32], |_, tx| {
@@ -355,7 +360,10 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
                     .map_or(0, |value| value.as_i64().unwrap_or(-1));
                 ensure!(count >= 0);
                 storage.put_json("factories", &json!(count + 1))?;
-                Ok(Arc::new(NativeCounter { storage }))
+                Ok(Arc::new(NativeCounter {
+                    storage,
+                    rejected: factory_rejected.clone(),
+                }))
             },
         )?,
     );
@@ -400,18 +408,18 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
         let retry = u64::try_from(now)?
             .checked_add(60_000)
             .context("retry horizon")?;
-        let options = |sequence| -> Result<CommandOptions> {
+        let options = |client| -> Result<CommandOptions> {
             Ok(CommandOptions::new(
-                CommandId::new(ClientId::new([237; 16])?, sequence)?,
+                CommandId::new(ClientId::new([client; 16])?, 1)?,
                 retry,
             ))
         };
         let update = cell.contract("Update")?;
         let input = serde_json::to_vec(&json!({"delta": 7}))?;
-        let written = cell.command(&update, input.clone(), options(1)?).await?;
+        let written = cell.command(&update, input.clone(), options(237)?).await?;
         ensure!(written.result == b"7" && written.durability == Durability::Quorum);
         ensure!(written.witness.group == group);
-        let replay = cell.command(&update, input, options(1)?).await?;
+        let replay = cell.command(&update, input, options(237)?).await?;
         ensure!(replay.result == written.result && replay.version == written.version);
         ensure!(calls.load(Ordering::Acquire) == 1);
         ensure!(saved_context
@@ -422,16 +430,25 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
             .storage()
             .is_err());
 
-        for (sequence, input) in [
-            (2, json!({"delta": 10, "suspend": true})),
-            (3, json!({"delta": 20, "malformed_reply": true})),
-        ] {
-            ensure!(cell
-                .command(&update, serde_json::to_vec(&input)?, options(sequence)?)
-                .await
-                .is_err());
-        }
+        let suspended = cell
+            .command(
+                &update,
+                serde_json::to_vec(&json!({"delta": 10, "suspend": true}))?,
+                options(239)?,
+            )
+            .await
+            .expect_err("suspended handler must refuse");
+        ensure!(suspended.cause.refusal() == Some(&CommandFailure::UnsupportedCapability));
+        ensure!(cell
+            .command(
+                &update,
+                serde_json::to_vec(&json!({"delta": 20, "malformed_reply": true}))?,
+                options(240)?,
+            )
+            .await
+            .is_err());
         ensure!(calls.load(Ordering::Acquire) == 3);
+        ensure!(rejected.load(Ordering::Acquire) == 2);
         let observed = cell
             .query(
                 ProposalId::new([238; 16])?,
