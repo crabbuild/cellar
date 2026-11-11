@@ -486,11 +486,12 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
         )?;
         *api.cells
             .lock()
-            .map_err(|_| anyhow::anyhow!("binding poisoned"))? = Some(service);
+            .map_err(|_| anyhow::anyhow!("binding poisoned"))? = Some(service.clone());
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
         let router = recovery::observe_voter(counter::router(api), group.clone()).merge(admin);
+        let router = diagnostics::with_diagnostics(router, group.clone(), service);
         let router = maintenance::with_handoff(router, group);
         let task = axum_runtime.spawn(async move {
             let listener = tokio::net::TcpListener::from_std(listener)?;

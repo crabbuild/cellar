@@ -12,6 +12,8 @@ mod configuration;
 #[path = "../../../examples/raft-counter/counter.rs"]
 #[allow(dead_code)]
 mod counter;
+#[path = "support/raft_daemon_diagnostics.rs"]
+mod diagnostics;
 #[path = "support/raft_daemon_docker.rs"]
 mod docker;
 #[path = "support/raft_daemon_managed.rs"]
@@ -910,14 +912,27 @@ async fn qualify() -> Result<()> {
         &mut ledger,
     )
     .await?;
-    archive::verify(
+    let archived = archive::verify(
         root.path(),
         &client,
         &addresses[acknowledged[0].ingress_member],
         &acknowledged[0].receipt,
         &mut ledger,
     )
-    .await?;
+    .await;
+    if archived.is_err() {
+        if let Err(error) = diagnostics::record_failure(
+            &client,
+            &addresses,
+            &mut ledger,
+            "archive_failure_snapshot",
+        )
+        .await
+        {
+            eprintln!("archive failure observations unavailable: {error:#}");
+        }
+    }
+    archived?;
     recovery::hard_kill_and_resume(
         root.path(),
         &client,
@@ -927,7 +942,7 @@ async fn qualify() -> Result<()> {
         &mut ledger,
     )
     .await?;
-    managed::maintenance::qualify(
+    let maintained = managed::maintenance::qualify(
         root.path(),
         &client,
         &mut cluster,
@@ -935,7 +950,20 @@ async fn qualify() -> Result<()> {
         &acknowledged[0],
         &mut ledger,
     )
-    .await?;
+    .await;
+    if maintained.is_err() {
+        if let Err(error) = diagnostics::record_failure(
+            &client,
+            &addresses,
+            &mut ledger,
+            "maintenance_failure_snapshot",
+        )
+        .await
+        {
+            eprintln!("maintenance failure observations unavailable: {error:#}");
+        }
+    }
+    maintained?;
     let mut members = [1, 2, 3];
     let repair = std::env::var_os(managed::repair::ENABLED).is_some();
     if repair {
