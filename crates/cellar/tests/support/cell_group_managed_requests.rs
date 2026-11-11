@@ -45,6 +45,14 @@ pub async fn endpoint_refresh_keeps_membership() -> Result<()> {
     optimization::endpoint_refresh_keeps_membership().await
 }
 
+pub async fn read_first_refreshes_endpoint() -> Result<()> {
+    optimization::read_first_refreshes_endpoint(None).await
+}
+
+pub async fn read_first_refreshes_endpoint_with_store(make: RoutingStoreFactory) -> Result<()> {
+    optimization::read_first_refreshes_endpoint(Some(make)).await
+}
+
 pub async fn endpoint_refresh_keeps_membership_with_store(make: RoutingStoreFactory) -> Result<()> {
     optimization::endpoint_refresh_keeps_membership_with_store(make).await
 }

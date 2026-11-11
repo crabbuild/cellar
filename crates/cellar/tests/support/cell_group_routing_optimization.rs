@@ -103,6 +103,10 @@ pub(super) async fn endpoint_refresh_keeps_membership() -> Result<()> {
     run(Scenario::Endpoint).await
 }
 
+pub(super) async fn read_first_refreshes_endpoint(make: Option<RoutingStoreFactory>) -> Result<()> {
+    endpoint::read_first(make).await
+}
+
 pub(super) async fn endpoint_refresh_keeps_membership_with_store(
     make: RoutingStoreFactory,
 ) -> Result<()> {

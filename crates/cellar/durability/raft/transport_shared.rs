@@ -4,10 +4,41 @@
 use super::*;
 use crate::raft::cache::GroupLog;
 use crate::raft::cell_groups::CellGroupRuntime;
-use cellar_logic::consensus::NodeIdentity;
+use crate::raft::group_host::{RouterRefreshClient, RouterRefreshKey};
+use cellar_logic::consensus::{MemberId, NodeIdentity};
 
 type PhysicalRoute = GroupRoute<GroupHistory>;
 type PhysicalPeer = RaftPeer<GroupHistory>;
+
+fn endpoint_request(
+    registry: &Registry,
+    view: &PhysicalRoute,
+    node: NodeId,
+) -> Result<(RouterRefreshClient, RouterRefreshKey), RuntimeError> {
+    let peer = view
+        .peers
+        .iter()
+        .find(|peer| peer.replica.node == node)
+        .ok_or(RuntimeError::NotFound)?;
+    let observation = registry
+        .node_views
+        .get(&node)
+        .map(|view| (view.storage_instance(), view.revision()));
+    let key = RouterRefreshKey::endpoint(
+        view.scope.cluster,
+        NodeIdentity {
+            node,
+            disk: peer.replica.disk,
+            process: peer.replica.process,
+        },
+        observation,
+    );
+    let client = registry
+        .router_refresh
+        .clone()
+        .ok_or(RuntimeError::NotFound)?;
+    Ok((client, key))
+}
 
 pub(super) enum SendRoute {
     Legacy {
@@ -135,7 +166,7 @@ impl RaftTransport {
         node: NodeId,
         deadline: u64,
     ) -> Result<(), RuntimeError> {
-        let (client, key) = {
+        let request = {
             let state = &self.handle.0;
             let registry = state.registry.lock().map_err(|_| RuntimeError::Closed)?;
             state.admit(&registry).map_err(|_| RuntimeError::Closed)?;
@@ -146,30 +177,49 @@ impl RaftTransport {
             if view.schema_digest != route.schema_digest {
                 return Err(RuntimeError::NotReady);
             }
-            let peer = view
-                .peers
-                .iter()
-                .find(|peer| peer.replica.node == node)
-                .ok_or(RuntimeError::NotFound)?;
-            let observation = registry
-                .node_views
-                .get(&node)
-                .map(|view| (view.storage_instance(), view.revision()));
-            let key = crate::raft::group_host::RouterRefreshKey::endpoint(
-                route.history.cluster,
-                NodeIdentity {
-                    node,
-                    disk: peer.replica.disk,
-                    process: peer.replica.process,
-                },
-                observation,
-            );
-            let client = registry
-                .router_refresh
-                .clone()
-                .ok_or(RuntimeError::NotFound)?;
-            (client, key)
+            endpoint_request(&registry, view, node)?
         };
+        self.request_cell_endpoint(request, deadline).await
+    }
+
+    /// Repair only the selected member's authenticated boot mismatch. The
+    /// controller supplies its active-local versus ingress-only routing source;
+    /// a retained physical source must not shadow the ingress discovery view.
+    pub(crate) async fn refresh_cell_query_endpoint(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        member: MemberId,
+        router: bool,
+        deadline: u64,
+    ) -> Result<(), TransportError> {
+        let request = {
+            let state = &self.handle.0;
+            let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+            state.admit(&registry)?;
+            let view = if router {
+                registry.cell_query_groups.get(&route.history)
+            } else {
+                registry.physical_groups.get(&route.history)
+            }
+            .ok_or(TransportError::UnknownGroup)?;
+            if view.schema_digest != route.schema_digest {
+                return Err(TransportError::Identity);
+            }
+            let Some(node) = State::changed_cell_endpoint(&registry, view, member) else {
+                return Ok(());
+            };
+            endpoint_request(&registry, view, node).map_err(TransportError::Runtime)?
+        };
+        self.request_cell_endpoint(request, deadline)
+            .await
+            .map_err(TransportError::Runtime)
+    }
+
+    async fn request_cell_endpoint(
+        &self,
+        (client, key): (RouterRefreshClient, RouterRefreshKey),
+        deadline: u64,
+    ) -> Result<(), RuntimeError> {
         self.handle
             .0
             .performance

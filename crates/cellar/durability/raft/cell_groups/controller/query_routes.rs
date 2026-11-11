@@ -341,6 +341,13 @@ impl Destination<'_> {
         if is_local {
             self.local(invocation, options, permit).await
         } else {
+            self.transport
+                .refresh_cell_query_endpoint(route, member, router, attempt.deadline_ms())
+                .await
+                .map_err(|error| match error {
+                    TransportError::Runtime(error) => Error::Runtime(error),
+                    error => Error::Transport(error),
+                })?;
             invocation
                 .execute_remote(self.transport, member)
                 .await

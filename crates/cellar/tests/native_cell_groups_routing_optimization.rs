@@ -124,6 +124,18 @@ async fn unrelated_follower_keeps_leader() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn read_first_refreshes_endpoint() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::read_first_refreshes_endpoint()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_read_first_refreshes_endpoint() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::read_first_refreshes_endpoint_with_store(rustfs::store))
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_unrelated_follower_keeps_leader() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::unrelated_follower_keeps_leader_with_store(rustfs::store))

@@ -4,6 +4,13 @@
 use super::*;
 use object_store::ObjectStore as _;
 
+#[path = "cell_group_routing_endpoint_reads.rs"]
+mod reads;
+
+pub(super) async fn read_first(make: Option<RoutingStoreFactory>) -> Result<()> {
+    Box::pin(reads::run(make)).await
+}
+
 const WORK: [&str; 7] = [
     "cell_command_rpc_attempts",
     "cell_command_leader_probes",
@@ -212,7 +219,13 @@ async fn exercise_target(
         lead_on_zero(cluster).await?;
         let warmed = cell
             .command(&increment, 1_i64.to_be_bytes().to_vec(), selected.clone())
-            .await?;
+            .await
+            .with_context(|| {
+                format!(
+                    "endpoint warm original-ID replay before {caller} restart, repairing_leader={repairing_leader}, id={:?}, work={:?}",
+                    selected.id, work(cluster)
+                )
+            })?;
         ensure!(
             warmed.id == latest.id
                 && warmed.result == latest.result
