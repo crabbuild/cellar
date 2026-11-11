@@ -26,6 +26,8 @@ pub mod catalog_fault;
 mod activations;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
+#[path = "support/sql_cursor_rollback.rs"]
+mod cursor_rollback;
 #[path = "support/cell_group_dispatch.rs"]
 mod dispatch;
 #[path = "support/cell_group_interleaving.rs"]
@@ -723,8 +725,6 @@ fn transaction_row(storage: &Storage, name: &str, value: i64) -> Result<()> {
 async fn exercise_raft_transactions(storage: Storage, context: Context) -> Result<()> {
     exercise_raft_kv_cursors(&storage, true)?;
     sql_cursors::exercise(&storage, true)?;
-    let mut sql_across_root = storage.sql_cursor("SELECT n FROM cursor_items ORDER BY n", &[])?;
-    ensure!(sql_across_root.next_raw()? == Some(vec![cellar::sdk::storage::SqlValue::Integer(1)]));
     let mut across_root = storage.list_cursor(&cellar::sdk::ListOptions {
         prefix: Some("cursor:".into()),
         ..Default::default()
@@ -742,7 +742,7 @@ async fn exercise_raft_transactions(storage: Storage, context: Context) -> Resul
         &[],
     )?;
     let scope = context.clone();
-    let escaped = storage
+    let (escaped, mut sql_across_root) = storage
         .transaction(&context, move |outer| async move {
             transaction_row(&outer, "outer", 1)?;
             outer.put_json("cursor:15", &json!(15))?;
@@ -804,7 +804,11 @@ async fn exercise_raft_transactions(storage: Storage, context: Context) -> Resul
                 transaction_row(&child, "detached", 3)
             });
             drop(detached);
-            Ok(outer)
+            // Prior schema changes make SQLite invalidate live VMs on ROLLBACK
+            // TO. Open after those controls to isolate the root checkpoint.
+            let mut cursor = outer.sql_cursor("SELECT n FROM cursor_items ORDER BY n", &[])?;
+            ensure!(cursor.next_raw()? == Some(vec![cellar::sdk::storage::SqlValue::Integer(1)]));
+            Ok((outer, cursor))
         })
         .await?;
     ensure!(

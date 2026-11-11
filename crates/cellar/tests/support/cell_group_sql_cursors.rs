@@ -48,6 +48,7 @@ pub(super) fn exercise(storage: &Storage, mutate: bool) -> Result<()> {
     ensure!(closed.next_raw()?.is_none());
 
     if mutate {
+        super::cursor_rollback::check(storage)?;
         let cursor = storage
             .transaction_sync(|tx| tx.sql_cursor("SELECT n FROM cursor_items ORDER BY n", &[]))?;
         ensure!(
