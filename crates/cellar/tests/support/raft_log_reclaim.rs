@@ -20,7 +20,7 @@ fn payload(group: u8, index: u64) -> Vec<u8> {
         .collect()
 }
 
-fn inventory(path: &Path) -> Result<BTreeMap<std::ffi::OsString, u64>> {
+pub(super) fn inventory(path: &Path) -> Result<BTreeMap<std::ffi::OsString, u64>> {
     let mut files = BTreeMap::new();
     for entry in std::fs::read_dir(path.join("log"))? {
         let entry = entry?;

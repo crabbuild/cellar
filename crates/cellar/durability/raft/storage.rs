@@ -33,6 +33,10 @@ use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
 
+#[path = "storage_segment_purge.rs"]
+mod segment_purge;
+pub use segment_purge::RaftSegmentPurgeReceipt;
+
 #[path = "storage_segments.rs"]
 mod segments;
 pub use segments::{RaftSegmentFile, RaftSegmentId, RaftSegmentInventory, RaftSegmentQueue};
@@ -334,6 +338,7 @@ enum Work {
     MemberStatus(GroupHistory, Reply<Option<MemberReclaimAck>>),
     FinishMember(Box<MemberReclaimAck>, Reply<MemberReclaimAck>),
     SegmentInventory(Reply<RaftSegmentInventory>),
+    SegmentPurge(u64, Reply<RaftSegmentPurgeReceipt>),
     Purge(Reply<()>),
 }
 
@@ -1057,6 +1062,16 @@ impl ReplicaLog {
             .await
     }
 
+    /// Purge with a recoverable file receipt. Numbers start at one and advance
+    /// by one per engine. Reusing the current number resumes the pending purge
+    /// or returns its exact completed receipt.
+    pub async fn purge_segments(&self, number: u64) -> Result<RaftSegmentPurgeReceipt, LogError> {
+        self.request(segment_purge::PURGE_BYTES, |reply| {
+            Work::SegmentPurge(number, reply)
+        })
+        .await
+    }
+
     pub async fn purge(&self) -> Result<(), LogError> {
         self.request(1024, Work::Purge).await
     }
@@ -1309,6 +1324,10 @@ impl Worker {
         self.cache_bytes = usize::try_from(self.source_budget()?)
             .map_err(|_| LogError::Overloaded)?
             .checked_mul(super::cell_groups::source_reclaim::CACHE_BYTES)
+            .ok_or(LogError::Overloaded)?;
+        self.cache_bytes = self
+            .cache_bytes
+            .checked_add(self.segment_purge_cache_bytes()?)
             .ok_or(LogError::Overloaded)?;
         if self.cache_bytes > self.options.max_cache_bytes {
             return Err(LogError::Overloaded);
@@ -2752,6 +2771,22 @@ impl Worker {
                 Work::SegmentInventory(reply) => {
                     let _ = reply.send(self.segment_inventory());
                     None
+                }
+                Work::SegmentPurge(number, reply) => {
+                    let sequence = self.root.sequence;
+                    let result = self.purge_segments(number);
+                    if self.root.sequence != sequence {
+                        purge_at = domain
+                            .mono_ms()
+                            .map_err(|_| LogError::Closed)?
+                            .saturating_add(self.options.purge_interval_ms.unwrap_or(0));
+                    }
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
                 }
                 Work::Purge(reply) => {
                     let result = self.purge();

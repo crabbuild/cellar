@@ -393,6 +393,10 @@ files and a complete inventory.
 The verification API captures append and rewrite file identities and lengths on
 the storage worker. It checks the directory against both active queue spans and
 binds the result to the current node, disk, engine, process, and durable sequence.
+A numbered segment purge syncs that inventory before attempting deletion, then
+syncs and reconciles the directory and records the exact removed files at a
+second durable sequence. The current number can be resumed or replayed after
+restart. Its stored receipt remains available until the next number is selected.
 The file-size and purge thresholds are soft engine watermarks, not a disk quota.
 
 Every newly created engine persists a nonzero `EngineInstanceId` in both its

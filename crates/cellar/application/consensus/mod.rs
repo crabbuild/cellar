@@ -251,7 +251,7 @@ pub mod verification {
     };
     pub use crate::raft::storage::{
         CellGroupBootstrap, GroupBootstrap, LogError, RaftSegmentFile, RaftSegmentId,
-        RaftSegmentInventory, RaftSegmentQueue, ReplicaLog, SyncReceipt,
+        RaftSegmentInventory, RaftSegmentPurgeReceipt, RaftSegmentQueue, ReplicaLog, SyncReceipt,
     };
     pub use crate::raft::transport::{
         CellGroupCheckpointRegistration, CellGroupSeedError, CellGroupSeedSession, Delivery,
