@@ -69,7 +69,9 @@ SUITES = {
         "retained RF3 restart and receipt replay without constructing another instance. "
         "A third case interleaves same-client invocations on one native instance between proven "
         "roots, reopens the latest image, holds private DML/DDL and atomic transactions exclusive, "
-        "and fences a parked continuation after leader transfer. It runs Quorum and explicit S3. "
+        "and fences a parked continuation after leader transfer. Joined stop cancels parked work; "
+        "retained RF3 restart restores its first root and unfinished receipt without replay. "
+        "It runs Quorum and explicit S3. "
         "Declared bindings, automatic dispatch gates, other primitive families, process "
         "faults, disk-loss recovery and full CG-17 acceptance remain separate gates.",
     ),

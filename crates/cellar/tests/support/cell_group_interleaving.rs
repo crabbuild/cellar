@@ -3,10 +3,11 @@
 //! Ordinary same-cell RPCs share an activation between proven transaction roots.
 
 use super::*;
+use cellar::sdk::ShutdownMode;
 
 struct Interleaved {
     storage: Storage,
-    gates: Arc<[RpcGate; 3]>,
+    gates: Arc<[RpcGate; 4]>,
     calls: Arc<AtomicUsize>,
 }
 
@@ -29,6 +30,16 @@ impl Cell for Interleaved {
                     self.storage
                         .transaction(&context, |tx| async move { update(&tx, 1) })
                         .await?;
+                    // Application temp objects remain unsupported. Refused SQL
+                    // cannot remove or replace the protected framework table.
+                    ensure!(self
+                        .storage
+                        .sql("CREATE TEMP TABLE private_temporary(value INTEGER)", &[])
+                        .is_err());
+                    ensure!(self
+                        .storage
+                        .sql("DROP TABLE temp.__sys_raft_capacity", &[])
+                        .is_err());
                     let gate = usize::try_from(input["gate"].as_u64().context("gate")?)?;
                     self.gates[gate].entered.notify_one();
                     let _waiting = Waiting(&self.gates[gate].dropped);
@@ -44,12 +55,9 @@ impl Cell for Interleaved {
                         json!([before, after]).to_string(),
                     )));
                 }
-                "private" | "schema" | "temporary" => {
+                "private" | "schema" => {
                     self.storage.sync().await?;
-                    if kind == "temporary" {
-                        self.storage
-                            .sql("CREATE TEMP TABLE private_temporary(value INTEGER)", &[])?;
-                    } else if kind == "schema" {
+                    if kind == "schema" {
                         self.storage
                             .sql("CREATE TABLE private_schema(value INTEGER)", &[])?;
                     } else {
@@ -115,7 +123,7 @@ pub async fn run(
 ) -> Result<()> {
     let constructors = Arc::new(AtomicUsize::new(0));
     let calls = Arc::new(AtomicUsize::new(0));
-    let gates: Arc<[RpcGate; 3]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
+    let gates: Arc<[RpcGate; 4]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
     let counted = constructors.clone();
     let called = calls.clone();
     let waiting = gates.clone();
@@ -231,14 +239,10 @@ pub async fn run(
             );
             ensure!(calls.load(Ordering::Acquire) == 2);
 
-            // Open async transactions, private DML, private schema changes and
-            // user temporary objects all preserve their writer after a prior
-            // independently proven root. The protected framework dbstat is recreated.
+            // Open async transactions, private DML and private schema changes
+            // preserve their writer after a prior independently proven root.
             let mut baseline = 13;
-            for (index, kind) in ["atomic", "private", "schema", "temporary"]
-                .into_iter()
-                .enumerate()
-            {
+            for (index, kind) in ["atomic", "private", "schema"].into_iter().enumerate() {
                 let client = 191 + index as u8 * 2;
                 let mut atomic = command(client, 1, durability)?;
                 atomic.timeout = Duration::from_secs(20);
@@ -321,6 +325,85 @@ pub async fn run(
                     .await?
                     .result
                     == json!(baseline + 3).to_string().as_bytes()
+            );
+
+            // Joined shutdown must cancel a parked future without keeping its
+            // SQLite workspace or writer lease alive. Retained restart restores
+            // the first root and unfinished receipt, never the lost continuation.
+            let held = input("wait", 3);
+            let mut stopping = command(205, 1, durability)?;
+            stopping.timeout = Duration::from_secs(20);
+            let (stopped_rpc, stopped) = tokio::join!(
+                recovered.command(&run, held.clone(), stopping.clone()),
+                async {
+                    cellar::asyncrt::timeout(TIMEOUT, gates[3].entered.notified()).await?;
+                    ensure!(value(&recovered, 206).await? == baseline + 4);
+                    let usage = cluster.hosts[target]
+                        .resource_usage()
+                        .sql
+                        .context("parked writer")?;
+                    ensure!(usage.active_cells == 0 && usage.retained_activations == 1);
+                    let old_hosts = std::mem::take(&mut cluster.hosts);
+                    let identities = old_hosts
+                        .iter()
+                        .map(RaftCells::identity)
+                        .collect::<Vec<_>>();
+                    managed_fixture::close_group_nodes(
+                        std::mem::take(&mut cluster.nodes),
+                        &old_hosts,
+                    )
+                    .await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[3].dropped.notified()).await?;
+                    cluster.peers.clear();
+                    for (index, fixture) in cluster.fixtures.iter().enumerate() {
+                        let node = fixture.start_node(cluster.roots[index].path()).await?;
+                        let started = async {
+                            let (mut config, services) = fixture
+                                .config(&node, LogOpenMode::Resume, 104 + index as u8)
+                                .await?;
+                            managed_fixture::archives::configure(&mut config);
+                            let peer = config.peers[0].clone();
+                            node.start_raft_cells(config, services)
+                                .await
+                                .map(|host| (host, peer))
+                        }
+                        .await;
+                        let (host, peer) = match started {
+                            Ok(started) => started,
+                            Err(error) => {
+                                node.shutdown(ShutdownMode::Preserve).await?;
+                                return Err(error).context("retained interleaving node");
+                            }
+                        };
+                        ensure!(
+                            host.identity().node == identities[index].node
+                                && host.identity().process != identities[index].process
+                        );
+                        cluster.nodes.push(node);
+                        cluster.hosts.push(host);
+                        cluster.peers.push(peer);
+                    }
+                    Ok::<_, anyhow::Error>(())
+                }
+            );
+            stopped?;
+            ensure!(stopped_rpc.is_err());
+            let restarted = managed_fixture::leader(&cluster.hosts, group).await?;
+            let current = cluster.hosts[restarted].cell(recovered.history().clone())?;
+            ensure!(value(&current, 207).await? == baseline + 4);
+            let invoked = calls.load(Ordering::Acquire);
+            let constructed = constructors.load(Ordering::Acquire);
+            ensure!(current.command(&run, held, stopping).await.is_err());
+            ensure!(
+                calls.load(Ordering::Acquire) == invoked
+                    && constructors.load(Ordering::Acquire) == constructed
+            );
+            ensure!(
+                current
+                    .command(&run, input("write", 0), command(205, 2, durability)?)
+                    .await?
+                    .result
+                    == json!(baseline + 6).to_string().as_bytes()
             );
             Ok::<_, anyhow::Error>(())
         })
