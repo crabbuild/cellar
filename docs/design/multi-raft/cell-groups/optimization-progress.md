@@ -1586,3 +1586,139 @@ Next are the remaining startup/enrollment causes, endpoint-only repair's
 read and unrelated-follower negative paths, full authority/recovery and
 ambiguous-outcome cuts, followed by the reclamation, placement, scheduling
 and final combined-source gates listed above. PR #167 remains draft.
+
+
+## Endpoint repair and current PR checkpoint
+
+PR #167 is open and ready for review. This checkpoint supersedes the older
+statements above that called the PR a draft and excluded endpoint repair.
+The branch now integrates stacked base `447c35e7`, endpoint component
+`35ebb664` and the physical-admission fixture correction `1bdb2c86`.
+Temporary startup and maintenance probes remain excluded.
+
+Endpoint discovery is keyed by the selected authenticated node boot, without
+turning a physical endpoint change into range or membership discovery. A
+healthy leader can continue serving while an unrelated follower's endpoint
+metadata is unavailable. Reads repair their selected remote endpoint under
+the original call deadline and attempt budget.
+
+The controlled in-flight regression reproduced twice on source `74faf168`.
+A real group-archive PUT held an admitted S3 command while another follower's
+new NodeView was accepted. The selected leader and configuration stayed the
+same, but whole-route pointer identity discarded the leader's completed reply
+as ambiguous `TransportStalePeer`. Source `ccd8ab5b` captures a bounded cache
+lifetime independently of immutable endpoint snapshots. It still checks the
+selected peer, schema/configuration revision, current Fleet/NodeView trust,
+physical membership and explicit remove/reinstall. Entered work pins the
+refreshed cache entry until physical exit; leader-advice generation remains
+independently fenced. No mutation outcome is reclassified or retried with a
+new identity, horizon, deadline or capacity limit.
+
+The component native campaign `endpoint-native08-ccd8ab5b` passed strict
+library/routing Clippy, CI-profile build, lifetime/removal/configuration/boot
+negative checks, four public endpoint cases, read cohort/preferences,
+cached-origin authority and static checks. The endpoint ledgers cover six
+caller/image interactions per write case and twelve read interactions
+(SDK/native HTTP/Axum, materialized/extents, Strong/AtLeast). This component
+predates the latest primitive base and does not qualify the combined source.
+
+The actual RustFS follow-up `endpoint-rustfs08-ccd8-20261111` passed all
+three available backend cases with the same retained component executable
+and CLI: selected restart repair in 39.017 seconds (six observations), the
+unrelated-follower negative case in 31.370 seconds (six), and read-first
+repair in 34.158 seconds (twelve). Logs, complete ledgers and executable
+hashes were retained. RustFS kept its pinned image, one CPU, 2 GiB and no
+additional swap in the owned Colima VM; voters were host-native TLS
+processes. The controlled in-flight case was native-only at that checkpoint; the
+later RustFS entry point requires its own runtime evidence. This older
+component result does not qualify
+the latest combined primitive source or constrained Linux voters.
+
+## Combined revision verification
+
+Revision `6bff2a13`, source `191b46fc`, includes both endpoint repair and
+the latest primitive/Storage base. The `pr167-combined-final-191b46fc`
+record retained five test executables, the operator CLI, full source inputs
+and executable hashes. Rust 1.98.1 used one build job and the CI test profile
+(opt level one, debug information zero, assertions and overflow checks on).
+**FAILED**: 28 checks passed; 3 failed.
+
+| Check | Result | Seconds |
+| --- | --- | ---: |
+| `clippy` | Passed | 186.864 |
+| `unit-router_refresh-tests-` | Passed | 0.054 |
+| `unit-leader_cache-tests-` | Passed | 0.015 |
+| `unit-leader_probe-tests-` | Passed | 1.864 |
+| `unit-performance-tests-` | Passed | 0.012 |
+| `unit-query_wire-tests-` | Passed | 0.053 |
+| `unit-storage-erase-tests-` | Passed | 0.012 |
+| `unit-raft-effects-outbox-tests-` | Passed | 0.015 |
+| `unit-cell_query_lifetime_fences_removal_configuration_and_selected_endpoint` | Passed | 0.562 |
+| `unit-process_refresh_is_atomic_across_routes_grants_and_capacity` | **Failed** | 0.108 |
+| `inflight` | Passed | 27.675 |
+| `read-first` | Passed | 40.120 |
+| `endpoint-unrelated` | Passed | 32.896 |
+| `endpoint-public` | **Failed** | 27.195 |
+| `read-cohort` | Passed | 61.100 |
+| `read-preferences` | Passed | 49.495 |
+| `origin-authority` | Passed | 40.878 |
+| `periodic_raft_segment_settlement_retries_the_local_receipt` | Passed | 42.562 |
+| `raft_segment_settlement_credits_files_after_checkpoint` | Passed | 20.666 |
+| `raft_segment_settlement_replays_after_root_cas_uncertainty` | Passed | 2.143 |
+| `storage_reads_and_writes_exact_cell_versions` | Passed | 18.530 |
+| `ordinary_cell_sdk_resolves_current_histories` | Passed | 31.850 |
+| `native-storage` | Passed | 1.271 |
+| `format` | Passed | 119.713 |
+| `layout` | Passed | 0.391 |
+| `dependencies` | Passed | 1.191 |
+| `docs` | Passed | 0.575 |
+| `performance-tools` | **Failed** | 17.339 |
+| `multi-raft-tools` | Passed | 9.746 |
+| `design-tools` | Passed | 3.240 |
+| `patch` | Passed | 0.029 |
+
+Two driver attempts selected physical file names as module paths after
+successful build/library groups. Both failed harness records are retained.
+The final continuation selects the actual Storage and outbox module paths
+from the executable inventory and uses the same hashed binaries/source.
+Those selection corrections fix no product behavior. The final run also
+reproduces the CI transport task-count failure locally.
+
+These focused checks do not replace the full failed native matrix or qualify
+the combined revision against actual RustFS or constrained Linux voters.
+
+
+The earlier combined source `06769419` remains failed: membership stopped at
+the read-only standby CLI timeout; the busy-leader oracle proved its two
+refusals before a later fresh standby setup timed out; probe storm reached an
+actual RPC and failed ambiguous `Unavailable`; periodic segment settlement
+refused command sequence 14 with non-ambiguous `RuntimeOverloaded`. Six
+primitive cases, native Storage, the other ten scheduler cases, strict
+Clippy/build and static checks passed. An unchanged retained-binary periodic
+repeat passed both modes in 35.347 seconds; this is not a causal fix.
+
+The periodic maximum-input loop now waits for actual ordinary-admission
+release before issuing its next new command, matching the existing manual
+purge workload. It keeps the original resource bank, command IDs, retry
+horizons, call windows and Fleet settlement assertions. A lingering owner
+still fails the bounded wait; response delivery alone returns no capacity.
+
+Constrained Linux source `06769419` built successfully as image `ce68dd7e`,
+but its materialized campaign failed after maintenance readiness with a Fleet
+conflict of unknown CLI verb. The archive-outage and hard-kill verifiers
+passed for the retained partial ledger; maintenance completion is unproved.
+An independent extents campaign failed initial Node 4 inspection with
+`Refused`. Diagnostic-only source `f27ac447`, image `cc38c4ff`, added bounded
+read-only error context in one test helper, then failed initial Node 5
+inspection before reaching maintenance. It does not identify or fix the
+previous maintenance failure. Those temporary probes are not published.
+The earlier source `95db97a5` passing Linux campaigns remain historical.
+
+Existing GitHub CI at head `9c9448af` also retained a transport fixture task
+count failure (9 versus the asserted 11) and design tests unable to read the
+pinned historical source in their checkout. Neither is declared fixed by
+these endpoint changes. Current combined-source RustFS/Linux acceptance,
+startup and actual-RPC failure causes, complete authority/ambiguity cuts,
+held-owner reclamation/restart, placement/fairness measurements and the full
+primitive/performance/failure matrix remain open. No full CG-13, CG-17,
+OPT-01 through OPT-08, independent failure-domain or speedup claim follows.
