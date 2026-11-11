@@ -397,6 +397,21 @@ If the engine cannot provide that evidence yet, retain its byte charge while
 exposing logical removal separately. Do not call reserved image bounds measured
 RSS or actual disk bytes.
 
+The managed `RaftCells::reclaim_raft_segments` turn charges an initial complete
+inventory before its first numbered purge. Later turns compare the retained
+receipt with the previous rooted per-file charges and the current boot's
+complete inventory. Any unproven bytes remain charged. One Fleet CAS installs
+the new floor and advances the receipt number. After uncertainty, retry the
+same number. Only the latest settlement is replayable. A retained successor
+must use the same disk and engine.
+
+The segment-file floor is an additional lower bound for movement, transition
+and recovery admission. Pending reservation claims remain additive. Fleet
+keeps reservation and deployment floors as independent bases. Periodic purges
+outside the numbered turn can leave unattributed debt when they remove charged
+files. Periodic scheduling through the settled path and the end-to-end
+reclamation qualification remain open.
+
 ### 8.3 Crash and retry contract
 
 | Crash/lost response | Recovery action |

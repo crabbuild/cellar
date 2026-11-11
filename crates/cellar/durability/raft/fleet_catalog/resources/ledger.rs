@@ -12,6 +12,15 @@ pub(super) struct ChargedResources {
     pub scope: CapacityScope,
     pub physical: FleetResourceBounds,
     pub reservations: Vec<Reservation>,
+    segment_bytes: u64,
+}
+
+impl ChargedResources {
+    pub(super) fn admission_usage(&self) -> Resources {
+        let mut used = self.physical.resources();
+        used.durable_bytes = used.durable_bytes.max(self.segment_bytes);
+        used
+    }
 }
 
 impl FleetCatalog {
@@ -56,10 +65,27 @@ impl FleetCatalog {
                 materialized: None,
             });
         }
+        let segment_bytes = self
+            .segment_floor_bytes(snapshot, &attestation.boot)
+            .await?;
         Ok(ChargedResources {
             scope,
             physical,
             reservations,
+            segment_bytes,
         })
+    }
+
+    pub(in crate::raft::fleet_catalog) async fn admission_floor(
+        &self,
+        snapshot: &FleetSnapshot,
+        attestation: &FleetResourceAttestation,
+    ) -> Result<FleetResourceBounds> {
+        let mut floor = self.resource_floor(snapshot, attestation).await?;
+        floor.durable_bytes = floor.durable_bytes.max(
+            self.segment_floor_bytes(snapshot, &attestation.boot)
+                .await?,
+        );
+        Ok(floor)
     }
 }
