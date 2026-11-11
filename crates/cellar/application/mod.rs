@@ -565,7 +565,7 @@ pub(crate) struct Activation {
 
 #[derive(Clone)]
 pub struct Context {
-    pub(crate) raft_storage: Option<Storage>,
+    pub(crate) raft_storage: Option<Arc<storage::Resources>>,
     pub(crate) container_supervision: Option<Arc<containers::Supervision>>,
     pub(crate) rpc_catalog: Option<Arc<rpc::Catalog>>,
     pub(crate) event_authority: Option<event_stream::Authority>,
@@ -735,9 +735,10 @@ impl Context {
     }
 
     pub fn storage(&self) -> Result<Storage> {
-        if let Some(storage) = &self.raft_storage {
+        if let Some(resources) = &self.raft_storage {
+            let storage = Storage::raft_command(resources.clone());
             storage.check_raft_turn()?;
-            return Ok(storage.clone());
+            return Ok(storage);
         }
         self.check_turn()?;
         anyhow::ensure!(

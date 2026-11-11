@@ -4,7 +4,7 @@
 
 use super::{CellHistory, CommandFailure, CommandTransaction, RouteEpoch};
 use crate::application::{
-    CellIdentity, Context, EventState, Factory, HandlerFuture, Invocation, Output, Storage,
+    CellIdentity, Context, EventState, Factory, HandlerFuture, Invocation, Output,
 };
 use crate::engine_api::{RpcData, WorkerConfigOptions};
 use crate::worker_config::{EgressPolicy, WorkerConfig};
@@ -71,7 +71,10 @@ impl NativeCellFactory {
             name: None,
             epoch: epoch.get(),
         };
-        let context = self.context(identity.clone(), transaction.storage()?);
+        let context = self.context(
+            identity.clone(),
+            transaction.storage()?.raft_command_resources()?,
+        );
         let instance = (self.factory)(context.clone(), &identity)?;
         let invocation = Invocation::CellRpc {
             method: operation.to_owned(),
@@ -87,7 +90,11 @@ impl NativeCellFactory {
         }))
     }
 
-    fn context(&self, identity: CellIdentity, storage: Storage) -> Context {
+    fn context(
+        &self,
+        identity: CellIdentity,
+        storage: Arc<crate::application::storage::Resources>,
+    ) -> Context {
         Context {
             raft_storage: Some(storage),
             container_supervision: None,

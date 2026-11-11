@@ -171,11 +171,18 @@ impl RootWorking {
         options: &Options,
         base: Option<&crate::raft::rooted::RootPublishedImage>,
     ) -> Result<()> {
+        self.trim_through(
+            options,
+            TXID(base.map_or(0, |base| base.image().manifest().binding().txid)),
+        )
+    }
+
+    pub fn trim_through(&self, options: &Options, txid: TXID) -> Result<()> {
         crate::raft::working::trim_capture(
             &self.capture,
             &options.host,
             options.limits.envelope.max_files,
-            TXID(base.map_or(0, |base| base.image().manifest().binding().txid)),
+            txid,
         )
     }
 

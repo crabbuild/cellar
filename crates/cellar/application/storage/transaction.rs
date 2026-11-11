@@ -422,9 +422,9 @@ impl Storage {
                     .raft_storage
                     .as_ref()
                     .ok_or_else(|| anyhow!("transaction context has no Raft invocation"))?;
-                contextual.data_activation_scope()?;
+                crate::storage::require_raft_command_storage(contextual, true)?;
                 anyhow::ensure!(
-                    matches!(&contextual.0, Owner::RaftCommand(owner) if Arc::ptr_eq(owner, resources)),
+                    Arc::ptr_eq(contextual, resources),
                     "transaction context belongs to another Raft invocation"
                 );
                 self.data_activation_scope()?;

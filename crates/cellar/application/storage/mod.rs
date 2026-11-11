@@ -228,6 +228,13 @@ impl Storage {
         Self(Owner::Native(activation), transaction, source_generation)
     }
 
+    pub(crate) fn raft_command_resources(&self) -> Result<Arc<Resources>> {
+        match &self.0 {
+            Owner::RaftCommand(resources) => Ok(resources.clone()),
+            _ => Err(consensus::CommandFailure::UnsupportedCapability.into()),
+        }
+    }
+
     pub(crate) fn raft_command(resources: Arc<Resources>) -> Self {
         Self(Owner::RaftCommand(resources), None, 0)
     }

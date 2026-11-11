@@ -299,6 +299,9 @@ impl CellPrivateExecutor {
             .working
             .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?;
+        working
+            .trim_cell(&self.options, self.authority.image())
+            .map_err(storage)?;
         working.begin_mutation();
         working
             .database_mut()
