@@ -4,6 +4,7 @@
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::engine_api::RpcData;
+use cellar::sdk::consensus::verification::ExecutionError;
 use cellar::sdk::{
     consensus::*, Cell, Context, HandlerFuture, Invocation, Output, RaftClass, Registry, Storage,
 };
@@ -615,6 +616,12 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
                     retry,
                 ))
             };
+            // Five independently applied roots plus the final receipt are a
+            // multi-stage conformance request. Choose its budget before admission;
+            // basic requests keep the SDK default and cancellation stays at 1s.
+            let multiple = |client| -> Result<CommandOptions> {
+                Ok(CommandOptions { timeout: Duration::from_secs(20), ..options(client)? })
+            };
             let update = cell.contract("Update")?;
             let input = serde_json::to_vec(&json!({"delta": 7}))?;
             let written = cell.command(&update, input.clone(), options(237)?).await?;
@@ -757,7 +764,7 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
             ensure!(calls.load(Ordering::Acquire) == 6);
             let transaction_contract = current.contract("Transactions")?;
             let transaction_receipt = current
-                .command(&transaction_contract, b"{}".to_vec(), options(252)?)
+                .command(&transaction_contract, b"{}".to_vec(), multiple(252)?)
                 .await?;
             ensure!(transaction_receipt.result == b"true");
             let rows = current
@@ -777,7 +784,7 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
                 .command(
                     &transaction_contract,
                     br#"{"reject":true}"#.to_vec(),
-                    options(254)?
+                    multiple(254)?
                 )
                 .await
                 .is_err());
@@ -800,7 +807,7 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
             let sequence_input = serde_json::to_vec(&json!({"delta": 10, "gate": 3, "after": 20}))?;
             let strong = CommandOptions {
                 durability: Durability::S3,
-                ..options(226)?
+                ..multiple(226)?
             };
             let (sequence_result, observed) = tokio::join!(
                 current.command(&sequence, sequence_input.clone(), strong.clone()),
@@ -864,6 +871,11 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
                         serde_json::from_slice::<serde_json::Value>(&first.result)?
                             == json!([165, 7])
                     );
+                    let pending = current.receipt(CellReceiptRequest {
+                        id: options(223)?.id, contract: sequence.clone(), input: interrupted_input.clone(),
+                        durability: Durability::Quorum,
+                    }, TIMEOUT).await;
+                    ensure!(matches!(pending, Err(error) if matches!(&*error, CellDispatchError::Execution(ExecutionError::Uncertain))), "unfinished RPC must not become an absent or completed receipt");
                     let handle = cluster.hosts[target].group(group)?;
                     let status = handle.replication_status(TIMEOUT).await?;
                     let destination = (target + 1) % 3;
@@ -893,6 +905,51 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
                 .is_err());
             ensure!(calls.load(Ordering::Acquire) == factories);
             check_rpc_read(&recovered, 219, &preserved, json!([165, 7])).await?;
+            let next = recovered.command(&update, br#"{"delta":0}"#.to_vec(), CommandOptions {
+                id: CommandId::new(ClientId::new([223; 16])?, 2)?, ..options(223)?
+            }).await?;
+            ensure!(next.result == b"165");
+            check_rpc_read(&recovered, 217, &next.version, json!([165, 8])).await?;
+            let factories = calls.load(Ordering::Acquire);
+            ensure!(recovered.command(&sequence, serde_json::to_vec(&json!({"delta":100,"gate":4,"after":1000}))?, options(223)?).await.is_err());
+            ensure!(calls.load(Ordering::Acquire) == factories);
+            check_rpc_read(&recovered, 216, &next.version, json!([165, 8])).await?;
+
+            // Admission is owned before this response future is returned.
+            // Dropping it cannot cancel the node's root or final receipt.
+            let lost_options = options(218)?;
+            let lost_input = br#"{"delta":1}"#.to_vec();
+            drop(recovered.command(&update, lost_input.clone(), lost_options.clone()));
+            let request = CellReceiptRequest {
+                id: lost_options.id, contract: update.clone(), input: lost_input.clone(), durability: Durability::Quorum,
+            };
+            let completed = cellar::asyncrt::timeout(TIMEOUT, async {
+                loop {
+                    match recovered.receipt(request.clone(), TIMEOUT).await {
+                        Ok(proof) if proof.receipt().is_some() => break Ok::<_, anyhow::Error>(proof),
+                        Ok(_) => (),
+                        Err(error) if matches!(&*error, CellDispatchError::Execution(ExecutionError::Uncertain)
+                            | CellDispatchError::Runtime(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded)) => (),
+                        Err(error) => return Err(error.into()),
+                    }
+                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                }
+            }).await??;
+            ensure!(completed.receipt().context("unpolled RPC receipt")?.result() == b"166");
+            ensure!(calls.load(Ordering::Acquire) == factories + 1);
+            let replay = cellar::asyncrt::timeout(TIMEOUT, async {
+                loop {
+                    match recovered.command(&update, lost_input.clone(), lost_options.clone()).await {
+                        Ok(receipt) => break Ok::<_, anyhow::Error>(receipt),
+                        Err(error) if error.cause.refusal() == Some(&CommandFailure::Overloaded) => (),
+                        Err(error) => return Err(error.into()),
+                    }
+                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                }
+            }).await??;
+            ensure!(replay.result == b"166" && &replay.version == &completed.observation().version);
+            ensure!(calls.load(Ordering::Acquire) == factories + 1);
+            check_rpc_read(&recovered, 215, &replay.version, json!([166, 9])).await?;
             Ok::<_, anyhow::Error>(())
         })
         .await
