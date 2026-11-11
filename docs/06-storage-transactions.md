@@ -77,8 +77,16 @@ After interruption, retrying the original command ID and input cannot rerun the
 unfinished invocation. Its durable checkpoint remains an uncertain RPC outcome,
 and receipt lookup cannot describe it as completed or absent.
 
-Outstanding callbacks are bounded by `ExecutionLimits::max_pending_transactions`
-(32 by default); excess callbacks receive `Overloaded` before they run. The
+Outside transaction callbacks, `Storage::sync()` owns a checkpoint in the same
+call-order queue as root transactions. It waits for the RPC's quorum/S3 proof;
+dropping its future leaves the queued boundary owned by the invocation. Calling
+sync inside an open synchronous or async transaction refuses before scheduling.
+Synchronous registered commands and immutable queries do not schedule these RPC
+checkpoints.
+
+Outstanding callbacks and explicit sync requests share
+`ExecutionLimits::max_pending_transactions` (32 by default); excess requests
+receive `Overloaded` before they run. The
 remaining primitive adapters and complete qualification remain in the
 [CG-17 implementation scope](design/multi-raft/cell-groups/remaining-work.md).
 

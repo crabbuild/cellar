@@ -605,7 +605,13 @@ impl Storage {
         crate::native_worker::refresh_wake_gate(scope)
     }
 
+    /// Wait for the current cell's write durability. In an ordinary Raft RPC,
+    /// this owns a checkpoint after preceding root transactions and follows the
+    /// invocation's quorum/S3 minimum. Call it outside transaction callbacks.
     pub fn sync(&self) -> HandlerFuture<()> {
+        if matches!(&self.0, Owner::RaftCommand(_)) {
+            return self.raft_sync();
+        }
         match self.scope() {
             Ok(scope) => crate::native_worker::storage_sync(scope),
             Err(error) => Box::pin(async move { Err(error) }),

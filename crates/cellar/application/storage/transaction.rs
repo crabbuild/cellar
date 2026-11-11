@@ -396,6 +396,46 @@ where
 }
 
 impl Storage {
+    /// Queue an owned RPC checkpoint after preceding root transactions. The
+    /// frame owner supplies the exact durability proof, even if the caller
+    /// abandons this result future. Savepoints must remain atomic.
+    pub(super) fn raft_sync(&self) -> HandlerFuture<()> {
+        let prepared = (|| -> Result<_> {
+            self.write_scope()?;
+            let Owner::RaftCommand(resources) = &self.0 else {
+                anyhow::bail!(consensus::CommandFailure::UnsupportedCapability);
+            };
+            anyhow::ensure!(
+                self.1.is_none()
+                    && resources.transaction.lock().unwrap().is_none()
+                    && resources.open_transaction.lock().unwrap().is_none(),
+                "storage.sync: open transaction; call sync() after the transaction commits"
+            );
+            let (slot, _) = resources.transaction_queue.reserve();
+            let (send, receive) = tokio::sync::oneshot::channel();
+            let storage = self.clone();
+            let committer = resources.clone();
+            let task = Box::pin(async move {
+                let result = async {
+                    slot.admission.clone().await.map_err(anyhow::Error::msg)?;
+                    storage.write_scope()?;
+                    crate::storage::commit_raft_work(&committer).await
+                }
+                .await;
+                drop(slot);
+                let _ = send.send(result);
+                Ok(())
+            });
+            crate::storage::schedule_raft_work(resources, task)?;
+            Ok(receive)
+        })();
+        Box::pin(async move {
+            prepared?
+                .await
+                .map_err(|_| anyhow!("Raft storage sync was abandoned"))?
+        })
+    }
+
     /// Atomically commit synchronous work in this cell. A local commit is
     /// followed by the event's normal discovery and durability output gates.
     pub fn tx<T>(&self, callback: impl FnOnce(&Storage) -> Result<T>) -> Result<T> {

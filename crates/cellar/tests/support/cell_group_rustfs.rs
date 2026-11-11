@@ -33,6 +33,8 @@ pub fn outage_store(case: &str, rooted: bool) -> Result<Arc<dyn ObjectStore>> {
     )
 }
 
+// The external backend controller owns this host directory, outside node storage.
+#[allow(clippy::disallowed_methods)]
 pub fn control_directory() -> Result<std::path::PathBuf> {
     let path = std::path::PathBuf::from(env::var("CELLAR_CELL_GROUPS_RUSTFS_CONTROL")?);
     ensure!(

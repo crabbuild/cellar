@@ -438,6 +438,14 @@ The ordinary RPC adapter uses these identities and transitions:
   checkpoint's pending receipt from recovered archive bytes before continuation.
   Background archival for Quorum requests retains its documented RPO.
 
+Ordinary RPC `Storage::sync()` reserves an owned boundary in the same call-order
+queue as root transactions. It checkpoints preceding private SQL/KV writes and
+waits for the invocation's exact quorum/S3 proof before completing. Dropping its
+result future does not remove the admitted boundary. Sync inside an open
+transaction refuses before scheduling: it cannot publish a savepoint or split an
+atomic callback. Synchronous registered commands and immutable queries retain
+their separate completion contracts and cannot schedule RPC checkpoints.
+
 These transitions are delivery contracts, not acceptance claims. Complete their
 public recovery, fault and feature matrix before accepting CG-17. The receipt
 schema adds a protected pending-checkpoint field under the existing format-1

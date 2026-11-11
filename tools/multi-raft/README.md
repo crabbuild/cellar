@@ -99,6 +99,26 @@ Real runners still need to capture these artifacts from public applications,
 owned process/RustFS fault runs and supported providers. A synthetic report,
 configuration label or passing test name alone establishes no runtime coverage.
 
+## Ordinary cell RPC and Storage checkpoints
+
+Run the scoped ordinary JSON RPC adapter against an owned RustFS backend:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite ordinary-primitives \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-ordinary-primitives-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+This selects one exact case that runs both image modes on host-native RF3, with
+two cells sharing a group and one SQL worker per node. It checks ordinary
+Storage SQL/KV, independently committed async transactions, ordered explicit
+sync, nested rollback/refusal, bounded work, partial failures, exact replay and
+live leadership transfer. Explicit S3 checkpoints require real archive proof.
+The runner retains source, executable and log hashes. It does not accept the
+complete CG-17 primitive matrix or qualify independent voter processes, disk
+loss, persistent activation or same-cell interleaving.
+
 ## Shared cell-group managed ingress checks
 
 Use the same owned loopback RustFS backend and a fresh output directory.

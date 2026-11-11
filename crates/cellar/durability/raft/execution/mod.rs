@@ -47,8 +47,8 @@ pub struct ExecutionLimits {
     pub max_result_bytes: usize,
     pub max_client_identities: usize,
     pub max_retained_receipts: usize,
-    /// Outstanding async transaction callbacks within one private RPC.
-    /// Zero disables scheduling these callbacks.
+    /// Outstanding async transaction callbacks and explicit sync requests
+    /// within one private RPC. Zero disables scheduling either kind of work.
     pub max_pending_transactions: usize,
     pub max_retry_window_ms: u64,
     /// Virtual space within max_image_bytes reserved for durable receipts,
