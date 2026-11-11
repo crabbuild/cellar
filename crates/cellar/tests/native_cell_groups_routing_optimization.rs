@@ -5,6 +5,8 @@
 
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
+#[path = "support/cell_group_rustfs.rs"]
+pub mod rustfs;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
 
@@ -64,4 +66,26 @@ async fn old_lookup_cannot_resurrect_parent() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn membership_refresh_keeps_range() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::membership_refresh_keeps_range()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_membership_refresh_keeps_range() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::membership_refresh_keeps_range_with_store(rustfs::store))
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_split_repairs_only_overlap() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::split_repairs_only_overlap_with_store(rustfs::store)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_old_lookup_cannot_resurrect_parent() -> anyhow::Result<()> {
+    Box::pin(
+        managed_fixture::requests::old_lookup_cannot_resurrect_parent_with_store(rustfs::store),
+    )
+    .await
 }

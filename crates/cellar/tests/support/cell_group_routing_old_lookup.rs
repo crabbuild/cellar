@@ -267,8 +267,8 @@ pub(super) async fn exercise(
         Box::pin(flow),
     );
     *ingress_store.routing_read_after.lock().unwrap() = None;
-    let receipt = held?;
-    cells[new_index].latest = receipt;
+    let fresh_receipt = held?;
+    cells[new_index].latest = fresh_receipt;
     cells[new_index].value += 1;
     cells[new_index].sequence += 1;
     let children = children?;
@@ -311,6 +311,32 @@ pub(super) async fn exercise(
         );
     }
     verify(cluster, web, &client, &cells, &current, retry, callbacks).await?;
+    let records: Vec<_> = cells
+        .iter()
+        .enumerate()
+        .map(|(index, cell)| {
+            serde_json::json!({
+                "history": format!("{:?}", cell.history), "value": cell.value,
+                "original_required": "S3", "original": receipt(&cell.original),
+                "latest_required": if index == new_index { "Quorum" } else { "S3" },
+                "latest": receipt(&cell.latest),
+            })
+        })
+        .collect();
+    eprintln!(
+        "RANGE_ROUTING_EVIDENCE {}",
+        serde_json::json!({
+            "schema": 1, "case": "old_lookup_cannot_resurrect_parent", "extents": rooted,
+            "event": "verified", "caller": format!("{caller:?}"), "cells": records,
+            "old_request": {"client": hex::encode(replay_options.id.client.bytes()), "sequence": replay_options.id.sequence(), "required": "S3"},
+            "fresh_anchor_required": "Quorum", "stale_completion_without_rpc": true,
+            "routes": current.iter().map(|route| format!("{route:?}")).collect::<Vec<_>>(),
+            "nodes": cluster.hosts.iter().map(|host| format!("{:?}", host.identity())).collect::<Vec<_>>(),
+            "callbacks": callbacks.load(Ordering::Acquire), "directory_final": directory_lookups(cluster)?,
+            "ingress_control": cluster.hosts[INGRESS].resource_usage().control,
+            "ingress_ordinary": cluster.hosts[INGRESS].resource_usage().host.controller.ordinary,
+        })
+    );
     eprintln!("public old lookup caller={caller:?}, extents={rooted}: physical old-head GET crossed live split publication; fresh child generation refused stale completion without an RPC; original ID replay and unrelated cache retained");
     Ok(())
 }

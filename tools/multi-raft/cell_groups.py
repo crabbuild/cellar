@@ -51,6 +51,24 @@ CASES = (
 )
 
 SUITES = {
+    "routing-range-repairs": (
+        "native_cell_groups_routing_optimization",
+        (
+            "rustfs_membership_refresh_keeps_range",
+            "rustfs_split_repairs_only_overlap",
+            "rustfs_old_lookup_cannot_resurrect_parent",
+        ),
+        "public membership and split repair with original identities and S3 receipts",
+        "Both image modes, seven host-native TLS nodes and the original two-history/byte limits. "
+        "Membership replacement and delayed split lookup each run through SDK, native HTTP and Axum "
+        "with separate object prefixes. A new-voter leader forces demand membership repair while "
+        "the cell range stays unchanged. Removed replicas refuse local SQL and explicit targeting; "
+        "their independently granted ingress may still forward remotely. Split repair preserves "
+        "unrelated cached ranges, historical witnesses and exact S3 command receipts. Real physical "
+        "metadata gates use the original five-second call windows. Peer/boot wire authority cuts, "
+        "recovery publication, process crashes, measured load and complete optimization acceptance "
+        "remain separate gates.",
+    ),
     "ordinary-primitives": (
         "native_cell_groups_primitives",
         (
@@ -494,6 +512,26 @@ SUITES = {
 }
 
 
+def routing_observations(output, case):
+    """Require complete caller/mode output; native cases enforce receipt oracles."""
+    if case not in SUITES["routing-range-repairs"][1]:
+        raise ValueError("unknown routing evidence case")
+    membership = case == "rustfs_membership_refresh_keeps_range"
+    prefix = "MEMBERSHIP_ROUTING_EVIDENCE " if membership else "RANGE_ROUTING_EVIDENCE "
+    rows = [json.loads(line.split(prefix, 1)[1])
+            for line in output.splitlines() if prefix in line]
+    callers = ("SdkNativeAxum",) if case == "rustfs_split_repairs_only_overlap" else ("Sdk", "Native", "Axum")
+    events = ("warm", "membership_repaired", "fences_and_receipts_verified") if membership else ("verified",)
+    expected = {(caller, mode, event) for caller in callers for mode in (False, True) for event in events}
+    if (len(rows) != len(expected)
+            or any(not isinstance(row, dict) or row.get("schema") != 1
+                   or type(row.get("extents")) is not bool
+                   or row.get("case") != case.removeprefix("rustfs_") for row in rows)
+            or {(row.get("caller"), row.get("extents"), row.get("event")) for row in rows} != expected):
+        raise ValueError("incomplete routing caller/image-mode evidence")
+    return rows, len(callers) * 2
+
+
 def exact_case_passed(output, case):
     """Keep exact selection strict when validated observations interrupt libtest."""
     pattern = r"cell_group_log_reclamation_observations (\{[^\n]+\})\n"
@@ -515,14 +553,15 @@ def sha(path):
 
 
 def sources(suite):
+    if suite not in SUITES:
+        raise ValueError("unknown qualification suite")
     result = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
     return [
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
-        if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-scheduler-fanout", "managed-disjoint-partitions", "managed-automatic-repair", "managed-automatic-topology", "managed-automatic-partitions", "managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss", "managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry")
-                         and name == "examples/raft-counter/counter.rs"))
+        # Public fixtures compile example modules too. Capture every tracked
+        # example rather than maintaining a suite-specific list of includes.
+        if name and not name.startswith(("docs/", "plans/", "packages/"))
         and (ROOT / name).is_file()
     ]
 
@@ -605,6 +644,8 @@ def main():
         for key in list(env):
             if key.startswith(("AWS_", "CELLAR_CELL_GROUPS_RUSTFS_")):
                 del env[key]
+        # The recorded Cargo CLI must be the one the operator fixture invokes.
+        env.pop("CELLAR_RAFT_OPERATOR_CLI", None)
         env.update(
             AWS_ACCESS_KEY_ID=credentials["RUSTFS_ACCESS_KEY"],
             AWS_SECRET_ACCESS_KEY=credentials["RUSTFS_SECRET_KEY"],
@@ -614,11 +655,24 @@ def main():
             CELLAR_CELL_GROUPS_RUSTFS_PREFIX=prefix,
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
+            CARGO_PROFILE_TEST_OPT_LEVEL="1",
+            CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
+            CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true",
+            CARGO_BUILD_JOBS="1", CARGO_TERM_COLOR="never",
         )
+        record["cargo_environment"] = {
+            key: env[key] for key in (
+                "CARGO_TARGET_DIR", "CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG",
+                "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
+                "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_BUILD_JOBS", "CARGO_TERM_COLOR",
+            )
+        }
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
+            if args.suite == "routing-range-repairs" and number:
+                argv.append("--show-output")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
             if selection == "rustfs_quorum_continues_bounded_s3_outage":
@@ -649,7 +703,7 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle") and result.returncode == 0:
+            if args.suite in ("managed-ingress", "managed-lifecycle", "routing-range-repairs") and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")
@@ -683,6 +737,14 @@ def main():
                         raise RuntimeError("missing exact RustFS test in executable inventory")
             elif not exact_case_passed(output, selection):
                 raise RuntimeError("exact RustFS test was not executed successfully")
+            if args.suite == "routing-range-repairs" and number:
+                rows, scenarios = routing_observations(output, selection)
+                ledger = out / f"{number:02}-routing-evidence.json"
+                ledger.write_text(json.dumps(rows, indent=2) + "\n")
+                record.setdefault("routing_evidence", []).append({
+                    "case": selection, "path": ledger.name, "sha256": sha(ledger),
+                    "records": len(rows), "scenarios": scenarios,
+                })
             if not match:
                 raise RuntimeError("missing executable provenance")
             print(f"PASS {selection}", flush=True)

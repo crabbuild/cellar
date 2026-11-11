@@ -15,6 +15,8 @@ mod optimization;
 #[path = "cell_group_managed_request_parity.rs"]
 mod parity;
 
+pub type RoutingStoreFactory = fn(&str, bool) -> Result<Arc<dyn object_store::ObjectStore>>;
+
 pub async fn cached_leader_direct_write() -> Result<()> {
     optimization::cached_leader_direct_write().await
 }
@@ -49,6 +51,20 @@ pub async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
 
 pub async fn membership_refresh_keeps_range() -> Result<()> {
     optimization::membership_refresh_keeps_range().await
+}
+
+pub async fn split_repairs_only_overlap_with_store(make: RoutingStoreFactory) -> Result<()> {
+    optimization::split_repairs_only_overlap_with_store(make).await
+}
+
+pub async fn old_lookup_cannot_resurrect_parent_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    optimization::old_lookup_cannot_resurrect_parent_with_store(make).await
+}
+
+pub async fn membership_refresh_keeps_range_with_store(make: RoutingStoreFactory) -> Result<()> {
+    optimization::membership_refresh_keeps_range_with_store(make).await
 }
 
 pub async fn read_cohort_has_fresh_barrier() -> Result<()> {

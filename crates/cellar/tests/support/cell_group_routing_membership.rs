@@ -4,17 +4,6 @@
 use super::*;
 use cellar::application::consensus::verification::TransportError;
 
-fn receipt(value: &CommandReceipt) -> serde_json::Value {
-    serde_json::json!({
-        "client": hex::encode(value.id.client.bytes()), "sequence": value.id.sequence(),
-        "result_be": hex::encode(&value.result), "version": format!("{:?}", value.version),
-        "group": hex::encode(value.witness.group.group.bytes()),
-        "incarnation": hex::encode(value.witness.group.incarnation.bytes()),
-        "index": value.witness.position.index.get(), "term": value.witness.position.term.get(),
-        "achieved": format!("{:?}", value.durability), "version_token": value.version_token.as_str(),
-    })
-}
-
 fn evidence(rooted: bool, caller: Caller, event: &str, mut value: serde_json::Value) {
     value["schema"] = 1.into();
     value["case"] = "membership_refresh_keeps_range".into();

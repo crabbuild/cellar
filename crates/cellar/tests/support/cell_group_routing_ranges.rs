@@ -10,6 +10,17 @@ use cellar::sdk::fleet_operations::*;
 
 const NAMES: [&str; 6] = ["one", "two", "three", "four", "five", "six"];
 
+fn receipt(value: &CommandReceipt) -> serde_json::Value {
+    serde_json::json!({
+        "client": hex::encode(value.id.client.bytes()), "sequence": value.id.sequence(),
+        "result_be": hex::encode(&value.result), "version": format!("{:?}", value.version),
+        "group": hex::encode(value.witness.group.group.bytes()),
+        "incarnation": hex::encode(value.witness.group.incarnation.bytes()),
+        "index": value.witness.position.index.get(), "term": value.witness.position.term.get(),
+        "achieved": format!("{:?}", value.durability), "version_token": value.version_token.as_str(),
+    })
+}
+
 #[derive(Default)]
 struct SqlCallbacks {
     commands: AtomicUsize,
@@ -59,33 +70,55 @@ enum Case {
     Membership(Caller),
 }
 
-pub(super) async fn split_repairs_only_overlap() -> Result<()> {
-    run(Case::Overlap).await
+impl Case {
+    fn store_case(self) -> &'static str {
+        match self {
+            Self::Overlap => "routing-split-overlap",
+            Self::OldLookup(Caller::Sdk) => "routing-old-lookup-sdk",
+            Self::OldLookup(Caller::Native) => "routing-old-lookup-native",
+            Self::OldLookup(Caller::Axum) => "routing-old-lookup-axum",
+            Self::Membership(Caller::Sdk) => "routing-membership-sdk",
+            Self::Membership(Caller::Native) => "routing-membership-native",
+            Self::Membership(Caller::Axum) => "routing-membership-axum",
+        }
+    }
 }
 
-pub(super) async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
+pub(super) async fn split_repairs_only_overlap(make: Option<RoutingStoreFactory>) -> Result<()> {
+    run(Case::Overlap, make).await
+}
+
+pub(super) async fn old_lookup_cannot_resurrect_parent(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
     for caller in [Caller::Sdk, Caller::Native, Caller::Axum] {
-        run(Case::OldLookup(caller)).await?;
+        run(Case::OldLookup(caller), make).await?;
     }
     Ok(())
 }
 
-pub(super) async fn membership_refresh_keeps_range() -> Result<()> {
+pub(super) async fn membership_refresh_keeps_range(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
     for caller in [Caller::Sdk, Caller::Native, Caller::Axum] {
-        run(Case::Membership(caller)).await?;
+        run(Case::Membership(caller), make).await?;
     }
     Ok(())
 }
 
-async fn run(case: Case) -> Result<()> {
+async fn run(case: Case, make: Option<RoutingStoreFactory>) -> Result<()> {
     for rooted in [false, true] {
         let callbacks = Arc::new(AtomicUsize::new(0));
         let sql: [Arc<SqlCallbacks>; 7] =
             std::array::from_fn(|_| Arc::new(SqlCallbacks::default()));
+        let store = Arc::new(match make {
+            Some(make) => fault::Store::around(make(case.store_case(), rooted)?),
+            None => fault::Store::default(),
+        });
         let first = Fixture::with_store(
             rooted,
             definition(callbacks.clone(), sql[0].clone())?,
-            Arc::new(fault::Store::default()),
+            store,
         )
         .await?;
         let group = GroupHistory {
@@ -632,6 +665,29 @@ async fn exercise(
         "interval repair evicted an unrelated cached range"
     );
     verify(cluster, web, &client, &cells, &current, retry, callbacks).await?;
+    let records: Vec<_> = cells
+        .iter()
+        .map(|cell| {
+            serde_json::json!({
+                "history": format!("{:?}", cell.history), "value": cell.value,
+                "original_required": "S3", "original": receipt(&cell.original),
+                "latest_required": "S3", "latest": receipt(&cell.latest),
+            })
+        })
+        .collect();
+    eprintln!(
+        "RANGE_ROUTING_EVIDENCE {}",
+        serde_json::json!({
+            "schema": 1, "case": "split_repairs_only_overlap", "extents": rooted,
+            "event": "verified", "caller": "SdkNativeAxum", "cells": records,
+            "routes": current.iter().map(|route| format!("{route:?}")).collect::<Vec<_>>(),
+            "nodes": cluster.hosts.iter().map(|host| format!("{:?}", host.identity())).collect::<Vec<_>>(),
+            "callbacks": callbacks.load(Ordering::Acquire),
+            "directory_before_overlap_repair": repair_before, "directory_final": directory_lookups(cluster)?,
+            "ingress_control": cluster.hosts[INGRESS].resource_usage().control,
+            "ingress_ordinary": cluster.hosts[INGRESS].resource_usage().host.controller.ordinary,
+        })
+    );
     eprintln!("public split routing extents={rooted}: two live RF3 splits; unrelated range retained before and after overlap repair; exact original IDs, S3 receipts and old AtLeast tokens; unchanged two-history/512-MiB profiles");
     Ok(())
 }

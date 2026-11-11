@@ -129,6 +129,39 @@ The runner retains source, executable and log hashes. It does not accept the
 complete CG-17 primitive matrix or qualify declared bindings, automatic
 output/dispatch gates, independent voter processes or disk loss.
 
+## Membership and split routing repair
+
+Run the public range-repair cases against the same owned backend:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-range-repairs \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-range-repairs-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Three exact cases cover fourteen fresh seven-node fixtures across both image
+modes. Membership replacement and delayed split lookup each exercise SDK,
+native HTTP and Axum. The overlap case checks all three callers within each
+image mode. Each scenario has its own object prefix and retains the original
+two-history, byte and request-time limits. Membership repair keeps the range
+cached, rejects removed replica service and preserves independently authorized
+ingress forwarding. Split repair preserves unrelated routes and original S3
+receipts. The delayed lookup crosses an actual publication while fresh Quorum
+work selects the child, then refuses stale completion without another RPC.
+
+The runner retains source, test executable and operator CLI hashes. The fixtures
+invoke the recorded Cargo CLI. It
+captures passing-case output and verifies complete caller/image-mode coverage
+in structured ledgers. Source capture includes compiled example modules for
+every suite. These entry points do not by themselves establish a passing run,
+peer/boot wire authority,
+recovery publication, constrained voter processes or measured performance.
+
+RustFS suites use the [native CI test profile](../../.github/workflows/native-sdk.yml):
+optimization level one with debug assertions and overflow checks, no debug
+symbols, and one Cargo build job. The record captures those explicit settings.
+
 ## Shared cell-group managed ingress checks
 
 Use the same owned loopback RustFS backend and a fresh output directory.

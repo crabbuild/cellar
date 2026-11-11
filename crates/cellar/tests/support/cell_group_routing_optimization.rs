@@ -96,15 +96,31 @@ pub(super) async fn leader_probe_storm_is_bounded() -> Result<()> {
 }
 
 pub(super) async fn split_repairs_only_overlap() -> Result<()> {
-    Box::pin(ranges::split_repairs_only_overlap()).await
+    Box::pin(ranges::split_repairs_only_overlap(None)).await
 }
 
 pub(super) async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
-    Box::pin(ranges::old_lookup_cannot_resurrect_parent()).await
+    Box::pin(ranges::old_lookup_cannot_resurrect_parent(None)).await
 }
 
 pub(super) async fn membership_refresh_keeps_range() -> Result<()> {
-    Box::pin(ranges::membership_refresh_keeps_range()).await
+    Box::pin(ranges::membership_refresh_keeps_range(None)).await
+}
+
+pub(super) async fn split_repairs_only_overlap_with_store(make: RoutingStoreFactory) -> Result<()> {
+    Box::pin(ranges::split_repairs_only_overlap(Some(make))).await
+}
+
+pub(super) async fn old_lookup_cannot_resurrect_parent_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    Box::pin(ranges::old_lookup_cannot_resurrect_parent(Some(make))).await
+}
+
+pub(super) async fn membership_refresh_keeps_range_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    Box::pin(ranges::membership_refresh_keeps_range(Some(make))).await
 }
 
 pub(super) async fn read_cohort_has_fresh_barrier() -> Result<()> {
