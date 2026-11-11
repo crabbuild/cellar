@@ -100,6 +100,10 @@ impl Cell for Dependent {
                 };
                 let id = CommandId::new(ClientId::new([client; 16])?, 1)?;
                 let mut options = CommandOptions::new(id, horizon);
+                if input["target_s3"] == true {
+                    options.durability = Durability::S3;
+                }
+                let target_durability = options.durability;
                 let gate = match kind {
                     "drop" => 2,
                     "fence" => 4,
@@ -132,7 +136,7 @@ impl Cell for Dependent {
                             "incarnation":target.history().incarnation.bytes()},
                         "client":client, "sequence":1,
                         "input":serde_json::from_slice::<serde_json::Value>(&child_input)?,
-                        "retry_until_ms":horizon,"durability":"quorum"
+                        "retry_until_ms":horizon,"durability":format!("{target_durability:?}")
                     }),
                 )?;
                 let receipt_input = child_input.clone();
@@ -167,7 +171,7 @@ impl Cell for Dependent {
                     }
                     _ => {
                         let receipt = call.await?;
-                        ensure!(receipt.durability == Durability::Quorum);
+                        ensure!(receipt.durability == target_durability);
                         let source = update(&self.storage, 10)?;
                         let read = target
                             .query(
@@ -187,7 +191,7 @@ impl Cell for Dependent {
                                     id,
                                     contract: target.contract("Run")?,
                                     input: receipt_input,
-                                    durability: Durability::Quorum,
+                                    durability: target_durability,
                                 },
                                 TIMEOUT,
                             )
@@ -392,7 +396,7 @@ pub async fn run(
             let mut options = command(177, durability)?;
             options.timeout = Duration::from_secs(20);
             horizon.store(options.retry_until_ms, Ordering::Release);
-            let input = json!({"retry_until_ms": options.retry_until_ms})
+            let input = json!({"retry_until_ms": options.retry_until_ms,"target_s3":durability == Durability::Quorum})
                 .to_string()
                 .into_bytes();
             let (result, observed) = tokio::join!(
@@ -617,10 +621,14 @@ pub async fn run(
 
             // An admitted callback's Busy error must never become an admission retry.
             let busy = command(232, durability)?;
-            ensure!(source
+            let error = source
                 .command(&source.contract("Run")?, request("busy", &busy), busy)
                 .await
-                .is_err());
+                .expect_err("admitted callback Busy");
+            ensure!(matches!(
+                error.cause.as_ref(),
+                CellDispatchError::Execution(ExecutionError::Busy)
+            ));
             ensure!(calls.load(Ordering::Acquire) == 6);
             ensure!(value(&source, 233).await? == 14);
 
