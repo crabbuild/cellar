@@ -53,6 +53,11 @@ impl Cell for Dependent {
                     .context("target handle")?;
                 let horizon = input["retry_until_ms"].as_u64().context("retry horizon")?;
                 let kind = input["kind"].as_str().unwrap_or("nested");
+                if kind == "busy" {
+                    self.calls.fetch_add(1, Ordering::AcqRel);
+                    update(&self.storage, 1000)?;
+                    anyhow::bail!(ExecutionError::Busy)
+                }
                 if kind == "oversized" {
                     update(&self.storage, 1000)?;
                     let error = target
@@ -376,6 +381,14 @@ pub async fn run(
             // command/query/receipt/enrollment forwarding through the canonical path.
             *target.lock().unwrap() =
                 Some(cluster.hosts[(leader + 1) % 3].cell(cells[1].history().clone())?);
+            // The parent and forwarded child retain both leader controller slots.
+            // Observe on the unused voter without increasing that admission bound;
+            // default linearizable reads still require a fresh quorum barrier.
+            let observer = &cluster.hosts[(leader + 2) % 3];
+            let observed_cells = [
+                observer.cell(cells[0].history().clone())?,
+                observer.cell(cells[1].history().clone())?,
+            ];
             let mut options = command(177, durability)?;
             options.timeout = Duration::from_secs(20);
             horizon.store(options.retry_until_ms, Ordering::Release);
@@ -386,8 +399,8 @@ pub async fn run(
                 cells[0].command(&cells[0].contract("Run")?, input.clone(), options.clone()),
                 async {
                     cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
-                    let source = value(&cells[0], 178).await?;
-                    let target = value(&cells[1], 179).await?;
+                    let source = value(&observed_cells[0], 178).await?;
+                    let target = value(&observed_cells[1], 179).await?;
                     gates[0].release.notify_one();
                     ensure!(
                         source == 1,
@@ -395,14 +408,14 @@ pub async fn run(
                     );
                     ensure!(target == 0, "target private writes escaped");
                     cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await?;
-                    let source = value(&cells[0], 182).await?;
+                    let source = value(&observed_cells[0], 182).await?;
                     gates[1].release.notify_one();
                     ensure!(source == 11, "query escaped its source barrier: {source}");
                     Ok::<_, anyhow::Error>(())
                 }
             );
-            let result = result?;
             observed?;
+            let result = result?;
             ensure!(
                 serde_json::from_slice::<serde_json::Value>(&result.result)?
                     == json!({"source":11,"target":2})
@@ -470,7 +483,8 @@ pub async fn run(
                 async {
                     cellar::asyncrt::timeout(TIMEOUT, gates[2].entered.notified()).await?;
                     ensure!(
-                        value(&cells[0], 188).await? == 12 && value(&cells[1], 189).await? == 2
+                        value(&observed_cells[0], 188).await? == 12
+                            && value(&observed_cells[1], 189).await? == 2
                     );
                     cellar::asyncrt::sleep(Duration::from_millis(100)).await;
                     let premature = done.load(Ordering::Acquire);
@@ -479,8 +493,8 @@ pub async fn run(
                     Ok::<_, anyhow::Error>(())
                 }
             );
-            ensure!(output?.result == b"12");
             observed?;
+            ensure!(output?.result == b"12");
             ensure!(value(&cells[1], 190).await? == 4 && calls.load(Ordering::Acquire) == 2);
 
             // Waiting behind an admitted root cannot restart the target's one-second budget.
@@ -494,14 +508,14 @@ pub async fn run(
                 ),
                 async {
                     cellar::asyncrt::timeout(TIMEOUT, gates[3].entered.notified()).await?;
-                    ensure!(value(&cells[0], 192).await? == 12);
+                    ensure!(value(&observed_cells[0], 192).await? == 12);
                     cellar::asyncrt::sleep(Duration::from_millis(1100)).await;
                     gates[3].release.notify_one();
                     Ok::<_, anyhow::Error>(())
                 }
             );
-            let expired = expired?;
             observed?;
+            let expired = expired?;
             ensure!(expired.result == br#"{"expired":true}"#);
             ensure!(value(&cells[0], 193).await? == 13 && calls.load(Ordering::Acquire) == 2);
 
@@ -538,7 +552,8 @@ pub async fn run(
                 async {
                     cellar::asyncrt::timeout(TIMEOUT, gates[4].entered.notified()).await?;
                     ensure!(
-                        value(&cells[0], 197).await? == 14 && value(&cells[1], 198).await? == 9
+                        value(&observed_cells[0], 197).await? == 14
+                            && value(&observed_cells[1], 198).await? == 9
                     );
                     let next = (leader + 1) % 3;
                     let handle = cluster.hosts[leader].group(group)?;
@@ -599,6 +614,15 @@ pub async fn run(
                     .result
                     == b"11"
             );
+
+            // An admitted callback's Busy error must never become an admission retry.
+            let busy = command(232, durability)?;
+            ensure!(source
+                .command(&source.contract("Run")?, request("busy", &busy), busy)
+                .await
+                .is_err());
+            ensure!(calls.load(Ordering::Acquire) == 6);
+            ensure!(value(&source, 233).await? == 14);
 
             Ok::<_, anyhow::Error>(())
         })

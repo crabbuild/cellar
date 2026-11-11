@@ -303,6 +303,8 @@ impl CellSqlReceipt {
 pub(crate) struct CellSqlStageFailure {
     pub error: ExecutionError,
     pub unresolved: bool,
+    /// The writer lease refused before enqueue or application callback entry.
+    pub writer_busy: bool,
 }
 
 impl CellSqlStageFailure {
@@ -310,6 +312,14 @@ impl CellSqlStageFailure {
         Self {
             error,
             unresolved: false,
+            writer_busy: false,
+        }
+    }
+
+    fn admission(error: ExecutionError) -> Self {
+        Self {
+            writer_busy: matches!(error, ExecutionError::Busy),
+            ..Self::known(error)
         }
     }
 }
@@ -776,7 +786,7 @@ impl CellGroupSqlPool {
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         let (cell, action) = self
             .stage_request(options, authority, attempt, mode, callback)
-            .map_err(CellSqlStageFailure::known)?;
+            .map_err(CellSqlStageFailure::admission)?;
         let wait = self
             .send(cell, action)
             .map_err(CellSqlStageFailure::known)?;
@@ -784,6 +794,7 @@ impl CellGroupSqlPool {
             .map_err(|_| CellSqlStageFailure {
                 error: unavailable(),
                 unresolved: true,
+                writer_busy: false,
             })?
             .map_err(CellSqlStageFailure::known)
     }
@@ -871,6 +882,7 @@ impl CellGroupSqlPool {
             .map_err(|_| CellSqlStageFailure {
                 error: unavailable(),
                 unresolved: true,
+                writer_busy: false,
             })?
             .map_err(CellSqlStageFailure::known)
     }
