@@ -629,11 +629,36 @@ impl Cell for NativeCounter {
                 } else {
                     ensure!(update(&self.storage, delta)? == first);
                 }
+                let mut cursor = if input["detached"] == json!(true) {
+                    None
+                } else {
+                    let value = self
+                        .storage
+                        .get_json("value")?
+                        .and_then(|value| value.as_i64())
+                        .context("cursor snapshot before sync")?;
+                    let mut cursor = self.storage.sql_cursor(
+                        "SELECT value FROM counter UNION ALL SELECT value FROM counter",
+                        &[],
+                    )?;
+                    ensure!(
+                        cursor.next_raw()?
+                            == Some(vec![cellar::sdk::storage::SqlValue::Integer(value)])
+                    );
+                    Some((cursor, value))
+                };
                 let synced = self.storage.sync();
                 if input["detached"] == json!(true) {
                     drop(synced);
                 } else {
                     synced.await?;
+                }
+                if let Some((cursor, value)) = cursor.as_mut() {
+                    ensure!(
+                        cursor.next_raw()?
+                            == Some(vec![cellar::sdk::storage::SqlValue::Integer(*value)])
+                    );
+                    ensure!(cursor.next_raw()?.is_none());
                 }
                 if let Some(index) = input["gate"].as_u64() {
                     let gate = self

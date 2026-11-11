@@ -65,9 +65,11 @@ These checkpoints establish neither complete named-binding support nor a full
 primitive-family case.
 The SQL cursor execution owner and constructor-cached SQL/KV invocation fence are
 implemented at `89fe63fb`; committed-source compile, formatting and layout pass.
-Native executable/runtime, strict Clippy and RustFS qualification remain pending.
-Its read-VM/checkpoint/recursive-dispatch lifetime proof must precede a complete
-Storage or family claim.
+At `d8974158`, four owning native selections and strict Clippy pass, including
+paired native/Raft schema-rollback behavior, root checkpoints and the existing
+RPC fault gates with live VMs. The awaited sync extension and real RustFS
+qualification remain pending. Its read-VM/checkpoint/recursive-dispatch lifetime
+proof must precede a complete Storage or family claim.
 
 ## Current boundary
 

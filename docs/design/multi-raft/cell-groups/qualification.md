@@ -519,6 +519,11 @@ Dropped tokens outside a turn only signal cancellation; the owning worker prunes
 them before its next poll/checkpoint. They cannot append unbounded cleanup work
 to an idle activation or finalize another invocation's VM.
 
+Schema rollback can invalidate an existing SQLite read VM. Native and Raft
+cursors preserve the already-prefetched row and deliver the following step's
+error on the next call. A rollback-free checkpoint success test must remain
+separate from the paired native/Raft schema-rollback oracle.
+
 Unfinished write/`RETURNING` statements must be consumed or dropped before exact
 checkpoint or final-output publication. A statement failure retains the existing
 SQLite transaction-poisoning rules. Immutable queries preserve their read-only

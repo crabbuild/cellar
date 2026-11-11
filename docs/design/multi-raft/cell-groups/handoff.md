@@ -8,15 +8,18 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 Source `89fe63fb` adds execution-owned lazy SQL cursors, finite count/statement
 budgets, safe out-of-turn cancellation, unfinished-write publication refusal and
-invocation-specific SQL/KV tokens from constructor-cached Storage. Locked
-library/integration compile, formatting and layout pass. The committed-source
-native executable build and affected-target strict Clippy are running. Preserve
-that source until the four native selections finish, then qualify real RustFS;
-do not restart a live build or relabel the previous source's six RustFS passes.
-The new cases include a read VM across independent roots and escaped write
-refusal. Check actual outcomes before claiming checkpoint compatibility or
-changing the implementation. Connection-bound recursive dispatch and full
-checkpoint-pressure/cancellation/teardown coverage remain required. See
+invocation-specific SQL/KV tokens from constructor-cached Storage. At `d8974158`,
+four owning native selections and strict Clippy pass in both image modes. The
+paired native/Raft schema-rollback/deferred-error oracle corrects the original
+RPC test's invalid expectation while preserving its separate root-checkpoint
+success assertion. Live VM fault gates and capacity-before-mutation checks pass.
+Original failed `89fe63fb` and passing `d8974158` binaries/logs remain retained.
+The awaited sync case is being extended to hold a cursor across Quorum/S3 proof.
+Production library inputs remain unchanged. Finish that case and run all six
+real RustFS primitive cases before accepting this component's S3 scope. The owned
+SQL-cursor backend is ready; shutdown remains mandatory. Connection-bound
+recursive dispatch, checkpoint pressure and the complete family/scenario matrix
+remain required. See
 [progress](progress.md#cg-17-sql-cursor-execution-ownership-qualification-pending).
 
 ## Published design scope

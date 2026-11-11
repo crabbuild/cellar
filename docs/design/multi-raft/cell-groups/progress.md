@@ -43,14 +43,31 @@ instance, but its cursors cannot be adopted by a subsequent invocation. SQL
 limits add explicit live-count and sampled statement/bind-byte budgets, retained
 by the unrestricted profile; they do not claim to bound RSS or result buffers.
 
-Committed-source locked library/affected-integration `cargo check` passes in
-283.245 seconds. Formatting, module layout and docs checks pass. The executable
-build and strict affected-target Clippy are running; the four selected native
-runtime cases and real RustFS qualification are **not yet complete**. Do not
-attribute the six earlier RustFS passes below to this changed implementation.
-The extended cases require typed values, prefixes/counters, concurrent cursors,
-capacity refusal, escaped handles, constructor-cached fencing, live SQL reads
-across independent roots and unfinished-write refusal at both durability levels.
+At `d8974158`, all four owning native selections pass: RF3 Storage in
+25.446 seconds, ordinary RPC in 73.187 seconds, bounded/fenced activation in
+207.251 seconds and production native Storage in 0.135 seconds. The owning
+library/integration compile and strict affected-target Clippy pass, together
+with formatting, layout and docs checks. Both image forms run. The RPC now holds
+a live SQL VM through the existing leader-loss, cancellation and shutdown gates;
+capacity refusal also checks that a write statement cannot enter a full arena.
+Exact binaries/logs are retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-d8974158-native-02`.
+
+The original `89fe63fb` campaign passes Storage, activation and native Storage,
+then fails RPC on `SQLITE_ABORT_ROLLBACK`. The new test had incorrectly expected
+a read VM to survive savepoint rollback after schema changes. The paired
+production native/Raft oracle now requires the same prefetched-row/deferred-error
+behavior; the root-checkpoint success assertion opens its cursor after those
+rollback controls. Existing rollback/data assertions and budgets remain. The
+original failed source, executable and diagnostic controls are retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-89fe63fb-control-01`.
+
+The existing awaited `storage.sync()` case is additionally being qualified with
+a live read cursor across its Quorum/S3 proof, including queued preceding work.
+The production implementation is unchanged from `89fe63fb`; these later changes
+are test/docs only. Real RustFS qualification of SQL cursors is **not yet
+complete**. Do not attribute the six earlier KV-cursor RustFS passes below to
+this changed implementation or accept a full CG-17 family from native checks.
 
 The remaining proof includes real checkpoint pressure, connection-bound cursor
 interaction with recursive same-cell dispatch, cancellation and joined teardown.
