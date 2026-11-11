@@ -44,9 +44,12 @@ impl Cell for Interleaved {
                         json!([before, after]).to_string(),
                     )));
                 }
-                "private" | "schema" => {
+                "private" | "schema" | "temporary" => {
                     self.storage.sync().await?;
-                    if kind == "schema" {
+                    if kind == "temporary" {
+                        self.storage
+                            .sql("CREATE TEMP TABLE private_temporary(value INTEGER)", &[])?;
+                    } else if kind == "schema" {
                         self.storage
                             .sql("CREATE TABLE private_schema(value INTEGER)", &[])?;
                     } else {
@@ -228,10 +231,14 @@ pub async fn run(
             );
             ensure!(calls.load(Ordering::Acquire) == 2);
 
-            // Open async transactions, private DML and private schema changes must
-            // all preserve their writer after a prior independently proven root.
+            // Open async transactions, private DML, private schema changes and
+            // user temporary objects all preserve their writer after a prior
+            // independently proven root. The protected framework dbstat is recreated.
             let mut baseline = 13;
-            for (index, kind) in ["atomic", "private", "schema"].into_iter().enumerate() {
+            for (index, kind) in ["atomic", "private", "schema", "temporary"]
+                .into_iter()
+                .enumerate()
+            {
                 let client = 191 + index as u8 * 2;
                 let mut atomic = command(client, 1, durability)?;
                 atomic.timeout = Duration::from_secs(20);

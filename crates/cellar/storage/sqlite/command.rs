@@ -210,10 +210,12 @@ impl ActiveCommand {
             return Ok(false);
         }
         // Temporary objects belong to this connection, rather than the durable
-        // image. Preserve their lifetime by keeping its writer installed.
+        // image. Preserve application objects by keeping their writer installed.
+        // The sole exception is our protected dbstat module: open() recreates
+        // it before installing the authorizer, and applications cannot alter it.
         super::as_framework_sql(|| {
             connection.query_row(
-                "SELECT NOT EXISTS(SELECT 1 FROM sqlite_temp_master)",
+                "SELECT NOT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE name!='__sys_raft_capacity')",
                 [],
                 |row| row.get(0),
             )
