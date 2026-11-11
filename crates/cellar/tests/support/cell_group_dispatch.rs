@@ -158,6 +158,10 @@ impl Cell for Dependent {
                         json!({"expired":true})
                     }
                     "fence" => {
+                        let _cursor = self.storage.sql_cursor(
+                            "SELECT value FROM counter UNION ALL SELECT value FROM counter",
+                            &[],
+                        )?;
                         *self.escaped.lock().unwrap() = Some(Box::pin(call));
                         let _waiting = Waiting(&self.gates[5].dropped);
                         self.gates[5].release.notified().await;
@@ -283,6 +287,28 @@ async fn value(cell: &RaftCellHandle, invocation: u8) -> Result<i64> {
         )
         .await?;
     Ok(serde_json::from_slice(&result.result)?)
+}
+
+async fn cursor_images_released(hosts: &[RaftCells]) -> Result<()> {
+    cellar::asyncrt::timeout(TIMEOUT, async {
+        loop {
+            let mut retained = false;
+            for host in hosts {
+                let usage = host
+                    .resource_usage()
+                    .serving_images
+                    .extents
+                    .context("extent image accounting")?;
+                retained |= usage.workspaces != 0;
+            }
+            if !retained {
+                break Ok::<_, anyhow::Error>(());
+            }
+            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("parked cursors did not release their physical images")?
 }
 
 pub async fn run(
@@ -567,17 +593,7 @@ pub async fn run(
             ensure!(result.result == br#"{"recursive":7}"#);
             ensure!(value(&cells[1], 195).await? == 7 && calls.load(Ordering::Acquire) == 3);
             if rooted {
-                cellar::asyncrt::timeout(TIMEOUT, async {
-                    loop {
-                        let mut retained = false;
-                        for host in &cluster.hosts {
-                            let usage = host.resource_usage().serving_images.extents.context("extent image accounting")?;
-                            retained |= usage.workspaces != 0;
-                        }
-                        if !retained { break Ok::<_, anyhow::Error>(()); }
-                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
-                    }
-                }).await.context("recursive cursors did not release their physical images")??;
+                cursor_images_released(&cluster.hosts).await?;
             }
 
             let oversized = command(201, durability)?;
@@ -603,6 +619,19 @@ pub async fn run(
                         value(&observed_cells[0], 197).await? == 14
                             && value(&observed_cells[1], 198).await? == 9
                     );
+                    cellar::asyncrt::timeout(TIMEOUT, async {
+                        loop {
+                            let usage = cluster.hosts[leader].resource_usage();
+                            if usage.sql.context("SQL writer accounting")?.active_cells == 0 {
+                                if rooted {
+                                    ensure!(usage.serving_images.extents.context("extent image accounting")?.workspaces != 0,
+                                        "parked read VM lost its physical image");
+                                }
+                                break Ok::<_, anyhow::Error>(());
+                            }
+                            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                        }
+                    }).await.context("read cursor did not release writer admission before fencing")??;
                     let next = (leader + 1) % 3;
                     let handle = cluster.hosts[leader].group(group)?;
                     let status = handle.replication_status(TIMEOUT).await?;
@@ -675,6 +704,9 @@ pub async fn run(
             ));
             ensure!(calls.load(Ordering::Acquire) == 6);
             ensure!(value(&source, 233).await? == 14);
+            if rooted {
+                cursor_images_released(&cluster.hosts).await?;
+            }
 
             Ok::<_, anyhow::Error>(())
         })
