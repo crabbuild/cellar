@@ -505,8 +505,9 @@ cell's replicated state proof.
 `RaftCells::resolve_cell_history` observes an existing name's current enrollment
 through a fresh quorum read. It returns the selected incarnation or absence and
 never initializes a name. Only linearizable consistency is admitted. The lookup
-uses the namespace read grant and authenticated, purpose-specific bounded wire
-frames; a command grant or version-token signing key is not required. Source and
+uses the existing namespace read authorization, including current-voter access,
+and authenticated, purpose-specific bounded wire frames. A command grant or
+version-token signing key is not required. Source and
 replica routing retain the original admission, attempt budget and deadline,
 including a future first polled after its deadline.
 

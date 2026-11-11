@@ -234,9 +234,12 @@ pub async fn run(
                 member: MemberId::new(leader as u64 + 1)?,
             };
             *target.lock().unwrap() = Some(binding.clone());
+            // Current voter identity supplies the existing implicit read grant.
+            // No command-origin grant has been installed at this point.
+            ensure!(lookup(&binding).await? == Some(destination.history().clone()));
             ensure!(
-                lookup(&binding).await.is_err(),
-                "name lookup ignored its namespace read grant"
+                calls.load(Ordering::Acquire) == 0,
+                "read-only discovery invoked the application"
             );
             for host in &cluster.hosts {
                 for peer in &cluster.peers {
