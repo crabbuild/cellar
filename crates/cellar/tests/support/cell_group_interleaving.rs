@@ -118,12 +118,10 @@ pub async fn run(
     let waiting = gates.clone();
     let class = RaftClass::new("Counter", 1, [181; 32])?
         .initializer([182; 32], |_, tx| {
-            let storage = tx.storage()?;
-            storage.sql(
-                "CREATE TABLE counter(value INTEGER NOT NULL); INSERT INTO counter VALUES(0)",
-                &[],
+            tx.execute_batch(
+                "CREATE TABLE counter(value INTEGER NOT NULL); INSERT INTO counter VALUES(0);",
             )?;
-            storage.put_json("value", &json!(0))
+            tx.storage()?.put_json("value", &json!(0))
         })?
         .json_cell_rpc("Run", [183; 32])?
         .query("Get", [184; 32], |context, _| {
