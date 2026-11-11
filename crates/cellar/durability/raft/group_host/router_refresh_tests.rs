@@ -71,10 +71,10 @@ async fn concurrent_waiters_share_one_owner_and_cancellation_retains_work() -> a
     assert_eq!(fixture.memory.usage(), (OWNER_BYTES + WAITER_BYTES, 2));
     drop(first);
     assert_eq!(fixture.memory.usage(), (OWNER_BYTES + WAITER_BYTES, 2));
-    owner.complete(Err(RuntimeError::NotReady));
+    owner.complete(Ok(RouterRefreshOutcome::StalePlacement));
     // An undelivered response still owns its shared result reservation.
     assert_eq!(fixture.memory.usage(), (OWNER_BYTES + WAITER_BYTES, 2));
-    assert_eq!(second.await, Err(RuntimeError::NotReady));
+    assert_eq!(second.await, Ok(RouterRefreshOutcome::StalePlacement));
     assert_eq!(fixture.memory.usage(), (0, 0));
     assert!(client.shared.pending.lock().unwrap().is_empty());
     let snapshot = client.performance.snapshot();
@@ -148,7 +148,7 @@ async fn parent_byte_and_item_limits_bound_all_waiters_without_new_banks() -> an
         drop(first);
         drop(second);
         assert_eq!(fixture.memory.usage(), (OWNER_BYTES, 1));
-        owner.complete(Ok(()));
+        owner.complete(Ok(RouterRefreshOutcome::Current));
         assert_eq!(fixture.memory.usage(), (0, 0));
         fixture.domain.shutdown().await;
     }
@@ -160,8 +160,8 @@ async fn parent_byte_and_item_limits_bound_all_waiters_without_new_banks() -> an
     let client = fixture.client.clone();
     let mut first = Box::pin(client.request(cold(3), fixture.deadline()));
     assert!(first.as_mut().now_or_never().is_none());
-    fixture.owner().complete(Ok(()));
-    assert_eq!(first.await, Ok(()));
+    fixture.owner().complete(Ok(RouterRefreshOutcome::Current));
+    assert_eq!(first.await, Ok(RouterRefreshOutcome::Current));
     drop(sdk);
     drop(directory);
     assert_eq!(fixture.memory.usage(), (0, 0));
@@ -212,10 +212,10 @@ async fn route_configuration_and_history_changes_select_different_owners() -> an
     drop(changed);
     assert_eq!(fixture.memory.usage(), (4 * OWNER_BYTES, 4));
     for owner in owners {
-        owner.complete(Ok(()));
+        owner.complete(Ok(RouterRefreshOutcome::Current));
     }
     for waiter in waiters {
-        assert_eq!(waiter.await, Ok(()));
+        assert_eq!(waiter.await, Ok(RouterRefreshOutcome::Current));
     }
     assert_eq!(fixture.memory.usage(), (0, 0));
     fixture.domain.shutdown().await;
@@ -234,8 +234,8 @@ async fn completion_retires_key_while_old_delivery_stays_charged() -> anyhow::Re
     let owner = fixture.owner();
     assert_eq!(fixture.memory.usage(), (2 * OWNER_BYTES, 2));
     assert_eq!(old.await, Err(RuntimeError::NotReady));
-    owner.complete(Ok(()));
-    assert_eq!(new.await, Ok(()));
+    owner.complete(Ok(RouterRefreshOutcome::Current));
+    assert_eq!(new.await, Ok(RouterRefreshOutcome::Current));
     assert_eq!(fixture.memory.usage(), (0, 0));
     fixture.domain.shutdown().await;
     Ok(())

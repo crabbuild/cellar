@@ -62,6 +62,7 @@ impl Drill<'_> {
                     "history": format!("{:?}", observed.replica.scope),
                     "member": observed.replica.member.get(), "term": observed.status.term.get(),
                     "leader": observed.status.leader, "membership_revision": observed.membership_revision.get(),
+                    "ready": observed.status.ready,
                     "applied_index": observed.status.applied.index.get(), "committed_index": observed.status.committed.get(),
                     "persisted_index": observed.persisted.get(),
                 });

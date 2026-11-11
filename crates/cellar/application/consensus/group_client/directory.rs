@@ -68,7 +68,7 @@ impl RaftCells {
             .map_err(|_| CommandFailure::Unavailable)
     }
 
-    pub(crate) async fn refresh_local_namespace_routes(
+    async fn refresh_local_namespace_routes(
         &self,
         history: GroupHistory,
         deadline: u64,
@@ -120,9 +120,8 @@ impl RaftCells {
                 .refresh_managed_router(history, deadline)
                 .await?;
             owner
-                .metadata_live(deadline)
-                .map_err(|_| RuntimeError::DeadlineExceeded)?;
-            Ok(())
+                .refresh_local_namespace_routes(history, deadline)
+                .await
         }
     }
 }

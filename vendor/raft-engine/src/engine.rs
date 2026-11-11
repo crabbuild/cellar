@@ -327,6 +327,14 @@ where
         self.purge_manager.purge_expired_files()
     }
 
+    /// Whether either log queue meets the current purge policy.
+    pub fn needs_purge(&self) -> bool {
+        self.purge_manager.needs_rewrite_log_files(LogQueue::Append)
+            || self
+                .purge_manager
+                .needs_rewrite_log_files(LogQueue::Rewrite)
+    }
+
     /// Returns count of fetched entries.
     pub fn fetch_entries_to<M: MessageExt>(
         &self,

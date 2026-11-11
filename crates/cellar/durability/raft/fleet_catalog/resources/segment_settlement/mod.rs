@@ -7,7 +7,9 @@ mod charges;
 
 use super::*;
 use crate::raft::fleet_catalog::deadline::Deadline;
-use crate::raft::storage::{LogError, RaftSegmentInventory, RaftSegmentPurgeReceipt, ReplicaLog};
+use crate::raft::storage::{
+    LogError, RaftSegmentInventory, RaftSegmentPurgeReceipt, ReplicaLog, SegmentPurgeSchedule,
+};
 use charges::Charges;
 
 const PREFIX: &str = "segment-floor/";
@@ -46,6 +48,11 @@ impl Floor {
     }
 }
 
+enum PurgeTurn {
+    Explicit(u64),
+    Periodic(SegmentPurgeSchedule),
+}
+
 impl FleetHostAuthorization {
     pub(crate) async fn settle_raft_segment_purge(
         &self,
@@ -56,21 +63,76 @@ impl FleetHostAuthorization {
         if number == 0 {
             return Err(FleetCatalogError::Invalid("segment purge number"));
         }
+        let deadline = Deadline::new(&self.catalog, timeout)?;
+        self.segment_purge_turn(log, PurgeTurn::Explicit(number), &deadline)
+            .await
+            .map(|(_, bytes)| bytes)
+    }
+
+    pub(crate) async fn settle_due_raft_segment_purge(
+        &self,
+        log: &ReplicaLog,
+        settled: u64,
+        timeout: Duration,
+    ) -> Result<u64> {
+        let deadline = Deadline::new(&self.catalog, timeout)?;
+        let schedule = log.segment_purge_schedule().await.map_err(storage_error)?;
+        if !schedule.due && schedule.latest <= settled {
+            return Ok(settled);
+        }
+        self.segment_purge_turn(log, PurgeTurn::Periodic(schedule), &deadline)
+            .await
+            .map(|(number, _)| number)
+    }
+
+    async fn segment_purge_turn(
+        &self,
+        log: &ReplicaLog,
+        turn: PurgeTurn,
+        deadline: &Deadline<'_>,
+    ) -> Result<(u64, u64)> {
         let catalog = &self.catalog;
-        let deadline = Deadline::new(catalog, timeout)?;
-        let (mut snapshot, boot, old) = catalog
+        let periodic = matches!(&turn, PurgeTurn::Periodic(_));
+        let (mut snapshot, boot, old, qualified) = catalog
             .run(deadline.remaining()?, async {
                 let snapshot = catalog.inner.current().await?;
                 let current = catalog.host_from(&snapshot, self.node()).await?;
                 self.require_running_successor(&current)?;
                 let boot = current.boot_binding()?;
                 let floor = catalog.segment_floor(&snapshot, &boot).await?;
-                Ok((snapshot, boot, floor))
+                let qualified = if periodic
+                    && matches!(
+                        current.state(),
+                        FleetNodeState::Active | FleetNodeState::Draining
+                    ) {
+                    match catalog.capacity_from(&snapshot, self.node()).await {
+                        Ok(capacity) => capacity.attestation().boot == boot,
+                        Err(FleetCatalogError::Conflict) => false,
+                        Err(error) => return Err(error),
+                    }
+                } else {
+                    !periodic
+                };
+                Ok((snapshot, boot, floor, qualified))
             })
             .await?;
         require_log_boot(log, &boot)?;
+        let number = match turn {
+            PurgeTurn::Explicit(number) => number,
+            PurgeTurn::Periodic(schedule) => {
+                let rooted = old.as_ref().map_or(0, |floor| floor.number);
+                let next = rooted.checked_add(1).ok_or(FleetCatalogError::Limit)?;
+                if !(rooted..=next).contains(&schedule.latest) {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                if !qualified || !schedule.due && schedule.latest == rooted {
+                    return Ok((rooted, old.map_or(0, |floor| floor.bytes)));
+                }
+                next
+            }
+        };
         let old = match old {
-            Some(old) if old.number == number => return Ok(old.bytes),
+            Some(old) if old.number == number => return Ok((number, old.bytes)),
             Some(old) if old.number.checked_add(1) == Some(number) => old,
             None if number == 1 => {
                 let started = catalog.resource_now()?;
@@ -130,7 +192,7 @@ impl FleetHostAuthorization {
                         started,
                     )
                     .await?;
-                Ok(floor.bytes)
+                Ok((number, floor.bytes))
             })
             .await
     }

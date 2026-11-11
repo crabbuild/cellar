@@ -51,10 +51,16 @@ impl RouterRefreshKey {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RouterRefreshOutcome {
+    Current,
+    StalePlacement,
+}
+
 struct Pending {
     key: RouterRefreshKey,
     deadline: u64,
-    result: watch::Sender<Option<Result<(), RuntimeError>>>,
+    result: watch::Sender<Option<Result<RouterRefreshOutcome, RuntimeError>>>,
     // Covers the physical owner, first waiter, result and bounded index slot.
     // Other waiters reserve separately in this same parent bank. The owner keeps
     // this charge even if every caller cancels; delivery also retains it.
@@ -81,11 +87,11 @@ impl RouterRefreshOwner {
         self.pending.deadline
     }
 
-    pub(super) fn complete(mut self, result: Result<(), RuntimeError>) {
+    pub(super) fn complete(mut self, result: Result<RouterRefreshOutcome, RuntimeError>) {
         self.finish(result);
     }
 
-    fn finish(&mut self, result: Result<(), RuntimeError>) {
+    fn finish(&mut self, result: Result<RouterRefreshOutcome, RuntimeError>) {
         if self.finished {
             return;
         }
@@ -220,7 +226,7 @@ impl RouterRefreshClient {
         &self,
         key: RouterRefreshKey,
         deadline: u64,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<RouterRefreshOutcome, RuntimeError> {
         if self.domain.mono_ms().map_err(|_| RuntimeError::Closed)? >= deadline {
             return Err(RuntimeError::DeadlineExceeded);
         }

@@ -162,9 +162,10 @@ removed. A replaced discovery view refuses captured requests and late replies;
 removal does not revoke the destination's independently managed namespace grant.
 Grant revocation cancels read waiters without releasing physically entered SQL.
 The public host supplies trusted discovery and explicit permissions. Automatic
-SDK reads use the local replica when present and otherwise try configured members
-within the original budget. Dynamic membership refresh for ingress remains
-integration work.
+SDK reads prefer an observed leader for linearizable queries and a local
+replica for the other modes. Eligible alternatives share the original deadline
+and attempt budget and must prove the same requested consistency. A preferred
+member does not replace the receiving gateway's current catalog check.
 
 Remote commands use the same bounded application RPC lane with a mandatory,
 MAC-bound command purpose and distinct payload/result markers. A read grant or

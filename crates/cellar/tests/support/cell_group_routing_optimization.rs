@@ -10,8 +10,18 @@ mod busy;
 #[path = "cell_group_routing_refresh.rs"]
 mod refresh;
 
+#[path = "cell_group_routing_read_gate.rs"]
+mod read_gate;
+
+#[path = "cell_group_routing_read_preferences.rs"]
+mod read_preferences;
+
 #[path = "cell_group_routing_reads.rs"]
 mod reads;
+
+#[path = "raft_storage_fault.rs"]
+#[allow(dead_code)]
+mod storage_fault;
 
 const COUNTERS: [&str; 6] = [
     "cell_command_rpc_attempts",
@@ -80,6 +90,10 @@ pub(super) async fn refresh_storm_is_bounded() -> Result<()> {
 
 pub(super) async fn read_cohort_has_fresh_barrier() -> Result<()> {
     Box::pin(reads::run()).await
+}
+
+pub(super) async fn read_preferences_preserve_proof() -> Result<()> {
+    Box::pin(read_preferences::run()).await
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! SDK/native/Axum reads use actual admission, Raft persistence and SQL callbacks.
+use super::read_gate as gate;
 use super::*;
 use crate::storage_fault;
 use futures_util::{future::BoxFuture, FutureExt};
@@ -10,8 +11,6 @@ use std::sync::atomic::AtomicU64;
 mod configuration;
 #[path = "cell_group_routing_read_evidence.rs"]
 mod evidence;
-#[path = "cell_group_routing_read_gate.rs"]
-mod gate;
 #[path = "cell_group_routing_read_pending.rs"]
 mod pending;
 
@@ -111,7 +110,7 @@ impl Drill<'_> {
         ensure!(snapshot.available && !snapshot.saturated);
         let mut values = [0; 2];
         for (n, name) in [
-            "cell_linearizable_read_barriers",
+            "cell_linearizable_read_cohorts_started",
             "cell_linearizable_read_cohort_joins",
         ]
         .into_iter()
@@ -394,18 +393,22 @@ impl Drill<'_> {
         let mut reads = Waiters::default();
         reads.start(0, self.read(ingress, "one"));
         reads.start(1, self.read(ingress, "two"));
-        self.wait(
-            "two public reads admitted behind actual Raft persistence",
-            || {
+        let group = self.host().group(self.cluster.managed.history)?;
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
                 let usage = self.host().resource_usage();
-                Ok(usage.runtime.read_pins.items == 2 && usage.host.controller.ordinary.items == 2)
-            },
-        )
-        .await?;
-        self.host()
-            .group(self.cluster.managed.history)?
-            .status()
-            .await?;
+                if usage.runtime.read_pins.items == 2
+                    && usage.host.controller.ordinary.items == 2
+                    && group.observe(TIMEOUT).await?.queued_linearizable_reads == 2
+                {
+                    return self.callbacks.clean();
+                }
+                self.callbacks.clean()?;
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .context("two public reads in the Raft actor queue behind actual persistence")??;
         ensure!(self.sample()? == before);
         self.evidence("prequeued_admitted_behind_sync").await?;
         drop(sync);
@@ -414,7 +417,11 @@ impl Drill<'_> {
                 && self.host().resource_usage().runtime.read_pins.items == 2)
         })
         .await?;
-        ensure!(self.sample()? == [before[0] + 1, before[1] + 1]);
+        let after = self.sample()?;
+        ensure!(
+            after == [before[0] + 1, before[1] + 1],
+            "prequeued {ingress:?} reads (cancel={cancel}) must share one barrier, cohort and join counts {before:?} -> {after:?}"
+        );
         self.evidence("shared_barrier_independent_pins").await?;
         let cancelled = if cancel {
             let index = self

@@ -114,19 +114,80 @@ impl Destination<'_> {
         route: &cellar_logic::cell_group::GroupRoute,
         maximum: usize,
         deadline: u64,
+        prefer_leader: bool,
     ) -> Result<Vec<MemberId>, Error> {
-        match self.transport.cell_query_router_members(route, maximum) {
+        let selected = || {
+            self.transport
+                .cell_query_candidates(route, maximum, None, None, prefer_leader)
+        };
+        match selected() {
             Err(TransportError::UnknownGroup) => {
                 self.transport
                     .refresh_managed_router(route.history, deadline)
                     .await
                     .map_err(Error::Runtime)?;
-                self.transport
-                    .cell_query_router_members(route, maximum)
-                    .map_err(Error::Transport)
+                selected().map_err(Error::Transport)
             }
             result => result.map_err(Error::Transport),
         }
+    }
+
+    async fn local_members(
+        &self,
+        invocation: &CellQueryInvocation,
+        route: &cellar_logic::cell_group::GroupRoute,
+        local: MemberId,
+        tried_locality: bool,
+    ) -> Result<Vec<MemberId>, Error> {
+        // Ordinary caught-up local reads need neither a leader observation nor
+        // consensus work. Status is advisory and does not wake parked groups.
+        let leader = if invocation.prefers_leader() || tried_locality {
+            let timer = self
+                .shared
+                .domain
+                .sleep_until(invocation.deadline_ms())
+                .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+            let status = crate::asyncrt::select! {
+                status = self.runtime.status(route.history) => status,
+                _ = timer => return Err(Error::Runtime(RuntimeError::DeadlineExceeded)),
+            };
+            match status {
+                Ok(status) => status.leader.and_then(|member| MemberId::new(member).ok()),
+                Err(RuntimeError::NotFound | RuntimeError::NotReady) => None,
+                Err(error) => return Err(Error::Runtime(error)),
+            }
+        } else {
+            None
+        };
+        match self.transport.cell_query_candidates(
+            route,
+            invocation.maximum_attempts(),
+            Some(local),
+            leader,
+            invocation.prefers_leader(),
+        ) {
+            // A local proof remains available while no physical send view is
+            // installed. Missing routing metadata never grants remote access.
+            Err(TransportError::UnknownGroup) => Ok(vec![local]),
+            result => result.map_err(Error::Transport),
+        }
+    }
+
+    fn limit_automatic_attempt(&self, invocation: &mut CellQueryInvocation) -> Result<(), Error> {
+        let ordinal = usize::from(
+            invocation
+                .attempt()
+                .ok_or(Error::Invalid("missing route"))?
+                .ordinal(),
+        );
+        let now = self
+            .shared
+            .domain
+            .mono_ms()
+            .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+        let remaining = invocation.deadline_ms().saturating_sub(now);
+        let tickets = invocation.maximum_attempts().saturating_sub(ordinal) + 1;
+        invocation.limit_attempt(Duration::from_millis((remaining / tickets as u64).max(1)))
     }
 
     async fn automatic(
@@ -136,7 +197,7 @@ impl Destination<'_> {
         permit: Arc<admission::Retention>,
     ) -> Result<CellQueryResponse, Error> {
         let mut previous = None;
-        let mut next_member = 0;
+        let mut tried_members = Vec::with_capacity(invocation.maximum_attempts());
         loop {
             let attempt = invocation
                 .attempt()
@@ -144,63 +205,75 @@ impl Destination<'_> {
             let route = attempt.route();
             let history = route.history;
             let ordinal = usize::from(attempt.ordinal());
-            let mut exhausted_router = false;
             if previous != Some(history) {
-                next_member = 0;
+                tried_members.clear();
                 previous = Some(history);
             }
-            // A retained obsolete log is physical debt, not a serving replica.
-            // Only the controller's active roster selects local execution.
-            let result = match self.runtime.log().cell_group(&history) {
-                Ok(_)
+            // Only the active roster permits local proof acquisition. A
+            // retained obsolete engine is physical debt, not a serving owner.
+            let selected = match self.runtime.log().cell_group(&history) {
+                Ok(group)
                     if self
                         .shared
                         .groups
                         .contains(&history)
                         .map_err(Error::Runtime)? =>
                 {
-                    self.local(invocation, options.clone(), permit.clone())
-                        .await
+                    self.local_members(
+                        invocation,
+                        route,
+                        group.identity().member,
+                        !tried_members.is_empty(),
+                    )
+                    .await
+                    .map(|members| (members, false))
                 }
-                Ok(_) | Err(LogError::NotFound) => {
-                    match self
-                        .router_members(
-                            route,
-                            invocation.maximum_attempts(),
-                            invocation.deadline_ms(),
-                        )
-                        .await
-                    {
-                        Ok(members) if !members.is_empty() => {
-                            let member = members[next_member % members.len()];
-                            next_member += 1;
-                            exhausted_router = next_member >= members.len();
-                            let now = self
-                                .shared
-                                .domain
-                                .mono_ms()
-                                .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
-                            let remaining = invocation.deadline_ms().saturating_sub(now);
-                            let tickets = invocation.maximum_attempts().saturating_sub(ordinal) + 1;
-                            invocation.limit_attempt(Duration::from_millis(
-                                (remaining / tickets as u64).max(1),
-                            ))?;
-                            self.attempt(invocation, member, options.clone(), permit.clone())
-                                .await
-                        }
-                        Ok(_) => Err(Error::Runtime(RuntimeError::NotFound)),
-                        Err(error) => Err(error),
-                    }
-                }
+                Ok(_) | Err(LogError::NotFound) => self
+                    .router_members(
+                        route,
+                        invocation.maximum_attempts(),
+                        invocation.deadline_ms(),
+                        invocation.prefers_leader(),
+                    )
+                    .await
+                    .map(|members| (members, true)),
                 Err(error) => Err(Error::Runtime(RuntimeError::Storage(error))),
+            };
+            let mut exhausted_router = false;
+            let mut cached_remaining = false;
+            let result = match selected {
+                Ok((members, router)) if !members.is_empty() => {
+                    // Advice can reorder this snapshot between tickets. Track
+                    // identities rather than an index that could skip a peer.
+                    let member = members
+                        .iter()
+                        .copied()
+                        .find(|member| !tried_members.contains(member))
+                        .unwrap_or(members[0]);
+                    if !tried_members.contains(&member) {
+                        tried_members.push(member);
+                    }
+                    cached_remaining = members.iter().any(|member| !tried_members.contains(member));
+                    exhausted_router = router && !cached_remaining;
+                    self.limit_automatic_attempt(invocation)?;
+                    self.attempt(invocation, member, options.clone(), permit.clone())
+                        .await
+                }
+                Ok(_) => Err(Error::Runtime(RuntimeError::NotFound)),
+                Err(error) => Err(error),
             };
             match result {
                 Ok(response) => return Ok(response),
                 Err(error) if retryable(&error) && ordinal < invocation.maximum_attempts() => {
+                    if cached_remaining && replica_fallback(&error) {
+                        // Lag, pressure or an unavailable first target does not
+                        // by itself replace the cell range. Each next ticket
+                        // retains the ID, minimum, absolute deadline and permit.
+                        invocation.retry().await?;
+                        invocation.validate_minimum().await?;
+                        continue;
+                    }
                     if exhausted_router {
-                        // Try cached destinations first, including during an
-                        // archive outage. Only an exhausted stale view needs
-                        // fresh rooted discovery before the next read ticket.
                         match self
                             .transport
                             .refresh_managed_router(history, invocation.deadline_ms())
@@ -209,10 +282,10 @@ impl Destination<'_> {
                             Ok(()) | Err(RuntimeError::NotFound) => (),
                             Err(error) => return Err(Error::Runtime(error)),
                         }
+                        tried_members.clear();
                     }
-                    // A selected successor can have completely different members.
-                    // Replan against a verified root, never an old member list or
-                    // a new session with a replenished deadline/attempt budget.
+                    // Actual route/membership repair keeps the same session.
+                    // A selected successor can have a wholly different roster.
                     invocation.refresh().await?;
                     invocation.validate_minimum().await?;
                 }
@@ -313,6 +386,23 @@ fn unavailable(failure: &CommandFailure) -> bool {
             | CommandFailure::Overloaded
             | CommandFailure::VersionUnavailable
     )
+}
+
+fn replica_fallback(error: &Error) -> bool {
+    match error {
+        Error::Runtime(
+            RuntimeError::NotLeader
+            | RuntimeError::NotReady
+            | RuntimeError::DeadlineExceeded
+            | RuntimeError::Overloaded,
+        )
+        | Error::Transport(
+            TransportError::Io(_) | TransportError::Timeout | TransportError::Overloaded,
+        ) => true,
+        Error::Execution(crate::raft::execution::ExecutionError::Refused(failure))
+        | Error::Transport(TransportError::Query(failure)) => unavailable(failure),
+        _ => false,
+    }
 }
 
 pub(super) fn retryable(error: &Error) -> bool {

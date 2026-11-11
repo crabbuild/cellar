@@ -1,9 +1,31 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use crate::raft::{catalog::CatalogError, completion::RuntimeError};
+use crate::raft::{
+    catalog::CatalogError,
+    completion::RuntimeError,
+    fleet_catalog::{FleetCatalogError, FleetHostAuthorization},
+};
 
 impl RaftCells {
+    pub(crate) fn settles_periodic_raft_purges(&self) -> bool {
+        self.handle.core.log.settles_periodic_purges()
+    }
+
+    pub(crate) async fn settle_periodic_raft_purge(
+        &self,
+        authority: &FleetHostAuthorization,
+        settled: u64,
+        timeout: Duration,
+    ) -> Result<u64, FleetCatalogError> {
+        if self.is_closed() {
+            return Err(FleetCatalogError::Closed);
+        }
+        authority
+            .settle_due_raft_segment_purge(&self.handle.core.log, settled, timeout)
+            .await
+    }
+
     /// Purge local Raft segments and settle their file lengths in the managed
     /// Fleet. Returns the new rooted segment-file byte floor for this engine.
     ///
@@ -16,7 +38,10 @@ impl RaftCells {
         timeout: Duration,
     ) -> impl Future<Output = Result<u64, CellGroupControllerError>> + Send + 'static {
         let admitted = self
-            .metadata_admission(timeout, 2 * crate::raft::physical_inventory::RESPONSE_BYTES)
+            .metadata_admission(
+                timeout,
+                crate::raft::physical_inventory::SEGMENT_SETTLEMENT_BYTES,
+            )
             .map_err(super::startup::admission_error);
         let owner = self.internal_observer();
         async move {

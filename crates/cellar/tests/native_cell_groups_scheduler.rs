@@ -25,6 +25,9 @@ mod automatic_repair;
 #[path = "support/cell_group_scheduler_fanout.rs"]
 mod fanout;
 
+#[path = "support/cell_group_segment_credit.rs"]
+mod segment_credit;
+
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::{
     cell_groups::TransitionPhase, FleetHistoryState,
@@ -114,6 +117,39 @@ async fn raft_segment_settlement_replays_after_root_cas_uncertainty() -> Result<
         cluster.fixtures[0].domain.shutdown().await;
         result.with_context(|| format!("Raft segment settlement, extents={rooted}"))?;
         joined?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn raft_segment_settlement_credits_files_after_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(segment_credit::qualify(
+            rooted,
+            std::sync::Arc::new(catalog_fault::Store::default()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn periodic_raft_segment_settlement_retries_the_local_receipt() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(segment_credit::periodic(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_raft_segment_settlement_credits_files_after_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        let store = std::sync::Arc::new(catalog_fault::Store::around(rustfs::store(
+            "segment-credit",
+            rooted,
+        )?));
+        Box::pin(segment_credit::qualify(rooted, store)).await?;
     }
     Ok(())
 }

@@ -240,9 +240,10 @@ pub(crate) enum Counter {
     CellMembershipRefreshJoins,
     CellReadBarriers,
     CellReadCohortJoins,
+    CellReadCohortsStarted,
 }
 
-const COUNTERS: [Counter; 54] = [
+const COUNTERS: [Counter; 55] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -297,6 +298,7 @@ const COUNTERS: [Counter; 54] = [
     Counter::CellMembershipRefreshJoins,
     Counter::CellReadBarriers,
     Counter::CellReadCohortJoins,
+    Counter::CellReadCohortsStarted,
 ];
 
 impl Counter {
@@ -306,6 +308,7 @@ impl Counter {
             Self::CellMembershipRefreshJoins => "cell_membership_refresh_joins",
             Self::CellReadBarriers => "cell_linearizable_read_barriers",
             Self::CellReadCohortJoins => "cell_linearizable_read_cohort_joins",
+            Self::CellReadCohortsStarted => "cell_linearizable_read_cohorts_started",
             Self::CellCommandDirectoryLookups => "cell_command_directory_lookups",
             Self::CellMembershipBackgroundObservations => "cell_membership_background_observations",
             Self::CellMembershipRefreshes => "cell_membership_demand_refreshes",

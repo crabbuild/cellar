@@ -37,36 +37,93 @@ impl Drill<'_> {
             1i64.to_be_bytes().to_vec(),
             self.options(ordinal),
         );
+        // Archive and other engine metadata also sync the log. Select a sync
+        // while the Raft owner has entered its persistence phase, so reads
+        // cannot finish before this fixture releases the leader.
+        let (candidates, mut syncing) = tokio::sync::mpsc::unbounded_channel();
+        *self.filesystem.sync_when.lock().unwrap() = Some(Arc::new(move || {
+            let (reply, answer) = std::sync::mpsc::sync_channel(1);
+            if candidates.send(reply).is_err() {
+                return false;
+            }
+            answer.recv().unwrap_or(false)
+        }));
         let sync = self.filesystem.arm(storage_fault::HOLD_SYNC);
         let mut writing = tokio::task::JoinSet::new();
         writing.spawn(command);
-        tokio::time::timeout(TIMEOUT, self.filesystem.entered.notified()).await?;
+        let leader = self.cluster.managed.hosts[0].group(self.cluster.managed.history)?;
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                cellar::asyncrt::select! {
+                    _ = self.filesystem.entered.notified() => return Ok::<_, anyhow::Error>(()),
+                    Some(reply) = syncing.recv() => {
+                        let status = leader.status().await?;
+                        let _ = reply.send(!status.ready && status.leader == Some(1));
+                    }
+                }
+            }
+        })
+        .await
+        .context("hold a sync in the selected leader's Raft persistence phase")??;
+        drop(syncing);
+        follower.evidence("pending_late_sync_entered").await?;
+        let held = leader.status().await?;
+        ensure!(
+            !held.ready && held.leader == Some(1),
+            "the held sync must block the selected leader's Raft phase, held={held:?}"
+        );
         let mut reads = Waiters::default();
         reads.start(0, follower.read(ingress, "one"));
-        follower
+        let pending = follower
             .wait(
                 "first follower barrier initiated behind leader persistence",
                 || {
                     let usage = follower.host().resource_usage();
+                    ensure!(
+                        reads.0.iter().flatten().all(|(_, task)| !task.is_finished()),
+                        "first read completed during leader sync hold, counters={:?}, pins={}, ordinary={}, write_completed={}",
+                        follower.sample()?,
+                        usage.runtime.read_pins.items,
+                        usage.host.controller.ordinary.items,
+                        writing.try_join_next().is_some()
+                    );
                     Ok(follower.sample()? == [before[0] + 1, before[1]]
                         && usage.runtime.read_pins.items == 1
                         && usage.host.controller.ordinary.items == 1)
                 },
             )
-            .await?;
+            .await;
+        if pending.is_err() {
+            let _ = follower.evidence("pending_late_first_barrier_failed").await;
+        }
+        pending?;
         ensure!(self.callbacks.queries.load(Ordering::Acquire) == callbacks);
+        follower.evidence("pending_late_first_barrier_held").await?;
         reads.start(1, follower.read(ingress, "one"));
-        follower
+        let pending = follower
             .wait(
                 "later arrival has a second pending follower barrier",
                 || {
                     let usage = follower.host().resource_usage();
+                    ensure!(
+                        reads.0.iter().flatten().all(|(_, task)| !task.is_finished()),
+                        "read completed during leader sync hold, counters={:?}, pins={}, ordinary={}",
+                        follower.sample()?,
+                        usage.runtime.read_pins.items,
+                        usage.host.controller.ordinary.items
+                    );
                     Ok(follower.sample()? == [before[0] + 2, before[1]]
                         && usage.runtime.read_pins.items == 2
                         && usage.host.controller.ordinary.items == 2)
                 },
             )
-            .await?;
+            .await;
+        if pending.is_err() {
+            let _ = follower
+                .evidence("pending_late_second_barrier_failed")
+                .await;
+        }
+        pending?;
         ensure!(self.callbacks.queries.load(Ordering::Acquire) == callbacks);
         let after = follower.sample()?;
         ensure!(after == [before[0] + 2, before[1]]);

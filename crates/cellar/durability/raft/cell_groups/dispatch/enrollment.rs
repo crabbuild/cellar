@@ -338,12 +338,8 @@ impl CellEnrollmentInvocation {
                 .await;
                 match selected {
                     Ok(member) => break member,
-                    Err(cause)
-                        if matches!(
-                            cause.refusal(),
-                            Some(CommandFailure::NotLeader { .. } | CommandFailure::Overloaded)
-                        ) && usize::from(attempt.ordinal())
-                            < self.session.maximum_attempts() =>
+                    Err(MutationSelectionError::Retry(_))
+                        if usize::from(attempt.ordinal()) < self.session.maximum_attempts() =>
                     {
                         // No creation was sent. Retain the same placement, inputs,
                         // creation identity and original attempt/deadline bank.
@@ -361,9 +357,9 @@ impl CellEnrollmentInvocation {
                             .await
                             .map_err(|error| self.error(CellDispatchError::Routing(error)))?;
                     }
-                    Err(CellDispatchError::Runtime(
-                        RuntimeError::NotReady | RuntimeError::NotFound,
-                    )) if usize::from(attempt.ordinal()) < self.session.maximum_attempts() => {
+                    Err(MutationSelectionError::StalePlacement)
+                        if usize::from(attempt.ordinal()) < self.session.maximum_attempts() =>
+                    {
                         // Discovery has not entered an initializer or sent a
                         // creation. Refresh only this route, preserving captured
                         // inputs, identity, deadline and the shared attempt bank.
@@ -373,7 +369,7 @@ impl CellEnrollmentInvocation {
                             .await
                             .map_err(|error| self.error(CellDispatchError::Routing(error)))?;
                     }
-                    Err(error) => return Err(self.error(error)),
+                    Err(error) => return Err(self.error(error.into_dispatch())),
                 }
             };
             if let Some(member) = member {

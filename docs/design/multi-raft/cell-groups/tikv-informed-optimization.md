@@ -248,6 +248,16 @@ lookups share the original absolute deadline and attempt accounting. Coalesced
 refresh has an owned bounded lifetime; one caller cancelling neither frees entered
 work nor cancels other admitted waiters. Closing joins the refresh owner.
 
+Mutation destination selection carries a typed repair outcome before submission.
+Transient readiness, overload and unreachable probes consume the original retry
+budget on the installed cell placement. Missing or stale peer observations use
+the coalesced membership refresh. Only a local sealed or replaced route, or the
+trusted directory fencing the selected history, requests cell-placement repair.
+Membership discovery preserves namespace cache entries. Explicit recovery
+discovery still refreshes the affected namespace routes. Endpoint-only repair,
+coalesced leader probes and the public RO-03 through RO-09 qualification remain
+open.
+
 ## 6. Targeted range repair without stale resurrection
 
 The current cache's whole-cache invalidation is the safe fallback. Replace it
@@ -407,10 +417,17 @@ must use the same disk and engine.
 
 The segment-file floor is an additional lower bound for movement, transition
 and recovery admission. Pending reservation claims remain additive. Fleet
-keeps reservation and deployment floors as independent bases. Periodic purges
-outside the numbered turn can leave unattributed debt when they remove charged
-files. Periodic scheduling through the settled path and the end-to-end
-reclamation qualification remain open.
+keeps reservation and deployment floors as independent bases.
+
+With `RaftHostOptions::settle_periodic_raft_purges` enabled, the node-owned
+member cleanup worker uses the log's configured purge interval and checks
+Raft Engine's rewrite policy. An eligible turn uses the current boot's rooted
+capacity qualification. The worker retries a locally prepared or completed
+purge at the same number until the catalog confirms it. The existing cleanup
+slot alternates priority between removed-member work and periodic segment work.
+During a catalog outage the opted-in engine retains the pending evidence and
+waits for settlement. Periodic purges outside this mode can leave unattributed
+debt. End-to-end reclamation qualification remains open.
 
 ### 8.3 Crash and retry contract
 

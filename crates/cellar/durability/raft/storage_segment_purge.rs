@@ -135,8 +135,9 @@ impl Worker {
         Ok(Some(record))
     }
 
-    pub(super) fn segment_purge_cache_bytes(&self) -> Result<usize, LogError> {
-        Ok(if self.segment_purge_record()?.is_some() {
+    pub(super) fn recover_segment_purge_cache(&mut self) -> Result<usize, LogError> {
+        Ok(if let Some(record) = self.segment_purge_record()? {
+            self.segment_purge_number = record.number;
             CACHE_BYTES
         } else {
             0
@@ -161,6 +162,7 @@ impl Worker {
         batch.put(0, KEY.to_vec(), bytes).map_err(engine_error)?;
         self.fence(&mut batch)?;
         self.cache_bytes = cache_bytes;
+        self.segment_purge_number = record.number;
         Ok(())
     }
 
@@ -235,7 +237,10 @@ impl Worker {
             after.process.bytes(),
             after.durable_sequence.checked_add(1).ok_or_else(corrupt)?,
         ));
+        let revisit = self.purge_pending;
         self.persist_segment_purge(&record, false)?;
+        // The receipt write alone must not schedule another purge.
+        self.purge_pending = revisit;
         record.receipt()
     }
 }

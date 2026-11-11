@@ -49,6 +49,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
     Ok(Fixture {
         domain: f.domain.clone(),
         store: Arc::new(fault::Store::around(f.store.clone())),
+        host_store: None,
         catalog: f.catalog.clone(),
         declaration: f.declaration.clone(),
         application: f.application.clone(),
@@ -57,6 +58,8 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         effects: f.effects,
         sql_workers: f.sql_workers,
         max_input_bytes: f.max_input_bytes,
+        small_segments: f.small_segments,
+        settle_periodic_purges: false,
         image_bytes: f.image_bytes,
         logical_byte_capacity: f.logical_byte_capacity,
         placement_domains: f.placement_domains.clone(),
