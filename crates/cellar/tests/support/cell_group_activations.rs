@@ -123,9 +123,9 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             },
         )?,
     );
-    let mut options = configuration::options("warm-cell-service");
-    options.vars = vec![("COUNT_STEP".into(), "1".into())];
-    application.validate_deployment(&configuration::deployment(options))?;
+    let mut deployment_options = configuration::options("warm-cell-service");
+    deployment_options.vars = vec![("COUNT_STEP".into(), "1".into())];
+    application.validate_deployment(&configuration::deployment(deployment_options))?;
     let fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
     ensure!(fixture.sql_workers == 2);
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
