@@ -188,6 +188,10 @@ pub async fn run(
                 TIMEOUT,
             )
             .await?;
+            // A timed-out waiter may still own a leader controller slot.
+            // Observe through another voter's fresh linearizable read instead
+            // of requiring a third slot beside the two live requests.
+            let observer = cluster.hosts[(leader + 1) % 3].cell(cell.history().clone())?;
             let run = cell.contract("Run")?;
             let mut first = command(187, 1, durability)?;
             first.timeout = Duration::from_secs(20);
@@ -197,7 +201,7 @@ pub async fn run(
                 cell.command(&run, first_input.clone(), first.clone()),
                 async {
                     cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
-                    ensure!(value(&cell, 188).await? == 1);
+                    ensure!(value(&observer, 188).await? == 1);
                     let duplicate = cell
                         .command(
                             &run,
@@ -212,7 +216,7 @@ pub async fn run(
                     let written = cell
                         .command(&run, input("write", 0), second.clone())
                         .await?;
-                    ensure!(written.result == b"3" && value(&cell, 189).await? == 3);
+                    ensure!(written.result == b"3" && value(&observer, 189).await? == 3);
                     ensure!(
                         calls.load(Ordering::Acquire) == 2
                             && constructors.load(Ordering::Acquire) == 1
@@ -251,7 +255,7 @@ pub async fn run(
                 let (atomic_result, observed) =
                     tokio::join!(cell.command(&run, input(kind, 1), atomic), async {
                         cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await?;
-                        ensure!(value(&cell, 201).await? == baseline);
+                        ensure!(value(&observer, 201).await? == baseline);
                         let refused = cell
                             .command(
                                 &run,
@@ -263,7 +267,7 @@ pub async fn run(
                             )
                             .await;
                         ensure!(refused.is_err() && calls.load(Ordering::Acquire) == before + 1);
-                        ensure!(value(&cell, 202).await? == baseline);
+                        ensure!(value(&observer, 202).await? == baseline);
                         gates[1].release.notify_one();
                         Ok::<_, anyhow::Error>(())
                     });
