@@ -4,6 +4,7 @@
 use super::*;
 use crate::raft::cache::GroupLog;
 use crate::raft::cell_groups::CellGroupRuntime;
+use cellar_logic::consensus::NodeIdentity;
 
 type PhysicalRoute = GroupRoute<GroupHistory>;
 type PhysicalPeer = RaftPeer<GroupHistory>;
@@ -126,6 +127,59 @@ impl RaftTransport {
             1,
         );
         client.request(key, deadline).await
+    }
+
+    pub(crate) async fn refresh_cell_endpoint(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        node: NodeId,
+        deadline: u64,
+    ) -> Result<(), RuntimeError> {
+        let (client, key) = {
+            let state = &self.handle.0;
+            let registry = state.registry.lock().map_err(|_| RuntimeError::Closed)?;
+            state.admit(&registry).map_err(|_| RuntimeError::Closed)?;
+            let view = registry
+                .cell_query_groups
+                .get(&route.history)
+                .ok_or(RuntimeError::NotFound)?;
+            if view.schema_digest != route.schema_digest {
+                return Err(RuntimeError::NotReady);
+            }
+            let peer = view
+                .peers
+                .iter()
+                .find(|peer| peer.replica.node == node)
+                .ok_or(RuntimeError::NotFound)?;
+            let observation = registry
+                .node_views
+                .get(&node)
+                .map(|view| (view.storage_instance(), view.revision()));
+            let key = crate::raft::group_host::RouterRefreshKey::endpoint(
+                route.history.cluster,
+                NodeIdentity {
+                    node,
+                    disk: peer.replica.disk,
+                    process: peer.replica.process,
+                },
+                observation,
+            );
+            let client = registry
+                .router_refresh
+                .clone()
+                .ok_or(RuntimeError::NotFound)?;
+            (client, key)
+        };
+        self.handle
+            .0
+            .performance
+            .increment(crate::raft::performance::Counter::CellEndpointRefreshes, 1);
+        match client.request(key, deadline).await? {
+            crate::raft::group_host::RouterRefreshOutcome::Current => Ok(()),
+            crate::raft::group_host::RouterRefreshOutcome::StalePlacement => {
+                Err(RuntimeError::NotReady)
+            }
+        }
     }
 
     /// Remove dispatch only after the exact retired source/member loses its consensus claim.

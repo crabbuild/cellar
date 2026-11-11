@@ -100,6 +100,22 @@ async fn refresh_membership(
     }
 }
 
+async fn refresh_endpoint(
+    transport: &RaftTransport,
+    route: &cellar_logic::cell_group::GroupRoute,
+    node: cellar_logic::consensus::NodeId,
+    deadline: u64,
+) -> Result<(), MutationSelectionError> {
+    transport
+        .refresh_cell_endpoint(route, node, deadline)
+        .await
+        .map_err(|error| match error {
+            RuntimeError::NotReady | RuntimeError::NotFound => retry(CommandFailure::Unavailable),
+            RuntimeError::Overloaded => retry(CommandFailure::Overloaded),
+            error => CellDispatchError::Runtime(error).into(),
+        })
+}
+
 pub(super) async fn mutation_peer(
     runtime: &CellGroupRuntime,
     transport: &RaftTransport,
@@ -156,6 +172,10 @@ pub(super) async fn mutation_peer(
 
     let mut refreshed = match transport.cell_leader(route) {
         Ok(LeaderLookup::Known(member)) => return Ok(Some(member)),
+        Ok(LeaderLookup::Endpoint(node)) => {
+            refresh_endpoint(transport, route, node, session.deadline_ms()).await?;
+            None
+        }
         Ok(LeaderLookup::Unverified | LeaderLookup::Membership)
         | Err(TransportError::StalePeer) => {
             Some(refresh_membership(transport, route.history, session.deadline_ms()).await?)
@@ -202,9 +222,21 @@ pub(super) async fn mutation_peer(
         .map_err(CellDispatchError::Routing)?;
     let outcome = match discovered {
         Ok(outcome) => outcome,
-        Err(TransportError::StalePeer | TransportError::UnknownGroup) => {
-            LeaderProbeOutcome::Membership
+        Err(error @ (TransportError::StalePeer | TransportError::Refused)) => {
+            match transport.cell_leader(route) {
+                Ok(LeaderLookup::Endpoint(node)) => {
+                    refresh_endpoint(transport, route, node, session.deadline_ms()).await?;
+                    return Err(retry(CommandFailure::Unavailable));
+                }
+                Ok(_) => (),
+                Err(error) => return Err(CellDispatchError::Transport(error).into()),
+            }
+            match error {
+                TransportError::StalePeer => LeaderProbeOutcome::Membership,
+                error => return Err(CellDispatchError::Transport(error).into()),
+            }
         }
+        Err(TransportError::UnknownGroup) => LeaderProbeOutcome::Membership,
         Err(TransportError::Timeout | TransportError::Io(_)) => {
             return Err(retry(CommandFailure::Unavailable));
         }

@@ -23,6 +23,7 @@ pub(crate) enum LeaderLookup {
     Unknown,
     Unverified,
     Membership,
+    Endpoint(NodeId),
 }
 
 #[derive(Default)]
@@ -339,6 +340,28 @@ impl State {
         let result = registry
             .leaders
             .lookup(view, now, self.options.io_timeout_ms);
+        let changed_boot = |peer: &RaftPeer<GroupHistory>| {
+            let physical = RaftPeerNode::from(peer);
+            registry.fleet_trust.as_ref().is_some_and(|trust| {
+                trust.node(peer.replica.node).is_some_and(|host| {
+                    host.matches_registration(&physical) && !host.matches_peer(&physical)
+                })
+            })
+        };
+        let endpoint = match result {
+            // An unrelated changed follower must not delay a usable leader.
+            LeaderLookup::Known(member) => view
+                .peers
+                .iter()
+                .find(|peer| peer.replica.member == member && changed_boot(peer)),
+            // A boot fence clears advice. Only this already verified
+            // configuration supplies eligible physical metadata targets.
+            LeaderLookup::Unknown => view.peers.iter().find(|peer| changed_boot(peer)),
+            _ => None,
+        };
+        if let Some(peer) = endpoint {
+            return Ok(LeaderLookup::Endpoint(peer.replica.node));
+        }
         if let LeaderLookup::Known(member) = result {
             let peer = view
                 .peers

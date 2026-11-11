@@ -9,6 +9,7 @@ use crate::raft::{
     transport::GroupRoute,
 };
 use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::consensus::{ClusterId, EngineInstanceId, NodeId, NodeIdentity};
 use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::{mpsc, watch};
 
@@ -18,10 +19,23 @@ const WAITER_BYTES: usize = 4096;
 /// Exact advisory generations selected before discovery. Weak references keep
 /// allocation identities distinct without pinning routes, pools or engines.
 #[derive(Clone)]
-pub(crate) struct RouterRefreshKey {
-    history: GroupHistory,
-    route: Option<Weak<GroupRoute<GroupHistory>>>,
-    configuration: Option<Weak<()>>,
+pub(crate) enum RouterRefreshKey {
+    Membership {
+        history: GroupHistory,
+        route: Option<Weak<GroupRoute<GroupHistory>>>,
+        configuration: Option<Weak<()>>,
+    },
+    Endpoint {
+        cluster: ClusterId,
+        node: NodeIdentity,
+        observation: Option<(EngineInstanceId, u64)>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RouterRefreshTarget {
+    Membership(GroupHistory),
+    Endpoint { cluster: ClusterId, node: NodeId },
 }
 
 impl RouterRefreshKey {
@@ -30,10 +44,32 @@ impl RouterRefreshKey {
         route: Option<&Arc<GroupRoute<GroupHistory>>>,
         configuration: Option<Weak<()>>,
     ) -> Self {
-        Self {
+        Self::Membership {
             history,
             route: route.map(Arc::downgrade),
             configuration,
+        }
+    }
+
+    pub(crate) fn endpoint(
+        cluster: ClusterId,
+        node: NodeIdentity,
+        observation: Option<(EngineInstanceId, u64)>,
+    ) -> Self {
+        Self::Endpoint {
+            cluster,
+            node,
+            observation,
+        }
+    }
+
+    fn target(&self) -> RouterRefreshTarget {
+        match self {
+            Self::Membership { history, .. } => RouterRefreshTarget::Membership(*history),
+            Self::Endpoint { cluster, node, .. } => RouterRefreshTarget::Endpoint {
+                cluster: *cluster,
+                node: node.node,
+            },
         }
     }
 
@@ -45,9 +81,37 @@ impl RouterRefreshKey {
                 _ => false,
             }
         }
-        self.history == other.history
-            && same(&self.route, &other.route)
-            && same(&self.configuration, &other.configuration)
+        match (self, other) {
+            (
+                Self::Membership {
+                    history,
+                    route,
+                    configuration,
+                },
+                Self::Membership {
+                    history: other_history,
+                    route: other_route,
+                    configuration: other_configuration,
+                },
+            ) => {
+                history == other_history
+                    && same(route, other_route)
+                    && same(configuration, other_configuration)
+            }
+            (
+                Self::Endpoint {
+                    cluster,
+                    node,
+                    observation,
+                },
+                Self::Endpoint {
+                    cluster: other_cluster,
+                    node: other_node,
+                    observation: other_observation,
+                },
+            ) => cluster == other_cluster && node == other_node && observation == other_observation,
+            _ => false,
+        }
     }
 }
 
@@ -79,8 +143,8 @@ pub(crate) struct RouterRefreshOwner {
 }
 
 impl RouterRefreshOwner {
-    pub(super) fn history(&self) -> GroupHistory {
-        self.pending.key.history
+    pub(super) fn target(&self) -> RouterRefreshTarget {
+        self.pending.key.target()
     }
 
     pub(super) fn deadline(&self) -> u64 {
@@ -191,8 +255,13 @@ impl RouterRefreshClient {
                 .memory
                 .acquire(WAITER_BYTES)
                 .ok_or(RuntimeError::Overloaded)?;
-            self.performance
-                .increment(Counter::CellMembershipRefreshJoins, 1);
+            self.performance.increment(
+                match key.target() {
+                    RouterRefreshTarget::Membership(_) => Counter::CellMembershipRefreshJoins,
+                    RouterRefreshTarget::Endpoint { .. } => Counter::CellEndpointRefreshJoins,
+                },
+                1,
+            );
             return Ok(Admission {
                 pending,
                 memory: Some(memory),
@@ -250,8 +319,13 @@ impl RouterRefreshClient {
                 }
                 return Err(error);
             }
-            self.performance
-                .increment(Counter::CellMembershipDiscoveryOwners, 1);
+            self.performance.increment(
+                match pending.key.target() {
+                    RouterRefreshTarget::Membership(_) => Counter::CellMembershipDiscoveryOwners,
+                    RouterRefreshTarget::Endpoint { .. } => Counter::CellEndpointDiscoveryOwners,
+                },
+                1,
+            );
         }
         // Completion is advisory metadata only. Every caller still validates its
         // selected route/authority, with its original deadline and attempt bank.

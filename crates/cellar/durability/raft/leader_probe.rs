@@ -331,6 +331,7 @@ impl State {
             match self.probe_advice(key, route)? {
                 LeaderLookup::Known(member) => return Ok(LeaderProbeOutcome::Leader(member)),
                 LeaderLookup::Membership | LeaderLookup::Unverified => failures.membership = true,
+                LeaderLookup::Endpoint(_) => return Err(TransportError::StalePeer),
                 LeaderLookup::Unknown => (),
             }
         }
