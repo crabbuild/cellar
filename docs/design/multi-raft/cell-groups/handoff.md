@@ -13,11 +13,15 @@ delivers the starter catalog and CI/acceptance verifier. The
 [suspended RPC checkpoint](progress.md#cg-17-suspended-cell-rpc) lets
 ordinary JSON RPC retain one private Storage transaction across polls
 while other cells use the same worker. Registered queries use pinned
-committed Storage. The [async transaction checkpoint](progress.md#cg-17-async-transaction-callbacks)
-adds nested savepoints, owned child drainage and bounded callback scheduling
-within that RPC transaction. Extend the driver to independently committed
-transactions and exact invocation settlement, and complete the compiled export and
-deployment audit. That foundation supports durable work and family
+committed Storage. The [independent transaction checkpoint](progress.md#cg-17-independent-rpc-transaction-checkpoints)
+adds root quorum/S3 checkpoints and durable unfinished-invocation receipts.
+The RF3 public case at `77075d36` passes both image modes, partial failure,
+leader transfer, pending lookup, fresh sequence admission and unpolled-response
+replay. Nine exact native selections pass. Basic requests retain five-second
+deadlines; the six-commit conformance request declares twenty seconds upfront.
+Current-source RustFS and performance qualification stay open. Next complete
+persistent shared activation, same-cell interleaving, ordinary sync/output gates
+and the compiled export/deployment audit. That foundation supports durable work and family
 adapters. The catalog remains partial
 and CG-17 acceptance stays open. CG-13 can progress
 independently and still gates task acceptance. The [TiKV optimization proposal](tikv-informed-optimization.md)

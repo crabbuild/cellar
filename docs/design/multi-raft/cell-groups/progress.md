@@ -12,8 +12,9 @@ CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
 adds eight delivery packages and 32 required cases. CG17-01, CG17-02 and
 CG17-03 are in progress. Ordinary JSON cell RPC handlers and async Storage
-transaction callbacks can suspend inside a private Raft transaction while the
-SQL worker serves other cells.
+transaction callbacks can suspend while the SQL worker serves other cells.
+Independent root checkpoint settlement passes scoped native RF3 qualification;
+see the current checkpoint below.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -22,6 +23,74 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 independent RPC transaction checkpoints
+
+Implementation source `2fe93a98` gives every successful root async Storage
+transaction its own quorum-applied checkpoint. Nested transactions remain
+savepoints within that root. The root retains its ordered slot and Rust return
+value until exact receipt reconciliation completes. Explicit S3 durability also
+verifies the pending checkpoint receipt from independently recovered archive
+bytes before resuming the callback. The final RPC response still requires its
+own completed invocation receipt.
+
+Each checkpoint updates the original invocation's one receipt/client slot and
+retains its request digest, retry horizon, expiry floor and physical receipt
+quota. An incomplete invocation is neither a completed RPC response nor an
+absent command. Public lookup and retry admission retain uncertainty and refuse
+to reexecute its factory. Failure after an applied root preserves that root;
+deadline, leadership loss or a later failure cancels unfinished work.
+
+A submitted boundary retains its producer through expiry until apply or a
+newer-term barrier resolves it. Excluding the final proposal cannot establish
+that earlier roots were uncommitted. Continuations keep their original leader
+fence. Capture returns the quiescent SQLite writer temporarily, then reopens it
+only after proof; completed private LTX files are trimmed within the existing
+scratch limits. Context retains only Raft command resources, preserving ordinary
+SDK compilation without extending native activation ownership.
+
+At test source `77075d36`, `ordinary_json_rpc_uses_raft_owned_context` passes in
+49.686 seconds with the same runtime implementation. It covers both image modes,
+RF3 TLS, two cells in one group and one SQL worker per node. Committed reads see
+the first root while a two-transaction RPC waits. S3 roots require archive proof.
+Nested rollback/panic and ordered dropped children remain covered. After live
+leadership transfer the first root survives, pending receipt lookup returns
+`Uncertain`, and retries cannot rerun the factory. A new sequence can write while
+the earlier interrupted identity stays protected. Dropping an unpolled SDK
+response still produces a durable receipt; original-ID replay preserves its
+result/version without another factory call.
+
+All nine exact native selections pass without ignored cases. The other eight
+cover committed Storage, native transaction lifecycle, ordinary Storage, due
+effects, inbox identity, registered execution, rollback/result limits and HTML
+rewriting. Strict all-target Clippy passes at `a1362704`. The only Rust source
+change since the nine-case run removes redundant references in a test comparison.
+The narrow Context resource handle fixes the HTML test's recursive
+ownership proof without increasing compiler limits. Catalog, verifier, plan,
+docs, native dependencies and the six reviewed source anchors pass. Both exact
+receipt lifecycle unit cases pass at `a1362704`: pending identity/sequence
+settlement and the original expiry floor. Unit codegen uses opt-level zero;
+native runtime cases use opt-level one. Both retain assertions and overflow
+checks. Formatting also passes at the final Rust source. Evidence is retained in
+`.cellar/cell-groups-evidence/CG-17-independent-a1362704-01`.
+
+An earlier default-five-second run timed out. Repeated timing runs showed
+continuing root progress; a captured failure had all five roots and the final
+receipt applied, with all three voters caught up. This was an ambiguous response,
+not a non-commit proof. The final six-commit conformance request declares its
+twenty-second budget before admission, reusing the existing long-call budget.
+Basic requests retain the SDK's five-second default and the one-second
+cancellation control is unchanged. No request deadline is extended internally.
+Temporary probes were removed. Earlier failures and timing controls are retained
+separately from qualification; no latency or throughput SLO is qualified.
+
+The archive fixture is in memory. Current-source RustFS, process crashes,
+partitions, topology transitions and the complete CG-17 matrix remain open.
+
+The pending receipt column is an internal format-1 hard cutover. Matching
+executables require a rebuild; older receipt images are not migrated.
+Persistent shared activation, same-cell interleaving, ordinary sync/output gates,
+committed due work and provider adapters remain implementation dependencies.
 
 ## CG-17 async transaction callbacks
 

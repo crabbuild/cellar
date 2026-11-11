@@ -64,17 +64,22 @@ start asynchronous transaction blocks. Use parameterized SQL and bound values
 for untrusted inputs. Close or drop cursors promptly and cap scans.
 
 For ordinary JSON cell RPC registered through `RaftClass::json_cell_rpc`,
-`Storage::transaction(&context, callback)` schedules an owned async savepoint
-inside the RPC's private transaction. Dropping its returned future leaves the
-callback owned by that invocation. The RPC waits for its children before
-producing a successful receipt. Nested errors and panics roll back the
-savepoint; failure of the outer RPC rolls back all of its changes.
+`Storage::transaction(&context, callback)` schedules an owned async transaction.
+Each root callback waits for its independently applied Raft checkpoint before
+returning its value. Explicit S3 durability additionally waits for that exact
+checkpoint's archive proof. Nested callbacks use savepoints within their root;
+errors and panics roll back that root or savepoint.
 
-Releasing these savepoints does not commit separate Raft commands. Their changes
-become durable with the outer RPC's applied receipt. Outstanding callbacks are
-bounded by `ExecutionLimits::max_pending_transactions` (32 by default); excess
-callbacks receive `Overloaded` before they run. Independent transaction commits
-and the other primitive adapters remain in the
+Dropping the returned future leaves the callback owned by the invocation. The
+RPC waits for its children before producing its final successful receipt.
+Failure of a later transaction or the RPC preserves earlier committed roots.
+After interruption, retrying the original command ID and input cannot rerun the
+unfinished invocation. Its durable checkpoint remains an uncertain RPC outcome,
+and receipt lookup cannot describe it as completed or absent.
+
+Outstanding callbacks are bounded by `ExecutionLimits::max_pending_transactions`
+(32 by default); excess callbacks receive `Overloaded` before they run. The
+remaining primitive adapters and complete qualification remain in the
 [CG-17 implementation scope](design/multi-raft/cell-groups/remaining-work.md).
 
 ## Per-cell filesystem
