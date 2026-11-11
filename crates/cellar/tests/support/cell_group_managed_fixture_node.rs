@@ -30,6 +30,7 @@ pub struct Fixture {
     /// Captured physical I/O provider for the initial node owner.
     pub filesystem: Arc<dyn cellar_ltx::FileSystem>,
     pub effects: Option<RaftEffectOptions>,
+    pub sql_workers: usize,
     pub max_input_bytes: usize,
     pub image_bytes: u64,
     /// Logical admission only; physical attestations and engine/image limits stay unchanged.
@@ -150,6 +151,7 @@ impl Fixture {
             application,
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             effects: None,
+            sql_workers: 2,
             max_input_bytes: 1024,
             image_bytes: 256 * 1024 * 1024,
             logical_byte_capacity: None,
@@ -259,6 +261,7 @@ impl Fixture {
         );
         log.max_groups = 2;
         let mut shared = limits();
+        shared.sql.workers = self.sql_workers;
         shared.dispatch.max_input_bytes = self.max_input_bytes;
         Ok((
             RaftCellsConfig {

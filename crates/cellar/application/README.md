@@ -91,9 +91,12 @@ callback.
 constructs a disposable instance. Its factory and handler share
 `Context::storage()` and one private transaction. Return
 `Output::Rpc(RpcData::Json(...))`. The serialized reply follows the command's
-applied receipt and required durability proof. The handler runs in one poll.
-Suspension aborts the private transaction. Use an explicit compiled query for
-committed reads. Owned async turns and provider bindings remain planned.
+applied receipt and required durability proof. A suspended handler retains
+its private transaction under the original cell and route while the shared
+worker serves other cells. Storage is installed only during its polls. The
+worker rolls back on expiry or leadership loss before submission. Use an
+explicit compiled query for committed reads. Independent async Storage
+transactions and provider bindings remain planned.
 
 Within each component, private modules separate values, codecs and validation
 from runtime operations. Pass clocks and budgets explicitly to value helpers;

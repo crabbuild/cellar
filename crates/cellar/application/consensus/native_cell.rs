@@ -1,16 +1,23 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Ordinary cell construction and one-turn RPC on the private Raft worker.
+//! Ordinary cell construction and JSON RPC on the private Raft worker.
 
 use super::{CellHistory, CommandFailure, CommandTransaction, RouteEpoch};
-use crate::application::{CellIdentity, Context, EventState, Factory, Invocation, Output, Storage};
+use crate::application::{
+    CellIdentity, Context, EventState, Factory, HandlerFuture, Invocation, Output, Storage,
+};
 use crate::engine_api::{RpcData, WorkerConfigOptions};
 use crate::worker_config::{EgressPolicy, WorkerConfig};
 use anyhow::Result;
-use futures_util::FutureExt;
 use std::sync::Arc;
 
-pub(super) type CellRpcHandler = dyn Fn(&CellHistory, RouteEpoch, &str, &[u8], &CommandTransaction<'_>) -> Result<Vec<u8>>
+pub(super) type CellRpcHandler = dyn Fn(
+        &CellHistory,
+        RouteEpoch,
+        &str,
+        &[u8],
+        &CommandTransaction<'_>,
+    ) -> Result<HandlerFuture<Vec<u8>>>
     + Send
     + Sync;
 
@@ -44,18 +51,18 @@ impl NativeCellFactory {
             config: Arc::new(config),
         };
         Arc::new(move |cell, epoch, operation, input, transaction| {
-            owner.invoke(cell, epoch, operation, input, transaction)
+            owner.start(cell, epoch, operation, input, transaction)
         })
     }
 
-    fn invoke(
+    fn start(
         &self,
         cell: &CellHistory,
         epoch: RouteEpoch,
         operation: &str,
         input: &[u8],
         transaction: &CommandTransaction<'_>,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<HandlerFuture<Vec<u8>>> {
         let json = std::str::from_utf8(input)?;
         serde_json::from_str::<serde::de::IgnoredAny>(json)?;
         let identity = CellIdentity {
@@ -70,17 +77,14 @@ impl NativeCellFactory {
             method: operation.to_owned(),
             args: RpcData::Json(json.to_owned()),
         };
-        // Only the private SQLite turn is installed here. A pending callback
-        // is dropped before its transaction can be captured or proposed.
-        let output = instance
-            .invoke(context, invocation)
-            .now_or_never()
-            .ok_or(CommandFailure::UnsupportedCapability)??;
-        let Output::Rpc(RpcData::Json(result)) = output else {
-            anyhow::bail!(CommandFailure::UnsupportedCapability);
-        };
-        serde_json::from_str::<serde::de::IgnoredAny>(&result)?;
-        Ok(result.into_bytes())
+        let future = instance.invoke(context, invocation);
+        Ok(Box::pin(async move {
+            let Output::Rpc(RpcData::Json(result)) = future.await? else {
+                anyhow::bail!(CommandFailure::UnsupportedCapability);
+            };
+            serde_json::from_str::<serde::de::IgnoredAny>(&result)?;
+            Ok(result.into_bytes())
+        }))
     }
 
     fn context(&self, identity: CellIdentity, storage: Storage) -> Context {

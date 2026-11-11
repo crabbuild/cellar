@@ -6,14 +6,17 @@ use super::{
     native_cell::{CellRpcHandler, NativeCellFactory},
     CommandId, CommittedVersion, Durability, RouteEpoch,
 };
+use crate::application::HandlerFuture;
 use crate::raft::version::CellVersionObservation;
 use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery, QueryFrame};
 use cellar_logic::{cell_group::CellHistory, NamespaceMode};
+use futures_util::FutureExt;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     sync::Arc,
+    task::{Context as TaskContext, Poll},
 };
 
 thread_local! { static CALLBACK_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
@@ -637,7 +640,8 @@ impl RaftClass {
     /// Route a JSON RPC operation to the ordinary `Cell::invoke` handler
     /// supplied by `Registry::raft_cell`. The factory and handler share one
     /// private Storage transaction and the JSON reply is retained in its receipt.
-    /// The handler must complete in one poll. Suspension aborts preparation.
+    /// The shared SQL owner resumes a suspended handler under the original
+    /// transaction and routing authority.
     pub fn json_cell_rpc(
         mut self,
         operation: impl Into<String>,
@@ -678,6 +682,43 @@ impl RaftClass {
         self.commands
             .values()
             .any(|command| matches!(command.handler, CommandHandler::JsonCellRpc))
+    }
+
+    pub(crate) fn is_cell_rpc(&self, operation: &str) -> bool {
+        self.commands
+            .get(operation)
+            .is_some_and(|command| matches!(command.handler, CommandHandler::JsonCellRpc))
+    }
+
+    pub(crate) fn start_cell_rpc(
+        &self,
+        contract: &OperationContract,
+        target: CommandTarget<'_>,
+        input: &[u8],
+        transaction: &CommandTransaction<'_>,
+    ) -> anyhow::Result<HandlerFuture<Vec<u8>>> {
+        self.validate_operation(contract)?;
+        anyhow::ensure!(
+            self.is_cell_rpc(&contract.operation),
+            RegistrationError::KindMismatch
+        );
+        let factory = self
+            .cell_factory
+            .as_ref()
+            .ok_or(super::CommandFailure::UnsupportedCapability)?;
+        let epoch = target
+            .route_epoch
+            .ok_or(super::CommandFailure::UnsupportedCapability)?;
+        let _guard = CallbackGuard::enter()?;
+        factory(target.cell, epoch, &contract.operation, input, transaction)
+    }
+
+    pub(crate) fn poll_cell_rpc(
+        future: &mut HandlerFuture<Vec<u8>>,
+        context: &mut TaskContext<'_>,
+    ) -> Poll<anyhow::Result<Vec<u8>>> {
+        let _guard = CallbackGuard::enter()?;
+        future.as_mut().poll(context)
     }
 
     /// Register a normal command with authenticated, durable receiver receipts.
@@ -936,17 +977,15 @@ impl RaftClass {
             .get(&contract.operation)
             .ok_or(RegistrationError::KindMismatch)?
             .handler;
-        let _guard = CallbackGuard::enter()?;
         let CommandHandler::Registered(callback) = handler else {
-            let factory = self
-                .cell_factory
-                .as_ref()
+            let future = self.start_cell_rpc(contract, target, input, transaction)?;
+            // The low-level synchronous verification entry point cannot park.
+            let _guard = CallbackGuard::enter()?;
+            return future
+                .now_or_never()
                 .ok_or(super::CommandFailure::UnsupportedCapability)?;
-            let epoch = target
-                .route_epoch
-                .ok_or(super::CommandFailure::UnsupportedCapability)?;
-            return factory(target.cell, epoch, &contract.operation, input, transaction);
         };
+        let _guard = CallbackGuard::enter()?;
         callback(
             &CommandContext {
                 scope: target.cell,
