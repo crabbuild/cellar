@@ -34,8 +34,9 @@ private Raft invocation. Its savepoint drops business tables and recreates KV
 storage without committing the outer command, removing the Raft authorizer or
 erasing protocol metadata. Raft inbox floors, named alarms, outbox frontiers and
 retained payloads survive alongside receipt/client-sequence floors. Exact retries
-must retain their original
-result/version, including an old erase retried after state has been recreated.
+must retain their original identity/result, including an old erase retried after
+state has been recreated. Receipt observations may use a later same-history
+version covering that result; the retry itself cannot advance logical state.
 Native definitions install their admitted alarm compatibility policy; this does
 not complete ordinary alarm scheduling or committed due-work discovery.
 

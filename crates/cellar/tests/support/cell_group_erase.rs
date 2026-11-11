@@ -133,7 +133,7 @@ pub(super) async fn exercise(
             },
         )
         .await?;
-    ensure!(checked.result == b"null");
+    ensure!(checked.result == b"null" && checked.version == erased.version);
     let replay = first
         .command(
             &first.contract("Add")?,
@@ -141,7 +141,24 @@ pub(super) async fn exercise(
             CommandOptions::new(original.id, retry),
         )
         .await?;
-    ensure!(replay.result == original.result && replay.version == original.version);
+    // Receipt observations select an image covering the retained result. A
+    // later mutation changes that observation, not the original command/result.
+    ensure!(replay.id == original.id && replay.result == original.result);
+    ensure!(replay.durability == original.durability);
+    ensure!(replay.version == erased.version);
+    ensure!(replay.version.covers(&original.version) == Ok(true));
+    let after_retry = first
+        .query(
+            ProposalId::new([234; 16])?,
+            &first.contract("InspectErasure")?,
+            Vec::new(),
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(replay.version_token),
+                ..Default::default()
+            },
+        )
+        .await?;
+    ensure!(after_retry.result == b"null" && after_retry.version == erased.version);
     ensure!(
         calls.load(Ordering::Acquire) == 3,
         "erasure lost an existing receipt"
@@ -160,7 +177,10 @@ pub(super) async fn exercise(
             },
         )
         .await?;
-    ensure!(replay.result == erased.result && replay.version == erased.version);
+    ensure!(replay.id == erased.id && replay.result == erased.result);
+    ensure!(replay.durability == Durability::S3);
+    ensure!(replay.version == recreated.version);
+    ensure!(replay.version.covers(&erased.version) == Ok(true));
     let checked = first
         .query(
             ProposalId::new([232; 16])?,
@@ -172,13 +192,17 @@ pub(super) async fn exercise(
             },
         )
         .await?;
-    ensure!(checked.result == b"23");
+    ensure!(checked.result == b"23" && checked.version == recreated.version);
     // The same client sequence cannot acquire a different operation or request.
     let conflict = first
         .command(&first.contract("Recreate")?, Vec::new(), options(2)?)
         .await
         .expect_err("erase sequence cannot acquire another operation");
     ensure!(conflict.cause.refusal() == Some(&CommandFailure::CommandConflict));
+    ensure!(
+        calls.load(Ordering::Acquire) == 3,
+        "conflicting retries entered the callback"
+    );
     let conflict = first
         .command(
             &first.contract("Add")?,
