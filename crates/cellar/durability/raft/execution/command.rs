@@ -71,31 +71,47 @@ pub(super) fn apply(
 ) -> Result<(), ExecutionError> {
     database
         .transaction(attempt.inputs, |transaction| {
-            if let Some(maintenance) = maintenance {
-                maintenance
-                    .apply(&*transaction.framework()?, attempt.inputs.now_unix_millis)
-                    .map_err(anyhow::Error::new)?;
-            }
+            maintain(attempt, maintenance, transaction)?;
             let result = command(transaction)?;
-            if result.len() > limits.max_result_bytes {
-                return Err(anyhow::Error::new(CommandFailure::Overloaded));
-            }
-            let connection = transaction.framework()?;
-            receipts::record(&connection, &attempt.request, result)?;
-            let limits = &limits;
-            if limits.receipt_reserve_bytes != 0 {
-                let usage =
-                    crate::storage::CommandDatabase::capacity(&connection, limits.max_image_bytes)?;
-                limits
-                    .check_capacity(
-                        usage.application_bytes,
-                        usage.receipt_bytes,
-                        usage.structural_reserve_bytes,
-                    )
-                    .map_err(anyhow::Error::new)?;
-            }
-            Ok(())
+            record(limits, attempt, result, transaction)
         })
         .map_err(private_failure)?;
+    Ok(())
+}
+
+pub(super) fn maintain(
+    attempt: &CommandAttempt,
+    maintenance: Option<crate::raft::receipt_maintenance::Plan>,
+    transaction: &CommandTransaction<'_>,
+) -> anyhow::Result<()> {
+    if let Some(maintenance) = maintenance {
+        maintenance
+            .apply(&*transaction.framework()?, attempt.inputs.now_unix_millis)
+            .map_err(anyhow::Error::new)?;
+    }
+    Ok(())
+}
+
+pub(super) fn record(
+    limits: ExecutionLimits,
+    attempt: &CommandAttempt,
+    result: Vec<u8>,
+    transaction: &CommandTransaction<'_>,
+) -> anyhow::Result<()> {
+    if result.len() > limits.max_result_bytes {
+        return Err(anyhow::Error::new(CommandFailure::Overloaded));
+    }
+    let connection = transaction.framework()?;
+    receipts::record(&connection, &attempt.request, result)?;
+    if limits.receipt_reserve_bytes != 0 {
+        let usage = crate::storage::CommandDatabase::capacity(&connection, limits.max_image_bytes)?;
+        limits
+            .check_capacity(
+                usage.application_bytes,
+                usage.receipt_bytes,
+                usage.structural_reserve_bytes,
+            )
+            .map_err(anyhow::Error::new)?;
+    }
     Ok(())
 }

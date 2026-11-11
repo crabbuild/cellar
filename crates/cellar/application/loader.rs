@@ -120,10 +120,14 @@ impl Context {
                 .any(|name| name == binding),
             "no Worker Loader binding named {binding}"
         );
-        let mut managers = self.loader_owner.managers.lock().unwrap();
+        let owner = self
+            .loader_owner
+            .as_ref()
+            .ok_or_else(|| anyhow!("no Worker Loader owner"))?;
+        let mut managers = owner.managers.lock().unwrap();
         let manager = managers.get(binding).cloned().unwrap_or_else(|| {
             let manager = Arc::new(Manager {
-                owner: Arc::downgrade(&self.loader_owner),
+                owner: Arc::downgrade(owner),
                 names: Mutex::new(HashMap::new()),
             });
             managers.insert(binding.into(), manager.clone());
@@ -208,7 +212,10 @@ impl Loader {
             "worker loader belongs to another execution domain"
         );
         anyhow::ensure!(
-            Arc::ptr_eq(&owner, &context.loader_owner),
+            context
+                .loader_owner
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(&owner, current)),
             "worker loader belongs to another worker"
         );
         anyhow::ensure!(

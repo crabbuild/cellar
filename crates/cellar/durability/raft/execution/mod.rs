@@ -9,7 +9,7 @@ use super::completion::GroupStatus;
 use super::receipts;
 mod cell;
 mod submission;
-pub(crate) use cell::authority_failure;
+pub(crate) use cell::{authority_failure, CellRpcStart, CellRpcTurn};
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
 mod command;
 mod enrollment;
@@ -601,7 +601,17 @@ impl PrivateExecutor {
         let command = attempt.request.id;
         let durability = attempt.request.durability;
         self.stage_admitted(attempt, allow_new, |transaction| {
-            class.invoke_command(&contract, &scope, command, durability, transaction, input)
+            class.invoke_command(
+                &contract,
+                crate::application::consensus::CommandTarget {
+                    cell: &scope,
+                    route_epoch: None,
+                },
+                command,
+                durability,
+                transaction,
+                input,
+            )
         })
     }
 

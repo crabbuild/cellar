@@ -40,7 +40,10 @@ pub(crate) fn create_cell(context: &Context) -> Result<Arc<dyn Cell>> {
     Ok(Arc::new(Broker {
         storage: context.storage()?,
         queue,
-        config: context.queue_config.clone(),
+        config: context
+            .queue_config
+            .clone()
+            .ok_or_else(|| error("Queue broker is not configured for this activation"))?,
         ready: AtomicBool::new(false),
         producer: Mutex::new(None),
     }))

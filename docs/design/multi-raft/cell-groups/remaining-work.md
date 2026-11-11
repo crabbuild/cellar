@@ -144,7 +144,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. CG17-01 has a partial SDK catalog and independent evidence gate. CG17-02 supports SDK Storage inside synchronous commands and pinned committed queries. | Finish compiled export/deployment audit and real evidence producers. Wire ordinary Context activation with authority and output gates, then async execution and due work. Port the remaining adapters and pass all 32 cases and the matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). |
+| CG-17 | In progress. CG17-01 has a partial SDK catalog and independent evidence gate. Ordinary JSON RPC can suspend inside one private Storage transaction. Registered queries use pinned committed images. | Finish compiled export/deployment audit and real evidence producers. Add independent async transactions, nested settlement and due work. Port the remaining adapters and pass all 32 cases and the matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 
@@ -161,15 +161,15 @@ CG-11's placement, adaptive partitioning and bounded request/control path are
 accepted at `ddb545e4`. CG-12's fenced parking and demand-driven fresh-quorum wake
 are accepted natively at `2cd71d32`. The next feature priorities are:
 
-1. **Connect ordinary SDK activation to shared Raft.** Registered commands
-   use SDK Storage in the receipt transaction, and registered queries read
-   Storage over committed images. Connect ordinary `Registry::cell` factories
-   and `Context::storage()` to an owned Raft invocation with current routing,
-   incarnation and output proof. Complete the compiled export and deployment
-   audit, async transaction ownership and committed due work for the
+1. **Extend async SDK transactions on shared Raft.** Ordinary JSON RPC can
+   suspend inside its receipt transaction while the shared worker remains
+   available. Add independent `Storage::transaction()` commits and nested
+   callback ownership. Settle each mutation from its exact receipt across
+   leader replacement and lost replies. Complete the compiled export and
+   deployment audit and committed due work for the
    filesystem, payload, Queue, EventStream, Workflow and provider adapters.
    Preserve Fleet/bucket and feature-mode conformance. See the
-   [Storage checkpoints](progress.md#cg-17-committed-query-storage).
+   [suspended RPC checkpoint](progress.md#cg-17-suspended-cell-rpc).
 2. **Finish CG-13 managed recovery from S3 alongside CG-17.** The `b85c609c`
    closure, held-receipt retry and outbox cases pass real RustFS in both image modes. Next
    implement explicit recovery admission/selection for a stable managed group;

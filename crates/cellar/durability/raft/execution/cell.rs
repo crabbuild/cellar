@@ -11,7 +11,11 @@ use crate::raft::cell_groups::{
     cell_image_history_digest, CellExecutionAuthority, CellReconciliationAuthority,
 };
 use crate::raft::completion::RuntimeError;
-use cellar_logic::cell_group::CellVersion;
+use cellar_logic::cell_group::{CellVersion, MutationSequence};
+
+#[path = "cell_rpc.rs"]
+mod rpc;
+pub(crate) use rpc::{CellRpcStart, CellRpcTurn};
 
 /// A receipt read from the exact committed cell image. This is not S3 coverage.
 pub struct CellCommittedReceipt {
@@ -54,6 +58,17 @@ struct PendingCell {
     result: CellVersion,
     _preview: Preview,
     submitted: bool,
+}
+
+struct StagePreparation {
+    sequence: MutationSequence,
+    log_reservation: std::sync::Arc<crate::raft::cell_groups::log_retention::LogReservation>,
+    maintenance: Option<crate::raft::receipt_maintenance::Plan>,
+}
+
+enum StageAdmission {
+    Duplicate(Box<CellCommittedReceipt>),
+    New(StagePreparation),
 }
 
 pub struct CellPrivateExecutor {
@@ -167,6 +182,7 @@ impl CellPrivateExecutor {
         )?;
         let command = attempt.request.id;
         let durability = attempt.request.durability;
+        let route_epoch = self.authority.route().epoch;
         self.stage(attempt, allow_new, |transaction| {
             if system {
                 class.invoke_system_command(
@@ -178,7 +194,17 @@ impl CellPrivateExecutor {
                     input,
                 )
             } else {
-                class.invoke_command(&contract, &history, command, durability, transaction, input)
+                class.invoke_command(
+                    &contract,
+                    crate::application::consensus::CommandTarget {
+                        cell: &history,
+                        route_epoch: Some(route_epoch),
+                    },
+                    command,
+                    durability,
+                    transaction,
+                    input,
+                )
             }
         })
     }
@@ -193,6 +219,29 @@ impl CellPrivateExecutor {
         allow_new: bool,
         callback: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
     ) -> Result<CellStageOutcome, ExecutionError> {
+        let mut preparation = match self.prepare_stage(&attempt, allow_new)? {
+            StageAdmission::Duplicate(receipt) => return Ok(CellStageOutcome::Duplicate(receipt)),
+            StageAdmission::New(preparation) => preparation,
+        };
+        let working = self
+            .working
+            .as_mut()
+            .ok_or(ExecutionError::RebuildRequired)?;
+        command::apply(
+            working.database_mut(),
+            self.options.limits,
+            &attempt,
+            preparation.maintenance.take(),
+            callback,
+        )?;
+        self.capture_stage(attempt, preparation)
+    }
+
+    fn prepare_stage(
+        &mut self,
+        attempt: &CommandAttempt,
+        allow_new: bool,
+    ) -> Result<StageAdmission, ExecutionError> {
         if self.pending.is_some() {
             return Err(ExecutionError::Busy);
         }
@@ -208,13 +257,13 @@ impl CellPrivateExecutor {
             working.database().framework(),
             self.options.limits,
             &mut self.receipt_cursor,
-            &attempt,
+            attempt,
             allow_new,
         )? {
             command::Admission::Duplicate => {
                 return self
                     .read_receipt(&self.authority, &attempt.request)
-                    .map(|receipt| CellStageOutcome::Duplicate(Box::new(receipt)))
+                    .map(|receipt| StageAdmission::Duplicate(Box::new(receipt)))
             }
             command::Admission::New(maintenance) => maintenance,
         };
@@ -235,13 +284,27 @@ impl CellPrivateExecutor {
             .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?;
         working.begin_mutation();
-        command::apply(
-            working.database_mut(),
-            self.options.limits,
-            &attempt,
+        Ok(StageAdmission::New(StagePreparation {
+            sequence,
+            log_reservation,
             maintenance,
-            callback,
-        )?;
+        }))
+    }
+
+    fn capture_stage(
+        &mut self,
+        attempt: CommandAttempt,
+        preparation: StagePreparation,
+    ) -> Result<CellStageOutcome, ExecutionError> {
+        let StagePreparation {
+            sequence,
+            log_reservation,
+            ..
+        } = preparation;
+        let working = self
+            .working
+            .as_mut()
+            .ok_or(ExecutionError::RebuildRequired)?;
         let update = working
             .capture_cell(&self.options, self.authority.image())
             .map_err(private_failure)?;

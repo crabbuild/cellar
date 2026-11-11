@@ -61,10 +61,9 @@ impl<T: Scheduled> RequestQueue<T> {
         }
     }
 
-    fn next(&mut self) -> Result<T, mpsc::RecvTimeoutError> {
+    fn next(&mut self, wait: Duration) -> Result<T, mpsc::RecvTimeoutError> {
         if self.pending.is_empty() {
-            self.pending
-                .push_back(self.receiver.recv_timeout(Duration::from_millis(10))?);
+            self.pending.push_back(self.receiver.recv_timeout(wait)?);
         }
         // All requests, including this local batch and the executing callback,
         // retain the same worker semaphore permits. Draining does not enlarge
@@ -218,7 +217,14 @@ impl Pool {
                         if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
                             break;
                         }
-                        let request = match requests.next() {
+                        let wait = if shared.poll_suspended(&owner, &stopped, &performance) {
+                            // Give queued work its turn before trying the next
+                            // ready continuation without the idle tick delay.
+                            Duration::ZERO
+                        } else {
+                            Duration::from_millis(10)
+                        };
+                        let request = match requests.next(wait) {
                             Ok(request) => request,
                             Err(mpsc::RecvTimeoutError::Timeout) => continue,
                             Err(mpsc::RecvTimeoutError::Disconnected) => break,

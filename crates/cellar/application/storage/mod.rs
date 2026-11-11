@@ -236,6 +236,10 @@ impl Storage {
         Self(Owner::RaftQuery(resources), None, 0)
     }
 
+    pub(super) fn check_raft_turn(&self) -> Result<()> {
+        self.data_scope().map(|_| ())
+    }
+
     pub(super) fn native_activation(&self) -> Result<&Arc<Activation>> {
         match &self.0 {
             Owner::Native(activation) => Ok(activation),

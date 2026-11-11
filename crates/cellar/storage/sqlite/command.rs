@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Restricted synchronous transactions for the private Raft command image.
+//! Restricted SQLite turns for the private Raft command image.
 
 use anyhow::{ensure, Context as _, Result};
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
@@ -102,10 +102,18 @@ impl CommandFrame {
         }
         Ok(connection)
     }
+}
 
-    fn run<T>(
-        frame: &Rc<Self>,
-        inputs: CommandInputs,
+/// An open transaction whose connection belongs to one SQL worker. A parked
+/// command owns its connection without installing it in that worker's TLS.
+pub(crate) struct ActiveCommand {
+    frame: Rc<CommandFrame>,
+    inputs: CommandInputs,
+}
+
+impl ActiveCommand {
+    pub(crate) fn turn<T>(
+        &self,
         callback: impl FnOnce(&CommandTransaction<'_>) -> Result<T>,
     ) -> Result<T> {
         struct Installed;
@@ -119,16 +127,19 @@ impl CommandFrame {
         let _installed = CURRENT_COMMAND.with(|current| {
             let mut current = current.borrow_mut();
             ensure!(current.is_none(), "nested Raft command");
-            *current = Some(frame.clone());
+            *current = Some(self.frame.clone());
             Ok::<_, anyhow::Error>(Installed)
         })?;
-        super::as_storage_transaction(|| {
-            frame.connection.borrow().execute_batch("BEGIN IMMEDIATE")
-        })?;
-        let result = callback(&CommandTransaction { frame, inputs })?;
-        let connection = frame.connection()?;
-        super::as_storage_transaction(|| connection.execute_batch("COMMIT"))?;
-        Ok(result)
+        drop(self.frame.connection()?);
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let result = callback(&CommandTransaction {
+                frame: &self.frame,
+                inputs: self.inputs,
+            })?;
+            drop(self.frame.connection()?);
+            Ok(result)
+        }))
+        .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
     }
 }
 
@@ -269,30 +280,57 @@ impl CommandDatabase {
         inputs: CommandInputs,
         callback: impl FnOnce(&CommandTransaction<'_>) -> Result<T>,
     ) -> Result<T> {
-        let frame = Rc::new(CommandFrame {
-            connection: RefCell::new(
-                self.connection
-                    .take()
-                    .context("private SQLite is unavailable")?,
-            ),
-            storage: OnceCell::new(),
-            failure: RefCell::new(None),
+        let active = self.begin(inputs)?;
+        let result = active.turn(callback);
+        self.settle(active, result)
+    }
+
+    pub(crate) fn begin(&mut self, inputs: CommandInputs) -> Result<ActiveCommand> {
+        let connection = self
+            .connection
+            .as_ref()
+            .context("private SQLite is unavailable")?;
+        super::as_storage_transaction(|| connection.execute_batch("BEGIN IMMEDIATE"))?;
+        Ok(ActiveCommand {
+            frame: Rc::new(CommandFrame {
+                connection: RefCell::new(
+                    self.connection
+                        .take()
+                        .context("private SQLite is unavailable")?,
+                ),
+                storage: OnceCell::new(),
+                failure: RefCell::new(None),
+            }),
+            inputs,
+        })
+    }
+
+    pub(crate) fn settle<T>(&mut self, active: ActiveCommand, result: Result<T>) -> Result<T> {
+        let result = result.and_then(|value| {
+            let connection = active.frame.connection()?;
+            super::as_storage_transaction(|| connection.execute_batch("COMMIT"))?;
+            Ok(value)
         });
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            CommandFrame::run(&frame, inputs, callback)
-        }))
-        .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)));
+        self.restore(active, result.is_err())?;
+        result
+    }
+
+    pub(crate) fn abort(&mut self, active: ActiveCommand) -> Result<()> {
+        self.restore(active, true)
+    }
+
+    fn restore(&mut self, active: ActiveCommand, rollback: bool) -> Result<()> {
         // Storage handles retain only their authority, never the connection.
-        let frame = Rc::try_unwrap(frame)
+        let frame = Rc::try_unwrap(active.frame)
             .ok()
             .context("private SQLite is still installed")?;
         self.connection = Some(frame.connection.into_inner());
         let connection = self.framework();
-        if result.is_err() && !connection.is_autocommit() {
+        if rollback && !connection.is_autocommit() {
             super::as_storage_transaction(|| connection.execute_batch("ROLLBACK"))
                 .context("private command rollback failed; rebuild is required")?;
         }
-        result
+        Ok(())
     }
 
     pub(crate) fn geometry(&self, max_image_bytes: u64) -> Result<(u64, u32)> {

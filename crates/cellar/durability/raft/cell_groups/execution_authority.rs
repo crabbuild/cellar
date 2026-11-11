@@ -84,6 +84,10 @@ impl CellExecutionAuthority {
         self.term
     }
 
+    pub(crate) fn term_current(&self) -> bool {
+        self.leader_term.load(Ordering::Acquire) == self.term.get()
+    }
+
     pub fn cell(&self) -> &CellManifestLeaf {
         &self.leaf
     }
@@ -110,7 +114,7 @@ impl CellExecutionAuthority {
     }
 
     pub fn check(&self) -> Result<(), RuntimeError> {
-        if self.leader_term.load(Ordering::Acquire) != self.term.get() {
+        if !self.term_current() {
             return Err(RuntimeError::NotReady);
         }
         let cache = self.group.read()?;
