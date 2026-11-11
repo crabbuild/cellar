@@ -7,6 +7,7 @@ use cellar::engine_api::RpcData;
 use cellar::sdk::{
     consensus::*, Cell, Context, HandlerFuture, Invocation, Output, RaftClass, Registry, Storage,
 };
+use futures_util::FutureExt;
 use managed_fixture::{ArchiveSetup, FirstGroupSetup, Fixture, ManagedCluster, TIMEOUT};
 use serde_json::json;
 use std::sync::{
@@ -318,32 +319,163 @@ impl Cell for NativeCounter {
             else {
                 anyhow::bail!("expected JSON cell RPC");
             };
+            let input: serde_json::Value = serde_json::from_str(&input)?;
+            if method == "Transactions" {
+                exercise_raft_transactions(self.storage.clone(), context.clone()).await?;
+                if input["reject"] == json!(true) {
+                    self.rejected.fetch_add(1, Ordering::AcqRel);
+                    anyhow::bail!("reject the outer RPC after savepoints");
+                }
+                return Ok(Output::Rpc(RpcData::Json("true".into())));
+            }
             ensure!(method == "Update");
             ensure!(context.wait_until(async { Ok(()) }).is_err());
-            let input: serde_json::Value = serde_json::from_str(&input)?;
             let delta = input["delta"].as_i64().context("delta")?;
-            let mut next = update(&self.storage, delta)?;
-            ensure!(context.storage()?.get_json("value")? == Some(json!(next)));
-            if let Some(index) = input["gate"].as_u64() {
-                let gate = self
-                    .gates
-                    .get(usize::try_from(index)?)
-                    .context("RPC gate")?;
-                let _waiting = Waiting(&gate.dropped);
-                gate.entered.notify_one();
-                gate.release.notified().await;
-                gate.resumed.fetch_add(1, Ordering::AcqRel);
-                let resumed = context.storage()?;
-                ensure!(resumed.get_json("value")? == Some(json!(next)));
-                next = update(&resumed, input["after"].as_i64().context("resumed delta")?)?;
-            }
-            if input["malformed_reply"] == json!(true) {
-                self.rejected.fetch_add(1, Ordering::AcqRel);
-                return Ok(Output::Rpc(RpcData::Json("malformed".into())));
-            }
-            Ok(Output::Rpc(RpcData::Json(json!(next).to_string())))
+            let original = self.clone();
+            let scope = context.clone();
+            self.storage
+                .transaction(&context, move |storage| async move {
+                    let mut next = update(&storage, delta)?;
+                    ensure!(scope.storage()?.get_json("value")? == Some(json!(next)));
+                    if let Some(index) = input["gate"].as_u64() {
+                        let gate = original
+                            .gates
+                            .get(usize::try_from(index)?)
+                            .context("RPC gate")?;
+                        let _waiting = Waiting(&gate.dropped);
+                        gate.entered.notify_one();
+                        gate.release.notified().await;
+                        gate.resumed.fetch_add(1, Ordering::AcqRel);
+                        let resumed = scope.storage()?;
+                        ensure!(resumed.get_json("value")? == Some(json!(next)));
+                        next = update(&resumed, input["after"].as_i64().context("resumed delta")?)?;
+                    }
+                    if input["malformed_reply"] == json!(true) {
+                        original.rejected.fetch_add(1, Ordering::AcqRel);
+                        return Ok(Output::Rpc(RpcData::Json("malformed".into())));
+                    }
+                    Ok(Output::Rpc(RpcData::Json(json!(next).to_string())))
+                })
+                .await
         })
     }
+}
+
+async fn yield_transaction() {
+    let mut yielded = false;
+    futures_util::future::poll_fn(|cx| {
+        if std::mem::replace(&mut yielded, true) {
+            std::task::Poll::Ready(())
+        } else {
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+}
+
+fn transaction_row(storage: &Storage, name: &str, value: i64) -> Result<()> {
+    storage.sql(
+        "INSERT INTO transaction_items(name,value) VALUES(?1,?2)",
+        &[json!(name), json!(value)],
+    )?;
+    storage.put_json(name, &json!(value))
+}
+
+async fn exercise_raft_transactions(storage: Storage, context: Context) -> Result<()> {
+    storage.sql(
+        "CREATE TABLE IF NOT EXISTS transaction_items(name TEXT PRIMARY KEY, value INTEGER);
+         DELETE FROM transaction_items;",
+        &[],
+    )?;
+    let scope = context.clone();
+    let escaped = storage
+        .transaction(&context, move |outer| async move {
+            transaction_row(&outer, "outer", 1)?;
+            yield_transaction().await;
+            ensure!(scope.storage()?.get_json("outer")? == Some(json!(1)));
+            let rolled = outer
+                .transaction(&scope, |child| async move {
+                    transaction_row(&child, "rolled", 9)?;
+                    yield_transaction().await;
+                    child.rollback()?;
+                    Ok(child)
+                })
+                .await?;
+            ensure!(rolled.get_json("rolled").is_err());
+            ensure!(outer.get_json("rolled")?.is_none());
+            let failed: Result<()> = outer
+                .transaction(&scope, |child| async move {
+                    transaction_row(&child, "failed", 9)?;
+                    yield_transaction().await;
+                    anyhow::bail!("expected child rollback")
+                })
+                .await;
+            ensure!(failed.is_err() && outer.get_json("failed")?.is_none());
+            let panicked: Result<()> = outer
+                .transaction(&scope, |child| async move {
+                    transaction_row(&child, "panicked", 9)?;
+                    yield_transaction().await;
+                    panic!("expected async transaction panic");
+                })
+                .await;
+            ensure!(panicked.is_err() && outer.get_json("panicked")?.is_none());
+            let constructor: Result<()> = outer
+                .transaction(&scope, |_| -> HandlerFuture<()> {
+                    panic!("expected transaction constructor panic");
+                })
+                .await;
+            ensure!(constructor.is_err());
+
+            let first = outer.transaction(&scope, |child| async move {
+                yield_transaction().await;
+                transaction_row(&child, "child", 2)?;
+                Ok(child)
+            });
+            let second = outer.transaction(&scope, |child| async move {
+                ensure!(child.get_json("child")? == Some(json!(2)));
+                Ok(child)
+            });
+            drop(first);
+            let closed = second.await?;
+            ensure!(closed.get_json("child").is_err());
+
+            let detached = outer.transaction(&scope, |child| async move {
+                yield_transaction().await;
+                transaction_row(&child, "detached", 3)
+            });
+            drop(detached);
+            Ok(outer)
+        })
+        .await?;
+    ensure!(escaped.get_json("outer").is_err());
+    ensure!(storage.get_json("detached")? == Some(json!(3)));
+    storage.tx(|sync| {
+        let refused = sync.transaction(&context, |_| -> HandlerFuture<()> {
+            panic!("async work entered a synchronous transaction");
+        });
+        ensure!(matches!(refused.now_or_never(), Some(Err(_))));
+        Ok(())
+    })?;
+    transaction_row(&storage, "quota", 0)?;
+    for _ in 0..4 {
+        drop(storage.transaction(&context, |tx| async move {
+            yield_transaction().await;
+            tx.sql(
+                "UPDATE transaction_items SET value=value+1 WHERE name='quota'",
+                &[],
+            )?;
+            Ok(())
+        }));
+    }
+    let overflow = storage
+        .transaction(&context, |_| -> HandlerFuture<()> {
+            panic!("overloaded callback must never run");
+        })
+        .await;
+    let error = overflow.expect_err("task budget must refuse the fifth callback");
+    ensure!(error.downcast_ref::<CommandFailure>() == Some(&CommandFailure::Overloaded));
+    Ok(())
 }
 
 async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
@@ -365,6 +497,14 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
             storage.put_json("value", &json!(0))
         })?
         .json_cell_rpc("Update", [233; 32])?
+        .json_cell_rpc("Transactions", [250; 32])?
+        .query("TransactionRows", [251; 32], |context, _| {
+            let (_, rows, _) = context.storage().sql(
+                "SELECT name, value FROM transaction_items ORDER BY name",
+                &[],
+            )?;
+            Ok(serde_json::to_vec(&rows)?)
+        })?
         .query("Get", [234; 32], |context, _| {
             let storage = context.storage();
             let (_, rows, _) = storage.sql("SELECT value FROM counter", &[])?;
@@ -406,6 +546,7 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
     ))
     .await?;
     fixture.sql_workers = 1;
+    fixture.max_pending_transactions = 4;
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
         fixture,
         &[],
@@ -570,6 +711,42 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
             let current = cluster.hosts[target].cell(cell.history().clone())?;
             check_rpc_read(&current, 249, &resumed.version, json!([15, 2])).await?;
             ensure!(calls.load(Ordering::Acquire) == 6);
+            let transaction_contract = current.contract("Transactions")?;
+            let transaction_receipt = current
+                .command(&transaction_contract, b"{}".to_vec(), options(252)?)
+                .await?;
+            ensure!(transaction_receipt.result == b"true");
+            let rows = current
+                .query(
+                    ProposalId::new([253; 16])?,
+                    &current.contract("TransactionRows")?,
+                    Vec::new(),
+                    QueryOptions::default(),
+                )
+                .await?;
+            ensure!(rows.version == transaction_receipt.version);
+            ensure!(
+                serde_json::from_slice::<serde_json::Value>(&rows.result)?
+                    == json!([["child", 2], ["detached", 3], ["outer", 1], ["quota", 4]])
+            );
+            ensure!(current
+                .command(
+                    &transaction_contract,
+                    br#"{"reject":true}"#.to_vec(),
+                    options(254)?
+                )
+                .await
+                .is_err());
+            let unchanged = current
+                .query(
+                    ProposalId::new([255; 16])?,
+                    &current.contract("TransactionRows")?,
+                    Vec::new(),
+                    QueryOptions::default(),
+                )
+                .await?;
+            ensure!(rejected.load(Ordering::Acquire) == 2);
+            ensure!(unchanged.version == rows.version && unchanged.result == rows.result);
             Ok::<_, anyhow::Error>(())
         })
         .await

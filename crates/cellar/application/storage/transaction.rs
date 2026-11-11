@@ -358,6 +358,37 @@ where
     .await
 }
 
+async fn run_transaction<T, F, Fut>(
+    storage: Storage,
+    parent: Option<Arc<Transaction>>,
+    slot: Slot,
+    callback: F,
+) -> Result<T>
+where
+    F: FnOnce(Storage) -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    let result = async {
+        slot.admission.clone().await.map_err(anyhow::Error::msg)?;
+        let guard = Guard::start(&storage, parent, true)?;
+        let result = callback_result(guard.view.clone(), callback).await;
+        guard.view.1.as_ref().unwrap().drain().await;
+        match result {
+            Ok(value) => {
+                guard.finish()?;
+                Ok(value)
+            }
+            Err(error) => {
+                drop(guard);
+                Err(error)
+            }
+        }
+    }
+    .await;
+    drop(slot);
+    result
+}
+
 impl Storage {
     /// Atomically commit synchronous work in this cell. A local commit is
     /// followed by the event's normal discovery and durability output gates.
@@ -369,6 +400,8 @@ impl Storage {
     /// callback errors and panics roll back without resetting the cell. Root
     /// transactions reserve slots in call order; nested children finish before
     /// this boundary commits or rolls back, even if their futures are dropped.
+    /// Within a Raft RPC these callbacks own savepoints in the RPC transaction.
+    /// Their work becomes durable with that RPC's applied receipt.
     pub fn transaction<T, F, Fut>(&self, context: &Context, callback: F) -> HandlerFuture<T>
     where
         T: Send + 'static,
@@ -376,17 +409,32 @@ impl Storage {
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         let prepared = (|| -> Result<_> {
-            context.check_turn()?;
-            self.activation_scope()?;
-            let activation = self.native_activation()?;
-            anyhow::ensure!(
-                context
-                    .io
-                    .native_activation
+            let raft = if let Owner::RaftCommand(resources) = &self.0 {
+                let contextual = context
+                    .raft_storage
                     .as_ref()
-                    .is_some_and(|installed| Arc::ptr_eq(installed, activation)),
-                "native transaction context belongs to another cell"
-            );
+                    .ok_or_else(|| anyhow!("transaction context has no Raft invocation"))?;
+                contextual.data_activation_scope()?;
+                anyhow::ensure!(
+                    matches!(&contextual.0, Owner::RaftCommand(owner) if Arc::ptr_eq(owner, resources)),
+                    "transaction context belongs to another Raft invocation"
+                );
+                self.data_activation_scope()?;
+                Some(resources.clone())
+            } else {
+                context.check_turn()?;
+                self.activation_scope()?;
+                let activation = self.native_activation()?;
+                anyhow::ensure!(
+                    context
+                        .io
+                        .native_activation
+                        .as_ref()
+                        .is_some_and(|installed| Arc::ptr_eq(installed, activation)),
+                    "native transaction context belongs to another cell"
+                );
+                None
+            };
             if let Some(view) = &self.1 {
                 view.check_active()?;
             }
@@ -411,35 +459,33 @@ impl Storage {
             if let Some(parent) = &parent {
                 parent.pending.lock().unwrap().push(done);
             }
-            Ok((parent, slot))
+            Ok((parent, slot, raft))
         })();
-        let (parent, slot) = match prepared {
+        let (parent, slot, raft) = match prepared {
             Ok(prepared) => prepared,
             Err(error) => return Box::pin(async move { Err(error) }),
         };
         let storage = self.clone();
+        if let Some(resources) = raft {
+            let (send, receive) = tokio::sync::oneshot::channel();
+            let task = Box::pin(async move {
+                let result = run_transaction(storage, parent, slot, callback).await;
+                let _ = send.send(result);
+                Ok(())
+            });
+            if let Err(error) = crate::storage::schedule_raft_work(&resources, task) {
+                return Box::pin(async move { Err(error) });
+            }
+            return Box::pin(async move {
+                receive
+                    .await
+                    .map_err(|_| anyhow!("Raft transaction callback was abandoned"))?
+            });
+        }
         // Catch a transaction's failure inside the critical section, retaining
         // the original distinction between rollback and actor reset.
         let block = context.block_concurrency_while(move |_| async move {
-            let result = async {
-                slot.admission.clone().await.map_err(anyhow::Error::msg)?;
-                let guard = Guard::start(&storage, parent, true)?;
-                let result = callback_result(guard.view.clone(), callback).await;
-                guard.view.1.as_ref().unwrap().drain().await;
-                match result {
-                    Ok(value) => {
-                        guard.finish()?;
-                        Ok(value)
-                    }
-                    Err(error) => {
-                        drop(guard);
-                        Err(error)
-                    }
-                }
-            }
-            .await;
-            drop(slot); // release before the critical section drains children
-            Ok(result)
+            Ok(run_transaction(storage, parent, slot, callback).await)
         });
         Box::pin(async move { block.await? })
     }

@@ -47,6 +47,9 @@ pub struct ExecutionLimits {
     pub max_result_bytes: usize,
     pub max_client_identities: usize,
     pub max_retained_receipts: usize,
+    /// Outstanding async transaction callbacks within one private RPC.
+    /// Zero disables scheduling these callbacks.
+    pub max_pending_transactions: usize,
     pub max_retry_window_ms: u64,
     /// Virtual space within max_image_bytes reserved for durable receipts,
     /// client sequence floors and LTX control tables. Zero disables this policy.
@@ -65,6 +68,7 @@ impl Default for ExecutionLimits {
             max_result_bytes: 64 * 1024,
             max_client_identities: 1024,
             max_retained_receipts: 4096,
+            max_pending_transactions: 32,
             max_retry_window_ms: 600_000,
             receipt_reserve_bytes: 0,
             receipt_maintenance: Some(
@@ -107,6 +111,7 @@ impl ExecutionLimits {
             || !(1..=1024 * 1024).contains(&self.max_result_bytes)
             || !(1..=65_536).contains(&self.max_client_identities)
             || !(1..=65_536).contains(&self.max_retained_receipts)
+            || self.max_pending_transactions > 1024
             || !(1..=90 * 24 * 60 * 60 * 1000).contains(&self.max_retry_window_ms)
             || self.receipt_reserve_bytes > self.max_image_bytes / 4
             || !self.receipt_reserve_bytes.is_multiple_of(512)

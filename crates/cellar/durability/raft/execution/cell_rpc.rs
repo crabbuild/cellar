@@ -14,6 +14,7 @@ pub(crate) enum CellRpcStart {
 
 pub(crate) struct CellRpcTurn {
     future: HandlerFuture<Vec<u8>>,
+    output: Option<anyhow::Result<Vec<u8>>>,
     transaction: ActiveCommand,
     attempt: CommandAttempt,
     preparation: StagePreparation,
@@ -21,9 +22,24 @@ pub(crate) struct CellRpcTurn {
 
 impl CellRpcTurn {
     pub(crate) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<anyhow::Result<Vec<u8>>> {
-        self.transaction
-            .turn(|_| Ok(RaftClass::poll_cell_rpc(&mut self.future, cx)))
-            .unwrap_or_else(|error| Poll::Ready(Err(error)))
+        if self.output.is_none() {
+            match self
+                .transaction
+                .turn(|_| Ok(RaftClass::poll_cell_rpc(&mut self.future, cx)))
+            {
+                Ok(Poll::Ready(result)) => self.output = Some(result),
+                Ok(Poll::Pending) => (),
+                Err(error) => return Poll::Ready(Err(error)),
+            }
+        }
+        if self.output.as_ref().is_some_and(Result::is_err) {
+            return Poll::Ready(self.output.take().expect("terminal RPC output"));
+        }
+        match self.transaction.poll_work(cx) {
+            Ok(true) => Poll::Pending,
+            Ok(false) => self.output.take().map_or(Poll::Pending, Poll::Ready),
+            Err(error) => Poll::Ready(Err(error)),
+        }
     }
 }
 
@@ -53,7 +69,9 @@ impl CellPrivateExecutor {
             .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?
             .database_mut();
-        let transaction = database.begin(attempt.inputs).map_err(private_failure)?;
+        let transaction = database
+            .begin(attempt.inputs, self.options.limits.max_pending_transactions)
+            .map_err(private_failure)?;
         let future = transaction.turn(|tx| {
             command::maintain(&attempt, preparation.maintenance.take(), tx)?;
             self.authority.check().map_err(authority_failure)?;
@@ -76,6 +94,7 @@ impl CellPrivateExecutor {
         };
         Ok(CellRpcStart::Open(Box::new(CellRpcTurn {
             future,
+            output: None,
             transaction,
             attempt,
             preparation,
@@ -97,14 +116,17 @@ impl CellPrivateExecutor {
     ) -> Result<CellStageOutcome, ExecutionError> {
         let CellRpcTurn {
             future,
+            output: _,
             transaction,
             attempt,
             preparation,
         } = turn;
         // A callback destructor runs with its Storage view uninstalled.
         let dropped = drop_handler(future);
+        let cancelled = transaction.cancel_work();
         let result = result.and_then(|result| {
             dropped?;
+            cancelled?;
             self.check_rpc()?;
             transaction.turn(|tx| command::record(self.options.limits, &attempt, result, tx))
         });
@@ -124,12 +146,14 @@ impl CellPrivateExecutor {
             ..
         } = turn;
         let dropped = drop_handler(future);
+        let cancelled = transaction.cancel_work();
         self.working
             .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?
             .database_mut()
             .abort(transaction)
             .and(dropped)
+            .and(cancelled)
             .map_err(private_failure)
     }
 }

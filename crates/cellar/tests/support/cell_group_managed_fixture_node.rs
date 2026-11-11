@@ -31,6 +31,7 @@ pub struct Fixture {
     pub filesystem: Arc<dyn cellar_ltx::FileSystem>,
     pub effects: Option<RaftEffectOptions>,
     pub sql_workers: usize,
+    pub max_pending_transactions: usize,
     pub max_input_bytes: usize,
     pub image_bytes: u64,
     /// Logical admission only; physical attestations and engine/image limits stay unchanged.
@@ -152,6 +153,7 @@ impl Fixture {
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             effects: None,
             sql_workers: 2,
+            max_pending_transactions: 32,
             max_input_bytes: 1024,
             image_bytes: 256 * 1024 * 1024,
             logical_byte_capacity: None,
@@ -226,6 +228,7 @@ impl Fixture {
         host.images.max_bytes = self.image_bytes;
         // Snapshot/current/private/apply/incoming ownership admits eight copies.
         host.execution.max_image_bytes = self.image_bytes / 8;
+        host.execution.max_pending_transactions = self.max_pending_transactions;
         let (region, zone) = self
             .placement_domains
             .as_ref()

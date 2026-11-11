@@ -11,7 +11,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::application::storage::Resources;
-use crate::application::Storage;
+use crate::application::{HandlerFuture, Storage};
+use std::collections::VecDeque;
+use std::task::{Context as TaskContext, Poll};
 
 #[path = "command_capacity.rs"]
 mod capacity;
@@ -81,6 +83,14 @@ struct CommandFrame {
     connection: RefCell<Connection>,
     storage: OnceCell<Arc<Resources>>,
     failure: RefCell<Option<String>>,
+    work: RefCell<Work>,
+}
+
+struct Work {
+    tasks: VecDeque<HandlerFuture<()>>,
+    active: usize,
+    limit: usize,
+    serial: u64,
 }
 
 thread_local! {
@@ -141,6 +151,53 @@ impl ActiveCommand {
         }))
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
     }
+
+    pub(crate) fn poll_work(&self, cx: &mut TaskContext<'_>) -> Result<bool> {
+        let (count, serial) = {
+            let work = self.frame.work.borrow();
+            (work.tasks.len(), work.serial)
+        };
+        for _ in 0..count {
+            let Some(mut task) = self.frame.work.borrow_mut().tasks.pop_front() else {
+                break;
+            };
+            let polled = self.turn(|_| {
+                Ok(crate::application::consensus::RaftClass::poll_cell_work(
+                    &mut task, cx,
+                ))
+            })?;
+            let mut work = self.frame.work.borrow_mut();
+            match polled {
+                Poll::Pending => work.tasks.push_back(task),
+                Poll::Ready(result) => {
+                    work.active -= 1;
+                    result?;
+                }
+            }
+        }
+        let work = self.frame.work.borrow();
+        if work.serial != serial {
+            cx.waker().wake_by_ref();
+        }
+        Ok(work.active != 0)
+    }
+
+    pub(crate) fn cancel_work(&self) -> Result<()> {
+        let mut tasks = {
+            let mut work = self.frame.work.borrow_mut();
+            work.active = 0;
+            std::mem::take(&mut work.tasks)
+        };
+        let mut result = Ok(());
+        while let Some(task) = tasks.pop_front() {
+            if let Err(panic) =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(task)))
+            {
+                result = Err(crate::native_worker::panic_error(panic));
+            }
+        }
+        result
+    }
 }
 
 pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
@@ -175,6 +232,32 @@ pub(crate) fn require_storage(resources: &Arc<Resources>, healthy: bool) -> Resu
         if healthy {
             frame.connection()?;
         }
+        Ok(())
+    })
+}
+
+pub(crate) fn schedule_work(resources: &Arc<Resources>, task: HandlerFuture<()>) -> Result<()> {
+    require_storage(resources, true)?;
+    CURRENT_COMMAND.with(|current| {
+        let current = current.borrow();
+        let frame = current
+            .as_ref()
+            .context("storage is outside its Raft command")?;
+        let mut work = frame.work.borrow_mut();
+        ensure!(
+            work.limit != 0,
+            crate::application::consensus::CommandFailure::UnsupportedCapability
+        );
+        ensure!(
+            work.active < work.limit,
+            crate::application::consensus::CommandFailure::Overloaded
+        );
+        work.serial = work
+            .serial
+            .checked_add(1)
+            .context("async work sequence exhausted")?;
+        work.active += 1;
+        work.tasks.push_back(task);
         Ok(())
     })
 }
@@ -280,12 +363,16 @@ impl CommandDatabase {
         inputs: CommandInputs,
         callback: impl FnOnce(&CommandTransaction<'_>) -> Result<T>,
     ) -> Result<T> {
-        let active = self.begin(inputs)?;
+        let active = self.begin(inputs, 0)?;
         let result = active.turn(callback);
         self.settle(active, result)
     }
 
-    pub(crate) fn begin(&mut self, inputs: CommandInputs) -> Result<ActiveCommand> {
+    pub(crate) fn begin(
+        &mut self,
+        inputs: CommandInputs,
+        max_tasks: usize,
+    ) -> Result<ActiveCommand> {
         let connection = self
             .connection
             .as_ref()
@@ -300,6 +387,12 @@ impl CommandDatabase {
                 ),
                 storage: OnceCell::new(),
                 failure: RefCell::new(None),
+                work: RefCell::new(Work {
+                    tasks: VecDeque::new(),
+                    active: 0,
+                    limit: max_tasks,
+                    serial: 0,
+                }),
             }),
             inputs,
         })

@@ -56,6 +56,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         filesystem: Arc::new(cellar_ltx::DirectFileSystem),
         effects: f.effects,
         sql_workers: f.sql_workers,
+        max_pending_transactions: f.max_pending_transactions,
         max_input_bytes: f.max_input_bytes,
         image_bytes: f.image_bytes,
         logical_byte_capacity: f.logical_byte_capacity,
