@@ -50,12 +50,16 @@ pub(in crate::raft::cell_groups) fn command(
         durability: expected.receipt.minimum_durability,
         retry_until_ms: expected.receipt.retry_until_ms,
     };
-    let receipt = crate::raft::receipts::lookup_cell_identity(
-        database.connection(),
-        &request,
-        &limits,
-        leaf.version.sequence.get(),
-    )
+    let receipt = if let Some(step) = expected.receipt.rpc_step {
+        crate::raft::receipts::rpc_receipt(database.connection(), &request, &limits, step).map(Some)
+    } else {
+        crate::raft::receipts::lookup_cell_identity(
+            database.connection(),
+            &request,
+            &limits,
+            leaf.version.sequence.get(),
+        )
+    }
     .map_err(CellGroupArchiveError::Replay)?;
     if receipt.as_ref() != Some(&expected.receipt) {
         return Err(CellGroupArchiveError::Invalid("S3 receipt identity/result"));

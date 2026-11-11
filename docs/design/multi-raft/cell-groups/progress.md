@@ -11,8 +11,10 @@ CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
 adds eight delivery packages and 32 required cases. CG17-01, CG17-02 and
-CG17-03 are in progress. Ordinary JSON cell RPC handlers can suspend and resume inside
-a private Raft transaction while the SQL worker serves other cells.
+CG17-03 are in progress. Ordinary JSON cell RPC handlers and async Storage
+transaction callbacks can suspend while the SQL worker serves other cells.
+Independent root checkpoint settlement and ordinary Storage sync pass scoped
+native RF3 and real-RustFS qualification; see the current checkpoint below.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -21,6 +23,160 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 ordinary Storage sync
+
+Source `6daed3cc` connects ordinary RPC `Storage::sync()` to the existing exact
+checkpoint owner. It reserves a slot in root-transaction call order, captures
+preceding private SQL/KV writes and completes after the invocation's quorum/S3
+proof. Dropping an unpolled result future leaves that admitted boundary owned by
+the RPC. Sync shares `max_pending_transactions` with callbacks, including typed
+overload and zero-limit refusal.
+
+Open synchronous and async transaction callbacks refuse sync before scheduling;
+no savepoint is published as a separate commit. Synchronous registered commands
+and immutable queries retain their existing completion contracts. Later RPC
+failure preserves applied sync checkpoints; live leader replacement fences the
+continuation and retains pending invocation uncertainty.
+
+The extended public case passes at `6daed3cc` in 60.368 seconds. It checks a
+queued root before explicit S3 sync, partial failure and original-ID replay,
+dropped sync futures, and live term replacement. Four further exact selections
+pass for committed Storage, ordinary native async transactions, Storage and HTML
+rewriting. No selected case is ignored or empty.
+
+The reusable `cell_groups.py --suite ordinary-primitives` also passes the exact
+RustFS case in 62.589 seconds at the same source and with the same executable hash. Both image
+modes use host-native RF3 TLS, two cells sharing a group and one SQL worker per
+node. The owned, digest-pinned RustFS container has one CPU and 2 GiB with no
+extra swap. It exits zero without OOM, its VM is stopped, and target/default VMs
+are unchanged. Voters are host-native tasks; constrained voter containers,
+physical crashes, partitions and disk-loss recovery are not qualified here.
+
+Formatting, strict all-target Clippy, layout, docs, native dependencies and the
+partial catalog check pass. Source, executable and log hashes, the scoped RustFS
+record and verified shutdown are retained in
+`.cellar/cell-groups-evidence/CG-17-sync-6daed3cc-01`. Basic requests retain five
+seconds and cancellation one second; multi-stage conformance requests retain
+their upfront twenty-second budget. Capacity bounds are unchanged; no latency
+or throughput SLO is qualified.
+
+Persistent activation, same-cell interleaving, automatic output/dispatch gates,
+remaining Storage methods, family/provider adapters and the complete CG-17
+matrix remain open. This checkpoint does not accept CG-17 or the release gate.
+
+## CG-17 independent RPC transaction checkpoints
+
+Implementation source `2fe93a98` gives every successful root async Storage
+transaction its own quorum-applied checkpoint. Nested transactions remain
+savepoints within that root. The root retains its ordered slot and Rust return
+value until exact receipt reconciliation completes. Explicit S3 durability also
+verifies the pending checkpoint receipt from independently recovered archive
+bytes before resuming the callback. The final RPC response still requires its
+own completed invocation receipt.
+
+Each checkpoint updates the original invocation's one receipt/client slot and
+retains its request digest, retry horizon, expiry floor and physical receipt
+quota. An incomplete invocation is neither a completed RPC response nor an
+absent command. Public lookup and retry admission retain uncertainty and refuse
+to reexecute its factory. Failure after an applied root preserves that root;
+deadline, leadership loss or a later failure cancels unfinished work.
+
+A submitted boundary retains its producer through expiry until apply or a
+newer-term barrier resolves it. Excluding the final proposal cannot establish
+that earlier roots were uncommitted. Continuations keep their original leader
+fence. Capture returns the quiescent SQLite writer temporarily, then reopens it
+only after proof; completed private LTX files are trimmed within the existing
+scratch limits. Context retains only Raft command resources, preserving ordinary
+SDK compilation without extending native activation ownership.
+
+At test source `77075d36`, `ordinary_json_rpc_uses_raft_owned_context` passes in
+49.686 seconds with the same runtime implementation. It covers both image modes,
+RF3 TLS, two cells in one group and one SQL worker per node. Committed reads see
+the first root while a two-transaction RPC waits. S3 roots require archive proof.
+Nested rollback/panic and ordered dropped children remain covered. After live
+leadership transfer the first root survives, pending receipt lookup returns
+`Uncertain`, and retries cannot rerun the factory. A new sequence can write while
+the earlier interrupted identity stays protected. Dropping an unpolled SDK
+response still produces a durable receipt; original-ID replay preserves its
+result/version without another factory call.
+
+All nine exact native selections pass without ignored cases. The other eight
+cover committed Storage, native transaction lifecycle, ordinary Storage, due
+effects, inbox identity, registered execution, rollback/result limits and HTML
+rewriting. Strict all-target Clippy passes at `a1362704`. The only Rust source
+change since the nine-case run removes redundant references in a test comparison.
+The narrow Context resource handle fixes the HTML test's recursive
+ownership proof without increasing compiler limits. Catalog, verifier, plan,
+docs, native dependencies and the six reviewed source anchors pass. Both exact
+receipt lifecycle unit cases pass at `a1362704`: pending identity/sequence
+settlement and the original expiry floor. Unit codegen uses opt-level zero;
+native runtime cases use opt-level one. Both retain assertions and overflow
+checks. Formatting also passes at the final Rust source. Evidence is retained in
+`.cellar/cell-groups-evidence/CG-17-independent-a1362704-01`.
+
+An earlier default-five-second run timed out. Repeated timing runs showed
+continuing root progress; a captured failure had all five roots and the final
+receipt applied, with all three voters caught up. This was an ambiguous response,
+not a non-commit proof. The final six-commit conformance request declares its
+twenty-second budget before admission, reusing the existing long-call budget.
+Basic requests retain the SDK's five-second default and the one-second
+cancellation control is unchanged. No request deadline is extended internally.
+Temporary probes were removed. Earlier failures and timing controls are retained
+separately from qualification; no latency or throughput SLO is qualified.
+
+The archive fixture is in memory. Current-source RustFS, process crashes,
+partitions, topology transitions and the complete CG-17 matrix remain open.
+
+The pending receipt column is an internal format-1 hard cutover. Matching
+executables require a rebuild; older receipt images are not migrated.
+Persistent shared activation, same-cell interleaving, ordinary sync/output gates,
+committed due work and provider adapters remain implementation dependencies.
+
+## CG-17 async transaction callbacks
+
+Source `8481febf` connects ordinary `Storage::transaction()` to the owned
+Raft RPC driver. Nested callbacks use the existing savepoint, child-drainage
+and rollback rules. Root siblings retain call order. Dropping a result future
+leaves the callback owned by the RPC; successful output waits for all of its
+callbacks to finish. Expiry, leadership revocation and invocation failure
+cancel owned callbacks before rolling back the outer private transaction.
+
+`ExecutionLimits::max_pending_transactions` bounds outstanding callbacks per
+RPC, including queued and active children. The default is 32, the maximum is
+1024, and zero disables scheduling with `UnsupportedCapability`. Saturation
+returns `Overloaded` before invoking the refused callback. Synchronous
+registered commands still cannot schedule asynchronous work.
+
+Each callback owns a savepoint within the current RPC transaction. Releasing
+that savepoint does not produce an independent consensus commit. SQL/KV work
+and the RPC result become durable with the outer applied receipt. Independent
+multi-transaction invocation settlement remains the next execution dependency.
+
+`ordinary_json_rpc_uses_raft_owned_context` passes in 34.594 seconds at
+`8481febf`. Host-native RF3 runs both image modes with two cells sharing a
+group and one SQL worker per node. The case covers nested explicit rollback,
+callback errors, constructor/poll panics, ordered siblings, expired views and
+drainage after dropping child and root result futures. A four-callback limit
+refuses a fifth before its constructor runs. The committed query observes all
+four queued mutations after the handler returns. A later outer rejection must
+reach the rejection branch after all nested work and preserve the previous
+committed image/version. The existing deadline and live guarded leader-transfer
+scenarios now suspend inside the async Storage transaction.
+
+The committed Storage read/write case and six further regressions pass at the
+same source. They cover native async transaction lifecycle, ordinary Storage,
+due work, lost-reply effect identity, registered execution and rollback/result
+limits. All eight exact selections run one case each, without ignored cases.
+Formatting, layout, docs, native dependencies, catalog checks, 13 verifier tests,
+44 plan tests and the six reviewed source anchors pass. The full historical
+artifact rehash was stopped; this checkpoint does not requalify earlier tasks.
+Strict Clippy passes for the owning library and all five affected integration
+targets.
+
+The archive fixture is in memory. Real RustFS, process-kill, topology and full
+CG-17 qualification remain open. Evidence is retained in
+`.cellar/cell-groups-evidence/CG-17-async-tx-8481febf-01`.
 
 ## CG-17 suspended cell RPC
 

@@ -15,6 +15,7 @@ pub(super) enum Callback {
         class: Arc<crate::application::consensus::RaftClass>,
         input: Box<[u8]>,
         system: bool,
+        commits: Option<Box<RpcCommitContext>>,
     },
 }
 
@@ -218,6 +219,7 @@ impl Cells {
                         class,
                         input,
                         system,
+                        ..
                     } => {
                         if system {
                             executor.stage_system_registered(attempt, &class, &input, allow_new)

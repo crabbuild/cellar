@@ -51,6 +51,18 @@ CASES = (
 )
 
 SUITES = {
+    "ordinary-primitives": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_json_rpc_uses_raft_owned_context",),
+        "ordinary JSON cell RPC and Storage transaction/sync checkpoints on shared RF3",
+        "Both image modes, two cells sharing a group and one SQL worker per node. "
+        "Exact retries, nested rollback, bounded owned transactions/syncs, independent commits, "
+        "pending receipt lookup, dropped responses, explicit S3 proof and live leadership "
+        "transfer are checked. Basic request and cancellation budgets remain unchanged; "
+        "multi-stage conformance requests declare twenty seconds before admission. "
+        "Persistent activation, same-cell interleaving, other primitive families, process "
+        "faults, disk-loss recovery and full CG-17 acceptance remain separate gates.",
+    ),
     "managed-scheduler-fanout": (
         "native_cell_groups_scheduler",
         ("rustfs_control_plane_fanout_bounded",),

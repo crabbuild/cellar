@@ -103,8 +103,15 @@ pub(super) fn record(
     }
     let connection = transaction.framework()?;
     receipts::record(&connection, &attempt.request, result)?;
+    check_capacity(limits, &connection)
+}
+
+pub(super) fn check_capacity(
+    limits: ExecutionLimits,
+    connection: &rusqlite::Connection,
+) -> anyhow::Result<()> {
     if limits.receipt_reserve_bytes != 0 {
-        let usage = crate::storage::CommandDatabase::capacity(&connection, limits.max_image_bytes)?;
+        let usage = crate::storage::CommandDatabase::capacity(connection, limits.max_image_bytes)?;
         limits
             .check_capacity(
                 usage.application_bytes,

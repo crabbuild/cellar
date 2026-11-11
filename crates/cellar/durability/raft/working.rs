@@ -114,11 +114,18 @@ impl Working {
     }
 
     pub fn trim(&self, options: &PrivateOptions, base: Option<&PublishedImage>) -> Result<()> {
+        self.trim_through(
+            options,
+            base.map(|b| b.pin().state().txid).unwrap_or(TXID(0)),
+        )
+    }
+
+    pub fn trim_through(&self, options: &PrivateOptions, txid: TXID) -> Result<()> {
         trim_capture(
             &self.capture,
             &options.host,
             options.limits.envelope.max_files,
-            base.map(|b| b.pin().state().txid).unwrap_or(TXID(0)),
+            txid,
         )
     }
 

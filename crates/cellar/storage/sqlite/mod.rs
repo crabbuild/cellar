@@ -19,7 +19,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 mod command;
+pub(crate) use command::commit_work as commit_raft_work;
 pub(crate) use command::require_storage as require_raft_command_storage;
+pub(crate) use command::schedule_work as schedule_raft_work;
 pub(crate) use command::{ActiveCommand, CommandDatabase};
 pub use command::{CommandInputs, CommandTransaction};
 mod console;

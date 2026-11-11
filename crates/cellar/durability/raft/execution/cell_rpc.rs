@@ -14,16 +14,39 @@ pub(crate) enum CellRpcStart {
 
 pub(crate) struct CellRpcTurn {
     future: HandlerFuture<Vec<u8>>,
+    output: Option<anyhow::Result<Vec<u8>>>,
     transaction: ActiveCommand,
     attempt: CommandAttempt,
-    preparation: StagePreparation,
+    preparation: Option<StagePreparation>,
+    step: u64,
 }
 
 impl CellRpcTurn {
+    pub(crate) fn take_checkpoint(
+        &self,
+    ) -> Option<tokio::sync::oneshot::Sender<Result<(), String>>> {
+        self.transaction.take_checkpoint()
+    }
+
     pub(crate) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<anyhow::Result<Vec<u8>>> {
-        self.transaction
-            .turn(|_| Ok(RaftClass::poll_cell_rpc(&mut self.future, cx)))
-            .unwrap_or_else(|error| Poll::Ready(Err(error)))
+        if self.output.is_none() {
+            match self
+                .transaction
+                .turn(|_| Ok(RaftClass::poll_cell_rpc(&mut self.future, cx)))
+            {
+                Ok(Poll::Ready(result)) => self.output = Some(result),
+                Ok(Poll::Pending) => (),
+                Err(error) => return Poll::Ready(Err(error)),
+            }
+        }
+        if self.output.as_ref().is_some_and(Result::is_err) {
+            return Poll::Ready(self.output.take().expect("terminal RPC output"));
+        }
+        match self.transaction.poll_work(cx) {
+            Ok(true) => Poll::Pending,
+            Ok(false) => self.output.take().map_or(Poll::Pending, Poll::Ready),
+            Err(error) => Poll::Ready(Err(error)),
+        }
     }
 }
 
@@ -34,6 +57,7 @@ impl CellPrivateExecutor {
         class: &RaftClass,
         input: &[u8],
         allow_new: bool,
+        independent: bool,
     ) -> Result<CellRpcStart, ExecutionError> {
         let contract = super::super::registered::validate(
             self.options.limits,
@@ -53,7 +77,16 @@ impl CellPrivateExecutor {
             .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?
             .database_mut();
-        let transaction = database.begin(attempt.inputs).map_err(private_failure)?;
+        let transaction = database
+            .begin(
+                attempt.inputs,
+                if independent {
+                    self.options.limits.max_pending_transactions
+                } else {
+                    0
+                },
+            )
+            .map_err(private_failure)?;
         let future = transaction.turn(|tx| {
             command::maintain(&attempt, preparation.maintenance.take(), tx)?;
             self.authority.check().map_err(authority_failure)?;
@@ -76,9 +109,11 @@ impl CellPrivateExecutor {
         };
         Ok(CellRpcStart::Open(Box::new(CellRpcTurn {
             future,
+            output: None,
             transaction,
             attempt,
-            preparation,
+            preparation: Some(preparation),
+            step: 0,
         })))
     }
 
@@ -97,16 +132,33 @@ impl CellPrivateExecutor {
     ) -> Result<CellStageOutcome, ExecutionError> {
         let CellRpcTurn {
             future,
+            output: _,
             transaction,
             attempt,
             preparation,
+            step,
         } = turn;
         // A callback destructor runs with its Storage view uninstalled.
         let dropped = drop_handler(future);
+        let cancelled = transaction.cancel_work();
         let result = result.and_then(|result| {
             dropped?;
+            cancelled?;
             self.check_rpc()?;
-            transaction.turn(|tx| command::record(self.options.limits, &attempt, result, tx))
+            transaction.turn(|tx| {
+                if result.len() > self.options.limits.max_result_bytes {
+                    return Err(CommandFailure::Overloaded.into());
+                }
+                let connection = tx.framework()?;
+                receipts::complete_rpc(
+                    &connection,
+                    &attempt.request,
+                    &self.options.limits,
+                    step,
+                    result,
+                )?;
+                command::check_capacity(self.options.limits, &connection)
+            })
         });
         self.working
             .as_mut()
@@ -114,7 +166,153 @@ impl CellPrivateExecutor {
             .database_mut()
             .settle(transaction, result)
             .map_err(private_failure)?;
-        self.capture_stage(attempt, preparation)
+        let outcome = self.capture_stage(
+            attempt,
+            preparation.ok_or(ExecutionError::Invalid("RPC preparation missing"))?,
+        )?;
+        self.pending
+            .as_mut()
+            .ok_or(ExecutionError::Uncertain)?
+            .rpc_prior_steps = step;
+        Ok(outcome)
+    }
+
+    pub(crate) fn stage_rpc_checkpoint(
+        &mut self,
+        turn: &mut CellRpcTurn,
+    ) -> Result<CellPreparedCommand, ExecutionError> {
+        self.check_rpc()?;
+        let step = turn
+            .step
+            .checked_add(1)
+            .ok_or(ExecutionError::Invalid("RPC checkpoint exhausted"))?;
+        turn.transaction
+            .turn(|tx| {
+                let connection = tx.framework()?;
+                receipts::record_rpc_step(
+                    &connection,
+                    &turn.attempt.request,
+                    &self.options.limits,
+                    step,
+                )?;
+                command::check_capacity(self.options.limits, &connection)
+            })
+            .map_err(private_failure)?;
+        self.working
+            .as_mut()
+            .ok_or(ExecutionError::RebuildRequired)?
+            .database_mut()
+            .checkpoint(&turn.transaction)
+            .map_err(private_failure)?;
+        use rand::RngCore as _;
+        let mut rng = crate::asyncrt::rng("cell-rpc-checkpoint");
+        let mut proposal = [0; 16];
+        let mut preview = [0; 16];
+        rng.fill_bytes(&mut proposal);
+        rng.fill_bytes(&mut preview);
+        let attempt = CommandAttempt {
+            request: turn.attempt.request.clone(),
+            proposal: ProposalId::new(proposal)
+                .map_err(|_| ExecutionError::Invalid("RPC checkpoint proposal"))?,
+            preview: cellar_ltx::generation::ImageId::new(preview)
+                .map_err(|_| ExecutionError::Invalid("RPC checkpoint preview"))?,
+            inputs: turn.attempt.inputs,
+        };
+        let preparation = turn
+            .preparation
+            .take()
+            .ok_or(ExecutionError::Invalid("RPC checkpoint preparation"))?;
+        let CellStageOutcome::Prepared(prepared) = self.capture_stage(attempt, preparation)? else {
+            return Err(ExecutionError::Invalid(
+                "RPC checkpoint unexpectedly duplicate",
+            ));
+        };
+        self.pending
+            .as_mut()
+            .ok_or(ExecutionError::Invalid("RPC checkpoint pending"))?
+            .rpc_step = Some(step);
+        turn.step = step;
+        Ok(prepared)
+    }
+
+    pub(crate) fn rpc_checkpoint_version(
+        &self,
+    ) -> Result<cellar_logic::cell_group::CellVersion, ExecutionError> {
+        self.pending
+            .as_ref()
+            .map(|pending| pending.result.clone())
+            .ok_or(ExecutionError::Uncertain)
+    }
+
+    pub(crate) fn finish_rpc_checkpoint(
+        &mut self,
+        committed: CellExecutionAuthority,
+        reconciliation: CellReconciliationAuthority,
+    ) -> Result<CellCommittedReceipt, ExecutionError> {
+        let pending = self.pending.as_ref().ok_or(ExecutionError::Uncertain)?;
+        let step = pending
+            .rpc_step
+            .ok_or(ExecutionError::Invalid("RPC checkpoint kind"))?;
+        if !pending.submitted
+            || committed.route() != self.authority.route()
+            || committed.term() != self.authority.term()
+            || committed.cell().version != pending.result
+            || reconciliation.term() != committed.term()
+            || reconciliation.cell().version != pending.result
+        {
+            return Err(ExecutionError::Uncertain);
+        }
+        committed.check().map_err(authority_failure)?;
+        let proposal = pending.prepared.proposal();
+        let CellReconciliation::Committed(receipt) = self.reconcile(proposal, reconciliation)?
+        else {
+            return Err(ExecutionError::Uncertain);
+        };
+        if receipt.receipt.rpc_step != Some(step) || receipt.version != committed.cell().version {
+            return Err(ExecutionError::Invalid("RPC checkpoint receipt binding"));
+        }
+        committed.check().map_err(authority_failure)?;
+        self.authority = committed;
+        Ok(*receipt)
+    }
+
+    pub(crate) fn continue_rpc_checkpoint(
+        &mut self,
+        turn: &mut CellRpcTurn,
+    ) -> Result<(), ExecutionError> {
+        self.check_rpc()?;
+        if self.pending.is_some() || turn.preparation.is_some() {
+            return Err(ExecutionError::Invalid("RPC checkpoint remains pending"));
+        }
+        let log_reservation = self
+            .authority
+            .reserve_log(self.options.limits.envelope)
+            .map_err(authority_failure)?;
+        let sequence = self
+            .authority
+            .cell()
+            .version
+            .sequence
+            .checked_next()
+            .map_err(|_| ExecutionError::Invalid("cell mutation sequence exhausted"))?;
+        let working = self
+            .working
+            .as_mut()
+            .ok_or(ExecutionError::RebuildRequired)?;
+        working
+            .trim_cell(&self.options, self.authority.image())
+            .map_err(storage)?;
+        working.begin_mutation();
+        working
+            .database_mut()
+            .continue_checkpoint(&turn.transaction)
+            .map_err(private_failure)?;
+        turn.preparation = Some(StagePreparation {
+            sequence,
+            log_reservation,
+            maintenance: None,
+        });
+        Ok(())
     }
 
     pub(crate) fn abort_rpc(&mut self, turn: CellRpcTurn) -> Result<(), ExecutionError> {
@@ -124,12 +322,14 @@ impl CellPrivateExecutor {
             ..
         } = turn;
         let dropped = drop_handler(future);
+        let cancelled = transaction.cancel_work();
         self.working
             .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?
             .database_mut()
             .abort(transaction)
             .and(dropped)
+            .and(cancelled)
             .map_err(private_failure)
     }
 }

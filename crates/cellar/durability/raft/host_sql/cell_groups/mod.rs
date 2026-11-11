@@ -3,6 +3,8 @@
 //! Cell-history admission and commands on the existing fixed node SQL workers.
 
 mod admission;
+mod rpc_commit;
+pub(crate) use rpc_commit::RpcCommitContext;
 mod apply;
 pub(in crate::raft::host_sql) use apply::ApplyRequest;
 pub use apply::CellGroupPreparedApply;
@@ -657,6 +659,31 @@ impl CellGroupSqlPool {
                 class,
                 input: input.into_boxed_slice(),
                 system: false,
+                commits: None,
+            },
+        )
+        .await
+    }
+
+    pub(crate) async fn stage_rpc_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Vec<u8>,
+        commits: RpcCommitContext,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        self.stage_compiled_owned(
+            options,
+            authority,
+            attempt,
+            CellSqlStageMode::InvokeBefore(commits.deadline),
+            worker::Callback::Registered {
+                class,
+                input: input.into_boxed_slice(),
+                system: false,
+                commits: Some(Box::new(commits)),
             },
         )
         .await
@@ -680,6 +707,7 @@ impl CellGroupSqlPool {
                 class,
                 input: input.into_boxed_slice(),
                 system: true,
+                commits: None,
             },
         )
         .await

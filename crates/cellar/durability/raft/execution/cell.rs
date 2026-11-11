@@ -58,6 +58,8 @@ struct PendingCell {
     result: CellVersion,
     _preview: Preview,
     submitted: bool,
+    rpc_step: Option<u64>,
+    rpc_prior_steps: u64,
 }
 
 struct StagePreparation {
@@ -382,6 +384,8 @@ impl CellPrivateExecutor {
             },
             _preview: preview,
             submitted: false,
+            rpc_step: None,
+            rpc_prior_steps: 0,
         });
         self.poisoned = false;
         Ok(CellStageOutcome::Prepared(prepared))
@@ -464,7 +468,9 @@ impl CellPrivateExecutor {
         check()?;
         // Staging already established absence in this exact immutable base.
         // In particular an enrollment image need not yet have receipt tables.
-        let receipt = if authority.cell().version == self.authority.cell().version {
+        let receipt = if authority.cell().version == self.authority.cell().version
+            && pending.rpc_prior_steps == 0
+        {
             Ok(None)
         } else {
             let database = self
@@ -472,11 +478,22 @@ impl CellPrivateExecutor {
                 .images
                 .read_cell(&self.options, authority.image())
                 .map_err(storage)?;
-            receipts::lookup_identity(
-                database.connection(),
-                &pending.request,
-                &self.options.limits,
-            )
+            if let Some(step) = pending.rpc_step {
+                receipts::lookup_rpc_identity(
+                    database.connection(),
+                    &pending.request,
+                    &self.options.limits,
+                )
+                .map(|receipt| {
+                    receipt.filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
+                })
+            } else {
+                receipts::lookup_identity(
+                    database.connection(),
+                    &pending.request,
+                    &self.options.limits,
+                )
+            }
         };
         let resolution = match receipt {
             Ok(Some(receipt)) => CellReconciliation::Committed(Box::new(CellCommittedReceipt {
@@ -491,6 +508,13 @@ impl CellPrivateExecutor {
             Err(ExecutionError::Refused(
                 failure @ (CommandFailure::CommandExpired | CommandFailure::CommandConflict),
             )) if authority.term() > self.authority.term() => CellReconciliation::Refused(failure),
+            // A newer barrier can exclude this final proposal while earlier
+            // root transactions remain committed under the same invocation.
+            Err(ExecutionError::Uncertain)
+                if authority.term() > self.authority.term() && pending.rpc_prior_steps != 0 =>
+            {
+                CellReconciliation::Refused(CommandFailure::Unavailable)
+            }
             Err(error) => return Err(error),
             Ok(None) => return Err(ExecutionError::Uncertain),
         };

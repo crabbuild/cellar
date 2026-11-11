@@ -721,6 +721,14 @@ impl RaftClass {
         future.as_mut().poll(context)
     }
 
+    pub(crate) fn poll_cell_work(
+        future: &mut HandlerFuture<()>,
+        context: &mut TaskContext<'_>,
+    ) -> Poll<anyhow::Result<()>> {
+        let _guard = CallbackGuard::enter()?;
+        future.as_mut().poll(context)
+    }
+
     /// Register a normal command with authenticated, durable receiver receipts.
     /// Business changes and the deduplication record commit atomically. Native
     /// callbacks remain trusted and must not leak a receipt before commit.

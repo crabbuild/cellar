@@ -25,6 +25,7 @@ pub(super) fn install(connection: &Connection) -> anyhow::Result<()> {
         result BLOB NOT NULL CHECK(typeof(result)='blob'),
         minimum_durability INTEGER NOT NULL CHECK(minimum_durability IN (0,1)),
         retry_until BLOB NOT NULL CHECK(typeof(retry_until)='blob' AND length(retry_until)=8),
+        rpc_step BLOB CHECK(rpc_step IS NULL OR (typeof(rpc_step)='blob' AND length(rpc_step)=8)),
         PRIMARY KEY(client_id,sequence)
     ) WITHOUT ROWID;")?;
     Ok(())
@@ -182,6 +183,16 @@ fn inspect_identity_admitted(
     limits: &ExecutionLimits,
     reserve_result: &mut dyn FnMut(usize) -> Result<(), ExecutionError>,
 ) -> Result<Identity, ExecutionError> {
+    inspect_identity_state(connection, request, limits, reserve_result, false)
+}
+
+fn inspect_identity_state(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    reserve_result: &mut dyn FnMut(usize) -> Result<(), ExecutionError>,
+    allow_pending: bool,
+) -> Result<Identity, ExecutionError> {
     let state = client(connection, request.id.client)?;
     let (last, floor) = state.unwrap_or((0, 0));
     let sequence = request.id.sequence();
@@ -207,11 +218,11 @@ fn inspect_identity_admitted(
         }
         reserve_result(length.ok_or_else(corrupt)? as usize)?;
         let row=connection.query_row(
-            "SELECT operation,contract_digest,request_digest,result,minimum_durability,retry_until
+            "SELECT operation,contract_digest,request_digest,result,minimum_durability,retry_until,rpc_step
              FROM __sys_raft_receipts WHERE client_id=?1 AND sequence=?2",
             params![request.id.client.bytes().as_slice(),sequence.to_be_bytes().as_slice()],|r|
                 Ok((r.get::<_,String>(0)?,r.get::<_,Vec<u8>>(1)?,r.get::<_,Vec<u8>>(2)?,
-                    r.get::<_,Vec<u8>>(3)?,r.get::<_,i64>(4)?,r.get::<_,Vec<u8>>(5)?)))
+                    r.get::<_,Vec<u8>>(3)?,r.get::<_,i64>(4)?,r.get::<_,Vec<u8>>(5)?,r.get::<_,Option<Vec<u8>>>(6)?)))
             .map_err(storage)?;
         let contract = digest(row.1)?;
         let request_digest = digest(row.2)?;
@@ -226,6 +237,13 @@ fn inspect_identity_admitted(
             1 => Durability::S3,
             _ => return Err(corrupt()),
         };
+        let rpc_step = row.6.map(number).transpose()?;
+        if rpc_step == Some(0) || (rpc_step.is_some() && !row.3.is_empty()) {
+            return Err(corrupt());
+        }
+        if rpc_step.is_some() && !allow_pending {
+            return Err(ExecutionError::Uncertain);
+        }
         return Ok(Identity::Retained(StoredReceipt {
             id: request.id,
             operation: row.0,
@@ -234,6 +252,7 @@ fn inspect_identity_admitted(
             result: row.3,
             minimum_durability,
             retry_until_ms: number(row.5)?,
+            rpc_step,
         }));
     }
     let next = last.checked_add(1).ok_or_else(corrupt)?;
@@ -245,6 +264,86 @@ fn inspect_identity_admitted(
     Ok(Identity::Vacant {
         new_client: state.is_none(),
     })
+}
+
+/// Host-only inspection of an exact intermediate mutation. Public receipt
+/// lookup treats every unfinished invocation as uncertain, never absent.
+pub(super) fn rpc_receipt(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    step: u64,
+) -> Result<StoredReceipt, ExecutionError> {
+    if step == 0 {
+        return Err(corrupt());
+    }
+    match lookup_rpc_identity(connection, request, limits)? {
+        Some(receipt) if receipt.rpc_step == Some(step) => Ok(receipt),
+        _ => Err(ExecutionError::Uncertain),
+    }
+}
+
+pub(super) fn lookup_rpc_identity(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+) -> Result<Option<StoredReceipt>, ExecutionError> {
+    match inspect_identity_state(connection, request, limits, &mut |_| Ok(()), true)? {
+        Identity::Retained(receipt) => Ok(Some(receipt)),
+        Identity::Vacant { .. } => Ok(None),
+    }
+}
+
+/// Commit the original invocation identity with each independently applied
+/// transaction. Reuse its one admitted receipt/client slot and retention floor.
+pub(super) fn record_rpc_step(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    step: u64,
+) -> anyhow::Result<()> {
+    if step == 1 {
+        record(connection, request, Vec::new())?;
+    } else {
+        let previous = step
+            .checked_sub(1)
+            .filter(|step| *step != 0)
+            .ok_or_else(|| anyhow::anyhow!("invalid RPC checkpoint sequence"))?;
+        rpc_receipt(connection, request, limits, previous)?;
+    }
+    let changed = connection.execute(
+        "UPDATE __sys_raft_receipts SET rpc_step=?3 WHERE client_id=?1 AND sequence=?2",
+        params![
+            request.id.client.bytes().as_slice(),
+            request.id.sequence().to_be_bytes().as_slice(),
+            step.to_be_bytes().as_slice()
+        ],
+    )?;
+    anyhow::ensure!(changed == 1, "RPC checkpoint receipt missing");
+    Ok(())
+}
+
+pub(super) fn complete_rpc(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    step: u64,
+    result: Vec<u8>,
+) -> anyhow::Result<()> {
+    if step == 0 {
+        return record(connection, request, result);
+    }
+    rpc_receipt(connection, request, limits, step)?;
+    let changed = connection.execute(
+        "UPDATE __sys_raft_receipts SET result=?3,rpc_step=NULL WHERE client_id=?1 AND sequence=?2",
+        params![
+            request.id.client.bytes().as_slice(),
+            request.id.sequence().to_be_bytes().as_slice(),
+            result
+        ],
+    )?;
+    anyhow::ensure!(changed == 1, "RPC completion receipt missing");
+    Ok(())
 }
 
 pub(super) fn record(

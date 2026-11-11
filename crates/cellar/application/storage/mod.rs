@@ -228,6 +228,13 @@ impl Storage {
         Self(Owner::Native(activation), transaction, source_generation)
     }
 
+    pub(crate) fn raft_command_resources(&self) -> Result<Arc<Resources>> {
+        match &self.0 {
+            Owner::RaftCommand(resources) => Ok(resources.clone()),
+            _ => Err(consensus::CommandFailure::UnsupportedCapability.into()),
+        }
+    }
+
     pub(crate) fn raft_command(resources: Arc<Resources>) -> Self {
         Self(Owner::RaftCommand(resources), None, 0)
     }
@@ -598,7 +605,13 @@ impl Storage {
         crate::native_worker::refresh_wake_gate(scope)
     }
 
+    /// Wait for the current cell's write durability. In an ordinary Raft RPC,
+    /// this owns a checkpoint after preceding root transactions and follows the
+    /// invocation's quorum/S3 minimum. Call it outside transaction callbacks.
     pub fn sync(&self) -> HandlerFuture<()> {
+        if matches!(&self.0, Owner::RaftCommand(_)) {
+            return self.raft_sync();
+        }
         match self.scope() {
             Ok(scope) => crate::native_worker::storage_sync(scope),
             Err(error) => Box::pin(async move { Err(error) }),

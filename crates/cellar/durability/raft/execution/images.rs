@@ -378,6 +378,26 @@ impl WorkingImage {
         closed
     }
 
+    pub(super) fn trim_cell(
+        &self,
+        options: &Options,
+        base: &crate::raft::cell_groups::CellImagePin,
+    ) -> anyhow::Result<()> {
+        use crate::raft::cell_groups::CellImagePin;
+        match (self, base) {
+            (Self::Materialized(working), CellImagePin::Materialized(pin)) => {
+                working.trim_through(&options.materialized()?, pin.state().txid)
+            }
+            (Self::Materialized(working), CellImagePin::Empty) => {
+                working.trim_through(&options.materialized()?, cellar_ltx::TXID(0))
+            }
+            (Self::Rooted(working), CellImagePin::Extents(pin)) => {
+                working.trim_through(options, cellar_ltx::TXID(pin.manifest().binding().txid))
+            }
+            _ => anyhow::bail!("cell capture trim storage differs"),
+        }
+    }
+
     pub fn trim(&self, options: &Options, base: Option<&Published>) -> anyhow::Result<()> {
         match self {
             Self::Materialized(working) => working.trim(

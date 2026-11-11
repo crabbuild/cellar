@@ -589,6 +589,27 @@ impl CellCommandInvocation {
                 CellSqlStageMode::InvokeBefore(attempt.deadline_ms()),
             )
             .await
+        } else if self
+            .dispatcher
+            .class
+            .is_cell_rpc(&self.request.contract.operation)
+        {
+            let commits = crate::raft::host_sql::cell_groups::RpcCommitContext {
+                runtime: runtime.clone(),
+                archive: self.dispatcher.s3.clone(),
+                route: attempt.route().clone(),
+                limits: options.limits(),
+                deadline: attempt.deadline_ms(),
+            };
+            sql.stage_rpc_owned(
+                options,
+                authority,
+                command,
+                self.dispatcher.class.clone(),
+                self.request.input.clone(),
+                commits,
+            )
+            .await
         } else {
             sql.stage_registered_owned(
                 options,
