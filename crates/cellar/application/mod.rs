@@ -262,7 +262,13 @@ pub struct Registry {
     cells: HashMap<String, Factory>,
     filesystems: HashMap<String, filesystem::Policy>,
     raft_classes: HashMap<String, Arc<consensus::RaftClass>>,
+    raft_configuration: std::sync::OnceLock<RaftConfiguration>,
     workflows: HashMap<String, WorkflowHandler>,
+}
+
+struct RaftConfiguration {
+    digest: [u8; 32],
+    classes: HashMap<String, Arc<consensus::RaftClass>>,
 }
 
 impl Registry {
@@ -276,6 +282,7 @@ impl Registry {
             cells: HashMap::new(),
             filesystems: HashMap::new(),
             raft_classes: HashMap::new(),
+            raft_configuration: std::sync::OnceLock::new(),
             workflows: HashMap::new(),
         }
     }
@@ -373,6 +380,10 @@ impl Registry {
     /// Register synchronous SQL commands and read-only queries. Raft classes
     /// cannot also have an ordinary `Cell` factory under the same class name.
     pub fn raft_class(mut self, class: consensus::RaftClass) -> Result<Self> {
+        anyhow::ensure!(
+            self.raft_configuration.get().is_none(),
+            consensus::RegistrationError::ContractMismatch
+        );
         class.validate_cell_factory()?;
         anyhow::ensure!(
             !self.cells.contains_key(class.name())
@@ -452,20 +463,70 @@ impl Application for Registry {
                 }
             );
         }
+        if self
+            .raft_classes
+            .values()
+            .any(|class| class.has_cell_factory())
+        {
+            let config = consensus::AdmittedCellConfiguration::from_options(options)?;
+            let digest = config.digest();
+            let installed = self.raft_configuration.get_or_init(|| RaftConfiguration {
+                digest,
+                classes: self
+                    .raft_classes
+                    .iter()
+                    .map(|(name, class)| (name.clone(), Arc::new(class.configured_cell(&config))))
+                    .collect(),
+            });
+            anyhow::ensure!(
+                installed.digest == digest,
+                consensus::RegistrationError::ContractMismatch
+            );
+        }
         Ok(())
+    }
+
+    fn validate_deployment(&self, deployment: &crate::fleet::LoadedDeployment) -> Result<()> {
+        if self
+            .raft_classes
+            .values()
+            .any(|class| class.has_cell_factory())
+        {
+            anyhow::ensure!(
+                deployment.options.script_name == deployment.script_name
+                    && deployment.event_streams.is_empty()
+                    && deployment.asset_binding.is_none()
+                    && deployment.assets.is_none()
+                    && deployment.loader_bindings.is_empty()
+                    && deployment.services.is_empty()
+                    && deployment.crons.is_empty()
+                    && deployment.containers.is_empty()
+                    && deployment.fence_image.is_none()
+                    && deployment.container_images.is_empty(),
+                consensus::RegistrationError::Invalid(
+                    "unimplemented Raft cell deployment adapters"
+                )
+            );
+        }
+        self.validate_configuration(&deployment.options)
     }
 
     fn resolve_raft_class(
         &self,
         class: &str,
     ) -> std::result::Result<Arc<consensus::RaftClass>, consensus::RegistrationError> {
-        self.raft_classes.get(class).cloned().ok_or_else(|| {
-            if self.cells.contains_key(class) || self.workflows.contains_key(class) {
-                consensus::RegistrationError::UnsupportedFactory(class.into())
-            } else {
-                consensus::RegistrationError::UnknownClass(class.into())
-            }
-        })
+        self.raft_configuration
+            .get()
+            .map_or(&self.raft_classes, |config| &config.classes)
+            .get(class)
+            .cloned()
+            .ok_or_else(|| {
+                if self.cells.contains_key(class) || self.workflows.contains_key(class) {
+                    consensus::RegistrationError::UnsupportedFactory(class.into())
+                } else {
+                    consensus::RegistrationError::UnknownClass(class.into())
+                }
+            })
     }
 
     fn supports_workflow(&self, class: &str) -> bool {

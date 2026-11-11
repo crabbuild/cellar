@@ -6,7 +6,8 @@ use anyhow::{ensure, Context as _, Result};
 use cellar::engine_api::RpcData;
 use cellar::sdk::consensus::verification::ExecutionError;
 use cellar::sdk::{
-    consensus::*, Cell, Context, HandlerFuture, Invocation, Output, RaftClass, Registry, Storage,
+    consensus::*, Application, Cell, Context, HandlerFuture, Invocation, Output, RaftClass,
+    Registry, Storage,
 };
 use futures_util::FutureExt;
 use managed_fixture::{ArchiveSetup, FirstGroupSetup, Fixture, ManagedCluster, TIMEOUT};
@@ -23,6 +24,8 @@ pub mod catalog_fault;
 // The host fixture controls wall clocks, test processes and on-disk faults.
 #[path = "support/cell_group_activations.rs"]
 mod activations;
+#[path = "support/cell_group_configuration.rs"]
+mod configuration;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
@@ -327,6 +330,8 @@ impl Drop for Waiting<'_> {
 impl Cell for NativeCounter {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
+            ensure!(context.var("COUNT_STEP") == Some("1"));
+            ensure!(context.var("LABEL") == Some("shared \"configuration\"\n日本語"));
             let Invocation::CellRpc {
                 method,
                 args: RpcData::Json(input),
@@ -633,6 +638,11 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
             class,
             move |context, identity| {
+                ensure!(context.var("LABEL") == Some("shared \"configuration\"\n日本語"));
+                let step: i64 = context
+                    .var("COUNT_STEP")
+                    .context("declared COUNT_STEP")?
+                    .parse()?;
                 factory_calls.fetch_add(1, Ordering::AcqRel);
                 ensure!(identity == context.identity().context("Raft cell identity")?);
                 ensure!(identity.class == "Counter" && identity.epoch != 0);
@@ -645,7 +655,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     .get_json("factories")?
                     .map_or(0, |value| value.as_i64().unwrap_or(-1));
                 ensure!(count >= 0);
-                storage.put_json("factories", &json!(count + 1))?;
+                storage.put_json("factories", &json!(count + step))?;
                 Ok(Arc::new(NativeCounter {
                     storage,
                     rejected: factory_rejected.clone(),
@@ -655,6 +665,27 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                 }))
             },
         )?,
+    );
+    let mut options = configuration::options("counter-service");
+    options.vars = vec![
+        ("LABEL".into(), "shared \"configuration\"\n日本語".into()),
+        ("COUNT_STEP".into(), "1".into()),
+    ];
+    application.validate_deployment(&configuration::deployment(options.clone()))?;
+    let declared = application.resolve_raft_class("Counter")?;
+    options.vars.reverse();
+    options.node = "another-voter".into();
+    application.validate_configuration(&options)?;
+    ensure!(Arc::ptr_eq(
+        &declared,
+        &application.resolve_raft_class("Counter")?
+    ));
+    let mut changed = options.clone();
+    changed.vars[0].1 = "2".into();
+    ensure!(application.validate_configuration(&changed).is_err());
+    ensure!(
+        calls.load(Ordering::Acquire) == 0,
+        "configuration constructed a cell"
     );
     let mut fixture = Box::pin(Fixture::with_application(
         rooted,

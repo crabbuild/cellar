@@ -2,6 +2,8 @@
 
 //! Host integration starts with immutable catalog and initial-member admission.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/cell_group_configuration.rs"]
+mod configuration;
 #[path = "support/raft_catalog_fault.rs"]
 pub mod store;
 
@@ -282,6 +284,119 @@ fn unsupported_factory_refused() -> Result<()> {
             ..
         })
     ));
+    Ok(())
+}
+
+#[test]
+fn raft_cell_configuration_is_immutable_and_binds_voter_compatibility() -> Result<()> {
+    let registry = || {
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
+            RaftClass::new("Counter", 1, [71; 32])?.json_cell_rpc("Tick", [72; 32])?,
+            |_, _| bail!("configuration must not construct a cell"),
+        )
+    };
+    let app = registry()?;
+    let raw = app.resolve_raft_class("Counter")?;
+    let mut options = configuration::options("counter-service");
+    options.vars = vec![("B".into(), "日本語".into()), ("A".into(), "1".into())];
+    app.validate_deployment(&configuration::deployment(options.clone()))?;
+    let configured = app.resolve_raft_class("Counter")?;
+    assert_ne!(raw.schema_digest(), configured.schema_digest());
+    options.vars.reverse();
+    options.node = "different-voter".into();
+    app.validate_configuration(&options)?;
+    assert!(Arc::ptr_eq(
+        &configured,
+        &app.resolve_raft_class("Counter")?
+    ));
+    let same = registry()?;
+    same.validate_configuration(&options)?;
+    assert_eq!(
+        configured.schema_digest(),
+        same.resolve_raft_class("Counter")?.schema_digest()
+    );
+    for changed in 0..3 {
+        let mut other = options.clone();
+        match changed {
+            0 => other.vars[0].1 = "2".into(),
+            1 => other.script_name = "another-script".into(),
+            _ => other.compat.delete_all_deletes_alarm = true,
+        }
+        let error = app.validate_configuration(&other).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<RegistrationError>(),
+            Some(&RegistrationError::ContractMismatch)
+        );
+        let other_app = registry()?;
+        other_app.validate_configuration(&other)?;
+        assert_ne!(
+            configured.schema_digest(),
+            other_app.resolve_raft_class("Counter")?.schema_digest()
+        );
+        assert!(Arc::ptr_eq(
+            &configured,
+            &app.resolve_raft_class("Counter")?
+        ));
+    }
+    assert!(app.raft_class(registered_counter()?).is_err());
+    Ok(())
+}
+
+#[test]
+fn raft_cell_configuration_refuses_missing_adapters_before_activation() -> Result<()> {
+    for invalid in 0..17 {
+        let app = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
+            RaftClass::new("Counter", 1, [73; 32])?.json_cell_rpc("Tick", [74; 32])?,
+            |_, _| bail!("invalid configuration constructed a cell"),
+        )?;
+        let raw = app.resolve_raft_class("Counter")?;
+        let mut options = configuration::options("counter-service");
+        match invalid {
+            0 => {
+                options.vars = vec![
+                    ("A".into(), "secret-one".into()),
+                    ("A".into(), "secret-two".into()),
+                ]
+            }
+            1 => options.vars = vec![(String::new(), "secret-one".into())],
+            2 => options.vars = vec![("A".into(), "x".repeat(64 * 1024))],
+            3 => options.vars = (0..257).map(|n| (n.to_string(), String::new())).collect(),
+            4 => options.sql_bindings.push(("DB".into(), "Database".into())),
+            5 => options.kv_bindings.push(("KV".into(), "Namespace".into())),
+            6 => options
+                .blob_bindings
+                .push(("BUCKET".into(), "Bucket".into())),
+            7 => options.bindings.push(("OTHER".into(), "Other".into())),
+            8 => options
+                .queue_bindings
+                .push(cellar::engine_api::QueueBinding {
+                    environment: "QUEUE".into(),
+                    queue: "Queue".into(),
+                    delivery_delay: 0,
+                }),
+            9 => options.src = "unsupported source".into(),
+            10 => options.vars = vec![("bad\nname".into(), "secret-one".into())],
+            11 => options.script_name = String::new(),
+            12 => options.compat.sqlite_vec = true,
+            _ => {}
+        }
+        let mut deployment = configuration::deployment(options);
+        match invalid {
+            13 => deployment
+                .services
+                .push(("SERVICE".into(), "other".into(), None)),
+            14 => deployment.loader_bindings.push("LOADER".into()),
+            15 => deployment.crons.push("* * * * *".into()),
+            16 => deployment.script_name = "different-script".into(),
+            _ => {}
+        }
+        let error = app.validate_deployment(&deployment).unwrap_err();
+        assert!(error.downcast_ref::<RegistrationError>().is_some());
+        assert!(!error.to_string().contains("secret-"));
+        assert!(Arc::ptr_eq(&raw, &app.resolve_raft_class("Counter")?));
+        // Refusal must not partially pin configuration or poison a valid retry.
+        app.validate_configuration(&configuration::options("counter-service"))?;
+    }
     Ok(())
 }
 

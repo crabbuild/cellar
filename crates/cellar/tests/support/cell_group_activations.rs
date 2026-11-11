@@ -17,6 +17,7 @@ impl Cell for WarmCell {
             ensure!(
                 matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Tick")
             );
+            ensure!(context.var("COUNT_STEP") == Some("1"));
             let current = context.storage()?;
             if let Some(previous) = self.previous.lock().unwrap().replace(current) {
                 ensure!(
@@ -98,6 +99,11 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
             class,
             move |context, _| {
+                ensure!(context.identity().context("configured identity")?.class == "Counter");
+                let step: u64 = context
+                    .var("COUNT_STEP")
+                    .context("configured step")?
+                    .parse()?;
                 counted.fetch_add(1, Ordering::AcqRel);
                 observed_workers
                     .lock()
@@ -108,7 +114,7 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                     .get_json("builds")?
                     .and_then(|value| value.as_u64())
                     .context("prior builds")?;
-                storage.put_json("builds", &json!(builds + 1))?;
+                storage.put_json("builds", &json!(builds + step))?;
                 Ok(Arc::new(WarmCell {
                     storage,
                     turns: AtomicUsize::new(0),
@@ -117,6 +123,9 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             },
         )?,
     );
+    let mut options = configuration::options("warm-cell-service");
+    options.vars = vec![("COUNT_STEP".into(), "1".into())];
+    application.validate_deployment(&configuration::deployment(options))?;
     let fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
     ensure!(fixture.sql_workers == 2);
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(

@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "efa2f217f75ba7d0ad8da39ae09c49f46361562523435b327d394a8dd650d222"
+    "crates/cellar/application/mod.rs": "d1fca2fcb33efdce56b55b65bc277acace66e52928b217465cb1040ff9acb38e"
   },
   "entries": [
     {
@@ -450,7 +450,8 @@
         "crates/cellar/application/consensus/group_client/mod.rs",
         "crates/cellar/application/consensus/native_cell.rs",
         "crates/cellar/storage/sqlite/command.rs",
-        "crates/cellar/storage/sqlite/immutable.rs"
+        "crates/cellar/storage/sqlite/immutable.rs",
+        "crates/cellar/application/consensus/native_configuration.rs"
       ],
       "schemas": [
         "Private command image and receipts"
@@ -647,7 +648,8 @@
       ],
       "owners": [
         "crates/cellar/sdk.rs",
-        "crates/cellar/node/native.rs"
+        "crates/cellar/node/native.rs",
+        "crates/cellar/node/native_raft.rs"
       ],
       "schemas": [],
       "bindings": [

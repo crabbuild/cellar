@@ -13,6 +13,9 @@ use std::{path::PathBuf, sync::Arc};
 pub struct NativeRaftNode {
     pub node: String,
     pub data_dir: PathBuf,
+    /// The active, validated application. Resolve namespace definitions through
+    /// this instance so preparation uses the daemon's immutable configuration.
+    pub application: Arc<dyn crate::application::Application>,
 }
 
 /// Explicit resources for one production cell host. The daemon supplies the
@@ -63,6 +66,7 @@ impl Startup {
         let prepared = (self.prepare)(NativeRaftNode {
             node: node.clone(),
             data_dir: data_dir.clone(),
+            application: application.clone(),
         })
         .await?;
         let local_node = prepared.config.infrastructure.log.node;

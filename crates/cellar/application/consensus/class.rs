@@ -299,16 +299,19 @@ type QueryCallback =
 type InitializerCallback =
     dyn Fn(&CellHistory, &CommandTransaction<'_>) -> anyhow::Result<()> + Send + Sync;
 
+#[derive(Clone)]
 struct Initializer {
     digest: [u8; 32],
     callback: Arc<InitializerCallback>,
 }
 
+#[derive(Clone)]
 struct Command {
     digest: [u8; 32],
     handler: CommandHandler,
 }
 
+#[derive(Clone)]
 enum CommandHandler {
     Registered(Arc<CommandCallback>),
     JsonCellRpc,
@@ -324,6 +327,7 @@ enum RegisteredCommand<'a> {
     System(&'a OperationContract),
 }
 
+#[derive(Clone)]
 struct Query {
     digest: [u8; 32],
     callback: Arc<QueryCallback>,
@@ -404,7 +408,9 @@ impl RaftClass {
     /// Namespace/application identity binding class name, explicit version and
     /// the supplied schema-definition digest and required command contracts.
     /// Query contracts are checked independently and do not change voting
-    /// compatibility. Read this value after registering commands for the catalog.
+    /// compatibility. Ordinary cell factories also bind their admitted deployment
+    /// configuration. Resolve the active application definition before provisioning
+    /// or preparing a host; unconfigured definitions cannot serve its history.
     pub fn schema_digest(&self) -> [u8; 32] {
         self.schema_digest
     }
@@ -669,6 +675,37 @@ impl RaftClass {
         }
         self.cell_factory = Some(NativeCellFactory::bind(&self.name, factory));
         Ok(self)
+    }
+
+    pub(in crate::application) fn has_cell_factory(&self) -> bool {
+        self.cell_factory.is_some()
+    }
+
+    pub(in crate::application) fn configured_cell(
+        &self,
+        configuration: &super::AdmittedCellConfiguration,
+    ) -> Self {
+        let mut class = Self {
+            name: self.name.clone(),
+            schema_version: self.schema_version,
+            base_schema_digest: self.base_schema_digest,
+            schema_digest: self.schema_digest,
+            commands: self.commands.clone(),
+            initializer: self.initializer.clone(),
+            system_commands: self.system_commands.clone(),
+            queries: self.queries.clone(),
+            blobs: self.blobs,
+            alarm_limits: self.alarm_limits,
+            alarm_names: self.alarm_names.clone(),
+            inboxes: self.inboxes.clone(),
+            outbox: self.outbox.clone(),
+            cell_factory: self.cell_factory.clone(),
+        };
+        if let Some(factory) = &self.cell_factory {
+            class.cell_factory = Some(factory.configured(configuration));
+            class.bind_command_manifest();
+        }
+        class
     }
 
     pub(crate) fn validate_cell_factory(&self) -> Result<(), RegistrationError> {
@@ -1147,6 +1184,14 @@ impl RaftClass {
             hash.update(command.digest);
         }
         if self.uses_cell_factory() {
+            if let Some(configuration) = self
+                .cell_factory
+                .as_ref()
+                .and_then(|f| f.configuration_digest())
+            {
+                hash.update(b"cell-configuration-1");
+                hash.update(configuration);
+            }
             hash.update(b"json-cell-rpc-1");
             for (name, command) in &self.commands {
                 if matches!(command.handler, CommandHandler::JsonCellRpc) {

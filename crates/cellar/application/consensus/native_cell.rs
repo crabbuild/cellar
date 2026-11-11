@@ -2,17 +2,22 @@
 
 //! Ordinary cell construction and JSON RPC on the private Raft worker.
 
-use super::{CellHistory, CommandFailure, CommandTransaction, RouteEpoch};
+use super::{
+    native_configuration::AdmittedCellConfiguration, CellHistory, CommandFailure,
+    CommandTransaction, RouteEpoch,
+};
 use crate::application::{
     Cell, CellIdentity, Context, EventState, Factory, HandlerFuture, Invocation, Output,
 };
-use crate::engine_api::{RpcData, WorkerConfigOptions};
+use crate::engine_api::RpcData;
 use crate::worker_config::{EgressPolicy, WorkerConfig};
 use anyhow::Result;
 use std::sync::Arc;
 
 pub(crate) struct NativeCellFactory {
     factory: Factory,
+    class: String,
+    vars: Arc<std::collections::HashMap<String, String>>,
     config: Arc<WorkerConfig>,
     identity: Arc<()>,
 }
@@ -28,14 +33,26 @@ type CellRpcHandler = dyn Fn(
     + Send
     + Sync;
 
+type ConfigureCellFactory = dyn Fn(&AdmittedCellConfiguration) -> Arc<CellRpcFactory> + Send + Sync;
+
 /// Compiled dispatch keeps ordinary native configuration out of consensus
 /// handle types. Its identity also fences cache reuse after factory replacement.
 pub(super) struct CellRpcFactory {
     handler: Arc<CellRpcHandler>,
     identity: Arc<()>,
+    configuration: Option<[u8; 32]>,
+    configure: Arc<ConfigureCellFactory>,
 }
 
 impl CellRpcFactory {
+    pub(super) fn configured(&self, config: &AdmittedCellConfiguration) -> Arc<Self> {
+        (self.configure)(config)
+    }
+
+    pub(super) fn configuration_digest(&self) -> Option<[u8; 32]> {
+        self.configuration
+    }
+
     pub(super) fn accepts(&self, activation: &CellRpcActivation) -> bool {
         activation.0.belongs_to(&self.identity)
     }
@@ -124,32 +141,36 @@ impl Drop for CellRpcActivation {
 
 impl NativeCellFactory {
     pub(super) fn bind(class: &str, factory: Factory) -> Arc<CellRpcFactory> {
-        let config = WorkerConfig::new(WorkerConfigOptions {
-            script_name: class.to_owned(),
-            src: String::new(),
-            do_classes: Vec::new(),
-            bindings: Vec::new(),
-            blob_bindings: Vec::new(),
-            sql_bindings: Vec::new(),
-            kv_bindings: Vec::new(),
-            queue_bindings: Vec::new(),
-            stream_bindings: Vec::new(),
-            queue_consumers: Vec::new(),
-            workflow_bindings: Vec::new(),
-            vars: Vec::new(),
-            node: String::new(),
-            modules: Vec::new(),
-            compat: Default::default(),
-        })
-        .with_egress(EgressPolicy::Deny);
+        Self::bind_configuration(class, factory, None)
+    }
+
+    fn bind_configuration(
+        class: &str,
+        factory: Factory,
+        declared: Option<&AdmittedCellConfiguration>,
+    ) -> Arc<CellRpcFactory> {
+        let options = declared.map_or_else(
+            || super::NativeCellConfiguration::default().options(class),
+            AdmittedCellConfiguration::options,
+        );
+        let vars = Arc::new(options.vars.iter().cloned().collect());
+        let config = WorkerConfig::new(options).with_egress(EgressPolicy::Deny);
+        let compiled_factory = factory.clone();
+        let compiled_class = class.to_owned();
         let identity = Arc::new(());
         let owner = Arc::new(Self {
             factory,
+            class: class.to_owned(),
+            vars,
             config: Arc::new(config),
             identity: identity.clone(),
         });
         Arc::new(CellRpcFactory {
             identity,
+            configuration: declared.map(AdmittedCellConfiguration::digest),
+            configure: Arc::new(move |config| {
+                Self::bind_configuration(&compiled_class, compiled_factory.clone(), Some(config))
+            }),
             handler: Arc::new(
                 move |cell, epoch, operation, input, transaction, activation| {
                     owner.start(cell, epoch, operation, input, transaction, activation)
@@ -175,7 +196,7 @@ impl NativeCellFactory {
         serde_json::from_str::<serde::de::IgnoredAny>(json)?;
         let identity = CellIdentity {
             scope: cell.cell.as_str().into(),
-            class: self.config.script_name.clone(),
+            class: self.class.clone(),
             name: None,
             epoch: epoch.get(),
         };
@@ -230,7 +251,7 @@ impl NativeCellFactory {
             identity: Some(identity),
             facet: None,
             trace: None,
-            vars: Arc::default(),
+            vars: self.vars.clone(),
             sql_bindings: Arc::default(),
             kv_bindings: Arc::default(),
             queue_bindings: Arc::default(),
