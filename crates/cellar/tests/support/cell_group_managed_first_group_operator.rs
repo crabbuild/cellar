@@ -17,7 +17,7 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
     ))
     .await?;
     let work = async {
-        for host in &cluster.hosts {
+        for (index, host) in cluster.hosts.iter().enumerate() {
             let sample = host.performance();
             ensure!(sample.available && !sample.saturated);
             for name in [
@@ -30,10 +30,13 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
                     .iter()
                     .find(|phase| phase.name == name)
                     .context("startup phase")?;
+                // Operator provisioning first refuses readiness on voter zero
+                // while its archive registry is intentionally missing.
+                let refused = u64::from(index == 0 && name == "first_group_archive");
                 ensure!(
-                    phase.started == 1
+                    phase.started == 1 + refused
                         && phase.succeeded == 1
-                        && phase.failed == 0
+                        && phase.failed == refused
                         && phase.abandoned == 0,
                     "initial startup phase {name}: {phase:?}"
                 );
@@ -55,6 +58,8 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
         })
         .await
         .context("observe first group quorum loss")??;
+        let before = survivor.performance();
+        ensure!(before.available && !before.saturated);
         let readiness = survivor
             .start_managed_namespace_first_group(
                 cluster.history.cluster,
@@ -84,12 +89,17 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
                 .iter()
                 .find(|phase| phase.name == name)
                 .context("retained startup phase")?;
+            let previous = before
+                .operations
+                .iter()
+                .find(|phase| phase.name == name)
+                .context("previous startup phase")?;
             let failed = u64::from(name == "first_group_quorum");
             ensure!(
-                phase.started == 2
-                    && phase.succeeded == 2 - failed
-                    && phase.failed == failed
-                    && phase.abandoned == 0,
+                phase.started == previous.started + 1
+                    && phase.succeeded == previous.succeeded + 1 - failed
+                    && phase.failed == previous.failed + failed
+                    && phase.abandoned == previous.abandoned,
                 "retained startup phase {name}: {phase:?}"
             );
         }

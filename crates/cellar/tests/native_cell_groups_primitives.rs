@@ -1071,9 +1071,31 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             }).await??;
             ensure!(completed.receipt().context("unpolled RPC receipt")?.result() == b"166");
             ensure!(calls.load(Ordering::Acquire) == factories);
+            let replay_deadline = cellar::asyncrt::mono_ms()
+                .checked_add(u64::try_from(TIMEOUT.as_millis())?)
+                .context("unpolled RPC replay deadline")?;
             let replay = cellar::asyncrt::timeout(TIMEOUT, async {
+                // A committed receipt does not prove the original private SQL
+                // producer has physically closed. Wait for this fixture's RF3
+                // cell leases, within the same replay window, before readmitting
+                // the exact ID. Retained receipt buffers need not be released.
+                let mut owner_waits = 0;
                 loop {
-                    match recovered.command(&update, lost_input.clone(), lost_options.clone()).await {
+                    let mut active = 0;
+                    for host in &cluster.hosts {
+                        active += host.resource_usage().sql.context("RPC producer observations")?.active_cells;
+                    }
+                    if active == 0 { break; }
+                    owner_waits += 1;
+                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                }
+                eprintln!("unpolled RPC replay id={:?}: physical cell owners drained, waits={owner_waits}", lost_options.id);
+                loop {
+                    let remaining = replay_deadline.checked_sub(cellar::asyncrt::mono_ms())
+                        .filter(|remaining| *remaining != 0).context("original RPC replay window expired")?;
+                    let mut selected = lost_options.clone();
+                    selected.timeout = Duration::from_millis(remaining);
+                    match recovered.command(&update, lost_input.clone(), selected).await {
                         Ok(receipt) => break Ok::<_, anyhow::Error>(receipt),
                         Err(error) if error.cause.refusal() == Some(&CommandFailure::Overloaded) => (),
                         Err(error) => return Err(error.into()),
@@ -1172,6 +1194,9 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
         .await
         .context("Raft RPC execution domain")
         .and_then(std::convert::identity);
+    if work.is_err() {
+        managed_fixture::diagnostics::record(&cluster, "ordinary-cell-rpc").await;
+    }
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;

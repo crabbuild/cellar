@@ -1139,3 +1139,64 @@ Earlier startup/deadline failures remain retained; this passing run does not
 identify their cause. PR #166 has since advanced to `02d71c81`; its native
 activation/configuration integration and additional startup/tick observations
 require their own composed-source qualification.
+
+## Startup observations and current composed qualification
+
+The branch includes PR #166 through `02d71c81` and adds bounded, fixed-vocabulary
+observations at the actual shared cell-group owner: timer rounds, requested and
+coalesced ticks, executed RawNode ticks, election-timeout work and log-admission
+refusals. Managed readiness separately times archive authorization, durable
+attachment and fresh quorum. Returned errors and dropped futures retain distinct
+outcomes. These observations establish neither serving authority nor capacity
+release, and do not establish measured fairness or an election-latency fix.
+
+Source manifest `9ec7d32b` passed strict library/seven-target Clippy, five metric
+owner tests, held-sync tick coalescing, both selected park/wake cases, and public
+startup/quorum-loss checks. The readiness test explicitly preserves the operator
+fixture's intentional missing-registry refusal before successful startup, then
+checks exact counter deltas for the later quorum-loss call. The earlier
+`65642ab1` assertion failure remains retained; it incorrectly omitted that
+negative control, rather than demonstrating a production startup regression.
+
+The same retained `9ec7d32b` executables passed all six public RO-06 split
+scenarios, all 11 native scheduler cases and the remaining nine routing cases,
+including both RO-05 modes. Native storage and activation-cache cases passed.
+The ordinary JSON RPC case failed in extent mode during exact-ID replay of an
+unpolled command: client `da` repeated 16 bytes, sequence one, returned ambiguous
+`Execution(Busy)`. The expected transaction-panic controls are unrelated to this
+failure. Its disks, source inputs, CI profiles and executable hashes remain in
+`startup-phase-count-9ec7d32b`. This is an incomplete composed run.
+
+Formatting, module layout, native dependencies, documentation links and all 317
+performance-tool tests passed, with one opt-in Docker test skipped. The design
+suite reported source drift in the host-options anchor. Review found exactly
+15 added lines in `host.rs`: default-off periodic settlement, the required
+existing cleanup owner and its matching 2-MiB evidence reservation within parent
+control limits. All other anchor bytes, excerpts and lines matched committed
+source `9b5d55ca`. The baseline now pins that reviewed source while retaining its
+historical runtime revision and task acceptance. All 44 design tests pass after
+that source review; the original failed run record is unchanged.
+
+The RPC fixture waits for the fixture's actual RF3 SQL cell leases
+inside its existing five-second replay window, then replays the original ID with
+only the remaining time. It continues to reject unexpected `Busy` and preserves
+every receipt/version/value/factory assertion. A visible receipt is not proof of
+physical producer exit. The original failure log alone cannot identify which
+Busy check fired. This is not a production retry-policy change or a claimed fix
+for older startup failures.
+
+Source manifest `e09efd7a` passed the new selected follow-up recorded in
+`rpc-owner-replay-e09efd7a`: all three native primitive cases, strict
+library/seven-target Clippy, formatting, layout, dependency and documentation
+checks, and all 44 design tests. Two opt-in RustFS primitive cases were ignored.
+Both image modes completed exact-ID RPC replay; their SQL-owner barriers observed
+zero active leases immediately, so this run does not establish a causal fix for
+the earlier intermittent `Busy`. Failure diagnostics now capture bounded owner
+observations before joined shutdown.
+
+All five CI-profile executable hashes were retained. The library, managed,
+routing and scheduler executables are byte-identical to their `9ec7d32b`
+counterparts; their selected passing results above remain applicable to those
+executables. The earlier failed record is unchanged. This is selected follow-up
+qualification, not a new full composed or Linux/RustFS campaign. Source-matched
+release, performance and complete OPT-01 through OPT-08 acceptance remain open.
