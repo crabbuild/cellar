@@ -5,7 +5,6 @@
 use super::*;
 use crate::asyncrt::DomainToken;
 use crate::raft::cell_groups::CellActivationFence;
-use cellar_logic::cell_group::CellHistory;
 use std::{future::Future, task::Poll, time::Duration};
 
 #[derive(Clone)]
@@ -13,7 +12,6 @@ pub(crate) struct RaftDispatchContext {
     pub domain: DomainToken,
     pub deadline: u64,
     pub fence: CellActivationFence,
-    pub history: CellHistory,
 }
 
 #[derive(Clone)]
@@ -47,22 +45,7 @@ impl RaftDispatch {
         }
     }
 
-    pub(crate) fn limit(
-        mut self,
-        target: &CellHistory,
-        domain: DomainToken,
-        timeout: Duration,
-        mutation: bool,
-    ) -> Result<Self> {
-        // The source still owns its writer while draining admitted child work.
-        // Recursive mutation would wait for that same writer. Never enqueue it.
-        anyhow::ensure!(
-            !mutation
-                || self.context.history.cluster != target.cluster
-                || self.context.history.namespace != target.namespace
-                || self.context.history.cell != target.cell,
-            consensus::CommandFailure::UnsupportedCapability
-        );
+    pub(crate) fn limit(mut self, domain: DomainToken, timeout: Duration) -> Result<Self> {
         let started = domain
             .mono_ms()
             .map_err(|_| consensus::RuntimeError::Closed)?;
@@ -131,6 +114,8 @@ impl RaftDispatch {
             let (slot, _) = resources.transaction_queue.reserve();
             let authority = self.authority.clone();
             let (send, receive) = tokio::sync::oneshot::channel();
+            let external = Arc::new(AtomicBool::new(false));
+            let waiting = external.clone();
             let task = Box::pin(async move {
                 let proof = async {
                     slot.admission.clone().await.map_err(anyhow::Error::msg)?;
@@ -143,6 +128,7 @@ impl RaftDispatch {
                     proof?;
                     let timeout = self.remaining()?;
                     let permit = RaftDispatchPermit(self);
+                    waiting.store(true, Ordering::Release);
                     // Admission and every response poll use the original
                     // invocation, term, route and both original deadlines.
                     let mut action = Some(action);
@@ -169,7 +155,7 @@ impl RaftDispatch {
                 let _ = send.send(result);
                 Ok(())
             });
-            crate::storage::schedule_raft_work(&authority, task)?;
+            crate::storage::schedule_raft_dispatch_work(&authority, task, external)?;
             Ok(receive)
         })();
         DispatchCall {

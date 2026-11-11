@@ -30,7 +30,7 @@ pub(crate) struct CellRpcTurn {
 impl CellRpcTurn {
     pub(crate) fn can_park(&self) -> Result<bool, ExecutionError> {
         Ok(self.step != 0
-            && self.output.is_none()
+            && self.output.as_ref().is_none_or(Result::is_ok)
             && self.transaction.can_park().map_err(private_failure)?)
     }
 
@@ -119,7 +119,6 @@ impl CellPrivateExecutor {
                     domain,
                     deadline,
                     fence: self.authority.activation_fence(),
-                    history: self.authority.cell().version.history.clone(),
                 })
                 .map_err(private_failure)?;
         }

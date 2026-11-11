@@ -2,6 +2,7 @@
 
 //! Namespace registrations over one shared node controller. Cell handles are
 //! disposable values; obtaining or cloning one neither enrolls nor caches a cell.
+mod sdk_dispatch;
 mod storage;
 pub use storage::CellGroupNamespaceStorage;
 
@@ -259,6 +260,10 @@ impl Inner {
                 ),
             ));
         }
+        self.check_lifecycle()
+    }
+
+    fn check_lifecycle(&self) -> Result<(), CellDispatchError> {
         if self.closed.load(Ordering::Acquire)
             || self.domain.mono_ms().is_err()
             || self.controller.usage().closing

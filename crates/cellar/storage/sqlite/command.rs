@@ -97,11 +97,16 @@ struct CommandFrame {
 }
 
 struct Work {
-    tasks: VecDeque<HandlerFuture<()>>,
+    tasks: VecDeque<WorkTask>,
     active: usize,
     limit: usize,
     serial: u64,
     checkpoint: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+}
+
+struct WorkTask {
+    future: HandlerFuture<()>,
+    external: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 thread_local! {
@@ -184,7 +189,8 @@ impl ActiveCommand {
             };
             let polled = self.turn(|_| {
                 Ok(crate::application::consensus::RaftClass::poll_cell_work(
-                    &mut task, cx,
+                    &mut task.future,
+                    cx,
                 ))
             })?;
             let mut work = self.frame.work.borrow_mut();
@@ -205,7 +211,18 @@ impl ActiveCommand {
 
     pub(crate) fn can_park(&self) -> Result<bool> {
         let work = self.frame.work.borrow();
-        if work.active != 0
+        // Only a host-owned SDK task that has already proven its source root
+        // can wait without SQLite. Transaction/sync tasks keep their writer.
+        let external = work
+            .tasks
+            .iter()
+            .filter(|task| {
+                task.external
+                    .as_ref()
+                    .is_some_and(|waiting| waiting.load(std::sync::atomic::Ordering::Acquire))
+            })
+            .count();
+        if work.active != external
             || work.checkpoint.is_some()
             || self
                 .frame
@@ -360,6 +377,24 @@ pub(crate) fn schedule_work(
     resources: &RaftStorageAuthority,
     task: HandlerFuture<()>,
 ) -> Result<()> {
+    schedule(resources, task, None)
+}
+
+/// The flag becomes true only after exact source proof and release of the
+/// ordered checkpoint slot. Application callbacks cannot mint this work kind.
+pub(crate) fn schedule_dispatch_work(
+    resources: &RaftStorageAuthority,
+    task: HandlerFuture<()>,
+    external: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<()> {
+    schedule(resources, task, Some(external))
+}
+
+fn schedule(
+    resources: &RaftStorageAuthority,
+    task: HandlerFuture<()>,
+    external: Option<Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<()> {
     require_storage(resources, true)?;
     CURRENT_COMMAND.with(|current| {
         let current = current.borrow();
@@ -380,7 +415,10 @@ pub(crate) fn schedule_work(
             .checked_add(1)
             .context("async work sequence exhausted")?;
         work.active += 1;
-        work.tasks.push_back(task);
+        work.tasks.push_back(WorkTask {
+            future: task,
+            external,
+        });
         Ok(())
     })
 }

@@ -111,10 +111,21 @@ impl CellGroupController {
         cell: cellar_logic::cell_group::CellHistory,
         request: CellCommandRequest,
         routing: CellRoutingLimits,
+        options: CellSqlOptions,
+    ) -> Result<CellCommandCall, CellCommandError> {
+        let pending = dispatcher.prepare_command(cell, request, routing, None, None, false)?;
+        self.dispatch_prepared_command(pending, options)
+    }
+
+    /// Transfer a fully charged preparation without restarting its deadline or
+    /// acquiring a second namespace reservation. Routing stays controller-owned.
+    pub(crate) fn dispatch_prepared_command(
+        &self,
+        pending: PendingCellCommand,
         mut options: CellSqlOptions,
     ) -> Result<CellCommandCall, CellCommandError> {
         let shared = &self.handle.0;
-        let command = request.id;
+        let (command, deadline, bytes) = pending.controller_admission(&shared.domain)?;
         let mut registration = shared
             .registration()
             .map_err(|reason| error(command, false, reason))?;
@@ -122,8 +133,6 @@ impl CellGroupController {
             return Err(error(command, false, RuntimeError::Closed));
         }
         let option_bytes = option_bytes(&mut options).map_err(|e| error(command, false, e))?;
-        let pending = dispatcher.prepare_command(cell, request, routing, None, None, false)?;
-        let (_, deadline, bytes) = pending.controller_admission(&shared.domain)?;
         let bytes = bytes
             .checked_add(option_bytes)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
