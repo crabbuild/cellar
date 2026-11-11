@@ -190,3 +190,68 @@ fn cell_lookup_distinguishes_initial_absence_from_lost_schema() -> anyhow::Resul
     ));
     Ok(())
 }
+
+#[test]
+fn rpc_checkpoints_never_become_completed_or_absent_receipts() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    install(&connection)?;
+    let request = request(1, 1000);
+    let limits = ExecutionLimits::default();
+    connection.execute_batch("BEGIN")?;
+    record_rpc_step(&connection, &request, &limits, 1)?;
+    connection.execute_batch("COMMIT")?;
+    assert_eq!(retained_count(&connection)?, 1);
+    assert_eq!(client(&connection, request.id.client)?, Some((1, 0)));
+    assert!(matches!(
+        preflight(&connection, &request, &limits),
+        Err(ExecutionError::Uncertain)
+    ));
+    assert!(matches!(
+        lookup_cell_identity(&connection, &request, &limits, 2),
+        Err(ExecutionError::Uncertain)
+    ));
+    assert_eq!(
+        rpc_receipt(&connection, &request, &limits, 1)?.rpc_step,
+        Some(1)
+    );
+    let mut conflict = request.clone();
+    conflict.request_digest[0] ^= 1;
+    assert!(matches!(
+        lookup_identity(&connection, &conflict, &limits),
+        Err(ExecutionError::Refused(CommandFailure::CommandConflict))
+    ));
+    assert!(record_rpc_step(&connection, &request, &limits, 3).is_err());
+    assert!(complete_rpc(&connection, &request, &limits, 2, vec![4]).is_err());
+    assert_eq!(
+        rpc_receipt(&connection, &request, &limits, 1)?.rpc_step,
+        Some(1)
+    );
+    record_rpc_step(&connection, &request, &limits, 2)?;
+    assert!(rpc_receipt(&connection, &request, &limits, 1).is_err());
+    complete_rpc(&connection, &request, &limits, 2, vec![4])?;
+    let complete = lookup_identity(&connection, &request, &limits)?.unwrap();
+    assert_eq!(complete.result(), &[4]);
+    assert_eq!(complete.rpc_step, None);
+    assert_eq!(retained_count(&connection)?, 1);
+    Ok(())
+}
+
+#[test]
+fn interrupted_rpc_retains_the_original_expiry_floor() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    install(&connection)?;
+    let command = request(1, 1000);
+    record_rpc_step(&connection, &command, &ExecutionLimits::default(), 1)?;
+    assert!(matches!(
+        prune(&connection, command.id.client, 1, 1000),
+        Err(ExecutionError::RetentionNotExpired)
+    ));
+    prune(&connection, command.id.client, 1, 1001)?;
+    assert!(matches!(
+        lookup_identity(&connection, &command, &ExecutionLimits::default()),
+        Err(ExecutionError::Refused(CommandFailure::CommandExpired))
+    ));
+    assert_eq!(client(&connection, command.id.client)?, Some((1, 1)));
+    assert_eq!(retained_count(&connection)?, 0);
+    Ok(())
+}

@@ -414,6 +414,7 @@ impl RaftTransport {
                 result: std::mem::take(&mut value.value.value.result),
                 minimum_durability: value.minimum_durability.ok_or(TransportError::Protocol)?,
                 retry_until_ms: value.value.retry_until_ms,
+                rpc_step: None,
             })
         } else {
             None

@@ -80,7 +80,7 @@ impl CommandTransaction<'_> {
 }
 
 struct CommandFrame {
-    connection: RefCell<Connection>,
+    connection: RefCell<Option<Connection>>,
     storage: OnceCell<Arc<Resources>>,
     failure: RefCell<Option<String>>,
     work: RefCell<Work>,
@@ -91,6 +91,7 @@ struct Work {
     active: usize,
     limit: usize,
     serial: u64,
+    checkpoint: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 }
 
 thread_local! {
@@ -103,6 +104,8 @@ impl CommandFrame {
             .connection
             .try_borrow()
             .context("private SQLite is busy")?;
+        let connection = Ref::filter_map(connection, Option::as_ref)
+            .map_err(|_| anyhow::anyhow!("private SQLite is awaiting consensus"))?;
         ensure!(
             !connection.is_autocommit(),
             "private command transaction ended"
@@ -182,6 +185,12 @@ impl ActiveCommand {
         Ok(work.active != 0)
     }
 
+    pub(crate) fn take_checkpoint(
+        &self,
+    ) -> Option<tokio::sync::oneshot::Sender<Result<(), String>>> {
+        self.frame.work.borrow_mut().checkpoint.take()
+    }
+
     pub(crate) fn cancel_work(&self) -> Result<()> {
         let mut tasks = {
             let mut work = self.frame.work.borrow_mut();
@@ -204,7 +213,7 @@ pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
     CURRENT_COMMAND.with(|current| {
         let current = current.borrow();
         let connection = current.as_ref()?.connection.try_borrow().ok()?;
-        Some(read(&connection))
+        Some(read(connection.as_ref()?))
     })
 }
 
@@ -212,7 +221,7 @@ pub(super) fn with_mut<T>(write: impl FnOnce(&mut Connection) -> T) -> Option<T>
     CURRENT_COMMAND.with(|current| {
         let current = current.borrow();
         let mut connection = current.as_ref()?.connection.try_borrow_mut().ok()?;
-        Some(write(&mut connection))
+        Some(write(connection.as_mut()?))
     })
 }
 
@@ -259,6 +268,38 @@ pub(crate) fn schedule_work(resources: &Arc<Resources>, task: HandlerFuture<()>)
         work.active += 1;
         work.tasks.push_back(task);
         Ok(())
+    })
+}
+
+/// The root callback keeps its ordered slot and result until the SQL owner
+/// proves this exact intermediate mutation. No application future commits SQL.
+pub(crate) fn commit_work(resources: &Arc<Resources>) -> HandlerFuture<()> {
+    let queued = (|| -> Result<_> {
+        require_storage(resources, true)?;
+        CURRENT_COMMAND.with(|current| {
+            let current = current.borrow();
+            let frame = current
+                .as_ref()
+                .context("storage is outside its Raft command")?;
+            let mut work = frame.work.borrow_mut();
+            ensure!(
+                work.checkpoint.is_none(),
+                "another RPC checkpoint is pending"
+            );
+            let (send, receive) = tokio::sync::oneshot::channel();
+            work.serial = work
+                .serial
+                .checked_add(1)
+                .context("async work sequence exhausted")?;
+            work.checkpoint = Some(send);
+            Ok(receive)
+        })
+    })();
+    Box::pin(async move {
+        queued?
+            .await
+            .context("RPC checkpoint owner was stopped")?
+            .map_err(anyhow::Error::msg)
     })
 }
 
@@ -380,11 +421,11 @@ impl CommandDatabase {
         super::as_storage_transaction(|| connection.execute_batch("BEGIN IMMEDIATE"))?;
         Ok(ActiveCommand {
             frame: Rc::new(CommandFrame {
-                connection: RefCell::new(
+                connection: RefCell::new(Some(
                     self.connection
                         .take()
                         .context("private SQLite is unavailable")?,
-                ),
+                )),
                 storage: OnceCell::new(),
                 failure: RefCell::new(None),
                 work: RefCell::new(Work {
@@ -392,10 +433,41 @@ impl CommandDatabase {
                     active: 0,
                     limit: max_tasks,
                     serial: 0,
+                    checkpoint: None,
                 }),
             }),
             inputs,
         })
+    }
+
+    /// Temporarily return the quiescent writer for LTX capture while the
+    /// invocation retains its callbacks, Storage identity and transaction slots.
+    pub(crate) fn checkpoint(&mut self, active: &ActiveCommand) -> Result<()> {
+        ensure!(
+            self.connection.is_none(),
+            "private SQLite already belongs to capture"
+        );
+        {
+            let connection = active.frame.connection()?;
+            super::as_storage_transaction(|| connection.execute_batch("COMMIT"))?;
+        }
+        self.connection = active.frame.connection.borrow_mut().take();
+        ensure!(self.connection.is_some(), "checkpoint writer missing");
+        Ok(())
+    }
+
+    pub(crate) fn continue_checkpoint(&mut self, active: &ActiveCommand) -> Result<()> {
+        ensure!(
+            active.frame.connection.borrow().is_none(),
+            "RPC writer already installed"
+        );
+        let connection = self
+            .connection
+            .as_ref()
+            .context("checkpoint writer missing")?;
+        super::as_storage_transaction(|| connection.execute_batch("BEGIN IMMEDIATE"))?;
+        *active.frame.connection.borrow_mut() = self.connection.take();
+        Ok(())
     }
 
     pub(crate) fn settle<T>(&mut self, active: ActiveCommand, result: Result<T>) -> Result<T> {
@@ -417,7 +489,11 @@ impl CommandDatabase {
         let frame = Rc::try_unwrap(active.frame)
             .ok()
             .context("private SQLite is still installed")?;
-        self.connection = Some(frame.connection.into_inner());
+        match (self.connection.is_some(), frame.connection.into_inner()) {
+            (false, Some(connection)) => self.connection = Some(connection),
+            (true, None) => (),
+            _ => anyhow::bail!("private SQLite connection ownership differs"),
+        }
         let connection = self.framework();
         if rollback && !connection.is_autocommit() {
             super::as_storage_transaction(|| connection.execute_batch("ROLLBACK"))

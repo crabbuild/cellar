@@ -58,6 +58,7 @@ struct PendingCell {
     result: CellVersion,
     _preview: Preview,
     submitted: bool,
+    rpc_step: Option<u64>,
 }
 
 struct StagePreparation {
@@ -382,6 +383,7 @@ impl CellPrivateExecutor {
             },
             _preview: preview,
             submitted: false,
+            rpc_step: None,
         });
         self.poisoned = false;
         Ok(CellStageOutcome::Prepared(prepared))
@@ -472,11 +474,22 @@ impl CellPrivateExecutor {
                 .images
                 .read_cell(&self.options, authority.image())
                 .map_err(storage)?;
-            receipts::lookup_identity(
-                database.connection(),
-                &pending.request,
-                &self.options.limits,
-            )
+            if let Some(step) = pending.rpc_step {
+                receipts::lookup_rpc_identity(
+                    database.connection(),
+                    &pending.request,
+                    &self.options.limits,
+                )
+                .map(|receipt| {
+                    receipt.filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
+                })
+            } else {
+                receipts::lookup_identity(
+                    database.connection(),
+                    &pending.request,
+                    &self.options.limits,
+                )
+            }
         };
         let resolution = match receipt {
             Ok(Some(receipt)) => CellReconciliation::Committed(Box::new(CellCommittedReceipt {

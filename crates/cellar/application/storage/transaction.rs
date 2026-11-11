@@ -368,6 +368,7 @@ where
     F: FnOnce(Storage) -> Fut,
     Fut: Future<Output = Result<T>>,
 {
+    let root = parent.is_none();
     let result = async {
         slot.admission.clone().await.map_err(anyhow::Error::msg)?;
         let guard = Guard::start(&storage, parent, true)?;
@@ -385,6 +386,11 @@ where
         }
     }
     .await;
+    if root && result.is_ok() {
+        if let Owner::RaftCommand(resources) = &storage.0 {
+            crate::storage::commit_raft_work(resources).await?;
+        }
+    }
     drop(slot);
     result
 }

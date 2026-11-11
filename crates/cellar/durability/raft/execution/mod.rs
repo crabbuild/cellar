@@ -319,6 +319,8 @@ pub struct StoredReceipt {
     pub(super) result: Vec<u8>,
     pub(super) minimum_durability: Durability,
     pub(super) retry_until_ms: u64,
+    /// A private invocation checkpoint is never a completed RPC response.
+    pub(super) rpc_step: Option<u64>,
 }
 
 impl StoredReceipt {

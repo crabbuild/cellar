@@ -53,7 +53,7 @@ pub use controller::{
     CellGroupProvisionNamespace, CellGroupProvisioning, CellGroupRegistration,
     CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
 };
-pub(crate) use controller::{RetiredSource, S3OutputProof};
+pub(crate) use controller::{RetiredSource, S3Client, S3OutputProof};
 mod disaster;
 mod dispatch;
 pub use disaster::CellGroupPermanentFenceAuthority;

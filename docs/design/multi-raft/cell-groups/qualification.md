@@ -416,6 +416,34 @@ Replaying one transaction is not permission to rerun an entire callback that
 already committed other transactions. A later pre-admission rejection describes
 only that attempt; it cannot clear earlier uncertainty.
 
+The ordinary RPC adapter uses these identities and transitions:
+
+- The invocation is the exact cell history, client/sequence, operation contract
+  and request digest. Each root transaction has a monotonically increasing
+  checkpoint number; nested transactions remain savepoints within that root.
+- A Prepared checkpoint owns one private SQL image and a fresh proposal/preview
+  identity. Submitted checkpoints retain their original producer, cell admission
+  and byte reservation through response expiry until exact apply or newer-term
+  reconciliation resolves them. A timeout supplies no non-commit proof.
+- An Applied checkpoint updates the invocation's existing receipt row with its
+  checkpoint number. It uses the original client floor, receipt count, retry
+  horizon and physical receipt quota. A completed invocation replaces that marker
+  with its final result. Partial commits survive later handler failure.
+- An unfinished marker is an ambiguous invocation. Public receipt lookup refuses
+  to describe it as completed or absent, and retry admission refuses to rerun its
+  factory or callback. A new leader restores the marker, fences the obsolete
+  in-memory continuation and preserves the already committed state.
+- The root callback retains its ordered slot and Rust return value until the
+  exact checkpoint is applied. Explicit S3 durability additionally verifies that
+  checkpoint's pending receipt from recovered archive bytes before continuation.
+  Background archival for Quorum requests retains its documented RPO.
+
+These transitions are delivery contracts, not acceptance claims. Complete their
+public recovery, fault and feature matrix before accepting CG-17. The receipt
+schema adds a protected pending-checkpoint field under the existing format-1
+internal hard cutover; matching nodes and applications require a rebuild, and
+older receipt images are not migrated by this change.
+
 The common kernel reuses existing command/receipt, LTX, alarm and outbox/inbox
 owners. Built-in schemas and internal operations retain separate host-minted
 authority. Bind publish/read/consume/admin and provider grants to the correct
