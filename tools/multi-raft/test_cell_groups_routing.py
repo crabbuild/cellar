@@ -11,6 +11,8 @@ import cell_groups
 
 MEMBERSHIP = "rustfs_membership_refresh_keeps_range"
 AUTHORITY = "rustfs_cached_advice_respects_origin_revocation"
+ENDPOINT = "rustfs_endpoint_refresh_keeps_membership"
+FOLLOWER = "rustfs_unrelated_follower_keeps_leader"
 
 
 def member_rows():
@@ -35,6 +37,22 @@ def authority_rows():
              "proven_rejections": 1, "unconfirmed_replies": 0,
              "version": "covering version", "witness": "witness",
              "ambiguous": True, "sdk_ambiguous": True if caller == "Sdk" else None}
+            for caller in ("Sdk", "Native", "Axum") for mode in (False, True)]
+
+
+def endpoint_rows():
+    return [{"schema": 1, "case": ENDPOINT.removeprefix("rustfs_"),
+             "caller": caller, "extents": mode, "event": "verified",
+             "callbacks_before": 1, "callbacks_after": 2,
+             "sql_stages_before": 3, "sql_stages_at_release": 3,
+             "routing_before": [1, 1, 1, 1, 1, 1, 0],
+             "routing_after": [2, 2, 1, 1, 2, 2, 0],
+             "node": "01" * 16, "disk": "02" * 16,
+             "old_process": "03" * 16, "current_process": "04" * 16,
+             "directory_before": "05" * 32, "directory_after": "05" * 32,
+             "required": "S3", "achieved": "S3", "result_be": "0000000000000002",
+             "command": "original", "route": "same route", "membership_revision": "same",
+             "retry_until_ms": 100, "version": "covering version", "witness": "witness"}
             for caller in ("Sdk", "Native", "Axum") for mode in (False, True)]
 
 
@@ -119,6 +137,49 @@ class RoutingEvidenceTests(unittest.TestCase):
     def test_authority_rows_cannot_stand_in_for_a_different_case(self):
         with self.assertRaises(ValueError):
             cell_groups.routing_observations(output(authority_rows(), "AUTHORITY_ROUTING_EVIDENCE "), MEMBERSHIP)
+
+    def test_endpoint_requires_exact_complete_caller_image_coverage(self):
+        rows = endpoint_rows()
+        self.assertEqual(cell_groups.routing_observations(
+            output(rows, "ENDPOINT_ROUTING_EVIDENCE "), ENDPOINT), (rows, 6))
+        for missing in (rows[:-1], rows + [rows[0]], rows[:-1] + [rows[0]]):
+            with self.subTest(rows=len(missing)), self.assertRaises(ValueError):
+                cell_groups.routing_observations(output(missing, "ENDPOINT_ROUTING_EVIDENCE "), ENDPOINT)
+
+    def test_endpoint_refuses_placement_repair_unbounded_work_and_early_entry(self):
+        changes = (("callbacks_after", 3), ("sql_stages_at_release", 4),
+                   ("old_process", "04" * 16), ("current_process", "unverified"),
+                   ("directory_after", "06" * 32), ("retry_until_ms", True),
+                   ("required", "Quorum"), ("achieved", "Quorum"), ("witness", ""),
+                   ("routing_after", [2, 2, 2, 1, 2, 2, 0]),
+                   ("routing_after", [2, 2, 1, 2, 2, 2, 0]),
+                   ("routing_after", [2, 2, 1, 1, 6, 2, 0]),
+                   ("routing_after", [2, 2, 1, 1, 2, 0, 0]))
+        for field, value in changes:
+            rows = endpoint_rows()
+            rows[0][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                cell_groups.routing_observations(output(rows, "ENDPOINT_ROUTING_EVIDENCE "), ENDPOINT)
+
+    def test_unrelated_follower_requires_zero_endpoint_demand_and_unreleased_fault(self):
+        rows = endpoint_rows()
+        for row in rows:
+            row.update(case=FOLLOWER.removeprefix("rustfs_"), sql_stages_before=None,
+                       sql_stages_at_release=None, metadata_released=False,
+                       routing_after=[2, 2, 1, 1, 1, 1, 0])
+        self.assertEqual(cell_groups.routing_observations(
+            output(rows, "ENDPOINT_ROUTING_EVIDENCE "), FOLLOWER), (rows, 6))
+        for field, value in (("metadata_released", True), ("sql_stages_at_release", 3),
+                             ("routing_after", [2, 2, 1, 1, 2, 1, 0])):
+            bad = copy.deepcopy(rows)
+            bad[0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                cell_groups.routing_observations(output(bad, "ENDPOINT_ROUTING_EVIDENCE "), FOLLOWER)
+
+    def test_unrelated_follower_cannot_replace_the_selected_leader_repair_case(self):
+        rows = endpoint_rows()
+        with self.assertRaises(ValueError):
+            cell_groups.routing_observations(output(rows, "ENDPOINT_ROUTING_EVIDENCE "), FOLLOWER)
 
 
 if __name__ == "__main__":

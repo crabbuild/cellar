@@ -329,6 +329,9 @@ struct Registry {
     group_checkpoints: BTreeMap<GroupHistory, std::sync::Weak<group_snapshots::Endpoint>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     cell_query_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
+    // One scalar lifetime per bounded discovery entry, independent of endpoint
+    // snapshots and advisory leader generations. Entered RPCs pin this lifetime.
+    cell_query_lifetimes: BTreeMap<GroupHistory, Arc<()>>,
     leaders: leader_cache::Cache,
     command_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
@@ -350,6 +353,8 @@ impl Registry {
     }
 
     fn prune_pools(&mut self) {
+        self.cell_query_lifetimes
+            .retain(|history, _| self.cell_query_groups.contains_key(history));
         self.leaders.prune(&self.cell_query_groups);
         let used: BTreeSet<_> = self
             .groups
@@ -564,6 +569,7 @@ impl RaftTransport {
                 group_checkpoints: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
                 cell_query_groups: BTreeMap::new(),
+                cell_query_lifetimes: BTreeMap::new(),
                 leaders: leader_cache::Cache::new(&options),
                 command_origins: BTreeMap::new(),
                 origins: BTreeMap::new(),

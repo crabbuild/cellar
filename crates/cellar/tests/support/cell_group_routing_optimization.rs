@@ -11,6 +11,9 @@ mod authority;
 #[path = "cell_group_routing_busy.rs"]
 mod busy;
 
+#[path = "cell_group_routing_endpoint.rs"]
+mod endpoint;
+
 #[path = "cell_group_routing_refresh.rs"]
 mod refresh;
 
@@ -86,6 +89,34 @@ pub(super) async fn metadata_outage_on_cached_path() -> Result<()> {
     run(Scenario::MetadataOutage).await
 }
 
+pub(super) async fn unrelated_follower_keeps_leader() -> Result<()> {
+    run(Scenario::EndpointFollower).await
+}
+
+pub(super) async fn unrelated_follower_keeps_leader_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    run_with_store(Scenario::EndpointFollower, Some(make)).await
+}
+
+pub(super) async fn endpoint_refresh_keeps_membership() -> Result<()> {
+    run(Scenario::Endpoint).await
+}
+
+pub(super) async fn read_first_refreshes_endpoint(make: Option<RoutingStoreFactory>) -> Result<()> {
+    endpoint::read_first(make).await
+}
+
+pub(super) async fn unrelated_endpoint_keeps_inflight_reply() -> Result<()> {
+    run(Scenario::EndpointInflight).await
+}
+
+pub(super) async fn endpoint_refresh_keeps_membership_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    run_with_store(Scenario::Endpoint, Some(make)).await
+}
+
 pub(super) async fn cached_advice_respects_origin_revocation() -> Result<()> {
     run(Scenario::OriginRevocation).await
 }
@@ -151,6 +182,9 @@ enum Scenario {
     Election,
     MetadataOutage,
     OriginRevocation,
+    Endpoint,
+    EndpointFollower,
+    EndpointInflight,
     Refresh { axum: bool },
     RefreshClose { axum: bool },
 }
@@ -164,7 +198,15 @@ async fn run_with_store(scenario: Scenario, make: Option<RoutingStoreFactory>) -
         let callbacks = Arc::new(AtomicUsize::new(0));
         let count = callbacks.clone();
         let store = Arc::new(match make {
-            Some(make) => fault::Store::around(make("routing-origin-revocation", rooted)?),
+            Some(make) => fault::Store::around(make(
+                match scenario {
+                    Scenario::Endpoint => "routing-endpoint-refresh",
+                    Scenario::EndpointFollower => "routing-endpoint-unrelated",
+                    Scenario::EndpointInflight => "routing-endpoint-inflight",
+                    _ => "routing-origin-revocation",
+                },
+                rooted,
+            )?),
             None => fault::Store::default(),
         });
         let observer: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
@@ -203,6 +245,20 @@ async fn run_with_store(scenario: Scenario, make: Option<RoutingStoreFactory>) -
             }
             Scenario::OriginRevocation => {
                 Box::pin(authority::exercise(&cluster, &callbacks, rooted)).await
+            }
+            Scenario::Endpoint => {
+                Box::pin(endpoint::exercise(&mut cluster, &callbacks, rooted)).await
+            }
+            Scenario::EndpointFollower => {
+                Box::pin(endpoint::unrelated_follower_keeps_leader(
+                    &mut cluster,
+                    &callbacks,
+                    rooted,
+                ))
+                .await
+            }
+            Scenario::EndpointInflight => {
+                Box::pin(endpoint::keeps_inflight(&mut cluster, &callbacks, rooted)).await
             }
         };
         if result.is_err() {

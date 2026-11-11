@@ -450,4 +450,60 @@ impl Cluster {
         self.authorize_commands()?;
         self.authorize_ingress_reads()
     }
+
+    /// Resume one voter while ingress retains its warm logical routing state.
+    pub async fn restart_voter(&mut self, index: usize, generation: u8) -> Result<()> {
+        ensure!(index < INGRESS);
+        self.stop(index).await?;
+        let fixture = &self.managed.fixtures[index];
+        let node = start_node(
+            self.managed.roots[index].path(),
+            fixture.application.clone(),
+            &fixture.spec.label,
+        )
+        .await?;
+        let started = async {
+            let (mut config, services) = fixture
+                .config(&node, LogOpenMode::Resume, generation)
+                .await?;
+            archives::configure(&mut config);
+            let peer = config.peers[0].clone();
+            let host = node.start_raft_cells(config, services).await?;
+            Ok::<_, anyhow::Error>((peer, host))
+        }
+        .await;
+        let (peer, host) = match started {
+            Ok(started) => started,
+            Err(error) => {
+                node.shutdown(ShutdownMode::Preserve).await?;
+                return Err(error);
+            }
+        };
+        self.managed.peers[index] = peer;
+        self.managed.hosts[index] = host.clone();
+        self.nodes[index] = Some(node);
+        *self.apis[index]
+            .cells
+            .lock()
+            .map_err(|_| anyhow::anyhow!("counter binding poisoned"))? = Some(host.clone());
+        host.start_managed_first_group(self.managed.history, TIMEOUT)
+            .await?;
+        for peer in &self.managed.peers {
+            if peer.node != host.identity().node {
+                host.grant_command_origin(NamespaceCommandOrigin {
+                    cluster: self.managed.history.cluster,
+                    namespace: self.managed.history.namespace,
+                    revision: 1,
+                    peer: peer.clone(),
+                })?;
+            }
+        }
+        host.grant_query_origin(NamespaceQueryOrigin {
+            cluster: self.managed.history.cluster,
+            namespace: self.managed.history.namespace,
+            revision: 1,
+            peer: self.managed.peers[INGRESS].clone(),
+        })?;
+        Ok(())
+    }
 }

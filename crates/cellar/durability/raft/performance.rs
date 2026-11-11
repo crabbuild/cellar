@@ -259,9 +259,12 @@ pub(crate) enum Counter {
     CellGroupTicksExecuted,
     CellGroupElectionTimeouts,
     CellGroupTickAdmissionRefusals,
+    CellEndpointRefreshes,
+    CellEndpointDiscoveryOwners,
+    CellEndpointRefreshJoins,
 }
 
-const COUNTERS: [Counter; 64] = [
+const COUNTERS: [Counter; 67] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -326,11 +329,17 @@ const COUNTERS: [Counter; 64] = [
     Counter::CellGroupTicksExecuted,
     Counter::CellGroupElectionTimeouts,
     Counter::CellGroupTickAdmissionRefusals,
+    Counter::CellEndpointRefreshes,
+    Counter::CellEndpointDiscoveryOwners,
+    Counter::CellEndpointRefreshJoins,
 ];
 
 impl Counter {
     fn name(self) -> &'static str {
         match self {
+            Self::CellEndpointRefreshes => "cell_endpoint_demand_refreshes",
+            Self::CellEndpointDiscoveryOwners => "cell_endpoint_discovery_owners",
+            Self::CellEndpointRefreshJoins => "cell_endpoint_refresh_joins",
             Self::CellGroupTickRounds => "cell_group_tick_rounds",
             Self::CellGroupTicksRequested => "cell_group_ticks_requested",
             Self::CellGroupTicksCoalesced => "cell_group_ticks_coalesced",

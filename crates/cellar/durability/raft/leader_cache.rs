@@ -23,6 +23,7 @@ pub(crate) enum LeaderLookup {
     Unknown,
     Unverified,
     Membership,
+    Endpoint(NodeId),
 }
 
 #[derive(Default)]
@@ -328,6 +329,26 @@ impl RaftTransport {
 }
 
 impl State {
+    /// Only the selected member's verified same-registration boot mismatch can
+    /// request endpoint repair. An unrelated stale follower must not hold a
+    /// healthy leader behind metadata I/O.
+    pub(super) fn changed_cell_endpoint(
+        registry: &Registry,
+        view: &GroupRoute<GroupHistory>,
+        member: MemberId,
+    ) -> Option<NodeId> {
+        let peer = view
+            .peers
+            .iter()
+            .find(|peer| peer.replica.member == member)?;
+        let physical = RaftPeerNode::from(peer);
+        let host = registry.fleet_trust.as_ref()?.node(peer.replica.node)?;
+        (host.cluster() == view.scope.cluster
+            && host.matches_registration(&physical)
+            && !host.matches_peer(&physical))
+        .then_some(peer.replica.node)
+    }
+
     /// Selection and advice must inspect the same immutable route while the
     /// registry is held. Actual transmission captures and validates it again.
     pub(super) fn lookup_cell_leader(
@@ -339,6 +360,11 @@ impl State {
         let result = registry
             .leaders
             .lookup(view, now, self.options.io_timeout_ms);
+        if let LeaderLookup::Known(member) = result {
+            if let Some(node) = Self::changed_cell_endpoint(registry, view, member) {
+                return Ok(LeaderLookup::Endpoint(node));
+            }
+        }
         if let LeaderLookup::Known(member) = result {
             let peer = view
                 .peers

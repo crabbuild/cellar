@@ -105,3 +105,44 @@ async fn rustfs_old_lookup_cannot_resurrect_parent() -> anyhow::Result<()> {
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn endpoint_refresh_keeps_membership() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::endpoint_refresh_keeps_membership()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_endpoint_refresh_keeps_membership() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::endpoint_refresh_keeps_membership_with_store(rustfs::store))
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unrelated_follower_keeps_leader() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::unrelated_follower_keeps_leader()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn read_first_refreshes_endpoint() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::read_first_refreshes_endpoint()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unrelated_endpoint_keeps_inflight_reply() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::unrelated_endpoint_keeps_inflight_reply()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_read_first_refreshes_endpoint() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::read_first_refreshes_endpoint_with_store(rustfs::store))
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_unrelated_follower_keeps_leader() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::unrelated_follower_keeps_leader_with_store(rustfs::store))
+        .await
+}

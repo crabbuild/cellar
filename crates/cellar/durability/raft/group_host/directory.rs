@@ -52,6 +52,19 @@ fn trusted(trust: &FleetTrustSnapshot) -> Vec<Trusted> {
         .collect()
 }
 
+fn endpoint_failure(
+    error: crate::raft::transport::TransportError,
+) -> crate::raft::completion::RuntimeError {
+    use crate::raft::{completion::RuntimeError, transport::TransportError};
+    match error {
+        TransportError::Runtime(error) => error,
+        TransportError::Overloaded => RuntimeError::Overloaded,
+        TransportError::Closed => RuntimeError::Closed,
+        TransportError::Timeout => RuntimeError::DeadlineExceeded,
+        _ => RuntimeError::NotReady,
+    }
+}
+
 pub(super) async fn prepare(
     prepared: &mut Prepared,
     options: &mut crate::raft::host::RaftHostOptions,
@@ -277,11 +290,14 @@ impl Directory {
                                     }
                                 }
                                 super::RouterRefreshRequest::Observe { owner } => {
-                                    let history = owner.history();
+                                    let target = owner.target();
                                     let deadline = owner.deadline();
                                     // A dropped caller cannot cancel entered discovery;
                                     // retain its reservation through the original deadline.
-                                    let result = Box::pin(directory.refresh_target(&log, &transport, &observer, history, deadline)).await;
+                                    let result = match target {
+                                        super::RouterRefreshTarget::Membership(history) => Box::pin(directory.refresh_target(&log, &transport, &observer, history, deadline)).await,
+                                        super::RouterRefreshTarget::Endpoint { cluster, node } => Box::pin(directory.refresh_endpoint(&log, &transport, &observer, cluster, node, deadline)).await,
+                                    };
                                     owner.complete(result);
                                 }
                             }
@@ -344,19 +360,89 @@ impl Directory {
             })
     }
 
-    async fn refresh(
+    async fn refresh_endpoint(
         &mut self,
         log: &ReplicaLog,
         transport: &RaftTransport,
         observer: &RaftCells,
-        original_deadline: Option<u64>,
+        cluster: cellar_logic::consensus::ClusterId,
+        node: cellar_logic::consensus::NodeId,
+        deadline: u64,
+    ) -> Result<super::RouterRefreshOutcome, crate::raft::completion::RuntimeError> {
+        use crate::raft::completion::RuntimeError;
+        remaining(log, deadline).map_err(|_| RuntimeError::DeadlineExceeded)?;
+        if node == log.limits().node {
+            return Err(RuntimeError::NotReady);
+        }
+        let deadline = deadline.min(
+            log.domain()
+                .mono_ms()
+                .map_err(|_| RuntimeError::Closed)?
+                .checked_add(self.options.timeout_ms)
+                .ok_or_else(|| RuntimeError::Invalid("endpoint refresh deadline".into()))?,
+        );
+        if let Err(error) = self.refresh_trust(log, transport, deadline).await {
+            tracing::debug!(%error, "targeted endpoint refresh fenced local owner");
+            drop(observer.close());
+            return Err(RuntimeError::Closed);
+        }
+        let trusted = self
+            .trusted
+            .iter()
+            .find(|trusted| match trusted {
+                Trusted::Configured(peer) => peer.node == node,
+                Trusted::Enrolled(host) => host.node() == node && host.cluster() == cluster,
+            })
+            .cloned()
+            .ok_or(RuntimeError::NotReady)?;
+        for registration in self
+            .registrations
+            .iter()
+            .filter(|registration| registration.cluster() == cluster)
+        {
+            // No group/range directory or quorum membership observation belongs
+            // to endpoint repair. The verified current node view alone changes
+            // physical routes; destination admission still checks all authority.
+            let view = transport
+                .seed_control_until(deadline, async {
+                    let timeout = remaining(log, deadline)
+                        .map_err(|_| crate::raft::transport::TransportError::Timeout)?;
+                    Ok(match &trusted {
+                        Trusted::Configured(peer) => registration.observe_node(peer, timeout).await,
+                        Trusted::Enrolled(host) => {
+                            registration.observe_fleet_node(host, timeout).await
+                        }
+                    })
+                })
+                .await
+                .map_err(endpoint_failure)?
+                .map_err(|error| match error {
+                    crate::raft::catalog::CatalogError::Runtime(error) => error,
+                    crate::raft::catalog::CatalogError::Log(error) => RuntimeError::Storage(error),
+                    _ => RuntimeError::NotReady,
+                })?;
+            let Some(view) = view else {
+                continue;
+            };
+            let peer = view.peer().clone();
+            let expected = match &trusted {
+                Trusted::Configured(peer) => peer,
+                Trusted::Enrolled(_) => &peer,
+            };
+            transport
+                .accept_node_view(view, expected)
+                .map_err(endpoint_failure)?;
+            return Ok(super::RouterRefreshOutcome::Current);
+        }
+        Err(RuntimeError::NotReady)
+    }
+
+    async fn refresh_trust(
+        &mut self,
+        log: &ReplicaLog,
+        transport: &RaftTransport,
+        deadline: u64,
     ) -> anyhow::Result<()> {
-        let deadline = log
-            .domain()
-            .mono_ms()?
-            .checked_add(self.options.timeout_ms)
-            .ok_or_else(|| anyhow::anyhow!("directory deadline overflow"))?;
-        let deadline = original_deadline.map_or(deadline, |original| original.min(deadline));
         if let Some(reader) = &self.reader {
             let result = transport
                 .seed_control_until(deadline, async {
@@ -382,6 +468,23 @@ impl Directory {
                 Err(error) => tracing::debug!(%error, "fleet trust read refused"),
             }
         }
+        Ok(())
+    }
+
+    async fn refresh(
+        &mut self,
+        log: &ReplicaLog,
+        transport: &RaftTransport,
+        observer: &RaftCells,
+        original_deadline: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let deadline = log
+            .domain()
+            .mono_ms()?
+            .checked_add(self.options.timeout_ms)
+            .ok_or_else(|| anyhow::anyhow!("directory deadline overflow"))?;
+        let deadline = original_deadline.map_or(deadline, |original| original.min(deadline));
+        self.refresh_trust(log, transport, deadline).await?;
         let total = self
             .registrations
             .len()

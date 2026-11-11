@@ -264,3 +264,91 @@ async fn closed_queue_wakes_joined_waiters_and_releases_actual_owners() -> anyho
     fixture.domain.shutdown().await;
     Ok(())
 }
+
+fn endpoint(process: u8, revision: u64) -> RouterRefreshKey {
+    RouterRefreshKey::endpoint(
+        history(3).cluster,
+        NodeIdentity {
+            node: NodeId::new([5; 16]).unwrap(),
+            disk: cellar_logic::consensus::DiskLineage::new([6; 16]).unwrap(),
+            process: cellar_logic::consensus::ProcessGeneration::new([process; 16]).unwrap(),
+        },
+        Some((EngineInstanceId::new([7; 16]).unwrap(), revision)),
+    )
+}
+
+#[tokio::test]
+async fn endpoint_waiters_share_the_node_owner_without_joining_membership() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new(256 * 1024, 8).await?;
+    let client = fixture.client.clone();
+    let deadline = fixture.deadline();
+    let mut first = Box::pin(client.request(endpoint(8, 9), deadline));
+    assert!(first.as_mut().now_or_never().is_none());
+    let physical = fixture.owner();
+    assert_eq!(
+        physical.target(),
+        RouterRefreshTarget::Endpoint {
+            cluster: history(3).cluster,
+            node: NodeId::new([5; 16])?,
+        }
+    );
+    let mut second = Box::pin(client.request(endpoint(8, 9), deadline + 1000));
+    assert!(second.as_mut().now_or_never().is_none());
+    assert!(fixture.requests.try_recv().is_err());
+    assert_eq!(physical.deadline(), deadline);
+    let mut membership = Box::pin(client.request(cold(3), deadline));
+    assert!(membership.as_mut().now_or_never().is_none());
+    let group = fixture.owner();
+    assert_eq!(group.target(), RouterRefreshTarget::Membership(history(3)));
+    assert_eq!(fixture.memory.usage(), (2 * OWNER_BYTES + WAITER_BYTES, 3));
+    drop(first);
+    drop(second);
+    assert_eq!(fixture.memory.usage(), (2 * OWNER_BYTES, 2));
+    physical.complete(Ok(RouterRefreshOutcome::Current));
+    assert_eq!(fixture.memory.usage(), (OWNER_BYTES, 1));
+    group.complete(Ok(RouterRefreshOutcome::Current));
+    assert_eq!(membership.await, Ok(RouterRefreshOutcome::Current));
+    assert_eq!(fixture.memory.usage(), (0, 0));
+    let counters = client.performance.snapshot().counters;
+    for (name, expected) in [
+        ("cell_endpoint_discovery_owners", 1),
+        ("cell_endpoint_refresh_joins", 1),
+        ("cell_membership_discovery_owners", 1),
+        ("cell_membership_refresh_joins", 0),
+    ] {
+        assert_eq!(
+            counters.iter().find(|c| c.name == name).unwrap().value,
+            expected
+        );
+    }
+    fixture.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn endpoint_boot_and_view_changes_fence_pending_metadata_generations() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new(256 * 1024, 8).await?;
+    let client = fixture.client.clone();
+    let deadline = fixture.deadline();
+    let mut old = Box::pin(client.request(endpoint(8, 9), deadline));
+    assert!(old.as_mut().now_or_never().is_none());
+    let old_owner = fixture.owner();
+    let mut boot = Box::pin(client.request(endpoint(10, 9), deadline));
+    assert!(boot.as_mut().now_or_never().is_none());
+    let boot_owner = fixture.owner();
+    let mut view = Box::pin(client.request(endpoint(8, 11), deadline));
+    assert!(view.as_mut().now_or_never().is_none());
+    let view_owner = fixture.owner();
+    old_owner.complete(Ok(RouterRefreshOutcome::Current));
+    assert_eq!(old.await, Ok(RouterRefreshOutcome::Current));
+    assert!(boot.as_mut().now_or_never().is_none());
+    assert!(view.as_mut().now_or_never().is_none());
+    assert_eq!(fixture.memory.usage(), (2 * OWNER_BYTES, 2));
+    boot_owner.complete(Err(RuntimeError::NotReady));
+    view_owner.complete(Ok(RouterRefreshOutcome::Current));
+    assert_eq!(boot.await, Err(RuntimeError::NotReady));
+    assert_eq!(view.await, Ok(RouterRefreshOutcome::Current));
+    assert_eq!(fixture.memory.usage(), (0, 0));
+    fixture.domain.shutdown().await;
+    Ok(())
+}

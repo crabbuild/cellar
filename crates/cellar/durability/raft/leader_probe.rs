@@ -38,6 +38,7 @@ impl Key {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum LeaderProbeOutcome {
     Leader(MemberId),
+    Endpoint(NodeId),
     Membership,
     Retry(CommandFailure),
 }
@@ -309,6 +310,7 @@ impl State {
             .map(|peer| peer.replica.member)
             .collect();
         let mut failures = ProbeFailures::default();
+        let mut endpoint = None;
         for (index, member) in candidates.iter().enumerate() {
             self.check_probe_key(key, route)?;
             let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
@@ -326,12 +328,33 @@ impl State {
             match response {
                 Ok(true) => return Ok(LeaderProbeOutcome::Leader(*member)),
                 Ok(false) => failures.no_leader = true,
+                Err(error @ (TransportError::StalePeer | TransportError::Refused)) => {
+                    let changed = {
+                        let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+                        self.admit(&registry)?;
+                        Self::changed_cell_endpoint(&registry, &view, *member)
+                    };
+                    if let Some(node) = changed {
+                        // Retain the actual selected endpoint as a fallback.
+                        // A later healthy peer can still supply current leader
+                        // advice without requiring this follower's metadata.
+                        endpoint.get_or_insert(node);
+                    } else {
+                        failures.observe(error)?;
+                    }
+                }
                 Err(error) => failures.observe(error)?,
             }
             match self.probe_advice(key, route)? {
                 LeaderLookup::Known(member) => return Ok(LeaderProbeOutcome::Leader(member)),
                 LeaderLookup::Membership | LeaderLookup::Unverified => failures.membership = true,
+                LeaderLookup::Endpoint(node) => return Ok(LeaderProbeOutcome::Endpoint(node)),
                 LeaderLookup::Unknown => (),
+            }
+        }
+        if !failures.membership {
+            if let Some(node) = endpoint {
+                return Ok(LeaderProbeOutcome::Endpoint(node));
             }
         }
         Ok(failures.repair())

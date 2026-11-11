@@ -9,6 +9,7 @@ pub(crate) use directory::require_local as require_local_fleet_boot;
 mod router_refresh;
 pub(crate) use router_refresh::{
     RouterRefreshClient, RouterRefreshKey, RouterRefreshOutcome, RouterRefreshRequest,
+    RouterRefreshTarget,
 };
 mod partition;
 mod provisioning;
