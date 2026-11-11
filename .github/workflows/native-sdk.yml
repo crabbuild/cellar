@@ -171,6 +171,9 @@ jobs:
             smoke_flags: '--expect-free-threaded'
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Reviewed-source conformance tests read pinned historical Git objects.
+          fetch-depth: 0
       - name: Install Rust
         run: |
           rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt

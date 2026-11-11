@@ -379,10 +379,12 @@ async fn process_refresh_is_atomic_across_routes_grants_and_capacity() -> anyhow
     publisher.restart().await?;
     let latest = publisher.view().await?;
     assert!(latest.revision() > first.revision());
-    // Three listeners, six peer workers, and the prepared-file owner/observer
-    // remain resident. Temporary overload owners must all leave before refresh.
+    // Three listeners and three workers for each of the two peer pools remain
+    // resident. The old prepared-snapshot owner pair left this transport with
+    // the shared-group cutover. Temporary overload owners must all leave.
     let resident_tasks = state.usage().tasks;
-    assert_eq!(resident_tasks, 11);
+    assert_eq!(state.usage().peers, 2);
+    assert_eq!(resident_tasks, 9);
     // Retain actual resource owners so replacement cannot hide old workers.
     let (release, wait) = watch::channel(false);
     while state.usage().tasks < state.task_limit() - 2 {

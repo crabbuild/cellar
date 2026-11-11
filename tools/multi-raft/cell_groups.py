@@ -22,6 +22,7 @@ import time
 from local import command
 from store_probe import probe
 from backend_control import BackendControl
+from routing_endpoint_evidence import endpoint_observations
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
@@ -53,16 +54,19 @@ CASES = (
 SUITES = {
     "routing-endpoint": (
         "native_cell_groups_routing_optimization",
-        ("rustfs_endpoint_refresh_keeps_membership", "rustfs_unrelated_follower_keeps_leader"),
+        ("rustfs_endpoint_refresh_keeps_membership", "rustfs_unrelated_follower_keeps_leader",
+         "rustfs_read_first_refreshes_endpoint", "rustfs_unrelated_endpoint_keeps_inflight_reply"),
         "authenticated boot changes repair physical endpoints without membership or range repair",
-        "Two fresh RF3/ingress fixtures cover SDK, native HTTP and Axum in both image modes. "
+        "Four public cases cover SDK, native HTTP and Axum in both image modes. "
         "A retained-disk voter restart keeps ingress warm. Endpoint metadata is denied until "
         "the original command selects bounded endpoint discovery, with no SQL/callback entry. "
         "Verified new boot metadata restores one application RPC, exact S3 receipts and replay, "
         "unchanged directory/membership and no ingress replicas. An unrelated restarted follower "
         "keeps its endpoint metadata unavailable while the healthy leader serves all three callers. "
-        "Original deadlines and parent "
-        "budgets apply. Read-only endpoint repair, forged advice and full RO-03 remain separate gates.",
+        "Read-first Strong/AtLeast queries repair only their selected endpoint. A held real "
+        "group-archive PUT keeps an S3 command entered while unrelated endpoint metadata changes; "
+        "the unchanged leader's reply and exact receipt replay remain valid. Original deadlines "
+        "and parent budgets apply. Forged advice and full RO-03 remain separate gates.",
     ),
     "routing-authority": (
         "native_cell_groups_routing_optimization",
@@ -551,6 +555,8 @@ SUITES = {
 
 def routing_observations(output, case):
     """Require complete caller/mode output; native cases enforce receipt oracles."""
+    if case in ("rustfs_read_first_refreshes_endpoint", "rustfs_unrelated_endpoint_keeps_inflight_reply"):
+        return endpoint_observations(output, case)
     if case not in SUITES["routing-range-repairs"][1] + SUITES["routing-authority"][1] + SUITES["routing-endpoint"][1]:
         raise ValueError("unknown routing evidence case")
     membership = case == "rustfs_membership_refresh_keeps_range"
