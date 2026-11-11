@@ -33,6 +33,14 @@ pub async fn metadata_outage_on_cached_path() -> Result<()> {
     optimization::metadata_outage_on_cached_path().await
 }
 
+pub async fn unrelated_follower_keeps_leader() -> Result<()> {
+    optimization::unrelated_follower_keeps_leader().await
+}
+
+pub async fn unrelated_follower_keeps_leader_with_store(make: RoutingStoreFactory) -> Result<()> {
+    optimization::unrelated_follower_keeps_leader_with_store(make).await
+}
+
 pub async fn endpoint_refresh_keeps_membership() -> Result<()> {
     optimization::endpoint_refresh_keeps_membership().await
 }

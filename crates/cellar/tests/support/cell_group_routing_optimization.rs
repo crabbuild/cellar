@@ -89,6 +89,16 @@ pub(super) async fn metadata_outage_on_cached_path() -> Result<()> {
     run(Scenario::MetadataOutage).await
 }
 
+pub(super) async fn unrelated_follower_keeps_leader() -> Result<()> {
+    run(Scenario::EndpointFollower).await
+}
+
+pub(super) async fn unrelated_follower_keeps_leader_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    run_with_store(Scenario::EndpointFollower, Some(make)).await
+}
+
 pub(super) async fn endpoint_refresh_keeps_membership() -> Result<()> {
     run(Scenario::Endpoint).await
 }
@@ -165,6 +175,7 @@ enum Scenario {
     MetadataOutage,
     OriginRevocation,
     Endpoint,
+    EndpointFollower,
     Refresh { axum: bool },
     RefreshClose { axum: bool },
 }
@@ -181,6 +192,7 @@ async fn run_with_store(scenario: Scenario, make: Option<RoutingStoreFactory>) -
             Some(make) => fault::Store::around(make(
                 match scenario {
                     Scenario::Endpoint => "routing-endpoint-refresh",
+                    Scenario::EndpointFollower => "routing-endpoint-unrelated",
                     _ => "routing-origin-revocation",
                 },
                 rooted,
@@ -226,6 +238,14 @@ async fn run_with_store(scenario: Scenario, make: Option<RoutingStoreFactory>) -
             }
             Scenario::Endpoint => {
                 Box::pin(endpoint::exercise(&mut cluster, &callbacks, rooted)).await
+            }
+            Scenario::EndpointFollower => {
+                Box::pin(endpoint::unrelated_follower_keeps_leader(
+                    &mut cluster,
+                    &callbacks,
+                    rooted,
+                ))
+                .await
             }
         };
         if result.is_err() {

@@ -12,6 +12,7 @@ import cell_groups
 MEMBERSHIP = "rustfs_membership_refresh_keeps_range"
 AUTHORITY = "rustfs_cached_advice_respects_origin_revocation"
 ENDPOINT = "rustfs_endpoint_refresh_keeps_membership"
+FOLLOWER = "rustfs_unrelated_follower_keeps_leader"
 
 
 def member_rows():
@@ -159,6 +160,26 @@ class RoutingEvidenceTests(unittest.TestCase):
             rows[0][field] = value
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 cell_groups.routing_observations(output(rows, "ENDPOINT_ROUTING_EVIDENCE "), ENDPOINT)
+
+    def test_unrelated_follower_requires_zero_endpoint_demand_and_unreleased_fault(self):
+        rows = endpoint_rows()
+        for row in rows:
+            row.update(case=FOLLOWER.removeprefix("rustfs_"), sql_stages_before=None,
+                       sql_stages_at_release=None, metadata_released=False,
+                       routing_after=[2, 2, 1, 1, 1, 1, 0])
+        self.assertEqual(cell_groups.routing_observations(
+            output(rows, "ENDPOINT_ROUTING_EVIDENCE "), FOLLOWER), (rows, 6))
+        for field, value in (("metadata_released", True), ("sql_stages_at_release", 3),
+                             ("routing_after", [2, 2, 1, 1, 2, 1, 0])):
+            bad = copy.deepcopy(rows)
+            bad[0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                cell_groups.routing_observations(output(bad, "ENDPOINT_ROUTING_EVIDENCE "), FOLLOWER)
+
+    def test_unrelated_follower_cannot_replace_the_selected_leader_repair_case(self):
+        rows = endpoint_rows()
+        with self.assertRaises(ValueError):
+            cell_groups.routing_observations(output(rows, "ENDPOINT_ROUTING_EVIDENCE "), FOLLOWER)
 
 
 if __name__ == "__main__":

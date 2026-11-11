@@ -53,13 +53,15 @@ CASES = (
 SUITES = {
     "routing-endpoint": (
         "native_cell_groups_routing_optimization",
-        ("rustfs_endpoint_refresh_keeps_membership",),
+        ("rustfs_endpoint_refresh_keeps_membership", "rustfs_unrelated_follower_keeps_leader"),
         "authenticated boot changes repair physical endpoints without membership or range repair",
         "Two fresh RF3/ingress fixtures cover SDK, native HTTP and Axum in both image modes. "
         "A retained-disk voter restart keeps ingress warm. Endpoint metadata is denied until "
         "the original command selects bounded endpoint discovery, with no SQL/callback entry. "
         "Verified new boot metadata restores one application RPC, exact S3 receipts and replay, "
-        "unchanged directory/membership and no ingress replicas. Original deadlines and parent "
+        "unchanged directory/membership and no ingress replicas. An unrelated restarted follower "
+        "keeps its endpoint metadata unavailable while the healthy leader serves all three callers. "
+        "Original deadlines and parent "
         "budgets apply. Read-only endpoint repair, forged advice and full RO-03 remain separate gates.",
     ),
     "routing-authority": (
@@ -546,7 +548,8 @@ def routing_observations(output, case):
         raise ValueError("unknown routing evidence case")
     membership = case == "rustfs_membership_refresh_keeps_range"
     authority = case == "rustfs_cached_advice_respects_origin_revocation"
-    endpoint = case == "rustfs_endpoint_refresh_keeps_membership"
+    endpoint = case in SUITES["routing-endpoint"][1]
+    repairing_leader = case == "rustfs_endpoint_refresh_keeps_membership"
     prefix = ("MEMBERSHIP_ROUTING_EVIDENCE " if membership else
               "AUTHORITY_ROUTING_EVIDENCE " if authority else
               "ENDPOINT_ROUTING_EVIDENCE " if endpoint else "RANGE_ROUTING_EVIDENCE ")
@@ -595,12 +598,15 @@ def routing_observations(output, case):
             before = row.get("callbacks_before")
             stages = row.get("sql_stages_before")
             routing = (row.get("routing_before"), row.get("routing_after"))
+            valid_stages = (type(stages) is int and 0 <= stages < 2**64
+                            and type(row.get("sql_stages_at_release")) is int
+                            and row["sql_stages_at_release"] == stages) if repairing_leader else (
+                                stages is None and row.get("sql_stages_at_release") is None
+                                and row.get("metadata_released") is False)
             if (type(before) is not int or not 1 <= before < 2**63 - 1
                     or type(row.get("callbacks_after")) is not int
                     or row["callbacks_after"] != before + 1
-                    or type(stages) is not int or not 0 <= stages < 2**64
-                    or type(row.get("sql_stages_at_release")) is not int
-                    or row["sql_stages_at_release"] != stages
+                    or not valid_stages
                     or row.get("required") != "S3" or row.get("achieved") != "S3"
                     or row.get("result_be") != (before + 1).to_bytes(8, "big").hex()
                     or type(row.get("retry_until_ms")) is not int
@@ -622,8 +628,8 @@ def routing_observations(output, case):
             delta = [after - before for before, after in zip(*routing)]
             if (any(value < 0 for value in delta) or delta[0] != 1
                     or not 1 <= delta[1] <= 4 or delta[2:4] != [0, 0]
-                    or not 1 <= delta[4] <= 4 or not 1 <= delta[5] <= 4
-                    or delta[6] > delta[4]):
+                    or (not 1 <= delta[4] <= 4 or not 1 <= delta[5] <= 4
+                        or delta[6] > delta[4] if repairing_leader else delta[4:] != [0, 0, 0])):
                 raise ValueError("endpoint refresh changed placement or exceeded original attempts")
     return rows, len(callers) * 2
 

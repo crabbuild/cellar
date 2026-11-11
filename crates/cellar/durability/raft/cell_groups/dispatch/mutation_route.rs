@@ -228,6 +228,15 @@ pub(super) async fn mutation_peer(
                     refresh_endpoint(transport, route, node, session.deadline_ms()).await?;
                     return Err(retry(CommandFailure::Unavailable));
                 }
+                Ok(LeaderLookup::Known(_) | LeaderLookup::Unknown)
+                    if error == TransportError::StalePeer =>
+                {
+                    // The captured discovery generation changed, while this
+                    // exact placement still has verified configuration. Retry
+                    // selection under the original bank rather than broadening
+                    // an endpoint/advice fence into membership discovery.
+                    return Err(retry(CommandFailure::Unavailable));
+                }
                 Ok(_) => (),
                 Err(error) => return Err(CellDispatchError::Transport(error).into()),
             }
@@ -246,6 +255,10 @@ pub(super) async fn mutation_peer(
     tracing::debug!(history = ?route.history, ordinal = attempt.ordinal(), ?outcome, refreshed, "mutation probe plan completed");
     match outcome {
         LeaderProbeOutcome::Leader(member) => Ok(Some(member)),
+        LeaderProbeOutcome::Endpoint(node) => {
+            refresh_endpoint(transport, route, node, session.deadline_ms()).await?;
+            Err(retry(CommandFailure::Unavailable))
+        }
         LeaderProbeOutcome::Retry(reason) => {
             if reason == CommandFailure::Unavailable && refreshed.is_none() && attempt.ordinal() > 1
             {

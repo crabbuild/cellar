@@ -141,6 +141,24 @@ pub(super) async fn exercise(
     callbacks: &AtomicUsize,
     rooted: bool,
 ) -> Result<()> {
+    exercise_target(cluster, callbacks, rooted, true).await
+}
+
+pub(super) async fn unrelated_follower_keeps_leader(
+    cluster: &mut nodes::Cluster,
+    callbacks: &AtomicUsize,
+    rooted: bool,
+) -> Result<()> {
+    exercise_target(cluster, callbacks, rooted, false).await
+}
+
+async fn exercise_target(
+    cluster: &mut nodes::Cluster,
+    callbacks: &AtomicUsize,
+    rooted: bool,
+    repairing_leader: bool,
+) -> Result<()> {
+    let target = if repairing_leader { 0 } else { 1 };
     cluster.authorize_commands()?;
     cluster.authorize_ingress_reads()?;
     cluster.bind()?;
@@ -222,7 +240,7 @@ pub(super) async fn exercise(
         let revision = configuration.membership().revision();
         let voters = configuration.configuration().clone();
         drop(configuration);
-        let old = cluster.managed.peers[0].clone();
+        let old = cluster.managed.peers[target].clone();
         let path = object_store::path::Path::from(format!(
             "{prefix}nodes/{}/view",
             hex::encode(old.node.bytes())
@@ -234,7 +252,7 @@ pub(super) async fn exercise(
             .context("existing endpoint object within original metadata bound")??;
         let _metadata = Metadata(store.clone());
         let denied = store.denied_prefix_reads.load(Ordering::Acquire);
-        *store.denied_prefix.lock().unwrap() = Some(path);
+        *store.denied_prefix.lock().unwrap() = Some(path.clone());
         tokio::time::timeout(TIMEOUT, async {
             while store.denied_prefix_reads.load(Ordering::Acquire) == denied {
                 tokio::time::sleep(Duration::from_millis(2)).await;
@@ -242,9 +260,9 @@ pub(super) async fn exercise(
         })
         .await
         .context("ingress endpoint reads denied before new boot")?;
-        cluster.restart_voter(0, 140 + ordinal as u8).await?;
+        cluster.restart_voter(target, 140 + ordinal as u8).await?;
         lead_on_zero(cluster).await?;
-        let current = cluster.managed.peers[0].clone();
+        let current = cluster.managed.peers[target].clone();
         ensure!(
             old.node == current.node && old.disk == current.disk && old.process != current.process
         );
@@ -300,6 +318,11 @@ pub(super) async fn exercise(
             }
         };
         let release = async {
+            if !repairing_leader {
+                // The healthy leader must finish while this follower's endpoint
+                // remains unavailable. There is no metadata release to await.
+                return Ok::<_, anyhow::Error>(before_stages);
+            }
             tokio::time::timeout_at(deadline, async {
                 while work(cluster)?[4] == before[4] {
                     tokio::time::sleep(Duration::from_millis(1)).await;
@@ -336,9 +359,16 @@ pub(super) async fn exercise(
                 && delta[1] <= 4
                 && delta[2] == 0
                 && delta[3] == 0
-                && (1..=4).contains(&delta[4])
-                && (1..=4).contains(&delta[5])
+                && if repairing_leader {
+                    (1..=4).contains(&delta[4]) && (1..=4).contains(&delta[5])
+                } else {
+                    delta[4..] == [0, 0, 0]
+                },
+            "selected endpoint work repairing_leader={repairing_leader}, delta={delta:?}"
         );
+        if !repairing_leader {
+            ensure!(*store.denied_prefix.lock().unwrap() == Some(path.clone()));
+        }
         let (receipt, reply) = match result {
             Reply::Sdk(receipt) => (*receipt, None),
             Reply::Http(reply) => (
@@ -417,15 +447,19 @@ pub(super) async fn exercise(
                 .groups
                 == 0
         );
+        if !repairing_leader {
+            ensure!(*store.denied_prefix.lock().unwrap() == Some(path.clone()));
+        }
         eprintln!(
             "ENDPOINT_ROUTING_EVIDENCE {}",
             serde_json::json!({
-                "schema": 1, "case": "endpoint_refresh_keeps_membership", "caller": caller, "extents": rooted, "event": "verified",
+                "schema": 1, "case": if repairing_leader { "endpoint_refresh_keeps_membership" } else { "unrelated_follower_keeps_leader" }, "caller": caller, "extents": rooted, "event": "verified",
                 "old_peer": format!("{old:?}"), "current_peer": format!("{current:?}"), "membership_revision": format!("{revision:?}"),
                 "node": hex::encode(current.node.bytes()), "disk": hex::encode(current.disk.bytes()),
                 "old_process": hex::encode(old.process.bytes()), "current_process": hex::encode(current.process.bytes()),
                 "directory_before": hex::encode(before_view.digest()), "directory_after": hex::encode(after_view.digest()),
-                "sql_stages_before": before_stages, "sql_stages_at_release": release_stages,
+                "sql_stages_before": repairing_leader.then_some(before_stages), "sql_stages_at_release": repairing_leader.then_some(release_stages),
+                "metadata_released": repairing_leader,
                 "route": format!("{after_route:?}"), "routing_before": before, "routing_after": after,
                 "command": format!("{:?}", selected.id), "retry_until_ms": selected.retry_until_ms, "required": "S3", "achieved": "S3",
                 "result_be": hex::encode(&receipt.result), "version": format!("{:?}", receipt.version), "witness": format!("{:?}", receipt.witness),
