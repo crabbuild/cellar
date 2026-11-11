@@ -10,13 +10,7 @@ use anyhow::Result;
 use futures_util::FutureExt;
 use std::sync::Arc;
 
-pub(super) type CellRpcHandler = dyn Fn(
-        &CellHistory,
-        RouteEpoch,
-        &str,
-        &[u8],
-        &CommandTransaction<'_>,
-    ) -> Result<Vec<u8>>
+pub(super) type CellRpcHandler = dyn Fn(&CellHistory, RouteEpoch, &str, &[u8], &CommandTransaction<'_>) -> Result<Vec<u8>>
     + Send
     + Sync;
 
