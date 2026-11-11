@@ -402,7 +402,7 @@ pub async fn run(
             let (result, observed) = tokio::join!(
                 cells[0].command(&cells[0].contract("Run")?, input.clone(), options.clone()),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await.context("SDK gate 0 entered")?;
                     let source = value(&observed_cells[0], 178).await?;
                     let target = value(&observed_cells[1], 179).await?;
                     gates[0].release.notify_one();
@@ -411,15 +411,18 @@ pub async fn run(
                         "target executed before source proof: observed {source}"
                     );
                     ensure!(target == 0, "target private writes escaped");
-                    cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await.context("SDK gate 1 entered")?;
                     let source = value(&observed_cells[0], 182).await?;
                     gates[1].release.notify_one();
                     ensure!(source == 11, "query escaped its source barrier: {source}");
                     Ok::<_, anyhow::Error>(())
                 }
             );
-            observed?;
-            let result = result?;
+            observed.with_context(|| format!(
+                "SDK nested observer; command error: {:?}",
+                result.as_ref().err().map(ToString::to_string),
+            ))?;
+            let result = result.context("SDK nested command")?;
             ensure!(
                 serde_json::from_slice::<serde_json::Value>(&result.result)?
                     == json!({"source":11,"target":2})
@@ -485,7 +488,7 @@ pub async fn run(
                     result.map_err(anyhow::Error::from)
                 },
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[2].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[2].entered.notified()).await.context("SDK gate 2 entered")?;
                     ensure!(
                         value(&observed_cells[0], 188).await? == 12
                             && value(&observed_cells[1], 189).await? == 2
@@ -511,7 +514,7 @@ pub async fn run(
                     queued
                 ),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[3].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[3].entered.notified()).await.context("SDK gate 3 entered")?;
                     ensure!(value(&observed_cells[0], 192).await? == 12);
                     cellar::asyncrt::sleep(Duration::from_millis(1100)).await;
                     gates[3].release.notify_one();
@@ -554,7 +557,7 @@ pub async fn run(
             let (fenced, moved) = tokio::join!(
                 cells[0].command(&cells[0].contract("Run")?, held.clone(), fencing.clone()),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[4].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[4].entered.notified()).await.context("SDK gate 4 entered")?;
                     ensure!(
                         value(&observed_cells[0], 197).await? == 14
                             && value(&observed_cells[1], 198).await? == 9
@@ -582,7 +585,7 @@ pub async fn run(
                         }
                     })
                     .await??;
-                    cellar::asyncrt::timeout(TIMEOUT, gates[5].dropped.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[5].dropped.notified()).await.context("SDK gate 5 dropped")?;
                     Ok::<_, anyhow::Error>(next)
                 }
             );
