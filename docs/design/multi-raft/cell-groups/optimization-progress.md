@@ -1262,3 +1262,53 @@ recovery cuts, measured placement/fairness and complete primitive/performance
 matrix still need their own evidence. The earlier constrained Linux/RustFS
 campaign remains bound to `dd0b1060` / `fc2e5e15`; it does not qualify this newer
 source. Full OPT-01 through OPT-08 acceptance remains open.
+
+## Real RustFS routing harness and incomplete campaign
+
+Revision `833c57d7`, source manifest `fb653fe1`, adds three opt-in real RustFS
+routing cases. The `routing-range-repairs` runner requires exact test execution
+and complete structured evidence for six membership, two overlap and six
+delayed-lookup scenarios. Each caller/image combination uses its own object
+prefix. The runner captures the CI compiler profile, source inputs, retained
+test executable and exact Cargo operator CLI, and rejects missing or duplicate
+evidence. Static/type/build preflight passed strict library/seven-target Clippy,
+formatting, layout, native dependency and documentation checks, 91 multi-raft
+tool tests and all 44 design tests; one opt-in Docker tooling test was skipped.
+Evidence is retained in `rustfs-routing-preflight-fb653fe1`.
+
+The actual campaign used the owned Colima RustFS container with one CPU,
+2 GiB memory and no additional swap, pinned to image
+`sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858`.
+Cellar nodes in this campaign were host-native TLS fixtures. Membership repair
+passed all six SDK/native HTTP/Axum image combinations in 97.563 seconds, with
+18 validated observations. Overlap repair passed both image modes in 115.439
+seconds, with two validated observations.
+
+The delayed-lookup case passed SDK/materialized, SDK/extents and native
+HTTP/materialized, then failed in native HTTP/extents. The failing operation
+was the fresh SDK Quorum anchor for `Counter:five`, client `cc` repeated
+16 bytes and sequence two, returning ambiguous
+`Execution(Refused(Unavailable))`. It was not the held HTTP S3 command for
+`Counter:two`, client `c9` repeated 16 bytes and sequence two. The available
+failure snapshot observed the original, already retired group rather than
+the selected child, so it does not establish the cause. The campaign stopped;
+the ordinary RustFS primitive suite did not run. The failed record, logs,
+objects, fixture disks and executable hashes remain in
+`rustfs-range-campaign-fb653fe1`.
+
+An exact retained-binary repetition on a fresh bucket/prefix passed all six
+delayed-lookup scenarios in 329.151 seconds. No source, command identity,
+deadline or fixture capacity changed. Its diagnostic record is
+`NOT_REPRODUCED` in `rustfs-old-lookup-reproduce-fb653fe1`; this does not fix or
+supersede the failed campaign. The test executable hash is
+`2edd498bd01b4bdaca73a23284d9cd586188877189eb2b540090bc7297151d4b` and the
+operator CLI hash is
+`76d725c285ab356575c387cd5cc0dcd92cd74be2ea6d6a281a3d2c796a53a0a3`.
+
+Keep PR #167 draft. The immediate priorities are to capture the selected
+child's state at the intermittent Quorum refusal, resolve its cause, repeat
+the complete routing/primitive campaign and qualify the matching constrained
+Linux source. The earlier Linux checkpoint remains `dd0b1060` / `fc2e5e15`.
+Authority/recovery and ambiguous-outcome cuts, partition/RecentSource expiry,
+held-owner reclamation and restart, repeated movement, measured placement and
+scheduling fairness, and the full primitive/performance matrix remain open.
