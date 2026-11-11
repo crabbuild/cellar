@@ -471,7 +471,7 @@ impl IncomingCall {
                 }
                 // Queue first: metadata observation cannot renew the query's
                 // captured deadline or delay ownership transfer to its producer.
-                let queued = gateway.enqueue(call, target.scope, cell, route.schema());
+                let queued = gateway.enqueue(call, target.scope, cell, route.schema(), deadline);
                 let leader_hint = if queued.is_ok() {
                     state
                         .runtime
@@ -506,6 +506,7 @@ impl Gateway {
         group: GroupHistory,
         cell: CellHistory,
         schema: [u8; 32],
+        deadline: u64,
     ) -> Result<crate::raft::cell_groups::CellQueryCall, Arc<CellDispatchError>> {
         let options = self.storage.for_cell(&cell);
         let queued = (|| {
@@ -518,12 +519,15 @@ impl Gateway {
                 },
                 None,
             )?;
-            query.bind_remote_route(crate::raft::cell_groups::RemoteMutationRoute {
-                group,
-                schema,
-                epoch: call.route_epoch,
-                birth: call.birth_digest,
-            });
+            query.bind_remote_route(
+                crate::raft::cell_groups::RemoteMutationRoute {
+                    group,
+                    schema,
+                    epoch: call.route_epoch,
+                    birth: call.birth_digest,
+                },
+                deadline,
+            )?;
             self.controller.query(query, options)
         })();
         queued.map_err(Arc::new)

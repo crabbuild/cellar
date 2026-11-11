@@ -114,7 +114,7 @@ pub(super) async fn mutation_peer(
     }
 
     match transport
-        .cell_command_leader(route)
+        .cell_leader(route)
         .map_err(CellDispatchError::Transport)?
     {
         LeaderLookup::Known(member) => return Ok(Some(member)),
@@ -182,7 +182,7 @@ pub(super) async fn mutation_peer(
             Err(error) => return Err(CellDispatchError::Transport(error)),
         }
         if let LeaderLookup::Known(leader) = transport
-            .cell_command_leader(route)
+            .cell_leader(route)
             .map_err(CellDispatchError::Transport)?
         {
             return Ok(Some(leader));

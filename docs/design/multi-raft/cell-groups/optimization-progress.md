@@ -53,7 +53,7 @@ and its named RO/RL cases remain the acceptance contract:
 | --- | --- |
 | OPT-01 | Finish smallest-scope negative-path repair and validate membership, public authority isolation and ambiguous outcomes; RO-01/02 runtime cases pass below, while broader RO-03/04/07/08 gates remain open |
 | OPT-02 | Interval-proof/generation candidate below; coalesced bounded demand refresh and public transition/version qualification for RO-05/06/09 remain open |
-| OPT-03 | Consistency-aware replica ranking and RO-10 remain open; the public RO-11 cohort oracle passes at the source checkpoint below |
+| OPT-03 | Automatic consistency-aware selection and bounded fallback candidate below; public network partition/RecentSource expiry and full RO-10 acceptance remain open; the public RO-11 cohort oracle passes at its source checkpoint below |
 | OPT-04 | Physical shared-file/segment release proof and once-only accounting qualification; RL-01 through RL-05 |
 | OPT-05 | Load telemetry, reserve-aware placement and repeated release-scale movement; RL-06 |
 | OPT-06 | Measured scheduling fairness, batching and queue isolation; RL-07 |
@@ -365,8 +365,8 @@ the cause of the earlier failures or supersede their failed results.
 
 ## Fresh ReadIndex cohort candidate
 
-Adjacent already-queued linearizable cell reads may share one newly initiated
-barrier for the exact group history, term and applied configuration revision.
+Already-queued linearizable cell reads may share one newly initiated barrier
+for the exact group history, term and applied configuration revision.
 Initiation seals the cohort; later arrivals need another barrier. Each logical
 read retains its original node/group reservation and absolute deadline, selects
 its own coherent target-cell image, and receives its own consumed authority and
@@ -374,11 +374,13 @@ pin. Cancelling the first waiter leaves the shared context available to remainin
 members. Last-member removal discards correlation state. Term or configuration
 changes refuse pending selection. No lease or completed-barrier cache is added.
 
-The worker gathers at most 32 adjacent reads per group turn without crossing a
-non-read request. Original group and node banks still bound admission. Deferred
-barrier submission updates actual node read accounting and wakes the owner's
-Ready work immediately. Two counters distinguish RawNode submissions (including
-forward retries) from logical joins; neither counter grants read authority.
+The first candidate gathered up to 32 adjacent reads per group turn. The
+current worker takes the existing queue prefix through its last linearizable
+cell read and processes intervening work in FIFO order. Later arrivals cannot
+extend that prefix. The cohort stays open while the owner waits for readiness
+and seals at the first ReadIndex submission. The existing group and node
+admission limits bound the queue, and each read keeps its original deadline.
+Separate counters report first submissions, all submissions and joins.
 
 Source manifest
 `986cbfd6d2318897b09730fae39e8368819480ab7e8f047ed76dfd56bfe91f43`
@@ -407,6 +409,36 @@ The retained 12-case `record.json` SHA-256 is
 At that checkpoint, replica preference ranking and the public SDK/native/Axum
 RO-11 oracle remained open; those component checks did not close OPT-03 or
 release qualification.
+
+A focused test reproduced premature sealing when readiness prevented ReadIndex
+submission. The same test and the three existing cohort unit cases pass after
+the fix. The native fixture now inserts a peer heartbeat response between
+queued reads, and the public fixture waits for the actor's queue observation
+before releasing its storage sync gate. At source `fa64fda8`, four actual crate
+unit cases, all six consensus cohort cases and the public read-preference case
+passed. The public cohort case failed during its late Axum arrival.
+
+The late-arrival fixture could hold an engine metadata sync while the selected
+leader remained ready. An assertion at source `498e582b` reproduced that boundary.
+The filesystem gate now selects a sync while the owner reports a pending Raft
+phase. At source manifest
+`ffc61abd512b2c0e7d1a96e6b85f7eb07362649de29aa94b56ae64c8391687c5`,
+the complete public cohort case passed both image modes across SDK, native HTTP
+and Axum. Its independent request ledger accepted 406 events. The runtime log
+and ledger are retained at `qualification/pending-late-ffc61abd` under this
+checkout's workspace target. Formatting and combined qualification follow this
+checkpoint. Original deadlines, read quotas and barrier assertions still apply.
+
+The final focused read checkpoint at source manifest
+`f72af1e57d4409d19fe69142fd9c0c3cea256194a9412515a125fd90baffe2fc`
+uses Cellar's selector in the sync fixture and passed all twelve selected Rust
+cases. These comprise four cohort unit cases, six actual consensus cases and
+the public cohort and replica-preference cases. Both public ledgers passed
+with 406 and 204 events. Focused Clippy, formatting, module layout, native
+dependency isolation and documentation validation passed. Records are retained
+at `qualification/cohort-queue-f72af1e5` and
+`qualification/cohort-static-f72af1e5` under this checkout's workspace target.
+Combined-source and broader RO-10 qualification remain open.
 
 ## Public read cohort verification candidate
 
@@ -533,6 +565,100 @@ This closes the selected public RO-11 functional oracle. RustFS verification
 was pending at that native checkpoint and subsequently passed as recorded below.
 Replica preference ranking, RO-10, broader OPT-03 acceptance and release
 qualification remain open.
+
+## Consistency-aware read candidate
+
+Automatic linearizable reads prefer the local owner's observed leader, or
+authenticated, configuration/boot/age-bound leader advice on an ingress-only
+node. Other modes prefer local execution. A bounded list of cached alternatives
+handles read unavailability, pressure or a ticket timeout before requiring route
+repair. Selection reads one immutable transport view; tracking tried member IDs
+prevents changed advice order from skipping an eligible peer. Every destination
+still consumes the requested read authority and verifies the original minimum.
+Explicit local and replica plans retain their ordering and bounds. Automatic
+attempts divide the remaining original timeout among remaining tickets; no
+deadline, attempt bank, controller quota, cache or worker is added.
+
+The initial public lag cut denied metadata to every voter. The first local
+attempt expired behind actual follower persistence, both remote candidates
+returned `Unavailable` at the required destination catalog check, and the origin
+then tried range repair. The diagnostic is retained at
+`qualification/read-preferences-lag-diagnosis-f7cc3cd5`. A manifest-only
+destination experiment was rejected by the regression below. Incoming reads
+still resolve their destination against the current catalog and the actual read
+owner still consumes the requested proof. The incoming session is clamped to
+the receiver's captured RPC deadline, including time spent queued. Temporary
+diagnostic probes were removed.
+
+The unchanged production baseline first failed the new public leader-preference
+oracle with member 1 serving a strong read that should prefer observed leader 2;
+`qualification/read-preferences-leader-red-17f49fcc` retains that red seam. An
+initial candidate failed enrollment before the read oracle because its handoff
+setup waited for announcement alone. The setup now requires the actual leader's
+readiness and current-term apply within the original five-second wait. The
+failure remains at `qualification/read-preferences-setup-notready-faad90c7`.
+The first healthy preference matrix passed at
+`qualification/read-preferences-healthy-b4eb33c2`. The later metadata failure
+and an interrupted attempt remain at
+`qualification/read-preferences-lag-metadata-failed-7a84c42e` and
+`qualification/read-preferences-interfered-4883d1c1`.
+
+The manifest-only experiment's development matrix passed in 39.792 seconds at source inputs
+`eae6b9ee05b3f1e81e32631321809875669a9fb3d10b21171129cca501e1a34b`.
+Both image modes exercise SDK, native HTTP and Axum from voter and ingress-only
+origins, all four read policies, exact S3 receipt minima, real follower fsync lag
+under verified metadata denial, foreign-cell token refusal, and expiry followed
+by caller cancellation while leader and follower SQL callbacks retain separate
+image pins. The 204 events contain 60 verified results, six joined cancellations
+and six foreign-minimum refusals. Each mode checks 36 physical query callbacks
+and five command callbacks, unchanged two-slot/64-KiB controller caps, and joined
+drainage. The in-memory conditional store supplies the archive backend for this
+native matrix. That development pass did not exercise the superseded catalog
+route and is not accepted evidence for removing the receiver check.
+
+`qualification/read-preferences-fault-smoke-eae6b9ee` retains that development
+checkpoint. The formatted candidate adds explicit metadata-denial counts and an
+applied-index observation after the lagged query returns. Strict focused Clippy,
+format/layout, dependency isolation, documentation and all 42 plan tests passed.
+The broader source-bound campaign at input digest
+`b59b054bf26ddf13e409ec0c03adfb65fbe3241788b4829f1a8081a5b17522be`
+accepted 37 individual cases before the added
+`catalog_routed_queries_preserve_invocation_and_authority` case failed at its
+five-second SQL-entry observer, without sampled competing native/compiler work.
+`qualification/read-preferences-regression-failed-b59b054b` retains the complete
+failed campaign, source overlay and exact binaries. An isolated backtrace replay
+reproduced that wait on both this candidate and the retained pre-change
+`64b27b95` executable; those differential records remain at
+`qualification/read-preferences-catalog-differential-b59b-64b2`. A targeted
+precondition assertion confirmed that the held query selected replacement
+group 203 at epoch 2 instead of the installed group 3 at epoch 1. That result
+remains at `qualification/read-preferences-catalog-precondition-red`.
+The fixture now checks cancellation and joins the physical callback before
+publishing the replacement. It separately verifies that a subsequent query
+with the obsolete hint selects the replacement, with no extra SQL callback.
+The original deadlines and ownership assertions are unchanged. Both corrected
+image modes passed in the next campaign before the subsequent failure.
+
+The campaign at input digest
+`62b5ed57cb29be81ff0812d4e3ef2f36571753a99846c7b258a21b270a0e112a`
+accepted 41 individual cases before `shared_remote_queries_bind_cell_versions_and_gateway_owners`
+rejected the manifest-only destination experiment. The exact catalog publication
+replaced the old route while its physical manifest was still active. The gateway
+did not return the required typed refusal. The complete failed campaign is
+retained at `qualification/read-preferences-regression-ci2-failed-62b5ed57`
+(`record.json` SHA-256 `3aecc7595bf55e4de45ba019e4d7572778b35fbd32f2be2a1fb144db910cdb76`).
+The receiver's original catalog check is restored without weakening this test.
+The new lag cut scopes metadata denial to the origin's adapter over the shared
+store, checks actual origin denial and receiver access, and observes a receiver
+range head read on the successful fallback. Both the original superseded-route
+refusal and the revised public matrix passed without sampled interference at
+`f21fdc4930f832c29a5e1b8c42d13848f34927ec82da9d026ebbfedb26ff8c8e`.
+The matrix completed in 40.355 seconds and the independent ledger reconciled
+all 204 events. `qualification/read-preferences-origin-smoke-f21fdc49` retains
+the pre-format source and both binaries. The broader regression of the formatted
+candidate, network partition, RecentSource expiry, full RO-10 and release
+qualification remain open. The RustFS/Colima result below remains pinned to its
+own source.
 
 ## Local container verification
 

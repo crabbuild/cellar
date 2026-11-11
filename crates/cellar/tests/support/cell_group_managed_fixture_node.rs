@@ -24,6 +24,8 @@ impl PaginatedListStore for NoListing {
 pub struct Fixture {
     pub domain: Arc<ExecutionDomain>,
     pub store: Arc<fault::Store>,
+    /// Optional fault adapter for this host over the shared backing store.
+    pub host_store: Option<Arc<fault::Store>>,
     pub catalog: FleetCatalog,
     pub declaration: RaftNamespaceRegistration,
     pub application: Arc<dyn Application>,
@@ -134,6 +136,7 @@ impl Fixture {
         Ok(Self {
             domain,
             store,
+            host_store: None,
             catalog,
             declaration,
             application,
@@ -290,7 +293,7 @@ impl Fixture {
                     )
                     .into(),
                 )?,
-                store: self.store.clone(),
+                store: self.host_store.as_ref().unwrap_or(&self.store).clone(),
                 application: self.application.clone(),
                 versions: Self::version_keys()?,
             },

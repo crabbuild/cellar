@@ -52,6 +52,76 @@ impl RaftTransport {
             .collect())
     }
 
+    /// Bounded preferences from one route snapshot. The local owner supplies
+    /// its observed leader; ingress-only callers use authenticated, expiring
+    /// advice from this exact configuration and endpoint generation instead.
+    /// Neither observation supplies a cell read proof or destination authority.
+    pub(crate) fn cell_query_candidates(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        limit: usize,
+        local: Option<MemberId>,
+        observed_leader: Option<MemberId>,
+        prefer_leader: bool,
+    ) -> Result<Vec<MemberId>, TransportError> {
+        let state = &self.handle.0;
+        let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let view = if local.is_some() {
+            registry.physical_groups.get(&route.history)
+        } else {
+            registry.cell_query_groups.get(&route.history)
+        }
+        .ok_or(TransportError::UnknownGroup)?
+        .clone();
+        if view.schema_digest != route.schema_digest || limit == 0 {
+            return Err(TransportError::Identity);
+        }
+        if let Some(local) = local {
+            if !view.peers.iter().any(|peer| {
+                peer.replica.member == local
+                    && peer.replica.node == state.runtime.log().limits().node
+            }) {
+                return Err(TransportError::Identity);
+            }
+        }
+        let leader = if local.is_some() {
+            observed_leader
+                .filter(|leader| view.peers.iter().any(|peer| peer.replica.member == *leader))
+        } else if prefer_leader {
+            match state.lookup_cell_leader(&mut registry, &view) {
+                Ok(LeaderLookup::Known(leader)) => Some(leader),
+                Ok(_) | Err(TransportError::StalePeer) => None,
+                Err(error) => return Err(error),
+            }
+        } else {
+            None
+        };
+        let mut members = Vec::with_capacity(limit.min(view.peers.len()));
+        let mut push = |member| {
+            if members.len() < limit && !members.contains(&member) {
+                members.push(member);
+            }
+        };
+        if prefer_leader {
+            if let Some(leader) = leader {
+                push(leader);
+            }
+        }
+        if let Some(local) = local {
+            push(local);
+        }
+        if !prefer_leader {
+            if let Some(leader) = leader {
+                push(leader);
+            }
+        }
+        for peer in &view.peers {
+            push(peer.replica.member);
+        }
+        Ok(members)
+    }
+
     /// Install trusted read destinations for a group without a local consensus
     /// owner, including retained removed-member disks. The caller supplies
     /// discovery; each destination independently checks

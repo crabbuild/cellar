@@ -412,8 +412,16 @@ impl CellQueryInvocation {
         Ok((self.request.invocation, deadline, bytes))
     }
 
-    pub(crate) fn bind_remote_route(&mut self, route: RemoteMutationRoute) {
+    pub(crate) fn bind_remote_route(
+        &mut self,
+        route: RemoteMutationRoute,
+        deadline: u64,
+    ) -> Result<(), CellDispatchError> {
+        self.session
+            .constrain_deadline(deadline)
+            .map_err(CellDispatchError::Routing)?;
         self.remote_route = Some(route);
+        Ok(())
     }
 
     pub fn attempt(&self) -> Option<&CellRouteAttempt> {

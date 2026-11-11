@@ -39,6 +39,10 @@ pub async fn read_cohort_has_fresh_barrier() -> Result<()> {
     optimization::read_cohort_has_fresh_barrier().await
 }
 
+pub async fn read_preferences_preserve_proof() -> Result<()> {
+    optimization::read_preferences_preserve_proof().await
+}
+
 pub async fn run_native() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(request_path(rooted, Arc::new(fault::Store::default()))).await?;

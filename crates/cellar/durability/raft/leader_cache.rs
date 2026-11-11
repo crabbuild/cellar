@@ -310,12 +310,11 @@ impl Cache {
 }
 
 impl RaftTransport {
-    pub(crate) fn cell_command_leader(
+    pub(crate) fn cell_leader(
         &self,
         route: &cellar_logic::cell_group::GroupRoute,
     ) -> Result<LeaderLookup, TransportError> {
         let state = &self.handle.0;
-        let now = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
         let Some(view) = registry.cell_query_groups.get(&route.history).cloned() else {
@@ -324,9 +323,22 @@ impl RaftTransport {
         if view.schema_digest != route.schema_digest {
             return Err(TransportError::Identity);
         }
+        state.lookup_cell_leader(&mut registry, &view)
+    }
+}
+
+impl State {
+    /// Selection and advice must inspect the same immutable route while the
+    /// registry is held. Actual transmission captures and validates it again.
+    pub(super) fn lookup_cell_leader(
+        &self,
+        registry: &mut Registry,
+        view: &Arc<GroupRoute<GroupHistory>>,
+    ) -> Result<LeaderLookup, TransportError> {
+        let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let result = registry
             .leaders
-            .lookup(&view, now, state.options.io_timeout_ms);
+            .lookup(view, now, self.options.io_timeout_ms);
         if let LeaderLookup::Known(member) = result {
             let peer = view
                 .peers
@@ -341,15 +353,12 @@ impl RaftTransport {
             {
                 return Err(TransportError::StalePeer);
             }
-            state
-                .performance
+            self.performance
                 .increment(super::super::performance::Counter::CellLeaderAdviceHits, 1);
         }
         Ok(result)
     }
-}
 
-impl State {
     pub(super) fn remember_cell_leader(
         &self,
         route: &Arc<GroupRoute<GroupHistory>>,

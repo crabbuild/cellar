@@ -105,6 +105,7 @@ impl Cluster {
         let mut first = Fixture::with_store(rooted, class, store).await?;
         if let Some(filesystem) = first_filesystem {
             first.filesystem = filesystem;
+            first.host_store = Some(Arc::new(fault::Store::around(first.store.clone())));
         }
         let mut apis = Vec::new();
         let mut applications = Vec::new();

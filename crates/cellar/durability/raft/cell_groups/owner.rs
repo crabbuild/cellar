@@ -877,7 +877,10 @@ impl CellGroupOwner {
         }
     }
 
-    pub(super) fn observe(&self) -> Result<super::CellGroupObservation, RuntimeError> {
+    pub(super) fn observe(
+        &self,
+        queued_linearizable_reads: usize,
+    ) -> Result<super::CellGroupObservation, RuntimeError> {
         use crate::application::consensus::RaftReplicaRole;
         self.live()?;
         let cache = self.group.read()?;
@@ -910,6 +913,7 @@ impl CellGroupOwner {
                 index: LogIndex::new(checkpoint.index),
             },
             retained_entries: cache.entries.len(),
+            queued_linearizable_reads,
             cells: self.current.marker().root().cells(),
             archive_required: cache.archive_required,
         })
@@ -2107,6 +2111,7 @@ impl CellGroupOwner {
     pub(super) fn read_forwarded_cell_index(
         &mut self,
         context: Vec<u8>,
+        first_submission: bool,
     ) -> Result<(), RuntimeError> {
         if super::runtime::reads::cell_origin(&context) != Some(self.membership_read_origin()) {
             return Err(RuntimeError::Invalid("cell read origin".into()));
@@ -2120,9 +2125,12 @@ impl CellGroupOwner {
             return Err(RuntimeError::Overloaded);
         }
         self.node.read_index(context);
-        self.log
-            .performance()
-            .increment(crate::raft::performance::Counter::CellReadBarriers, 1);
+        use crate::raft::performance::Counter;
+        let performance = self.log.performance();
+        performance.increment(Counter::CellReadBarriers, 1);
+        if first_submission {
+            performance.increment(Counter::CellReadCohortsStarted, 1);
+        }
         Ok(())
     }
 

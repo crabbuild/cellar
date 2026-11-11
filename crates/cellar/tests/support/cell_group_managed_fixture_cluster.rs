@@ -49,6 +49,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
     Ok(Fixture {
         domain: f.domain.clone(),
         store: Arc::new(fault::Store::around(f.store.clone())),
+        host_store: None,
         catalog: f.catalog.clone(),
         declaration: f.declaration.clone(),
         application: f.application.clone(),

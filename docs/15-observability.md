@@ -44,12 +44,12 @@ Raft metrics endpoint. The [operations contract](design/multi-raft/operations-de
 defines the measurements, sampling failures and byte exclusions. These are
 owner observations, not command receipts or physical-device I/O accounting.
 
-`cell_linearizable_read_barriers` counts actual cell ReadIndex submissions to
-the local Raft owner, including forwarded retries. `cell_linearizable_read_cohort_joins`
-counts reads that joined a still-uninitiated cohort. Each read retains its own
-deadline and image pin; these counters do not establish quorum freshness or a
-reusable leadership lease. Low-traffic or intervening control work can require
-one barrier per read.
+`cell_linearizable_read_barriers` counts cell ReadIndex submissions to the
+local Raft owner, including forwarded retries.
+`cell_linearizable_read_cohorts_started` counts the first submission for each
+cohort. `cell_linearizable_read_cohort_joins` counts reads added before that
+first submission. Each read retains its own deadline and image pin. A local
+group observation reports linearizable reads waiting in the actor queue.
 
 ## Event-delivery observations
 

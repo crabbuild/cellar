@@ -13,8 +13,8 @@ use std::time::Duration;
 pub enum CellQueryRouting {
     #[default]
     Local,
-    /// Use the local replica when present. On an ingress-only node, try
-    /// the installed trusted group route within the original attempt budget.
+    /// Prefer an observed leader for linearizable reads and a local replica
+    /// for other modes. Eligible fallbacks share the original attempt budget.
     Automatic,
     /// One to eight distinct members; attempt_timeout is positive and no larger
     /// than the original timeout. Missing leader advice never grants authority.
@@ -102,6 +102,10 @@ impl CellQueryInvocation {
 
     pub(crate) fn routing(&self) -> CellQueryRouting {
         self.routing.clone()
+    }
+
+    pub(crate) fn prefers_leader(&self) -> bool {
+        matches!(self.request.consistency, CellQueryConsistency::Linearizable)
     }
 
     pub(crate) fn leader_hint(&self) -> Option<MemberId> {
