@@ -1100,7 +1100,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let input = serde_json::to_vec(&json!({"delta": 3, "gate": 0, "after": 5, "invocation": 1}))?;
             let (resumed, interleaved) =
                 tokio::join!(cell.command(&update, input.clone(), options(239)?), async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await.context("RPC gate 0 entered")?;
                     ensure!(saved_context
                         .lock()
                         .unwrap()
@@ -1142,8 +1142,8 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     short,
                 ),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await?;
-                    cellar::asyncrt::timeout(TIMEOUT, gates[1].dropped.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await.context("RPC gate 1 entered")?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[1].dropped.notified()).await.context("RPC gate 1 dropped")?;
                     Ok::<_, anyhow::Error>(())
                 },
             );
@@ -1162,7 +1162,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     long,
                 ),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[2].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[2].entered.notified()).await.context("RPC gate 2 entered")?;
                     let group = cluster.hosts[leader].group(group)?;
                     let status = group.replication_status(TIMEOUT).await?;
                     let target = (leader + 1) % 3;
@@ -1176,7 +1176,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                             TIMEOUT,
                         )
                         .await?;
-                    cellar::asyncrt::timeout(TIMEOUT, gates[2].dropped.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[2].dropped.notified()).await.context("RPC gate 2 dropped")?;
                     gates[2].release.notify_one();
                     Ok::<_, anyhow::Error>(target)
                 },
@@ -1238,7 +1238,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let (sequence_result, observed) = tokio::join!(
                 current.command(&sequence, sequence_input.clone(), strong.clone()),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[3].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[3].entered.notified()).await.context("RPC gate 3 entered")?;
                     let first = current
                         .query(
                             ProposalId::new([224; 16])?,
@@ -1284,7 +1284,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     }
                 ),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[4].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[4].entered.notified()).await.context("RPC gate 4 entered")?;
                     let first = current
                         .query(
                             ProposalId::new([222; 16])?,
@@ -1315,7 +1315,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                             TIMEOUT,
                         )
                         .await?;
-                    cellar::asyncrt::timeout(TIMEOUT, gates[4].dropped.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[4].dropped.notified()).await.context("RPC gate 4 dropped")?;
                     gates[4].release.notify_one();
                     Ok::<_, anyhow::Error>((destination, first.version))
                 },
@@ -1385,7 +1385,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let (synced, first) = tokio::join!(
                 recovered.command(&sync, sync_input.clone(), strong.clone()),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[5].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[5].entered.notified()).await.context("RPC gate 5 entered")?;
                     let observed = recovered.query(
                         ProposalId::new([208; 16])?, &recovered.contract("Get")?, Vec::new(),
                         QueryOptions::default(),
@@ -1396,8 +1396,8 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     Ok::<_, anyhow::Error>(observed.version)
                 },
             );
-            let first = first?;
-            let synced = synced?;
+            let synced = synced.context("awaited S3 sync command")?;
+            let first = first.context("awaited S3 sync observer")?;
             ensure!(synced.result == b"196" && synced.durability == Durability::S3);
             ensure!(synced.version.sequence.get() == first.sequence.get() + 1);
             let factories = calls.load(Ordering::Acquire);
@@ -1422,7 +1422,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let (lost, moved) = tokio::join!(
                 recovered.command(&sync, lost_input.clone(), multiple(205)?),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[6].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[6].entered.notified()).await.context("RPC gate 6 entered")?;
                     let committed = cellar::asyncrt::timeout(TIMEOUT, async {
                         loop {
                             let observed = recovered.query(
@@ -1446,7 +1446,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                         target: MemberId::new(successor as u64 + 1)?, expected_term: status.term,
                         expected_revision: status.membership_revision,
                     }, TIMEOUT).await?;
-                    cellar::asyncrt::timeout(TIMEOUT, gates[6].dropped.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[6].dropped.notified()).await.context("RPC gate 6 dropped")?;
                     gates[6].release.notify_one();
                     Ok::<_, anyhow::Error>((successor, committed))
                 },
