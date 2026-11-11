@@ -4,6 +4,80 @@
 use super::*;
 use cellar::application::consensus::verification::{cell_groups::CellRoutingFailure, CatalogError};
 
+use std::sync::atomic::AtomicBool;
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Caller {
+    Sdk,
+    Native,
+    Axum,
+}
+
+fn http_request(
+    caller: Caller,
+    ingress: &Ingress<'_>,
+    name: &str,
+    options: &CommandOptions,
+) -> reqwest::RequestBuilder {
+    ingress
+        .client
+        .post(format!(
+            "{}?delta=1",
+            ingress
+                .web
+                .url(INGRESS, matches!(caller, Caller::Axum), name)
+        ))
+        .header(
+            "x-command-id",
+            format!(
+                "{}:{}",
+                hex::encode(options.id.client.bytes()),
+                options.id.sequence()
+            ),
+        )
+        .header("x-retry-until-ms", options.retry_until_ms)
+        .header("x-write-durability", "s3")
+}
+
+async fn delayed_request(
+    caller: Caller,
+    ingress: &Ingress<'_>,
+    history: CellHistory,
+    name: &str,
+    options: CommandOptions,
+) -> Result<()> {
+    ensure!(options.durability == Durability::S3 && options.timeout == TIMEOUT);
+    match caller {
+        Caller::Sdk => {
+            let handle = ingress.cluster.hosts[INGRESS].cell(history)?;
+            let id = options.id;
+            let refused = handle
+                .command(
+                    &handle.contract("Increment")?,
+                    1_i64.to_be_bytes().to_vec(),
+                    options,
+                )
+                .await
+                .err()
+                .context("superseded lookup must refuse before dispatch")?;
+            ensure!(refused.command == id && !refused.ambiguous);
+            ensure!(
+                matches!(refused.cause.as_ref(), CellDispatchError::Routing(error)
+                if matches!(&error.reason, CellRoutingFailure::Catalog(CatalogError::Conflict("superseded routing observation"))))
+            );
+        }
+        Caller::Native | Caller::Axum => {
+            http::Web::send(
+                http_request(caller, ingress, name, &options),
+                format!("delayed old lookup {caller:?} cell={name}"),
+            )
+            .await?
+            .refused(503, "Unavailable")?;
+        }
+    }
+    Ok(())
+}
+
 struct Release(Vec<Arc<fault::RegistryGate>>);
 
 impl Drop for Release {
@@ -33,6 +107,7 @@ pub(super) async fn exercise(
     rooted: bool,
     workers: &mut Vec<RaftFleetTransitionService>,
     roots: &mut Vec<tempfile::TempDir>,
+    caller: Caller,
 ) -> Result<()> {
     let Prepared {
         mut cells,
@@ -48,13 +123,17 @@ pub(super) async fn exercise(
         client: &client,
         retry,
     };
-    // Keep the soon-to-split interval cold at this ingress. The other interval
-    // is already a verified cache entry when publication/generation advances.
-    for index in order[3..].iter().copied() {
-        ingress
-            .write(&mut cells[index], &first[1], index, None)
-            .await?;
-    }
+    // No query-router worker can steal the first physical lookup. The other
+    // range is warmed below, after this caller owns its old head response.
+    let usage = cluster.hosts[INGRESS].resource_usage();
+    ensure!(
+        usage.host.controller.groups == 0
+            && usage
+                .transport
+                .context("cold ingress transport")?
+                .router_routes
+                == 0
+    );
     let old_index = order[0];
     let new_index = order[1];
     let directory = &cluster.directory;
@@ -78,7 +157,10 @@ pub(super) async fn exercise(
     let head_gate = Arc::new(fault::RegistryGate::default());
     let before_callbacks = callbacks.load(Ordering::Acquire);
     let old_options = options(old_index, cells[old_index].sequence, retry)?;
-    let original_id = old_options.id;
+    let replay_options = old_options.clone();
+    let old_name = cells[old_index].name;
+    let unchanged_history = cells[order[5]].history.clone();
+    let unchanged_receipt = cells[order[5]].original.clone();
     let old_history = cells[old_index].history.clone();
     let fresh_history = cells[new_index].history.clone();
     let mut fresh_options = options(new_index, cells[new_index].sequence, retry)?;
@@ -101,18 +183,55 @@ pub(super) async fn exercise(
         head_gate.armed.store(true, Ordering::Release);
         *ingress_store.routing_read_after.lock().unwrap() =
             Some((object_store::path::Path::from(head), head_gate.clone()));
-        let old = cluster.hosts[INGRESS].cell(old_history)?;
-        let old = old.command(
-            &old.contract("Increment")?,
-            1_i64.to_be_bytes().to_vec(),
-            old_options,
-        );
+        let old_done = AtomicBool::new(false);
+        let old = async {
+            let result =
+                delayed_request(caller, &ingress, old_history, old_name, old_options).await;
+            old_done.store(true, Ordering::Release);
+            result
+        };
         let fresh_work = async {
             let _release = Release(vec![publication.clone(), head_gate.clone()]);
             tokio::time::timeout_at(deadline, head_gate.entered.notified())
                 .await
                 .context("public command holds the old physical head response")?;
-            ensure!(callbacks.load(Ordering::Acquire) == before_callbacks);
+            ensure!(
+                !old_done.load(Ordering::Acquire)
+                    && callbacks.load(Ordering::Acquire) == before_callbacks
+            );
+            let unchanged = cluster.hosts[INGRESS].cell(unchanged_history)?;
+            let read = unchanged
+                .query(
+                    ProposalId::new([246; 16])?,
+                    &unchanged.contract("Get")?,
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::AtLeast(
+                            unchanged_receipt.version_token.clone(),
+                        ),
+                        timeout: deadline.saturating_duration_since(tokio::time::Instant::now()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            ensure!(
+                read.result == unchanged_receipt.result
+                    && read.witness == unchanged_receipt.witness
+            );
+            tokio::time::timeout_at(deadline, async {
+                while cluster.hosts[INGRESS]
+                    .resource_usage()
+                    .host
+                    .controller
+                    .ordinary
+                    .items
+                    > 1
+                {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .context("unrelated query owner drained within original call window")?;
             publication.resume.notify_one();
             let operation = hex::encode([138; 16]);
             let namespace = hex::encode(cluster.history.namespace.bytes());
@@ -146,18 +265,19 @@ pub(super) async fn exercise(
                 receipt.witness.group.group == GroupId::new([140; 16])?
                     && receipt.result == 2_i64.to_be_bytes()
             );
+            ensure!(
+                !old_done.load(Ordering::Acquire),
+                "old request completed before physical response release"
+            );
             let before_rpc = command_rpcs(&cluster.hosts[INGRESS])?;
             Ok::<_, anyhow::Error>((before_rpc, receipt))
         };
         let (outcome, fresh) = tokio::join!(old, fresh_work);
         let (before_rpc, receipt) = fresh?;
-        let refused = outcome
-            .err()
-            .context("superseded lookup must refuse before dispatch")?;
-        ensure!(refused.command == original_id);
+        outcome?;
         ensure!(
-            matches!(refused.cause.as_ref(), CellDispatchError::Routing(error)
-            if matches!(&error.reason, CellRoutingFailure::Catalog(CatalogError::Conflict("superseded routing observation"))))
+            tokio::time::Instant::now() < deadline,
+            "refusal arrived after the original call window"
         );
         let after_rpc = command_rpcs(&cluster.hosts[INGRESS])?;
         ensure!(
@@ -194,6 +314,24 @@ pub(super) async fn exercise(
         directory_lookups(cluster)? == before,
         "old lookup displaced the newer covering child"
     );
+    if !matches!(caller, Caller::Sdk) {
+        let before_callbacks = callbacks.load(Ordering::Acquire);
+        let receipt = http::Web::send(
+            http_request(caller, &ingress, old_name, &replay_options),
+            format!("same-ID delayed HTTP reconciliation {caller:?}"),
+        )
+        .await?
+        .success()?;
+        http::value(&receipt, old_name, cells[old_index].value)?;
+        ensure!(
+            receipt["durability"] == "s3"
+                && receipt["group"] == hex::encode(children[0].history.group.bytes())
+        );
+        ensure!(
+            callbacks.load(Ordering::Acquire) == before_callbacks
+                && directory_lookups(cluster)? == before
+        );
+    }
     let untouched = order[5];
     for adapter in [false, true] {
         let before = directory_lookups(cluster)?;
@@ -206,6 +344,6 @@ pub(super) async fn exercise(
         );
     }
     verify(cluster, web, &client, &cells, &current, retry, callbacks).await?;
-    eprintln!("public old lookup extents={rooted}: physical old-head GET crossed live split publication; fresh child generation refused stale completion without an RPC; original ID replay and unrelated cache retained");
+    eprintln!("public old lookup caller={caller:?}, extents={rooted}: physical old-head GET crossed live split publication; fresh child generation refused stale completion without an RPC; original ID replay and unrelated cache retained");
     Ok(())
 }

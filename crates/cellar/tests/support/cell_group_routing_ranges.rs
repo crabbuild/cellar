@@ -32,7 +32,7 @@ mod old_lookup;
 #[derive(Clone, Copy, Debug)]
 enum Case {
     Overlap,
-    OldLookup,
+    OldLookup(old_lookup::Caller),
 }
 
 pub(super) async fn split_repairs_only_overlap() -> Result<()> {
@@ -40,7 +40,14 @@ pub(super) async fn split_repairs_only_overlap() -> Result<()> {
 }
 
 pub(super) async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
-    run(Case::OldLookup).await
+    for caller in [
+        old_lookup::Caller::Sdk,
+        old_lookup::Caller::Native,
+        old_lookup::Caller::Axum,
+    ] {
+        run(Case::OldLookup(caller)).await?;
+    }
+    Ok(())
 }
 
 async fn run(case: Case) -> Result<()> {
@@ -123,7 +130,7 @@ async fn run(case: Case) -> Result<()> {
                     ))
                     .await
                 }
-                Case::OldLookup => {
+                Case::OldLookup(caller) => {
                     Box::pin(old_lookup::exercise(
                         &cluster,
                         web.as_ref().context("live range HTTP owners")?,
@@ -131,6 +138,7 @@ async fn run(case: Case) -> Result<()> {
                         rooted,
                         &mut workers,
                         &mut roots,
+                        caller,
                     ))
                     .await
                 }

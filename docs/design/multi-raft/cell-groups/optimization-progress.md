@@ -70,7 +70,7 @@ and its named RO/RL cases remain the acceptance contract:
 | Package | Outstanding delivery |
 | --- | --- |
 | OPT-01 | Finish smallest-scope negative-path repair and validate membership, public authority isolation and ambiguous outcomes; RO-01/02 runtime cases pass below, while broader RO-03/04/07/08 gates remain open |
-| OPT-02 | Selected public RO-05 interval-repair and RO-06 SDK split oracles pass below; HTTP/recovery lookup cuts and remaining demand-refresh qualification stay open |
+| OPT-02 | Selected public RO-05 interval-repair and RO-06 SDK/native HTTP/Axum split oracles pass below; recovery lookup cuts and remaining demand-refresh qualification stay open |
 | OPT-03 | Automatic consistency-aware selection and bounded fallback candidate below; public network partition/RecentSource expiry and full RO-10 acceptance remain open; the public RO-11 cohort oracle passes at its source checkpoint below |
 | OPT-04 | Physical shared-file/segment release proof and once-only accounting qualification; RL-01 through RL-05 |
 | OPT-05 | Load telemetry, reserve-aware placement and repeated release-scale movement; RL-06 |
@@ -1103,3 +1103,39 @@ Standby repair and failed-voter repair were disabled, so these are not full CG-1
 results. The scope is separate Linux cgroups and disks in one VM; no independent
 failure-domain or performance claim follows. This Linux image does not qualify
 the later `5e71d680` test source.
+
+
+## Public HTTP delayed-lookup checkpoint
+
+Source manifest `2ed2a24c` passed the RO-06 live split oracle through SDK, native
+HTTP and Axum in both image modes: six fresh RF3 scenarios in 186 seconds. Each
+old command held the actual backend-selected directory head response across
+publication. Before releasing it, a fresh Quorum command installed the activated
+child's route. Stale completion refused within the original five-second call
+window without another application RPC or callback. HTTP callers received the
+exact `503 Unavailable` response; SDK callers retained their original ID and
+nonambiguous superseded-observation error.
+
+Reconciliation retained the original S3 command identity and fingerprint, reused
+the newer covering child and returned the exact logical result. HTTP replay of
+that same request added no callback or directory lookup. An unrelated interval
+was warmed while the old response was held and remained usable after publication.
+Current child voters retained the expected SQL values, member/node identities,
+original receipts and historical cell data witnesses.
+
+The same retained binaries passed RO-05 in both modes, all 11 native scheduler
+cases and all eight earlier routing cases, including probe ownership, read
+preferences and fresh cohorts. Focused periodic settlement, physical segment
+credit, cold refresh and election cases also passed. Strict library/six-target
+Clippy, formatting, layout, native dependency and documentation checks passed.
+Evidence is in `live-old-lookup-http-2ed2a24c`, with source inputs, working patch,
+CI profiles and retained executable hashes. The nine opt-in RustFS scheduler
+cases were ignored in this native suite; the separately recorded constrained
+Linux/RustFS checkpoint remains source `fc2e5e15`.
+
+This accepts the selected delayed-lookup split surfaces, not recovery cutover,
+complete routing authority/ambiguous-outcome qualification or a full OPT package.
+Earlier startup/deadline failures remain retained; this passing run does not
+identify their cause. PR #166 has since advanced to `02d71c81`; its native
+activation/configuration integration and additional startup/tick observations
+require their own composed-source qualification.
