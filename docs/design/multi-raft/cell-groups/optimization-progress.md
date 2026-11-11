@@ -1492,3 +1492,43 @@ Linux voters with adequate parent-VM memory and unchanged per-voter caps.
 Endpoint-only repair remains an isolated, unqualified draft. The authority,
 recovery, reclamation, placement, scheduling and final matrix gates listed
 above remain open; none of OPT-01 through OPT-08 is accepted as complete.
+
+## Current-source RustFS routing and primitive campaign
+
+The seven-case `rustfs-current95-composed-20261111` campaign at revision
+`920380f6`, source `95db97a5`, remains **failed**. It used the exact retained
+native routing executable `d528f992`, primitive executable `e09a5d96` and
+operator CLI `5717a275`; full hashes and source inputs are retained in its
+record. Each independent case used fresh fixtures and separate object
+subprefixes. Continuing the remaining cases did not retry failed mutations.
+
+Both split-overlap image modes passed in 127.504 seconds, with two validated
+observations. All four ordinary primitive cases passed against real RustFS:
+JSON RPC in 63.012 seconds, activation/cache/restart in 160.206 seconds,
+interleaving between proven roots in 164.111 seconds, and canonical SDK
+source-proof dispatch in 71.749 seconds. These results do not retrospectively
+explain the older intermittent Busy or Overloaded records.
+
+Membership completed both SDK image-mode interactions, then failed initial
+readiness in the next, native-HTTP/materialized fixture after 55.099 seconds.
+All three groups were attached in term one, with no leader and applied,
+committed and persisted index one. Their observed file syncs had completed.
+Attachment consumed about 2.9 seconds of the original five-second startup
+window, leaving about 2.1 seconds for fresh quorum; readiness correctly remained
+unconfirmed. This differs from the native source-`95db97a5` probe-storm failure:
+its three groups had not attached, with one retained preparation per node and
+`NotFound` runtime observations. Neither snapshot establishes a causal fix.
+
+Delayed lookup completed all four SDK/native-HTTP image-mode interactions,
+then failed cell enrollment while preparing the Axum/materialized fixture,
+before that fixture's lookup race. The case failed after 281.479 seconds with
+ambiguous `Runtime(DeadlineExceeded)`. This is distinct from the earlier
+native-HTTP/extents fresh Quorum-anchor refusal. Four observations are retained;
+the complete six-scenario gate remains unsatisfied.
+
+RustFS retained its pinned image, one CPU, 2 GiB and no additional swap. The
+owned parent VM was restored to four CPUs/14 GiB before the campaign, without
+changing voter or store caps. Host compilation and a later owned Linux build
+ran concurrently; no performance or scheduling-causality claim follows from
+these checks. Matching Linux execution and the remaining optimization gates
+above remain open.
