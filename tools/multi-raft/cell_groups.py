@@ -56,6 +56,7 @@ SUITES = {
         (
             "rustfs_ordinary_json_rpc_uses_raft_owned_context",
             "rustfs_ordinary_cell_activation_cache_is_bounded_and_fenced",
+            "rustfs_ordinary_cell_rpcs_interleave_between_proven_roots",
         ),
         "ordinary JSON cell RPC, Storage checkpoints and bounded native activation on shared RF3",
         "Both image modes. Checkpoints use two cells sharing a group and one SQL worker per node. "
@@ -66,7 +67,10 @@ SUITES = {
         "A second case checks persistent native instances across RPCs, expired invocation handles, "
         "global eviction across two SQL workers, real sixty-second idle expiry, leader fencing, "
         "retained RF3 restart and receipt replay without constructing another instance. "
-        "Declared bindings, same-cell interleaving, other primitive families, process "
+        "A third case interleaves same-client invocations on one native instance between proven "
+        "roots, reopens the latest image, holds private DML/DDL and atomic transactions exclusive, "
+        "and fences a parked continuation after leader transfer. It runs Quorum and explicit S3. "
+        "Declared bindings, automatic dispatch gates, other primitive families, process "
         "faults, disk-loss recovery and full CG-17 acceptance remain separate gates.",
     ),
     "managed-scheduler-fanout": (

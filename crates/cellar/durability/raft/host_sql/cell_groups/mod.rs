@@ -342,6 +342,7 @@ pub struct CellSqlUsage {
     /// Independent progress budget; not included in SQL producer retention.
     pub apply_retained_bytes: usize,
     pub apply_retained_operations: usize,
+    /// Exclusive writer leases; parked invocations remain charged in retained_operations.
     pub active_cells: usize,
     pub idle_activations: usize,
     pub retained_activations: usize,

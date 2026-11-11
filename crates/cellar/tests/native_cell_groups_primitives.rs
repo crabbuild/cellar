@@ -26,6 +26,8 @@ pub mod catalog_fault;
 mod activations;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
+#[path = "support/cell_group_interleaving.rs"]
+mod interleaving;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
@@ -1256,6 +1258,45 @@ async fn rustfs_ordinary_cell_activation_cache_is_bounded_and_fenced() -> Result
         Box::pin(activations::run(rooted, store))
             .await
             .with_context(|| format!("activation cache RustFS extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_cell_rpcs_interleave_between_proven_roots() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            Box::pin(interleaving::run(
+                rooted,
+                durability,
+                Arc::new(catalog_fault::Store::default()),
+            ))
+            .await
+            .with_context(|| format!("interleaving extents={rooted} durability={durability:?}"))?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ordinary_cell_rpcs_interleave_between_proven_roots() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+                if durability == Durability::S3 {
+                    "ordinary-interleaving-s3"
+                } else {
+                    "ordinary-interleaving-quorum"
+                },
+                rooted,
+            )?));
+            Box::pin(interleaving::run(rooted, durability, store))
+                .await
+                .with_context(|| {
+                    format!("RustFS interleaving extents={rooted} durability={durability:?}")
+                })?;
+        }
     }
     Ok(())
 }

@@ -451,6 +451,10 @@ impl Storage {
     /// checkpoint and required archive proof. Nested callbacks own savepoints
     /// within that root. A later RPC failure preserves already committed roots;
     /// retries of an unfinished invocation cannot reexecute those callbacks.
+    /// Between proven roots, an invocation waiting without private SQL changes
+    /// can yield to another request for the same cell. Its next poll opens the
+    /// latest committed image under its original invocation and leader fence.
+    /// An open transaction or private continuation retains exclusive ownership.
     pub fn transaction<T, F, Fut>(&self, context: &Context, callback: F) -> HandlerFuture<T>
     where
         T: Send + 'static,

@@ -46,6 +46,14 @@ enum Cleanup {
 }
 
 impl Resources {
+    pub(crate) fn raft_can_park(&self) -> bool {
+        !self.retired.load(Ordering::Acquire)
+            && self.open_transaction.lock().unwrap().is_none()
+            && self.transaction.lock().unwrap().is_none()
+            && self.cleanup.lock().unwrap().is_empty()
+            && !self.filesystem.has_live()
+    }
+
     pub(crate) fn business_closed(&self) -> bool {
         self.erasure_closed.load(Ordering::Acquire) || self.source_closed.load(Ordering::Acquire)
     }

@@ -11,13 +11,20 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 const IDLE_MILLIS: u64 = 60_000;
 const PRUNE_PER_TURN: usize = 8;
 
+#[derive(Clone)]
 pub(super) struct RpcActivation {
     pub activation: Option<CellRpcActivation>,
-    pub permit: Option<OwnedSemaphorePermit>,
+    pub permit: Option<Arc<OwnedSemaphorePermit>>,
     pub fence: CellActivationFence,
 }
 
 impl RpcActivation {
+    fn shared(&self) -> bool {
+        self.activation
+            .as_ref()
+            .is_some_and(CellRpcActivation::shared)
+    }
+
     pub(super) fn close(mut self) -> Result<(), ExecutionError> {
         self.activation.take().map_or(Ok(()), |activation| {
             activation.close().map_err(crate::raft::execution::storage)
@@ -65,15 +72,20 @@ impl RpcCache {
     fn retire(&self, value: RpcActivation) -> Result<(), ExecutionError> {
         let result = value.close();
         if let Err(error) = &result {
-            self.closed.store(true, Ordering::Release);
-            self.slots.close();
-            self.state
-                .lock()
-                .map_err(|_| unavailable())?
-                .failure
-                .get_or_insert_with(|| error.to_string());
+            self.record_failure(error)?;
         }
         result
+    }
+
+    pub(super) fn record_failure(&self, error: &ExecutionError) -> Result<(), ExecutionError> {
+        self.closed.store(true, Ordering::Release);
+        self.slots.close();
+        self.state
+            .lock()
+            .map_err(|_| unavailable())?
+            .failure
+            .get_or_insert_with(|| error.to_string());
+        Ok(())
     }
 
     pub(super) fn take(
@@ -95,13 +107,11 @@ impl RpcCache {
             prior
         };
         if let Some(prior) = prior {
-            if now.saturating_sub(prior.at) < IDLE_MILLIS
+            if (prior.value.shared() || now.saturating_sub(prior.at) < IDLE_MILLIS)
                 && prior.value.fence.accepts(authority)
-                && prior
-                    .value
-                    .activation
-                    .as_ref()
-                    .is_some_and(|activation| class.accepts_cell_activation(activation))
+                && prior.value.activation.as_ref().is_some_and(|activation| {
+                    activation.live() && class.accepts_cell_activation(activation)
+                })
             {
                 return Ok(prior.value);
             }
@@ -125,10 +135,20 @@ impl RpcCache {
         }
         let evicted = {
             let mut state = self.state.lock().map_err(|_| unavailable())?;
-            state
+            let selected = state
                 .order
-                .pop_first()
-                .and_then(|(_, cell)| state.idle.remove(&cell))
+                .iter()
+                .find(|(_, cell)| {
+                    state
+                        .idle
+                        .get(*cell)
+                        .is_some_and(|idle| !idle.value.shared())
+                })
+                .map(|(serial, cell)| (*serial, cell.clone()));
+            selected.and_then(|(serial, cell)| {
+                state.order.remove(&serial);
+                state.idle.remove(&cell)
+            })
         };
         if let Some(evicted) = evicted {
             self.retire(evicted.value)?;
@@ -151,7 +171,13 @@ impl RpcCache {
         if value.activation.is_none() {
             return value.close();
         }
-        if self.closed.load(Ordering::Acquire) || !value.fence.current() {
+        if self.closed.load(Ordering::Acquire)
+            || !value.fence.current()
+            || value
+                .activation
+                .as_ref()
+                .is_some_and(|activation| !activation.live())
+        {
             return self.retire(value);
         }
         let mut state = self.state.lock().map_err(|_| unavailable())?;
@@ -206,7 +232,22 @@ impl RpcCache {
         };
         for (cell, serial, at, fence) in observations {
             // Never take a group/cache lock while holding the node cache lock.
-            if now.saturating_sub(at) < IDLE_MILLIS && fence.current() {
+            let (shared, live) = self
+                .state
+                .lock()
+                .map_err(|_| unavailable())?
+                .idle
+                .get(&cell)
+                .map_or((false, false), |idle| {
+                    (
+                        idle.serial == serial && idle.value.shared(),
+                        idle.value
+                            .activation
+                            .as_ref()
+                            .is_some_and(CellRpcActivation::live),
+                    )
+                });
+            if live && (shared || now.saturating_sub(at) < IDLE_MILLIS) && fence.current() {
                 continue;
             }
             let expired = {
@@ -230,7 +271,14 @@ impl RpcCache {
     }
 
     pub(in crate::raft::host_sql) fn usage(&self) -> Result<(usize, usize, usize), ExecutionError> {
-        let idle = self.state.lock().map_err(|_| unavailable())?.idle.len();
+        let idle = self
+            .state
+            .lock()
+            .map_err(|_| unavailable())?
+            .idle
+            .values()
+            .filter(|idle| !idle.value.shared())
+            .count();
         let retained = self
             .capacity
             .checked_sub(self.slots.available_permits())

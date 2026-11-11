@@ -12,7 +12,7 @@ use crate::application::{
 use crate::engine_api::RpcData;
 use crate::worker_config::{EgressPolicy, WorkerConfig};
 use anyhow::Result;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub(crate) struct NativeCellFactory {
     factory: Factory,
@@ -79,23 +79,35 @@ trait LiveCell: Send + Sync {
 
     fn invoke(&self, context: Context, invocation: Invocation) -> Result<HandlerFuture<Output>>;
 
-    fn retire(&mut self) -> Result<()>;
+    fn retire(&self) -> Result<()>;
 }
 
-pub(crate) struct CellRpcActivation(Box<dyn LiveCell>);
+#[derive(Clone)]
+pub(crate) struct CellRpcActivation(Arc<dyn LiveCell>);
 
 struct NativeActivation {
     owner: Arc<()>,
-    instance: Option<Arc<dyn Cell>>,
+    instance: Mutex<Option<Arc<dyn Cell>>>,
     resources: Arc<crate::application::storage::Resources>,
 }
 
 impl CellRpcActivation {
+    pub(crate) fn shared(&self) -> bool {
+        Arc::strong_count(&self.0) > 1
+    }
+
+    pub(crate) fn live(&self) -> bool {
+        !self
+            .resources()
+            .retired
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
     pub(crate) fn resources(&self) -> Arc<crate::application::storage::Resources> {
         self.0.resources()
     }
 
-    pub(crate) fn close(mut self) -> Result<()> {
+    pub(crate) fn close(self) -> Result<()> {
         self.0.retire()
     }
 }
@@ -110,15 +122,25 @@ impl LiveCell for NativeActivation {
     }
 
     fn invoke(&self, context: Context, invocation: Invocation) -> Result<HandlerFuture<Output>> {
-        let instance = self.instance.clone().ok_or(CommandFailure::Unavailable)?;
+        let instance = self
+            .instance
+            .lock()
+            .map_err(|_| CommandFailure::Unavailable)?
+            .clone()
+            .ok_or(CommandFailure::Unavailable)?;
         Ok(instance.invoke(context, invocation))
     }
 
-    fn retire(&mut self) -> Result<()> {
+    fn retire(&self) -> Result<()> {
         self.resources
             .retired
             .store(true, std::sync::atomic::Ordering::Release);
-        if let Some(instance) = self.instance.take() {
+        let instance = self
+            .instance
+            .lock()
+            .map_err(|_| CommandFailure::Unavailable)?
+            .take();
+        if let Some(instance) = instance {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(instance)))
                 .map_err(crate::native_worker::panic_error)?;
         }
@@ -126,11 +148,10 @@ impl LiveCell for NativeActivation {
     }
 }
 
-impl Drop for CellRpcActivation {
+impl Drop for NativeActivation {
     fn drop(&mut self) {
-        if let Err(error) = self.0.retire() {
-            self.0
-                .resources()
+        if let Err(error) = self.retire() {
+            self.resources()
                 .failure
                 .lock()
                 .unwrap()
@@ -209,9 +230,9 @@ impl NativeCellFactory {
         } else {
             let context = self.context(identity.clone(), authority.activation());
             let instance = (self.factory)(context, &identity)?;
-            *activation = Some(CellRpcActivation(Box::new(NativeActivation {
+            *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
                 owner: self.identity.clone(),
-                instance: Some(instance),
+                instance: Mutex::new(Some(instance)),
                 resources: authority.resources.clone(),
             })));
         }

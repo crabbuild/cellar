@@ -129,6 +129,7 @@ impl CommandFrame {
 pub(crate) struct ActiveCommand {
     frame: Rc<CommandFrame>,
     inputs: CommandInputs,
+    baseline: RefCell<(u64, i64)>,
 }
 
 impl ActiveCommand {
@@ -192,6 +193,43 @@ impl ActiveCommand {
         Ok(work.active != 0)
     }
 
+    pub(crate) fn can_park(&self) -> Result<bool> {
+        let work = self.frame.work.borrow();
+        if work.active != 0
+            || work.checkpoint.is_some()
+            || self
+                .frame
+                .storage
+                .get()
+                .is_some_and(|storage| !storage.raft_can_park())
+        {
+            return Ok(false);
+        }
+        let connection = self.frame.connection()?;
+        if command_marker(&connection)? != *self.baseline.borrow() {
+            return Ok(false);
+        }
+        // Temporary objects belong to this connection, rather than the durable
+        // image. Preserve their lifetime by keeping its writer installed.
+        super::as_framework_sql(|| {
+            connection.query_row(
+                "SELECT NOT EXISTS(SELECT 1 FROM sqlite_temp_master)",
+                [],
+                |row| row.get(0),
+            )
+        })
+        .map_err(Into::into)
+    }
+
+    pub(crate) fn close_parked(self) -> Result<()> {
+        self.cancel_work()?;
+        ensure!(
+            self.frame.connection.borrow().is_none(),
+            "parked RPC retains SQLite"
+        );
+        Ok(())
+    }
+
     pub(crate) fn take_checkpoint(
         &self,
     ) -> Option<tokio::sync::oneshot::Sender<Result<(), String>>> {
@@ -214,6 +252,13 @@ impl ActiveCommand {
         }
         result
     }
+}
+
+fn command_marker(connection: &Connection) -> Result<(u64, i64)> {
+    let schema = super::as_framework_sql(|| {
+        connection.query_row("PRAGMA main.schema_version", [], |row| row.get(0))
+    })?;
+    Ok((connection.total_changes(), schema))
 }
 
 pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
@@ -449,7 +494,9 @@ impl CommandDatabase {
             .as_ref()
             .context("private SQLite is unavailable")?;
         super::as_storage_transaction(|| connection.execute_batch("BEGIN IMMEDIATE"))?;
+        let baseline = RefCell::new(command_marker(connection)?);
         Ok(ActiveCommand {
+            baseline,
             frame: Rc::new(CommandFrame {
                 connection: RefCell::new(Some(
                     self.connection
@@ -498,7 +545,22 @@ impl CommandDatabase {
             .as_ref()
             .context("checkpoint writer missing")?;
         super::as_storage_transaction(|| connection.execute_batch("BEGIN IMMEDIATE"))?;
+        *active.baseline.borrow_mut() = command_marker(connection)?;
         *active.frame.connection.borrow_mut() = self.connection.take();
+        Ok(())
+    }
+
+    pub(crate) fn park(&mut self, active: &ActiveCommand) -> Result<()> {
+        ensure!(
+            self.connection.is_none() && active.can_park()?,
+            "RPC writer is not quiescent"
+        );
+        {
+            let connection = active.frame.connection()?;
+            super::as_storage_transaction(|| connection.execute_batch("ROLLBACK"))?;
+        }
+        self.connection = active.frame.connection.borrow_mut().take();
+        ensure!(self.connection.is_some(), "parked RPC writer missing");
         Ok(())
     }
 
