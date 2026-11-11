@@ -187,6 +187,128 @@ fn route(fixture: &Fixture, scope: &GroupScope, query: bool) -> anyhow::Result<G
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cell_query_lifetime_fences_removal_configuration_and_selected_endpoint(
+) -> anyhow::Result<()> {
+    use super::super::shared_fixture::Fixture as SharedFixture;
+    use cellar_logic::cell_group::GroupHistory;
+
+    let fixture = SharedFixture::start(TransportOptions::default(), vec![]).await?;
+    let history = GroupHistory {
+        cluster: ClusterId::new([1; 16])?,
+        namespace: NamespaceId::new([2; 16])?,
+        group: GroupId::new([6; 16])?,
+        incarnation: IncarnationId::new([7; 16])?,
+    };
+    let mut selected = Publisher::new(peer(2)?).await?;
+    let mut unrelated = Publisher::new(peer(3)?).await?;
+    for publisher in [&selected, &unrelated] {
+        fixture
+            .transport
+            .accept_node_view(publisher.view().await?, &publisher.peer)?;
+    }
+    fixture.transport.install_cell_query_group(GroupRoute {
+        scope: history,
+        schema_digest: [9; 32],
+        revision: 1,
+        peers: [&selected, &unrelated]
+            .into_iter()
+            .map(|publisher| {
+                let peer = &publisher.peer;
+                RaftPeer {
+                    replica: ReplicaIdentity {
+                        scope: history,
+                        node: peer.node,
+                        member: MemberId::new(if peer.node == selected.peer.node {
+                            2
+                        } else {
+                            3
+                        })
+                        .unwrap(),
+                        disk: peer.disk,
+                        process: peer.process,
+                    },
+                    label: peer.label.clone(),
+                    server_name: peer.server_name.clone(),
+                    control_address: peer.control_address,
+                    data_address: peer.data_address,
+                    query_address: peer.query_address,
+                }
+            })
+            .collect(),
+    })?;
+    let state = &fixture.transport.handle.0;
+    let capture = || {
+        let registry = state.registry.lock().unwrap();
+        let route = registry.cell_query_groups[&history].clone();
+        let peer = route.peers[0].clone();
+        let lifetime = registry.cell_query_lifetime(&route).unwrap();
+        (route, peer, lifetime)
+    };
+    let (entered, target, lifetime) = capture();
+    assert!(state.current_cell_query_route(&entered, &target, &lifetime));
+    unrelated.restart().await?;
+    fixture
+        .transport
+        .accept_node_view(unrelated.view().await?, &unrelated.peer)?;
+    assert!(!Arc::ptr_eq(
+        &entered,
+        &state.registry.lock().unwrap().cell_query_groups[&history]
+    ));
+    assert!(
+        state.current_cell_query_route(&entered, &target, &lifetime),
+        "an unrelated endpoint update preserves this exact selected peer"
+    );
+    assert!(
+        !fixture.transport.evict_idle_cell_query_group(&history)?,
+        "the old immutable snapshot still pins the updated cache lifetime"
+    );
+
+    let mut advanced = (*state.registry.lock().unwrap().cell_query_groups[&history]).clone();
+    advanced.revision += 1;
+    fixture
+        .transport
+        .install_cell_query_group(advanced.clone())?;
+    assert!(
+        !state.current_cell_query_route(&entered, &target, &lifetime),
+        "configuration revision change fences an entered snapshot"
+    );
+    let (before_removal, same_target, old_lifetime) = capture();
+    assert!(state.current_cell_query_route(&before_removal, &same_target, &old_lifetime));
+    fixture.transport.remove_cell_query_group(&history)?;
+    fixture.transport.install_cell_query_group(advanced)?;
+    assert!(
+        !state.current_cell_query_route(&before_removal, &same_target, &old_lifetime),
+        "identical reinstallation cannot revive a removed lifetime"
+    );
+    let (before_restart, old_target, current_lifetime) = capture();
+    assert!(state.current_cell_query_route(&before_restart, &old_target, &current_lifetime));
+    selected.restart().await?;
+    fixture
+        .transport
+        .accept_node_view(selected.view().await?, &selected.peer)?;
+    assert!(
+        !state.current_cell_query_route(&before_restart, &old_target, &current_lifetime),
+        "a selected endpoint update fences its old response"
+    );
+    let (latest, latest_target, latest_lifetime) = capture();
+    assert!(state.current_cell_query_route(&latest, &latest_target, &latest_lifetime));
+    drop((
+        entered,
+        lifetime,
+        before_removal,
+        old_lifetime,
+        before_restart,
+        current_lifetime,
+        latest,
+        latest_lifetime,
+    ));
+    assert!(fixture.transport.evict_idle_cell_query_group(&history)?);
+    selected.close().await?;
+    unrelated.close().await?;
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn process_refresh_is_atomic_across_routes_grants_and_capacity() -> anyhow::Result<()> {
     use crate::raft::storage::GroupBootstrap;
     let scopes = [scope(2)?, scope(3)?, scope(4)?];

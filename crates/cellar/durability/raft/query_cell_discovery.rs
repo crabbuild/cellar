@@ -303,6 +303,10 @@ impl RaftTransport {
         let starts = state.prepare_pools(&mut registry, &physical)?;
         let route = Arc::new(route);
         registry
+            .cell_query_lifetimes
+            .entry(route.scope)
+            .or_insert_with(|| Arc::new(()));
+        registry
             .cell_query_groups
             .insert(route.scope, route.clone());
         if let Some(configuration) = configuration {
@@ -329,6 +333,10 @@ impl RaftTransport {
         state.admit(&registry)?;
         Ok(registry.cell_query_groups.get(history).is_none_or(|route| {
             Arc::strong_count(route) > 1
+                || registry
+                    .cell_query_lifetimes
+                    .get(history)
+                    .is_some_and(|lifetime| Arc::strong_count(lifetime) > 1)
                 || voters.is_none_or(|voters| {
                     voters.len() != route.peers.len()
                         || route.peers.iter().any(|peer| {
@@ -354,10 +362,15 @@ impl RaftTransport {
             .cell_query_groups
             .get(history)
             .is_some_and(|route| Arc::strong_count(route) > 1)
+            || registry
+                .cell_query_lifetimes
+                .get(history)
+                .is_some_and(|lifetime| Arc::strong_count(lifetime) > 1)
         {
             return Ok(false);
         }
         registry.cell_query_groups.remove(history);
+        registry.cell_query_lifetimes.remove(history);
         registry.prune_pools();
         Ok(true)
     }
@@ -370,8 +383,32 @@ impl RaftTransport {
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
         registry.cell_query_groups.remove(history);
+        registry.cell_query_lifetimes.remove(history);
         registry.prune_pools();
         Ok(())
+    }
+}
+
+impl Registry {
+    pub(super) fn cell_query_lifetime(
+        &self,
+        route: &Arc<GroupRoute<GroupHistory>>,
+    ) -> Option<Arc<()>> {
+        if self
+            .physical_groups
+            .get(&route.scope)
+            .is_some_and(|current| Arc::ptr_eq(current, route))
+        {
+            self.physical_owners.get(&route.scope).cloned()
+        } else if self
+            .cell_query_groups
+            .get(&route.scope)
+            .is_some_and(|current| Arc::ptr_eq(current, route))
+        {
+            self.cell_query_lifetimes.get(&route.scope).cloned()
+        } else {
+            None
+        }
     }
 }
 
@@ -380,26 +417,47 @@ impl State {
         &self,
         route: &Arc<GroupRoute<GroupHistory>>,
         peer: &RaftPeer<GroupHistory>,
+        lifetime: &Arc<()>,
     ) -> bool {
         let Ok(runtime) = self.runtime.shared() else {
             return false;
         };
-        match runtime.log().cell_group(&route.scope) {
-            Ok(group) if group.consensus_claimed.load(Ordering::Acquire) => {
-                self.current_physical(route, peer)
-            }
-            Ok(_) | Err(LogError::NotFound) => self.registry.lock().is_ok_and(|registry| {
-                self.admit(&registry).is_ok()
-                    && registry
-                        .cell_query_groups
-                        .get(&route.scope)
-                        .is_some_and(|current| Arc::ptr_eq(current, route))
-                    && registry
-                        .pools
-                        .get(&peer.replica.node)
-                        .is_some_and(|pool| pool.peer.same_host(peer))
-            }),
-            Err(_) => false,
-        }
+        let group = match runtime.log().cell_group(&route.scope) {
+            Ok(group) if group.consensus_claimed.load(Ordering::Acquire) => Some(group),
+            Ok(_) | Err(LogError::NotFound) => None,
+            Err(_) => return false,
+        };
+        self.registry.lock().is_ok_and(|registry| {
+            let (current, current_lifetime) = if group.is_some() {
+                (
+                    registry.physical_groups.get(&route.scope),
+                    registry.physical_owners.get(&route.scope),
+                )
+            } else {
+                (
+                    registry.cell_query_groups.get(&route.scope),
+                    registry.cell_query_lifetimes.get(&route.scope),
+                )
+            };
+            // Another member's endpoint update changes the immutable snapshot,
+            // not this selected peer or cache lifetime. Configuration changes,
+            // explicit removal/reinstall and selected-peer trust still fence it.
+            self.admit(&registry).is_ok()
+                && current_lifetime.is_some_and(|current| Arc::ptr_eq(current, lifetime))
+                && current.is_some_and(|current| {
+                    current.scope == route.scope
+                        && current.schema_digest == route.schema_digest
+                        && current.revision == route.revision
+                        && current.peers.iter().any(|selected| selected == peer)
+                })
+                && registry.check_node_view(&RaftPeerNode::from(peer)).is_ok()
+                && registry
+                    .pools
+                    .get(&peer.replica.node)
+                    .is_some_and(|pool| pool.peer.same_host(peer))
+                && group.as_ref().is_none_or(|group| {
+                    shared::permitted(group, &[group.identity(), &peer.replica]).is_ok()
+                })
+        })
     }
 }

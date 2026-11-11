@@ -408,6 +408,7 @@ impl RaftTransport {
         // advisory route. Revoke its queued route identities under the same
         // registry lock; discovery itself never creates a physical owner.
         registry.cell_query_groups.remove(&route.scope);
+        registry.cell_query_lifetimes.remove(&route.scope);
         registry.physical_owners.insert(route.scope, owner.clone());
         registry.physical_groups.insert(route.scope, route.clone());
         registry.prune_pools();
