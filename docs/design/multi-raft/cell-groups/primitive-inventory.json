@@ -596,6 +596,7 @@
       "id": "auxiliary",
       "family": "other",
       "symbols": [
+        "cellar::sdk::Context::var",
         "cellar::sdk::Context::assets",
         "cellar::sdk::Context::caches",
         "cellar::sdk::Context::loader",
@@ -610,6 +611,7 @@
         "cellar::sdk::html_rewriter::HtmlRewriter"
       ],
       "owners": [
+        "crates/cellar/application/mod.rs",
         "crates/cellar/application/assets.rs",
         "crates/cellar/application/cache.rs",
         "crates/cellar/application/loader.rs",

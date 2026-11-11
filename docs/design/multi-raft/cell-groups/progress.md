@@ -25,6 +25,64 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-17 declared native deployment configuration
+
+Implementation source `ae64adeb` carries native deployment variables through
+ordinary Raft cell construction and invocation. Registry validation compiles one
+immutable definition before activation. Script identity, canonical variable
+values and compatibility switches bind the namespace schema; node identity and
+variable declaration order do not. Revalidation preserves the same factory and
+rejects conflicting values. Factory class identity remains independent of the
+script name.
+
+The one-shot namespace provisioning plan accepts the same configuration. Daemon
+preparation receives its active validated application through
+`NativeRaftNode.application`, avoiding a second unconfigured registry. No existing
+root is rewritten or migrated. Declarations for unimplemented binding, service,
+loader, cron, container and SQLite-vector adapters refuse activation, rather than
+producing an empty environment. Registration failures omit variable values and
+leave a valid retry possible. Admission bounds are 256 variables and 64 KiB of
+script, variable names and values; the CLI plan retains its 16 KiB file limit.
+
+At `f09613c1`, all fourteen owning host tests and nine exact native runtime
+selections pass without ignored or empty selections. The request case takes
+67.414 seconds and the activation case 212.823 seconds, each covering both
+image modes with host-native RF3 TLS. They exercise configuration identity,
+invalid-declaration refusal and values used by actual persisted writes, including
+cache reuse, leader replacement and retained restart. The existing production
+daemon/CLI regression campaign also passes in 100.776 seconds, preserving startup
+refusals, joined closure, retained histories and public SQL requests.
+
+Both exact real-RustFS cases pass at the same source: RPC in 33.615 seconds and
+activation in 166.989 seconds. Both image modes use the native executable SHA256
+`5f51948f00cb1fbc3c02336c9ae265d37f85ca646dcf36c27f6082ffc2ded7b4`.
+The owned, digest-pinned backend has one CPU and 2 GiB with no extra swap. It exits
+zero without OOM; its VM is stopped and target/default VMs are unchanged.
+The RustFS primitive voters are host-native TLS tasks. These runs do not qualify
+constrained voter processes, disk loss, the full compatibility matrix or a
+latency/throughput SLO. The process campaign covers existing synchronous SQL
+classes; separate-process ordinary factory configuration, its CLI provisioning
+and the full feature/deployment matrix remain open.
+
+Strict all-target Clippy, formatting, layout, docs, native dependencies, the
+191-symbol partial catalog, its thirteen verifier tests and all six reviewed
+source anchors pass. Source, executable and log hashes, public RustFS evidence,
+failed controls and verified shutdown are retained under
+`.cellar/cell-groups-evidence/CG-17-configuration-f09613c1-01`.
+
+The first build caught a fixture variable shadowing its command-options helper.
+The first runtime control then correctly refused a different script declaration:
+the fixture had used each voter's label as its deployed script. Its declared
+graph now follows the same configuration on every voter and retained restart,
+while node identities remain distinct. Admission assertions are unchanged and
+failed controls remain retained.
+
+This delivery does not complete ordinary named
+bindings, generation-aware dispatch, same-cell interleaving, automatic output
+barriers, the remaining primitive adapters or the complete CG-17 matrix.
+Acceptance stays **13/17 tasks and 147/195 cases**; none of the full 32 CG-17
+cases is accepted by this component checkpoint.
+
 ## CG-17 persistent native activation
 
 Runtime source `435ecf01` retains ordinary native cell instances across successful

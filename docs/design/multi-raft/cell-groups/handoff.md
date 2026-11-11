@@ -28,12 +28,17 @@ remain open. [Persistent native activation](progress.md#cg-17-persistent-native-
 passes nine scoped native cases at `435ecf01`, including global capacity across
 two SQL workers, real idle expiry, leader fencing and retained RF3 restart.
 Both exact RustFS RPC/activation cases pass at the same source and executable
-hash. The owned backend exits zero without OOM and its VM is stopped. Next complete declared binding
-configuration, same-cell interleaving, automatic output/dispatch gates and remaining Storage methods
+hash. The owned backend exits zero without OOM and its VM is stopped. Source `ae64adeb` compiles declared deployment variables into ordinary factory
+definitions and refuses unsupported adapter declarations before activation;
+the fourteen owning host tests, nine exact native selections, two real-RustFS
+cases and existing public daemon campaign pass at `f09613c1`. Strict all-target
+Clippy and repository checks pass; owned RustFS and its VM are stopped. See the [configuration checkpoint](progress.md#cg-17-declared-native-deployment-configuration).
+Next complete ordinary named bindings, same-cell interleaving, automatic
+output/dispatch gates and remaining Storage methods
 and the compiled export/deployment audit. Binding delivery spans
 `NativeCellFactory::context`, `Registry::validate_configuration` and the typed RPC
 catalog: deployment declarations still treat those factories as Fleet classes.
-Carry declared configuration and generation authority through shared dispatch,
+Complete binding/provider configuration and carry generation authority through shared dispatch,
 then deliver committed due work and family adapters. The catalog remains partial
 and CG-17 acceptance stays open. CG-13 can progress
 independently and still gates task acceptance. The [TiKV optimization proposal](tikv-informed-optimization.md)
