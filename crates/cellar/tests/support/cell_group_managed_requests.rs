@@ -53,6 +53,12 @@ pub async fn unrelated_endpoint_keeps_inflight_reply() -> Result<()> {
     optimization::unrelated_endpoint_keeps_inflight_reply().await
 }
 
+pub async fn unrelated_endpoint_keeps_inflight_reply_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    optimization::unrelated_endpoint_keeps_inflight_reply_with_store(make).await
+}
+
 pub async fn read_first_refreshes_endpoint_with_store(make: RoutingStoreFactory) -> Result<()> {
     optimization::read_first_refreshes_endpoint(Some(make)).await
 }

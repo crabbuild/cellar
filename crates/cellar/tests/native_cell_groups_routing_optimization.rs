@@ -135,6 +135,17 @@ async fn unrelated_endpoint_keeps_inflight_reply() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
+async fn rustfs_unrelated_endpoint_keeps_inflight_reply() -> anyhow::Result<()> {
+    Box::pin(
+        managed_fixture::requests::unrelated_endpoint_keeps_inflight_reply_with_store(
+            rustfs::store,
+        ),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
 async fn rustfs_read_first_refreshes_endpoint() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::read_first_refreshes_endpoint_with_store(rustfs::store))
         .await

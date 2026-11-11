@@ -111,6 +111,12 @@ pub(super) async fn unrelated_endpoint_keeps_inflight_reply() -> Result<()> {
     run(Scenario::EndpointInflight).await
 }
 
+pub(super) async fn unrelated_endpoint_keeps_inflight_reply_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    run_with_store(Scenario::EndpointInflight, Some(make)).await
+}
+
 pub(super) async fn endpoint_refresh_keeps_membership_with_store(
     make: RoutingStoreFactory,
 ) -> Result<()> {
