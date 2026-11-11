@@ -221,13 +221,44 @@ pub(super) async fn exercise(
             .context("fresh child activation before old call expires")??;
             let fresh = cluster.hosts[INGRESS].cell(fresh_history)?;
             fresh_options.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
-            let receipt = fresh
+            let anchor_id = fresh_options.id;
+            let selected_timeout = fresh_options.timeout;
+            let started = tokio::time::Instant::now();
+            let response = fresh
                 .command(
                     &fresh.contract("Increment")?,
                     1_i64.to_be_bytes().to_vec(),
                     fresh_options,
                 )
-                .await?;
+                .await;
+            let elapsed = started.elapsed();
+            if response.is_err() {
+                // Failure-only observations cannot reconcile the command. Inspect
+                // the directory-selected child, not the fixture's retired parent.
+                let observed = tokio::time::timeout(Duration::from_secs(2), async {
+                    let current = domain.run(directory.observe()).await??;
+                    let selected = domain
+                        .run(directory.lookup(&current, &fresh.history().cell))
+                        .await??;
+                    eprintln!("fresh Quorum anchor selected child: {selected:?}");
+                    crate::managed_fixture::diagnostics::record_parts(
+                        &cluster.hosts,
+                        &cluster.fixtures,
+                        selected.history,
+                        "ro06-fresh-anchor",
+                    )
+                    .await;
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await;
+                eprintln!("fresh Quorum anchor failure observation: {observed:?}");
+            }
+            let receipt = response.with_context(|| {
+                format!(
+                    "fresh Quorum child anchor caller={caller:?} extents={rooted} id={anchor_id:?} request_timeout_ms={} request_elapsed_ms={} callback_entries={}",
+                    selected_timeout.as_millis(), elapsed.as_millis(), callbacks.load(Ordering::Acquire)
+                )
+            })?;
             ensure!(
                 receipt.witness.group.group == GroupId::new([140; 16])?
                     && receipt.result == 2_i64.to_be_bytes()

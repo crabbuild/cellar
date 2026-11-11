@@ -112,7 +112,8 @@ async fn value(cell: &RaftCellHandle, proposal: u8) -> Result<i64> {
             Vec::new(),
             QueryOptions::default(),
         )
-        .await?;
+        .await
+        .with_context(|| format!("interleaving committed value proposal={proposal}"))?;
     serde_json::from_slice(&result.result).map_err(Into::into)
 }
 
@@ -173,7 +174,9 @@ pub async fn run(
         .domain
         .run(async {
             let group = cluster.history;
-            let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+            let leader = managed_fixture::leader(&cluster.hosts, group)
+                .await
+                .context("interleaving initial leader")?;
             let cell = cluster.hosts[leader].cell(CellHistory {
                 cluster: group.cluster,
                 namespace: group.namespace,
@@ -187,7 +190,8 @@ pub async fn run(
                 },
                 TIMEOUT,
             )
-            .await?;
+            .await
+            .context("interleaving enroll")?;
             let run = cell.contract("Run")?;
             let mut first = command(187, 1, durability)?;
             first.timeout = Duration::from_secs(20);
@@ -211,7 +215,8 @@ pub async fn run(
                     ensure!(duplicate.is_err() && calls.load(Ordering::Acquire) == 1);
                     let written = cell
                         .command(&run, input("write", 0), second.clone())
-                        .await?;
+                        .await
+                        .context("interleaving second invocation after timed-out duplicate")?;
                     ensure!(written.result == b"3" && value(&cell, 189).await? == 3);
                     ensure!(
                         calls.load(Ordering::Acquire) == 2
@@ -226,16 +231,26 @@ pub async fn run(
                     Ok::<_, anyhow::Error>(written)
                 }
             );
-            let second_result = second_result?;
-            let first_result = first_result?;
+            let second_result = second_result.context("interleaving second invocation flow")?;
+            let first_result = first_result.context("interleaving original waiting invocation")?;
             ensure!(first_result.result == b"[3,13]" && value(&cell, 190).await? == 13);
             ensure!(
                 first_result.durability == durability && second_result.durability == durability
             );
             ensure!(constructors.load(Ordering::Acquire) == 1);
-            ensure!(cell.command(&run, first_input, first).await?.result == first_result.result);
             ensure!(
-                cell.command(&run, input("write", 0), second).await?.result == second_result.result
+                cell.command(&run, first_input, first)
+                    .await
+                    .context("interleaving original waiting receipt replay")?
+                    .result
+                    == first_result.result
+            );
+            ensure!(
+                cell.command(&run, input("write", 0), second)
+                    .await
+                    .context("interleaving second receipt replay")?
+                    .result
+                    == second_result.result
             );
             ensure!(calls.load(Ordering::Acquire) == 2);
 
@@ -270,7 +285,10 @@ pub async fn run(
                 observed?;
                 ensure!(atomic_result.is_err() && value(&cell, 203).await? == baseline);
                 baseline += 2;
-                let result = cell.command(&run, input("write", 0), blocked).await?;
+                let result = cell
+                    .command(&run, input("write", 0), blocked)
+                    .await
+                    .with_context(|| format!("interleaving write after {kind} rollback"))?;
                 ensure!(serde_json::from_slice::<i64>(&result.result)? == baseline);
                 ensure!(constructors.load(Ordering::Acquire) == index + 2);
             }
@@ -297,7 +315,8 @@ pub async fn run(
                             },
                             TIMEOUT,
                         )
-                        .await?;
+                        .await
+                        .context("interleaving transfer leadership")?;
                     cellar::asyncrt::timeout(TIMEOUT, async {
                         loop {
                             let status = cluster.hosts[target].group(group)?.status().await?;
@@ -322,7 +341,8 @@ pub async fn run(
             ensure!(
                 recovered
                     .command(&run, input("write", 0), command(204, 2, durability)?)
-                    .await?
+                    .await
+                    .context("interleaving write after leadership transfer")?
                     .result
                     == json!(baseline + 3).to_string().as_bytes()
             );
@@ -388,7 +408,9 @@ pub async fn run(
             );
             stopped?;
             ensure!(stopped_rpc.is_err());
-            let restarted = managed_fixture::leader(&cluster.hosts, group).await?;
+            let restarted = managed_fixture::leader(&cluster.hosts, group)
+                .await
+                .context("interleaving retained restart leader")?;
             let current = cluster.hosts[restarted].cell(recovered.history().clone())?;
             ensure!(value(&current, 207).await? == baseline + 4);
             let invoked = calls.load(Ordering::Acquire);
@@ -401,7 +423,8 @@ pub async fn run(
             ensure!(
                 current
                     .command(&run, input("write", 0), command(205, 2, durability)?)
-                    .await?
+                    .await
+                    .context("interleaving write after retained restart")?
                     .result
                     == json!(baseline + 6).to_string().as_bytes()
             );
@@ -410,6 +433,9 @@ pub async fn run(
         .await
         .map_err(anyhow::Error::from)
         .and_then(std::convert::identity);
+    if work.is_err() {
+        managed_fixture::diagnostics::record(&cluster, "ordinary-interleaving").await;
+    }
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;

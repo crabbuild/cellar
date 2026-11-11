@@ -1312,3 +1312,65 @@ Linux source. The earlier Linux checkpoint remains `dd0b1060` / `fc2e5e15`.
 Authority/recovery and ambiguous-outcome cuts, partition/RecentSource expiry,
 held-owner reclamation and restart, repeated movement, measured placement and
 scheduling fairness, and the full primitive/performance matrix remain open.
+
+## Failure-boundary follow-up
+
+The retained `fb653fe1` primitive executable subsequently ran against fresh
+RustFS objects. Ordinary JSON RPC passed in 23.348 seconds and activation
+fencing/cache/restart passed in 153.293 seconds. Interleaving between proven
+roots failed in its extent/S3 variant with `Runtime(Overloaded)` after 113.160
+seconds. The original error lacks operation context; it does not identify which
+admission owner refused. The failed record and three fixture disks remain in
+`rustfs-retained-primitives-fb653fe1`. This is another incomplete campaign.
+
+Four fresh native-HTTP/extent delayed-lookup scenarios passed on diagnostic
+source `df233673` in 235.806 seconds. A subsequent original six-scenario run
+on diagnostic source `7fa80620` passed both SDK scenarios, then failed initial
+RF3 readiness before the native-HTTP/materialized split. All three voters
+observed term two, no leader and applied/committed index one. They executed
+43--45 ticks without admission refusals. This is a separate startup failure;
+it did not reproduce or explain the fresh Quorum anchor refusal. Its record
+and disks remain in `ro06-authority-diagnostic-7fa80620`.
+
+Diagnostic source `7afcdfcf` passed four fresh extent/S3 interleaving scenarios
+in 138.711 seconds, then its exact retained executable passed the original four
+Quorum/S3 and materialized/extent variants in 101.629 seconds. Those repetitions
+did not reproduce the overload. Their records remain diagnostic; neither
+supersedes the failed primitive campaign or establishes a causal fix. Command
+identities, fixture capacities, deadlines and assertions were preserved.
+
+Failure reporting now labels interleaving operations and captures bounded
+group/resource observations before shutdown. A failed fresh Quorum anchor
+records its original ID and request timing, then bounds an observation of the
+directory-selected child to two seconds. That observation runs after the
+request has failed; it neither retries the command nor extends its deadline.
+Temporary diagnostic entry points and production debug probes were removed.
+Current-source composed qualification and diagnosis of the retained failures
+remain open, alongside the broader optimization and release gates above.
+
+The resulting permanent-diagnostics source `8b529396` completed the selected
+native campaign in `failure-boundary-native-8b529396`, with the overall record
+retained as **failed**. Strict library/seven-target Clippy, all six membership
+replacement scenarios, the five metric-owner cases, held-sync/park/wake and
+startup/quorum-loss checks passed. All four primitive cases passed in 305.134
+seconds and all 11 scheduler cases in 607.557 seconds. Nine of the ten remaining
+routing cases passed, including all six delayed-lookup scenarios and both
+overlap modes; eight range observations were retained alongside the 18 membership
+observations. Formatting, layout, dependencies, documentation, all 317
+performance-tool tests and all 44 design tests passed, with the opt-in Docker
+tool test skipped. Five test executables and the operator CLI were retained
+and checked against their executed hashes.
+
+`leader_probe_storm_is_bounded` failed initial RF3 readiness before its routing
+race. At the bounded failure observation, all three voters knew leader two in
+term two. The leader had persisted its no-op at index two, but commitment and
+application remained at index one; both followers still had an engine file sync
+and persist operation in progress. There were no tick-admission refusals or
+quarantined groups. Per-member/node election-seed derivation and the elected
+leader do not support identical schedules as this failure's cause. This narrows
+the observed boundary to completing the post-election durable quorum; it does
+not establish a causal storage fix or explain every older startup failure.
+Readiness correctly remained unconfirmed. The original deadline and required
+durability proof were preserved. The latest fully passing selected native
+checkpoint remains `20cb5342`; current-source backend and constrained Linux
+qualification, the retained failures and complete OPT acceptance remain open.
