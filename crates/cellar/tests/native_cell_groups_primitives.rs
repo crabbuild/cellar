@@ -947,7 +947,7 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
                     cellar::asyncrt::sleep(Duration::from_millis(20)).await;
                 }
             }).await??;
-            ensure!(replay.result == b"166" && &replay.version == &completed.observation().version);
+            ensure!(replay.result == b"166" && replay.version == completed.observation().version);
             ensure!(calls.load(Ordering::Acquire) == factories + 1);
             check_rpc_read(&recovered, 215, &replay.version, json!([166, 9])).await?;
             Ok::<_, anyhow::Error>(())
