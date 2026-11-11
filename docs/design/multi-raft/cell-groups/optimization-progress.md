@@ -1530,5 +1530,59 @@ RustFS retained its pinned image, one CPU, 2 GiB and no additional swap. The
 owned parent VM was restored to four CPUs/14 GiB before the campaign, without
 changing voter or store caps. Host compilation and a later owned Linux build
 ran concurrently; no performance or scheduling-causality claim follows from
-these checks. Matching Linux execution and the remaining optimization gates
-above remain open.
+these checks. Matching Linux execution is recorded below; the remaining
+optimization gates above remain open.
+
+## Current-source constrained Linux voters
+
+Source `95db97a5`, Linux revision `d9792f5b`, passed the constrained daemon
+campaign in both image modes using image
+`sha256:4dcb170a3509f1a8efc52096041fa94771fd62710e507e9399a2410061ea2edf`.
+The implementation bytes match the published source at `087df66a`; that later
+revision adds documentation. Source manifests and both executable hashes were
+verified from the immutable image before execution. The record is
+`linux-daemon-d9792f5b403e-95db97a5`.
+
+Materialized mode passed in 107.233 seconds with 137 ledger events; extents
+passed in 105.494 seconds with 131 events. The existing verifier checked S3
+outage refusal and exact-ID replay, continuing Quorum/linearizable operations,
+retained-disk hard kill/restart, maintenance return/resume, park/wake,
+no-quorum refusal and joined shutdown. Separate voter containers retained
+separate disks. Captured effective cgroups show one CPU, 3 GiB and zero swap
+per voter. RustFS retained its pinned image, one CPU, 2 GiB and no additional
+swap. No test deadline or per-voter/store capacity was enlarged.
+
+The failed six-GiB parent build remains retained. The identical source,
+compiler, dev/debug-zero profile and one build job succeeded after restoring
+the parent to four CPUs/14 GiB. Runtime then used six parent CPUs/14 GiB to
+satisfy the daemon runner's existing preflight. The preflight was unchanged.
+These are correctness results in one local VM, with host work running
+concurrently; they establish no independent failure domains or measured
+speedup. Standby and failed-voter replacement were disabled. Full CG-13,
+CG-17 and OPT-01 through OPT-08 acceptance remain open.
+
+## Startup phase diagnostic
+
+Temporary source `795d66da` ran fresh materialized startups through the same
+unarmed filesystem adapter as the probe-storm fixture. Twenty-two starts
+passed, then iteration 22 failed readiness. All three blocking page-recovery
+closures, preparation futures, manager handoffs and runtime attachments had
+completed. Attachment took about 3.133 seconds, leaving about 1.864 seconds
+of the original five-second startup window. Voters remained in term one with
+no leader, with 18--19 ticks executed and no election timeout. Admission
+correctly remained closed.
+
+This observed failure is after attachment; it does not reproduce or explain
+the earlier native `95db97a5` pre-attachment `NotFound` snapshot. It exposes
+the budget consumed before fresh quorum, without establishing the cause of
+that elapsed time. Original probe-storm and membership cases subsequently
+passed on the diagnostic source. These repetitions are not causal fixes and
+do not supersede their failed records. Exact source, phase logs, binaries and
+failed disks remain in `startup-phase-diagnostic-795d66da`. After the process
+finished, all seven temporary files were restored from their exact baseline;
+no phase probes or diagnostic entry point are published.
+
+Next are the remaining startup/enrollment causes, endpoint-only repair's
+read and unrelated-follower negative paths, full authority/recovery and
+ambiguous-outcome cuts, followed by the reclamation, placement, scheduling
+and final combined-source gates listed above. PR #167 remains draft.
