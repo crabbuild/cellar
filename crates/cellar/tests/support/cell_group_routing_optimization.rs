@@ -107,6 +107,10 @@ pub(super) async fn read_first_refreshes_endpoint(make: Option<RoutingStoreFacto
     endpoint::read_first(make).await
 }
 
+pub(super) async fn unrelated_endpoint_keeps_inflight_reply() -> Result<()> {
+    run(Scenario::EndpointInflight).await
+}
+
 pub(super) async fn endpoint_refresh_keeps_membership_with_store(
     make: RoutingStoreFactory,
 ) -> Result<()> {
@@ -180,6 +184,7 @@ enum Scenario {
     OriginRevocation,
     Endpoint,
     EndpointFollower,
+    EndpointInflight,
     Refresh { axum: bool },
     RefreshClose { axum: bool },
 }
@@ -197,6 +202,7 @@ async fn run_with_store(scenario: Scenario, make: Option<RoutingStoreFactory>) -
                 match scenario {
                     Scenario::Endpoint => "routing-endpoint-refresh",
                     Scenario::EndpointFollower => "routing-endpoint-unrelated",
+                    Scenario::EndpointInflight => "routing-endpoint-inflight",
                     _ => "routing-origin-revocation",
                 },
                 rooted,
@@ -250,6 +256,9 @@ async fn run_with_store(scenario: Scenario, make: Option<RoutingStoreFactory>) -
                     rooted,
                 ))
                 .await
+            }
+            Scenario::EndpointInflight => {
+                Box::pin(endpoint::keeps_inflight(&mut cluster, &callbacks, rooted)).await
             }
         };
         if result.is_err() {

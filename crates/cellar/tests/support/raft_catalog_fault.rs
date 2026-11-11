@@ -172,6 +172,9 @@ pub struct Store {
     pub denied_prefix_reads: AtomicUsize,
     pub deny_group_archive_writes: AtomicBool,
     pub denied_group_archive_writes: AtomicUsize,
+    pub group_archive_puts_hang: AtomicBool,
+    pub group_archive_puts_entered: AtomicUsize,
+    pub group_archive_puts_resume: tokio::sync::Notify,
     pub deny_registry_writes: std::sync::Arc<AtomicBool>,
     pub denied_registry_writes: AtomicUsize,
     pub registry_denial_on_payload_refusal: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
@@ -411,6 +414,21 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/cell-group-archives/")
+            && self.group_archive_puts_hang.load(Ordering::Acquire)
+        {
+            self.group_archive_puts_entered
+                .fetch_add(1, Ordering::AcqRel);
+            loop {
+                let resumed = self.group_archive_puts_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.group_archive_puts_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
         if matches!(options.mode, PutMode::Create)
             && path.as_ref().contains("/cell-group-archives/")
             && DENIED_ARCHIVE_CREATION

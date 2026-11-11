@@ -7,8 +7,19 @@ use object_store::ObjectStore as _;
 #[path = "cell_group_routing_endpoint_reads.rs"]
 mod reads;
 
+#[path = "cell_group_routing_endpoint_inflight.rs"]
+mod inflight;
+
 pub(super) async fn read_first(make: Option<RoutingStoreFactory>) -> Result<()> {
     Box::pin(reads::run(make)).await
+}
+
+pub(super) async fn keeps_inflight(
+    cluster: &mut nodes::Cluster,
+    callbacks: &AtomicUsize,
+    rooted: bool,
+) -> Result<()> {
+    Box::pin(inflight::exercise(cluster, callbacks, rooted)).await
 }
 
 const WORK: [&str; 7] = [

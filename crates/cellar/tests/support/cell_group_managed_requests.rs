@@ -49,6 +49,10 @@ pub async fn read_first_refreshes_endpoint() -> Result<()> {
     optimization::read_first_refreshes_endpoint(None).await
 }
 
+pub async fn unrelated_endpoint_keeps_inflight_reply() -> Result<()> {
+    optimization::unrelated_endpoint_keeps_inflight_reply().await
+}
+
 pub async fn read_first_refreshes_endpoint_with_store(make: RoutingStoreFactory) -> Result<()> {
     optimization::read_first_refreshes_endpoint(Some(make)).await
 }
