@@ -450,7 +450,9 @@ Ordinary cell instances are activation-owned caches, not replayable application
 state. Constructor Storage handles may enter later invocations of that same live
 activation; invocation handles retain a distinct non-reusable token. A successful
 quorum-applied final receipt admits the instance back to the idle cache.
-Preparation failure, rejected proposals and term reconciliation retire it.
+Normal public receipt reconciliation may retain the instance only at its exact
+prepared final image with the original leader fence still current. Preparation
+failure, rejected proposals and changed-term reconciliation retire it.
 Cache reuse requires the same class
 factory, exact cell version, physical engine, route and leader term. Its weak
 fence retains no image, log reservation or engine owner. Node-wide instance

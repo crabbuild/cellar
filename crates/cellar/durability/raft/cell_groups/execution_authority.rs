@@ -26,6 +26,18 @@ pub(crate) struct CellActivationFence {
 }
 
 impl CellActivationFence {
+    /// Select a proven successor without acquiring execution or image custody.
+    /// The caller must match its prepared final image to the committed receipt;
+    /// cache admission still checks the original leader and current image.
+    pub(crate) fn advanced(&self, version: &CellVersion) -> Option<Self> {
+        if !version.covers(&self.version).ok()? {
+            return None;
+        }
+        let mut fence = self.clone();
+        fence.version = version.clone();
+        Some(fence)
+    }
+
     pub(crate) fn accepts(&self, authority: &CellExecutionAuthority) -> bool {
         self.owner.ptr_eq(&Arc::downgrade(&authority.group.owner))
             && self.route == authority.route

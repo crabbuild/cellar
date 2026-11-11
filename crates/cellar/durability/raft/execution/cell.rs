@@ -443,6 +443,15 @@ impl CellPrivateExecutor {
         Ok(receipt)
     }
 
+    /// Native state can survive only a receipt at this exact final image.
+    /// Intermediate RPC checkpoints cannot return an instance to the idle cache.
+    pub(crate) fn prepared_final_version(&self) -> Option<CellVersion> {
+        self.pending
+            .as_ref()
+            .filter(|pending| pending.rpc_step.is_none())
+            .map(|pending| pending.result.clone())
+    }
+
     /// Resolve the original request without requiring the original log entry.
     /// Missing receipts cannot retire an ambiguous same-term proposal. The
     /// caller must close this disposable producer after successful resolution.

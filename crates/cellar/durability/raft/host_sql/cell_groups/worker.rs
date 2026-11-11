@@ -412,6 +412,7 @@ impl Cells {
                     .pending
                     .get_mut(&cell)
                     .ok_or(ExecutionError::Uncertain)?;
+                let expected = pending.producer.command()?.prepared_final_version();
                 let resolution = pending
                     .producer
                     .command()?
@@ -421,8 +422,25 @@ impl Cells {
                     .remove(&cell)
                     .ok_or(ExecutionError::Invalid("cell producer changed"))?;
                 pending.producer.close()?;
-                if let Some(activation) = pending.activation {
-                    activation.close()?;
+                if let Some(mut activation) = pending.activation {
+                    // Normal public settlement also uses reconciliation. A
+                    // committed final image can retain native state while the
+                    // original leader fence survives; a later image or term
+                    // cannot establish that this instance matches the cell.
+                    let fence = match &resolution {
+                        CellReconciliation::Committed(receipt)
+                            if expected.as_ref() == Some(&receipt.version) =>
+                        {
+                            activation.fence.advanced(&receipt.version)
+                        }
+                        _ => None,
+                    };
+                    if let Some(fence) = fence {
+                        activation.fence = fence;
+                        self.activations.put(cell, activation, now)?;
+                    } else {
+                        activation.close()?;
+                    }
                 }
                 let resolution = match resolution {
                     CellReconciliation::Committed(receipt) => {
