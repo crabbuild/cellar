@@ -98,6 +98,54 @@ impl Fixture {
 }
 
 #[test]
+fn erasure_refuses_current_and_uncertain_deliveries() -> Result<()> {
+    for current in [false, true] {
+        let fixture = Fixture::new()?;
+        check_clear(&fixture.connection)?;
+        let scope = if current {
+            &fixture.current
+        } else {
+            &fixture.old
+        };
+        let original = fixture.pending("Events", scope, 0)?;
+        assert!(check_clear(&fixture.connection)
+            .unwrap_err()
+            .to_string()
+            .contains("PendingDelivery"));
+        let retained =
+            load(&fixture.connection, "Events", 1)?.expect("erasure cannot settle a delivery");
+        assert_eq!(retained.bytes, original);
+        assert_eq!(retained.generation, [11; 32]);
+        let frontier = progress(
+            &fixture.connection,
+            &fixture.outbox,
+            scope,
+            fixture.schema,
+            "Events",
+        )?;
+        assert_eq!((frontier.emitted, frontier.settled), (1, 0));
+        // Supply the completed-lane image; actual authenticated settlement is
+        // covered by the separate delivery/receiver conformance cases.
+        fixture
+            .connection
+            .execute("UPDATE __sys_raft_outbox_lanes SET settled=emitted", [])?;
+        fixture
+            .connection
+            .execute("DELETE FROM __sys_raft_outbox", [])?;
+        check_clear(&fixture.connection)?;
+        let frontier = progress(
+            &fixture.connection,
+            &fixture.outbox,
+            scope,
+            fixture.schema,
+            "Events",
+        )?;
+        assert_eq!((frontier.emitted, frontier.settled), (1, 1));
+    }
+    Ok(())
+}
+
+#[test]
 fn uncertain_old_origin_does_not_starve_fresh_lane() -> Result<()> {
     let f = Fixture::new()?;
     let original = f.pending("Events", &f.old, 0)?;

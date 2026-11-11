@@ -32,11 +32,15 @@ fn retained(table: &str) -> bool {
     .iter()
     .any(|prefix| table.starts_with(prefix))
         || cellar_ltx::db::is_control_table(table)
-        || crate::raft::is_receipt_table(table)
+        // Raft owns this reserved namespace, including client floors, inbox
+        // deduplication, named alarms, outbox frontiers and retained payloads.
+        // A new protocol table must be retained even before erasure knows it.
+        || table.starts_with("__sys_raft_")
 }
 
 fn erase(connection: &Connection, scope: &str, delete_alarm: bool) -> anyhow::Result<()> {
     filesystem::check_clear(connection)?;
+    crate::raft::effects::outbox::check_clear(connection)?;
     let has_outbox: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_outbox')",
         [],

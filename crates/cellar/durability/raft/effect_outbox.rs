@@ -461,6 +461,24 @@ fn exists(connection: &Connection) -> Result<bool> {
     Ok(connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_raft_outbox')",[],|row|row.get(0))?)
 }
 
+/// Refuse business-state erasure while a committed delivery still owns it.
+/// This includes uncertain intents from an older incarnation; erasure cannot
+/// resolve their external outcomes or allocate replacement delivery identities.
+pub(crate) fn check_clear(connection: &Connection) -> Result<()> {
+    if exists(connection)? {
+        let pending: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM __sys_raft_outbox LIMIT 1)",
+            [],
+            |row| row.get(0),
+        )?;
+        ensure!(
+            !pending,
+            "PendingDelivery: cannot clear business state with pending Raft outbox events"
+        );
+    }
+    Ok(())
+}
+
 fn number(bytes: Vec<u8>) -> Result<u64> {
     Ok(u64::from_be_bytes(
         bytes.try_into().map_err(|_| CommandFailure::CorruptState)?,

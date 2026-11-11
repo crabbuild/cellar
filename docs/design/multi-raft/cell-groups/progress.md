@@ -32,13 +32,16 @@ for the next delivery.
 The shared Storage adapter now admits `Storage::delete_all` only in a writable
 private Raft invocation. Its savepoint drops business tables and recreates KV
 storage without committing the outer command, removing the Raft authorizer or
-erasing receipt/client-sequence floors. Exact retries must retain their original
+erasing protocol metadata. Raft inbox floors, named alarms, outbox frontiers and
+retained payloads survive alongside receipt/client-sequence floors. Exact retries
+must retain their original
 result/version, including an old erase retried after state has been recreated.
 Native definitions install their admitted alarm compatibility policy; this does
 not complete ordinary alarm scheduling or committed due-work discovery.
 
-The existing active-filesystem, nonempty-filesystem and pending-outbox guards
-remain. Foreign-key enforcement returns to its original setting after success or
+The active-filesystem, nonempty-filesystem and native pending-outbox guards
+remain. Raft pending delivery, including uncertain old-incarnation intent, also
+refuses erasure before any DROP. Foreign-key enforcement returns to its original setting after success or
 failure; previously deferred violations are not cleared to permit a commit.
 Rollback/restoration failures poison the invocation. New tests cover quoted names,
 foreign-key cycles, pending delivery, failed DROP rollback, outer rollback,

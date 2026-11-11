@@ -23,9 +23,23 @@ fn erasure_retains_protocol_state_and_restores_both_foreign_key_policies() -> an
              CREATE TABLE __sys_cell_alarm(scope PRIMARY KEY,at_ms);
              INSERT INTO __sys_cell_alarm VALUES('cell',123);
              CREATE TABLE \"quoted\"\"parent\"(v PRIMARY KEY,child REFERENCES child(v) DEFERRABLE INITIALLY DEFERRED);
-             CREATE TABLE child(v PRIMARY KEY,parent REFERENCES \"quoted\"\"parent\"(v));
-             BEGIN IMMEDIATE;
-             INSERT INTO \"quoted\"\"parent\" VALUES(1,1); INSERT INTO child VALUES(1,1);"
+             CREATE TABLE child(v PRIMARY KEY,parent REFERENCES \"quoted\"\"parent\"(v));"
+        )?;
+        let controls = [
+            "__sys_raft_inbox",
+            "__sys_raft_alarms",
+            "__sys_raft_blobs",
+            "__sys_raft_outbox_lanes",
+            "__sys_raft_future_control",
+        ];
+        for table in controls {
+            connection.execute_batch(&format!(
+                "CREATE TABLE {table}(v); INSERT INTO {table} VALUES(17)"
+            ))?;
+        }
+        connection.execute_batch(
+            "CREATE TABLE __sys_raft_outbox(v); BEGIN IMMEDIATE;
+             INSERT INTO \"quoted\"\"parent\" VALUES(1,1); INSERT INTO child VALUES(1,1)",
         )?;
         erase(&connection, "cell", false)?;
         assert!(!exists(&connection, "quoted\"parent"));
@@ -46,6 +60,14 @@ fn erasure_retains_protocol_state_and_restores_both_foreign_key_policies() -> an
             123
         );
         assert!(exists(&connection, "__sys_cell_kv"));
+        assert!(exists(&connection, "__sys_raft_outbox"));
+        for table in controls {
+            assert_eq!(
+                connection.query_row(&format!("SELECT v FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))?,
+                17
+            );
+        }
         assert_eq!(
             connection.db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY)?,
             enabled
@@ -94,6 +116,28 @@ fn failed_drop_rolls_back_prior_drops_and_restores_foreign_keys() -> anyhow::Res
     );
     erase(&connection, "cell", true)?;
     connection.execute_batch("COMMIT")?;
+    Ok(())
+}
+
+#[test]
+fn erasure_refuses_a_pending_raft_delivery_before_dropping_business_state() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    connection.execute_batch("CREATE TABLE business(v); INSERT INTO business VALUES(7);
+        CREATE TABLE __sys_raft_outbox(v); INSERT INTO __sys_raft_outbox VALUES(1); BEGIN IMMEDIATE")?;
+    assert!(erase(&connection, "cell", true)
+        .unwrap_err()
+        .to_string()
+        .contains("PendingDelivery"));
+    assert_eq!(
+        connection.query_row("SELECT v FROM business", [], |row| row.get::<_, i64>(0))?,
+        7
+    );
+    assert_eq!(
+        connection.query_row("SELECT COUNT(*) FROM __sys_raft_outbox", [], |row| row
+            .get::<_, i64>(0))?,
+        1
+    );
+    connection.execute_batch("ROLLBACK")?;
     Ok(())
 }
 
