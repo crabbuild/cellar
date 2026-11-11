@@ -494,7 +494,7 @@ pub(super) fn run(
             contract,
             input,
         } => class
-            .invoke_cell_query(&contract, &observation, &database, &input)
+            .invoke_cell_query(&contract, &observation, database, &input)
             .map(Output::Query)
             .map_err(crate::raft::execution::storage),
         Callback::Receipt {
@@ -525,7 +525,8 @@ pub(super) fn run(
             crate::native_worker::panic_error(panic),
         ))
     })?;
-    // The callback has been consumed, so check the remaining owners explicitly.
+    // The callback and database have been consumed. The authority still pins
+    // the observed image while we validate the result against the same grant.
     if query.cancelled.load(Ordering::Acquire) || query.closing.load(Ordering::Acquire) {
         return Err(unavailable());
     }
@@ -536,7 +537,6 @@ pub(super) fn run(
     if result.retained_bytes() > query.options.limits().max_result_bytes {
         return Err(overloaded());
     }
-    drop(database);
     let replica = query.authority.replica().clone();
     drop(query.authority);
     Bytes::shrink(&mut query.bytes, result.retained_bytes() + 4096)?;

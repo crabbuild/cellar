@@ -440,12 +440,14 @@
         "cellar::sdk::CommandContext::inputs",
         "cellar::sdk::QueryContext",
         "cellar::sdk::QueryContext::outbox_progress",
+        "cellar::sdk::QueryContext::storage",
         "cellar::sdk::CommandContext::storage"
       ],
       "owners": [
         "crates/cellar/application/consensus/class.rs",
         "crates/cellar/application/consensus/group_client/mod.rs",
-        "crates/cellar/storage/sqlite/command.rs"
+        "crates/cellar/storage/sqlite/command.rs",
+        "crates/cellar/storage/sqlite/immutable.rs"
       ],
       "schemas": [
         "Private command image and receipts"

@@ -10,11 +10,12 @@ CG-17's [primitive compatibility contract](qualification.md#full-primitive-compa
 defines eight packages and 32 required cases. It is in progress and gates CG-15/16
 acceptance. The [CG17-01 checkpoint](progress.md#cg-17-checkpoint-primitive-coverage-admission)
 delivers the starter catalog and CI/acceptance verifier. The
-[command Storage checkpoint](progress.md#cg-17-command-storage-checkpoint)
-shares SQL and KV transactions in Raft commands and initializers. Finish the
-compiled export/deployment audit, ordinary `Context` activation and committed
-Storage reads before async, due-work and family adapters. The catalog remains
-partial and CG-17 acceptance stays open. CG-13 can progress
+[Storage checkpoints](progress.md#cg-17-committed-query-storage) cover
+private SQL/KV writes and pinned committed reads in registered Raft callbacks.
+The next step is ordinary `Context` activation with ownership and output
+gates, plus the compiled export and deployment audit. That foundation supports
+async transactions, due work and family adapters. The catalog remains partial
+and CG-17 acceptance stays open. CG-13 can progress
 independently and still gates task acceptance. The [TiKV optimization proposal](tikv-informed-optimization.md)
 builds on accepted CG-11/12 foundations and introduces additional optimization
 oracles. Delivered routing and fresh ReadIndex work is recorded in

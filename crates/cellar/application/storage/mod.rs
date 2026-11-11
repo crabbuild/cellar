@@ -173,14 +173,15 @@ pub struct Storage(Owner, pub(super) Option<Arc<Transaction>>, pub(super) u64);
 #[derive(Clone)]
 enum Owner {
     Native(Arc<Activation>),
-    Raft(Arc<Resources>),
+    RaftCommand(Arc<Resources>),
+    RaftQuery(Arc<Resources>),
 }
 
 impl Owner {
     fn resources(&self) -> &Resources {
         match self {
             Self::Native(activation) => &activation.resources,
-            Self::Raft(resources) => resources,
+            Self::RaftCommand(resources) | Self::RaftQuery(resources) => resources,
         }
     }
 }
@@ -227,14 +228,20 @@ impl Storage {
         Self(Owner::Native(activation), transaction, source_generation)
     }
 
-    pub(crate) fn raft(resources: Arc<Resources>) -> Self {
-        Self(Owner::Raft(resources), None, 0)
+    pub(crate) fn raft_command(resources: Arc<Resources>) -> Self {
+        Self(Owner::RaftCommand(resources), None, 0)
+    }
+
+    pub(crate) fn raft_query(resources: Arc<Resources>) -> Self {
+        Self(Owner::RaftQuery(resources), None, 0)
     }
 
     pub(super) fn native_activation(&self) -> Result<&Arc<Activation>> {
         match &self.0 {
             Owner::Native(activation) => Ok(activation),
-            Owner::Raft(_) => Err(consensus::CommandFailure::UnsupportedCapability.into()),
+            Owner::RaftCommand(_) | Owner::RaftQuery(_) => {
+                Err(consensus::CommandFailure::UnsupportedCapability.into())
+            }
         }
     }
 
@@ -392,8 +399,12 @@ impl Storage {
     fn data_activation_scope(&self) -> Result<&str> {
         match &self.0 {
             Owner::Native(_) => self.activation_scope(),
-            Owner::Raft(resources) => {
-                crate::storage::require_raft_storage(resources, true)?;
+            Owner::RaftCommand(resources) => {
+                crate::storage::require_raft_command_storage(resources, true)?;
+                Ok(crate::storage::RAFT_STORAGE_SCOPE)
+            }
+            Owner::RaftQuery(resources) => {
+                crate::storage::require_raft_query_storage(resources)?;
                 Ok(crate::storage::RAFT_STORAGE_SCOPE)
             }
         }
@@ -402,10 +413,11 @@ impl Storage {
     fn installed_data_scope(&self) -> Result<&str> {
         match &self.0 {
             Owner::Native(_) => self.installed_activation_scope(),
-            Owner::Raft(resources) => {
-                crate::storage::require_raft_storage(resources, false)?;
+            Owner::RaftCommand(resources) => {
+                crate::storage::require_raft_command_storage(resources, false)?;
                 Ok(crate::storage::RAFT_STORAGE_SCOPE)
             }
+            Owner::RaftQuery(_) => Err(consensus::CommandFailure::UnsupportedCapability.into()),
         }
     }
 
@@ -439,6 +451,15 @@ impl Storage {
         if let Some(error) = crate::storage::sql_critical_error(scope) {
             anyhow::bail!(error);
         }
+        Ok(scope)
+    }
+
+    fn write_scope(&self) -> Result<&str> {
+        let scope = self.data_scope()?;
+        anyhow::ensure!(
+            !matches!(self.0, Owner::RaftQuery(_)),
+            consensus::CommandFailure::UnsupportedCapability
+        );
         Ok(scope)
     }
 
@@ -510,16 +531,16 @@ impl Storage {
         key: &str,
         value: &cellar_native::clone::StructuredValue,
     ) -> Result<()> {
-        let scope = self.data_scope()?;
+        let scope = self.write_scope()?;
         crate::storage::put_serialized(scope, key, &cellar_native::clone::encode(value)?)
     }
 
     pub fn put_stored_clone(&self, key: &str, value: &StoredClone) -> Result<()> {
-        crate::storage::put_serialized(self.data_scope()?, key, &value.encode()?)
+        crate::storage::put_serialized(self.write_scope()?, key, &value.encode()?)
     }
 
     pub fn put_many_stored_clone(&self, entries: &[(String, StoredClone)]) -> Result<()> {
-        let scope = self.data_scope()?;
+        let scope = self.write_scope()?;
         let entries = entries
             .iter()
             .map(|(key, value)| Ok((key.clone(), value.encode()?)))
@@ -531,7 +552,7 @@ impl Storage {
         &self,
         entries: &[(String, cellar_native::clone::StructuredValue)],
     ) -> Result<()> {
-        let scope = self.data_scope()?;
+        let scope = self.write_scope()?;
         let entries = entries
             .iter()
             .map(|(key, value)| Ok((key.clone(), cellar_native::clone::encode(value)?)))
@@ -540,19 +561,19 @@ impl Storage {
     }
 
     pub fn put_json(&self, key: &str, value: &serde_json::Value) -> Result<()> {
-        crate::storage::put_json(self.data_scope()?, key, value)
+        crate::storage::put_json(self.write_scope()?, key, value)
     }
 
     pub fn put_many_json(&self, entries: &[(String, serde_json::Value)]) -> Result<()> {
-        crate::storage::put_many_json(self.data_scope()?, entries)
+        crate::storage::put_many_json(self.write_scope()?, entries)
     }
 
     pub fn delete(&self, key: &str) -> Result<bool> {
-        crate::storage::delete(self.data_scope()?, key)
+        crate::storage::delete(self.write_scope()?, key)
     }
 
     pub fn delete_many(&self, keys: &[String]) -> Result<usize> {
-        crate::storage::delete_many(self.data_scope()?, keys)
+        crate::storage::delete_many(self.write_scope()?, keys)
     }
 
     /// The compatibility flag chooses whether deleteAll also removes alarms.
@@ -601,7 +622,7 @@ impl Storage {
     /// Execute complete SQL statements and retain the unfinished suffix for
     /// incremental import, using SQLite's existing tokenizer.
     pub fn sql_ingest(&self, input: &str) -> Result<(String, u64, u64)> {
-        crate::storage::sql_ingest(self.data_scope()?, input).map_err(anyhow::Error::msg)
+        crate::storage::sql_ingest(self.write_scope()?, input).map_err(anyhow::Error::msg)
     }
 
     pub fn get_alarm(&self) -> Result<Option<i64>> {
