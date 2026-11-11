@@ -164,9 +164,37 @@ impl Cell for Dependent {
                         anyhow::bail!("fenced handler unexpectedly resumed")
                     }
                     "recursive" => {
+                        let before = self.storage.get_json("value")?.context("source value")?;
+                        let query = "SELECT value FROM counter UNION ALL SELECT value FROM counter";
+                        let mut cursor = self.storage.sql_cursor(query, &[])?;
+                        let before = before.as_i64().context("integer source")?;
+                        let row = vec![cellar::sdk::storage::SqlValue::Integer(before)];
+                        // Keep a real VM beyond its prefetched row while its
+                        // source root is proven and its same-cell child runs.
+                        let mut streamed = self.storage.sql_cursor(
+                            "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<257) SELECT ?1 FROM n",
+                            &row,
+                        )?;
+                        ensure!(streamed.next_raw()? == Some(row.clone()));
                         let receipt = call.await?;
                         let result: i64 = serde_json::from_slice(&receipt.result)?;
                         ensure!(self.storage.get_json("value")? == Some(json!(result)));
+                        // Prepare the same SQL on the new image before closing
+                        // the old VM: no old statement may enter this cache.
+                        let mut fresh = self.storage.sql_cursor(query, &[])?;
+                        ensure!(cursor.next_raw()? == Some(row.clone()));
+                        ensure!(cursor.next_raw()? == Some(row.clone()));
+                        ensure!(cursor.next_raw()?.is_none());
+                        for _ in 1..257 {
+                            ensure!(streamed.next_raw()? == Some(row.clone()));
+                        }
+                        ensure!(streamed.next_raw()?.is_none());
+                        let current = vec![cellar::sdk::storage::SqlValue::Integer(result)];
+                        ensure!(fresh.next_raw()? == Some(current.clone()));
+                        ensure!(fresh.next_raw()? == Some(current));
+                        ensure!(fresh.next_raw()?.is_none());
+                        let (_, rows, _) = self.storage.sql(query, &[])?;
+                        ensure!(rows == vec![vec![json!(result)], vec![json!(result)]]);
                         json!({"recursive":result})
                     }
                     _ => {
@@ -538,6 +566,19 @@ pub async fn run(
                 .await?;
             ensure!(result.result == br#"{"recursive":7}"#);
             ensure!(value(&cells[1], 195).await? == 7 && calls.load(Ordering::Acquire) == 3);
+            if rooted {
+                cellar::asyncrt::timeout(TIMEOUT, async {
+                    loop {
+                        let mut retained = false;
+                        for host in &cluster.hosts {
+                            let usage = host.resource_usage().serving_images.extents.context("extent image accounting")?;
+                            retained |= usage.workspaces != 0;
+                        }
+                        if !retained { break Ok::<_, anyhow::Error>(()); }
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                }).await.context("recursive cursors did not release their physical images")??;
+            }
 
             let oversized = command(201, durability)?;
             ensure!(cells[0]

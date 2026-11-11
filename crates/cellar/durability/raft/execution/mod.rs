@@ -36,6 +36,10 @@ use images::{Images, Options, Preview, Published, State, WorkingImage};
 use sha2::{Digest, Sha256};
 use std::{fmt, path::PathBuf};
 
+/// Bound simultaneous physical images retained by lazy cursors of one cell.
+/// Slots are reused only after their connection/VFS/lock has been closed.
+pub(crate) const MAX_CURSOR_IMAGES: usize = 64;
+
 #[cfg(test)]
 #[path = "../execution_preview_tests.rs"]
 mod preview_tests;

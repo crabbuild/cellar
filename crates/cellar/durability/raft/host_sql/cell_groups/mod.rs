@@ -121,7 +121,7 @@ impl CellSqlOptions {
         authority: CellExecutionAuthority,
     ) -> Result<CellPrivateExecutor, ExecutionError> {
         match self {
-            Self::Materialized(o) => CellPrivateExecutor::open(o, authority),
+            Self::Materialized(o) => CellPrivateExecutor::open_cursor_image(o, authority),
             Self::Extents(o) => CellPrivateExecutor::open_rooted(
                 o.prepare(&authority.cell().version.history)?,
                 authority,
@@ -132,13 +132,32 @@ impl CellSqlOptions {
 
 impl CellSqlRootOptions {
     fn prepare(self, cell: &CellHistory) -> Result<RootPrivateOptions, ExecutionError> {
-        let workspace = self
-            .images
-            .create_workspace(
-                cell_image_history_digest(cell),
-                RootPrivateOptions::workspace_bounds(self.limits)?,
-            )
-            .map_err(crate::raft::execution::storage)?;
+        use cellar_ltx::internal::StoreError;
+        use sha2::{Digest, Sha256};
+        let history = cell_image_history_digest(cell);
+        let bounds = RootPrivateOptions::workspace_bounds(self.limits)?;
+        let mut acquired = None;
+        for slot in 0..crate::raft::execution::MAX_CURSOR_IMAGES {
+            let id = if slot == 0 {
+                history
+            } else {
+                let mut hash = Sha256::new();
+                hash.update(b"cellar/raft/cursor-image/1");
+                hash.update(history);
+                hash.update((slot as u64).to_le_bytes());
+                hash.finalize().into()
+            };
+            match self.images.create_workspace(id, bounds) {
+                Ok(workspace) => {
+                    acquired = Some(workspace);
+                    break;
+                }
+                Err(StoreError::Busy) => (),
+                Err(StoreError::Limit) => return Err(overloaded()),
+                Err(error) => return Err(crate::raft::execution::storage(error)),
+            }
+        }
+        let workspace = acquired.ok_or_else(overloaded)?;
         Ok(RootPrivateOptions {
             workspace,
             host: self.host,
