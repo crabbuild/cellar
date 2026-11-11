@@ -442,60 +442,67 @@ impl IncomingCall {
         }
     }
 
-    pub(super) async fn execute(
+    // Keep the protocol dispatcher at one future boundary. Otherwise each
+    // connection task embeds every command/runtime/domain owner type while
+    // proving Send, exceeding the compiler's depth after host composition.
+    pub(super) fn execute<'a>(
         self,
-        state: &State,
-        route: &QueryRoute,
+        state: &'a State,
+        route: &'a QueryRoute,
         deadline: u64,
-    ) -> Result<super::query_replies::Reply, TransportError> {
-        match self {
-            Self::Command(call) => state.execute_cell_command(route, call, deadline).await,
-            Self::CommandProbe(call) => {
-                state
-                    .execute_cell_command_probe(route, call, deadline)
-                    .await
-            }
-            Self::Enrollment(call) => state.execute_cell_enrollment(route, call).await,
-            Self::Receipt(call) => state.execute_cell_receipt(route, call).await,
-            Self::Shared(call) => {
-                let (_, target, cell) = route.decode_shared()?;
-                let gateway = state
-                    .cell_query_gateways
-                    .lock()
-                    .map_err(|_| TransportError::Closed)?
-                    .get(&(cell.cluster, cell.namespace))
-                    .and_then(|h| h.upgrade())
-                    .ok_or(TransportError::Refused)?;
-                if !gateway.accepting.load(Ordering::Acquire) {
-                    return Err(TransportError::Refused);
-                }
-                // Queue first: metadata observation cannot renew the query's
-                // captured deadline or delay ownership transfer to its producer.
-                let queued = gateway.enqueue(call, target.scope, cell, route.schema(), deadline);
-                let leader_hint = if queued.is_ok() {
+    ) -> futures_util::future::BoxFuture<'a, Result<super::query_replies::Reply, TransportError>>
+    {
+        Box::pin(async move {
+            match self {
+                Self::Command(call) => state.execute_cell_command(route, call, deadline).await,
+                Self::CommandProbe(call) => {
                     state
-                        .runtime
-                        .shared()?
-                        .leader_advice(target.scope, deadline)
+                        .execute_cell_command_probe(route, call, deadline)
                         .await
-                        .ok()
-                        .flatten()
-                } else {
-                    None
-                };
-                let result = match queued {
-                    Ok(call) => call.response().await,
-                    Err(error) => Err(error),
                 }
-                .map_err(|e| query_failure(&e));
-                wire::cell::encode_cell_result(
-                    &result,
-                    leader_hint.as_ref(),
-                    state.options.max_query_response_bytes,
-                )
-                .map(super::query_replies::Reply::plain)
+                Self::Enrollment(call) => state.execute_cell_enrollment(route, call).await,
+                Self::Receipt(call) => state.execute_cell_receipt(route, call).await,
+                Self::Shared(call) => {
+                    let (_, target, cell) = route.decode_shared()?;
+                    let gateway = state
+                        .cell_query_gateways
+                        .lock()
+                        .map_err(|_| TransportError::Closed)?
+                        .get(&(cell.cluster, cell.namespace))
+                        .and_then(|h| h.upgrade())
+                        .ok_or(TransportError::Refused)?;
+                    if !gateway.accepting.load(Ordering::Acquire) {
+                        return Err(TransportError::Refused);
+                    }
+                    // Queue first: metadata observation cannot renew the query's
+                    // captured deadline or delay ownership transfer to its producer.
+                    let queued =
+                        gateway.enqueue(call, target.scope, cell, route.schema(), deadline);
+                    let leader_hint = if queued.is_ok() {
+                        state
+                            .runtime
+                            .shared()?
+                            .leader_advice(target.scope, deadline)
+                            .await
+                            .ok()
+                            .flatten()
+                    } else {
+                        None
+                    };
+                    let result = match queued {
+                        Ok(call) => call.response().await,
+                        Err(error) => Err(error),
+                    }
+                    .map_err(|e| query_failure(&e));
+                    wire::cell::encode_cell_result(
+                        &result,
+                        leader_hint.as_ref(),
+                        state.options.max_query_response_bytes,
+                    )
+                    .map(super::query_replies::Reply::plain)
+                }
             }
-        }
+        })
     }
 }
 
