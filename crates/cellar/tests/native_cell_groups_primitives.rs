@@ -415,162 +415,164 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
         FirstGroupSetup::Normal,
     ))
     .await?;
-    let work = cluster.fixtures[0].domain.run(async {
-        let group = cluster.history;
-        let leader = managed_fixture::leader(&cluster.hosts, group).await?;
-        let mut cells = Vec::new();
-        for (name, proposal) in [("Counter:ordinary", 236), ("Counter:unrelated", 244)] {
-            let cell = cluster.hosts[leader].cell(CellHistory {
-                cluster: group.cluster,
-                namespace: group.namespace,
-                cell: CellId::new(name)?,
-                incarnation: IncarnationId::new([235; 16])?,
-            })?;
-            cell.enroll(
-                CellEnrollmentRequest {
-                    creation: ProposalId::new([proposal; 16])?,
-                    durability: Durability::Quorum,
+    let work = cluster.fixtures[0]
+        .domain
+        .run(async {
+            let group = cluster.history;
+            let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+            let mut cells = Vec::new();
+            for (name, proposal) in [("Counter:ordinary", 236), ("Counter:unrelated", 244)] {
+                let cell = cluster.hosts[leader].cell(CellHistory {
+                    cluster: group.cluster,
+                    namespace: group.namespace,
+                    cell: CellId::new(name)?,
+                    incarnation: IncarnationId::new([235; 16])?,
+                })?;
+                cell.enroll(
+                    CellEnrollmentRequest {
+                        creation: ProposalId::new([proposal; 16])?,
+                        durability: Durability::Quorum,
+                    },
+                    TIMEOUT,
+                )
+                .await?;
+                cells.push(cell);
+            }
+            let cell = &cells[0];
+            ensure!(calls.load(Ordering::Acquire) == 0);
+            let now = cluster.fixtures[0]
+                .domain
+                .run(async { cellar::asyncrt::wall_ms() })
+                .await?;
+            let retry = u64::try_from(now)?
+                .checked_add(60_000)
+                .context("retry horizon")?;
+            let options = |client| -> Result<CommandOptions> {
+                Ok(CommandOptions::new(
+                    CommandId::new(ClientId::new([client; 16])?, 1)?,
+                    retry,
+                ))
+            };
+            let update = cell.contract("Update")?;
+            let input = serde_json::to_vec(&json!({"delta": 7}))?;
+            let written = cell.command(&update, input.clone(), options(237)?).await?;
+            ensure!(written.result == b"7" && written.durability == Durability::Quorum);
+            ensure!(written.witness.group == group);
+            let replay = cell.command(&update, input, options(237)?).await?;
+            ensure!(replay.result == written.result && replay.version == written.version);
+            ensure!(calls.load(Ordering::Acquire) == 1);
+            ensure!(saved_context
+                .lock()
+                .unwrap()
+                .as_ref()
+                .context("saved Context")?
+                .storage()
+                .is_err());
+
+            ensure!(cell
+                .command(
+                    &update,
+                    serde_json::to_vec(&json!({"delta": 20, "malformed_reply": true}))?,
+                    options(240)?,
+                )
+                .await
+                .is_err());
+            ensure!(calls.load(Ordering::Acquire) == 2);
+            ensure!(rejected.load(Ordering::Acquire) == 1);
+            check_rpc_read(cell, 238, &written.version, json!([7, 1])).await?;
+
+            let input = serde_json::to_vec(&json!({"delta": 3, "gate": 0, "after": 5}))?;
+            let (resumed, interleaved) =
+                tokio::join!(cell.command(&update, input.clone(), options(239)?), async {
+                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
+                    ensure!(saved_context
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .context("suspended Context")?
+                        .storage()
+                        .is_err());
+                    check_rpc_read(cell, 241, &written.version, json!([7, 1])).await?;
+                    let unrelated = cells[1]
+                        .command(
+                            &update,
+                            serde_json::to_vec(&json!({"delta": 4}))?,
+                            options(242)?,
+                        )
+                        .await?;
+                    ensure!(unrelated.result == b"4" && unrelated.witness.group == group);
+                    gates[0].release.notify_one();
+                    Ok::<_, anyhow::Error>(())
+                },);
+            interleaved?;
+            let resumed = resumed?;
+            ensure!(resumed.result == b"15" && resumed.durability == Durability::Quorum);
+            ensure!(gates[0].resumed.load(Ordering::Acquire) == 1);
+            check_rpc_read(cell, 245, &resumed.version, json!([15, 2])).await?;
+            let retry = cell.command(&update, input, options(239)?).await?;
+            ensure!(retry.result == resumed.result && retry.version == resumed.version);
+            ensure!(calls.load(Ordering::Acquire) == 4);
+
+            let short = CommandOptions {
+                timeout: Duration::from_secs(1),
+                ..options(246)?
+            };
+            let (expired, cleaned) = tokio::join!(
+                cell.command(
+                    &update,
+                    serde_json::to_vec(&json!({"delta": 100, "gate": 1, "after": 1}))?,
+                    short,
+                ),
+                async {
+                    cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[1].dropped.notified()).await?;
+                    Ok::<_, anyhow::Error>(())
                 },
-                TIMEOUT,
-            )
-            .await?;
-            cells.push(cell);
-        }
-        let cell = &cells[0];
-        ensure!(calls.load(Ordering::Acquire) == 0);
-        let now = cluster.fixtures[0]
-            .domain
-            .run(async { cellar::asyncrt::wall_ms() })
-            .await?;
-        let retry = u64::try_from(now)?
-            .checked_add(60_000)
-            .context("retry horizon")?;
-        let options = |client| -> Result<CommandOptions> {
-            Ok(CommandOptions::new(
-                CommandId::new(ClientId::new([client; 16])?, 1)?,
-                retry,
-            ))
-        };
-        let update = cell.contract("Update")?;
-        let input = serde_json::to_vec(&json!({"delta": 7}))?;
-        let written = cell.command(&update, input.clone(), options(237)?).await?;
-        ensure!(written.result == b"7" && written.durability == Durability::Quorum);
-        ensure!(written.witness.group == group);
-        let replay = cell.command(&update, input, options(237)?).await?;
-        ensure!(replay.result == written.result && replay.version == written.version);
-        ensure!(calls.load(Ordering::Acquire) == 1);
-        ensure!(saved_context
-            .lock()
-            .unwrap()
-            .as_ref()
-            .context("saved Context")?
-            .storage()
-            .is_err());
+            );
+            cleaned?;
+            ensure!(expired.is_err() && gates[1].resumed.load(Ordering::Acquire) == 0);
+            check_rpc_read(cell, 247, &resumed.version, json!([15, 2])).await?;
 
-        ensure!(cell
-            .command(
-                &update,
-                serde_json::to_vec(&json!({"delta": 20, "malformed_reply": true}))?,
-                options(240)?,
-            )
-            .await
-            .is_err());
-        ensure!(calls.load(Ordering::Acquire) == 2);
-        ensure!(rejected.load(Ordering::Acquire) == 1);
-        check_rpc_read(cell, 238, &written.version, json!([7, 1])).await?;
-
-        let input = serde_json::to_vec(&json!({"delta": 3, "gate": 0, "after": 5}))?;
-        let (resumed, interleaved) =
-            tokio::join!(cell.command(&update, input.clone(), options(239)?), async {
-                cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
-                ensure!(saved_context
-                    .lock()
-                    .unwrap()
-                    .as_ref()
-                    .context("suspended Context")?
-                    .storage()
-                    .is_err());
-                check_rpc_read(cell, 241, &written.version, json!([7, 1])).await?;
-                let unrelated = cells[1]
-                    .command(
-                        &update,
-                        serde_json::to_vec(&json!({"delta": 4}))?,
-                        options(242)?,
-                    )
-                    .await?;
-                ensure!(unrelated.result == b"4" && unrelated.witness.group == group);
-                gates[0].release.notify_one();
-                Ok::<_, anyhow::Error>(())
-            },);
-        interleaved?;
-        let resumed = resumed?;
-        ensure!(resumed.result == b"15" && resumed.durability == Durability::Quorum);
-        ensure!(gates[0].resumed.load(Ordering::Acquire) == 1);
-        check_rpc_read(cell, 245, &resumed.version, json!([15, 2])).await?;
-        let retry = cell.command(&update, input, options(239)?).await?;
-        ensure!(retry.result == resumed.result && retry.version == resumed.version);
-        ensure!(calls.load(Ordering::Acquire) == 4);
-
-        let short = CommandOptions {
-            timeout: Duration::from_secs(1),
-            ..options(246)?
-        };
-        let (expired, cleaned) = tokio::join!(
-            cell.command(
-                &update,
-                serde_json::to_vec(&json!({"delta": 100, "gate": 1, "after": 1}))?,
-                short,
-            ),
-            async {
-                cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await?;
-                cellar::asyncrt::timeout(TIMEOUT, gates[1].dropped.notified()).await?;
-                Ok::<_, anyhow::Error>(())
-            },
-        );
-        cleaned?;
-        ensure!(expired.is_err() && gates[1].resumed.load(Ordering::Acquire) == 0);
-        check_rpc_read(cell, 247, &resumed.version, json!([15, 2])).await?;
-
-        let long = CommandOptions {
-            timeout: Duration::from_secs(20),
-            ..options(248)?
-        };
-        let (revoked, transferred) = tokio::join!(
-            cell.command(
-                &update,
-                serde_json::to_vec(&json!({"delta": 200, "gate": 2, "after": 1}))?,
-                long,
-            ),
-            async {
-                cellar::asyncrt::timeout(TIMEOUT, gates[2].entered.notified()).await?;
-                let group = cluster.hosts[leader].group(group)?;
-                let status = group.replication_status(TIMEOUT).await?;
-                let target = (leader + 1) % 3;
-                group
-                    .transfer_leadership(
-                        LeadershipTransfer {
-                            target: MemberId::new(target as u64 + 1)?,
-                            expected_term: status.term,
-                            expected_revision: status.membership_revision,
-                        },
-                        TIMEOUT,
-                    )
-                    .await?;
-                cellar::asyncrt::timeout(TIMEOUT, gates[2].dropped.notified()).await?;
-                gates[2].release.notify_one();
-                Ok::<_, anyhow::Error>(target)
-            },
-        );
-        let target = transferred?;
-        let error = revoked.expect_err("stale RPC must not commit");
-        ensure!(error.cause.refusal() == Some(&CommandFailure::Unavailable));
-        ensure!(gates[2].resumed.load(Ordering::Acquire) == 0);
-        let current = cluster.hosts[target].cell(cell.history().clone())?;
-        check_rpc_read(&current, 249, &resumed.version, json!([15, 2])).await?;
-        ensure!(calls.load(Ordering::Acquire) == 6);
-        Ok::<_, anyhow::Error>(())
-    })
-    .await;
+            let long = CommandOptions {
+                timeout: Duration::from_secs(20),
+                ..options(248)?
+            };
+            let (revoked, transferred) = tokio::join!(
+                cell.command(
+                    &update,
+                    serde_json::to_vec(&json!({"delta": 200, "gate": 2, "after": 1}))?,
+                    long,
+                ),
+                async {
+                    cellar::asyncrt::timeout(TIMEOUT, gates[2].entered.notified()).await?;
+                    let group = cluster.hosts[leader].group(group)?;
+                    let status = group.replication_status(TIMEOUT).await?;
+                    let target = (leader + 1) % 3;
+                    group
+                        .transfer_leadership(
+                            LeadershipTransfer {
+                                target: MemberId::new(target as u64 + 1)?,
+                                expected_term: status.term,
+                                expected_revision: status.membership_revision,
+                            },
+                            TIMEOUT,
+                        )
+                        .await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[2].dropped.notified()).await?;
+                    gates[2].release.notify_one();
+                    Ok::<_, anyhow::Error>(target)
+                },
+            );
+            let target = transferred?;
+            let error = revoked.expect_err("stale RPC must not commit");
+            ensure!(error.cause.refusal() == Some(&CommandFailure::Unavailable));
+            ensure!(gates[2].resumed.load(Ordering::Acquire) == 0);
+            let current = cluster.hosts[target].cell(cell.history().clone())?;
+            check_rpc_read(&current, 249, &resumed.version, json!([15, 2])).await?;
+            ensure!(calls.load(Ordering::Acquire) == 6);
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;
