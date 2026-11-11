@@ -88,6 +88,8 @@ SUITES = {
             "rustfs_ordinary_cell_activation_cache_is_bounded_and_fenced",
             "rustfs_ordinary_cell_rpcs_interleave_between_proven_roots",
             "rustfs_ordinary_cell_sdk_dispatch_requires_source_proof",
+            "rustfs_ordinary_cell_sdk_resolves_current_histories",
+            "rustfs_storage_reads_and_writes_exact_cell_versions",
         ),
         "ordinary JSON cell RPC, Storage checkpoints and bounded native activation on shared RF3",
         "Both image modes. Checkpoints use two cells sharing a group and one SQL worker per node. "
@@ -107,6 +109,11 @@ SUITES = {
         "source proof with independent target durability. It checks dropped child drainage, "
         "ordered-root deadline accounting, callback refusal, recursive calls and leader fencing "
         "with the original child identity and uncertainty. Proven SDK waits release the writer. "
+        "A fifth case resolves current cell histories through authenticated read-only quorum discovery, "
+        "then constructs and invokes a target handle inside an ordinary RPC after source proof. "
+        "It checks absent names, original deadlines, callback refusal, leader transfer and quorum loss. "
+        "A sixth case checks committed SQL/KV and keyset cursors, exact cell/version isolation, "
+        "range bounds, structured values, mutation, invalidation, rollback and expired views. "
         "Declared bindings, automatic dispatch gates, other primitive families, process "
         "faults, disk-loss recovery and full CG-17 acceptance remain separate gates.",
     ),
@@ -655,7 +662,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--target-directory", type=Path, required=True,
                         help="absolute checkout-private Cargo target on the workspace volume")
+    parser.add_argument("--keep-going", action="store_true",
+                        help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
+    if args.keep_going and args.suite != "ordinary-primitives":
+        parser.error("--keep-going requires the process-isolated ordinary-primitives suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -674,6 +685,7 @@ def main():
         "suite": args.suite, "test_target": target,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(args.suite), "backend": remote, "prefix": prefix, "commands": [],
+        "keep_going": args.keep_going, "passed_cases": [], "failed_cases": [],
         "limitations": ("Host-native three-voter TLS fixture, both image forms, with RustFS in one local VM. "
                         + limitations + " Independent hosts remain a separate gate."),
     }
@@ -778,14 +790,21 @@ def main():
                         or sha(retained) != operator_hash):
                     raise RuntimeError("cold managed recovery operator changed during qualification")
             save()
-            if result.returncode:
-                raise RuntimeError(f"{selection} failed; see {log}")
+            if not match:
+                raise RuntimeError("missing executable provenance")
+            if result.returncode or (number != 0 and not exact_case_passed(output, selection)):
+                record["failed_cases"].append(selection)
+                save()
+                if not args.keep_going or number == 0:
+                    raise RuntimeError(f"{selection} failed; see {log}")
+                # These fixtures run in separate native processes with distinct
+                # store prefixes. No managed process/fault suite can use this.
+                print(f"FAIL {selection}; continuing independent cases", flush=True)
+                continue
             if number == 0:
                 for case in cases:
                     if not re.search(rf"^{re.escape(case)}: test$", output, re.M):
                         raise RuntimeError("missing exact RustFS test in executable inventory")
-            elif not exact_case_passed(output, selection):
-                raise RuntimeError("exact RustFS test was not executed successfully")
             if args.suite in ("routing-range-repairs", "routing-authority") and number:
                 rows, scenarios = routing_observations(output, selection)
                 ledger = out / f"{number:02}-routing-evidence.json"
@@ -794,12 +813,14 @@ def main():
                     "case": selection, "path": ledger.name, "sha256": sha(ledger),
                     "records": len(rows), "scenarios": scenarios,
                 })
-            if not match:
-                raise RuntimeError("missing executable provenance")
+            if number:
+                record["passed_cases"].append(selection)
             print(f"PASS {selection}", flush=True)
         if sources(args.suite) != record["source_inputs"]:
             raise RuntimeError("source changed during qualification")
         backend(args.backend.resolve())
+        if record["failed_cases"]:
+            raise RuntimeError(f"primitive campaign failed: {', '.join(record['failed_cases'])}")
         record["status"] = "PASSED"
         record["passed_cases"] = list(cases)
     except Exception:

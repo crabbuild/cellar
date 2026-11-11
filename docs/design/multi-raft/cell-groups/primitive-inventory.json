@@ -487,13 +487,15 @@
         "cellar::sdk::Invocation::Fetch",
         "cellar::sdk::Invocation::Rpc",
         "cellar::sdk::Invocation::CellRpc",
-        "cellar::sdk::Context::wait_until"
+        "cellar::sdk::Context::wait_until",
+        "cellar::sdk::consensus::RaftCells::resolve_cell_history"
       ],
       "owners": [
         "crates/cellar/application/mod.rs",
         "crates/cellar/application/service/mod.rs",
         "crates/cellar/application/cells.rs",
-        "crates/cellar/application/rpc/mod.rs"
+        "crates/cellar/application/rpc/mod.rs",
+        "crates/cellar/application/consensus/group_client/names.rs"
       ],
       "schemas": [],
       "bindings": [

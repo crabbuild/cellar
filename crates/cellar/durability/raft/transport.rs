@@ -54,6 +54,7 @@ mod cell_queries;
 mod command_origins;
 #[path = "query_reply.rs"]
 mod query_replies;
+pub(crate) use cell_commands::CellRemoteNameResponse;
 pub use cell_commands::{
     CellCommandGateway, CellRemoteCommandResponse, CellRemoteEnrollmentResponse,
     CellRemoteReceiptResponse,

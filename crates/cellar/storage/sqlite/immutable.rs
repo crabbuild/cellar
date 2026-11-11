@@ -42,6 +42,8 @@ impl ImmutableQuery {
 /// Owns the pinned image only for a synchronous registered query. Cloned
 /// Storage views carry the callback identity and cannot retain the image.
 pub(crate) struct QueryFrame {
+    // A callback may return a token, but never its raw statement or image pin.
+    cursors: super::raft_cursors::RaftCursors,
     database: ImmutableQuery,
     storage: OnceCell<Arc<Resources>>,
     kv_present: OnceCell<bool>,
@@ -64,6 +66,7 @@ impl QueryFrame {
             }
         }
         let frame = Rc::new(Self {
+            cursors: super::raft_cursors::RaftCursors::default(),
             database,
             storage: OnceCell::new(),
             kv_present: OnceCell::new(),
@@ -74,6 +77,7 @@ impl QueryFrame {
             *current = Some(frame.clone());
             Ok::<_, anyhow::Error>(Installed)
         })?;
+        let _cursors = frame.cursors.install();
         callback(&frame)
     }
 

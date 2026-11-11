@@ -258,11 +258,18 @@ use different limits. Fleet owners should agree on limits for shared resources.
 | API | Default ceiling | Unrestricted profile |
 | --- | --- | --- |
 | KV | 512-byte keys; 25-MiB values; 1-KiB metadata; 100 bulk keys; 1,000-entry list pages; 60-second TTL floor | Removes these compatibility ceilings and the TTL floor |
-| SQL | Restricted SQLite connection; 100,000 materialized rows; 32-MiB result budget | SQLite's native compiled ceilings; removes materialized row/byte budgets |
+| SQL | Restricted SQLite connection; 100,000 materialized rows; 32-MiB result budget; 64 live cursor statements and 2 MiB of sampled cursor VM/bind memory | Removes materialized row/byte budgets; retains finite cursor limits |
 | Blob | 1,000-entry list pages; 256-MiB multipart backlog; staged parts: 256 MiB each, 1 GiB aggregate scratch and 64 files | Removes these compatibility ceilings; object size and scratch support still depend on the backend |
 | Queue | 128,000-byte messages; 256,000-byte sends; 100-message batches; 60-second batch timeout; 100 retries; 250 concurrent batches; one-day delay; four-day retention; 100-entry operator batches | Removes byte caps and age-based expiry; expands batches, delays and consumer settings to their numeric ranges |
 | Workflow | 1-MiB values; 1-GiB aggregate captured streams per instance; 100-instance batches; 100-byte IDs/event types; 256-unit step names; 30-day retention maximum; one-year sleeps/event waits; 10,000 retries | Removes size/name/batch/duration ceilings; permits up to `u32::MAX` step retries |
 | Cron / alarms | No trigger-count quota; cron uses minute resolution and one durable alarm multiplexes deadlines | No additional quota to remove; scheduling and retry semantics continue to apply |
+
+`sql.max_open_cursors` and `sql.max_cursor_bytes` bound lazy statements per
+native cell or Raft command/query frame. Configure them explicitly before
+starting the host. The byte count samples SQLite's compiled statement/bind
+memory at preparation; it excludes page caches, sorter workspace and
+application-owned result rows. It is not an RSS bound. Idle statement caches
+retain their separate internal budget.
 
 The unrestricted profile still has backend and protocol limits. Structured
 values/RPC retain the codec's 64-MiB encoded-value, nesting and graph bounds. SQLite retains its compiled

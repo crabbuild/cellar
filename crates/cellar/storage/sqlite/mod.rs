@@ -14,11 +14,11 @@ use rusqlite::{Connection, OptionalExtension};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
-use std::ops::Bound;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 mod command;
+pub(crate) use command::bind_storage as bind_raft_command_storage;
 pub(crate) use command::capture_dispatch as capture_raft_dispatch;
 pub(crate) use command::commit_work as commit_raft_work;
 pub(crate) use command::require_storage as require_raft_command_storage;
@@ -34,7 +34,11 @@ pub(crate) mod filesystem;
 #[cfg(test)]
 mod identity_tests;
 mod immutable;
+mod kv_cursor;
+mod raft_cursors;
 pub(crate) use immutable::{require_storage as require_raft_query_storage, QueryFrame};
+pub(crate) use kv_cursor::KvCursorRange;
+pub(crate) use raft_cursors::raft_sql_cursor_lifetime;
 pub(crate) mod inbox;
 #[cfg(test)]
 mod json_reads_tests;
@@ -362,10 +366,7 @@ struct ActiveAlarm {
 // materializing an unbounded list or depending on JavaScript iterator cleanup.
 struct SyncListCursor {
     scope: String,
-    lower: Bound<String>,
-    end: Option<String>,
-    remaining: usize,
-    reverse: bool,
+    range: KvCursorRange,
 }
 
 struct SqlCursor {
@@ -374,6 +375,7 @@ struct SqlCursor {
     statement: *mut rusqlite::ffi::sqlite3_stmt,
     changes_before: u64,
     cache_query: Option<Arc<str>>,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[derive(Default)]
@@ -2057,6 +2059,20 @@ pub(crate) fn sql_cursor_start_values(
 ) -> Result<SqlCursorStart, String> {
     check_sql_rename(query)?;
     require_sql_healthy(scope)?;
+    let limits = crate::application::limits::current().sql;
+    if query.len() > limits.max_cursor_bytes {
+        return Err("SQL cursor statement byte limit exceeded".into());
+    }
+    if sql_cursors(|cursors| {
+        cursors
+            .borrow()
+            .values()
+            .filter(|cursor| cursor.scope == scope)
+            .count()
+    }) >= limits.max_open_cursors
+    {
+        return Err("SQL cursor count limit exceeded".into());
+    }
     let (cached_statement, cached_query, cache_busy, reused_cached_query) =
         match take_cached_sql_statement(scope, query) {
             SqlStatementCacheLookup::Miss => (std::ptr::null_mut(), None, false, false),
@@ -2115,6 +2131,23 @@ pub(crate) fn sql_cursor_start_values(
                         return Err(anyhow::anyhow!("SQL code did not contain a statement"));
                     }
 
+                    let retained = sql_cursors(|cursors| {
+                        cursors
+                            .borrow()
+                            .values()
+                            .filter(|cursor| cursor.scope == scope)
+                            .fold(0usize, |bytes, cursor| {
+                                bytes
+                                    .saturating_add(cached_sql_statement_size("", cursor.statement))
+                            })
+                    });
+                    if retained.saturating_add(cached_sql_statement_size(query, statement))
+                        > limits.max_cursor_bytes
+                    {
+                        discard_in_use_sql_statement(scope, cache_query.as_deref(), statement);
+                        return Err(anyhow::anyhow!("SQL cursor statement byte limit exceeded"));
+                    }
+
                     let has_more = !using_cached
                         && !tail.is_null()
                         && CStr::from_ptr(tail)
@@ -2165,6 +2198,24 @@ pub(crate) fn sql_cursor_start_values(
                             discard_in_use_sql_statement(scope, cache_query.as_deref(), statement);
                             return Err(error);
                         }
+                    }
+                    // SQLite owns transient copies of bindings by this point.
+                    // Include them before stepping a potentially mutating VM.
+                    let retained = sql_cursors(|cursors| {
+                        cursors
+                            .borrow()
+                            .values()
+                            .filter(|cursor| cursor.scope == scope)
+                            .fold(0usize, |bytes, cursor| {
+                                bytes
+                                    .saturating_add(cached_sql_statement_size("", cursor.statement))
+                            })
+                    });
+                    if retained.saturating_add(cached_sql_statement_size(query, statement))
+                        > limits.max_cursor_bytes
+                    {
+                        discard_in_use_sql_statement(scope, cache_query.as_deref(), statement);
+                        return Err(anyhow::anyhow!("SQL cursor statement byte limit exceeded"));
                     }
                     if cache_query.is_none() && !cache_busy && !saw_prefix {
                         cache_query = register_cached_sql_statement(scope, query, statement);
@@ -2238,6 +2289,7 @@ pub(crate) fn sql_cursor_start_values(
                 statement,
                 changes_before,
                 cache_query,
+                cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
         );
     });
@@ -2249,45 +2301,50 @@ pub(crate) fn sql_cursor_start_values(
 /// carries that final count. The two are returned together so a caller cannot
 /// read a mid-cursor write count that SQLite has not finished producing.
 pub fn sql_cursor_next(cursor_id: u64) -> Result<(Option<Vec<SqlValue>>, u64), String> {
-    sql_cursors(|cursors| {
-        let mut cursors = cursors.borrow_mut();
-        let cursor = cursors
-            .get_mut(&cursor_id)
-            .ok_or_else(|| "SQL cursor is no longer active".to_string())?;
-        if let Some(error) = sql_critical_error(&cursor.scope) {
-            cursors.remove(&cursor_id);
-            return Err(error);
-        }
-        // SAFETY: the cursor owns its statement on a connection that remains
-        // live until the cursor is removed.
-        let started_in_transaction =
-            unsafe { rusqlite::ffi::sqlite3_get_autocommit(cursor.database) == 0 };
-        let step = unsafe { rusqlite::ffi::sqlite3_step(cursor.statement) };
-        match step {
-            rusqlite::ffi::SQLITE_ROW => Ok((Some(unsafe { sql_cursor_row(cursor.statement) }), 0)),
-            rusqlite::ffi::SQLITE_DONE => {
-                let rows_written = unsafe {
-                    total_changes_for_handle(cursor.database).saturating_sub(cursor.changes_before)
-                };
+    as_user_sql(|| {
+        sql_cursors(|cursors| {
+            let mut cursors = cursors.borrow_mut();
+            let cursor = cursors
+                .get_mut(&cursor_id)
+                .ok_or_else(|| "SQL cursor is no longer active".to_string())?;
+            if let Some(error) = sql_critical_error(&cursor.scope) {
                 cursors.remove(&cursor_id);
-                Ok((None, rows_written))
+                return Err(error);
             }
-            _ => {
-                let error = sqlite_operation_failure(
-                    &cursor.scope,
-                    cursor.database,
-                    started_in_transaction,
-                    step,
-                    "step SQL cursor",
-                )
-                .to_string();
-                if let Some(query) = cursor.cache_query.take() {
-                    discard_cached_sql_statement(&cursor.scope, &query);
+            // SAFETY: the cursor owns its statement on a connection that remains
+            // live until the cursor is removed.
+            let started_in_transaction =
+                unsafe { rusqlite::ffi::sqlite3_get_autocommit(cursor.database) == 0 };
+            let step = unsafe { rusqlite::ffi::sqlite3_step(cursor.statement) };
+            match step {
+                rusqlite::ffi::SQLITE_ROW => {
+                    Ok((Some(unsafe { sql_cursor_row(cursor.statement) }), 0))
                 }
-                cursors.remove(&cursor_id);
-                Err(error)
+                rusqlite::ffi::SQLITE_DONE => {
+                    let rows_written = unsafe {
+                        total_changes_for_handle(cursor.database)
+                            .saturating_sub(cursor.changes_before)
+                    };
+                    cursors.remove(&cursor_id);
+                    Ok((None, rows_written))
+                }
+                _ => {
+                    let error = sqlite_operation_failure(
+                        &cursor.scope,
+                        cursor.database,
+                        started_in_transaction,
+                        step,
+                        "step SQL cursor",
+                    )
+                    .to_string();
+                    if let Some(query) = cursor.cache_query.take() {
+                        discard_cached_sql_statement(&cursor.scope, &query);
+                    }
+                    cursors.remove(&cursor_id);
+                    Err(error)
+                }
             }
-        }
+        })
     })
 }
 
@@ -4000,26 +4057,9 @@ pub fn sync_list_start(
 ) -> anyhow::Result<u64> {
     close_sync_list_cursors(scope);
     with(scope, |_| ()).ok_or_else(|| anyhow::anyhow!("no db for {scope}"))?;
-    // Give SQLite one bound per direction. With redundant range/prefix
-    // predicates it can seek to the original lower bound, then scan and
-    // filter every previously returned key on each next() (quadratic work).
-    let lower = match (begin.max(prefix), start_after) {
-        (Some(begin), Some(after)) if begin > after => Bound::Included(begin.to_string()),
-        (_, Some(after)) => Bound::Excluded(after.to_string()),
-        (Some(begin), None) => Bound::Included(begin.to_string()),
-        (None, None) => Bound::Unbounded,
-    };
-    let end = end
-        .map(str::to_string)
-        .into_iter()
-        .chain(prefix.and_then(prefix_upper_bound))
-        .min();
     let cursor = SyncListCursor {
-        scope: scope.to_string(),
-        lower,
-        end,
-        remaining: limit.unwrap_or(usize::MAX).min(i64::MAX as usize),
-        reverse,
+        scope: scope.into(),
+        range: KvCursorRange::new(begin, end, start_after, prefix, limit, reverse),
     };
     let id = NEXT_SYNC_LIST_CURSOR.fetch_add(1, Ordering::Relaxed);
     sync_list_cursors(|cursors| cursors.borrow_mut().insert(id, cursor));
@@ -4032,53 +4072,11 @@ pub fn sync_list_next(cursor_id: u64) -> anyhow::Result<Option<(String, StoredVa
         let cursor = cursors
             .get_mut(&cursor_id)
             .ok_or_else(|| anyhow::anyhow!("sync KV cursor was invalidated"))?;
-        if cursor.remaining == 0 {
+        let result = cursor.range.next(&cursor.scope);
+        if !matches!(result, Ok(Some(_))) {
             cursors.remove(&cursor_id);
-            return Ok(None);
         }
-        let result = with(&cursor.scope, |connection| -> anyhow::Result<_> {
-            let (begin, start_after) = match &cursor.lower {
-                Bound::Included(key) => (Some(key.as_str()), None),
-                Bound::Excluded(key) => (None, Some(key.as_str())),
-                Bound::Unbounded => (None, None),
-            };
-            let (query, parameters) = list_query(
-                &cursor.scope,
-                begin,
-                cursor.end.as_deref(),
-                start_after,
-                None,
-                Some(1),
-                cursor.reverse,
-            );
-            // query_row resets the statement before returning. A cached,
-            // reset statement holds no read snapshot between iterator steps.
-            let mut statement = connection.prepare_cached(&query)?;
-            Ok(statement
-                .query_row(rusqlite::params_from_iter(parameters), |row| {
-                    Ok((row.get::<_, String>(0)?, stored_value(row.get_ref(1)?)))
-                })
-                .optional()?)
-        })
-        .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {}", cursor.scope)));
-        match result {
-            Ok(Some((key, value))) => {
-                // The returned key already satisfies every original bound.
-                // Tighten only the bound in the traversal direction, so a
-                // delete or insert before this position cannot shift an offset.
-                if cursor.reverse {
-                    cursor.end = Some(key.clone());
-                } else {
-                    cursor.lower = Bound::Excluded(key.clone());
-                }
-                cursor.remaining -= 1;
-                Ok(Some((key, value)))
-            }
-            other => {
-                cursors.remove(&cursor_id);
-                other
-            }
-        }
+        result
     })
 }
 

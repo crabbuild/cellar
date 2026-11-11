@@ -27,6 +27,167 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-17 SQL cursor execution ownership: qualification pending
+
+Source `89fe63fb` implements public lazy `Storage::sql_cursor` in private Raft
+commands and committed queries using the existing native cursor engine. Each
+execution frame owns its statements/cache and finalizes them before its
+connection/image is released. Public tokens retain owned buffers and cancellation
+signals. Dropping a token outside its original turn cannot access SQLite or queue
+unbounded cleanup work. Unfinished `RETURNING` writers refuse checkpoint/output
+publication. Read VMs keep their connection; idle caches are cleared before park.
+
+Both SQL and KV cursors now bind the actual invocation even when created through
+constructor-cached Storage. That Storage may be reused by a persistent native
+instance, but its cursors cannot be adopted by a subsequent invocation. SQL
+limits add explicit live-count and sampled statement/bind-byte budgets, retained
+by the unrestricted profile; they do not claim to bound RSS or result buffers.
+
+At `d8974158`, all four owning native selections pass: RF3 Storage in
+25.446 seconds, ordinary RPC in 73.187 seconds, bounded/fenced activation in
+207.251 seconds and production native Storage in 0.135 seconds. The owning
+library/integration compile and strict affected-target Clippy pass, together
+with formatting, layout and docs checks. Both image forms run. The RPC now holds
+a live SQL VM through the existing leader-loss, cancellation and shutdown gates;
+capacity refusal also checks that a write statement cannot enter a full arena.
+Exact binaries/logs are retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-d8974158-native-02`.
+
+The original `89fe63fb` campaign passes Storage, activation and native Storage,
+then fails RPC on `SQLITE_ABORT_ROLLBACK`. The new test had incorrectly expected
+a read VM to survive savepoint rollback after schema changes. The paired
+production native/Raft oracle now requires the same prefetched-row/deferred-error
+behavior; the root-checkpoint success assertion opens its cursor after those
+rollback controls. Existing rollback/data assertions and budgets remain. The
+original failed source, executable and diagnostic controls are retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-89fe63fb-control-01`.
+
+At `3f1fd59d`, the awaited `storage.sync()` extension passes natively with a
+live read cursor across ordered Quorum/S3 checkpoint proof. Three fresh native
+selections pass: Storage in 28.454 seconds, RPC in 73.962 seconds and native
+Storage in 0.161 seconds. Strict affected-target Clippy, formatting, layout,
+dependencies, docs and partial-inventory checks pass. Production library inputs
+remain identical to `89fe63fb`; test/docs changes have explicit source bridges.
+
+The six-case real RustFS campaign is **FAILED**, with four passes: Storage,
+activation, same-cell interleaving and current-incarnation discovery. RPC fails
+in materialized mode on an awaited-S3-sync observer deadline. Retained voter and
+verifier images contain value 176 and an unfinished S3 receipt at checkpoint
+steps 1/2; those bytes alone do not prove response or verification completion.
+Dependent SDK dispatch fails in materialized/S3-source recursion: parent 194's
+child 226 exceeds its original deadline, preserving ambiguity. All original
+budgets remain. The owned one-CPU/2-GiB RustFS exits zero without OOM; its VM is
+stopped and target/default VMs are unchanged. Exact source/binary/log hashes and
+shutdown evidence are retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-3f1fd59d-control-03`.
+
+Context-only source `c71d1121` reruns the full RPC case successfully in both
+image modes (97.739 seconds), but SDK fails earlier in a materialized/Quorum-source
+observer wait (19.642 seconds). This establishes different observed failures,
+not a recursive-child cause or a fix. The diagnostic is retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-c71d1121-diagnostic-04` and never
+qualifies the original campaign. Both owned services stop cleanly again.
+Source `10e3aea9` adds precise SDK gate labels and paired command/observer error
+context. Its targeted diagnostic fails at SDK gate 1, after target entry and the
+first source-proof observation, with the original parent deadline also expired.
+A subsequent dirty-source phase probe passes all SDK configurations; it does not
+identify the cause or qualify the original campaign. Both diagnostics, source
+patch/binary hashes and verified owned shutdown are retained under
+`.cellar/cell-groups-evidence/CG-17-sdk-stage-10e3aea9-diagnostic-05` and `-06`.
+The temporary probe is removed from both worktrees. No speculative production
+fix is selected from these intermittent observations. Do not raise deadlines,
+loosen admission, replay an entered callback or treat an ambiguous response as
+non-commit.
+
+The remaining proof includes real checkpoint pressure, connection-bound cursor
+interaction with recursive same-cell dispatch, cancellation and joined teardown.
+Keep the full ordinary SQL contract and family/scenario matrix as the target;
+this ownership checkpoint does not narrow or accept that scope. Full CG-17
+acceptance remains open, as do the earlier intermittent S3 overload failure and
+the combined release/recovery gates.
+
+## CG-17 Storage keyset cursors
+
+Source `3200321f` implements public `Storage::list_cursor` in Raft commands
+and committed queries, sharing the ordinary native range algorithm. Each step
+copies one owned row and retains no SQLite statement, worker, connection or image
+pin. A single current range per Storage owner bounds retained metadata.
+Non-wrapping generation tokens keep stale handles from erasing a newer iterator.
+Every step checks its original execution authority. A live command cursor can
+cross a transaction boundary or independent root checkpoint and observes the
+current surviving image.
+
+Three exact native selections pass: RF3 Storage conformance in 24.974 seconds,
+ordinary RPC in 73.871 seconds and the existing native Storage regression in
+0.361 seconds. Coverage includes both image forms, Quorum/S3 policies, range
+bounds, reverse traversal, limits, structured values, empty storage, mutation
+between steps, rollback, stale handles, expired callbacks and cell/version
+isolation. Affected-library/integration-target strict Clippy passes in
+172.814 seconds. Formatting, layout, dependency, documentation and partial catalog
+checks pass; the catalog remains a requirements list, not full API acceptance.
+
+Runner source `2f42cb5f` changes only the RustFS Python harness and its guide;
+native/build inputs are byte-identical to `3200321f`. Its optional `--keep-going`
+collects all six independent primitive cases, preserving aggregate failure when
+any case fails. Managed fault/process suites refuse that option. All six exact
+real-RustFS cases pass in both image forms with the same primitive executable SHA256
+`afdeb80ec3a3f8232cf3f75e4036d45c7f7325595c2e5bf63dec1c1abc0303bd`:
+
+| Case | Seconds |
+| --- | ---: |
+| Ordinary JSON RPC | 90.654 |
+| Bounded/fenced native activation | 229.145 |
+| Same-cell interleaving | 221.233 |
+| Dependent SDK dispatch | 140.511 |
+| Current-incarnation discovery | 65.353 |
+| Storage conformance and keyset cursors | 24.939 |
+
+The fixtures use host-native RF3 TLS voters and a digest-pinned RustFS container
+limited to one CPU and 2 GiB without additional swap. The backend exits zero
+without OOM and its VM is stopped; target/default VMs are unchanged. This is a
+functional checkpoint on a shared development host, not constrained-voter,
+independent-domain, load or latency-SLO qualification. The original
+materialized-S3 interleaving failure below remains unresolved despite this passing
+campaign. Do not waive it or the full matrix. Native/build input equivalence,
+command/log/binary hashes, original compilation controls and verified shutdown
+are retained in `.cellar/cell-groups-evidence/CG-17-cursors-2f42cb5f-01`.
+
+This delivers the KV cursor API boundary. SQL cursors, other Storage methods,
+named namespace bindings, durable child identities, committed due work and the
+remaining family/provider adapters stay open. Acceptance remains **13/17 tasks
+and 147/195 cases**; no full CG-17 family or release gate is accepted here.
+
+## CG-17 current-incarnation discovery qualification control
+
+Source `f2dcf1b0` adds namespace-authorized logical-name discovery through a fresh
+quorum cut. It returns an existing incarnation or absence without constructing
+or enrolling an application. Ordinary RPC lookup waits for source proof; the
+returned history requires fresh dispatch authority. The remote path waits for
+its new-term quorum cut before reading enrollment metadata after leader transfer.
+
+All 24 selected native tests pass: three adversarial wire tests, fourteen host
+tests and seven SDK/Storage/effect selections. The new four-configuration name
+case passes in 60.536 seconds; the existing daemon/CLI campaign passes in
+88.159 seconds. Formatting, layout, docs, native dependency and partial inventory
+checks pass. This source's focused Clippy run is not reached.
+
+The real RustFS campaign is **not qualified**. Ordinary RPC and activation pass
+in 70.859 and 203.573 seconds. Materialized S3 interleaving then fails with
+`Runtime(Overloaded)` on client 187, sequence 2. The remaining SDK dispatch and
+new name-discovery RustFS cases are not reached. The failed campaign, exact
+binaries, command/log hashes and verified owned shutdown are retained under
+`.cellar/cell-groups-evidence/CG-17-names-f2dcf1b0-control-03`.
+The unchanged one-CPU/2-GiB backend exits zero without OOM and its VM is stopped.
+The targeted materialized-S3 capacity diagnostic passes with temporary probes;
+it does not clear the original failure or qualify the omitted configurations.
+Keep the original request budgets, two-command limit and uncertainty rules.
+
+The subsequent [Storage cursor checkpoint](#cg-17-storage-keyset-cursors) records
+its separate native execution and RustFS qualification boundary.
+Full named bindings, due work and family/provider adapters remain required.
+Acceptance remains **13/17 tasks and 147/195 cases**; no full CG-17 case closes
+from this control.
+
 ## CG-17 dependent canonical SDK dispatch
 
 Source `fcab2005` connects ordinary native RPCs to canonical SDK command,

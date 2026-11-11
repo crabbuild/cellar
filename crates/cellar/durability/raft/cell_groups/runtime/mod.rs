@@ -3,6 +3,7 @@
 //! One execution-domain worker multiplexes physical cell-group owners per node.
 
 mod leadership;
+mod names;
 mod park_deadlines;
 mod read_cohort;
 pub(super) mod reads;

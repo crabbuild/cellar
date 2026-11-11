@@ -9,6 +9,8 @@ struct WarmCell {
     storage: Storage,
     turns: AtomicUsize,
     previous: Mutex<Option<Storage>>,
+    previous_sql_cursor: Mutex<Option<cellar::sdk::storage::SqlCursor>>,
+    previous_kv_cursor: Mutex<Option<cellar::sdk::storage::KvCursor>>,
 }
 
 impl Cell for WarmCell {
@@ -18,6 +20,18 @@ impl Cell for WarmCell {
                 matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Tick")
             );
             ensure!(context.var("COUNT_STEP") == Some("1"));
+            if let Some(mut previous) = self.previous_sql_cursor.lock().unwrap().take() {
+                ensure!(
+                    previous.next_raw().is_err(),
+                    "constructor-cached SQL cursor crossed invocations"
+                );
+            }
+            if let Some(mut previous) = self.previous_kv_cursor.lock().unwrap().take() {
+                ensure!(
+                    previous.next().context("cached KV cursor")?.is_err(),
+                    "constructor-cached KV cursor crossed invocations"
+                );
+            }
             let current = context.storage()?;
             if let Some(previous) = self.previous.lock().unwrap().replace(current) {
                 ensure!(
@@ -38,6 +52,12 @@ impl Cell for WarmCell {
                 + 1;
             self.storage.put_json("visits", &json!(visits))?;
             self.storage.sync().await?;
+            *self.previous_sql_cursor.lock().unwrap() = Some(
+                self.storage
+                    .sql_cursor("SELECT 1 UNION ALL SELECT 2", &[])?,
+            );
+            *self.previous_kv_cursor.lock().unwrap() =
+                Some(self.storage.list_cursor(&Default::default())?);
             let memory = self.turns.fetch_add(1, Ordering::AcqRel) + 1;
             Ok(Output::Rpc(RpcData::Json(
                 json!([builds, visits, memory]).to_string(),
@@ -119,6 +139,8 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                     storage,
                     turns: AtomicUsize::new(0),
                     previous: Mutex::new(None),
+                    previous_sql_cursor: Mutex::new(None),
+                    previous_kv_cursor: Mutex::new(None),
                 }))
             },
         )?,

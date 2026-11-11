@@ -40,6 +40,7 @@ pub(crate) struct Resources {
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
     transaction_serial: AtomicU64,
+    kv_cursor: Mutex<cursor::RaftKvCursor>,
 }
 
 enum Cleanup {
@@ -484,6 +485,18 @@ impl Storage {
         self.data_scope()
     }
 
+    fn cursor_view(&self) -> Result<Self> {
+        self.data_scope()?;
+        let owner = match &self.0 {
+            Owner::RaftCommand(authority) => {
+                Owner::RaftCommand(crate::storage::bind_raft_command_storage(authority)?)
+            }
+            owner => owner.clone(),
+        };
+        // Cursors retain execution authority rather than an ended savepoint.
+        Ok(Self(owner, None, self.2))
+    }
+
     fn data_scope(&self) -> Result<&str> {
         self.check_transaction_authority()?;
         let scope = self.data_activation_scope()?;
@@ -538,7 +551,9 @@ impl Storage {
     }
 
     /// A keyset iterator with no retained SQLite read snapshot. Starting a
-    /// second iterator invalidates the first, matching the existing sync API.
+    /// second iterator on the same storage owner invalidates the first.
+    /// Raft cursors check the original invocation or committed query on every
+    /// step and retain no SQL worker, connection or image pin.
     pub fn list_cursor(&self, options: &ListOptions) -> Result<KvCursor> {
         KvCursor::new(self, options)
     }
@@ -650,6 +665,9 @@ impl Storage {
         crate::storage::sql_exec(self.data_scope()?, query, bindings).map_err(anyhow::Error::msg)
     }
 
+    /// A lazy statement in the active native turn, Raft command or committed
+    /// query. Live Raft statements retain their private connection; unfinished
+    /// writes must be consumed or dropped before checkpoint/output publication.
     pub fn sql_cursor(&self, query: &str, bindings: &[SqlValue]) -> Result<SqlCursor> {
         SqlCursor::new(self, query, bindings)
     }

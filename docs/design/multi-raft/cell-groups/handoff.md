@@ -4,6 +4,43 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current SQL cursor implementation
+
+Source `89fe63fb` adds execution-owned lazy SQL cursors, finite count/statement
+budgets, safe out-of-turn cancellation, unfinished-write publication refusal and
+invocation-specific SQL/KV tokens from constructor-cached Storage. At `d8974158`,
+four owning native selections and strict Clippy pass in both image modes. The
+paired native/Raft schema-rollback/deferred-error oracle corrects the original
+RPC test's invalid expectation while preserving its separate root-checkpoint
+success assertion. Live VM fault gates and capacity-before-mutation checks pass.
+Original failed `89fe63fb` and passing `d8974158` binaries/logs remain retained.
+At `3f1fd59d`, the awaited sync/cursor extension and three fresh native
+selections pass with strict Clippy and repository checks. The real RustFS
+campaign fails RPC's S3 sync observer and recursive SDK child deadlines; its
+other four cases pass. Evidence is retained under
+`.cellar/cell-groups-evidence/CG-17-sql-cursors-3f1fd59d-control-03`.
+Contextual source `c71d1121` passes the full RPC rerun but fails SDK at an earlier
+Quorum-source observer wait; it does not reproduce the same recursive failure.
+Source `10e3aea9` identifies SDK gate 1 after the first target/source observation;
+the original parent deadline also expires. The phase-probed follow-up passes all
+SDK configurations and therefore establishes no cause. Diagnostics 05/06,
+original binary/patch hashes and owned shutdown are retained separately; the
+probe is removed. Do not select a speculative runtime fix or waive the failed
+campaign. Keep all original budgets, ambiguity and callback replay rules.
+
+The next feature boundary is complete Storage and ordinary bindings. A live SQL
+VM currently makes `ActiveCommand::can_park` return false; qualify a cursor held
+through same-cell recursive SDK dispatch and implement bounded connection/image
+ownership as required. Preserve the original invocation, latest committed state,
+no exposure of another callback's private writes, term fencing and joined close.
+Generation-aware named/typed bindings need durable child identities before
+committed due work and family adapters can be completed. `delete_all` cannot
+simply use the Raft scope: its native implementation starts its own transaction
+and lacks Raft receipt-table preservation. Alarm/work adapters also need logged
+generations and committed discovery rather than native local timers or SQLite
+randomness. Keep these main features ahead of optional optimization. See
+[progress](progress.md#cg-17-sql-cursor-execution-ownership-qualification-pending).
+
 ## Published design scope
 
 CG-17's [primitive compatibility contract](qualification.md#full-primitive-compatibility-cg-17)
@@ -54,9 +91,18 @@ replays. Twenty-five selected native tests, the existing production daemon/CLI
 campaign and four real-RustFS cases pass with matching primitive executable
 hashes. Strict all-target Clippy and repository checks pass. The owned backend
 exits zero without OOM and its VM is stopped; failed controls are retained.
-Next complete generation-aware ordinary named bindings, other output/dispatch
-adapters and remaining Storage methods
-and the compiled export/deployment audit. Binding delivery spans
+The [Storage cursor checkpoint](progress.md#cg-17-storage-keyset-cursors) adds
+public KV keyset iteration to Raft commands and committed queries at `3200321f`.
+Three owning native selections, focused strict Clippy and all six exact
+real-RustFS primitive cases pass at runner source `2f42cb5f`; its Rust/build
+inputs are unchanged. The owned backend exits zero without OOM and its VM is
+stopped. Source/log/binary hashes and shutdown proof are retained under
+`.cellar/cell-groups-evidence/CG-17-cursors-2f42cb5f-01`. The earlier intermittent
+materialized-S3 interleaving failure remains unresolved. No complete CG-17 family
+or release gate is accepted by this checkpoint.
+Next deliver SQL cursors, the remaining Storage methods, generation-aware ordinary
+named/typed bindings with durable child identities, other output/dispatch
+adapters and the compiled export/deployment audit. Binding delivery spans
 `NativeCellFactory::context`, `Registry::validate_configuration` and the typed RPC
 catalog: deployment declarations still treat those factories as Fleet classes.
 Complete binding/provider configuration and carry generation authority through shared dispatch,

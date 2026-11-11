@@ -23,6 +23,8 @@ pub(super) mod cell;
 pub(super) mod command;
 #[path = "enrollment_cell_wire.rs"]
 pub(super) mod enrollment;
+#[path = "name_cell_wire.rs"]
+pub(super) mod name;
 #[path = "receipt_cell_wire.rs"]
 pub(super) mod receipt;
 

@@ -34,6 +34,46 @@ archive safety cases and full strict all-target Clippy also pass. See the
 for hashes, failed controls and fencing limits. The six-case CG-13 task gate and
 full disaster profile remain open.
 
+## Primitive delivery priority
+
+Full public primitive compatibility is the required Quorum product contract.
+SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
+CG-17 feature delivery ahead of optional routing/performance work; retain the
+existing recovery and release dependencies rather than removing those gates.
+
+1. Complete the shared Storage API and generation-aware ordinary cell, SQL and
+   KV bindings, including typed RPC and durable child request identities.
+2. Connect committed due-work discovery and fenced settlement to ordinary
+   alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
+   resume after retained restart, movement and wake without client traffic.
+3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
+   container/provider adapters with their documented publication, execution and
+   recovery boundaries. Include stateless/ephemeral and optional-adapter regressions.
+4. Admit full support only after every CG-17 case and the independent API ×
+   scenario × configuration evidence gate passes, followed by CG-15/16 combined
+   qualification. Quorum selection cannot fall back to Fleet/bucket durability.
+
+Feature checkpoints must identify the public API delivered and its remaining
+limits. Current-incarnation discovery passes its native control at `f2dcf1b0`,
+but real RustFS interleaving fails with `Runtime(Overloaded)` before the name
+case runs. Preserve that failure as a release gate. The public Storage KV-cursor
+adapter passes its three owning native selections and focused strict Clippy at
+`3200321f`. All six exact primitive RustFS cases pass at runner source
+`2f42cb5f`, including current-incarnation discovery and Storage, with unchanged
+native/build inputs. The earlier intermittent interleaving failure remains open.
+These checkpoints establish neither complete named-binding support nor a full
+primitive-family case.
+The SQL cursor execution owner and constructor-cached SQL/KV invocation fence are
+implemented at `89fe63fb`; committed-source compile, formatting and layout pass.
+At `d8974158`, four owning native selections and strict Clippy pass, including
+paired native/Raft schema-rollback behavior, root checkpoints and the existing
+RPC fault gates with live VMs. At `3f1fd59d`, the awaited sync extension passes natively, but real RustFS
+qualification fails RPC and dependent SDK deadlines; Storage, activation,
+interleaving and name discovery pass. A contextual RPC rerun passes while SDK
+fails at a different earlier observer wait. Keep both failures as release gates.
+Its read-VM/checkpoint/recursive-dispatch lifetime proof must precede a complete
+Storage or family claim.
+
 ## Current boundary
 
 CG-01–12 and CG-14 passed their recorded scoped acceptance gates. Shared group owners,
@@ -144,7 +184,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. Ordinary RPC roots/sync, bounded activations, configuration and same-cell interleaving have scoped coverage. Canonical SDK commands, queries, receipts and enrollment now wait for source proof, retain independent target contracts and support recursive forwarding. At `fcab2005`, 25 selected native tests, the existing daemon/CLI campaign and four real-RustFS cases pass, with matching primitive executable hashes and both image modes. See the [checkpoint](progress.md#cg-17-dependent-canonical-sdk-dispatch). | Finish generation-aware named bindings, other output/dispatch adapters, remaining Storage methods, compiled export/deployment audit and real evidence producers. Deliver committed due work and remaining family/provider adapters, then pass all 32 cases and the matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). |
+| CG-17 | In progress. Ordinary RPC roots/sync, bounded activations, configuration and same-cell interleaving have scoped coverage. Canonical SDK commands, queries, receipts and enrollment now wait for source proof, retain independent target contracts and support recursive forwarding. At `2f42cb5f`, the public KV cursor checkpoint passes three owning native selections, focused strict Clippy and all six primitive real-RustFS cases, including current-incarnation discovery, with matching executable hashes and both image modes. The earlier intermittent S3 failure remains unresolved. See the [checkpoint](progress.md#cg-17-storage-keyset-cursors). | Finish generation-aware named bindings, other output/dispatch adapters, remaining Storage methods, compiled export/deployment audit and real evidence producers. Deliver committed due work and remaining family/provider adapters, then pass all 32 cases and the matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 

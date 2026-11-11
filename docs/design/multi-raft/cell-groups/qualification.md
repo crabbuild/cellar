@@ -500,6 +500,105 @@ outcome. Require real provider enforcement only where that adapter promises it;
 otherwise report the weaker external contract explicitly without weakening the
 cell's replicated state proof.
 
+### Storage SQL cursor ownership
+
+`Storage::sql_cursor` uses the existing lazy typed SQL engine in native turns,
+private Raft commands and committed Raft queries. The worker owns statements and
+cache entries in the exact command/query frame. Public tokens contain owned
+column/row buffers and cancellation signals, never raw SQLite handles or image
+pins. Query exit, command completion/abort and frame destruction finalize every
+statement before the connection or committed-image owner is released.
+
+A cursor created through constructor-cached Storage binds the current invocation;
+the cached Storage itself may be reused, but its SQL/KV cursor may not enter a
+later invocation. Cursors retain ordinary savepoint behavior within the live
+invocation. A live SQL VM retains its connection and prevents connection-free
+parking; other cells can continue using the shared SQL worker. Idle caches are
+cleared before a frame parks and may resume against a different working image.
+Dropped tokens outside a turn only signal cancellation; the owning worker prunes
+them before its next poll/checkpoint. They cannot append unbounded cleanup work
+to an idle activation or finalize another invocation's VM.
+
+Schema rollback can invalidate an existing SQLite read VM. Native and Raft
+cursors preserve the already-prefetched row and deliver the following step's
+error on the next call. A rollback-free checkpoint success test must remain
+separate from the paired native/Raft schema-rollback oracle.
+
+Unfinished write/`RETURNING` statements must be consumed or dropped before exact
+checkpoint or final-output publication. A statement failure retains the existing
+SQLite transaction-poisoning rules. Immutable queries preserve their read-only
+and framework-table authorizer on every prepare/step, including automatic schema
+recompilation. No output or child dispatch acquires weaker durability.
+
+`SqlLimits` retains finite live-cursor count and sampled statement/bind-byte
+budgets in the unrestricted profile. Native and Raft paths share the same lazy
+parser, prefix execution, typed values, deferred errors and row/write counters;
+this does not eagerly materialize arbitrary result sets or relax SQLite limits.
+The byte budget is not a page-cache, sorter, application-buffer or RSS ceiling.
+
+Qualification must exercise typed BLOB/non-finite values, aliases, multi-statement
+prefixes, concurrent cursors, `RETURNING`, failed/missing bindings, protected SQL,
+limits before mutating steps, transaction boundaries, independent roots,
+constructor-cached handles, escaped command/query tokens, cancellation and joined
+teardown. Keep native Storage regressions and both image/Quorum/S3 RustFS cases.
+This ownership delivery does not waive complete named bindings, committed due
+work, family adapters or any full CG-17 scenario/configuration gate.
+
+### Storage keyset cursors
+
+`Storage::list_cursor` uses the same keyset range implementation in ordinary
+Fleet storage and shared Raft command/query storage. Each step reads one owned
+row; it retains no SQL statement, connection, worker or image pin. Prefix,
+start/end/start-after, reverse traversal and limits retain their existing
+semantics. Inserts/deletes around the last key cannot shift an offset.
+
+Raft cursors validate their original invocation or committed query on every
+step. Starting another iterator on the same Storage owner invalidates the older
+one with a non-wrapping generation. The Storage owner retains only the current
+range; invalidated handles retain no old range buffers. Dropping an old handle
+cannot clear a newer iterator. A cursor may continue across a transaction
+boundary in its live invocation, reading the then-current image. After rollback,
+subsequent steps read the surviving image rather than a retained private snapshot.
+A cursor cannot enter a different invocation. Query cursors
+remain bound to their selected committed image and cannot escape its callback.
+Cursor positions are ephemeral and are not restartable durable work.
+
+The public RF3 and RustFS Storage cases must check structured values, empty KV
+schema, all range/limit directions, mutation between steps, invalidation, rollback,
+expired views and exact cell/version isolation. The ordinary RPC case must hold
+an iterator across an independently proven async root and observe the newly
+inserted key. Preserve the ordinary native Storage conformance regression.
+These checks qualify this API boundary; SQL cursors, other Storage methods,
+named namespace KV bindings and the full family matrix remain separate work.
+
+### Logical-name discovery
+
+`RaftCells::resolve_cell_history` observes an existing name's current enrollment
+through a fresh quorum read. It returns the selected incarnation or absence and
+never initializes a name. Only linearizable consistency is admitted. The lookup
+uses the existing namespace read authorization, including current-voter access,
+and authenticated, purpose-specific bounded wire frames. A command grant or
+version-token signing key is not required. Source and
+replica routing retain the original admission, attempt budget and deadline,
+including a future first polled after its deadline.
+
+Inside an ordinary JSON RPC, lookup waits for the source root's exact requested
+durability proof. The resulting exact-history handle may be constructed in the
+current invocation, while its command/query still requires separate admission and
+source proof. Synchronous commands, immutable queries and open atomic callbacks
+refuse before dispatch. Discovery neither supplies invocation authority nor
+resolves whether an earlier mutation committed; a returned absence cannot clear
+an uncertain outcome. A caller persists and reuses the original child identity.
+
+The native and isolated RustFS name-discovery cases must check read-only remote
+resolution without constructing the application, absent names, source-proof
+ordering, handle construction inside an ordinary RPC, exact replay, callback
+refusal/rollback, original deadline expiry, follower resolution after leader
+transfer and refusal without quorum. The wire tests must reject cross-purpose,
+truncated, oversized and foreign-name/schema frames. These component cases do
+not establish declared `Context` binding support, automatic enrollment, a typed
+RPC port, automatic invocation recovery or complete CG-17 acceptance.
+
 ### Additional primitive-specific oracles
 
 The twelve audit-driven cases supplement all twenty original cases:

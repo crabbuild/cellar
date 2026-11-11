@@ -26,7 +26,7 @@ pub enum CellQueryRouting {
 }
 
 impl CellQueryRouting {
-    pub(super) fn validate(&mut self, limits: CellRoutingLimits) -> Result<(), CellDispatchError> {
+    pub(crate) fn validate(&mut self, limits: CellRoutingLimits) -> Result<(), CellDispatchError> {
         if let Self::Replicas {
             members,
             attempt_timeout,

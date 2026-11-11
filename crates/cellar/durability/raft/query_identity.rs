@@ -60,6 +60,7 @@ enum Purpose {
     CommandProbe,
     Enrollment,
     Receipt,
+    Name,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,6 +196,16 @@ impl QueryRoute {
 
     pub fn is_receipt(&self) -> bool {
         self.purpose == Purpose::Receipt
+    }
+
+    pub fn for_name(mut self) -> Result<Self, TransportError> {
+        self.decode_shared()?;
+        self.purpose = Purpose::Name;
+        Ok(self)
+    }
+
+    pub fn is_name(&self) -> bool {
+        self.purpose == Purpose::Name
     }
 
     pub fn requires_command_grant(&self) -> bool {

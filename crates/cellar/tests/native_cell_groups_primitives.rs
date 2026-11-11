@@ -26,6 +26,8 @@ pub mod catalog_fault;
 mod activations;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
+#[path = "support/sql_cursor_rollback.rs"]
+mod cursor_rollback;
 #[path = "support/cell_group_dispatch.rs"]
 mod dispatch;
 #[path = "support/cell_group_interleaving.rs"]
@@ -33,8 +35,12 @@ mod interleaving;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
+#[path = "support/cell_group_names.rs"]
+mod names;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
+#[path = "support/cell_group_sql_cursors.rs"]
+mod sql_cursors;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
 
@@ -60,11 +66,140 @@ fn update(storage: &Storage, delta: i64) -> Result<i64> {
     })
 }
 
-async fn run(rooted: bool) -> Result<()> {
+fn cursor_keys(storage: &Storage, options: &cellar::sdk::ListOptions) -> Result<Vec<String>> {
+    storage
+        .list_cursor(options)?
+        .map(|row| row.map(|(key, _)| key))
+        .collect()
+}
+
+fn exercise_raft_kv_cursors(storage: &Storage, mutate: bool) -> Result<()> {
+    use cellar::sdk::ListOptions;
+    if mutate {
+        storage.put_many_json(&[
+            ("cursor:1".into(), json!(1)),
+            ("cursor:2".into(), json!(2)),
+            ("cursor:3".into(), json!(3)),
+            ("outside".into(), json!(4)),
+        ])?;
+    }
+    if mutate {
+        storage.put_clone(
+            "cursor:2",
+            &cellar::sdk::clone::StructuredValue::from_json(json!(2))?,
+        )?;
+    }
+    let range = ListOptions {
+        prefix: Some("cursor:".into()),
+        ..Default::default()
+    };
+    ensure!(cursor_keys(storage, &range)? == ["cursor:1", "cursor:2", "cursor:3"]);
+    let mut typed = storage.list_cursor(&ListOptions {
+        start: Some("cursor:2".into()),
+        end: Some("cursor:3".into()),
+        ..range.clone()
+    })?;
+    ensure!(matches!(
+        typed.next().context("structured cursor row")??.1,
+        cellar::storage::StoredValue::Structured(_)
+    ));
+    let abandoned = storage.list_cursor(&range)?;
+    let mut replacement = storage.list_cursor(&range)?;
+    drop(abandoned);
+    ensure!(
+        replacement
+            .next()
+            .context("dropping stale cursor keeps current cursor")??
+            .0
+            == "cursor:1"
+    );
+    drop(replacement);
+    let mut first = storage.list_cursor(&range)?;
+    ensure!(first.next().context("first key")??.0 == "cursor:1");
+    if mutate {
+        storage.delete("cursor:1")?;
+        storage.put_json("cursor:15", &json!(15))?;
+        ensure!(
+            first
+                .next()
+                .context("key inserted after cursor position")??
+                .0
+                == "cursor:15"
+        );
+    }
+    let reverse = ListOptions {
+        prefix: Some("cursor:".into()),
+        start_after: Some("cursor:1".into()),
+        end: Some("cursor:4".into()),
+        limit: Some(2),
+        reverse: true,
+        ..Default::default()
+    };
+    ensure!(cursor_keys(storage, &reverse)? == ["cursor:3", "cursor:2"]);
+    ensure!(first
+        .next()
+        .context("invalidated iterator")?
+        .expect_err("second iterator invalidates first")
+        .to_string()
+        .contains("invalidated"));
+    ensure!(first.next().is_none());
+    let lower = ListOptions {
+        start: Some("cursor:2".into()),
+        start_after: Some("cursor:1".into()),
+        ..range.clone()
+    };
+    ensure!(cursor_keys(storage, &lower)? == ["cursor:2", "cursor:3"]);
+    ensure!(cursor_keys(
+        storage,
+        &ListOptions {
+            limit: Some(0),
+            ..range.clone()
+        }
+    )?
+    .is_empty());
+    ensure!(cursor_keys(
+        storage,
+        &ListOptions {
+            start: Some("cursor:9".into()),
+            end: Some("cursor:1".into()),
+            ..range.clone()
+        }
+    )?
+    .is_empty());
+    if mutate {
+        storage.delete("cursor:15")?;
+        storage.put_json("cursor:1", &json!(1))?;
+        let rolled = storage.tx(|tx| {
+            tx.put_json("cursor:rolled", &json!(9))?;
+            ensure!(cursor_keys(tx, &range)?.last().map(String::as_str) == Some("cursor:rolled"));
+            let cursor = tx.list_cursor(&range)?;
+            tx.rollback()?;
+            Ok(cursor)
+        })?;
+        ensure!(
+            rolled
+                .map(|row| row.map(|(key, _)| key))
+                .collect::<Result<Vec<_>>>()?
+                == ["cursor:1", "cursor:2", "cursor:3"]
+        );
+        ensure!(cursor_keys(storage, &range)? == ["cursor:1", "cursor:2", "cursor:3"]);
+    }
+    Ok(())
+}
+
+async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    let held_sql_write = Arc::new(Mutex::new(None::<cellar::sdk::storage::SqlCursor>));
+    let held_sql_write_handler = held_sql_write.clone();
+    let command_sql_cursor = Arc::new(Mutex::new(None::<cellar::sdk::storage::SqlCursor>));
+    let query_sql_cursor = Arc::new(Mutex::new(None::<cellar::sdk::storage::SqlCursor>));
     let calls = Arc::new(AtomicUsize::new(0));
     let rejected_after_savepoint = Arc::new(AtomicUsize::new(0));
     let escaped = Arc::new(Mutex::new(None::<Storage>));
     let escaped_query = Arc::new(Mutex::new(None::<Storage>));
+    let escaped_cursor = Arc::new(Mutex::new(None::<cellar::sdk::storage::KvCursor>));
+    let escaped_query_cursor = Arc::new(Mutex::new(None::<cellar::sdk::storage::KvCursor>));
+    let command_cursor = escaped_cursor.clone();
+    let query_cursor = escaped_query_cursor.clone();
     let callback_calls = calls.clone();
     let callback_rejected = rejected_after_savepoint.clone();
     let callback_escaped = escaped.clone();
@@ -83,7 +218,9 @@ async fn run(rooted: bool) -> Result<()> {
                 "CREATE TABLE counter(value INTEGER NOT NULL); INSERT INTO counter VALUES(0);",
                 &[],
             )?;
-            storage.put_json("value", &json!(0))
+            storage.put_json("value", &json!(0))?;
+            exercise_raft_kv_cursors(&storage, true)?;
+            sql_cursors::exercise(&storage, true)
         })?
         .command("Add", [213; 32], move |context, input| {
             callback_calls.fetch_add(1, Ordering::AcqRel);
@@ -108,11 +245,28 @@ async fn run(rooted: bool) -> Result<()> {
             }
             let delta = i64::from_be_bytes(input.try_into()?);
             let result = update(&storage, delta)?;
+            exercise_raft_kv_cursors(&storage, true)?;
+            sql_cursors::exercise(&storage, true)?;
+            sql_cursors::escaped(&command_sql_cursor, &storage)?;
+            if let Some(mut old) = command_cursor
+                .lock()
+                .unwrap()
+                .replace(storage.list_cursor(&Default::default())?)
+            {
+                ensure!(old.next().context("escaped command cursor")?.is_err());
+            }
             if delta < 0 {
                 callback_rejected.fetch_add(1, Ordering::AcqRel);
                 anyhow::bail!("application rejected the staged update");
             }
             Ok(result.to_be_bytes().to_vec())
+        })?
+        .command("HoldCursor", [225; 32], move |context, _| {
+            let storage = context.storage()?;
+            *held_sql_write_handler.lock().unwrap() = Some(
+                storage.sql_cursor("INSERT INTO cursor_items VALUES(99,x'ff') RETURNING n", &[])?,
+            );
+            Ok(Vec::new())
         })?
         .query("Get", [214; 32], move |context, _| {
             let storage = context.storage();
@@ -146,7 +300,40 @@ async fn run(rooted: bool) -> Result<()> {
             ensure!(keys.len() == usize::from(expected.is_some()));
             ensure!(keys.into_iter().eq(listed.into_iter().map(|(key, _)| key)));
             ensure!(storage.get_json("temporary")?.is_none());
+            if expected.is_some() {
+                exercise_raft_kv_cursors(&storage, false)?;
+                sql_cursors::exercise(&storage, false)?;
+            } else {
+                ensure!(storage.list_cursor(&Default::default())?.next().is_none());
+            }
+            let mut selected_value = storage.list_cursor(&cellar::sdk::ListOptions {
+                prefix: Some("val".into()),
+                ..Default::default()
+            })?;
+            let selected = selected_value
+                .next()
+                .transpose()?
+                .map(|(key, value)| {
+                    ensure!(key == "value");
+                    let cellar::storage::StoredValue::Json(value) = value else {
+                        anyhow::bail!("JSON cursor value");
+                    };
+                    Ok::<_, anyhow::Error>(serde_json::from_str::<serde_json::Value>(&value)?)
+                })
+                .transpose()?;
+            ensure!(
+                selected == expected,
+                "cursor read a different cell or committed version"
+            );
+            if let Some(mut old) = query_cursor
+                .lock()
+                .unwrap()
+                .replace(storage.list_cursor(&Default::default())?)
+            {
+                ensure!(old.next().context("escaped query cursor")?.is_err());
+            }
             ensure!(storage.sql_database_size()? > 0);
+            sql_cursors::escaped(&query_sql_cursor, &storage)?;
             ensure!(storage.sql("UPDATE counter SET value=999", &[]).is_err());
             ensure!(storage.sql("CREATE TEMP TABLE forbidden(v)", &[]).is_err());
             ensure!(storage.sql("SELECT v FROM __sys_cell_kv", &[]).is_err());
@@ -158,7 +345,7 @@ async fn run(rooted: bool) -> Result<()> {
                 .is_err());
             Ok(value.to_be_bytes().to_vec())
         })?;
-    let fixture = Box::pin(Fixture::with_class(rooted, class)).await?;
+    let fixture = Box::pin(Fixture::with_store(rooted, class, store)).await?;
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
         fixture,
         &[],
@@ -216,6 +403,14 @@ async fn run(rooted: bool) -> Result<()> {
             .clone()
             .context("captured Storage")?;
         ensure!(old.get_json("value").is_err());
+        ensure!(escaped_cursor
+            .lock()
+            .unwrap()
+            .as_mut()
+            .context("command cursor")?
+            .next()
+            .context("expired cursor")?
+            .is_err());
         let replay = first
             .command(&add, 7i64.to_be_bytes().to_vec(), options.clone())
             .await?;
@@ -245,6 +440,14 @@ async fn run(rooted: bool) -> Result<()> {
             .get_json("value")
             .is_err());
 
+        ensure!(escaped_query_cursor
+            .lock()
+            .unwrap()
+            .as_mut()
+            .context("query cursor")?
+            .next()
+            .context("expired query cursor")?
+            .is_err());
         let archived = second
             .command(
                 &second.contract("Add")?,
@@ -258,6 +461,25 @@ async fn run(rooted: bool) -> Result<()> {
         ensure!(archived.result == 11i64.to_be_bytes() && archived.durability == Durability::S3);
         ensure!(archived.id == receipt.id && archived.witness.group == history);
         ensure!(archived.version.history != receipt.version.history);
+
+        for (cell, durability) in [(first, Durability::Quorum), (second, Durability::S3)] {
+            let error = cell
+                .command(
+                    &cell.contract("HoldCursor")?,
+                    Vec::new(),
+                    CommandOptions {
+                        durability,
+                        ..CommandOptions::new(CommandId::new(ClientId::new([225; 16])?, 1)?, retry)
+                    },
+                )
+                .await
+                .err()
+                .context("unfinished write must refuse publication")?;
+            ensure!(error.to_string().contains("unfinished SQL write cursor"));
+            // Teardown already owns/finalized the raw VM. This drop is outside
+            // any installed SQL turn and cannot touch SQLite or another cell.
+            drop(held_sql_write.lock().unwrap().take());
+        }
 
         let checked = second
             .query(
@@ -300,7 +522,7 @@ async fn run(rooted: bool) -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn storage_reads_and_writes_exact_cell_versions() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(run(rooted))
+        Box::pin(run(rooted, Arc::new(catalog_fault::Store::default())))
             .await
             .with_context(|| format!("Storage bridge extents={rooted}"))?;
     }
@@ -407,11 +629,36 @@ impl Cell for NativeCounter {
                 } else {
                     ensure!(update(&self.storage, delta)? == first);
                 }
+                let mut cursor = if input["detached"] == json!(true) {
+                    None
+                } else {
+                    let value = self
+                        .storage
+                        .get_json("value")?
+                        .and_then(|value| value.as_i64())
+                        .context("cursor snapshot before sync")?;
+                    let mut cursor = self.storage.sql_cursor(
+                        "SELECT value FROM counter UNION ALL SELECT value FROM counter",
+                        &[],
+                    )?;
+                    ensure!(
+                        cursor.next_raw()?
+                            == Some(vec![cellar::sdk::storage::SqlValue::Integer(value)])
+                    );
+                    Some((cursor, value))
+                };
                 let synced = self.storage.sync();
                 if input["detached"] == json!(true) {
                     drop(synced);
                 } else {
                     synced.await?;
+                }
+                if let Some((cursor, value)) = cursor.as_mut() {
+                    ensure!(
+                        cursor.next_raw()?
+                            == Some(vec![cellar::sdk::storage::SqlValue::Integer(*value)])
+                    );
+                    ensure!(cursor.next_raw()?.is_none());
                 }
                 if let Some(index) = input["gate"].as_u64() {
                     let gate = self
@@ -443,6 +690,14 @@ impl Cell for NativeCounter {
                     let mut next = update(&storage, delta)?;
                     ensure!(scope.storage()?.get_json("value")? == Some(json!(next)));
                     if let Some(index) = input["gate"].as_u64() {
+                        let mut cursor = storage.sql_cursor(
+                            "SELECT value FROM counter UNION ALL SELECT value FROM counter",
+                            &[],
+                        )?;
+                        ensure!(
+                            cursor.next_raw()?
+                                == Some(vec![cellar::sdk::storage::SqlValue::Integer(next)])
+                        );
                         let gate = original
                             .gates
                             .get(usize::try_from(index)?)
@@ -453,6 +708,11 @@ impl Cell for NativeCounter {
                         gate.resumed.fetch_add(1, Ordering::AcqRel);
                         let resumed = scope.storage()?;
                         ensure!(resumed.get_json("value")? == Some(json!(next)));
+                        ensure!(
+                            cursor.next_raw()?
+                                == Some(vec![cellar::sdk::storage::SqlValue::Integer(next)])
+                        );
+                        ensure!(cursor.next_raw()?.is_none());
                         next = update(&resumed, input["after"].as_i64().context("resumed delta")?)?;
                     }
                     if input["malformed_reply"] == json!(true) {
@@ -488,15 +748,29 @@ fn transaction_row(storage: &Storage, name: &str, value: i64) -> Result<()> {
 }
 
 async fn exercise_raft_transactions(storage: Storage, context: Context) -> Result<()> {
+    exercise_raft_kv_cursors(&storage, true)?;
+    sql_cursors::exercise(&storage, true)?;
+    let mut across_root = storage.list_cursor(&cellar::sdk::ListOptions {
+        prefix: Some("cursor:".into()),
+        ..Default::default()
+    })?;
+    ensure!(
+        across_root
+            .next()
+            .context("key before root transaction")??
+            .0
+            == "cursor:1"
+    );
     storage.sql(
         "CREATE TABLE IF NOT EXISTS transaction_items(name TEXT PRIMARY KEY, value INTEGER);
          DELETE FROM transaction_items;",
         &[],
     )?;
     let scope = context.clone();
-    let escaped = storage
+    let (escaped, mut sql_across_root) = storage
         .transaction(&context, move |outer| async move {
             transaction_row(&outer, "outer", 1)?;
+            outer.put_json("cursor:15", &json!(15))?;
             let refused = outer
                 .sync()
                 .await
@@ -555,9 +829,23 @@ async fn exercise_raft_transactions(storage: Storage, context: Context) -> Resul
                 transaction_row(&child, "detached", 3)
             });
             drop(detached);
-            Ok(outer)
+            // Prior schema changes make SQLite invalidate live VMs on ROLLBACK
+            // TO. Open after those controls to isolate the root checkpoint.
+            let mut cursor = outer.sql_cursor("SELECT n FROM cursor_items ORDER BY n", &[])?;
+            ensure!(cursor.next_raw()? == Some(vec![cellar::sdk::storage::SqlValue::Integer(1)]));
+            Ok((outer, cursor))
         })
         .await?;
+    ensure!(
+        across_root
+            .next()
+            .context("key from independently committed root")??
+            .0
+            == "cursor:15"
+    );
+    ensure!(sql_across_root.next_raw()? == Some(vec![cellar::sdk::storage::SqlValue::Integer(2)]));
+    ensure!(sql_across_root.next_raw()?.is_none());
+    storage.delete("cursor:15")?;
     ensure!(escaped.get_json("outer").is_err());
     ensure!(storage.get_json("detached")? == Some(json!(3)));
     storage.tx(|sync| {
@@ -812,7 +1100,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let input = serde_json::to_vec(&json!({"delta": 3, "gate": 0, "after": 5, "invocation": 1}))?;
             let (resumed, interleaved) =
                 tokio::join!(cell.command(&update, input.clone(), options(239)?), async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await.context("RPC gate 0 entered")?;
                     ensure!(saved_context
                         .lock()
                         .unwrap()
@@ -854,8 +1142,8 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     short,
                 ),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await?;
-                    cellar::asyncrt::timeout(TIMEOUT, gates[1].dropped.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[1].entered.notified()).await.context("RPC gate 1 entered")?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[1].dropped.notified()).await.context("RPC gate 1 dropped")?;
                     Ok::<_, anyhow::Error>(())
                 },
             );
@@ -874,7 +1162,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     long,
                 ),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[2].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[2].entered.notified()).await.context("RPC gate 2 entered")?;
                     let group = cluster.hosts[leader].group(group)?;
                     let status = group.replication_status(TIMEOUT).await?;
                     let target = (leader + 1) % 3;
@@ -888,7 +1176,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                             TIMEOUT,
                         )
                         .await?;
-                    cellar::asyncrt::timeout(TIMEOUT, gates[2].dropped.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[2].dropped.notified()).await.context("RPC gate 2 dropped")?;
                     gates[2].release.notify_one();
                     Ok::<_, anyhow::Error>(target)
                 },
@@ -950,7 +1238,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let (sequence_result, observed) = tokio::join!(
                 current.command(&sequence, sequence_input.clone(), strong.clone()),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[3].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[3].entered.notified()).await.context("RPC gate 3 entered")?;
                     let first = current
                         .query(
                             ProposalId::new([224; 16])?,
@@ -996,7 +1284,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     }
                 ),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[4].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[4].entered.notified()).await.context("RPC gate 4 entered")?;
                     let first = current
                         .query(
                             ProposalId::new([222; 16])?,
@@ -1027,7 +1315,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                             TIMEOUT,
                         )
                         .await?;
-                    cellar::asyncrt::timeout(TIMEOUT, gates[4].dropped.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[4].dropped.notified()).await.context("RPC gate 4 dropped")?;
                     gates[4].release.notify_one();
                     Ok::<_, anyhow::Error>((destination, first.version))
                 },
@@ -1119,7 +1407,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let (synced, first) = tokio::join!(
                 recovered.command(&sync, sync_input.clone(), strong.clone()),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[5].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[5].entered.notified()).await.context("RPC gate 5 entered")?;
                     let observed = recovered.query(
                         ProposalId::new([208; 16])?, &recovered.contract("Get")?, Vec::new(),
                         QueryOptions::default(),
@@ -1130,8 +1418,8 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     Ok::<_, anyhow::Error>(observed.version)
                 },
             );
-            let first = first?;
-            let synced = synced?;
+            let synced = synced.context("awaited S3 sync command")?;
+            let first = first.context("awaited S3 sync observer")?;
             ensure!(synced.result == b"196" && synced.durability == Durability::S3);
             ensure!(synced.version.sequence.get() == first.sequence.get() + 1);
             let factories = calls.load(Ordering::Acquire);
@@ -1156,7 +1444,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let (lost, moved) = tokio::join!(
                 recovered.command(&sync, lost_input.clone(), multiple(205)?),
                 async {
-                    cellar::asyncrt::timeout(TIMEOUT, gates[6].entered.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[6].entered.notified()).await.context("RPC gate 6 entered")?;
                     let committed = cellar::asyncrt::timeout(TIMEOUT, async {
                         loop {
                             let observed = recovered.query(
@@ -1180,7 +1468,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                         target: MemberId::new(successor as u64 + 1)?, expected_term: status.term,
                         expected_revision: status.membership_revision,
                     }, TIMEOUT).await?;
-                    cellar::asyncrt::timeout(TIMEOUT, gates[6].dropped.notified()).await?;
+                    cellar::asyncrt::timeout(TIMEOUT, gates[6].dropped.notified()).await.context("RPC gate 6 dropped")?;
                     gates[6].release.notify_one();
                     Ok::<_, anyhow::Error>((successor, committed))
                 },
@@ -1363,6 +1651,62 @@ async fn rustfs_ordinary_cell_sdk_dispatch_requires_source_proof() -> Result<()>
                     format!("RustFS SDK dispatch extents={rooted} durability={durability:?}")
                 })?;
         }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_cell_sdk_resolves_current_histories() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            Box::pin(names::run(
+                rooted,
+                durability,
+                Arc::new(catalog_fault::Store::default()),
+            ))
+            .await
+            .with_context(|| {
+                format!("name discovery extents={rooted} durability={durability:?}")
+            })?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ordinary_cell_sdk_resolves_current_histories() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+                if durability == Durability::S3 {
+                    "ordinary-names-s3"
+                } else {
+                    "ordinary-names-quorum"
+                },
+                rooted,
+            )?));
+            Box::pin(names::run(rooted, durability, store))
+                .await
+                .with_context(|| {
+                    format!("RustFS name discovery extents={rooted} durability={durability:?}")
+                })?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_storage_reads_and_writes_exact_cell_versions() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "storage-keyset",
+            rooted,
+        )?));
+        Box::pin(run(rooted, store))
+            .await
+            .with_context(|| format!("RustFS Storage bridge extents={rooted}"))?;
     }
     Ok(())
 }
