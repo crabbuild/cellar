@@ -1374,3 +1374,44 @@ Readiness correctly remained unconfirmed. The original deadline and required
 durability proof were preserved. The latest fully passing selected native
 checkpoint remains `20cb5342`; current-source backend and constrained Linux
 qualification, the retained failures and complete OPT acceptance remain open.
+
+## Cached advice and namespace origin revocation
+
+Source `5231fdd2` passed `cached_advice_respects_origin_revocation` in 26.419
+seconds: SDK, native HTTP and Axum in both image modes, using two fresh RF3
+fixtures with a replica-free ingress. Each interaction warms a direct route,
+revokes the ingress's write grant on every voter, and observes one cached
+application RPC with no probe, range or membership repair. Neither SQL staging
+nor the application callback enters while permission is absent. An independent
+read grant still serves the latest minimum-version token.
+
+Stale grant revisions and an unverified process cannot restore permission.
+A newer valid grant reuses the refused command's original ID and inputs with
+explicit S3 durability. SDK and HTTP replay retain its exact result and current
+covering version/witness, without another callback. Current local voters expose
+the final value. Six `AUTHORITY_ROUTING_EVIDENCE` records retain identities,
+routing/outcome counters, SQL entry observations, owners and receipts in
+`public-origin-native-5231fdd2`. Strict library/seven-target Clippy and the
+CI-profile executable/CLI build passed. All 94 multi-raft tooling tests passed,
+with one opt-in Docker test skipped.
+
+The earlier `e5387c52` run retained a new fixture expectation failure: it
+expected plain HTTP `Unavailable` after transport revocation. The public
+counter API instead preserves the ambiguous original command ID and typed
+`Unavailable` cause. The corrected case explicitly requires that response and
+SDK ambiguity; fixture observations cannot grant the client non-commit proof.
+The no-SQL, no-callback, one-attempt and exact S3 replay assertions remain.
+No production retry or authority behavior changed.
+
+The `routing-authority` RustFS entry point uses this same case and verifies
+complete caller/image coverage, no entry during revocation, preserved ambiguity
+and S3 proof in its ledger. It also invokes the recorded operator CLI. That
+entry point still requires its own real-backend run. This case covers current
+origin permission, rather than forged/lower/conflicting-term advice or restarted
+endpoint wire cuts. Full RO-03, current-source composed qualification and the
+broader optimization/release gates remain open.
+
+The same source passed the format check for 2,194 Rust files, module layout,
+native dependencies, documentation and all 44 design tests, recorded in
+`public-origin-static-5231fdd2`. These checks and the focused native case do not
+qualify a real-backend or constrained-process run.

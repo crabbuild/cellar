@@ -5,6 +5,9 @@ use super::*;
 use crate::storage_fault;
 use std::sync::atomic::AtomicUsize;
 
+#[path = "cell_group_routing_authority.rs"]
+mod authority;
+
 #[path = "cell_group_routing_busy.rs"]
 mod busy;
 
@@ -83,6 +86,16 @@ pub(super) async fn metadata_outage_on_cached_path() -> Result<()> {
     run(Scenario::MetadataOutage).await
 }
 
+pub(super) async fn cached_advice_respects_origin_revocation() -> Result<()> {
+    run(Scenario::OriginRevocation).await
+}
+
+pub(super) async fn cached_advice_respects_origin_revocation_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    run_with_store(Scenario::OriginRevocation, Some(make)).await
+}
+
 pub(super) async fn refresh_storm_is_bounded() -> Result<()> {
     for axum in [false, true] {
         run(Scenario::Refresh { axum }).await?;
@@ -137,15 +150,23 @@ enum Scenario {
     Busy,
     Election,
     MetadataOutage,
+    OriginRevocation,
     Refresh { axum: bool },
     RefreshClose { axum: bool },
 }
 
 async fn run(scenario: Scenario) -> Result<()> {
+    run_with_store(scenario, None).await
+}
+
+async fn run_with_store(scenario: Scenario, make: Option<RoutingStoreFactory>) -> Result<()> {
     for rooted in [false, true] {
         let callbacks = Arc::new(AtomicUsize::new(0));
         let count = callbacks.clone();
-        let store = Arc::new(fault::Store::default());
+        let store = Arc::new(match make {
+            Some(make) => fault::Store::around(make("routing-origin-revocation", rooted)?),
+            None => fault::Store::default(),
+        });
         let observer: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
             count.fetch_add(1, Ordering::AcqRel);
         });
@@ -179,6 +200,9 @@ async fn run(scenario: Scenario) -> Result<()> {
             Scenario::Direct => Box::pin(exercise(&cluster, &callbacks, None)).await,
             Scenario::MetadataOutage => {
                 Box::pin(exercise(&cluster, &callbacks, Some(&store))).await
+            }
+            Scenario::OriginRevocation => {
+                Box::pin(authority::exercise(&cluster, &callbacks, rooted)).await
             }
         };
         if result.is_err() {

@@ -162,6 +162,31 @@ RustFS suites use the [native CI test profile](../../.github/workflows/native-sd
 optimization level one with debug assertions and overflow checks, no debug
 symbols, and one Cargo build job. The record captures those explicit settings.
 
+## Cached advice and command-origin revocation
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-authority \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-authority-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Two fresh RF3/ingress fixtures cover SDK, native HTTP and Axum in both image
+modes. Each interaction warms direct advice, revokes write permission on every
+voter, and verifies one cached attempt with no SQL staging or callback entry.
+Transport closure preserves the original command's ambiguity and typed cause;
+the fixture's observations cannot supply a non-commit proof to the client.
+Independent read permission remains usable. Stale grants and an unverified
+process cannot restore permission. A newer valid grant reuses the refused
+command ID with S3 proof and exact receipt replay, preserving the original
+limits. Six structured records retain identities, routing/outcome counters,
+owner observations and receipts. The runner requires exact test execution and
+complete evidence, and invokes its retained Cargo operator CLI.
+
+These entry points need their own runtime evidence. They do not close forged
+or conflicting-term advice, restarted endpoint wire cuts, full RO-03, constrained
+voter-process or performance qualification.
+
 ## Shared cell-group managed ingress checks
 
 Use the same owned loopback RustFS backend and a fresh output directory.

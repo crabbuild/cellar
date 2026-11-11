@@ -51,6 +51,18 @@ CASES = (
 )
 
 SUITES = {
+    "routing-authority": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_cached_advice_respects_origin_revocation",),
+        "cached leader advice respects current namespace command-origin permission",
+        "Two fresh RF3/ingress fixtures cover SDK, native HTTP and Axum in both image modes. "
+        "A warm direct route cannot bypass receiver-side origin revocation; denied calls enter "
+        "neither SQL staging nor application callbacks. Independent read permission remains usable. "
+        "Stale grant revisions and an unverified process refuse; a newer valid grant restores the "
+        "same original command ID with exact S3 receipts and no duplicate callback. Original "
+        "deadlines and resource limits apply. Forged/lower/conflicting-term advice, restarted "
+        "endpoint wire cuts, constrained voter processes and full RO-03 remain separate gates.",
+    ),
     "routing-range-repairs": (
         "native_cell_groups_routing_optimization",
         (
@@ -514,21 +526,52 @@ SUITES = {
 
 def routing_observations(output, case):
     """Require complete caller/mode output; native cases enforce receipt oracles."""
-    if case not in SUITES["routing-range-repairs"][1]:
+    if case not in SUITES["routing-range-repairs"][1] + SUITES["routing-authority"][1]:
         raise ValueError("unknown routing evidence case")
     membership = case == "rustfs_membership_refresh_keeps_range"
-    prefix = "MEMBERSHIP_ROUTING_EVIDENCE " if membership else "RANGE_ROUTING_EVIDENCE "
+    authority = case == "rustfs_cached_advice_respects_origin_revocation"
+    prefix = ("MEMBERSHIP_ROUTING_EVIDENCE " if membership else
+              "AUTHORITY_ROUTING_EVIDENCE " if authority else "RANGE_ROUTING_EVIDENCE ")
     rows = [json.loads(line.split(prefix, 1)[1])
             for line in output.splitlines() if prefix in line]
     callers = ("SdkNativeAxum",) if case == "rustfs_split_repairs_only_overlap" else ("Sdk", "Native", "Axum")
     events = ("warm", "membership_repaired", "fences_and_receipts_verified") if membership else ("verified",)
     expected = {(caller, mode, event) for caller in callers for mode in (False, True) for event in events}
     if (len(rows) != len(expected)
-            or any(not isinstance(row, dict) or row.get("schema") != 1
+            or any(not isinstance(row, dict) or type(row.get("schema")) is not int or row.get("schema") != 1
                    or type(row.get("extents")) is not bool
                    or row.get("case") != case.removeprefix("rustfs_") for row in rows)
             or {(row.get("caller"), row.get("extents"), row.get("event")) for row in rows} != expected):
         raise ValueError("incomplete routing caller/image-mode evidence")
+    if authority:
+        for row in rows:
+            before = row.get("callbacks_before")
+            stages = row.get("sql_stages_before")
+            routing = (row.get("routing_before"), row.get("routing_after_refusal"))
+            if (type(before) is not int or not 1 <= before < 2**63 - 1
+                    or type(stages) is not int or not 0 <= stages < 2**64
+                    or type(row.get("callbacks_after_refusal")) is not int
+                    or row["callbacks_after_refusal"] != before
+                    or type(row.get("callbacks_after")) is not int
+                    or row["callbacks_after"] != before + 1
+                    or type(row.get("sql_stages_after_refusal")) is not int
+                    or row["sql_stages_after_refusal"] != stages
+                    or row.get("required") != "S3" or row.get("achieved") != "S3"
+                    or row.get("ambiguous") is not True
+                    or any(type(row.get(name)) is not int or row[name] not in (0, 1)
+                           for name in ("proven_rejections", "unconfirmed_replies"))
+                    or row["proven_rejections"] + row["unconfirmed_replies"] > 1
+                    or row.get("result_be") != (before + 1).to_bytes(8, "big").hex()
+                    or any(not isinstance(row.get(field), str) or not row[field]
+                           for field in ("command", "group", "origin", "version", "witness"))
+                    or (row.get("sdk_ambiguous") is not True if row["caller"] == "Sdk"
+                        else row.get("sdk_ambiguous") is not None)
+                    or any(not isinstance(values, list) or len(values) != 6
+                           or any(type(value) is not int or not 0 <= value < 2**64 for value in values)
+                           for values in routing)):
+                raise ValueError("invalid revoked-origin receipt/owner evidence")
+            if [after - before for before, after in zip(routing[0][:5], routing[1][:5])] != [1, 0, 0, 0, 1]:
+                raise ValueError("revoked origin did not use one cached direct attempt")
     return rows, len(callers) * 2
 
 
@@ -671,7 +714,7 @@ def main():
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
-            if args.suite == "routing-range-repairs" and number:
+            if args.suite in ("routing-range-repairs", "routing-authority") and number:
                 argv.append("--show-output")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
@@ -703,7 +746,7 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle", "routing-range-repairs") and result.returncode == 0:
+            if args.suite in ("managed-ingress", "managed-lifecycle", "routing-range-repairs", "routing-authority") and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")
@@ -714,6 +757,7 @@ def main():
                     record["operator_cli"] = {"path": operator_cli.name, "sha256": cli_hash}
                 if cli_hash != record["operator_cli"]["sha256"] or sha(operator_cli) != cli_hash:
                     raise RuntimeError("managed operator CLI changed during qualification")
+                env["CELLAR_RAFT_OPERATOR_CLI"] = str(operator_cli)
             if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry"):
                 current_operator = executable.parent.parent / "cellar-perf-cell-group" if match else None
                 if current_operator is None or not current_operator.is_file():
@@ -737,7 +781,7 @@ def main():
                         raise RuntimeError("missing exact RustFS test in executable inventory")
             elif not exact_case_passed(output, selection):
                 raise RuntimeError("exact RustFS test was not executed successfully")
-            if args.suite == "routing-range-repairs" and number:
+            if args.suite in ("routing-range-repairs", "routing-authority") and number:
                 rows, scenarios = routing_observations(output, selection)
                 ledger = out / f"{number:02}-routing-evidence.json"
                 ledger.write_text(json.dumps(rows, indent=2) + "\n")

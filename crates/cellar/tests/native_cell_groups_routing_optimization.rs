@@ -34,6 +34,22 @@ async fn metadata_outage_on_cached_path() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cached_advice_respects_origin_revocation() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::cached_advice_respects_origin_revocation()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_cached_advice_respects_origin_revocation() -> anyhow::Result<()> {
+    Box::pin(
+        managed_fixture::requests::cached_advice_respects_origin_revocation_with_store(
+            rustfs::store,
+        ),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refresh_storm_is_bounded() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::refresh_storm_is_bounded()).await
 }

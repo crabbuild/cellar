@@ -33,6 +33,16 @@ pub async fn metadata_outage_on_cached_path() -> Result<()> {
     optimization::metadata_outage_on_cached_path().await
 }
 
+pub async fn cached_advice_respects_origin_revocation() -> Result<()> {
+    optimization::cached_advice_respects_origin_revocation().await
+}
+
+pub async fn cached_advice_respects_origin_revocation_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    optimization::cached_advice_respects_origin_revocation_with_store(make).await
+}
+
 pub async fn refresh_storm_is_bounded() -> Result<()> {
     optimization::refresh_storm_is_bounded().await
 }
