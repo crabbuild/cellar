@@ -45,12 +45,42 @@ impl Bytes {
 pub(super) struct CellLease {
     owner: Arc<Admission>,
     cell: LogicalCell,
+    group: GroupHistory,
+    held: bool,
+}
+
+impl CellLease {
+    pub(super) fn park(&mut self) -> Result<(), ExecutionError> {
+        let mut state = self.owner.state.lock().map_err(|_| unavailable())?;
+        if !self.held || !state.cells.remove(&self.cell) {
+            return Err(ExecutionError::Invalid("cell writer lease is not held"));
+        }
+        self.held = false;
+        Ok(())
+    }
+
+    pub(super) fn resume(&mut self) -> Result<(), ExecutionError> {
+        let mut state = self.owner.state.lock().map_err(|_| unavailable())?;
+        if self.held {
+            return Ok(());
+        }
+        if state.retired.contains(&self.group) {
+            return Err(unavailable());
+        }
+        if !state.cells.insert(self.cell.clone()) {
+            return Err(ExecutionError::Busy);
+        }
+        self.held = true;
+        Ok(())
+    }
 }
 
 impl Drop for CellLease {
     fn drop(&mut self) {
         if let Ok(mut state) = self.owner.state.lock() {
-            state.cells.remove(&self.cell);
+            if self.held {
+                state.cells.remove(&self.cell);
+            }
         }
     }
 }
@@ -91,6 +121,8 @@ impl Admission {
             CellLease {
                 owner: self.clone(),
                 cell: key,
+                group,
+                held: true,
             },
             bytes,
         ))

@@ -38,6 +38,33 @@ impl CellActivationFence {
         Some(fence)
     }
 
+    pub(crate) fn accepts_continuation(&self, authority: &CellExecutionAuthority) -> bool {
+        self.owner.ptr_eq(&Arc::downgrade(&authority.group.owner))
+            && self.route == authority.route
+            && self.term == authority.term
+            && authority
+                .leaf
+                .version
+                .covers(&self.version)
+                .is_ok_and(|covers| covers)
+            && self.term_current()
+            && authority.check().is_ok()
+    }
+
+    pub(crate) fn term_current(&self) -> bool {
+        self.leader_term
+            .upgrade()
+            .is_some_and(|term| term.load(Ordering::Acquire) == self.term.get())
+            && self
+                .closed
+                .upgrade()
+                .is_some_and(|closed| !closed.load(Ordering::Acquire))
+            && self
+                .reclaimed
+                .upgrade()
+                .is_some_and(|closed| !closed.load(Ordering::Acquire))
+    }
+
     pub(crate) fn accepts(&self, authority: &CellExecutionAuthority) -> bool {
         self.owner.ptr_eq(&Arc::downgrade(&authority.group.owner))
             && self.route == authority.route

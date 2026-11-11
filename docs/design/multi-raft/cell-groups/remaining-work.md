@@ -144,7 +144,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 | CG-12 | **Accepted: 5/5 native cases and ten commands at `2cd71d32`.** Five cases cover both image modes; seven additional protocol/routing regressions pass. Includes all-voter eligibility, interrupted delivery, first read/write wake, retained restart and leader loss. | Functional acceptance is closed. RustFS, physical/load and wake-latency profiles remain CG-15/16. |
 | CG-13 | At `b85c609c`, three native RF3 suites pass real RustFS closure selection, recovery-seeded SDK retries and uncertain outbox recovery in both image modes. Seven archive safety cases pass with unchanged budgets. Earlier Docker permanent-fence/disk-erasure results retain `320a40ce`. | Implement stable managed-group recovery admission, then close the three missing lifecycle/fence/all-cells entry points, all six exact case gates and the full 256-cell `rustfs_disaster` profile. Scoped native or Docker drills do not accept the complete recovery gate. |
 | CG-14 | **Accepted: 5/5 cases at `23414b47`.** Owned, source-pinned serial campaigns now enforce disk bounds and retain operation, replica, archive-lag, file/engine, kernel and joined native-close evidence. The five-process Quorum matrix passes both modes at occupancies 1/2. | Harness implementation is closed. CG-15 must qualify full profiles, complete historical controls and authority/lifecycle adapters, and resolve the retained S3 deadline miss; a passing reduced reproduction does not waive it. |
-| CG-17 | In progress. CG17-01 has a partial SDK catalog and independent evidence gate. Ordinary JSON RPC roots and explicit Storage sync have independent quorum/S3 checkpoints with bounded ownership and durable unfinished-invocation receipts. Persistent native activation adds global count bounds, idle expiry and retained restart. Declared values and configured definitions pass 23 native tests, two real-RustFS cases, the existing daemon campaign and strict all-target Clippy at `f09613c1`. | Finish ordinary named bindings, same-cell interleaving, automatic output/dispatch gates, remaining Storage methods, compiled export/deployment audit and real evidence producers. Deliver due work and the remaining adapters, then pass all 32 cases and the matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). |
+| CG-17 | In progress. Ordinary RPC roots/sync, bounded native activations and declared configuration have scoped quorum/S3 coverage. Same-cell RPCs now interleave between proven roots and resume on the latest image without replay. Private/atomic work stays exclusive; term loss and parked shutdown preserve unfinished receipts. At `3150398c`, 24 native tests and three real-RustFS cases pass in both image modes. See the [checkpoint](progress.md#cg-17-same-cell-rpc-interleaving) for exact scope. | Finish automatic output/dispatch gates, generation-aware named bindings, remaining Storage methods, compiled export/deployment audit and real evidence producers. Deliver due work and the remaining adapters, then pass all 32 cases and the matrix in [qualification](qualification.md#full-primitive-compatibility-cg-17). |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 
@@ -173,8 +173,13 @@ are accepted natively at `2cd71d32`. The next feature priorities are:
    checkpoint at `f09613c1`, along with both real-RustFS cases and the existing
    production daemon/CLI regression. Strict all-target Clippy and repository
    checks pass; see the [configuration checkpoint](progress.md#cg-17-declared-native-deployment-configuration).
-   Next finish same-cell interleaving and automatic output/dispatch gates, then
-   complete ordinary named bindings and the remaining
+   Same-cell interleaving now passes the [native and real-RustFS checkpoint](progress.md#cg-17-same-cell-rpc-interleaving)
+   at `3150398c`, including private/atomic exclusion, leader fencing, parked
+   shutdown and retained restart without replay. Next finish automatic
+   output/dispatch gates and generation-aware ordinary named bindings. Every
+   dependent dispatch must carry current authority and wait for its source
+   transaction proof while preserving the target's separate durability contract.
+   Then complete the remaining
    Storage methods, the compiled export and
    deployment audit and committed due work for the
    filesystem, payload, Queue, EventStream, Workflow and provider adapters.

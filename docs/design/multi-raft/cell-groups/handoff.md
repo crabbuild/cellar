@@ -33,8 +33,18 @@ definitions and refuses unsupported adapter declarations before activation;
 the fourteen owning host tests, nine exact native selections, two real-RustFS
 cases and existing public daemon campaign pass at `f09613c1`. Strict all-target
 Clippy and repository checks pass; owned RustFS and its VM are stopped. See the [configuration checkpoint](progress.md#cg-17-declared-native-deployment-configuration).
-Next complete ordinary named bindings, same-cell interleaving, automatic
-output/dispatch gates and remaining Storage methods
+The [same-cell interleaving checkpoint](progress.md#cg-17-same-cell-rpc-interleaving)
+at `3150398c` adds writer-free suspension between proven roots, latest-image
+resumption on the original native instance and original pending receipt checks.
+Private DML/DDL and open callbacks stay exclusive. Leader loss and joined stop
+cancel parked work; retained RF3 restart restores the first root without replaying
+the lost continuation. Twenty-four selected native tests and three exact real
+RustFS cases pass with matching primitive executable hashes and both image modes.
+The new case also runs both Quorum and explicit S3. Owned RustFS exits zero without
+OOM and its VM is stopped; constrained voters and the full compatibility matrix
+remain separate gates.
+Next complete automatic output/dispatch gates, generation-aware ordinary named
+bindings and remaining Storage methods
 and the compiled export/deployment audit. Binding delivery spans
 `NativeCellFactory::context`, `Registry::validate_configuration` and the typed RPC
 catalog: deployment declarations still treat those factories as Fleet classes.

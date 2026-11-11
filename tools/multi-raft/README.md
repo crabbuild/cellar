@@ -110,7 +110,7 @@ python3 tools/multi-raft/cell_groups.py --suite ordinary-primitives \
   --target-directory /absolute/checkout-private/target
 ```
 
-This selects two exact cases that run both image modes on host-native RF3.
+This selects three exact cases that run both image modes on host-native RF3.
 The checkpoint case uses two cells sharing a group and one SQL worker per node. It checks ordinary
 Storage SQL/KV, independently committed async transactions, ordered explicit
 sync, nested rollback/refusal, bounded work, partial failures, exact replay and
@@ -120,9 +120,14 @@ checks reuse and eviction, expires idle instances on the real worker clock,
 transfers leadership and restarts retained RF3 voters. Original receipts replay
 without constructing another instance; constructor Storage remains usable only
 within its live activation, while invocation handles expire after each call.
+The interleaving case runs Quorum and explicit S3. Two same-cell invocations
+share one native instance between proven roots; the first resumes against the
+second's committed image. Private DML/DDL and open transactions remain exclusive.
+Leader replacement fences parked work. Joined stop and retained RF3 restart
+preserve its first root and unfinished receipt without rerunning the handler.
 The runner retains source, executable and log hashes. It does not accept the
-complete CG-17 primitive matrix or qualify declared bindings, same-cell
-interleaving, independent voter processes or disk loss.
+complete CG-17 primitive matrix or qualify declared bindings, automatic
+output/dispatch gates, independent voter processes or disk loss.
 
 ## Shared cell-group managed ingress checks
 

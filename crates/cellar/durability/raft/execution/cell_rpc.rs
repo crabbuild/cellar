@@ -27,6 +27,20 @@ pub(crate) struct CellRpcTurn {
 }
 
 impl CellRpcTurn {
+    pub(crate) fn can_park(&self) -> Result<bool, ExecutionError> {
+        Ok(self.step != 0
+            && self.output.is_none()
+            && self.transaction.can_park().map_err(private_failure)?)
+    }
+
+    pub(crate) fn close_parked(self) -> Result<(), ExecutionError> {
+        let dropped = drop_handler(self.future);
+        self.transaction
+            .close_parked()
+            .and(dropped)
+            .map_err(private_failure)
+    }
+
     pub(crate) fn take_checkpoint(
         &self,
     ) -> Option<tokio::sync::oneshot::Sender<Result<(), String>>> {
@@ -131,6 +145,10 @@ impl CellPrivateExecutor {
 
     pub(crate) fn check_rpc(&self) -> Result<(), ExecutionError> {
         self.authority.check().map_err(authority_failure)
+    }
+
+    pub(crate) fn rpc_activation_fence(&self) -> crate::raft::cell_groups::CellActivationFence {
+        self.authority.activation_fence()
     }
 
     pub(crate) fn rpc_term_current(&self) -> bool {
@@ -325,6 +343,41 @@ impl CellPrivateExecutor {
             maintenance: None,
         });
         Ok(())
+    }
+
+    pub(crate) fn park_rpc(&mut self, turn: &mut CellRpcTurn) -> Result<(), ExecutionError> {
+        self.check_rpc()?;
+        if self.pending.is_some() || !turn.can_park()? {
+            return Err(ExecutionError::Invalid("RPC is not between proven roots"));
+        }
+        self.working
+            .as_mut()
+            .ok_or(ExecutionError::RebuildRequired)?
+            .database_mut()
+            .park(&turn.transaction)
+            .map_err(private_failure)?;
+        turn.preparation = None;
+        Ok(())
+    }
+
+    pub(crate) fn resume_rpc(&mut self, turn: &mut CellRpcTurn) -> Result<(), ExecutionError> {
+        self.check_rpc()?;
+        if turn.step == 0 || turn.preparation.is_some() || self.pending.is_some() {
+            return Err(ExecutionError::Invalid("RPC resume state"));
+        }
+        let working = self
+            .working
+            .as_mut()
+            .ok_or(ExecutionError::RebuildRequired)?;
+        let receipt = receipts::lookup_rpc_identity(
+            working.database_mut().framework(),
+            &turn.attempt.request,
+            &self.options.limits,
+        )?;
+        if receipt.as_ref().and_then(|receipt| receipt.rpc_step) != Some(turn.step) {
+            return Err(ExecutionError::Uncertain);
+        }
+        self.continue_rpc_checkpoint(turn)
     }
 
     pub(crate) fn abort_rpc(&mut self, turn: CellRpcTurn) -> Result<(), ExecutionError> {
