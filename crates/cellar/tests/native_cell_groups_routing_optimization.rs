@@ -60,3 +60,8 @@ async fn split_repairs_only_overlap() -> anyhow::Result<()> {
 async fn old_lookup_cannot_resurrect_parent() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::old_lookup_cannot_resurrect_parent()).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn membership_refresh_keeps_range() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::membership_refresh_keeps_range()).await
+}

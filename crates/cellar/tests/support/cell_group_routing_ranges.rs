@@ -10,10 +10,23 @@ use cellar::sdk::fleet_operations::*;
 
 const NAMES: [&str; 6] = ["one", "two", "three", "four", "five", "six"];
 
-fn definition(callbacks: Arc<AtomicUsize>) -> Result<RaftClass> {
-    counter::definition_with_callback(move || {
-        callbacks.fetch_add(1, Ordering::AcqRel);
-    })
+#[derive(Default)]
+struct SqlCallbacks {
+    commands: AtomicUsize,
+    queries: AtomicUsize,
+}
+
+fn definition(callbacks: Arc<AtomicUsize>, sql: Arc<SqlCallbacks>) -> Result<RaftClass> {
+    let commands = sql.clone();
+    counter::definition_with_callbacks(
+        move || {
+            callbacks.fetch_add(1, Ordering::AcqRel);
+            commands.commands.fetch_add(1, Ordering::AcqRel);
+        },
+        move |_| {
+            sql.queries.fetch_add(1, Ordering::AcqRel);
+        },
+    )
 }
 
 fn history(group: GroupHistory, name: &str) -> Result<CellHistory> {
@@ -29,10 +42,21 @@ fn history(group: GroupHistory, name: &str) -> Result<CellHistory> {
 #[path = "cell_group_routing_old_lookup.rs"]
 mod old_lookup;
 
+#[path = "cell_group_routing_membership.rs"]
+mod membership;
+
+#[derive(Clone, Copy, Debug)]
+enum Caller {
+    Sdk,
+    Native,
+    Axum,
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Case {
     Overlap,
-    OldLookup(old_lookup::Caller),
+    OldLookup(Caller),
+    Membership(Caller),
 }
 
 pub(super) async fn split_repairs_only_overlap() -> Result<()> {
@@ -40,12 +64,15 @@ pub(super) async fn split_repairs_only_overlap() -> Result<()> {
 }
 
 pub(super) async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
-    for caller in [
-        old_lookup::Caller::Sdk,
-        old_lookup::Caller::Native,
-        old_lookup::Caller::Axum,
-    ] {
+    for caller in [Caller::Sdk, Caller::Native, Caller::Axum] {
         run(Case::OldLookup(caller)).await?;
+    }
+    Ok(())
+}
+
+pub(super) async fn membership_refresh_keeps_range() -> Result<()> {
+    for caller in [Caller::Sdk, Caller::Native, Caller::Axum] {
+        run(Case::Membership(caller)).await?;
     }
     Ok(())
 }
@@ -53,9 +80,11 @@ pub(super) async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
 async fn run(case: Case) -> Result<()> {
     for rooted in [false, true] {
         let callbacks = Arc::new(AtomicUsize::new(0));
+        let sql: [Arc<SqlCallbacks>; 7] =
+            std::array::from_fn(|_| Arc::new(SqlCallbacks::default()));
         let first = Fixture::with_store(
             rooted,
-            definition(callbacks.clone())?,
+            definition(callbacks.clone(), sql[0].clone())?,
             Arc::new(fault::Store::default()),
         )
         .await?;
@@ -67,8 +96,8 @@ async fn run(case: Case) -> Result<()> {
         };
         let mut apis = Vec::new();
         let mut applications = Vec::new();
-        for _ in 0..7 {
-            let class = definition(callbacks.clone())?;
+        for local in &sql {
+            let class = definition(callbacks.clone(), local.clone())?;
             let api =
                 counter::CounterApi::with_history_resolver(http::secret(), &class, move |name| {
                     history(group, name)
@@ -138,6 +167,17 @@ async fn run(case: Case) -> Result<()> {
                         rooted,
                         &mut workers,
                         &mut roots,
+                        caller,
+                    ))
+                    .await
+                }
+                Case::Membership(caller) => {
+                    Box::pin(membership::exercise(
+                        &cluster,
+                        web.as_ref().context("membership HTTP owners")?,
+                        &callbacks,
+                        &sql,
+                        rooted,
                         caller,
                     ))
                     .await
@@ -360,6 +400,26 @@ struct Ingress<'a> {
 }
 
 impl Ingress<'_> {
+    fn http_request(
+        &self,
+        axum: bool,
+        name: &str,
+        options: &CommandOptions,
+    ) -> reqwest::RequestBuilder {
+        self.client
+            .post(format!("{}?delta=1", self.web.url(INGRESS, axum, name)))
+            .header(
+                "x-command-id",
+                format!(
+                    "{}:{}",
+                    hex::encode(options.id.client.bytes()),
+                    options.id.sequence()
+                ),
+            )
+            .header("x-retry-until-ms", options.retry_until_ms)
+            .header("x-write-durability", "s3")
+    }
+
     async fn write(
         &self,
         cell: &mut Cell,
@@ -371,21 +431,7 @@ impl Ingress<'_> {
         let selected = options(index, cell.sequence, self.retry)?;
         if let Some(axum) = adapter {
             let reply = http::Web::send(
-                self.client
-                    .post(format!(
-                        "{}?delta=1",
-                        self.web.url(INGRESS, axum, cell.name)
-                    ))
-                    .header(
-                        "x-command-id",
-                        format!(
-                            "{}:{}",
-                            hex::encode(selected.id.client.bytes()),
-                            selected.id.sequence()
-                        ),
-                    )
-                    .header("x-retry-until-ms", self.retry)
-                    .header("x-write-durability", "s3"),
+                self.http_request(axum, cell.name, &selected),
                 format!("split write {} axum={axum}", cell.name),
             )
             .await?

@@ -103,6 +103,10 @@ pub(super) async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
     Box::pin(ranges::old_lookup_cannot_resurrect_parent()).await
 }
 
+pub(super) async fn membership_refresh_keeps_range() -> Result<()> {
+    Box::pin(ranges::membership_refresh_keeps_range()).await
+}
+
 pub(super) async fn read_cohort_has_fresh_barrier() -> Result<()> {
     Box::pin(reads::run()).await
 }

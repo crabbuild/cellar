@@ -47,6 +47,10 @@ pub async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
     optimization::old_lookup_cannot_resurrect_parent().await
 }
 
+pub async fn membership_refresh_keeps_range() -> Result<()> {
+    optimization::membership_refresh_keeps_range().await
+}
+
 pub async fn read_cohort_has_fresh_barrier() -> Result<()> {
     optimization::read_cohort_has_fresh_barrier().await
 }

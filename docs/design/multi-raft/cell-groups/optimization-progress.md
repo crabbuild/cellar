@@ -1200,3 +1200,65 @@ counterparts; their selected passing results above remain applicable to those
 executables. The earlier failed record is unchanged. This is selected follow-up
 qualification, not a new full composed or Linux/RustFS campaign. Source-matched
 release, performance and complete OPT-01 through OPT-08 acceptance remain open.
+
+## Membership repair and RPC interleaving checkpoint
+
+The branch now includes PR #166 through `d3c2621b`, including same-cell native
+RPC interleaving between proven roots. Source manifest `20cb5342` passed the
+selected native campaign in `membership-routing-20cb5342` at base `2fb0b365`.
+Five CI-profile test executables and the exact Cargo operator CLI are retained
+with hashes; the source manifest and both retained and executed artifact hashes
+were checked after the campaign. The compiler profile retains optimization level
+one, debug assertions and overflow checks without debug symbols.
+
+The new `membership_refresh_keeps_range` case passed all six SDK, native HTTP
+and Axum scenarios across materialized and extent images in 72.608 seconds.
+Each fresh seven-node fixture replaces an RF3 voter with member five, transfers
+leadership to that new voter and holds the ingress's actual birth-object read
+until public demand refresh is observed. Directory root, cell range and range
+epoch remain unchanged. Subsequent cached writes use the repaired membership;
+removed local and explicitly selected replicas refuse without entering SQL.
+The removed node's independent namespace grant still permits forwarding as an
+ingress. Original IDs, stored results and S3 proof survive; replay selects the
+current covering image version and witness. Current-voter local reads and old
+version tokens remain checked. Eighteen structured warm, repair and fence
+observations retain receipts, identities, counters and resource owners.
+
+Two failed candidate records remain unchanged. Source `02e2fb23` failed after
+movement settlement because the new fixture immediately requested physical
+inventory at a newer Fleet root. Its retained binary reproduced the failure;
+the `226d7cf3` probe measured required revision 35 with installed trust revision
+34. The fixture now waits for the existing directory's exact node observation
+and requests inventory with the remaining time inside one original five-second
+window. Source `412efb53` then passed repair and removed-replica checks but
+incorrectly expected the replay's image proof to predate later mutations.
+The retained `e40e017f` probe confirmed unchanged ID, result and S3 durability
+with the exact latest image version/witness. The oracle now checks that proof,
+coverage of the original version and no additional callback, matching
+`CommandReceipt` and `CellCommittedReceipt`. Both corrections are confined to
+the new fixture; no production retry, authority, durability or capacity rule
+changed. Temporary probe tags were removed from the qualified source.
+
+The same `20cb5342` campaign passed strict library/seven-target Clippy, all four
+native primitive cases in 281.267 seconds, all 11 scheduler cases in 508.478
+seconds and the ten remaining routing cases in 631.160 seconds. The latter
+includes all six delayed-lookup RO-06 scenarios and both RO-05 modes, making
+11 routing cases overall. The primitive suite includes native activation,
+ordinary JSON RPC, storage and the newly integrated proven-root interleaving
+case. Its original-ID SQL-owner barrier actually waited once in materialized
+mode; the extent scenario observed no active lease. This exercises the barrier
+without identifying the precise cause of the earlier `9ec7d32b` extent Busy.
+Three opt-in RustFS primitive cases and nine scheduler cases were ignored.
+
+All five metric-owner tests, held-sync tick coalescing, both selected park
+cases and startup/quorum-loss checks passed. Formatting, layout, native
+dependencies, documentation, all 317 performance-tool tests and all 44 design
+tests passed; one opt-in performance-tool Docker test was skipped. No request
+deadline, command identity, profile capacity or archive assertion was relaxed.
+
+This qualifies the selected combined native checkpoint. The prepared RustFS
+routing entry points, constrained daemon source update, remaining authority and
+recovery cuts, measured placement/fairness and complete primitive/performance
+matrix still need their own evidence. The earlier constrained Linux/RustFS
+campaign remains bound to `dd0b1060` / `fc2e5e15`; it does not qualify this newer
+source. Full OPT-01 through OPT-08 acceptance remains open.

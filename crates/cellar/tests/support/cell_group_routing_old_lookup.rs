@@ -6,39 +6,6 @@ use cellar::application::consensus::verification::{cell_groups::CellRoutingFailu
 
 use std::sync::atomic::AtomicBool;
 
-#[derive(Clone, Copy, Debug)]
-pub(super) enum Caller {
-    Sdk,
-    Native,
-    Axum,
-}
-
-fn http_request(
-    caller: Caller,
-    ingress: &Ingress<'_>,
-    name: &str,
-    options: &CommandOptions,
-) -> reqwest::RequestBuilder {
-    ingress
-        .client
-        .post(format!(
-            "{}?delta=1",
-            ingress
-                .web
-                .url(INGRESS, matches!(caller, Caller::Axum), name)
-        ))
-        .header(
-            "x-command-id",
-            format!(
-                "{}:{}",
-                hex::encode(options.id.client.bytes()),
-                options.id.sequence()
-            ),
-        )
-        .header("x-retry-until-ms", options.retry_until_ms)
-        .header("x-write-durability", "s3")
-}
-
 async fn delayed_request(
     caller: Caller,
     ingress: &Ingress<'_>,
@@ -68,7 +35,7 @@ async fn delayed_request(
         }
         Caller::Native | Caller::Axum => {
             http::Web::send(
-                http_request(caller, ingress, name, &options),
+                ingress.http_request(matches!(caller, Caller::Axum), name, &options),
                 format!("delayed old lookup {caller:?} cell={name}"),
             )
             .await?
@@ -317,7 +284,7 @@ pub(super) async fn exercise(
     if !matches!(caller, Caller::Sdk) {
         let before_callbacks = callbacks.load(Ordering::Acquire);
         let receipt = http::Web::send(
-            http_request(caller, &ingress, old_name, &replay_options),
+            ingress.http_request(matches!(caller, Caller::Axum), old_name, &replay_options),
             format!("same-ID delayed HTTP reconciliation {caller:?}"),
         )
         .await?
