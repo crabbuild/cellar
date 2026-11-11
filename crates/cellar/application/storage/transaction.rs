@@ -21,14 +21,14 @@ struct Queued {
     done: tokio::sync::oneshot::Sender<Result<(), String>>,
 }
 
-struct Slot {
+pub(super) struct Slot {
     queue: Arc<Mutex<std::collections::VecDeque<Queued>>>,
     id: Arc<()>,
-    admission: Ready,
+    pub(super) admission: Ready,
 }
 
 impl Queue {
-    fn reserve(&self) -> (Slot, Ready) {
+    pub(super) fn reserve(&self) -> (Slot, Ready) {
         let (done, receive) = tokio::sync::oneshot::channel();
         let ready: Ready = async move {
             // Abandoning a slot still advances the queue. The input gate owns

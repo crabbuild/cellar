@@ -10,7 +10,9 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::application::storage::{RaftStorageAuthority, Resources};
+use crate::application::storage::{
+    RaftDispatch, RaftDispatchContext, RaftStorageAuthority, Resources,
+};
 use crate::application::{HandlerFuture, Storage};
 use std::collections::VecDeque;
 use std::task::{Context as TaskContext, Poll};
@@ -91,6 +93,7 @@ struct CommandFrame {
     invocation: Arc<()>,
     failure: RefCell<Option<String>>,
     work: RefCell<Work>,
+    dispatch: OnceCell<RaftDispatchContext>,
 }
 
 struct Work {
@@ -133,6 +136,13 @@ pub(crate) struct ActiveCommand {
 }
 
 impl ActiveCommand {
+    pub(crate) fn bind_dispatch(&self, context: RaftDispatchContext) -> Result<()> {
+        self.frame
+            .dispatch
+            .set(context)
+            .map_err(|_| anyhow::anyhow!("RPC dispatch already bound"))
+    }
+
     pub(crate) fn turn<T>(
         &self,
         callback: impl FnOnce(&CommandTransaction<'_>) -> Result<T>,
@@ -268,6 +278,42 @@ pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
         let current = current.borrow();
         let connection = current.as_ref()?.connection.try_borrow().ok()?;
         Some(read(connection.as_ref()?))
+    })
+}
+
+/// Capture only a real ordinary RPC frame. Synchronous commands and immutable
+/// queries cannot acquire an asynchronous dispatch permit.
+pub(crate) fn capture_dispatch() -> Result<Option<RaftDispatch>> {
+    ensure!(
+        !super::immutable::active(),
+        crate::application::consensus::CommandFailure::UnsupportedCapability
+    );
+    CURRENT_COMMAND.with(|current| {
+        let current = current.borrow();
+        let Some(frame) = current.as_ref() else {
+            return Ok(None);
+        };
+        let context = frame
+            .dispatch
+            .get()
+            .cloned()
+            .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?;
+        ensure!(
+            frame.work.borrow().limit != 0,
+            crate::application::consensus::CommandFailure::UnsupportedCapability
+        );
+        let resources = frame
+            .storage
+            .get()
+            .cloned()
+            .context("RPC storage is not installed")?;
+        Ok(Some(RaftDispatch::new(
+            RaftStorageAuthority {
+                resources,
+                invocation: Some(frame.invocation.clone()),
+            },
+            context,
+        )))
     })
 }
 
@@ -516,6 +562,7 @@ impl CommandDatabase {
                     serial: 0,
                     checkpoint: None,
                 }),
+                dispatch: OnceCell::new(),
             }),
             inputs,
         })

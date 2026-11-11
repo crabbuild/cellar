@@ -323,6 +323,9 @@ impl Cells {
                         CellRpcEnvironment {
                             activation: &mut activation.activation,
                             reserve: &mut reserve,
+                            dispatch: commits
+                                .as_ref()
+                                .map(|commits| (domain.clone(), commits.deadline)),
                         },
                     )
                 });

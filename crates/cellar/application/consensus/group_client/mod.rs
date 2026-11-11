@@ -124,6 +124,7 @@ mod observation;
 mod origins;
 mod recovery;
 mod repair;
+mod scoped_dispatch;
 mod services;
 mod startup;
 mod stop;
@@ -425,7 +426,7 @@ impl RaftCellHandle {
         self.cell.contract(operation)
     }
 
-    pub fn command(
+    fn command_direct(
         &self,
         contract: &OperationContract,
         input: Vec<u8>,
@@ -471,7 +472,7 @@ impl RaftCellHandle {
         }
     }
 
-    pub fn query(
+    fn query_direct(
         &self,
         invocation: super::ProposalId,
         contract: &OperationContract,
@@ -526,7 +527,7 @@ impl RaftCellHandle {
         }
     }
 
-    pub fn enroll(
+    fn enroll_direct(
         &self,
         request: CellEnrollmentRequest,
         timeout: Duration,
@@ -546,7 +547,7 @@ impl RaftCellHandle {
         }
     }
 
-    pub fn receipt(
+    fn receipt_direct(
         &self,
         request: CellReceiptRequest,
         timeout: Duration,

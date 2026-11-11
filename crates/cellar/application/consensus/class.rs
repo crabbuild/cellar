@@ -25,6 +25,25 @@ pub(crate) fn callback_active() -> bool {
     CALLBACK_ACTIVE.with(std::cell::Cell::get)
 }
 
+/// The private SDK adapter alone polls under this scope, after its source root
+/// is proven. Application SQL callbacks retain the ordinary dispatch refusal.
+pub(crate) fn framework_dispatch<T>(
+    permit: &crate::application::storage::RaftDispatchPermit,
+    callback: impl FnOnce() -> T,
+) -> anyhow::Result<T> {
+    permit.check()?;
+
+    struct Restore(bool);
+
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CALLBACK_ACTIVE.with(|active| active.set(self.0));
+        }
+    }
+    let _restore = Restore(CALLBACK_ACTIVE.with(|active| active.replace(false)));
+    Ok(callback())
+}
+
 struct CallbackGuard;
 
 impl CallbackGuard {
