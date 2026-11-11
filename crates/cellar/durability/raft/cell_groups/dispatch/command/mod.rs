@@ -140,6 +140,7 @@ pub struct CellCommandInvocation {
     attempt: Option<CellRouteAttempt>,
     dispatched: bool,
     ambiguous: bool,
+    writer_wait: bool,
     origin: Option<Origin>,
     output: Option<PendingOutput>,
     remote_route: Option<super::RemoteMutationRoute>,
@@ -375,6 +376,7 @@ impl PendingCellCommand {
             attempt: None,
             dispatched: false,
             ambiguous: false,
+            writer_wait: false,
             origin: None,
             output: None,
             remote_route: None,
@@ -560,6 +562,7 @@ impl CellCommandInvocation {
             .map_err(|_| closed())?;
         let proposal = proposal.map_err(|_| CellDispatchError::Invalid("proposal ID"))?;
         let preview = preview.map_err(|_| CellDispatchError::Invalid("preview ID"))?;
+        self.writer_wait = false;
         self.session
             .mark_submitted(attempt)
             .map_err(CellDispatchError::Routing)?;
@@ -624,6 +627,7 @@ impl CellCommandInvocation {
         match outcome {
             Ok(outcome) => self.preparation(outcome).await,
             Err(failure) => {
+                self.writer_wait = failure.writer_busy;
                 // Admission refusals and received Stage errors completed without
                 // installing this producer. Lost replies retain the exact origin.
                 if !failure.unresolved {

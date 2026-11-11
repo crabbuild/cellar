@@ -87,6 +87,7 @@ SUITES = {
             "rustfs_ordinary_json_rpc_uses_raft_owned_context",
             "rustfs_ordinary_cell_activation_cache_is_bounded_and_fenced",
             "rustfs_ordinary_cell_rpcs_interleave_between_proven_roots",
+            "rustfs_ordinary_cell_sdk_dispatch_requires_source_proof",
         ),
         "ordinary JSON cell RPC, Storage checkpoints and bounded native activation on shared RF3",
         "Both image modes. Checkpoints use two cells sharing a group and one SQL worker per node. "
@@ -102,6 +103,10 @@ SUITES = {
         "and fences a parked continuation after leader transfer. Joined stop cancels parked work; "
         "retained RF3 restart restores its first root and unfinished receipt without replay. "
         "It runs Quorum and explicit S3. "
+        "A fourth case gates dependent SDK command, query, enrollment and receipt calls on "
+        "source proof with independent target durability. It checks dropped child drainage, "
+        "ordered-root deadline accounting, callback refusal, recursive calls and leader fencing "
+        "with the original child identity and uncertainty. Proven SDK waits release the writer. "
         "Declared bindings, automatic dispatch gates, other primitive families, process "
         "faults, disk-loss recovery and full CG-17 acceptance remain separate gates.",
     ),

@@ -124,6 +124,7 @@ mod observation;
 mod origins;
 mod recovery;
 mod repair;
+mod scoped_dispatch;
 mod segment_reclamation;
 mod services;
 mod startup;
@@ -426,7 +427,7 @@ impl RaftCellHandle {
         self.cell.contract(operation)
     }
 
-    pub fn command(
+    fn command_direct(
         &self,
         contract: &OperationContract,
         input: Vec<u8>,
@@ -472,7 +473,46 @@ impl RaftCellHandle {
         }
     }
 
-    pub fn query(
+    fn query_request(
+        &self,
+        invocation: super::ProposalId,
+        contract: &OperationContract,
+        input: Vec<u8>,
+        options: QueryOptions,
+    ) -> Result<(CellQueryRequest, CellRoutingLimits, QueryRouting), CellDispatchError> {
+        if !matches!(options.consistency, QueryConsistency::Stale)
+            && options.stale_policy != StaleReadPolicy::RecentSource
+        {
+            return Err(CellDispatchError::Invalid(
+                "stale policy requires stale consistency",
+            ));
+        }
+        let consistency = match options.consistency {
+            QueryConsistency::Stale => match options.stale_policy {
+                StaleReadPolicy::RecentSource => CellQueryConsistency::RecentSource {
+                    max_age_ms: self.owner.handle.core.stale_source_timeout_ms,
+                },
+                StaleReadPolicy::DisconnectedHistorical => CellQueryConsistency::Stale,
+            },
+            QueryConsistency::AtLeast(token) => CellQueryConsistency::AtLeast(token),
+            QueryConsistency::Linearizable => CellQueryConsistency::Linearizable,
+        };
+        Ok((
+            CellQueryRequest {
+                invocation,
+                contract: contract.clone(),
+                input,
+                consistency,
+            },
+            CellRoutingLimits {
+                timeout: options.timeout,
+                max_attempts: options.max_attempts,
+            },
+            options.routing,
+        ))
+    }
+
+    fn query_direct(
         &self,
         invocation: super::ProposalId,
         contract: &OperationContract,
@@ -480,36 +520,9 @@ impl RaftCellHandle {
         options: QueryOptions,
     ) -> impl Future<Output = Result<QueryResult, Arc<CellDispatchError>>> + Send + 'static {
         let accepted = self.owner.check_open().and_then(|()| {
-            if !matches!(options.consistency, QueryConsistency::Stale)
-                && options.stale_policy != StaleReadPolicy::RecentSource
-            {
-                return Err(CellDispatchError::Invalid(
-                    "stale policy requires stale consistency",
-                ));
-            }
-            let consistency = match options.consistency {
-                QueryConsistency::Stale => match options.stale_policy {
-                    StaleReadPolicy::RecentSource => CellQueryConsistency::RecentSource {
-                        max_age_ms: self.owner.handle.core.stale_source_timeout_ms,
-                    },
-                    StaleReadPolicy::DisconnectedHistorical => CellQueryConsistency::Stale,
-                },
-                QueryConsistency::AtLeast(token) => CellQueryConsistency::AtLeast(token),
-                QueryConsistency::Linearizable => CellQueryConsistency::Linearizable,
-            };
-            self.cell.query_routed(
-                CellQueryRequest {
-                    invocation,
-                    contract: contract.clone(),
-                    input,
-                    consistency,
-                },
-                CellRoutingLimits {
-                    timeout: options.timeout,
-                    max_attempts: options.max_attempts,
-                },
-                options.routing,
-            )
+            let (request, limits, routing) =
+                self.query_request(invocation, contract, input, options)?;
+            self.cell.query_routed(request, limits, routing)
         });
         let owner = self.owner.clone();
         async move {
@@ -527,7 +540,7 @@ impl RaftCellHandle {
         }
     }
 
-    pub fn enroll(
+    fn enroll_direct(
         &self,
         request: CellEnrollmentRequest,
         timeout: Duration,
@@ -547,7 +560,7 @@ impl RaftCellHandle {
         }
     }
 
-    pub fn receipt(
+    fn receipt_direct(
         &self,
         request: CellReceiptRequest,
         timeout: Duration,

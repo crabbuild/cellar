@@ -74,6 +74,14 @@ impl CellActivationFence {
     }
 
     pub(crate) fn current(&self) -> bool {
+        self.current_version(false)
+    }
+
+    pub(crate) fn continuation_current(&self) -> bool {
+        self.current_version(true)
+    }
+
+    fn current_version(&self, successor: bool) -> bool {
         let (Some(closed), Some(reclaimed), Some(leader), Some(cache)) = (
             self.closed.upgrade(),
             self.reclaimed.upgrade(),
@@ -109,7 +117,13 @@ impl CellActivationFence {
                 .manifest_pins
                 .as_ref()
                 .and_then(|pins| pins.get(&key))
-                .is_some_and(|(leaf, _)| leaf.version == self.version)
+                .is_some_and(|(leaf, _)| {
+                    if successor {
+                        leaf.version.covers(&self.version).unwrap_or(false)
+                    } else {
+                        leaf.version == self.version
+                    }
+                })
             && leader.load(Ordering::Acquire) == self.term.get()
     }
 }

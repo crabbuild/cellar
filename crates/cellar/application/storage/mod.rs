@@ -6,6 +6,8 @@ use super::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 
 mod cursor;
+mod dispatch;
+pub(crate) use dispatch::{RaftDispatch, RaftDispatchContext, RaftDispatchPermit};
 mod inbox;
 mod outbox;
 mod outbox_inspection;

@@ -109,6 +109,12 @@ enum EnrollmentInput {
     Received(CommandInputs, ImageId),
 }
 
+struct EnrollmentCapture {
+    input: EnrollmentInput,
+    started: u64,
+    admission: Permit,
+}
+
 impl CellGroupDispatcher {
     pub fn enroll(
         &self,
@@ -159,18 +165,64 @@ impl CellGroupDispatcher {
     ) -> impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
            + Send
            + 'static {
-        let dispatcher = self.clone();
-        let started = self.domain.mono_ms();
-        async move {
-            let started = started.map_err(|_| CellEnrollmentError {
-                creation: request.creation,
-                ambiguous: false,
-                cause: Box::new(closed()),
-            })?;
-            dispatcher
-                .enroll_captured(cell, request, limits, cached, input, started)
-                .await
+        let prepared = self.capture_enrollment(cell, request, limits, cached, input);
+        async move { prepared?.await }
+    }
+
+    pub(crate) fn capture_routed_enrollment(
+        &self,
+        cell: CellHistory,
+        request: CellEnrollmentRequest,
+        limits: CellRoutingLimits,
+    ) -> Result<
+        impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
+            + Send
+            + 'static,
+        CellEnrollmentError,
+    > {
+        self.capture_enrollment(cell, request, limits, None, EnrollmentInput::Originating)
+    }
+
+    fn capture_enrollment(
+        &self,
+        cell: CellHistory,
+        request: CellEnrollmentRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        input: EnrollmentInput,
+    ) -> Result<
+        impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
+            + Send
+            + 'static,
+        CellEnrollmentError,
+    > {
+        let failure = |cause| CellEnrollmentError {
+            creation: request.creation,
+            ambiguous: false,
+            cause: Box::new(cause),
+        };
+        let started = self.domain.mono_ms().map_err(|_| failure(closed()))?;
+        if limits.deadline_at(started).is_none() {
+            return Err(failure(CellDispatchError::Invalid("enrollment deadline")));
         }
+        self.class
+            .require_initializer()
+            .map_err(|error| failure(CellDispatchError::Registration(error)))?;
+        let admission = self
+            .budget
+            .acquire(8192)
+            .ok_or_else(|| failure(CellDispatchError::Runtime(RuntimeError::Overloaded)))?;
+        let dispatcher = self.clone();
+        let capture = EnrollmentCapture {
+            input,
+            started,
+            admission,
+        };
+        Ok(async move {
+            dispatcher
+                .enroll_captured(cell, request, limits, cached, capture)
+                .await
+        })
     }
 
     async fn enroll_captured(
@@ -179,9 +231,13 @@ impl CellGroupDispatcher {
         mut request: CellEnrollmentRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
-        input: EnrollmentInput,
-        started: u64,
+        capture: EnrollmentCapture,
     ) -> Result<CellEnrollmentInvocation, CellEnrollmentError> {
+        let EnrollmentCapture {
+            input,
+            started,
+            admission,
+        } = capture;
         let error = |cause| CellEnrollmentError {
             creation: request.creation,
             ambiguous: false,
@@ -200,10 +256,6 @@ impl CellGroupDispatcher {
         self.class
             .require_initializer()
             .map_err(|e| error(CellDispatchError::Registration(e)))?;
-        let admission = self
-            .budget
-            .acquire(8192)
-            .ok_or_else(|| error(CellDispatchError::Runtime(RuntimeError::Overloaded)))?;
         let (inputs, preview) = if let EnrollmentInput::Received(inputs, preview) = input {
             (inputs, preview)
         } else {

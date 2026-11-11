@@ -347,8 +347,28 @@ impl CellCommandInvocation {
                 .prepare_at(attempt, runtime, sql, options.clone())
                 .await
             {
+                Err(CellDispatchError::Execution(ExecutionError::Busy))
+                    if self.writer_wait && self.origin.is_none() && self.output.is_none() =>
+                {
+                    // A received pre-enqueue lease refusal proves that no
+                    // callback or producer entered. Wait for the holder to park
+                    // or finish, then acquire fresh authority under this same
+                    // request ID, inputs, route ticket and original deadline.
+                    // Worker/callback errors never acquire this retry proof.
+                    let timer = self
+                        .dispatcher
+                        .domain
+                        .sleep_until(self.session.deadline_ms())
+                        .map_err(|_| closed())?;
+                    crate::asyncrt::select! {
+                        result = progress.changed() => result.map_err(|_| closed())?,
+                        _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+                    }
+                }
                 Err(CellDispatchError::Runtime(RuntimeError::NotReady))
-                    if !self.ambiguous && self.origin.is_none() && self.output.is_none() =>
+                    if (!self.ambiguous || self.writer_wait)
+                        && self.origin.is_none()
+                        && self.output.is_none() =>
                 {
                     let status = runtime
                         .status(attempt.route().history)

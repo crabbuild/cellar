@@ -10,7 +10,9 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::application::storage::{RaftStorageAuthority, Resources};
+use crate::application::storage::{
+    RaftDispatch, RaftDispatchContext, RaftStorageAuthority, Resources,
+};
 use crate::application::{HandlerFuture, Storage};
 use std::collections::VecDeque;
 use std::task::{Context as TaskContext, Poll};
@@ -91,14 +93,20 @@ struct CommandFrame {
     invocation: Arc<()>,
     failure: RefCell<Option<String>>,
     work: RefCell<Work>,
+    dispatch: OnceCell<RaftDispatchContext>,
 }
 
 struct Work {
-    tasks: VecDeque<HandlerFuture<()>>,
+    tasks: VecDeque<WorkTask>,
     active: usize,
     limit: usize,
     serial: u64,
     checkpoint: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+}
+
+struct WorkTask {
+    future: HandlerFuture<()>,
+    external: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 thread_local! {
@@ -133,6 +141,13 @@ pub(crate) struct ActiveCommand {
 }
 
 impl ActiveCommand {
+    pub(crate) fn bind_dispatch(&self, context: RaftDispatchContext) -> Result<()> {
+        self.frame
+            .dispatch
+            .set(context)
+            .map_err(|_| anyhow::anyhow!("RPC dispatch already bound"))
+    }
+
     pub(crate) fn turn<T>(
         &self,
         callback: impl FnOnce(&CommandTransaction<'_>) -> Result<T>,
@@ -174,7 +189,8 @@ impl ActiveCommand {
             };
             let polled = self.turn(|_| {
                 Ok(crate::application::consensus::RaftClass::poll_cell_work(
-                    &mut task, cx,
+                    &mut task.future,
+                    cx,
                 ))
             })?;
             let mut work = self.frame.work.borrow_mut();
@@ -195,7 +211,18 @@ impl ActiveCommand {
 
     pub(crate) fn can_park(&self) -> Result<bool> {
         let work = self.frame.work.borrow();
-        if work.active != 0
+        // Only a host-owned SDK task that has already proven its source root
+        // can wait without SQLite. Transaction/sync tasks keep their writer.
+        let external = work
+            .tasks
+            .iter()
+            .filter(|task| {
+                task.external
+                    .as_ref()
+                    .is_some_and(|waiting| waiting.load(std::sync::atomic::Ordering::Acquire))
+            })
+            .count();
+        if work.active != external
             || work.checkpoint.is_some()
             || self
                 .frame
@@ -271,6 +298,42 @@ pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
     })
 }
 
+/// Capture only a real ordinary RPC frame. Synchronous commands and immutable
+/// queries cannot acquire an asynchronous dispatch permit.
+pub(crate) fn capture_dispatch() -> Result<Option<RaftDispatch>> {
+    ensure!(
+        !super::immutable::active(),
+        crate::application::consensus::CommandFailure::UnsupportedCapability
+    );
+    CURRENT_COMMAND.with(|current| {
+        let current = current.borrow();
+        let Some(frame) = current.as_ref() else {
+            return Ok(None);
+        };
+        let context = frame
+            .dispatch
+            .get()
+            .cloned()
+            .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?;
+        ensure!(
+            frame.work.borrow().limit != 0,
+            crate::application::consensus::CommandFailure::UnsupportedCapability
+        );
+        let resources = frame
+            .storage
+            .get()
+            .cloned()
+            .context("RPC storage is not installed")?;
+        Ok(Some(RaftDispatch::new(
+            RaftStorageAuthority {
+                resources,
+                invocation: Some(frame.invocation.clone()),
+            },
+            context,
+        )))
+    })
+}
+
 pub(super) fn with_mut<T>(write: impl FnOnce(&mut Connection) -> T) -> Option<T> {
     CURRENT_COMMAND.with(|current| {
         let current = current.borrow();
@@ -314,6 +377,24 @@ pub(crate) fn schedule_work(
     resources: &RaftStorageAuthority,
     task: HandlerFuture<()>,
 ) -> Result<()> {
+    schedule(resources, task, None)
+}
+
+/// The flag becomes true only after exact source proof and release of the
+/// ordered checkpoint slot. Application callbacks cannot mint this work kind.
+pub(crate) fn schedule_dispatch_work(
+    resources: &RaftStorageAuthority,
+    task: HandlerFuture<()>,
+    external: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<()> {
+    schedule(resources, task, Some(external))
+}
+
+fn schedule(
+    resources: &RaftStorageAuthority,
+    task: HandlerFuture<()>,
+    external: Option<Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<()> {
     require_storage(resources, true)?;
     CURRENT_COMMAND.with(|current| {
         let current = current.borrow();
@@ -334,7 +415,10 @@ pub(crate) fn schedule_work(
             .checked_add(1)
             .context("async work sequence exhausted")?;
         work.active += 1;
-        work.tasks.push_back(task);
+        work.tasks.push_back(WorkTask {
+            future: task,
+            external,
+        });
         Ok(())
     })
 }
@@ -516,6 +600,7 @@ impl CommandDatabase {
                     serial: 0,
                     checkpoint: None,
                 }),
+                dispatch: OnceCell::new(),
             }),
             inputs,
         })

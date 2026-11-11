@@ -26,6 +26,8 @@ pub mod catalog_fault;
 mod activations;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
+#[path = "support/cell_group_dispatch.rs"]
+mod dispatch;
 #[path = "support/cell_group_interleaving.rs"]
 mod interleaving;
 #[path = "support/cell_group_managed_fixture.rs"]
@@ -1320,6 +1322,45 @@ async fn rustfs_ordinary_cell_rpcs_interleave_between_proven_roots() -> Result<(
                 .await
                 .with_context(|| {
                     format!("RustFS interleaving extents={rooted} durability={durability:?}")
+                })?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_cell_sdk_dispatch_requires_source_proof() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            Box::pin(dispatch::run(
+                rooted,
+                durability,
+                Arc::new(catalog_fault::Store::default()),
+            ))
+            .await
+            .with_context(|| format!("SDK dispatch extents={rooted} durability={durability:?}"))?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ordinary_cell_sdk_dispatch_requires_source_proof() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+                if durability == Durability::S3 {
+                    "ordinary-dispatch-s3"
+                } else {
+                    "ordinary-dispatch-quorum"
+                },
+                rooted,
+            )?));
+            Box::pin(dispatch::run(rooted, durability, store))
+                .await
+                .with_context(|| {
+                    format!("RustFS SDK dispatch extents={rooted} durability={durability:?}")
                 })?;
         }
     }

@@ -15,6 +15,7 @@ pub(crate) enum CellRpcStart {
 pub(crate) struct CellRpcEnvironment<'a> {
     pub activation: &'a mut Option<crate::application::consensus::CellRpcActivation>,
     pub reserve: &'a mut dyn FnMut() -> Result<(), ExecutionError>,
+    pub dispatch: Option<(crate::asyncrt::DomainToken, u64)>,
 }
 
 pub(crate) struct CellRpcTurn {
@@ -29,7 +30,7 @@ pub(crate) struct CellRpcTurn {
 impl CellRpcTurn {
     pub(crate) fn can_park(&self) -> Result<bool, ExecutionError> {
         Ok(self.step != 0
-            && self.output.is_none()
+            && self.output.as_ref().is_none_or(Result::is_ok)
             && self.transaction.can_park().map_err(private_failure)?)
     }
 
@@ -112,6 +113,15 @@ impl CellPrivateExecutor {
                     .map(|activation| activation.resources()),
             )
             .map_err(private_failure)?;
+        if let Some((domain, deadline)) = environment.dispatch {
+            transaction
+                .bind_dispatch(crate::application::storage::RaftDispatchContext {
+                    domain,
+                    deadline,
+                    fence: self.authority.activation_fence(),
+                })
+                .map_err(private_failure)?;
+        }
         let future = transaction.turn(|tx| {
             command::maintain(&attempt, preparation.maintenance.take(), tx)?;
             self.authority.check().map_err(authority_failure)?;
