@@ -125,8 +125,9 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     );
     let mut deployment_options = configuration::options("warm-cell-service");
     deployment_options.vars = vec![("COUNT_STEP".into(), "1".into())];
-    application.validate_deployment(&configuration::deployment(deployment_options))?;
-    let fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
+    application.validate_deployment(&configuration::deployment(deployment_options.clone()))?;
+    let mut fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
+    fixture.configuration = Some(deployment_options);
     ensure!(fixture.sql_workers == 2);
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
         fixture,
@@ -282,12 +283,7 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 .await?;
             cluster.peers.clear();
             for (index, fixture) in cluster.fixtures.iter().enumerate() {
-                let node = managed_fixture::start_node(
-                    cluster.roots[index].path(),
-                    fixture.application.clone(),
-                    &fixture.spec.label,
-                )
-                .await?;
+                let node = fixture.start_node(cluster.roots[index].path()).await?;
                 let started = async {
                     let (mut config, services) = fixture
                         .config(&node, LogOpenMode::Resume, 104 + index as u8)

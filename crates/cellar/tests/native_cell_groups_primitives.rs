@@ -694,6 +694,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
         store,
     ))
     .await?;
+    fixture.configuration = Some(options);
     fixture.sql_workers = 1;
     fixture.max_pending_transactions = 4;
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
