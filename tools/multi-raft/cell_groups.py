@@ -51,6 +51,17 @@ CASES = (
 )
 
 SUITES = {
+    "routing-endpoint": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_endpoint_refresh_keeps_membership",),
+        "authenticated boot changes repair physical endpoints without membership or range repair",
+        "Two fresh RF3/ingress fixtures cover SDK, native HTTP and Axum in both image modes. "
+        "A retained-disk voter restart keeps ingress warm. Endpoint metadata is denied until "
+        "the original command selects bounded endpoint discovery, with no SQL/callback entry. "
+        "Verified new boot metadata restores one application RPC, exact S3 receipts and replay, "
+        "unchanged directory/membership and no ingress replicas. Original deadlines and parent "
+        "budgets apply. Read-only endpoint repair, forged advice and full RO-03 remain separate gates.",
+    ),
     "routing-authority": (
         "native_cell_groups_routing_optimization",
         ("rustfs_cached_advice_respects_origin_revocation",),
@@ -531,12 +542,14 @@ SUITES = {
 
 def routing_observations(output, case):
     """Require complete caller/mode output; native cases enforce receipt oracles."""
-    if case not in SUITES["routing-range-repairs"][1] + SUITES["routing-authority"][1]:
+    if case not in SUITES["routing-range-repairs"][1] + SUITES["routing-authority"][1] + SUITES["routing-endpoint"][1]:
         raise ValueError("unknown routing evidence case")
     membership = case == "rustfs_membership_refresh_keeps_range"
     authority = case == "rustfs_cached_advice_respects_origin_revocation"
+    endpoint = case == "rustfs_endpoint_refresh_keeps_membership"
     prefix = ("MEMBERSHIP_ROUTING_EVIDENCE " if membership else
-              "AUTHORITY_ROUTING_EVIDENCE " if authority else "RANGE_ROUTING_EVIDENCE ")
+              "AUTHORITY_ROUTING_EVIDENCE " if authority else
+              "ENDPOINT_ROUTING_EVIDENCE " if endpoint else "RANGE_ROUTING_EVIDENCE ")
     rows = [json.loads(line.split(prefix, 1)[1])
             for line in output.splitlines() if prefix in line]
     callers = ("SdkNativeAxum",) if case == "rustfs_split_repairs_only_overlap" else ("Sdk", "Native", "Axum")
@@ -577,6 +590,41 @@ def routing_observations(output, case):
                 raise ValueError("invalid revoked-origin receipt/owner evidence")
             if [after - before for before, after in zip(routing[0][:5], routing[1][:5])] != [1, 0, 0, 0, 1]:
                 raise ValueError("revoked origin did not use one cached direct attempt")
+    if endpoint:
+        for row in rows:
+            before = row.get("callbacks_before")
+            stages = row.get("sql_stages_before")
+            routing = (row.get("routing_before"), row.get("routing_after"))
+            if (type(before) is not int or not 1 <= before < 2**63 - 1
+                    or type(row.get("callbacks_after")) is not int
+                    or row["callbacks_after"] != before + 1
+                    or type(stages) is not int or not 0 <= stages < 2**64
+                    or type(row.get("sql_stages_at_release")) is not int
+                    or row["sql_stages_at_release"] != stages
+                    or row.get("required") != "S3" or row.get("achieved") != "S3"
+                    or row.get("result_be") != (before + 1).to_bytes(8, "big").hex()
+                    or type(row.get("retry_until_ms")) is not int
+                    or not 0 < row["retry_until_ms"] < 2**64
+                    or any(not isinstance(row.get(field), str) or not row[field]
+                           for field in ("command", "route", "membership_revision", "version", "witness"))
+                    or any(not isinstance(row.get(field), str)
+                           or not re.fullmatch(r"[0-9a-f]{32}", row[field])
+                           for field in ("node", "disk", "old_process", "current_process"))
+                    or row["old_process"] == row["current_process"]
+                    or any(not isinstance(row.get(field), str)
+                           or not re.fullmatch(r"[0-9a-f]{64}", row[field])
+                           for field in ("directory_before", "directory_after"))
+                    or row["directory_before"] != row["directory_after"]
+                    or any(not isinstance(values, list) or len(values) != 7
+                           or any(type(value) is not int or not 0 <= value < 2**64 for value in values)
+                           for values in routing)):
+                raise ValueError("invalid endpoint boot/receipt/owner evidence")
+            delta = [after - before for before, after in zip(*routing)]
+            if (any(value < 0 for value in delta) or delta[0] != 1
+                    or not 1 <= delta[1] <= 4 or delta[2:4] != [0, 0]
+                    or not 1 <= delta[4] <= 4 or not 1 <= delta[5] <= 4
+                    or delta[6] > delta[4]):
+                raise ValueError("endpoint refresh changed placement or exceeded original attempts")
     return rows, len(callers) * 2
 
 
@@ -719,7 +767,7 @@ def main():
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
-            if args.suite in ("routing-range-repairs", "routing-authority") and number:
+            if args.suite in ("routing-range-repairs", "routing-authority", "routing-endpoint") and number:
                 argv.append("--show-output")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
@@ -751,7 +799,7 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle", "routing-range-repairs", "routing-authority") and result.returncode == 0:
+            if args.suite in ("managed-ingress", "managed-lifecycle", "routing-range-repairs", "routing-authority", "routing-endpoint") and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")
@@ -786,7 +834,7 @@ def main():
                         raise RuntimeError("missing exact RustFS test in executable inventory")
             elif not exact_case_passed(output, selection):
                 raise RuntimeError("exact RustFS test was not executed successfully")
-            if args.suite in ("routing-range-repairs", "routing-authority") and number:
+            if args.suite in ("routing-range-repairs", "routing-authority", "routing-endpoint") and number:
                 rows, scenarios = routing_observations(output, selection)
                 ledger = out / f"{number:02}-routing-evidence.json"
                 ledger.write_text(json.dumps(rows, indent=2) + "\n")

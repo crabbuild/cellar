@@ -27,7 +27,14 @@ pub(super) async fn provision(
     )
     .await?;
     let result = exercise(f, &cli, root.path(), voter, setup).await;
-    cli.close().await?;
+    let joined = cli.close().await;
+    if result.is_err() || joined.is_err() {
+        eprintln!(
+            "retained first-group operator disk: {}",
+            root.keep().display()
+        );
+    }
+    joined?;
     result
 }
 
