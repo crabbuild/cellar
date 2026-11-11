@@ -63,6 +63,9 @@ mod cell_query_discovery;
 #[path = "leader_cache.rs"]
 mod leader_cache;
 pub(crate) use leader_cache::LeaderLookup;
+#[path = "leader_probe.rs"]
+mod leader_probe;
+pub(crate) use leader_probe::LeaderProbeOutcome;
 #[path = "transport_control_send.rs"]
 mod control_sender;
 #[path = "transport_directory.rs"]
@@ -393,6 +396,7 @@ struct State {
     fleet_gateway:
         Mutex<Option<std::sync::Weak<crate::application::consensus::group_client::Handle>>>,
     registry: Mutex<Registry>,
+    leader_probes: leader_probe::Probes,
     outgoing: Banks,
     incoming: Banks,
     stop: watch::Sender<bool>,
@@ -570,6 +574,7 @@ impl RaftTransport {
                 seed_peers: BTreeMap::new(),
                 router_refresh: None,
             }),
+            leader_probes: leader_probe::Probes::new(&options),
             outgoing: Banks::new(
                 options.node_control_bytes,
                 options.node_data_bytes,

@@ -290,6 +290,8 @@ impl RaftTransport {
         deadline: u64,
     ) -> Result<CellRemoteCommandResponse, TransportError> {
         let response = self
+            .handle
+            .0
             .write_cell(
                 route,
                 cell,
@@ -309,45 +311,6 @@ impl RaftTransport {
         })
     }
 
-    pub(in crate::raft) async fn probe_cell_command_leader(
-        &self,
-        route: &cellar_logic::cell_group::GroupRoute,
-        cell: &CellHistory,
-        member: MemberId,
-        keys: VersionKeys,
-        deadline: u64,
-    ) -> Result<bool, TransportError> {
-        let timeout_ms = deadline
-            .checked_sub(
-                self.handle
-                    .0
-                    .domain
-                    .mono_ms()
-                    .map_err(|_| TransportError::Closed)?,
-            )
-            .filter(|ms| *ms > 0)
-            .ok_or(TransportError::Timeout)?;
-        let call = CellCommandProbe {
-            timeout_ms,
-            route_epoch: route.epoch.get(),
-            birth_digest: route.birth_digest,
-        };
-        let timer = self
-            .handle
-            .0
-            .domain
-            .sleep_until(deadline)
-            .map_err(|_| TransportError::Closed)?;
-        let response = crate::asyncrt::select! {
-            result = self.write_cell(route, cell, member, WriteCall::Probe(call), keys, deadline) => result?,
-            _ = timer => return Err(TransportError::Timeout),
-        };
-        match response.value {
-            WriteValue::Probe(leader) => Ok(leader),
-            _ => Err(TransportError::Protocol),
-        }
-    }
-
     pub(in crate::raft) async fn enroll_cell(
         &self,
         route: &cellar_logic::cell_group::GroupRoute,
@@ -358,6 +321,8 @@ impl RaftTransport {
         deadline: u64,
     ) -> Result<CellRemoteEnrollmentResponse, TransportError> {
         let response = self
+            .handle
+            .0
             .write_cell(
                 route,
                 cell,
@@ -393,6 +358,8 @@ impl RaftTransport {
         let request_digest =
             crate::application::consensus::command_request_digest(&call.request.input);
         let response = self
+            .handle
+            .0
             .write_cell(
                 route,
                 cell,
@@ -425,6 +392,46 @@ impl RaftTransport {
             _peer: response.peer,
         })
     }
+}
+
+impl CellCommandGateway {
+    /// The cluster and namespace bound to this host-owned registration.
+    pub fn namespace(&self) -> (ClusterId, NamespaceId) {
+        self.inner.gateway.dispatcher.namespace()
+    }
+}
+
+impl State {
+    pub(super) async fn probe_cell_command_leader(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        keys: VersionKeys,
+        deadline: u64,
+    ) -> Result<bool, TransportError> {
+        let timeout_ms = deadline
+            .checked_sub(self.domain.mono_ms().map_err(|_| TransportError::Closed)?)
+            .filter(|ms| *ms > 0)
+            .ok_or(TransportError::Timeout)?;
+        let call = CellCommandProbe {
+            timeout_ms,
+            route_epoch: route.epoch.get(),
+            birth_digest: route.birth_digest,
+        };
+        let timer = self
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| TransportError::Closed)?;
+        let response = crate::asyncrt::select! {
+            result = self.write_cell(route, cell, member, WriteCall::Probe(call), keys, deadline) => result?,
+            _ = timer => return Err(TransportError::Timeout),
+        };
+        match response.value {
+            WriteValue::Probe(leader) => Ok(leader),
+            _ => Err(TransportError::Protocol),
+        }
+    }
 
     async fn write_cell(
         &self,
@@ -435,7 +442,7 @@ impl RaftTransport {
         keys: VersionKeys,
         deadline: u64,
     ) -> Result<WriteResponse, TransportError> {
-        let state = &self.handle.0;
+        let state = self;
         // Discovery never creates a local replica or grants voting authority.
         state.runtime.shared()?;
         let (view, peer, pool, leader_generation) = {
@@ -515,16 +522,7 @@ impl RaftTransport {
             })?;
         result.await.map_err(|_| TransportError::Closed)?
     }
-}
 
-impl CellCommandGateway {
-    /// The cluster and namespace bound to this host-owned registration.
-    pub fn namespace(&self) -> (ClusterId, NamespaceId) {
-        self.inner.gateway.dispatcher.namespace()
-    }
-}
-
-impl State {
     pub(super) fn authorize_cell_command(
         &self,
         wire: &QueryRoute,

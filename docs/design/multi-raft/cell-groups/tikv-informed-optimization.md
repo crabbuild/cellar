@@ -254,9 +254,22 @@ budget on the installed cell placement. Missing or stale peer observations use
 the coalesced membership refresh. Only a local sealed or replaced route, or the
 trusted directory fencing the selected history, requests cell-placement repair.
 Membership discovery preserves namespace cache entries. Explicit recovery
-discovery still refreshes the affected namespace routes. Endpoint-only repair,
-coalesced leader probes and the public RO-03 through RO-09 qualification remain
-open.
+discovery still refreshes the affected namespace routes.
+
+Unknown-leader discovery shares one temporary transport-owned operation for an
+exact physical route, configuration generation, logical epoch and birth digest.
+The first caller supplies its finite candidate limit and original deadline;
+joiners retain their own deadlines. Cancelling waiters leaves the physical owner
+charged and running, and transport close joins it. The owner and additional
+waiters borrow the existing control bank, with a quarter-bank metadata sublimit
+and the unchanged transport task limit. When optional coalescing cannot fit,
+the original bounded inline discovery remains available. Completed results leave
+the index before delivery, and route/configuration changes fence completion.
+`cell_leader_probe_owners` and `cell_leader_probe_joins` distinguish shared discovery
+from actual `cell_command_leader_probes`. Ten private ownership cases and the
+existing retry, advice, codec and performance cases passed at source manifest
+`19402216`, together with focused strict Clippy and static checks. Endpoint-only
+repair and the public RO-03 through RO-09 qualification remain open.
 
 ## 6. Targeted range repair without stale resurrection
 

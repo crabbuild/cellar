@@ -821,3 +821,44 @@ representation; the codec now uses its actual 16-byte identity, and the CI-toolc
 wire run above passes. Failed/cancelled initial commands do not count as passes.
 Local command logs are under `/tmp/cellar-tikv-*`; they are temporary diagnostic
 artifacts, not durable release evidence or a source-pinned qualification bundle.
+
+## Leader-discovery owner and combined qualification
+
+The next OPT-01 candidate shares unknown-leader discovery by captured physical
+route, verified configuration generation, logical epoch and birth digest. A
+transport task owns the first finite candidate plan and deadline. Every caller
+retains its own deadline; cancelling callers does not cancel the physical owner.
+Metadata borrows the existing control bank with a quarter-bank sublimit, and
+owners use the unchanged transport task limit. Full metadata or task admission
+falls back to the original bounded inline discovery. Results leave the index
+before delivery, retain their charge until consumed, and revalidate the captured
+route/configuration before use. Source manifest `19402216` passed ten focused
+ownership cases, two mutation retry cases, the existing leader-cache and refresh
+cases, command codecs and performance observations: 52 selected Rust cases in
+all. Focused strict Clippy, formatting, layout, native dependency and documentation
+checks passed. The qualifier resumed its codec checks against the retained binary
+after correcting a nonexistent test selector; the earlier completed results and
+original harness error remain recorded. Public probe-storm qualification remains
+open.
+
+The combined published revision `6521122c`, source manifest `cebed8f9`, passed its
+execution, routing, primitives and storage runtime suites, both public read-ledger
+verifiers, and the real RustFS physical segment-credit case. Its scheduler suite
+reported ten passing cases and a failure in `control_plane_fanout_bounded`:
+after 32 cells formed four groups, enrollment of cell 32 returned a nonambiguous
+`Execution(Refused(Unavailable))`. An isolated rerun of the identical binary,
+with the original quotas and deadlines, reproduced the same failure at cell 32.
+Both runs retained their failed disks. This is an unresolved regression; these
+results do not establish the full scheduler or repeated-split gate. Evidence is
+retained in the checkout-specific `integrated-runtime-6521122c` and
+`fanout-reproduce-6521122c` qualification directories. Combined strict Clippy also found a duplicate
+storage-fault test module. The routing fixtures now reuse the test-root module in
+the diagnostic checkout; validation of that correction is pending.
+
+The fresh Linux Colima/RustFS campaign for `6521122c` passed materialized images
+and failed extent images at `resume-maintenance` with an unknown management
+outcome. The retained voter logged a lease-maintenance timeout and fenced its
+session. An isolated extent rerun of the identical image, using a fresh owned
+cluster and the original limits and deadlines, failed at acknowledgement of the
+original receipt after archive restoration. Both failures and their process
+ledgers remain retained; neither extent run is counted as qualified.
