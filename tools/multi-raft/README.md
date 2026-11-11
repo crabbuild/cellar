@@ -195,6 +195,31 @@ These entry points need their own runtime evidence. They do not close forged
 or conflicting-term advice, restarted endpoint wire cuts, full RO-03, constrained
 voter-process or performance qualification.
 
+## Endpoint repair and held replies
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-endpoint \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-endpoint-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Four cases cover SDK, native HTTP and Axum in both image modes. A selected
+voter restart repairs only its authenticated endpoint. An unrelated follower
+with unavailable endpoint metadata leaves the healthy leader usable. Read-first
+Strong and AtLeast queries repair their selected endpoint while preserving
+barrier, callback and original-budget requirements. The held-reply case blocks
+a real group-archive PUT while another follower's new NodeView is accepted;
+the unchanged leader's S3 reply and exact receipt replay must remain valid.
+
+The runner requires all thirty observations, including both consistency modes
+for each read caller/image pair. It rejects duplicates, missing coverage,
+placement repair, extra work, changed directory cuts, invalid boot evidence,
+callback duplication and durability downgrades. The native fixtures verify
+receipt/version proofs and physical owner drainage. These entry points require
+their own current-source runtime evidence. Voters are host-native processes;
+constrained Linux, forged advice and complete RO-03 remain separate gates.
+
 ## Shared cell-group managed ingress checks
 
 Use the same owned loopback RustFS backend and a fresh output directory.
