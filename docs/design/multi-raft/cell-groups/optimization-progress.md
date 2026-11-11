@@ -1722,3 +1722,33 @@ startup and actual-RPC failure causes, complete authority/ambiguity cuts,
 held-owner reclamation/restart, placement/fairness measurements and the full
 primitive/performance/failure matrix remain open. No full CG-13, CG-17,
 OPT-01 through OPT-08, independent failure-domain or speedup claim follows.
+
+## Backend entry and verification-guard follow-up
+
+The next source adds the ignored RustFS held-reply entry and includes it and
+read-first repair in the named endpoint suite. Its parser requires all thirty
+observations across four cases, with exact caller, image and read-consistency
+coverage. Seven new refusal tests and the existing tool suite passed (105
+tests, one opt-in skip). The parser also accepted retained native held-reply
+and read ledgers and the actual RustFS read ledger. Those parser checks do not
+qualify a new runtime source.
+
+The local source-`191b46fc` task-count failure reproduced CI's nine-versus-eleven
+assertion. Main's shared-group cutover `d0c2873f` removed
+`snapshots::start_prepared` and its owner pair. The fixture now requires three
+listener tasks, six peer tasks and two actual pools; all overload, atomicity,
+physical-drain and capacity assertions remain. Its compiled regression still
+requires verification on the new source.
+
+A controlled depth-one fetch omitted the exact pinned historical source
+needed by the design tests; fetching full ancestor history made that same
+object readable. The SDK CI job now selects the documented
+[`fetch-depth: 0` checkout option](https://github.com/actions/checkout/blob/v6/README.md#fetch-all-history-for-all-tags-and-branches).
+The workflow parsed with the intended job setting. A GitHub rerun is still
+required. The performance reader now includes all three endpoint owner
+counters; all 317 performance-tool tests passed with one opt-in skip.
+
+The source-`191b46fc` endpoint case completed all three materialized interactions,
+then failed fresh extents voter-one readiness before the endpoint scenario.
+That startup failure remains open. The full current-source RustFS endpoint
+campaign, constrained Linux and broader optimization gates remain unproved.
