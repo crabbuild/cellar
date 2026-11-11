@@ -41,8 +41,10 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Complete the shared Storage API and generation-aware ordinary cell, SQL and
-   KV bindings, including typed RPC and durable child request identities.
+1. Finish shared Storage ownership through same-cell recursive dispatch and the
+   unresolved RPC/SDK deadlines. Deliver generation-aware ordinary typed cell,
+   SQL and KV bindings with persistent child identities/intents, original deadlines
+   and independent target durability proofs.
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.
@@ -73,11 +75,13 @@ interleaving and name discovery pass. A contextual RPC rerun passes while SDK
 fails at a different earlier observer wait. Keep both failures as release gates.
 Its read-VM/checkpoint/recursive-dispatch lifetime proof must precede a complete
 Storage or family claim.
-The next Storage implementation adds transactional `delete_all` with preserved
-Raft receipt/client floors and the admitted alarm compatibility setting. Its
-new erase/retry/rollback/isolation tests are awaiting qualification; see the
-[erasure checkpoint](progress.md#cg-17-transactional-business-state-erasure).
-This does not close the cursor recursion or ordinary-binding gaps above.
+Source `2f6b7735` delivers transactional `delete_all`, preservation of Raft
+receipt/effect metadata, pending-delivery refusal and SQLite-based eager SQL batch
+selection. Four owning native selections and the exact real RustFS Storage case
+pass; five earlier erasure-owner checks retain their separate source. See the
+[erasure checkpoint](progress.md#cg-17-transactional-business-state-erasure) for
+failed controls, exact pins and scope. Cursor recursion, the full RustFS campaign
+and ordinary bindings remain open.
 
 ## Current boundary
 
