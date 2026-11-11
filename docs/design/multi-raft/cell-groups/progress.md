@@ -11,7 +11,8 @@ CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
 adds eight delivery packages and 32 required cases. CG17-01 and CG17-02 are in
-progress. Registered commands and queries share SDK Storage.
+progress. Ordinary cell factories and single-turn JSON RPC handlers can
+use SDK Storage inside a registered Raft command.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -20,6 +21,45 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 ordinary cell RPC
+
+At `92ba9476`, `Registry::raft_cell` registers an ordinary `Cell` factory
+under an explicit Raft class. `RaftClass::json_cell_rpc` binds an operation
+to that factory's `Cell::invoke(Invocation::CellRpc)`. The SQL worker supplies
+the exact cell identity and route epoch. Factory and handler share
+`Context::storage()` and the private receipt transaction. A valid JSON reply
+releases through the existing applied receipt and durability gates.
+
+The adapter constructs a disposable instance per admitted new attempt.
+Suspension and invalid replies abort private preparation. Storage and
+Context handles expire at the end of the turn. The scope is one-turn JSON
+RPC with Storage, and registered queries continue to serve committed reads.
+
+`ordinary_json_rpc_uses_raft_owned_context` passed in 21.878 seconds at
+`d8632d84` with host-native RF3 voters and both image modes. It checks that
+factory and handler SQL/KV changes follow the exact quorum receipt, an exact
+retry skips the factory, and a suspended handler or malformed reply leaves
+the committed image and version unchanged. It also checks escaped contexts
+and refusal of background work. The original probe hit the client sequence
+gap guard before entering the malformed-reply branch. The corrected case
+uses separate valid client identities and observes both handler branches.
+The committed Storage case passed at the same source. Registration refusal,
+inbox replay, native Storage, Queue and Worker Loader regressions passed at
+`92ba9476`. Strict Clippy for the affected libraries and six test targets
+and the format check passed at `af02d330`, whose production change is
+formatting only. Layout, native dependency, catalog and 44 plan checks also
+passed. The partial catalog lists 192 SDK symbols. The checkout retains
+source and executable hashes in
+`.cellar/cell-groups-evidence/CG-17-cell-rpc-d8632d84-01`.
+
+Next give ordinary invocations an owned async driver. Carry stable invocation
+and transaction identities across polls, bind each continuation to current
+leadership and cell history, and settle submitted work from the original
+receipt. Connect ordinary activation and binding lifetimes to that driver,
+then port durable work and the remaining primitive families. Complete the
+SDK export and deployment audit alongside this work. The CG-17 acceptance
+matrix and CG-13 stable managed recovery remain open.
 
 ## CG-17 committed query Storage
 
@@ -42,14 +82,9 @@ formatting, layout, native dependency, catalog and 44 plan checks passed.
 The partial catalog now lists 190 SDK symbols. Source and executable hashes
 are retained in `.cellar/cell-groups-evidence/CG-17-query-ab31066b-01`.
 
-The next implementation step is an owned Raft activation for ordinary
-`Registry::cell` factories and `Context::storage()`. Bind that activation
-to the current route and incarnation, then connect private preparation and
-applied receipts to the invocation output gate. Complete the SDK export
-and deployment audit alongside async transactions, durable work discovery
-and the remaining primitive adapters. The 32-case CG-17 acceptance gate,
-constrained infrastructure matrix and CG-13 stable managed recovery remain
-open. Acceptance remains **13/17 tasks, 147/195 cases**.
+See the [ordinary cell RPC checkpoint](#cg-17-ordinary-cell-rpc) for the
+next activation and output-gate work. Acceptance remains
+**13/17 tasks, 147/195 cases**.
 
 ## CG-17 command Storage checkpoint
 
