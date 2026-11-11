@@ -14,7 +14,6 @@ use rusqlite::{Connection, OptionalExtension};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
-use std::ops::Bound;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -34,7 +33,9 @@ pub(crate) mod filesystem;
 #[cfg(test)]
 mod identity_tests;
 mod immutable;
+mod kv_cursor;
 pub(crate) use immutable::{require_storage as require_raft_query_storage, QueryFrame};
+pub(crate) use kv_cursor::KvCursorRange;
 pub(crate) mod inbox;
 #[cfg(test)]
 mod json_reads_tests;
@@ -362,10 +363,7 @@ struct ActiveAlarm {
 // materializing an unbounded list or depending on JavaScript iterator cleanup.
 struct SyncListCursor {
     scope: String,
-    lower: Bound<String>,
-    end: Option<String>,
-    remaining: usize,
-    reverse: bool,
+    range: KvCursorRange,
 }
 
 struct SqlCursor {
@@ -4000,26 +3998,9 @@ pub fn sync_list_start(
 ) -> anyhow::Result<u64> {
     close_sync_list_cursors(scope);
     with(scope, |_| ()).ok_or_else(|| anyhow::anyhow!("no db for {scope}"))?;
-    // Give SQLite one bound per direction. With redundant range/prefix
-    // predicates it can seek to the original lower bound, then scan and
-    // filter every previously returned key on each next() (quadratic work).
-    let lower = match (begin.max(prefix), start_after) {
-        (Some(begin), Some(after)) if begin > after => Bound::Included(begin.to_string()),
-        (_, Some(after)) => Bound::Excluded(after.to_string()),
-        (Some(begin), None) => Bound::Included(begin.to_string()),
-        (None, None) => Bound::Unbounded,
-    };
-    let end = end
-        .map(str::to_string)
-        .into_iter()
-        .chain(prefix.and_then(prefix_upper_bound))
-        .min();
     let cursor = SyncListCursor {
-        scope: scope.to_string(),
-        lower,
-        end,
-        remaining: limit.unwrap_or(usize::MAX).min(i64::MAX as usize),
-        reverse,
+        scope: scope.into(),
+        range: KvCursorRange::new(begin, end, start_after, prefix, limit, reverse),
     };
     let id = NEXT_SYNC_LIST_CURSOR.fetch_add(1, Ordering::Relaxed);
     sync_list_cursors(|cursors| cursors.borrow_mut().insert(id, cursor));
@@ -4032,53 +4013,11 @@ pub fn sync_list_next(cursor_id: u64) -> anyhow::Result<Option<(String, StoredVa
         let cursor = cursors
             .get_mut(&cursor_id)
             .ok_or_else(|| anyhow::anyhow!("sync KV cursor was invalidated"))?;
-        if cursor.remaining == 0 {
+        let result = cursor.range.next(&cursor.scope);
+        if !matches!(result, Ok(Some(_))) {
             cursors.remove(&cursor_id);
-            return Ok(None);
         }
-        let result = with(&cursor.scope, |connection| -> anyhow::Result<_> {
-            let (begin, start_after) = match &cursor.lower {
-                Bound::Included(key) => (Some(key.as_str()), None),
-                Bound::Excluded(key) => (None, Some(key.as_str())),
-                Bound::Unbounded => (None, None),
-            };
-            let (query, parameters) = list_query(
-                &cursor.scope,
-                begin,
-                cursor.end.as_deref(),
-                start_after,
-                None,
-                Some(1),
-                cursor.reverse,
-            );
-            // query_row resets the statement before returning. A cached,
-            // reset statement holds no read snapshot between iterator steps.
-            let mut statement = connection.prepare_cached(&query)?;
-            Ok(statement
-                .query_row(rusqlite::params_from_iter(parameters), |row| {
-                    Ok((row.get::<_, String>(0)?, stored_value(row.get_ref(1)?)))
-                })
-                .optional()?)
-        })
-        .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {}", cursor.scope)));
-        match result {
-            Ok(Some((key, value))) => {
-                // The returned key already satisfies every original bound.
-                // Tighten only the bound in the traversal direction, so a
-                // delete or insert before this position cannot shift an offset.
-                if cursor.reverse {
-                    cursor.end = Some(key.clone());
-                } else {
-                    cursor.lower = Bound::Excluded(key.clone());
-                }
-                cursor.remaining -= 1;
-                Ok(Some((key, value)))
-            }
-            other => {
-                cursors.remove(&cursor_id);
-                other
-            }
-        }
+        result
     })
 }
 

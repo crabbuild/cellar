@@ -40,6 +40,7 @@ pub(crate) struct Resources {
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
     transaction_serial: AtomicU64,
+    kv_cursor: Mutex<cursor::RaftKvCursor>,
 }
 
 enum Cleanup {
@@ -538,7 +539,9 @@ impl Storage {
     }
 
     /// A keyset iterator with no retained SQLite read snapshot. Starting a
-    /// second iterator invalidates the first, matching the existing sync API.
+    /// second iterator on the same storage owner invalidates the first.
+    /// Raft cursors check the original invocation or committed query on every
+    /// step and retain no SQL worker, connection or image pin.
     pub fn list_cursor(&self, options: &ListOptions) -> Result<KvCursor> {
         KvCursor::new(self, options)
     }

@@ -62,11 +62,136 @@ fn update(storage: &Storage, delta: i64) -> Result<i64> {
     })
 }
 
-async fn run(rooted: bool) -> Result<()> {
+fn cursor_keys(storage: &Storage, options: &cellar::sdk::ListOptions) -> Result<Vec<String>> {
+    storage
+        .list_cursor(options)?
+        .map(|row| row.map(|(key, _)| key))
+        .collect()
+}
+
+fn exercise_raft_kv_cursors(storage: &Storage, mutate: bool) -> Result<()> {
+    use cellar::sdk::ListOptions;
+    if mutate {
+        storage.put_many_json(&[
+            ("cursor:1".into(), json!(1)),
+            ("cursor:2".into(), json!(2)),
+            ("cursor:3".into(), json!(3)),
+            ("outside".into(), json!(4)),
+        ])?;
+    }
+    if mutate {
+        storage.put_clone(
+            "cursor:2",
+            &cellar::sdk::clone::StructuredValue::from_json(json!(2)),
+        )?;
+    }
+    let range = ListOptions {
+        prefix: Some("cursor:".into()),
+        ..Default::default()
+    };
+    ensure!(cursor_keys(storage, &range)? == ["cursor:1", "cursor:2", "cursor:3"]);
+    let mut typed = storage.list_cursor(&ListOptions {
+        start: Some("cursor:2".into()),
+        end: Some("cursor:3".into()),
+        ..range.clone()
+    })?;
+    ensure!(matches!(
+        typed.next().context("structured cursor row")??.1,
+        cellar::storage::StoredValue::Structured(_)
+    ));
+    let abandoned = storage.list_cursor(&range)?;
+    let mut replacement = storage.list_cursor(&range)?;
+    drop(abandoned);
+    ensure!(
+        replacement
+            .next()
+            .context("dropping stale cursor keeps current cursor")??
+            .0
+            == "cursor:1"
+    );
+    drop(replacement);
+    let mut first = storage.list_cursor(&range)?;
+    ensure!(first.next().context("first key")??.0 == "cursor:1");
+    if mutate {
+        storage.delete("cursor:1")?;
+        storage.put_json("cursor:15", &json!(15))?;
+        ensure!(
+            first
+                .next()
+                .context("key inserted after cursor position")??
+                .0
+                == "cursor:15"
+        );
+    }
+    let reverse = ListOptions {
+        prefix: Some("cursor:".into()),
+        start_after: Some("cursor:1".into()),
+        end: Some("cursor:4".into()),
+        limit: Some(2),
+        reverse: true,
+        ..Default::default()
+    };
+    ensure!(cursor_keys(storage, &reverse)? == ["cursor:3", "cursor:2"]);
+    ensure!(first
+        .next()
+        .context("invalidated iterator")?
+        .expect_err("second iterator invalidates first")
+        .to_string()
+        .contains("invalidated"));
+    ensure!(first.next().is_none());
+    let lower = ListOptions {
+        start: Some("cursor:2".into()),
+        start_after: Some("cursor:1".into()),
+        ..range.clone()
+    };
+    ensure!(cursor_keys(storage, &lower)? == ["cursor:2", "cursor:3"]);
+    ensure!(cursor_keys(
+        storage,
+        &ListOptions {
+            limit: Some(0),
+            ..range.clone()
+        }
+    )?
+    .is_empty());
+    ensure!(cursor_keys(
+        storage,
+        &ListOptions {
+            start: Some("cursor:9".into()),
+            end: Some("cursor:1".into()),
+            ..range.clone()
+        }
+    )?
+    .is_empty());
+    if mutate {
+        storage.delete("cursor:15")?;
+        storage.put_json("cursor:1", &json!(1))?;
+        let rolled = storage.tx(|tx| {
+            tx.put_json("cursor:rolled", &json!(9))?;
+            ensure!(cursor_keys(tx, &range)?.last().map(String::as_str) == Some("cursor:rolled"));
+            let cursor = tx.list_cursor(&range)?;
+            tx.rollback()?;
+            Ok(cursor)
+        })?;
+        ensure!(
+            rolled
+                .map(|row| row.map(|(key, _)| key))
+                .collect::<Result<Vec<_>>>()?
+                == ["cursor:1", "cursor:2", "cursor:3"]
+        );
+        ensure!(cursor_keys(storage, &range)? == ["cursor:1", "cursor:2", "cursor:3"]);
+    }
+    Ok(())
+}
+
+async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let rejected_after_savepoint = Arc::new(AtomicUsize::new(0));
     let escaped = Arc::new(Mutex::new(None::<Storage>));
     let escaped_query = Arc::new(Mutex::new(None::<Storage>));
+    let escaped_cursor = Arc::new(Mutex::new(None::<cellar::sdk::storage::KvCursor>));
+    let escaped_query_cursor = Arc::new(Mutex::new(None::<cellar::sdk::storage::KvCursor>));
+    let command_cursor = escaped_cursor.clone();
+    let query_cursor = escaped_query_cursor.clone();
     let callback_calls = calls.clone();
     let callback_rejected = rejected_after_savepoint.clone();
     let callback_escaped = escaped.clone();
@@ -85,7 +210,8 @@ async fn run(rooted: bool) -> Result<()> {
                 "CREATE TABLE counter(value INTEGER NOT NULL); INSERT INTO counter VALUES(0);",
                 &[],
             )?;
-            storage.put_json("value", &json!(0))
+            storage.put_json("value", &json!(0))?;
+            exercise_raft_kv_cursors(&storage, true)
         })?
         .command("Add", [213; 32], move |context, input| {
             callback_calls.fetch_add(1, Ordering::AcqRel);
@@ -110,6 +236,14 @@ async fn run(rooted: bool) -> Result<()> {
             }
             let delta = i64::from_be_bytes(input.try_into()?);
             let result = update(&storage, delta)?;
+            exercise_raft_kv_cursors(&storage, true)?;
+            if let Some(mut old) = command_cursor
+                .lock()
+                .unwrap()
+                .replace(storage.list_cursor(&Default::default())?)
+            {
+                ensure!(old.next().context("escaped command cursor")?.is_err());
+            }
             if delta < 0 {
                 callback_rejected.fetch_add(1, Ordering::AcqRel);
                 anyhow::bail!("application rejected the staged update");
@@ -148,6 +282,37 @@ async fn run(rooted: bool) -> Result<()> {
             ensure!(keys.len() == usize::from(expected.is_some()));
             ensure!(keys.into_iter().eq(listed.into_iter().map(|(key, _)| key)));
             ensure!(storage.get_json("temporary")?.is_none());
+            if expected.is_some() {
+                exercise_raft_kv_cursors(&storage, false)?;
+            } else {
+                ensure!(storage.list_cursor(&Default::default())?.next().is_none());
+            }
+            let mut selected_value = storage.list_cursor(&cellar::sdk::ListOptions {
+                prefix: Some("val".into()),
+                ..Default::default()
+            })?;
+            let selected = selected_value
+                .next()
+                .transpose()?
+                .map(|(key, value)| {
+                    ensure!(key == "value");
+                    let cellar::storage::StoredValue::Json(value) = value else {
+                        anyhow::bail!("JSON cursor value");
+                    };
+                    Ok::<_, anyhow::Error>(serde_json::from_str::<serde_json::Value>(&value)?)
+                })
+                .transpose()?;
+            ensure!(
+                selected == expected,
+                "cursor read a different cell or committed version"
+            );
+            if let Some(mut old) = query_cursor
+                .lock()
+                .unwrap()
+                .replace(storage.list_cursor(&Default::default())?)
+            {
+                ensure!(old.next().context("escaped query cursor")?.is_err());
+            }
             ensure!(storage.sql_database_size()? > 0);
             ensure!(storage.sql("UPDATE counter SET value=999", &[]).is_err());
             ensure!(storage.sql("CREATE TEMP TABLE forbidden(v)", &[]).is_err());
@@ -160,7 +325,7 @@ async fn run(rooted: bool) -> Result<()> {
                 .is_err());
             Ok(value.to_be_bytes().to_vec())
         })?;
-    let fixture = Box::pin(Fixture::with_class(rooted, class)).await?;
+    let fixture = Box::pin(Fixture::with_store(rooted, class, store)).await?;
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
         fixture,
         &[],
@@ -218,6 +383,14 @@ async fn run(rooted: bool) -> Result<()> {
             .clone()
             .context("captured Storage")?;
         ensure!(old.get_json("value").is_err());
+        ensure!(escaped_cursor
+            .lock()
+            .unwrap()
+            .as_mut()
+            .context("command cursor")?
+            .next()
+            .context("expired cursor")?
+            .is_err());
         let replay = first
             .command(&add, 7i64.to_be_bytes().to_vec(), options.clone())
             .await?;
@@ -247,6 +420,14 @@ async fn run(rooted: bool) -> Result<()> {
             .get_json("value")
             .is_err());
 
+        ensure!(escaped_query_cursor
+            .lock()
+            .unwrap()
+            .as_mut()
+            .context("query cursor")?
+            .next()
+            .context("expired query cursor")?
+            .is_err());
         let archived = second
             .command(
                 &second.contract("Add")?,
@@ -302,7 +483,7 @@ async fn run(rooted: bool) -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn storage_reads_and_writes_exact_cell_versions() -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(run(rooted))
+        Box::pin(run(rooted, Arc::new(catalog_fault::Store::default())))
             .await
             .with_context(|| format!("Storage bridge extents={rooted}"))?;
     }
@@ -490,6 +671,18 @@ fn transaction_row(storage: &Storage, name: &str, value: i64) -> Result<()> {
 }
 
 async fn exercise_raft_transactions(storage: Storage, context: Context) -> Result<()> {
+    exercise_raft_kv_cursors(&storage, true)?;
+    let mut across_root = storage.list_cursor(&cellar::sdk::ListOptions {
+        prefix: Some("cursor:".into()),
+        ..Default::default()
+    })?;
+    ensure!(
+        across_root
+            .next()
+            .context("key before root transaction")??
+            .0
+            == "cursor:1"
+    );
     storage.sql(
         "CREATE TABLE IF NOT EXISTS transaction_items(name TEXT PRIMARY KEY, value INTEGER);
          DELETE FROM transaction_items;",
@@ -499,6 +692,7 @@ async fn exercise_raft_transactions(storage: Storage, context: Context) -> Resul
     let escaped = storage
         .transaction(&context, move |outer| async move {
             transaction_row(&outer, "outer", 1)?;
+            outer.put_json("cursor:15", &json!(15))?;
             let refused = outer
                 .sync()
                 .await
@@ -560,6 +754,14 @@ async fn exercise_raft_transactions(storage: Storage, context: Context) -> Resul
             Ok(outer)
         })
         .await?;
+    ensure!(
+        across_root
+            .next()
+            .context("key from independently committed root")??
+            .0
+            == "cursor:15"
+    );
+    storage.delete("cursor:15")?;
     ensure!(escaped.get_json("outer").is_err());
     ensure!(storage.get_json("detached")? == Some(json!(3)));
     storage.tx(|sync| {
@@ -1381,6 +1583,21 @@ async fn rustfs_ordinary_cell_sdk_resolves_current_histories() -> Result<()> {
                     format!("RustFS name discovery extents={rooted} durability={durability:?}")
                 })?;
         }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_storage_reads_and_writes_exact_cell_versions() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "storage-keyset",
+            rooted,
+        )?));
+        Box::pin(run(rooted, store))
+            .await
+            .with_context(|| format!("RustFS Storage bridge extents={rooted}"))?;
     }
     Ok(())
 }

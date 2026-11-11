@@ -59,6 +59,7 @@ SUITES = {
             "rustfs_ordinary_cell_rpcs_interleave_between_proven_roots",
             "rustfs_ordinary_cell_sdk_dispatch_requires_source_proof",
             "rustfs_ordinary_cell_sdk_resolves_current_histories",
+            "rustfs_storage_reads_and_writes_exact_cell_versions",
         ),
         "ordinary JSON cell RPC, Storage checkpoints and bounded native activation on shared RF3",
         "Both image modes. Checkpoints use two cells sharing a group and one SQL worker per node. "
@@ -81,6 +82,8 @@ SUITES = {
         "A fifth case resolves current cell histories through authenticated read-only quorum discovery, "
         "then constructs and invokes a target handle inside an ordinary RPC after source proof. "
         "It checks absent names, original deadlines, callback refusal, leader transfer and quorum loss. "
+        "A sixth case checks committed SQL/KV and keyset cursors, exact cell/version isolation, "
+        "range bounds, structured values, mutation, invalidation, rollback and expired views. "
         "Declared bindings, automatic dispatch gates, other primitive families, process "
         "faults, disk-loss recovery and full CG-17 acceptance remain separate gates.",
     ),

@@ -27,6 +27,37 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-17 current-incarnation discovery qualification control
+
+Source `f2dcf1b0` adds namespace-authorized logical-name discovery through a fresh
+quorum cut. It returns an existing incarnation or absence without constructing
+or enrolling an application. Ordinary RPC lookup waits for source proof; the
+returned history requires fresh dispatch authority. The remote path waits for
+its new-term quorum cut before reading enrollment metadata after leader transfer.
+
+All 24 selected native tests pass: three adversarial wire tests, fourteen host
+tests and seven SDK/Storage/effect selections. The new four-configuration name
+case passes in 60.536 seconds; the existing daemon/CLI campaign passes in
+88.159 seconds. Formatting, layout, docs, native dependency and partial inventory
+checks pass. This source's focused Clippy run is not reached.
+
+The real RustFS campaign is **not qualified**. Ordinary RPC and activation pass
+in 70.859 and 203.573 seconds. Materialized S3 interleaving then fails with
+`Runtime(Overloaded)` on client 187, sequence 2. The remaining SDK dispatch and
+new name-discovery RustFS cases are not reached. The failed campaign, exact
+binaries, command/log hashes and verified owned shutdown are retained under
+`.cellar/cell-groups-evidence/CG-17-names-f2dcf1b0-control-03`.
+The unchanged one-CPU/2-GiB backend exits zero without OOM and its VM is stopped.
+The targeted materialized-S3 capacity diagnostic passes with temporary probes;
+it does not clear the original failure or qualify the omitted configurations.
+Keep the original request budgets, two-command limit and uncertainty rules.
+
+The public Storage keyset-cursor adapter and its conformance extensions are in
+implementation. They do not yet have Rust compilation/runtime qualification.
+Full named bindings, due work and family/provider adapters remain required.
+Acceptance remains **13/17 tasks and 147/195 cases**; no full CG-17 case closes
+from this control.
+
 ## CG-17 dependent canonical SDK dispatch
 
 Source `fcab2005` connects ordinary native RPCs to canonical SDK command,

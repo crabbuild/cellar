@@ -34,6 +34,32 @@ archive safety cases and full strict all-target Clippy also pass. See the
 for hashes, failed controls and fencing limits. The six-case CG-13 task gate and
 full disaster profile remain open.
 
+## Primitive delivery priority
+
+Full public primitive compatibility is the required Quorum product contract.
+SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
+CG-17 feature delivery ahead of optional routing/performance work; retain the
+existing recovery and release dependencies rather than removing those gates.
+
+1. Complete the shared Storage API and generation-aware ordinary cell, SQL and
+   KV bindings, including typed RPC and durable child request identities.
+2. Connect committed due-work discovery and fenced settlement to ordinary
+   alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
+   resume after retained restart, movement and wake without client traffic.
+3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
+   container/provider adapters with their documented publication, execution and
+   recovery boundaries. Include stateless/ephemeral and optional-adapter regressions.
+4. Admit full support only after every CG-17 case and the independent API ×
+   scenario × configuration evidence gate passes, followed by CG-15/16 combined
+   qualification. Quorum selection cannot fall back to Fleet/bucket durability.
+
+Feature checkpoints must identify the public API delivered and its remaining
+limits. Current-incarnation discovery passes its native control at `f2dcf1b0`,
+but real RustFS interleaving fails with `Runtime(Overloaded)` before the name
+case runs. Preserve that failure as a release gate. The public Storage KV-cursor
+adapter is in implementation. Neither checkpoint establishes
+complete named-binding support or accepts a full primitive-family case.
+
 ## Current boundary
 
 CG-01–12 and CG-14 passed their recorded scoped acceptance gates. Shared group owners,

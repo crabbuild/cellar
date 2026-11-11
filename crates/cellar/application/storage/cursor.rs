@@ -173,23 +173,55 @@ impl Drop for SqlCursor {
 
 pub struct KvCursor {
     storage: Storage,
-    id: Option<u64>,
+    backend: Option<KvBackend>,
+}
+
+enum KvBackend {
+    Native(u64),
+    Raft(u64),
+}
+
+#[derive(Default)]
+pub(super) struct RaftKvCursor {
+    serial: u64,
+    range: Option<crate::storage::KvCursorRange>,
 }
 
 impl KvCursor {
     pub(super) fn new(storage: &Storage, options: &ListOptions) -> Result<Self> {
-        let id = crate::storage::sync_list_start(
-            storage.scope()?,
-            options.start.as_deref(),
-            options.end.as_deref(),
-            options.start_after.as_deref(),
-            options.prefix.as_deref(),
-            options.limit,
-            options.reverse,
-        )?;
+        let backend = match &storage.0 {
+            Owner::Native(_) => KvBackend::Native(crate::storage::sync_list_start(
+                storage.scope()?,
+                options.start.as_deref(),
+                options.end.as_deref(),
+                options.start_after.as_deref(),
+                options.prefix.as_deref(),
+                options.limit,
+                options.reverse,
+            )?),
+            Owner::RaftCommand(_) | Owner::RaftQuery(_) => {
+                storage.data_scope()?;
+                let range = crate::storage::KvCursorRange::new(
+                    options.start.as_deref(),
+                    options.end.as_deref(),
+                    options.start_after.as_deref(),
+                    options.prefix.as_deref(),
+                    options.limit,
+                    options.reverse,
+                );
+                let mut cursor = storage.resources().kv_cursor.lock().unwrap();
+                let serial = cursor
+                    .serial
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow!("KV cursor generation exhausted"))?;
+                cursor.serial = serial;
+                cursor.range = Some(range);
+                KvBackend::Raft(serial)
+            }
+        };
         Ok(Self {
             storage: Storage(storage.0.clone(), None, storage.2),
-            id: Some(id),
+            backend: Some(backend),
         })
     }
 }
@@ -198,18 +230,42 @@ impl Iterator for KvCursor {
     type Item = Result<(String, crate::storage::StoredValue)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let id = self.id?;
-        if let Err(error) = self.storage.scope() {
-            return Some(Err(error));
-        }
-        match crate::storage::sync_list_next(id) {
+        let backend = self.backend.as_mut()?;
+        let result = match backend {
+            KvBackend::Native(id) => {
+                if let Err(error) = self.storage.scope() {
+                    return Some(Err(error));
+                }
+                crate::storage::sync_list_next(*id)
+            }
+            KvBackend::Raft(serial) => {
+                let scope = match self.storage.data_scope() {
+                    Ok(scope) => scope,
+                    Err(error) => return Some(Err(error)),
+                };
+                let mut cursor = self.storage.resources().kv_cursor.lock().unwrap();
+                if cursor.serial != *serial {
+                    Err(anyhow!("sync KV cursor was invalidated"))
+                } else {
+                    let result = match cursor.range.as_mut() {
+                        Some(range) => range.next(scope),
+                        None => Err(anyhow!("sync KV cursor was invalidated")),
+                    };
+                    if !matches!(result, Ok(Some(_))) {
+                        cursor.range = None;
+                    }
+                    result
+                }
+            }
+        };
+        match result {
             Ok(Some(row)) => Some(Ok(row)),
             Ok(None) => {
-                self.id = None;
+                self.backend = None;
                 None
             }
             Err(error) => {
-                self.id = None;
+                self.backend = None;
                 Some(Err(error))
             }
         }
@@ -218,8 +274,15 @@ impl Iterator for KvCursor {
 
 impl Drop for KvCursor {
     fn drop(&mut self) {
-        if let Some(id) = self.id {
-            self.storage.cleanup(Cleanup::Kv(id));
+        match self.backend.as_ref() {
+            Some(KvBackend::Native(id)) => self.storage.cleanup(Cleanup::Kv(*id)),
+            Some(KvBackend::Raft(serial)) => {
+                let mut cursor = self.storage.resources().kv_cursor.lock().unwrap();
+                if cursor.serial == *serial {
+                    cursor.range = None;
+                }
+            }
+            None => (),
         }
     }
 }

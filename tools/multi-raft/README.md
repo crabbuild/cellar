@@ -110,7 +110,7 @@ python3 tools/multi-raft/cell_groups.py --suite ordinary-primitives \
   --target-directory /absolute/checkout-private/target
 ```
 
-This selects five exact cases that run both image modes on host-native RF3.
+This selects six exact cases that run both image modes on host-native RF3.
 The checkpoint case uses two cells sharing a group and one SQL worker per node. It checks ordinary
 Storage SQL/KV, independently committed async transactions, ordered explicit
 sync, nested rollback/refusal, bounded work, partial failures, exact replay and
@@ -138,6 +138,12 @@ current incarnation, constructs its handle inside an ordinary RPC, then issues a
 separate command after source proof. It checks absence, unpolled deadline expiry,
 synchronous/query/atomic refusal, leader transfer and quorum-loss refusal.
 Discovery cannot create a cell or reconcile an unknown command outcome.
+The committed-Storage case exercises synchronous commands and immutable queries,
+including keyset cursors with forward/reverse range bounds, structured values,
+mutation between steps, second-iterator invalidation, rollback and expired views.
+Queries also verify exact receipt versions and cells, including an image with no
+KV schema. The ordinary RPC case retains a keyset cursor across an independently
+committed async root; it reads that root's inserted key without a retained snapshot.
 The runner retains source, executable and log hashes. It does not accept the
 complete CG-17 primitive matrix or qualify declared bindings, other automatic
 output/dispatch gates, independent voter processes or disk loss.

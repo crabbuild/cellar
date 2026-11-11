@@ -500,6 +500,33 @@ outcome. Require real provider enforcement only where that adapter promises it;
 otherwise report the weaker external contract explicitly without weakening the
 cell's replicated state proof.
 
+### Storage keyset cursors
+
+`Storage::list_cursor` uses the same keyset range implementation in ordinary
+Fleet storage and shared Raft command/query storage. Each step reads one owned
+row; it retains no SQL statement, connection, worker or image pin. Prefix,
+start/end/start-after, reverse traversal and limits retain their existing
+semantics. Inserts/deletes around the last key cannot shift an offset.
+
+Raft cursors validate their original invocation or committed query on every
+step. Starting another iterator on the same Storage owner invalidates the older
+one with a non-wrapping generation. The Storage owner retains only the current
+range; invalidated handles retain no old range buffers. Dropping an old handle
+cannot clear a newer iterator. A cursor may continue across a transaction
+boundary in its live invocation, reading the then-current image. After rollback,
+subsequent steps read the surviving image rather than a retained private snapshot.
+A cursor cannot enter a different invocation. Query cursors
+remain bound to their selected committed image and cannot escape its callback.
+Cursor positions are ephemeral and are not restartable durable work.
+
+The public RF3 and RustFS Storage cases must check structured values, empty KV
+schema, all range/limit directions, mutation between steps, invalidation, rollback,
+expired views and exact cell/version isolation. The ordinary RPC case must hold
+an iterator across an independently proven async root and observe the newly
+inserted key. Preserve the ordinary native Storage conformance regression.
+These checks qualify this API boundary; SQL cursors, other Storage methods,
+named namespace KV bindings and the full family matrix remain separate work.
+
 ### Logical-name discovery
 
 `RaftCells::resolve_cell_history` observes an existing name's current enrollment
