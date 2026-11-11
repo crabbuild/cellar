@@ -848,12 +848,12 @@ reported ten passing cases and a failure in `control_plane_fanout_bounded`:
 after 32 cells formed four groups, enrollment of cell 32 returned a nonambiguous
 `Execution(Refused(Unavailable))`. An isolated rerun of the identical binary,
 with the original quotas and deadlines, reproduced the same failure at cell 32.
-Both runs retained their failed disks. This is an unresolved regression; these
-results do not establish the full scheduler or repeated-split gate. Evidence is
+Both runs retained their failed disks. Those failed runs do not establish the full scheduler or repeated-split gate;
+the later repair and composed rerun are recorded below. Evidence is
 retained in the checkout-specific `integrated-runtime-6521122c` and
 `fanout-reproduce-6521122c` qualification directories. Combined strict Clippy also found a duplicate
 storage-fault test module. The routing fixtures now reuse the test-root module in
-the diagnostic checkout; validation of that correction is pending.
+the repair checkout; its focused and composed checks are recorded below.
 
 The fresh Linux Colima/RustFS campaign for `6521122c` passed materialized images
 and failed extent images at `resume-maintenance` with an unknown management
@@ -887,6 +887,31 @@ the test-root storage-fault module instead of loading that file twice.
 The separate coalesced-leader source manifest `e88191c7` passed 52 selected Rust
 unit cases, all seven public routing cases, both public read-ledger verifiers and
 focused strict Clippy/static checks with the shared fixture module. These are
-component results. The composed leader-owner and retired-parent repair source is
-awaiting combined qualification; public probe-storm and broader OPT-01 through
-OPT-08 gates remain open.
+component results. Public probe-storm and broader OPT-01 through OPT-08 gates
+remain open.
+
+
+## Composed runtime verification and daemon diagnostics
+
+Published revision `a69acc34`, source manifest `9dafe562`, passed 60 selected
+library cases and the complete nonignored execution, scheduler, routing,
+primitives and storage suites in the selected campaign. Both public read-ledger
+verifiers and the physical segment-credit case against local RustFS passed.
+Strict Clippy for the library and six native test targets, formatting, layout,
+native dependency and documentation checks passed. The qualifier retained all
+seven executables and verified unchanged source and HEAD throughout the run.
+Evidence is in the checkout-specific `combined-runtime-a69acc34` directory.
+This closes the composed scheduler regression above; it does not establish all
+feature modes, the Linux process campaign or OPT-01 through OPT-08 acceptance.
+The daemon target was compiled in that campaign, without running it on macOS.
+
+Diagnostic source manifest `703438f6`, Linux component revision `bb1d1965`, adds
+an authenticated fixture endpoint for group observations, archive publisher
+status and existing resource/performance counters. Only after the original
+archive or maintenance assertion fails, the process harness records bounded
+snapshots from the voters, then propagates the original error. Snapshots do not
+retry a mutation, extend its reconciliation window or establish archive proof.
+Strict library/daemon Clippy and static checks passed before committing this
+source. Its immutable Linux image and three-voter Colima/RustFS campaign are
+running with the original limits and deadlines. The two preceding extent-image
+failures remain open pending that evidence.
