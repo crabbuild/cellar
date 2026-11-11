@@ -82,7 +82,7 @@ fn exercise_raft_kv_cursors(storage: &Storage, mutate: bool) -> Result<()> {
     if mutate {
         storage.put_clone(
             "cursor:2",
-            &cellar::sdk::clone::StructuredValue::from_json(json!(2)),
+            &cellar::sdk::clone::StructuredValue::from_json(json!(2))?,
         )?;
     }
     let range = ListOptions {
