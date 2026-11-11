@@ -87,6 +87,8 @@ impl CommandTransaction<'_> {
 }
 
 struct CommandFrame {
+    // Drop statements before the connection, including on unwinding paths.
+    cursors: super::raft_cursors::RaftCursors,
     connection: RefCell<Option<Connection>>,
     storage: OnceCell<Arc<Resources>>,
     activation: Option<Arc<Resources>>,
@@ -166,6 +168,8 @@ impl ActiveCommand {
             *current = Some(self.frame.clone());
             Ok::<_, anyhow::Error>(Installed)
         })?;
+        let _cursors = self.frame.cursors.install();
+        self.frame.cursors.prune();
         drop(self.frame.connection()?);
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let result = callback(&CommandTransaction {
@@ -210,6 +214,9 @@ impl ActiveCommand {
     }
 
     pub(crate) fn can_park(&self) -> Result<bool> {
+        if !self.frame.cursors.can_park() {
+            return Ok(false);
+        }
         let work = self.frame.work.borrow();
         // Only a host-owned SDK task that has already proven its source root
         // can wait without SQLite. Transaction/sync tasks keep their writer.
@@ -370,6 +377,21 @@ pub(crate) fn require_storage(authority: &RaftStorageAuthority, healthy: bool) -
             frame.connection()?;
         }
         Ok(())
+    })
+}
+
+/// Cached constructor Storage may enter subsequent invocations; cursors may not.
+pub(crate) fn bind_storage(authority: &RaftStorageAuthority) -> Result<RaftStorageAuthority> {
+    require_storage(authority, true)?;
+    CURRENT_COMMAND.with(|current| {
+        let current = current.borrow();
+        let frame = current
+            .as_ref()
+            .context("storage is outside its Raft command")?;
+        Ok(RaftStorageAuthority {
+            resources: authority.resources.clone(),
+            invocation: Some(frame.invocation.clone()),
+        })
     })
 }
 
@@ -584,6 +606,7 @@ impl CommandDatabase {
         Ok(ActiveCommand {
             baseline,
             frame: Rc::new(CommandFrame {
+                cursors: super::raft_cursors::RaftCursors::default(),
                 connection: RefCell::new(Some(
                     self.connection
                         .take()
@@ -613,6 +636,7 @@ impl CommandDatabase {
             self.connection.is_none(),
             "private SQLite already belongs to capture"
         );
+        active.frame.cursors.publishable()?;
         {
             let connection = active.frame.connection()?;
             super::as_storage_transaction(|| connection.execute_batch("COMMIT"))?;
@@ -642,6 +666,9 @@ impl CommandDatabase {
             self.connection.is_none() && active.can_park()?,
             "RPC writer is not quiescent"
         );
+        // Idle cached statements also refer to this connection. A resumed RPC
+        // may use a different working image, so none can cross a park.
+        active.frame.cursors.clear();
         {
             let connection = active.frame.connection()?;
             super::as_storage_transaction(|| connection.execute_batch("ROLLBACK"))?;
@@ -653,6 +680,8 @@ impl CommandDatabase {
 
     pub(crate) fn settle<T>(&mut self, active: ActiveCommand, result: Result<T>) -> Result<T> {
         let result = result.and_then(|value| {
+            active.frame.cursors.publishable()?;
+            active.frame.cursors.clear();
             let connection = active.frame.connection()?;
             super::as_storage_transaction(|| connection.execute_batch("COMMIT"))?;
             Ok(value)
@@ -670,6 +699,7 @@ impl CommandDatabase {
         let frame = Rc::try_unwrap(active.frame)
             .ok()
             .context("private SQLite is still installed")?;
+        frame.cursors.clear();
         match (self.connection.is_some(), frame.connection.into_inner()) {
             (false, Some(connection)) => self.connection = Some(connection),
             (true, None) => (),

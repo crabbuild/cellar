@@ -37,6 +37,8 @@ pub mod managed_fixture;
 mod names;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
+#[path = "support/cell_group_sql_cursors.rs"]
+mod sql_cursors;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
 
@@ -184,6 +186,10 @@ fn exercise_raft_kv_cursors(storage: &Storage, mutate: bool) -> Result<()> {
 }
 
 async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    let held_sql_write = Arc::new(Mutex::new(None::<cellar::sdk::storage::SqlCursor>));
+    let held_sql_write_handler = held_sql_write.clone();
+    let command_sql_cursor = Arc::new(Mutex::new(None::<cellar::sdk::storage::SqlCursor>));
+    let query_sql_cursor = Arc::new(Mutex::new(None::<cellar::sdk::storage::SqlCursor>));
     let calls = Arc::new(AtomicUsize::new(0));
     let rejected_after_savepoint = Arc::new(AtomicUsize::new(0));
     let escaped = Arc::new(Mutex::new(None::<Storage>));
@@ -211,7 +217,8 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 &[],
             )?;
             storage.put_json("value", &json!(0))?;
-            exercise_raft_kv_cursors(&storage, true)
+            exercise_raft_kv_cursors(&storage, true)?;
+            sql_cursors::exercise(&storage, true)
         })?
         .command("Add", [213; 32], move |context, input| {
             callback_calls.fetch_add(1, Ordering::AcqRel);
@@ -237,6 +244,8 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             let delta = i64::from_be_bytes(input.try_into()?);
             let result = update(&storage, delta)?;
             exercise_raft_kv_cursors(&storage, true)?;
+            sql_cursors::exercise(&storage, true)?;
+            sql_cursors::escaped(&command_sql_cursor, &storage)?;
             if let Some(mut old) = command_cursor
                 .lock()
                 .unwrap()
@@ -249,6 +258,13 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 anyhow::bail!("application rejected the staged update");
             }
             Ok(result.to_be_bytes().to_vec())
+        })?
+        .command("HoldCursor", [225; 32], move |context, _| {
+            let storage = context.storage()?;
+            *held_sql_write_handler.lock().unwrap() = Some(
+                storage.sql_cursor("INSERT INTO cursor_items VALUES(99,x'ff') RETURNING n", &[])?,
+            );
+            Ok(Vec::new())
         })?
         .query("Get", [214; 32], move |context, _| {
             let storage = context.storage();
@@ -284,6 +300,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             ensure!(storage.get_json("temporary")?.is_none());
             if expected.is_some() {
                 exercise_raft_kv_cursors(&storage, false)?;
+                sql_cursors::exercise(&storage, false)?;
             } else {
                 ensure!(storage.list_cursor(&Default::default())?.next().is_none());
             }
@@ -314,6 +331,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 ensure!(old.next().context("escaped query cursor")?.is_err());
             }
             ensure!(storage.sql_database_size()? > 0);
+            sql_cursors::escaped(&query_sql_cursor, &storage)?;
             ensure!(storage.sql("UPDATE counter SET value=999", &[]).is_err());
             ensure!(storage.sql("CREATE TEMP TABLE forbidden(v)", &[]).is_err());
             ensure!(storage.sql("SELECT v FROM __sys_cell_kv", &[]).is_err());
@@ -441,6 +459,25 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         ensure!(archived.result == 11i64.to_be_bytes() && archived.durability == Durability::S3);
         ensure!(archived.id == receipt.id && archived.witness.group == history);
         ensure!(archived.version.history != receipt.version.history);
+
+        for (cell, durability) in [(first, Durability::Quorum), (second, Durability::S3)] {
+            let error = cell
+                .command(
+                    &cell.contract("HoldCursor")?,
+                    Vec::new(),
+                    CommandOptions {
+                        durability,
+                        ..CommandOptions::new(CommandId::new(ClientId::new([225; 16])?, 1)?, retry)
+                    },
+                )
+                .await
+                .err()
+                .context("unfinished write must refuse publication")?;
+            ensure!(error.to_string().contains("unfinished SQL write cursor"));
+            // Teardown already owns/finalized the raw VM. This drop is outside
+            // any installed SQL turn and cannot touch SQLite or another cell.
+            drop(held_sql_write.lock().unwrap().take());
+        }
 
         let checked = second
             .query(
@@ -672,6 +709,9 @@ fn transaction_row(storage: &Storage, name: &str, value: i64) -> Result<()> {
 
 async fn exercise_raft_transactions(storage: Storage, context: Context) -> Result<()> {
     exercise_raft_kv_cursors(&storage, true)?;
+    sql_cursors::exercise(&storage, true)?;
+    let mut sql_across_root = storage.sql_cursor("SELECT n FROM cursor_items ORDER BY n", &[])?;
+    ensure!(sql_across_root.next_raw()? == Some(vec![cellar::sdk::storage::SqlValue::Integer(1)]));
     let mut across_root = storage.list_cursor(&cellar::sdk::ListOptions {
         prefix: Some("cursor:".into()),
         ..Default::default()
@@ -761,6 +801,8 @@ async fn exercise_raft_transactions(storage: Storage, context: Context) -> Resul
             .0
             == "cursor:15"
     );
+    ensure!(sql_across_root.next_raw()? == Some(vec![cellar::sdk::storage::SqlValue::Integer(2)]));
+    ensure!(sql_across_root.next_raw()?.is_none());
     storage.delete("cursor:15")?;
     ensure!(escaped.get_json("outer").is_err());
     ensure!(storage.get_json("detached")? == Some(json!(3)));

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 pub type SqlRow = BTreeMap<String, SqlValue>;
 
 /// An owned cursor token, never a SQLite pointer. Each step requires the
-/// original activation installed by the native turn driver.
+/// original activation, Raft invocation or committed query installed by its driver.
 pub struct SqlCursor {
     storage: Storage,
     id: u64,
@@ -15,11 +15,13 @@ pub struct SqlCursor {
     deferred_error: Option<anyhow::Error>,
     rows_read: u64,
     rows_written: u64,
+    raft_lifetime: Option<Arc<AtomicBool>>,
 }
 
 impl SqlCursor {
     pub(super) fn new(storage: &Storage, query: &str, bindings: &[SqlValue]) -> Result<Self> {
-        let scope = storage.scope()?;
+        let storage = storage.cursor_view()?;
+        let scope = storage.data_scope()?;
         let bindings: Vec<_> = bindings
             .iter()
             .map(|value| match value {
@@ -34,14 +36,20 @@ impl SqlCursor {
             crate::storage::sql_cursor_start_values(scope, query, &bindings)
                 .map_err(anyhow::Error::msg)?;
         let rows_read = u64::from(prefetched.is_some());
+        let raft_lifetime = if matches!(storage.0, Owner::Native(_)) || id == 0 {
+            None
+        } else {
+            crate::storage::raft_sql_cursor_lifetime(id)
+        };
         Ok(Self {
-            storage: Storage(storage.0.clone(), None, storage.2),
+            storage,
             id,
             columns,
             prefetched,
             deferred_error: None,
             rows_read,
             rows_written,
+            raft_lifetime,
         })
     }
 
@@ -93,7 +101,7 @@ impl SqlCursor {
             return Ok(None);
         }
         self.storage.check_transaction_authority()?;
-        self.storage.activation_scope()?;
+        self.storage.data_activation_scope()?;
         if let Some(error) = self.deferred_error.take() {
             return Err(error);
         }
@@ -141,7 +149,7 @@ impl SqlCursor {
     }
 
     pub fn close(&mut self) -> Result<()> {
-        self.storage.activation_scope()?;
+        self.storage.data_activation_scope()?;
         if self.id != 0 {
             crate::storage::sql_cursor_close(std::mem::take(&mut self.id));
         }
@@ -166,7 +174,16 @@ impl Iterator for SqlCursor {
 impl Drop for SqlCursor {
     fn drop(&mut self) {
         if self.id != 0 {
-            self.storage.cleanup(Cleanup::Sql(self.id));
+            if let Some(cancelled) = &self.raft_lifetime {
+                // Only the worker owns SQLite. Outside an installed turn, the
+                // next worker poll (or frame teardown) finalizes this statement.
+                cancelled.store(true, Ordering::Release);
+                if self.storage.data_activation_scope().is_ok() {
+                    crate::storage::sql_cursor_close(self.id);
+                }
+            } else {
+                self.storage.cleanup(Cleanup::Sql(self.id));
+            }
         }
     }
 }
@@ -189,6 +206,7 @@ pub(super) struct RaftKvCursor {
 
 impl KvCursor {
     pub(super) fn new(storage: &Storage, options: &ListOptions) -> Result<Self> {
+        let storage = storage.cursor_view()?;
         let backend = match &storage.0 {
             Owner::Native(_) => KvBackend::Native(crate::storage::sync_list_start(
                 storage.scope()?,
@@ -220,7 +238,7 @@ impl KvCursor {
             }
         };
         Ok(Self {
-            storage: Storage(storage.0.clone(), None, storage.2),
+            storage,
             backend: Some(backend),
         })
     }

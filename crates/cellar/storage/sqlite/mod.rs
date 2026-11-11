@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 mod command;
+pub(crate) use command::bind_storage as bind_raft_command_storage;
 pub(crate) use command::capture_dispatch as capture_raft_dispatch;
 pub(crate) use command::commit_work as commit_raft_work;
 pub(crate) use command::require_storage as require_raft_command_storage;
@@ -34,8 +35,10 @@ pub(crate) mod filesystem;
 mod identity_tests;
 mod immutable;
 mod kv_cursor;
+mod raft_cursors;
 pub(crate) use immutable::{require_storage as require_raft_query_storage, QueryFrame};
 pub(crate) use kv_cursor::KvCursorRange;
+pub(crate) use raft_cursors::raft_sql_cursor_lifetime;
 pub(crate) mod inbox;
 #[cfg(test)]
 mod json_reads_tests;
@@ -372,6 +375,7 @@ struct SqlCursor {
     statement: *mut rusqlite::ffi::sqlite3_stmt,
     changes_before: u64,
     cache_query: Option<Arc<str>>,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[derive(Default)]
@@ -2055,6 +2059,20 @@ pub(crate) fn sql_cursor_start_values(
 ) -> Result<SqlCursorStart, String> {
     check_sql_rename(query)?;
     require_sql_healthy(scope)?;
+    let limits = crate::application::limits::current().sql;
+    if query.len() > limits.max_cursor_bytes {
+        return Err("SQL cursor statement byte limit exceeded".into());
+    }
+    if sql_cursors(|cursors| {
+        cursors
+            .borrow()
+            .values()
+            .filter(|cursor| cursor.scope == scope)
+            .count()
+    }) >= limits.max_open_cursors
+    {
+        return Err("SQL cursor count limit exceeded".into());
+    }
     let (cached_statement, cached_query, cache_busy, reused_cached_query) =
         match take_cached_sql_statement(scope, query) {
             SqlStatementCacheLookup::Miss => (std::ptr::null_mut(), None, false, false),
@@ -2113,6 +2131,23 @@ pub(crate) fn sql_cursor_start_values(
                         return Err(anyhow::anyhow!("SQL code did not contain a statement"));
                     }
 
+                    let retained = sql_cursors(|cursors| {
+                        cursors
+                            .borrow()
+                            .values()
+                            .filter(|cursor| cursor.scope == scope)
+                            .fold(0usize, |bytes, cursor| {
+                                bytes
+                                    .saturating_add(cached_sql_statement_size("", cursor.statement))
+                            })
+                    });
+                    if retained.saturating_add(cached_sql_statement_size(query, statement))
+                        > limits.max_cursor_bytes
+                    {
+                        discard_in_use_sql_statement(scope, cache_query.as_deref(), statement);
+                        return Err(anyhow::anyhow!("SQL cursor statement byte limit exceeded"));
+                    }
+
                     let has_more = !using_cached
                         && !tail.is_null()
                         && CStr::from_ptr(tail)
@@ -2163,6 +2198,24 @@ pub(crate) fn sql_cursor_start_values(
                             discard_in_use_sql_statement(scope, cache_query.as_deref(), statement);
                             return Err(error);
                         }
+                    }
+                    // SQLite owns transient copies of bindings by this point.
+                    // Include them before stepping a potentially mutating VM.
+                    let retained = sql_cursors(|cursors| {
+                        cursors
+                            .borrow()
+                            .values()
+                            .filter(|cursor| cursor.scope == scope)
+                            .fold(0usize, |bytes, cursor| {
+                                bytes
+                                    .saturating_add(cached_sql_statement_size("", cursor.statement))
+                            })
+                    });
+                    if retained.saturating_add(cached_sql_statement_size(query, statement))
+                        > limits.max_cursor_bytes
+                    {
+                        discard_in_use_sql_statement(scope, cache_query.as_deref(), statement);
+                        return Err(anyhow::anyhow!("SQL cursor statement byte limit exceeded"));
                     }
                     if cache_query.is_none() && !cache_busy && !saw_prefix {
                         cache_query = register_cached_sql_statement(scope, query, statement);
@@ -2236,6 +2289,7 @@ pub(crate) fn sql_cursor_start_values(
                 statement,
                 changes_before,
                 cache_query,
+                cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
         );
     });
@@ -2247,45 +2301,50 @@ pub(crate) fn sql_cursor_start_values(
 /// carries that final count. The two are returned together so a caller cannot
 /// read a mid-cursor write count that SQLite has not finished producing.
 pub fn sql_cursor_next(cursor_id: u64) -> Result<(Option<Vec<SqlValue>>, u64), String> {
-    sql_cursors(|cursors| {
-        let mut cursors = cursors.borrow_mut();
-        let cursor = cursors
-            .get_mut(&cursor_id)
-            .ok_or_else(|| "SQL cursor is no longer active".to_string())?;
-        if let Some(error) = sql_critical_error(&cursor.scope) {
-            cursors.remove(&cursor_id);
-            return Err(error);
-        }
-        // SAFETY: the cursor owns its statement on a connection that remains
-        // live until the cursor is removed.
-        let started_in_transaction =
-            unsafe { rusqlite::ffi::sqlite3_get_autocommit(cursor.database) == 0 };
-        let step = unsafe { rusqlite::ffi::sqlite3_step(cursor.statement) };
-        match step {
-            rusqlite::ffi::SQLITE_ROW => Ok((Some(unsafe { sql_cursor_row(cursor.statement) }), 0)),
-            rusqlite::ffi::SQLITE_DONE => {
-                let rows_written = unsafe {
-                    total_changes_for_handle(cursor.database).saturating_sub(cursor.changes_before)
-                };
+    as_user_sql(|| {
+        sql_cursors(|cursors| {
+            let mut cursors = cursors.borrow_mut();
+            let cursor = cursors
+                .get_mut(&cursor_id)
+                .ok_or_else(|| "SQL cursor is no longer active".to_string())?;
+            if let Some(error) = sql_critical_error(&cursor.scope) {
                 cursors.remove(&cursor_id);
-                Ok((None, rows_written))
+                return Err(error);
             }
-            _ => {
-                let error = sqlite_operation_failure(
-                    &cursor.scope,
-                    cursor.database,
-                    started_in_transaction,
-                    step,
-                    "step SQL cursor",
-                )
-                .to_string();
-                if let Some(query) = cursor.cache_query.take() {
-                    discard_cached_sql_statement(&cursor.scope, &query);
+            // SAFETY: the cursor owns its statement on a connection that remains
+            // live until the cursor is removed.
+            let started_in_transaction =
+                unsafe { rusqlite::ffi::sqlite3_get_autocommit(cursor.database) == 0 };
+            let step = unsafe { rusqlite::ffi::sqlite3_step(cursor.statement) };
+            match step {
+                rusqlite::ffi::SQLITE_ROW => {
+                    Ok((Some(unsafe { sql_cursor_row(cursor.statement) }), 0))
                 }
-                cursors.remove(&cursor_id);
-                Err(error)
+                rusqlite::ffi::SQLITE_DONE => {
+                    let rows_written = unsafe {
+                        total_changes_for_handle(cursor.database)
+                            .saturating_sub(cursor.changes_before)
+                    };
+                    cursors.remove(&cursor_id);
+                    Ok((None, rows_written))
+                }
+                _ => {
+                    let error = sqlite_operation_failure(
+                        &cursor.scope,
+                        cursor.database,
+                        started_in_transaction,
+                        step,
+                        "step SQL cursor",
+                    )
+                    .to_string();
+                    if let Some(query) = cursor.cache_query.take() {
+                        discard_cached_sql_statement(&cursor.scope, &query);
+                    }
+                    cursors.remove(&cursor_id);
+                    Err(error)
+                }
             }
-        }
+        })
     })
 }
 
