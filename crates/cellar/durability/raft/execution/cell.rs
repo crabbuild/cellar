@@ -167,6 +167,7 @@ impl CellPrivateExecutor {
         )?;
         let command = attempt.request.id;
         let durability = attempt.request.durability;
+        let route_epoch = self.authority.route().epoch;
         self.stage(attempt, allow_new, |transaction| {
             if system {
                 class.invoke_system_command(
@@ -178,7 +179,17 @@ impl CellPrivateExecutor {
                     input,
                 )
             } else {
-                class.invoke_command(&contract, &history, command, durability, transaction, input)
+                class.invoke_command(
+                    &contract,
+                    crate::application::consensus::CommandTarget {
+                        cell: &history,
+                        route_epoch: Some(route_epoch),
+                    },
+                    command,
+                    durability,
+                    transaction,
+                    input,
+                )
             }
         })
     }

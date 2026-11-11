@@ -1,8 +1,11 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Compiled, synchronous Raft operations with no ordinary mutable cell factory.
+//! Compiled Raft operations and their private application callbacks.
 
-use super::{CommandId, CommittedVersion, Durability};
+use super::{
+    native_cell::{CellRpcHandler, NativeCellFactory},
+    CommandId, CommittedVersion, Durability, RouteEpoch,
+};
 use crate::raft::version::CellVersionObservation;
 use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery, QueryFrame};
 use cellar_logic::{cell_group::CellHistory, NamespaceMode};
@@ -300,7 +303,17 @@ struct Initializer {
 
 struct Command {
     digest: [u8; 32],
-    callback: Arc<CommandCallback>,
+    handler: CommandHandler,
+}
+
+enum CommandHandler {
+    Registered(Arc<CommandCallback>),
+    JsonCellRpc,
+}
+
+pub(crate) struct CommandTarget<'a> {
+    pub(crate) cell: &'a CellHistory,
+    pub(crate) route_epoch: Option<RouteEpoch>,
 }
 
 enum RegisteredCommand<'a> {
@@ -313,9 +326,9 @@ struct Query {
     callback: Arc<QueryCallback>,
 }
 
-/// A compiled definition, separate from `Cell` and its mutable factory. Register
-/// with `Registry::raft_class`; the node binds the class to a Raft namespace.
-/// Schema versions are explicit and do not authorize an automatic migration.
+/// A compiled definition for a Raft namespace. Register direct callbacks with
+/// `Registry::raft_class` or bind ordinary cell RPC handlers with
+/// `Registry::raft_cell`. Schema versions do not authorize automatic migration.
 pub struct RaftClass {
     name: String,
     schema_version: u32,
@@ -330,6 +343,7 @@ pub struct RaftClass {
     alarm_names: BTreeSet<String>,
     inboxes: BTreeMap<String, super::RaftInbox>,
     outbox: Option<Arc<super::RaftOutbox>>,
+    cell_factory: Option<Arc<CellRpcHandler>>,
 }
 
 impl RaftClass {
@@ -370,6 +384,7 @@ impl RaftClass {
             alarm_names: BTreeSet::new(),
             inboxes: BTreeMap::new(),
             outbox: None,
+            cell_factory: None,
         };
         class.bind_command_manifest();
         Ok(class)
@@ -536,6 +551,7 @@ impl RaftClass {
         &self,
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
+        self.validate_cell_factory()?;
         if let Some(outbox) = &self.outbox {
             anyhow::ensure!(host.effects.is_some_and(|options|options.metadata_bytes>=512*1024)
                 && host.max_input_bytes>=32*1024
@@ -611,11 +627,57 @@ impl RaftClass {
             operation,
             Command {
                 digest,
-                callback: Arc::new(callback),
+                handler: CommandHandler::Registered(Arc::new(callback)),
             },
         );
         self.bind_command_manifest();
         Ok(self)
+    }
+
+    /// Route a JSON RPC operation to the ordinary `Cell::invoke` handler
+    /// supplied by `Registry::raft_cell`. The factory and handler share one
+    /// private Storage transaction and the JSON reply is retained in its receipt.
+    /// The handler must complete in one poll. Suspension aborts preparation.
+    pub fn json_cell_rpc(
+        mut self,
+        operation: impl Into<String>,
+        digest: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
+        let operation = operation.into();
+        self.validate_new(&operation, digest)?;
+        self.commands.insert(
+            operation,
+            Command {
+                digest,
+                handler: CommandHandler::JsonCellRpc,
+            },
+        );
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    pub(in crate::application) fn with_cell_factory(
+        mut self,
+        factory: crate::application::Factory,
+    ) -> Result<Self, RegistrationError> {
+        if self.cell_factory.is_some() || !self.uses_cell_factory() {
+            return Err(RegistrationError::Invalid("Raft cell factory registration"));
+        }
+        self.cell_factory = Some(NativeCellFactory::bind(&self.name, factory));
+        Ok(self)
+    }
+
+    pub(crate) fn validate_cell_factory(&self) -> Result<(), RegistrationError> {
+        if self.uses_cell_factory() && self.cell_factory.is_none() {
+            return Err(RegistrationError::UnsupportedFactory(self.name.clone()));
+        }
+        Ok(())
+    }
+
+    fn uses_cell_factory(&self) -> bool {
+        self.commands
+            .values()
+            .any(|command| matches!(command.handler, CommandHandler::JsonCellRpc))
     }
 
     /// Register a normal command with authenticated, durable receiver receipts.
@@ -652,9 +714,9 @@ impl RaftClass {
             operation,
             Command {
                 digest,
-                callback: Arc::new(move |context, input| {
+                handler: CommandHandler::Registered(Arc::new(move |context, input| {
                     inbox.receive(context, &contract, input, &callback)
-                }),
+                })),
             },
         );
         self.bind_command_manifest();
@@ -799,7 +861,7 @@ impl RaftClass {
             operation,
             Command {
                 digest,
-                callback: Arc::new(callback),
+                handler: CommandHandler::Registered(Arc::new(callback)),
             },
         );
         self.bind_command_manifest();
@@ -809,7 +871,7 @@ impl RaftClass {
     pub(crate) fn invoke_command(
         &self,
         contract: &OperationContract,
-        scope: &CellHistory,
+        target: CommandTarget<'_>,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -817,7 +879,7 @@ impl RaftClass {
     ) -> anyhow::Result<Vec<u8>> {
         self.invoke_registered_command(
             RegisteredCommand::Application(contract),
-            scope,
+            target,
             command,
             durability,
             transaction,
@@ -836,7 +898,10 @@ impl RaftClass {
     ) -> anyhow::Result<Vec<u8>> {
         self.invoke_registered_command(
             RegisteredCommand::System(contract),
-            scope,
+            CommandTarget {
+                cell: scope,
+                route_epoch: None,
+            },
             command,
             durability,
             transaction,
@@ -847,7 +912,7 @@ impl RaftClass {
     fn invoke_registered_command(
         &self,
         registration: RegisteredCommand<'_>,
-        scope: &CellHistory,
+        target: CommandTarget<'_>,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -867,14 +932,24 @@ impl RaftClass {
             contract.kind == OperationKind::Command,
             RegistrationError::KindMismatch
         );
-        let callback = &commands
+        let handler = &commands
             .get(&contract.operation)
             .ok_or(RegistrationError::KindMismatch)?
-            .callback;
+            .handler;
         let _guard = CallbackGuard::enter()?;
+        let CommandHandler::Registered(callback) = handler else {
+            let factory = self
+                .cell_factory
+                .as_ref()
+                .ok_or(super::CommandFailure::UnsupportedCapability)?;
+            let epoch = target
+                .route_epoch
+                .ok_or(super::CommandFailure::UnsupportedCapability)?;
+            return factory(target.cell, epoch, &contract.operation, input, transaction);
+        };
         callback(
             &CommandContext {
-                scope,
+                scope: target.cell,
                 command,
                 transaction,
                 blobs: self.blobs,
@@ -1000,6 +1075,15 @@ impl RaftClass {
             hash.update((name.len() as u16).to_be_bytes());
             hash.update(name.as_bytes());
             hash.update(command.digest);
+        }
+        if self.uses_cell_factory() {
+            hash.update(b"json-cell-rpc-1");
+            for (name, command) in &self.commands {
+                if matches!(command.handler, CommandHandler::JsonCellRpc) {
+                    hash.update((name.len() as u16).to_be_bytes());
+                    hash.update(name.as_bytes());
+                }
+            }
         }
         if !self.system_commands.is_empty() {
             hash.update(b"system-commands-1");

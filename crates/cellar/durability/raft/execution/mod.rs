@@ -601,7 +601,17 @@ impl PrivateExecutor {
         let command = attempt.request.id;
         let durability = attempt.request.durability;
         self.stage_admitted(attempt, allow_new, |transaction| {
-            class.invoke_command(&contract, &scope, command, durability, transaction, input)
+            class.invoke_command(
+                &contract,
+                crate::application::consensus::CommandTarget {
+                    cell: &scope,
+                    route_epoch: None,
+                },
+                command,
+                durability,
+                transaction,
+                input,
+            )
         })
     }
 

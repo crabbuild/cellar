@@ -3,7 +3,10 @@
 //! Shared Storage over private commands and pinned committed queries.
 
 use anyhow::{ensure, Context as _, Result};
-use cellar::sdk::{consensus::*, RaftClass, Storage};
+use cellar::engine_api::RpcData;
+use cellar::sdk::{
+    consensus::*, Cell, Context, HandlerFuture, Invocation, Output, RaftClass, Registry, Storage,
+};
 use managed_fixture::{ArchiveSetup, FirstGroupSetup, Fixture, ManagedCluster, TIMEOUT};
 use serde_json::json;
 use std::sync::{
@@ -277,6 +280,190 @@ async fn storage_reads_and_writes_exact_cell_versions() -> Result<()> {
         Box::pin(run(rooted))
             .await
             .with_context(|| format!("Storage bridge extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+struct NativeCounter {
+    storage: Storage,
+}
+
+impl Cell for NativeCounter {
+    fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
+        Box::pin(async move {
+            let Invocation::CellRpc {
+                method,
+                args: RpcData::Json(input),
+            } = invocation
+            else {
+                anyhow::bail!("expected JSON cell RPC");
+            };
+            ensure!(method == "Update");
+            ensure!(context.wait_until(async { Ok(()) }).is_err());
+            let input: serde_json::Value = serde_json::from_str(&input)?;
+            let delta = input["delta"].as_i64().context("delta")?;
+            let next = update(&self.storage, delta)?;
+            ensure!(context.storage()?.get_json("value")? == Some(json!(next)));
+            if input["suspend"] == json!(true) {
+                std::future::pending::<()>().await;
+            }
+            if input["malformed_reply"] == json!(true) {
+                return Ok(Output::Rpc(RpcData::Json("malformed".into())));
+            }
+            Ok(Output::Rpc(RpcData::Json(json!(next).to_string())))
+        })
+    }
+}
+
+async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let saved_context = Arc::new(Mutex::new(None::<Context>));
+    let factory_calls = calls.clone();
+    let factory_context = saved_context.clone();
+    let class = RaftClass::new("Counter", 1, [231; 32])?
+        .initializer([232; 32], |_, tx| {
+            let storage = tx.storage()?;
+            storage.sql(
+                "CREATE TABLE counter(value INTEGER NOT NULL); INSERT INTO counter VALUES(0);",
+                &[],
+            )?;
+            storage.put_json("value", &json!(0))
+        })?
+        .json_cell_rpc("Update", [233; 32])?
+        .query("Get", [234; 32], |context, _| {
+            let storage = context.storage();
+            let (_, rows, _) = storage.sql("SELECT value FROM counter", &[])?;
+            let value = rows[0][0].as_i64().context("integer counter")?;
+            ensure!(storage.get_json("value")? == Some(json!(value)));
+            let factories = storage.get_json("factories")?;
+            Ok(serde_json::to_vec(&json!([value, factories]))?)
+        })?;
+    let application = Arc::new(
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
+            class,
+            move |context, identity| {
+                factory_calls.fetch_add(1, Ordering::AcqRel);
+                ensure!(identity == context.identity().context("Raft cell identity")?);
+                ensure!(identity.class == "Counter" && identity.epoch != 0);
+                let prior = factory_context.lock().unwrap().replace(context.clone());
+                if let Some(prior) = prior {
+                    ensure!(prior.storage().is_err(), "retired Context acquired Storage");
+                }
+                let storage = context.storage()?;
+                let count = storage
+                    .get_json("factories")?
+                    .map_or(0, |value| value.as_i64().unwrap_or(-1));
+                ensure!(count >= 0);
+                storage.put_json("factories", &json!(count + 1))?;
+                Ok(Arc::new(NativeCounter { storage }))
+            },
+        )?,
+    );
+    let fixture = Box::pin(Fixture::with_application(
+        rooted,
+        "Counter",
+        application,
+        Arc::new(catalog_fault::Store::default()),
+    ))
+    .await?;
+    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+        fixture,
+        &[],
+        ArchiveSetup::Initialized,
+        false,
+        None,
+        FirstGroupSetup::Normal,
+    ))
+    .await?;
+    let work = async {
+        let group = cluster.history;
+        let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+        let cell = cluster.hosts[leader].cell(CellHistory {
+            cluster: group.cluster,
+            namespace: group.namespace,
+            cell: CellId::new("Counter:ordinary")?,
+            incarnation: IncarnationId::new([235; 16])?,
+        })?;
+        cell.enroll(
+            CellEnrollmentRequest {
+                creation: ProposalId::new([236; 16])?,
+                durability: Durability::Quorum,
+            },
+            TIMEOUT,
+        )
+        .await?;
+        ensure!(calls.load(Ordering::Acquire) == 0);
+        let now = cluster.fixtures[0]
+            .domain
+            .run(async { cellar::asyncrt::wall_ms() })
+            .await?;
+        let retry = u64::try_from(now)?
+            .checked_add(60_000)
+            .context("retry horizon")?;
+        let options = |sequence| -> Result<CommandOptions> {
+            Ok(CommandOptions::new(
+                CommandId::new(ClientId::new([237; 16])?, sequence)?,
+                retry,
+            ))
+        };
+        let update = cell.contract("Update")?;
+        let input = serde_json::to_vec(&json!({"delta": 7}))?;
+        let written = cell.command(&update, input.clone(), options(1)?).await?;
+        ensure!(written.result == b"7" && written.durability == Durability::Quorum);
+        ensure!(written.witness.group == group);
+        let replay = cell.command(&update, input, options(1)?).await?;
+        ensure!(replay.result == written.result && replay.version == written.version);
+        ensure!(calls.load(Ordering::Acquire) == 1);
+        ensure!(saved_context
+            .lock()
+            .unwrap()
+            .as_ref()
+            .context("saved Context")?
+            .storage()
+            .is_err());
+
+        for (sequence, input) in [
+            (2, json!({"delta": 10, "suspend": true})),
+            (3, json!({"delta": 20, "malformed_reply": true})),
+        ] {
+            ensure!(cell
+                .command(&update, serde_json::to_vec(&input)?, options(sequence)?)
+                .await
+                .is_err());
+        }
+        ensure!(calls.load(Ordering::Acquire) == 3);
+        let observed = cell
+            .query(
+                ProposalId::new([238; 16])?,
+                &cell.contract("Get")?,
+                Vec::new(),
+                QueryOptions::default(),
+            )
+            .await?;
+        ensure!(observed.version == written.version);
+        ensure!(serde_json::from_slice::<serde_json::Value>(&observed.result)? == json!([7, 1]));
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let joined =
+        managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
+            .await;
+    if work.is_err() || joined.is_err() {
+        for root in std::mem::take(&mut cluster.roots) {
+            eprintln!("retained ordinary cell RPC disk: {}", root.keep().display());
+        }
+    }
+    cluster.fixtures[0].domain.shutdown().await;
+    work?;
+    joined
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_json_rpc_uses_raft_owned_context() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(run_native_cell_rpc(rooted))
+            .await
+            .with_context(|| format!("ordinary Raft RPC extents={rooted}"))?;
     }
     Ok(())
 }
