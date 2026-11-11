@@ -1420,3 +1420,15 @@ The same source passed the format check for 2,194 Rust files, module layout,
 native dependencies, documentation and all 44 design tests, recorded in
 `public-origin-static-5231fdd2`. These checks and the focused native case do not
 qualify a real-backend or constrained-process run.
+
+The subsequent broader `5231fdd2` RustFS campaign remains failed in
+`rustfs-range-campaign-5231fdd2`. All six membership interactions passed in
+124.665 seconds, with 18 audited observations. Overlap repair then failed in
+materialized mode after 80.886 seconds: the native HTTP write for
+`Counter:three`, client `ca` repeated 16 bytes and sequence three, returned an
+ambiguous `Unavailable` while requesting S3 acknowledgement. That response
+does not establish whether the mutation committed. The original log, object
+prefix and 14 fixture/control disks remain retained. Its generic snapshot
+observes the retired original group rather than the selected serving group,
+so the failure cause remains open. Delayed lookup and the ordinary primitive
+suite were not reached. No deadline, identity, capacity or assertion was relaxed.
