@@ -1,5 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+use super::rpc_cache::RpcActivation;
 use super::*;
 use std::collections::{BTreeMap, VecDeque};
 
@@ -87,6 +88,7 @@ struct Pending {
     prepared: CellSqlPrepared,
     submitted: bool,
     _lease: CellLease,
+    activation: Option<RpcActivation>,
 }
 
 struct StageRetention {
@@ -123,13 +125,21 @@ impl Producer {
     }
 }
 
-#[derive(Default)]
 pub(in crate::raft::host_sql) struct Cells {
     pending: BTreeMap<CellHistory, Pending>,
     suspended: VecDeque<rpc::Suspended>,
+    activations: Arc<RpcCache>,
 }
 
 impl Cells {
+    pub(in crate::raft::host_sql) fn new(activations: Arc<RpcCache>) -> Self {
+        Self {
+            pending: BTreeMap::new(),
+            suspended: VecDeque::new(),
+            activations,
+        }
+    }
+
     pub fn execute(
         &mut self,
         request: Request,
@@ -168,11 +178,11 @@ impl Cells {
                         crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded),
                     ),
                     Action::Stage(stage) if stage.is_cell_rpc() => {
-                        timer.finish(self.start_rpc(cell, *stage, reply, max, domain));
+                        timer.finish(self.start_rpc(cell, *stage, reply, max, domain, now));
                         return;
                     }
                     Action::Query(query) => super::query::run(*query, domain),
-                    action => self.run(cell, action, max),
+                    action => self.run(cell, action, max, now),
                 }
             }
             _ => {
@@ -191,6 +201,7 @@ impl Cells {
         cell: CellHistory,
         action: Action,
         max: usize,
+        now: u64,
     ) -> Result<CellSqlOutcome, ExecutionError> {
         match action {
             Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
@@ -237,6 +248,8 @@ impl Cells {
                         bytes,
                         max_result,
                     },
+                    None,
+                    now,
                 )
             }
             Action::Initialize(request) => {
@@ -290,6 +303,7 @@ impl Cells {
                         prepared: prepared.clone(),
                         submitted: false,
                         _lease: lease,
+                        activation: None,
                     },
                 );
                 Ok(CellSqlOutcome::Prepared(prepared))
@@ -308,6 +322,9 @@ impl Cells {
                     .remove(&cell)
                     .ok_or(ExecutionError::Uncertain)?;
                 pending.producer.close()?;
+                if let Some(activation) = pending.activation {
+                    activation.close()?;
+                }
                 let outcome = match outcome {
                     CellEnrollmentResolution::Committed(record) => {
                         CellSqlEnrollmentResolution::Committed(Box::new(CellSqlEnrollment {
@@ -348,6 +365,9 @@ impl Cells {
                 // The proof permanently seals every submission clone. Close
                 // physical SQL ownership before dropping logical-name admission.
                 pending.producer.close()?;
+                if let Some(activation) = pending.activation {
+                    activation.close()?;
+                }
                 Ok(CellSqlOutcome::Rejected)
             }
             Action::Submit(proposal) => {
@@ -365,6 +385,7 @@ impl Cells {
                 Ok(CellSqlOutcome::Submitted)
             }
             Action::Finish(authority) => {
+                let fence = authority.activation_fence();
                 let pending = self
                     .pending
                     .get_mut(&cell)
@@ -375,6 +396,10 @@ impl Cells {
                     .remove(&cell)
                     .ok_or(ExecutionError::Invalid("cell producer changed"))?;
                 pending.producer.close()?;
+                if let Some(mut activation) = pending.activation {
+                    activation.fence = fence;
+                    self.activations.put(cell, activation, now)?;
+                }
                 Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
                     receipt,
                     _retention: OutputRetention::Sql {
@@ -396,6 +421,9 @@ impl Cells {
                     .remove(&cell)
                     .ok_or(ExecutionError::Invalid("cell producer changed"))?;
                 pending.producer.close()?;
+                if let Some(activation) = pending.activation {
+                    activation.close()?;
+                }
                 let resolution = match resolution {
                     CellReconciliation::Committed(receipt) => {
                         CellSqlReconciliation::Committed(Box::new(CellSqlReceipt {
@@ -429,6 +457,8 @@ impl Cells {
         executor: CellPrivateExecutor,
         result: Result<CellStageOutcome, ExecutionError>,
         retention: StageRetention,
+        activation: Option<RpcActivation>,
+        now: u64,
     ) -> SqlReply {
         let StageRetention {
             lease,
@@ -446,6 +476,9 @@ impl Cells {
                     .and_then(|retained| Bytes::shrink(&mut bytes, retained));
                 if let Err(error) = shrink {
                     executor.close()?;
+                    if let Some(activation) = activation {
+                        activation.close()?;
+                    }
                     return Err(error);
                 }
                 let prepared = CellSqlPrepared {
@@ -459,12 +492,16 @@ impl Cells {
                         prepared: prepared.clone(),
                         submitted: false,
                         _lease: lease,
+                        activation,
                     },
                 );
                 Ok(CellSqlOutcome::Prepared(prepared))
             }
             Ok(CellStageOutcome::Duplicate(receipt)) => {
                 executor.close()?;
+                if let Some(activation) = activation {
+                    self.activations.put(cell, activation, now)?;
+                }
                 let retained = receipt
                     .receipt
                     .result()
@@ -479,6 +516,9 @@ impl Cells {
             }
             Err(error) => {
                 executor.close()?;
+                if let Some(activation) = activation {
+                    activation.close()?;
+                }
                 Err(error)
             }
         }
@@ -495,7 +535,13 @@ impl Cells {
             if let Err(error) = pending.producer.close() {
                 result = Err(error);
             }
+            if let Some(activation) = pending.activation {
+                if let Err(error) = activation.close() {
+                    result = Err(error);
+                }
+            }
         }
-        result
+        let cached = self.activations.close();
+        result.and(cached)
     }
 }

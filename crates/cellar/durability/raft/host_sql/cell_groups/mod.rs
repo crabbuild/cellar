@@ -3,7 +3,9 @@
 //! Cell-history admission and commands on the existing fixed node SQL workers.
 
 mod admission;
+mod rpc_cache;
 mod rpc_commit;
+pub(super) use rpc_cache::RpcCache;
 pub(crate) use rpc_commit::RpcCommitContext;
 mod apply;
 pub(in crate::raft::host_sql) use apply::ApplyRequest;
@@ -341,6 +343,9 @@ pub struct CellSqlUsage {
     pub apply_retained_bytes: usize,
     pub apply_retained_operations: usize,
     pub active_cells: usize,
+    pub idle_activations: usize,
+    pub retained_activations: usize,
+    pub activation_capacity: usize,
     pub retained_bytes: usize,
     pub retained_operations: usize,
     pub running_workers: usize,
@@ -399,6 +404,7 @@ struct Handle {
     resources: ResourceObserver,
     admission: Arc<Admission>,
     apply_admission: Arc<Budget>,
+    activations: Arc<RpcCache>,
     closing: Arc<AtomicBool>,
     stop: Arc<Notify>,
     terminal: Arc<Terminal>,
@@ -446,6 +452,7 @@ impl CellGroupSqlPool {
             .map(|n| pool.worker(n))
             .collect::<Result<Vec<_>, _>>()?;
         let resources = pool.resource_observer();
+        let activations = pool.activations.clone();
         let closing = pool.stopped.clone();
         let stop = Arc::new(Notify::new());
         let terminal = Arc::new(Terminal::new());
@@ -455,6 +462,7 @@ impl CellGroupSqlPool {
             resources,
             admission: Admission::new(limits, lease.clone(), log.limits().max_groups),
             apply_admission: Budget::new(limits.node_bytes, log.limits().max_groups),
+            activations,
             closing: closing.clone(),
             stop: stop.clone(),
             terminal: terminal.clone(),
@@ -521,12 +529,17 @@ impl CellGroupSqlPool {
         let (active_cells, retained_bytes, retained_operations) = self.inner.admission.usage()?;
         let resources = self.inner.resources.capture().ok_or_else(unavailable)?;
         let (apply_retained_bytes, apply_retained_operations) = self.inner.apply_admission.usage();
+        let (idle_activations, retained_activations, activation_capacity) =
+            self.inner.activations.usage()?;
         Ok(CellSqlUsage {
             limits: self.inner.admission.limits(),
             closing: self.inner.closing.load(Ordering::Acquire),
             apply_retained_bytes,
             apply_retained_operations,
             active_cells,
+            idle_activations,
+            retained_activations,
+            activation_capacity,
             retained_bytes,
             retained_operations,
             running_workers: resources.running_workers,

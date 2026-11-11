@@ -21,6 +21,8 @@ use tokio::sync::Notify;
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
 // The host fixture controls wall clocks, test processes and on-disk faults.
+#[path = "support/cell_group_activations.rs"]
+mod activations;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
@@ -302,6 +304,8 @@ struct NativeCounter {
     storage: Storage,
     rejected: Arc<AtomicUsize>,
     gates: Arc<[RpcGate; 7]>,
+    invocation_count: AtomicUsize,
+    previous_context: Mutex<Option<Context>>,
 }
 
 #[derive(Default)]
@@ -331,6 +335,24 @@ impl Cell for NativeCounter {
                 anyhow::bail!("expected JSON cell RPC");
             };
             let input: serde_json::Value = serde_json::from_str(&input)?;
+            let invocation = self.invocation_count.fetch_add(1, Ordering::AcqRel) + 1;
+            if let Some(expected) = input["invocation"].as_u64() {
+                ensure!(
+                    invocation as u64 == expected,
+                    "activation-local invocation count changed"
+                );
+            }
+            if let Some(previous) = self
+                .previous_context
+                .lock()
+                .unwrap()
+                .replace(context.clone())
+            {
+                ensure!(
+                    previous.storage().is_err(),
+                    "an old RPC Context entered a later invocation"
+                );
+            }
             if method == "Transactions" {
                 exercise_raft_transactions(self.storage.clone(), context.clone()).await?;
                 if input["reject"] == json!(true) {
@@ -628,6 +650,8 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                     storage,
                     rejected: factory_rejected.clone(),
                     gates: factory_gates.clone(),
+                    invocation_count: AtomicUsize::new(0),
+                    previous_context: Mutex::new(None),
                 }))
             },
         )?,
@@ -695,13 +719,16 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                 Ok(CommandOptions { timeout: Duration::from_secs(20), ..options(client)? })
             };
             let update = cell.contract("Update")?;
-            let input = serde_json::to_vec(&json!({"delta": 7}))?;
+            let input = serde_json::to_vec(&json!({"delta": 7, "invocation": 1}))?;
             let written = cell.command(&update, input.clone(), options(237)?).await?;
             ensure!(written.result == b"7" && written.durability == Durability::Quorum);
             ensure!(written.witness.group == group);
             let replay = cell.command(&update, input, options(237)?).await?;
             ensure!(replay.result == written.result && replay.version == written.version);
             ensure!(calls.load(Ordering::Acquire) == 1);
+            let usage = cluster.hosts[leader].resource_usage().sql.context("activation usage")?;
+            ensure!(usage.idle_activations == 1 && usage.retained_activations == 1);
+            ensure!(usage.activation_capacity == usage.limits.max_pending_cells);
             ensure!(saved_context
                 .lock()
                 .unwrap()
@@ -713,12 +740,13 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             ensure!(cell
                 .command(
                     &update,
-                    serde_json::to_vec(&json!({"delta": 20, "malformed_reply": true}))?,
+                    serde_json::to_vec(&json!({"delta": 20, "malformed_reply": true, "invocation": 2}))?,
                     options(240)?,
                 )
                 .await
                 .is_err());
-            ensure!(calls.load(Ordering::Acquire) == 2);
+            ensure!(calls.load(Ordering::Acquire) == 1);
+            ensure!(cluster.hosts[leader].resource_usage().sql.context("retired activation usage")?.retained_activations == 0);
             ensure!(rejected.load(Ordering::Acquire) == 1);
             // The explicit root transaction committed before reply validation.
             // Its original pending invocation must never rerun the factory.
@@ -731,21 +759,21 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                 )
                 .await?;
             ensure!(
-                serde_json::from_slice::<serde_json::Value>(&partial.result)? == json!([27, 2])
+                serde_json::from_slice::<serde_json::Value>(&partial.result)? == json!([27, 1])
             );
             ensure!(partial.version.sequence.get() == written.version.sequence.get() + 1);
             ensure!(cell
                 .command(
                     &update,
-                    serde_json::to_vec(&json!({"delta": 20, "malformed_reply": true}))?,
+                    serde_json::to_vec(&json!({"delta": 20, "malformed_reply": true, "invocation": 2}))?,
                     options(240)?
                 )
                 .await
                 .is_err());
-            ensure!(calls.load(Ordering::Acquire) == 2);
-            check_rpc_read(cell, 227, &partial.version, json!([27, 2])).await?;
+            ensure!(calls.load(Ordering::Acquire) == 1);
+            check_rpc_read(cell, 227, &partial.version, json!([27, 1])).await?;
 
-            let input = serde_json::to_vec(&json!({"delta": 3, "gate": 0, "after": 5}))?;
+            let input = serde_json::to_vec(&json!({"delta": 3, "gate": 0, "after": 5, "invocation": 1}))?;
             let (resumed, interleaved) =
                 tokio::join!(cell.command(&update, input.clone(), options(239)?), async {
                     cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
@@ -756,7 +784,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                         .context("suspended Context")?
                         .storage()
                         .is_err());
-                    check_rpc_read(cell, 241, &partial.version, json!([27, 2])).await?;
+                    check_rpc_read(cell, 241, &partial.version, json!([27, 1])).await?;
                     let unrelated = cells[1]
                         .command(
                             &update,
@@ -772,10 +800,12 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let resumed = resumed?;
             ensure!(resumed.result == b"35" && resumed.durability == Durability::Quorum);
             ensure!(gates[0].resumed.load(Ordering::Acquire) == 1);
-            check_rpc_read(cell, 245, &resumed.version, json!([35, 3])).await?;
+            check_rpc_read(cell, 245, &resumed.version, json!([35, 2])).await?;
             let retry = cell.command(&update, input, options(239)?).await?;
             ensure!(retry.result == resumed.result && retry.version == resumed.version);
-            ensure!(calls.load(Ordering::Acquire) == 4);
+            ensure!(calls.load(Ordering::Acquire) == 3);
+            let usage = cluster.hosts[leader].resource_usage().sql.context("shared activation usage")?;
+            ensure!(usage.idle_activations == 2 && usage.retained_activations == 2);
 
             let short = CommandOptions {
                 timeout: Duration::from_secs(1),
@@ -784,7 +814,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let (expired, cleaned) = tokio::join!(
                 cell.command(
                     &update,
-                    serde_json::to_vec(&json!({"delta": 100, "gate": 1, "after": 1}))?,
+                    serde_json::to_vec(&json!({"delta": 100, "gate": 1, "after": 1, "invocation": 2}))?,
                     short,
                 ),
                 async {
@@ -795,7 +825,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             );
             cleaned?;
             ensure!(expired.is_err() && gates[1].resumed.load(Ordering::Acquire) == 0);
-            check_rpc_read(cell, 247, &resumed.version, json!([35, 3])).await?;
+            check_rpc_read(cell, 247, &resumed.version, json!([35, 2])).await?;
 
             let long = CommandOptions {
                 timeout: Duration::from_secs(20),
@@ -804,7 +834,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let (revoked, transferred) = tokio::join!(
                 cell.command(
                     &update,
-                    serde_json::to_vec(&json!({"delta": 200, "gate": 2, "after": 1}))?,
+                    serde_json::to_vec(&json!({"delta": 200, "gate": 2, "after": 1, "invocation": 1}))?,
                     long,
                 ),
                 async {
@@ -832,8 +862,8 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             ensure!(error.cause.refusal() == Some(&CommandFailure::Unavailable));
             ensure!(gates[2].resumed.load(Ordering::Acquire) == 0);
             let current = cluster.hosts[target].cell(cell.history().clone())?;
-            check_rpc_read(&current, 249, &resumed.version, json!([35, 3])).await?;
-            ensure!(calls.load(Ordering::Acquire) == 6);
+            check_rpc_read(&current, 249, &resumed.version, json!([35, 2])).await?;
+            ensure!(calls.load(Ordering::Acquire) == 4);
             let transaction_contract = current.contract("Transactions")?;
             let transaction_receipt = current
                 .command(&transaction_contract, b"{}".to_vec(), multiple(252)?)
@@ -895,7 +925,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                         .await?;
                     ensure!(
                         serde_json::from_slice::<serde_json::Value>(&first.result)?
-                            == json!([45, 6])
+                            == json!([45, 4])
                     );
                     ensure!(first.version.sequence.get() == unchanged.version.sequence.get() + 1);
                     gates[3].release.notify_one();
@@ -941,7 +971,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                         .await?;
                     ensure!(
                         serde_json::from_slice::<serde_json::Value>(&first.result)?
-                            == json!([165, 7])
+                            == json!([165, 4])
                     );
                     let pending = current.receipt(CellReceiptRequest {
                         id: options(223)?.id, contract: sequence.clone(), input: interrupted_input.clone(),
@@ -969,23 +999,23 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             ensure!(interrupted.is_err() && gates[4].resumed.load(Ordering::Acquire) == 0);
             let (destination, preserved) = moved?;
             let recovered = cluster.hosts[destination].cell(current.history().clone())?;
-            check_rpc_read(&recovered, 220, &preserved, json!([165, 7])).await?;
+            check_rpc_read(&recovered, 220, &preserved, json!([165, 4])).await?;
             let factories = calls.load(Ordering::Acquire);
             ensure!(recovered
                 .command(&sequence, interrupted_input, options(223)?)
                 .await
                 .is_err());
             ensure!(calls.load(Ordering::Acquire) == factories);
-            check_rpc_read(&recovered, 219, &preserved, json!([165, 7])).await?;
+            check_rpc_read(&recovered, 219, &preserved, json!([165, 4])).await?;
             let next = recovered.command(&update, br#"{"delta":0}"#.to_vec(), CommandOptions {
                 id: CommandId::new(ClientId::new([223; 16])?, 2)?, ..options(223)?
             }).await?;
             ensure!(next.result == b"165");
-            check_rpc_read(&recovered, 217, &next.version, json!([165, 8])).await?;
+            check_rpc_read(&recovered, 217, &next.version, json!([165, 5])).await?;
             let factories = calls.load(Ordering::Acquire);
             ensure!(recovered.command(&sequence, serde_json::to_vec(&json!({"delta":100,"gate":4,"after":1000}))?, options(223)?).await.is_err());
             ensure!(calls.load(Ordering::Acquire) == factories);
-            check_rpc_read(&recovered, 216, &next.version, json!([165, 8])).await?;
+            check_rpc_read(&recovered, 216, &next.version, json!([165, 5])).await?;
 
             // Admission is owned before this response future is returned.
             // Dropping it cannot cancel the node's root or final receipt.
@@ -1008,7 +1038,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                 }
             }).await??;
             ensure!(completed.receipt().context("unpolled RPC receipt")?.result() == b"166");
-            ensure!(calls.load(Ordering::Acquire) == factories + 1);
+            ensure!(calls.load(Ordering::Acquire) == factories);
             let replay = cellar::asyncrt::timeout(TIMEOUT, async {
                 loop {
                     match recovered.command(&update, lost_input.clone(), lost_options.clone()).await {
@@ -1020,8 +1050,8 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                 }
             }).await??;
             ensure!(replay.result == b"166" && replay.version == completed.observation().version);
-            ensure!(calls.load(Ordering::Acquire) == factories + 1);
-            check_rpc_read(&recovered, 215, &replay.version, json!([166, 9])).await?;
+            ensure!(calls.load(Ordering::Acquire) == factories);
+            check_rpc_read(&recovered, 215, &replay.version, json!([166, 5])).await?;
 
             // Explicit sync publishes preceding SQL/KV before the response.
             // S3 additionally requires the same exact checkpoint archive proof.
@@ -1036,7 +1066,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                         ProposalId::new([208; 16])?, &recovered.contract("Get")?, Vec::new(),
                         QueryOptions::default(),
                     ).await?;
-                    ensure!(serde_json::from_slice::<serde_json::Value>(&observed.result)? == json!([176,10]));
+                    ensure!(serde_json::from_slice::<serde_json::Value>(&observed.result)? == json!([176,5]));
                     ensure!(observed.version.sequence.get() == replay.version.sequence.get() + 2);
                     gates[5].release.notify_one();
                     Ok::<_, anyhow::Error>(observed.version)
@@ -1056,7 +1086,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             let preserved = recovered.query(
                 ProposalId::new([206; 16])?, &recovered.contract("Get")?, Vec::new(), QueryOptions::default(),
             ).await?;
-            ensure!(serde_json::from_slice::<serde_json::Value>(&preserved.result)? == json!([296,11]));
+            ensure!(serde_json::from_slice::<serde_json::Value>(&preserved.result)? == json!([296,5]));
             ensure!(preserved.version.sequence.get() == synced.version.sequence.get() + 1);
             let factories = calls.load(Ordering::Acquire);
             ensure!(recovered.command(&sync, rejected_input, multiple(207)?).await.is_err());
@@ -1074,7 +1104,7 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
                             let observed = recovered.query(
                                 ProposalId::new([204; 16])?, &recovered.contract("Get")?, Vec::new(), QueryOptions::default(),
                             ).await?;
-                            if serde_json::from_slice::<serde_json::Value>(&observed.result)? == json!([396,12]) {
+                            if serde_json::from_slice::<serde_json::Value>(&observed.result)? == json!([396,6]) {
                                 break Ok::<_, anyhow::Error>(observed.version);
                             }
                             cellar::asyncrt::sleep(Duration::from_millis(20)).await;
@@ -1100,11 +1130,11 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             ensure!(lost.is_err() && gates[6].resumed.load(Ordering::Acquire) == 0);
             let (successor, committed) = moved?;
             let final_cell = cluster.hosts[successor].cell(recovered.history().clone())?;
-            check_rpc_read(&final_cell, 203, &committed, json!([396,12])).await?;
+            check_rpc_read(&final_cell, 203, &committed, json!([396,6])).await?;
             let factories = calls.load(Ordering::Acquire);
             ensure!(final_cell.command(&sync, lost_input, multiple(205)?).await.is_err());
             ensure!(calls.load(Ordering::Acquire) == factories);
-            check_rpc_read(&final_cell, 202, &committed, json!([396,12])).await?;
+            check_rpc_read(&final_cell, 202, &committed, json!([396,6])).await?;
             Ok::<_, anyhow::Error>(())
         })
         .await
@@ -1166,6 +1196,34 @@ async fn rustfs_ordinary_json_rpc_uses_raft_owned_context() -> Result<()> {
         Box::pin(run_native_cell_rpc(rooted, store))
             .await
             .with_context(|| format!("ordinary Raft RPC RustFS extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_cell_activation_cache_is_bounded_and_fenced() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(activations::run(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("activation cache extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ordinary_cell_activation_cache_is_bounded_and_fenced() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "ordinary-activations",
+            rooted,
+        )?));
+        Box::pin(activations::run(rooted, store))
+            .await
+            .with_context(|| format!("activation cache RustFS extents={rooted}"))?;
     }
     Ok(())
 }

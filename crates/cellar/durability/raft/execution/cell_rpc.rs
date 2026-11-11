@@ -12,6 +12,11 @@ pub(crate) enum CellRpcStart {
     Duplicate(Box<CellCommittedReceipt>),
 }
 
+pub(crate) struct CellRpcEnvironment<'a> {
+    pub activation: &'a mut Option<crate::application::consensus::CellRpcActivation>,
+    pub reserve: &'a mut dyn FnMut() -> Result<(), ExecutionError>,
+}
+
 pub(crate) struct CellRpcTurn {
     future: HandlerFuture<Vec<u8>>,
     output: Option<anyhow::Result<Vec<u8>>>,
@@ -58,6 +63,7 @@ impl CellPrivateExecutor {
         input: &[u8],
         allow_new: bool,
         independent: bool,
+        environment: CellRpcEnvironment<'_>,
     ) -> Result<CellRpcStart, ExecutionError> {
         let contract = super::super::registered::validate(
             self.options.limits,
@@ -72,19 +78,24 @@ impl CellPrivateExecutor {
             StageAdmission::Duplicate(receipt) => return Ok(CellRpcStart::Duplicate(receipt)),
             StageAdmission::New(preparation) => preparation,
         };
+        (environment.reserve)()?;
         let database = self
             .working
             .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?
             .database_mut();
         let transaction = database
-            .begin(
+            .begin_with_activation(
                 attempt.inputs,
                 if independent {
                     self.options.limits.max_pending_transactions
                 } else {
                     0
                 },
+                environment
+                    .activation
+                    .as_ref()
+                    .map(|activation| activation.resources()),
             )
             .map_err(private_failure)?;
         let future = transaction.turn(|tx| {
@@ -98,6 +109,7 @@ impl CellPrivateExecutor {
                 },
                 input,
                 tx,
+                environment.activation,
             )
         });
         let future = match future {

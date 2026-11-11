@@ -77,6 +77,7 @@ mod effect_index;
 mod execution_authority;
 pub(crate) mod member_reclaim;
 pub(crate) mod source_reclaim;
+pub(crate) use execution_authority::CellActivationFence;
 pub(crate) use execution_authority::CellEffectAuthority;
 pub use execution_authority::{CellExecutionAuthority, CellReconciliationAuthority};
 

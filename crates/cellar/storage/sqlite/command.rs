@@ -10,7 +10,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::application::storage::Resources;
+use crate::application::storage::{RaftStorageAuthority, Resources};
 use crate::application::{HandlerFuture, Storage};
 use std::collections::VecDeque;
 use std::task::{Context as TaskContext, Poll};
@@ -71,17 +71,24 @@ impl CommandTransaction<'_> {
         if self.frame.storage.get().is_none() {
             super::as_framework_sql(|| connection.execute_batch(super::KV_SCHEMA))?;
         }
-        let resources = self
-            .frame
-            .storage
-            .get_or_init(|| Arc::new(Resources::default()));
-        Ok(Storage::raft_command(resources.clone()))
+        let resources = self.frame.storage.get_or_init(|| {
+            self.frame
+                .activation
+                .clone()
+                .unwrap_or_else(|| Arc::new(Resources::default()))
+        });
+        Ok(Storage::raft_command(RaftStorageAuthority {
+            resources: resources.clone(),
+            invocation: Some(self.frame.invocation.clone()),
+        }))
     }
 }
 
 struct CommandFrame {
     connection: RefCell<Option<Connection>>,
     storage: OnceCell<Arc<Resources>>,
+    activation: Option<Arc<Resources>>,
+    invocation: Arc<()>,
     failure: RefCell<Option<String>>,
     work: RefCell<Work>,
 }
@@ -225,7 +232,7 @@ pub(super) fn with_mut<T>(write: impl FnOnce(&mut Connection) -> T) -> Option<T>
     })
 }
 
-pub(crate) fn require_storage(resources: &Arc<Resources>, healthy: bool) -> Result<()> {
+pub(crate) fn require_storage(authority: &RaftStorageAuthority, healthy: bool) -> Result<()> {
     CURRENT_COMMAND.with(|current| {
         let current = current.borrow();
         let frame = current
@@ -235,17 +242,31 @@ pub(crate) fn require_storage(resources: &Arc<Resources>, healthy: bool) -> Resu
             frame
                 .storage
                 .get()
-                .is_some_and(|owner| Arc::ptr_eq(owner, resources)),
+                .is_some_and(|owner| Arc::ptr_eq(owner, &authority.resources))
+                && authority
+                    .invocation
+                    .as_ref()
+                    .is_none_or(|invocation| Arc::ptr_eq(invocation, &frame.invocation)),
             "storage belongs to another Raft command"
         );
         if healthy {
+            ensure!(
+                !authority
+                    .resources
+                    .retired
+                    .load(std::sync::atomic::Ordering::Acquire),
+                "Raft cell activation is retired"
+            );
             frame.connection()?;
         }
         Ok(())
     })
 }
 
-pub(crate) fn schedule_work(resources: &Arc<Resources>, task: HandlerFuture<()>) -> Result<()> {
+pub(crate) fn schedule_work(
+    resources: &RaftStorageAuthority,
+    task: HandlerFuture<()>,
+) -> Result<()> {
     require_storage(resources, true)?;
     CURRENT_COMMAND.with(|current| {
         let current = current.borrow();
@@ -273,7 +294,7 @@ pub(crate) fn schedule_work(resources: &Arc<Resources>, task: HandlerFuture<()>)
 
 /// The root callback keeps its ordered slot and result until the SQL owner
 /// proves this exact intermediate mutation. No application future commits SQL.
-pub(crate) fn commit_work(resources: &Arc<Resources>) -> HandlerFuture<()> {
+pub(crate) fn commit_work(resources: &RaftStorageAuthority) -> HandlerFuture<()> {
     let queued = (|| -> Result<_> {
         require_storage(resources, true)?;
         CURRENT_COMMAND.with(|current| {
@@ -414,6 +435,15 @@ impl CommandDatabase {
         inputs: CommandInputs,
         max_tasks: usize,
     ) -> Result<ActiveCommand> {
+        self.begin_with_activation(inputs, max_tasks, None)
+    }
+
+    pub(crate) fn begin_with_activation(
+        &mut self,
+        inputs: CommandInputs,
+        max_tasks: usize,
+        activation: Option<Arc<Resources>>,
+    ) -> Result<ActiveCommand> {
         let connection = self
             .connection
             .as_ref()
@@ -427,6 +457,8 @@ impl CommandDatabase {
                         .context("private SQLite is unavailable")?,
                 )),
                 storage: OnceCell::new(),
+                activation,
+                invocation: Arc::new(()),
                 failure: RefCell::new(None),
                 work: RefCell::new(Work {
                     tasks: VecDeque::new(),

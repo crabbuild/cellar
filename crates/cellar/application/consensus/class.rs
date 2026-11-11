@@ -3,7 +3,7 @@
 //! Compiled Raft operations and their private application callbacks.
 
 use super::{
-    native_cell::{CellRpcHandler, NativeCellFactory},
+    native_cell::{CellRpcActivation, CellRpcFactory, NativeCellFactory},
     CommandId, CommittedVersion, Durability, RouteEpoch,
 };
 use crate::application::HandlerFuture;
@@ -346,7 +346,7 @@ pub struct RaftClass {
     alarm_names: BTreeSet<String>,
     inboxes: BTreeMap<String, super::RaftInbox>,
     outbox: Option<Arc<super::RaftOutbox>>,
-    cell_factory: Option<Arc<CellRpcHandler>>,
+    cell_factory: Option<Arc<CellRpcFactory>>,
 }
 
 impl RaftClass {
@@ -696,6 +696,7 @@ impl RaftClass {
         target: CommandTarget<'_>,
         input: &[u8],
         transaction: &CommandTransaction<'_>,
+        activation: &mut Option<CellRpcActivation>,
     ) -> anyhow::Result<HandlerFuture<Vec<u8>>> {
         self.validate_operation(contract)?;
         anyhow::ensure!(
@@ -710,7 +711,20 @@ impl RaftClass {
             .route_epoch
             .ok_or(super::CommandFailure::UnsupportedCapability)?;
         let _guard = CallbackGuard::enter()?;
-        factory(target.cell, epoch, &contract.operation, input, transaction)
+        factory.start(
+            target.cell,
+            epoch,
+            &contract.operation,
+            input,
+            transaction,
+            activation,
+        )
+    }
+
+    pub(crate) fn accepts_cell_activation(&self, activation: &CellRpcActivation) -> bool {
+        self.cell_factory
+            .as_ref()
+            .is_some_and(|factory| factory.accepts(activation))
     }
 
     pub(crate) fn poll_cell_rpc(
@@ -986,12 +1000,21 @@ impl RaftClass {
             .ok_or(RegistrationError::KindMismatch)?
             .handler;
         let CommandHandler::Registered(callback) = handler else {
-            let future = self.start_cell_rpc(contract, target, input, transaction)?;
-            // The low-level synchronous verification entry point cannot park.
-            let _guard = CallbackGuard::enter()?;
-            return future
-                .now_or_never()
-                .ok_or(super::CommandFailure::UnsupportedCapability)?;
+            let mut activation = None;
+            let result = (|| {
+                let future =
+                    self.start_cell_rpc(contract, target, input, transaction, &mut activation)?;
+                // The low-level synchronous verification entry point cannot park
+                // or retain a native instance after returning its private view.
+                let _guard = CallbackGuard::enter()?;
+                future
+                    .now_or_never()
+                    .ok_or(super::CommandFailure::UnsupportedCapability)?
+            })();
+            if let Some(activation) = activation {
+                activation.close()?;
+            }
+            return result;
         };
         let _guard = CallbackGuard::enter()?;
         callback(

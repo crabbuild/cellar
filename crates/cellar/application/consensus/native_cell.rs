@@ -4,30 +4,126 @@
 
 use super::{CellHistory, CommandFailure, CommandTransaction, RouteEpoch};
 use crate::application::{
-    CellIdentity, Context, EventState, Factory, HandlerFuture, Invocation, Output,
+    Cell, CellIdentity, Context, EventState, Factory, HandlerFuture, Invocation, Output,
 };
 use crate::engine_api::{RpcData, WorkerConfigOptions};
 use crate::worker_config::{EgressPolicy, WorkerConfig};
 use anyhow::Result;
 use std::sync::Arc;
 
-pub(super) type CellRpcHandler = dyn Fn(
+pub(crate) struct NativeCellFactory {
+    factory: Factory,
+    config: Arc<WorkerConfig>,
+    identity: Arc<()>,
+}
+
+type CellRpcHandler = dyn Fn(
         &CellHistory,
         RouteEpoch,
         &str,
         &[u8],
         &CommandTransaction<'_>,
+        &mut Option<CellRpcActivation>,
     ) -> Result<HandlerFuture<Vec<u8>>>
     + Send
     + Sync;
 
-pub(super) struct NativeCellFactory {
-    factory: Factory,
-    config: Arc<WorkerConfig>,
+/// Compiled dispatch keeps ordinary native configuration out of consensus
+/// handle types. Its identity also fences cache reuse after factory replacement.
+pub(super) struct CellRpcFactory {
+    handler: Arc<CellRpcHandler>,
+    identity: Arc<()>,
+}
+
+impl CellRpcFactory {
+    pub(super) fn accepts(&self, activation: &CellRpcActivation) -> bool {
+        activation.0.belongs_to(&self.identity)
+    }
+
+    pub(super) fn start(
+        &self,
+        cell: &CellHistory,
+        epoch: RouteEpoch,
+        operation: &str,
+        input: &[u8],
+        transaction: &CommandTransaction<'_>,
+        activation: &mut Option<CellRpcActivation>,
+    ) -> Result<HandlerFuture<Vec<u8>>> {
+        (self.handler)(cell, epoch, operation, input, transaction, activation)
+    }
+}
+
+// Runtime services contain SQL handles too. Keep native payloads behind this
+// lifetime contract instead of recursively exposing their whole auto-trait graph.
+trait LiveCell: Send + Sync {
+    fn resources(&self) -> Arc<crate::application::storage::Resources>;
+
+    fn belongs_to(&self, factory: &Arc<()>) -> bool;
+
+    fn invoke(&self, context: Context, invocation: Invocation) -> Result<HandlerFuture<Output>>;
+
+    fn retire(&mut self) -> Result<()>;
+}
+
+pub(crate) struct CellRpcActivation(Box<dyn LiveCell>);
+
+struct NativeActivation {
+    owner: Arc<()>,
+    instance: Option<Arc<dyn Cell>>,
+    resources: Arc<crate::application::storage::Resources>,
+}
+
+impl CellRpcActivation {
+    pub(crate) fn resources(&self) -> Arc<crate::application::storage::Resources> {
+        self.0.resources()
+    }
+
+    pub(crate) fn close(mut self) -> Result<()> {
+        self.0.retire()
+    }
+}
+
+impl LiveCell for NativeActivation {
+    fn resources(&self) -> Arc<crate::application::storage::Resources> {
+        self.resources.clone()
+    }
+
+    fn belongs_to(&self, factory: &Arc<()>) -> bool {
+        Arc::ptr_eq(factory, &self.owner)
+    }
+
+    fn invoke(&self, context: Context, invocation: Invocation) -> Result<HandlerFuture<Output>> {
+        let instance = self.instance.clone().ok_or(CommandFailure::Unavailable)?;
+        Ok(instance.invoke(context, invocation))
+    }
+
+    fn retire(&mut self) -> Result<()> {
+        self.resources
+            .retired
+            .store(true, std::sync::atomic::Ordering::Release);
+        if let Some(instance) = self.instance.take() {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(instance)))
+                .map_err(crate::native_worker::panic_error)?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for CellRpcActivation {
+    fn drop(&mut self) {
+        if let Err(error) = self.0.retire() {
+            self.0
+                .resources()
+                .failure
+                .lock()
+                .unwrap()
+                .get_or_insert_with(|| error.to_string());
+        }
+    }
 }
 
 impl NativeCellFactory {
-    pub(super) fn bind(class: &str, factory: Factory) -> Arc<CellRpcHandler> {
+    pub(super) fn bind(class: &str, factory: Factory) -> Arc<CellRpcFactory> {
         let config = WorkerConfig::new(WorkerConfigOptions {
             script_name: class.to_owned(),
             src: String::new(),
@@ -46,22 +142,34 @@ impl NativeCellFactory {
             compat: Default::default(),
         })
         .with_egress(EgressPolicy::Deny);
-        let owner = Self {
+        let identity = Arc::new(());
+        let owner = Arc::new(Self {
             factory,
             config: Arc::new(config),
-        };
-        Arc::new(move |cell, epoch, operation, input, transaction| {
-            owner.start(cell, epoch, operation, input, transaction)
+            identity: identity.clone(),
+        });
+        Arc::new(CellRpcFactory {
+            identity,
+            handler: Arc::new(
+                move |cell, epoch, operation, input, transaction, activation| {
+                    owner.start(cell, epoch, operation, input, transaction, activation)
+                },
+            ),
         })
     }
 
-    fn start(
-        &self,
+    pub(super) fn accepts(self: &Arc<Self>, activation: &CellRpcActivation) -> bool {
+        activation.0.belongs_to(&self.identity)
+    }
+
+    pub(super) fn start(
+        self: &Arc<Self>,
         cell: &CellHistory,
         epoch: RouteEpoch,
         operation: &str,
         input: &[u8],
         transaction: &CommandTransaction<'_>,
+        activation: &mut Option<CellRpcActivation>,
     ) -> Result<HandlerFuture<Vec<u8>>> {
         let json = std::str::from_utf8(input)?;
         serde_json::from_str::<serde::de::IgnoredAny>(json)?;
@@ -71,16 +179,31 @@ impl NativeCellFactory {
             name: None,
             epoch: epoch.get(),
         };
-        let context = self.context(
-            identity.clone(),
-            transaction.storage()?.raft_command_resources()?,
-        );
-        let instance = (self.factory)(context.clone(), &identity)?;
+        let authority = transaction.storage()?.raft_command_authority()?;
+        if let Some(cached) = activation.as_ref() {
+            anyhow::ensure!(
+                self.accepts(cached) && Arc::ptr_eq(&cached.resources(), &authority.resources),
+                "Raft activation factory or storage changed"
+            );
+        } else {
+            let context = self.context(identity.clone(), authority.activation());
+            let instance = (self.factory)(context, &identity)?;
+            *activation = Some(CellRpcActivation(Box::new(NativeActivation {
+                owner: self.identity.clone(),
+                instance: Some(instance),
+                resources: authority.resources.clone(),
+            })));
+        }
+        let context = self.context(identity, authority);
         let invocation = Invocation::CellRpc {
             method: operation.to_owned(),
             args: RpcData::Json(json.to_owned()),
         };
-        let future = instance.invoke(context, invocation);
+        let future = activation
+            .as_ref()
+            .ok_or(CommandFailure::Unavailable)?
+            .0
+            .invoke(context, invocation)?;
         Ok(Box::pin(async move {
             let Output::Rpc(RpcData::Json(result)) = future.await? else {
                 anyhow::bail!(CommandFailure::UnsupportedCapability);
@@ -93,7 +216,7 @@ impl NativeCellFactory {
     fn context(
         &self,
         identity: CellIdentity,
-        storage: Arc<crate::application::storage::Resources>,
+        storage: crate::application::storage::RaftStorageAuthority,
     ) -> Context {
         Context {
             raft_storage: Some(storage),

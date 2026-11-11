@@ -402,9 +402,10 @@ impl Storage {
     pub(super) fn raft_sync(&self) -> HandlerFuture<()> {
         let prepared = (|| -> Result<_> {
             self.write_scope()?;
-            let Owner::RaftCommand(resources) = &self.0 else {
+            let Owner::RaftCommand(authority) = &self.0 else {
                 anyhow::bail!(consensus::CommandFailure::UnsupportedCapability);
             };
+            let resources = &authority.resources;
             anyhow::ensure!(
                 self.1.is_none()
                     && resources.transaction.lock().unwrap().is_none()
@@ -414,7 +415,7 @@ impl Storage {
             let (slot, _) = resources.transaction_queue.reserve();
             let (send, receive) = tokio::sync::oneshot::channel();
             let storage = self.clone();
-            let committer = resources.clone();
+            let committer = authority.clone();
             let task = Box::pin(async move {
                 let result = async {
                     slot.admission.clone().await.map_err(anyhow::Error::msg)?;
@@ -426,7 +427,7 @@ impl Storage {
                 let _ = send.send(result);
                 Ok(())
             });
-            crate::storage::schedule_raft_work(resources, task)?;
+            crate::storage::schedule_raft_work(authority, task)?;
             Ok(receive)
         })();
         Box::pin(async move {
@@ -464,7 +465,7 @@ impl Storage {
                     .ok_or_else(|| anyhow!("transaction context has no Raft invocation"))?;
                 crate::storage::require_raft_command_storage(contextual, true)?;
                 anyhow::ensure!(
-                    Arc::ptr_eq(contextual, resources),
+                    Arc::ptr_eq(&contextual.resources, &resources.resources),
                     "transaction context belongs to another Raft invocation"
                 );
                 self.data_activation_scope()?;

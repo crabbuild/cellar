@@ -446,6 +446,18 @@ transaction refuses before scheduling: it cannot publish a savepoint or split an
 atomic callback. Synchronous registered commands and immutable queries retain
 their separate completion contracts and cannot schedule RPC checkpoints.
 
+Ordinary cell instances are activation-owned caches, not replayable application
+state. Constructor Storage handles may enter later invocations of that same live
+activation; invocation handles retain a distinct non-reusable token. A successful
+quorum-applied final receipt admits the instance back to the idle cache.
+Preparation failure, rejected proposals and term reconciliation retire it.
+Cache reuse requires the same class
+factory, exact cell version, physical engine, route and leader term. Its weak
+fence retains no image, log reservation or engine owner. Node-wide instance
+capacity uses the configured SQL pending-cell ceiling; idle instances expire
+after sixty seconds, with bounded pruning on existing SQL workers. Eviction,
+leadership/routing changes and joined shutdown retire constructor handles too.
+
 These transitions are delivery contracts, not acceptance claims. Complete their
 public recovery, fault and feature matrix before accepting CG-17. The receipt
 schema adds a protected pending-checkpoint field under the existing format-1

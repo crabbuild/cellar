@@ -15,7 +15,7 @@ use cellar_logic::cell_group::{CellVersion, MutationSequence};
 
 #[path = "cell_rpc.rs"]
 mod rpc;
-pub(crate) use rpc::{CellRpcStart, CellRpcTurn};
+pub(crate) use rpc::{CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 
 /// A receipt read from the exact committed cell image. This is not S3 coverage.
 pub struct CellCommittedReceipt {

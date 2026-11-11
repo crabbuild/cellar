@@ -43,6 +43,9 @@ pub struct RaftSqlUsage {
     pub worker_capacity: usize,
     pub work_reservations: usize,
     pub work_capacity: usize,
+    pub idle_activations: usize,
+    pub retained_activations: usize,
+    pub activation_capacity: usize,
     /// Internal SQL admission; application admission can already be draining.
     pub queue_closed: bool,
 }

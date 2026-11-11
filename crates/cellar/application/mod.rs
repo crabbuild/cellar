@@ -565,7 +565,7 @@ pub(crate) struct Activation {
 
 #[derive(Clone)]
 pub struct Context {
-    pub(crate) raft_storage: Option<Arc<storage::Resources>>,
+    pub(crate) raft_storage: Option<storage::RaftStorageAuthority>,
     pub(crate) container_supervision: Option<Arc<containers::Supervision>>,
     pub(crate) rpc_catalog: Option<Arc<rpc::Catalog>>,
     pub(crate) event_authority: Option<event_stream::Authority>,

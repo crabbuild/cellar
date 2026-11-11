@@ -4,7 +4,7 @@
 
 use super::super::rpc_commit::{wait_checkpoint, CheckpointProof};
 use super::*;
-use crate::raft::execution::{CellRpcStart, CellRpcTurn};
+use crate::raft::execution::{CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 use futures_util::future::BoxFuture;
 use std::task::{Context, Poll, Wake, Waker};
 
@@ -30,6 +30,7 @@ pub(super) struct Suspended {
     retention: StageRetention,
     commits: Option<RpcCommitContext>,
     checkpoint: Option<Checkpoint>,
+    activation: Option<RpcActivation>,
 }
 
 struct Checkpoint {
@@ -48,8 +49,9 @@ impl Suspended {
     pub(super) fn close(mut self) -> Result<(), ExecutionError> {
         let rolled_back = self.executor.abort_rpc(*self.turn);
         let closed = self.executor.close();
+        let retired = self.activation.take().map_or(Ok(()), RpcActivation::close);
         let _ = self.reply.send(Err(unavailable()));
-        rolled_back.and(closed)
+        rolled_back.and(closed).and(retired)
     }
 
     fn applying(
@@ -231,6 +233,7 @@ impl Cells {
         reply: oneshot::Sender<SqlReply>,
         max: usize,
         domain: &crate::asyncrt::DomainToken,
+        now: u64,
     ) -> bool {
         let started = (|| {
             self.check_capacity(&cell, max)?;
@@ -258,7 +261,15 @@ impl Cells {
             check_waiter(mode, &reply, domain.mono_ms().map_err(|_| unavailable())?)?;
             let commits = commits.map(|context| *context);
             let max_result = options.limits().max_result_bytes;
+            let mut activation = self.activations.take(&cell, &authority, &class, now)?;
             let mut executor = options.open(authority)?;
+            let permit = &mut activation.permit;
+            let mut reserve = || {
+                if permit.is_none() {
+                    *permit = Some(self.activations.reserve()?);
+                }
+                Ok(())
+            };
             let start = domain
                 .mono_ms()
                 .map_err(|_| unavailable())
@@ -270,6 +281,10 @@ impl Cells {
                         &input,
                         mode.allows_new(),
                         commits.is_some(),
+                        CellRpcEnvironment {
+                            activation: &mut activation.activation,
+                            reserve: &mut reserve,
+                        },
                     )
                 });
             Ok((
@@ -282,10 +297,11 @@ impl Cells {
                     max_result,
                 },
                 commits,
+                activation,
             ))
         })();
         let result = match started {
-            Ok((executor, start, mode, retention, commits)) => {
+            Ok((executor, start, mode, retention, commits, activation)) => {
                 let result = match start {
                     Ok(CellRpcStart::Open(turn)) => {
                         self.suspended.push_back(Suspended {
@@ -298,6 +314,7 @@ impl Cells {
                             retention,
                             commits,
                             checkpoint: None,
+                            activation: Some(activation),
                         });
                         return true;
                     }
@@ -306,7 +323,7 @@ impl Cells {
                     }
                     Err(error) => Err(error),
                 };
-                self.publish_stage(cell, executor, result, retention)
+                self.publish_stage(cell, executor, result, retention, Some(activation), now)
             }
             Err(error) => Err(error),
         };
@@ -321,12 +338,15 @@ impl Cells {
         stopped: &AtomicBool,
         performance: &Arc<crate::raft::performance::Registry>,
     ) -> bool {
-        if self.suspended.is_empty() {
-            return false;
-        }
         let Ok(now) = domain.mono_ms() else {
             return false;
         };
+        // The cache records retirement failures and refuses future activation;
+        // joined close surfaces them even without an application waiter.
+        let _ = self.activations.prune(now);
+        if self.suspended.is_empty() {
+            return false;
+        }
         // Serve one ready continuation per worker turn. Rotate past unready
         // ones so a self-waking handler cannot monopolize the worker.
         for _ in 0..self.suspended.len() {
@@ -356,8 +376,14 @@ impl Cells {
                     }
                     Poll::Ready(Err(error)) => {
                         let staged = rpc.executor.finish_rpc(*rpc.turn, Err(error.into()));
-                        let result =
-                            self.publish_stage(rpc.cell, rpc.executor, staged, rpc.retention);
+                        let result = self.publish_stage(
+                            rpc.cell,
+                            rpc.executor,
+                            staged,
+                            rpc.retention,
+                            rpc.activation,
+                            now,
+                        );
                         timer.finish(false);
                         let _ = rpc.reply.send(result);
                         return true;
@@ -372,8 +398,14 @@ impl Cells {
                 if let Some(reply) = rpc.turn.take_checkpoint() {
                     if let Err(error) = rpc.begin_checkpoint(reply, domain) {
                         let staged = rpc.executor.finish_rpc(*rpc.turn, Err(error.into()));
-                        let result =
-                            self.publish_stage(rpc.cell, rpc.executor, staged, rpc.retention);
+                        let result = self.publish_stage(
+                            rpc.cell,
+                            rpc.executor,
+                            staged,
+                            rpc.retention,
+                            rpc.activation,
+                            now,
+                        );
                         timer.finish(false);
                         let _ = rpc.reply.send(result);
                         return true;
@@ -391,7 +423,14 @@ impl Cells {
                 Ok(result)
             });
             let staged = rpc.executor.finish_rpc(*rpc.turn, result);
-            let result = self.publish_stage(rpc.cell, rpc.executor, staged, rpc.retention);
+            let result = self.publish_stage(
+                rpc.cell,
+                rpc.executor,
+                staged,
+                rpc.retention,
+                rpc.activation,
+                now,
+            );
             timer.finish(result.is_ok());
             let _ = rpc.reply.send(result);
             return true;

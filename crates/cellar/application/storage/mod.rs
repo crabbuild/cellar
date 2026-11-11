@@ -173,15 +173,33 @@ pub struct Storage(Owner, pub(super) Option<Arc<Transaction>>, pub(super) u64);
 #[derive(Clone)]
 enum Owner {
     Native(Arc<Activation>),
-    RaftCommand(Arc<Resources>),
+    RaftCommand(RaftStorageAuthority),
     RaftQuery(Arc<Resources>),
+}
+
+/// Constructor handles follow one activation; ordinary command handles follow
+/// one invocation. Neither authority owns the SQLite connection or image pin.
+#[derive(Clone)]
+pub(crate) struct RaftStorageAuthority {
+    pub(crate) resources: Arc<Resources>,
+    pub(crate) invocation: Option<Arc<()>>,
+}
+
+impl RaftStorageAuthority {
+    pub(crate) fn activation(&self) -> Self {
+        Self {
+            resources: self.resources.clone(),
+            invocation: None,
+        }
+    }
 }
 
 impl Owner {
     fn resources(&self) -> &Resources {
         match self {
             Self::Native(activation) => &activation.resources,
-            Self::RaftCommand(resources) | Self::RaftQuery(resources) => resources,
+            Self::RaftCommand(authority) => &authority.resources,
+            Self::RaftQuery(resources) => resources,
         }
     }
 }
@@ -228,14 +246,14 @@ impl Storage {
         Self(Owner::Native(activation), transaction, source_generation)
     }
 
-    pub(crate) fn raft_command_resources(&self) -> Result<Arc<Resources>> {
+    pub(crate) fn raft_command_authority(&self) -> Result<RaftStorageAuthority> {
         match &self.0 {
             Owner::RaftCommand(resources) => Ok(resources.clone()),
             _ => Err(consensus::CommandFailure::UnsupportedCapability.into()),
         }
     }
 
-    pub(crate) fn raft_command(resources: Arc<Resources>) -> Self {
+    pub(crate) fn raft_command(resources: RaftStorageAuthority) -> Self {
         Self(Owner::RaftCommand(resources), None, 0)
     }
 
