@@ -387,6 +387,9 @@ configuration and snapshot records survive engine rewrites. Engine compaction
 hints never authorize deleting a group's logical prefix; unresolved hints receive
 later bounded-rate passes even without new writes. An I/O failure closes and
 joins storage. `engine_purge` reports physical maintenance duration and outcomes.
+Purge syncs each directory changed by segment deletion before returning success.
+Fleet capacity accounting still requires a separate receipt tied to the charged
+files and a complete inventory.
 The file-size and purge thresholds are soft engine watermarks, not a disk quota.
 
 Every newly created engine persists a nonzero `EngineInstanceId` in both its

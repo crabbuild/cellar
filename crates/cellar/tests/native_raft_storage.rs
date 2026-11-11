@@ -591,16 +591,22 @@ async fn snapshot_metadata_survives_process_kill() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn interrupted_purge_preserves_group() -> Result<()> {
-    let directory = tempfile::tempdir()?;
-    let path = directory.path().join("node");
-    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
-    let mut configuration = options(&path, LogOpenMode::Create, 1);
+fn purge_options(path: &Path, mode: LogOpenMode, process: u8) -> ReplicaLogOptions {
+    let mut configuration = options(path, mode, process);
     configuration.target_file_bytes = 4096;
     configuration.purge_threshold_bytes = 8192;
     configuration.purge_interval_ms = None;
-    let log = start(&domain, configuration, Arc::new(DirectFileSystem)).await?;
+    configuration
+}
+
+async fn seed_purge(path: &Path) -> Result<()> {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = start(
+        &domain,
+        purge_options(path, LogOpenMode::Create, 1),
+        Arc::new(DirectFileSystem),
+    )
+    .await?;
     let group = log.create_group(bootstrap(10)).await?;
     for index in 2..=17 {
         let mut write = GroupWrite::new(&group);
@@ -610,11 +616,14 @@ async fn interrupted_purge_preserves_group() -> Result<()> {
     }
     log.close().await?;
     domain.shutdown().await;
-    kill_at_cut(&path, "purge-delete").await?;
+    Ok(())
+}
+
+async fn verify_after_purge(path: &Path) -> Result<()> {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let log = start(
         &domain,
-        options(&path, LogOpenMode::Resume, 3),
+        options(path, LogOpenMode::Resume, 3),
         Arc::new(DirectFileSystem),
     )
     .await?;
@@ -628,6 +637,40 @@ async fn interrupted_purge_preserves_group() -> Result<()> {
     log.close().await?;
     domain.shutdown().await;
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn interrupted_purge_preserves_group() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("node");
+    seed_purge(&path).await?;
+    kill_at_cut(&path, "purge-delete").await?;
+    verify_after_purge(&path).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn purge_requires_directory_sync_after_unlink() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("node");
+    seed_purge(&path).await?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let gate = Gate::new(None);
+    let log = start(
+        &domain,
+        purge_options(&path, LogOpenMode::Resume, 2),
+        Arc::new(FaultFileSystem { gate: gate.clone() }),
+    )
+    .await?;
+    let _release = gate.arm(FAIL_DIRECTORY_SYNC_AFTER_DELETE);
+    let result = log.purge().await;
+    let closed = log.close().await;
+    domain.shutdown().await;
+    ensure!(
+        matches!(&result, Err(LogError::Io(message)) if message.contains("injected Raft directory sync failure")),
+        "purge must report its post-unlink sync failure, got {result:?}"
+    );
+    ensure!(matches!(closed, Err(LogError::Io(_))));
+    verify_after_purge(&path).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -743,12 +786,11 @@ async fn storage_process_fixture() -> Result<()> {
     let signal = std::path::PathBuf::from(std::env::var("CELLAR_RAFT_TEST_SIGNAL")?);
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let gate = Gate::new(Some(signal.clone()));
-    let mut configuration = options(&path, LogOpenMode::Resume, 2);
-    if cut == "purge-delete" {
-        configuration.target_file_bytes = 4096;
-        configuration.purge_threshold_bytes = 8192;
-        configuration.purge_interval_ms = None;
-    }
+    let configuration = if cut == "purge-delete" {
+        purge_options(&path, LogOpenMode::Resume, 2)
+    } else {
+        options(&path, LogOpenMode::Resume, 2)
+    };
     let log = start(
         &domain,
         configuration,
