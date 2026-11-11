@@ -33,6 +33,10 @@ use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
 
+#[path = "storage_segments.rs"]
+mod segments;
+pub use segments::{RaftSegmentFile, RaftSegmentId, RaftSegmentInventory, RaftSegmentQueue};
+
 #[cfg(test)]
 #[path = "storage_cell_genesis_tests.rs"]
 mod cell_genesis_tests;
@@ -329,6 +333,7 @@ enum Work {
     ),
     MemberStatus(GroupHistory, Reply<Option<MemberReclaimAck>>),
     FinishMember(Box<MemberReclaimAck>, Reply<MemberReclaimAck>),
+    SegmentInventory(Reply<RaftSegmentInventory>),
     Purge(Reply<()>),
 }
 
@@ -1042,6 +1047,13 @@ impl ReplicaLog {
     ) -> Result<SourceReclaimAck, LogError> {
         ack.check(self)?;
         self.request(4096, |reply| Work::FinishSource(Box::new(ack), reply))
+            .await
+    }
+
+    /// Sample the engine's segment files in the storage worker, ordered with
+    /// writes and purge. The caller owns the returned inventory.
+    pub async fn segment_inventory(&self) -> Result<RaftSegmentInventory, LogError> {
+        self.request(segments::INVENTORY_BYTES, Work::SegmentInventory)
             .await
     }
 
@@ -2736,6 +2748,10 @@ impl Worker {
                     }
                     let _ = reply.send(result);
                     fatal
+                }
+                Work::SegmentInventory(reply) => {
+                    let _ = reply.send(self.segment_inventory());
+                    None
                 }
                 Work::Purge(reply) => {
                     let result = self.purge();

@@ -396,8 +396,8 @@ where
     }
 
     /// Returns the sequence number range of active log files in the specific
-    /// log queue.
-    /// For testing only.
+    /// log queue. An owner inspecting the directory against this range must
+    /// serialize the inspection with appends, rotations, and purges.
     pub fn file_span(&self, queue: LogQueue) -> (u64, u64) {
         self.pipe_log.file_span(queue)
     }

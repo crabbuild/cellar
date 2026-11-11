@@ -250,7 +250,8 @@ pub mod verification {
         SnapshotDownload, SnapshotError, SnapshotLimits, SnapshotPackage, SnapshotReference,
     };
     pub use crate::raft::storage::{
-        CellGroupBootstrap, GroupBootstrap, LogError, ReplicaLog, SyncReceipt,
+        CellGroupBootstrap, GroupBootstrap, LogError, RaftSegmentFile, RaftSegmentId,
+        RaftSegmentInventory, RaftSegmentQueue, ReplicaLog, SyncReceipt,
     };
     pub use crate::raft::transport::{
         CellGroupCheckpointRegistration, CellGroupSeedError, CellGroupSeedSession, Delivery,

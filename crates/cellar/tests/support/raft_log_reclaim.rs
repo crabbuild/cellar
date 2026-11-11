@@ -2,6 +2,8 @@
 
 //! Physical reclamation must preserve other groups and an uncommitted suffix.
 use super::*;
+use cellar::application::consensus::verification::{RaftSegmentId, RaftSegmentQueue};
+use raft_engine::FileNameExt as _;
 use std::collections::BTreeMap;
 
 fn payload(group: u8, index: u64) -> Vec<u8> {
@@ -82,6 +84,26 @@ async fn idle_worker_reclaims_compacted_files_and_preserves_other_groups() -> Re
     let mut write = GroupWrite::new(&group);
     write.snapshot = Some(SnapshotChange::Checkpoint(snapshot));
     log.persist(OperationId::new(67), vec![write]).await?;
+    let initial = log.segment_inventory().await?;
+    let directory_files = inventory(&path)?;
+    ensure!(initial.files().len() == directory_files.len());
+    ensure!(initial.bytes == directory_files.values().sum::<u64>());
+    for file in initial.files() {
+        ensure!(
+            directory_files.get(&std::ffi::OsString::from(file.id.build_file_name()))
+                == Some(&file.bytes)
+        );
+    }
+    // A complete inventory cannot silently discard an unaccounted segment.
+    let orphan = path
+        .join("log")
+        .join(RaftSegmentId::new(RaftSegmentQueue::Append, 999_999).build_file_name());
+    std::fs::write(&orphan, b"unaccounted segment")?;
+    ensure!(matches!(
+        log.segment_inventory().await,
+        Err(LogError::Corrupt(_))
+    ));
+    std::fs::remove_file(orphan)?;
     log.close().await?;
     let before = inventory(&path)?;
     let before_bytes: u64 = before.values().sum();
@@ -93,12 +115,22 @@ async fn idle_worker_reclaims_compacted_files_and_preserves_other_groups() -> Re
     let log = start(&domain, configuration.clone(), Arc::new(DirectFileSystem)).await?;
     let reclaimed = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let after = inventory(&path)?;
-            let after_bytes: u64 = after.values().sum();
-            if after_bytes < before_bytes * 3 / 4
-                && before.keys().any(|name| !after.contains_key(name))
+            let after = log.segment_inventory().await?;
+            if after.bytes < before_bytes * 3 / 4
+                && initial.files().iter().any(|old| {
+                    after
+                        .files()
+                        .binary_search_by_key(&old.id, |file| file.id)
+                        .is_err()
+                })
             {
-                break Ok::<_, anyhow::Error>((after.len(), after_bytes));
+                ensure!(after.node == initial.node && after.disk == initial.disk);
+                ensure!(after.engine == initial.engine && after.process == configuration.process);
+                ensure!(
+                    after.process != initial.process
+                        && after.durable_sequence > initial.durable_sequence
+                );
+                break Ok::<_, anyhow::Error>((after.files().len(), after.bytes));
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

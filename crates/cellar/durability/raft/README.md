@@ -390,6 +390,9 @@ joins storage. `engine_purge` reports physical maintenance duration and outcomes
 Purge syncs each directory changed by segment deletion before returning success.
 Fleet capacity accounting still requires a separate receipt tied to the charged
 files and a complete inventory.
+The verification API captures append and rewrite file identities and lengths on
+the storage worker. It checks the directory against both active queue spans and
+binds the result to the current node, disk, engine, process, and durable sequence.
 The file-size and purge thresholds are soft engine watermarks, not a disk quota.
 
 Every newly created engine persists a nonzero `EngineInstanceId` in both its
