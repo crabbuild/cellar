@@ -11,7 +11,7 @@ CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
 adds eight delivery packages and 32 required cases. CG17-01 and CG17-02 are in
-progress. The command Storage path has a scoped runtime regression.
+progress. Registered commands and queries share SDK Storage.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -20,6 +20,36 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 committed query Storage
+
+At `ab31066b`, `QueryContext::storage()` opens SDK Storage on the exact
+committed image already selected for the query. SQL, JSON and structured KV,
+point and range reads share the query's consistency grant, SQLite progress
+handler and observed cell version. Older images with no KV table read as
+empty. The query authorizer guards SQL and the Storage owner rejects mutation
+methods. Cloned handles expire with their callback and retain no image pin.
+
+`storage_reads_and_writes_exact_cell_versions` passed in 26.257 seconds with
+three host-native voters, three cells sharing one group and both image modes.
+It checks the default linearizable read and a token-based AtLeast read against
+exact receipt versions, read-only SQL and KV, absent KV schema, escaped views,
+rollback and exact command replay. S3 uses the in-memory archive fixture. Six
+regressions also passed for query write refusal, SQLite deadline cancellation
+and join, verified S3 effects, native Storage and immutable VFS reads.
+Strict Clippy for the affected libraries and five integration targets,
+formatting, layout, native dependency, catalog and 44 plan checks passed.
+The partial catalog now lists 190 SDK symbols. Source and executable hashes
+are retained in `.cellar/cell-groups-evidence/CG-17-query-ab31066b-01`.
+
+The next implementation step is an owned Raft activation for ordinary
+`Registry::cell` factories and `Context::storage()`. Bind that activation
+to the current route and incarnation, then connect private preparation and
+applied receipts to the invocation output gate. Complete the SDK export
+and deployment audit alongside async transactions, durable work discovery
+and the remaining primitive adapters. The 32-case CG-17 acceptance gate,
+constrained infrastructure matrix and CG-13 stable managed recovery remain
+open. Acceptance remains **13/17 tasks, 147/195 cases**.
 
 ## CG-17 command Storage checkpoint
 
@@ -43,13 +73,6 @@ Strict all-target Clippy passes at `52f9f9c1`, which adjusts only test fixture
 lint scope and the filesystem test's compiler recursion limit. The checkout's
 `.cellar/cell-groups-evidence/CG-17-storage-09c1ea11-01` directory retains the
 source and executable hashes.
-
-Next wire ordinary `Context` activation and read-only Storage over committed
-images. Finish compiled export reconciliation and deployment capacity checks.
-These boundaries precede Raft async transactions, durable work discovery and
-the primitive adapters. The complete CG-17 cases, constrained infrastructure
-matrix and CG-13 stable managed recovery remain open. Acceptance remains
-**13/17 tasks, 147/195 cases**.
 
 ## CG-17 checkpoint: primitive coverage admission
 
