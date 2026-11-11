@@ -453,6 +453,8 @@ quorum-applied final receipt admits the instance back to the idle cache.
 Normal public receipt reconciliation may retain the instance only at its exact
 prepared final image with the original leader fence still current. Preparation
 failure, rejected proposals and changed-term reconciliation retire it.
+Receipt/input refusals before native execution preserve an untouched instance
+only while its original cache fence remains current.
 Cache reuse requires the same class
 factory, exact cell version, physical engine, route and leader term. Its weak
 fence retains no image, log reservation or engine owner. Node-wide instance

@@ -220,6 +220,18 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             })
             .await??;
             usage(&cluster.hosts[leader], 0, 0)?;
+            // Transfer admission revokes the old cache before the target has
+            // necessarily established its fresh-term applied quorum barrier.
+            cellar::asyncrt::timeout(TIMEOUT, async {
+                loop {
+                    let elected = cluster.hosts[target].group(group)?.status().await?;
+                    if elected.ready && elected.leader == Some(target as u64 + 1) {
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await??;
             let current = cluster.hosts[target].cell(cells[0].history().clone())?;
             let replay = current
                 .command(&current.contract("Tick")?, b"{}".to_vec(), first_options)
@@ -294,13 +306,8 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 cluster.hosts.push(host);
                 cluster.peers.push(peer);
             }
-            futures_util::future::try_join_all(
-                cluster
-                    .hosts
-                    .iter()
-                    .map(|host| host.start_managed_first_group(group, TIMEOUT)),
-            )
-            .await?;
+            // Canonical Resume startup reopens the retained groups. New-group
+            // admission is separate from recovery of these existing voters.
             let restarted = managed_fixture::leader(&cluster.hosts, group).await?;
             let current = cluster.hosts[restarted].cell(cells[0].history().clone())?;
             let replay = current

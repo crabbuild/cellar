@@ -264,10 +264,12 @@ impl Cells {
             let mut activation = self.activations.take(&cell, &authority, &class, now)?;
             let mut executor = options.open(authority)?;
             let permit = &mut activation.permit;
+            let mut admitted = false;
             let mut reserve = || {
                 if permit.is_none() {
                     *permit = Some(self.activations.reserve()?);
                 }
+                admitted = true;
                 Ok(())
             };
             let start = domain
@@ -298,10 +300,11 @@ impl Cells {
                 },
                 commits,
                 activation,
+                admitted,
             ))
         })();
         let result = match started {
-            Ok((executor, start, mode, retention, commits, activation)) => {
+            Ok((executor, start, mode, retention, commits, activation, admitted)) => {
                 let result = match start {
                     Ok(CellRpcStart::Open(turn)) => {
                         self.suspended.push_back(Suspended {
@@ -320,6 +323,17 @@ impl Cells {
                     }
                     Ok(CellRpcStart::Duplicate(receipt)) => {
                         Ok(CellStageOutcome::Duplicate(receipt))
+                    }
+                    Err(error) if !admitted => {
+                        // Receipt/input admission has not entered the native
+                        // instance. A refused retry must not discard healthy
+                        // local state or rerun its constructor on the next call.
+                        let result = executor
+                            .close()
+                            .and_then(|()| self.activations.put(cell, activation, now))
+                            .and(Err(error));
+                        let _ = reply.send(result);
+                        return false;
                     }
                     Err(error) => Err(error),
                 };
