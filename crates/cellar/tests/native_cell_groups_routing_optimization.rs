@@ -55,3 +55,8 @@ async fn read_preferences_preserve_proof() -> anyhow::Result<()> {
 async fn split_repairs_only_overlap() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::split_repairs_only_overlap()).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn old_lookup_cannot_resurrect_parent() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::old_lookup_cannot_resurrect_parent()).await
+}

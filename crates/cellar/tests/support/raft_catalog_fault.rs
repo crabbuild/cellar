@@ -176,6 +176,9 @@ pub struct Store {
     pub denied_registry_writes: AtomicUsize,
     pub registry_denial_on_payload_refusal: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
     pub range_before: RegistryGate,
+    pub range_tree_change: std::sync::Arc<RegistryGate>,
+    range_tree_before: std::sync::Mutex<Option<serde_json::Value>>,
+    pub routing_read_after: std::sync::Mutex<Option<(Path, std::sync::Arc<RegistryGate>)>>,
     pub range_genesis_after: RegistryGate,
     pub first_group_birth_after: RegistryGate,
     pub range_head_reads: AtomicUsize,
@@ -316,6 +319,17 @@ fn failure() -> object_store::Error {
     }
 }
 
+// Only chooses a physical fault cut in the test adapter. Production readers
+// still validate the complete marker, record checksum and directory binding.
+fn range_tree(bytes: &[u8]) -> Option<serde_json::Value> {
+    let size = u32::from_be_bytes(bytes.get(9..13)?.try_into().ok()?) as usize;
+    if bytes.len() != size.checked_add(45)? {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes.get(13..13 + size)?).ok()?;
+    value.get("tree").cloned()
+}
+
 struct BirthWaiting<'a>(&'a AtomicBool);
 
 impl Drop for BirthWaiting<'_> {
@@ -325,6 +339,17 @@ impl Drop for BirthWaiting<'_> {
 }
 
 impl Store {
+    /// Hold the next real directory CAS that changes the selected range tree.
+    /// Phase-only journal writes retain that tree and cannot consume this cut.
+    #[allow(dead_code)]
+    pub async fn gate_range_tree_change(&self, head: &Path) -> object_store::Result<()> {
+        let bytes = self.backend().get(head).await?.bytes().await?;
+        let tree = range_tree(&bytes).ok_or_else(failure)?;
+        *self.range_tree_before.lock().unwrap() = Some(tree);
+        self.range_tree_change.armed.store(true, Ordering::Release);
+        Ok(())
+    }
+
     pub fn around(store: std::sync::Arc<dyn ObjectStore>) -> Self {
         Self {
             external: Some(store),
@@ -406,6 +431,22 @@ impl ObjectStore for Store {
             && matches!(options.mode, PutMode::Update(_));
         if directory_cas {
             self.range_before.pause().await;
+            if self.range_tree_change.armed.load(Ordering::Acquire) {
+                let bytes: Vec<_> = payload
+                    .iter()
+                    .flat_map(|part| part.iter().copied())
+                    .collect();
+                let changed = range_tree(&bytes).is_some_and(|next| {
+                    self.range_tree_before
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .is_some_and(|old| old != &next)
+                });
+                if changed {
+                    self.range_tree_change.pause().await;
+                }
+            }
         }
         if path.as_ref().contains("/root-extents/") {
             self.root_extent_puts.fetch_add(1, Ordering::AcqRel);
@@ -1070,6 +1111,19 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         let mut result = self.backend().get_opts(path, options).await?;
+        // Retain the real response selected by this GET, including its body and
+        // version, while a later CAS can advance the directory independently.
+        let gate = self
+            .routing_read_after
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(selected, _)| selected == path)
+            .map(|(_, gate)| gate.clone());
+        if let Some(gate) = gate {
+            gate.pause().await;
+        }
+
         if root_extent {
             self.root_extent_hits.fetch_add(1, Ordering::AcqRel);
         }

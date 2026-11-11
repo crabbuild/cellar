@@ -99,6 +99,10 @@ pub(super) async fn split_repairs_only_overlap() -> Result<()> {
     Box::pin(ranges::split_repairs_only_overlap()).await
 }
 
+pub(super) async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
+    Box::pin(ranges::old_lookup_cannot_resurrect_parent()).await
+}
+
 pub(super) async fn read_cohort_has_fresh_barrier() -> Result<()> {
     Box::pin(reads::run()).await
 }

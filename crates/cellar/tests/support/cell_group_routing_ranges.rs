@@ -26,7 +26,24 @@ fn history(group: GroupHistory, name: &str) -> Result<CellHistory> {
     })
 }
 
+#[path = "cell_group_routing_old_lookup.rs"]
+mod old_lookup;
+
+#[derive(Clone, Copy, Debug)]
+enum Case {
+    Overlap,
+    OldLookup,
+}
+
 pub(super) async fn split_repairs_only_overlap() -> Result<()> {
+    run(Case::Overlap).await
+}
+
+pub(super) async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
+    run(Case::OldLookup).await
+}
+
+async fn run(case: Case) -> Result<()> {
     for rooted in [false, true] {
         let callbacks = Arc::new(AtomicUsize::new(0));
         let first = Fixture::with_store(
@@ -94,17 +111,38 @@ pub(super) async fn split_repairs_only_overlap() -> Result<()> {
                 }
             }
             web = Some(http::Web::start(&nodes, &apis).await?);
-            Box::pin(exercise(
-                &cluster,
-                web.as_ref().context("live range HTTP owners")?,
-                &callbacks,
-                rooted,
-                &mut workers,
-                &mut roots,
-            ))
-            .await
+            match case {
+                Case::Overlap => {
+                    Box::pin(exercise(
+                        &cluster,
+                        web.as_ref().context("live range HTTP owners")?,
+                        &callbacks,
+                        rooted,
+                        &mut workers,
+                        &mut roots,
+                    ))
+                    .await
+                }
+                Case::OldLookup => {
+                    Box::pin(old_lookup::exercise(
+                        &cluster,
+                        web.as_ref().context("live range HTTP owners")?,
+                        &callbacks,
+                        rooted,
+                        &mut workers,
+                        &mut roots,
+                    ))
+                    .await
+                }
+            }
         }
         .await;
+        if work.is_err() {
+            crate::managed_fixture::diagnostics::record(&cluster, "live-range-routing").await;
+            for (index, worker) in workers.iter().enumerate() {
+                eprintln!("range worker {index}: {:?}", worker.status());
+            }
+        }
         for worker in workers {
             worker.shutdown().await;
         }
@@ -124,7 +162,7 @@ pub(super) async fn split_repairs_only_overlap() -> Result<()> {
         }
         cluster.fixtures[0].domain.shutdown().await;
         work.with_context(|| {
-            format!("live split routing extents={rooted}; close={joined:?}; HTTP={http_joined:?}")
+            format!("live split routing case={case:?}, extents={rooted}; close={joined:?}; HTTP={http_joined:?}")
         })?;
         http_joined?;
         joined?;
@@ -267,7 +305,7 @@ struct Cell {
     name: &'static str,
     history: CellHistory,
     original: CommandReceipt,
-    latest: CellVersionToken,
+    latest: CommandReceipt,
     value: i64,
     sequence: u64,
 }
@@ -365,21 +403,28 @@ impl Ingress<'_> {
                 && receipt.witness.group == expected.history
                 && receipt.durability == Durability::S3
         );
-        cell.latest = receipt.version_token;
+        cell.latest = receipt;
         cell.value += 1;
         cell.sequence += 1;
         Ok(())
     }
 }
 
-async fn exercise(
+struct Prepared {
+    cells: Vec<Cell>,
+    order: Vec<usize>,
+    coordinator: RaftFleetControl,
+    first: [GroupRoute; 2],
+    client: reqwest::Client,
+    retry: u64,
+}
+
+async fn prepare(
     cluster: &ManagedCluster,
-    web: &http::Web,
-    callbacks: &AtomicUsize,
     rooted: bool,
     workers: &mut Vec<RaftFleetTransitionService>,
     roots: &mut Vec<tempfile::TempDir>,
-) -> Result<()> {
+) -> Result<Prepared> {
     let retry = u64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -389,12 +434,6 @@ async fn exercise(
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
         .build()?;
-    let ingress = Ingress {
-        cluster,
-        web,
-        client: &client,
-        retry,
-    };
     let selected = leader(&cluster.hosts[..3], cluster.history).await?;
     let mut cells = Vec::new();
     for (index, name) in NAMES.into_iter().enumerate() {
@@ -420,7 +459,7 @@ async fn exercise(
         cells.push(Cell {
             name,
             history,
-            latest: original.version_token.clone(),
+            latest: original.clone(),
             original,
             value: 1,
             sequence: 2,
@@ -460,6 +499,38 @@ async fn exercise(
     ))
     .await?;
     ensure!(first[0].range.merge(&first[1].range)? == CellRange::all());
+    Ok(Prepared {
+        cells,
+        order,
+        coordinator,
+        first,
+        client,
+        retry,
+    })
+}
+
+async fn exercise(
+    cluster: &ManagedCluster,
+    web: &http::Web,
+    callbacks: &AtomicUsize,
+    rooted: bool,
+    workers: &mut Vec<RaftFleetTransitionService>,
+    roots: &mut Vec<tempfile::TempDir>,
+) -> Result<()> {
+    let Prepared {
+        mut cells,
+        order,
+        coordinator,
+        first,
+        client,
+        retry,
+    } = prepare(cluster, rooted, workers, roots).await?;
+    let ingress = Ingress {
+        cluster,
+        web,
+        client: &client,
+        retry,
+    };
     for (index, cell) in cells.iter_mut().enumerate() {
         let expected = route(&first, &cell.history)?;
         ingress.write(cell, expected, index, None).await?;
@@ -506,8 +577,22 @@ async fn exercise(
         directory_lookups(cluster)? == before,
         "interval repair evicted an unrelated cached range"
     );
+    verify(cluster, web, &client, &cells, &current, retry, callbacks).await?;
+    eprintln!("public split routing extents={rooted}: two live RF3 splits; unrelated range retained before and after overlap repair; exact original IDs, S3 receipts and old AtLeast tokens; unchanged two-history/512-MiB profiles");
+    Ok(())
+}
+
+async fn verify(
+    cluster: &ManagedCluster,
+    web: &http::Web,
+    client: &reqwest::Client,
+    cells: &[Cell],
+    current: &[GroupRoute; 3],
+    retry: u64,
+    callbacks: &AtomicUsize,
+) -> Result<()> {
     for (index, cell) in cells.iter().enumerate() {
-        let expected = route(&current, &cell.history)?;
+        let expected = route(current, &cell.history)?;
         let handle = cluster.hosts[INGRESS].cell(cell.history.clone())?;
         let replay = handle
             .command(
@@ -537,13 +622,24 @@ async fn exercise(
         ensure!(
             read.result == cell.value.to_be_bytes()
                 && read.version.history == cell.history
-                && read.witness.group == expected.history
+                && read.witness == cell.latest.witness
         );
         let placement = current
             .iter()
             .position(|route| route.history == expected.history)
             .context("selected physical placement")?;
-        for voter in [[0, 1, 6], [2, 5, 6], [1, 2, 4]][placement] {
+        for (member, voter) in [[0, 1, 6], [2, 5, 6], [1, 2, 4]][placement]
+            .into_iter()
+            .enumerate()
+        {
+            let observed = cluster.hosts[voter]
+                .group(expected.history)?
+                .observe(TIMEOUT)
+                .await?;
+            ensure!(
+                observed.replica.scope == expected.history
+                    && observed.replica.member == MemberId::new(member as u64 + 1)?
+            );
             let local = cluster.hosts[voter].cell(cell.history.clone())?;
             let read = local
                 .query(
@@ -551,7 +647,7 @@ async fn exercise(
                     &local.contract("Get")?,
                     vec![],
                     QueryOptions {
-                        consistency: QueryConsistency::AtLeast(cell.latest.clone()),
+                        consistency: QueryConsistency::AtLeast(cell.latest.version_token.clone()),
                         routing: QueryRouting::Local,
                         timeout: TIMEOUT,
                         ..Default::default()
@@ -561,13 +657,15 @@ async fn exercise(
             ensure!(
                 read.result == cell.value.to_be_bytes()
                     && read.version.history == cell.history
-                    && read.witness.group == expected.history
+                    && read.witness == cell.latest.witness
+                    && read.served_by == observed.replica.member
+                    && read.served_by_node == cluster.hosts[voter].identity()
             );
         }
         for axum in [false, true] {
             let reply = web
                 .query(
-                    &client,
+                    client,
                     (INGRESS, axum),
                     cell.name,
                     "at-least",
@@ -577,10 +675,19 @@ async fn exercise(
                 .await?
                 .success()?;
             http::value(&reply, cell.name, cell.value)?;
-            ensure!(reply["group"] == hex::encode(expected.history.group.bytes()));
+            ensure!(
+                reply["group"] == hex::encode(cell.latest.witness.group.group.bytes())
+                    && reply["group_incarnation"]
+                        == hex::encode(cell.latest.witness.group.incarnation.bytes())
+                    && reply["index"].as_u64() == Some(cell.latest.witness.position.index.get())
+                    && reply["term"].as_u64() == Some(cell.latest.witness.position.term.get())
+            );
         }
     }
-    ensure!(callbacks.load(Ordering::Acquire) == 6 + 6 + 1 + 9 + 1);
+    ensure!(
+        i64::try_from(callbacks.load(Ordering::Acquire))?
+            == cells.iter().map(|cell| cell.value).sum::<i64>()
+    );
     for (index, host) in cluster.hosts.iter().enumerate() {
         let observed = host.observe_node(TIMEOUT).await?;
         ensure!(
@@ -593,6 +700,5 @@ async fn exercise(
             ensure!(observed.node.groups == 0);
         }
     }
-    eprintln!("public split routing extents={rooted}: two live RF3 splits; unrelated range retained before and after overlap repair; exact original IDs, S3 receipts and old AtLeast tokens; unchanged two-history/512-MiB profiles");
     Ok(())
 }

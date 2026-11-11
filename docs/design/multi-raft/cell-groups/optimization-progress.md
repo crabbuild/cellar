@@ -70,7 +70,7 @@ and its named RO/RL cases remain the acceptance contract:
 | Package | Outstanding delivery |
 | --- | --- |
 | OPT-01 | Finish smallest-scope negative-path repair and validate membership, public authority isolation and ambiguous outcomes; RO-01/02 runtime cases pass below, while broader RO-03/04/07/08 gates remain open |
-| OPT-02 | Selected public RO-05 interval-repair oracle passes below; delayed lookup/generation and remaining demand-refresh cuts for RO-06/09 remain open |
+| OPT-02 | Selected public RO-05 interval-repair and RO-06 SDK split oracles pass below; HTTP/recovery lookup cuts and remaining demand-refresh qualification stay open |
 | OPT-03 | Automatic consistency-aware selection and bounded fallback candidate below; public network partition/RecentSource expiry and full RO-10 acceptance remain open; the public RO-11 cohort oracle passes at its source checkpoint below |
 | OPT-04 | Physical shared-file/segment release proof and once-only accounting qualification; RL-01 through RL-05 |
 | OPT-05 | Load telemetry, reserve-aware placement and repeated release-scale movement; RL-06 |
@@ -1039,3 +1039,67 @@ throughout. This closes the selected public RO-05 functional oracle. The earlier
 variable failures remain retained; a passing run of this test-only change does
 not establish their cause. This campaign does not qualify the new source on
 Linux/RustFS, the delayed-lookup RO-06 case, performance or a complete OPT package.
+
+The next RO-06 candidate holds a real tree-changing directory CAS after ordinary
+split preparation, then holds an ingress caller's actual old directory-head
+response. A second public lookup must install the activated child generation before
+the old GET completes. The old command must retain its ID and refuse the
+superseded observation without an application RPC; exact-ID reconciliation must
+use the already-cached child. Unrelated cached routes, old receipt tokens and
+current replicas' SQL values remain required. Fault gates surround the actual
+object-store operations and release on every error path. Once the old command
+is constructed, all work keeps its original five-second call bound. This candidate
+is unqualified until its own source-matched compile and runtime checks pass.
+
+Candidate `3b06f2c1` passed strict Clippy and repeated RO-05 in both modes, but its
+RO-06 setup found no physical immutable-page read: the ordinary directory client
+already cached those bytes. The fault cut now retains the actual head GET result
+after the backend selects its body and version. Cached immutable pages remain
+enabled. The corrected physical cut has not yet been qualified.
+
+Candidates `84dd66d8` and `1d301685` reached the controlled publication cut,
+but the query assertion incorrectly required a transferred cell's data witness
+to name its current group. The captured reply retained the original parent
+commit, matching `CellManifestLeaf.witness`'s documented contract. The candidate
+now uses a fresh Quorum command receipt to anchor the new child before releasing
+the old lookup. Query checks retain the exact latest data witness across transfer;
+local reads must report the expected voter identity, independently observed in
+the current child. The original delayed command still must refuse a superseded
+observation without an application RPC, then reconcile its exact ID. These
+fixture corrections remain unqualified pending a new source-matched run.
+
+## Delayed SDK lookup result and current Linux checkpoint
+
+Source manifest `5e71d680` passed the selected public RO-06 SDK split oracle in
+both image modes, using the same retained executables, in 75 seconds. The physical
+old head response crossed a real split publication. A fresh Quorum command
+anchored the activated child; releasing the old response produced the exact
+superseded-observation refusal without an application RPC. Reconciliation kept
+the original command ID and S3 requirement, used the already-cached child, and
+left unrelated cached routes intact. Every current voter returned the expected
+SQL value and reported its expected member/node identity. Query observations
+retained each logical version's original commit witness across transfer.
+
+Those binaries also passed RO-05 in both modes, periodic settlement, physical
+segment credit and election. The cold-refresh case failed during materialized
+initial group readiness, before its discovery cut: all three voters had no leader,
+with idle SQL/controller admission. Broad suites were not entered. The prior
+run's materialized RO-06 passed, but its extent startup failed before the race.
+Both failures remain retained. Strict library/six-target Clippy and all static
+checks passed for this source. Evidence is in `live-old-lookup-5e71d680`,
+`live-old-lookup-repeat-5e71d680` and `live-old-lookup-static-5e71d680`. This
+qualifies the selected SDK split oracle, not HTTP/recovery cuts, a complete
+composed runtime campaign or an OPT package.
+
+Published revision `dd0b1060`, source manifest `fc2e5e15`, independently passed
+both materialized and extent Linux Colima/RustFS campaigns. Its immutable image
+is `sha256:a6e80300d34457df9ef6b9f039ebcb5c7791d572c6016e1a76d2ff2f0fb791a1`.
+Retained resource observations confirm one CPU/3 GiB and no additional swap for
+each voter, with the original request, archive-restoration and maintenance
+deadlines. The ledgers cover archive-outage refusal and original S3 receipt
+replay, leader hard kill/restart, maintenance resume, park/wake and joined
+shutdown in both modes. Evidence is in `linux-daemon-dd0b1060ea3a-ranges`.
+Standby repair and failed-voter repair were disabled, so these are not full CG-13
+results. The scope is separate Linux cgroups and disks in one VM; no independent
+failure-domain or performance claim follows. This Linux image does not qualify
+the later `5e71d680` test source.
