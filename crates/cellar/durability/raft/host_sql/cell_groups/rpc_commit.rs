@@ -90,9 +90,7 @@ pub(super) async fn wait_checkpoint(
                 }
             }
             Ok(_)
-            | Err(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded) => {
-                ()
-            }
+            | Err(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded) => {}
             Err(error) => return Err(crate::raft::execution::authority_failure(error)),
         }
         match runtime
@@ -103,9 +101,7 @@ pub(super) async fn wait_checkpoint(
                 return Ok(CheckpointProof::Reconcile(Box::new(proof)))
             }
             Ok(_)
-            | Err(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded) => {
-                ()
-            }
+            | Err(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded) => {}
             Err(error) => return Err(crate::raft::execution::authority_failure(error)),
         }
         pause(&domain).await?;

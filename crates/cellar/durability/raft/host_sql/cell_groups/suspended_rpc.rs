@@ -256,6 +256,7 @@ impl Cells {
                 return Err(ExecutionError::Invalid("SQL cell history"));
             }
             check_waiter(mode, &reply, domain.mono_ms().map_err(|_| unavailable())?)?;
+            let commits = commits.map(|context| *context);
             let max_result = options.limits().max_result_bytes;
             let mut executor = options.open(authority)?;
             let start = domain

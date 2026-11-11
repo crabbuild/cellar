@@ -15,7 +15,7 @@ pub(super) enum Callback {
         class: Arc<crate::application::consensus::RaftClass>,
         input: Box<[u8]>,
         system: bool,
-        commits: Option<RpcCommitContext>,
+        commits: Option<Box<RpcCommitContext>>,
     },
 }
 

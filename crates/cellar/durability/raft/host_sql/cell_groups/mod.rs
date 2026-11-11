@@ -683,7 +683,7 @@ impl CellGroupSqlPool {
                 class,
                 input: input.into_boxed_slice(),
                 system: false,
-                commits: Some(commits),
+                commits: Some(Box::new(commits)),
             },
         )
         .await
