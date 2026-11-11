@@ -1432,3 +1432,63 @@ prefix and 14 fixture/control disks remain retained. Its generic snapshot
 observes the retired original group rather than the selected serving group,
 so the failure cause remains open. Delayed lookup and the ordinary primitive
 suite were not reached. No deadline, identity, capacity or assertion was relaxed.
+
+## Retry horizons and protocol future boundary
+
+A fresh RustFS diagnostic on source `d214e53b` captured a destination refusal
+for `Counter:five`, client `cc` repeated 16 bytes and sequence three:
+`Execution(Invalid("command retry window"))`. The selected child had an active,
+ready leader. The fixture had captured one 60-second retry horizon before
+initial commands and two split preparations, then reused it for new command
+identities. This proves that fixture hazard for this observation. It does not
+individually explain the earlier `ca`/sequence-three HTTP or `cc`/sequence-two
+Quorum failures. The original records remain retained.
+
+Source `95db97a5`, committed in `c27d04a5` and `d9792f5b`, captures the existing
+60-second horizon when each new logical command is created. Original receipt
+replays and pending delayed-lookup reconciliation retain their saved IDs,
+inputs and horizons. Individual five-second calls, the remaining held-call
+deadline, transition bounds, resource capacities and assertions are unchanged.
+Failure context identifies the selected serving group after a split.
+
+The composed library-test build exposed a `Send` type-evaluation overflow at
+the connection task. One private `IncomingCall::execute` boundary now returns
+a boxed future; its dispatch bodies and ownership transfer remain unchanged.
+Strict library/seven-target Clippy passes with this boundary. The first
+subsequent build retained a Rust 1.98.1 incremental-fingerprint compiler panic.
+After retaining only this checkout's affected incremental directories, the
+same source and compiler/profile built successfully. This comparison does not
+establish a general compiler fix.
+
+The native campaign `query-future-fresh-native-95db97a5` remains **failed**.
+Ten of the 12 routing cases passed, including both overlap modes, all six
+delayed-lookup interactions and all six cached-origin interactions. All five
+primitive cases, all 11 scheduler cases, metric-owner/held-sync/park/wake and
+public startup/quorum-loss checks passed. Library/seven-target Clippy,
+CI-profile builds, formatting for 2,198 Rust files, layout, dependency and docs
+checks passed, as did 317 performance-tool, 94 multi-raft-tool and 44 design
+tests; each of the first two tool suites skipped one opt-in case. Five test
+executables and the operator CLI were retained and verified against their
+executed hashes.
+
+`membership_refresh_keeps_range` failed before scenario evidence at the
+five-second read-only `first-group standby` CLI call. Separately,
+`leader_probe_storm_is_bounded` failed initial RF3 readiness in a later fresh
+materialized fixture with `Transport(Timeout)`, after an earlier overlapping
+probe interaction completed. Neither failure is a completed optimization
+oracle or evidence of a causal fix. Their original logs and records remain
+retained; no deadline, retry budget or assertion was relaxed.
+
+The matching Linux build did not reach voter execution: `rustc` received
+`SIGKILL` and BuildKit reported `ResourceExhausted: cannot allocate memory`
+on the owned four-CPU/6-GiB parent VM. Its failed record remains
+`linux-build-d9792f5b403e-95db97a5`. No current-source Linux image or daemon
+qualification is claimed. The older `dd0b1060` / `fc2e5e15` constrained voter
+checkpoint above remains separate.
+
+Keep PR #167 draft. Next are diagnosis of the membership setup and initial probe-storm readiness
+timeouts, current-source RustFS routing/primitive qualification, and matching constrained
+Linux voters with adequate parent-VM memory and unchanged per-voter caps.
+Endpoint-only repair remains an isolated, unqualified draft. The authority,
+recovery, reclamation, placement, scheduling and final matrix gates listed
+above remain open; none of OPT-01 through OPT-08 is accepted as complete.
