@@ -73,6 +73,7 @@ pub(super) struct Probes {
 struct Owner {
     shared: Arc<Shared>,
     pending: Arc<Pending>,
+    performance: Arc<crate::raft::performance::Registry>,
     finished: bool,
 }
 
@@ -91,6 +92,10 @@ impl Owner {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .remove(&(Arc::as_ptr(&self.pending) as usize));
+        // A terminal plan includes failures and unpolled drops. Its result may
+        // still be retained and charged by waiters after leaving this index.
+        self.performance
+            .increment(Counter::CellLeaderProbeFinishes, 1);
         self.pending.result.send_replace(Some(result));
     }
 }
@@ -188,6 +193,7 @@ impl Probes {
         let owner = Owner {
             shared: self.shared.clone(),
             pending: pending.clone(),
+            performance: state.performance.clone(),
             finished: false,
         };
         state

@@ -243,9 +243,10 @@ pub(crate) enum Counter {
     CellReadCohortsStarted,
     CellLeaderProbeOwners,
     CellLeaderProbeJoins,
+    CellLeaderProbeFinishes,
 }
 
-const COUNTERS: [Counter; 57] = [
+const COUNTERS: [Counter; 58] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -303,6 +304,7 @@ const COUNTERS: [Counter; 57] = [
     Counter::CellReadCohortsStarted,
     Counter::CellLeaderProbeOwners,
     Counter::CellLeaderProbeJoins,
+    Counter::CellLeaderProbeFinishes,
 ];
 
 impl Counter {
@@ -310,6 +312,7 @@ impl Counter {
         match self {
             Self::CellLeaderProbeOwners => "cell_leader_probe_owners",
             Self::CellLeaderProbeJoins => "cell_leader_probe_joins",
+            Self::CellLeaderProbeFinishes => "cell_leader_probe_finishes",
             Self::CellMembershipDiscoveryOwners => "cell_membership_discovery_owners",
             Self::CellMembershipRefreshJoins => "cell_membership_refresh_joins",
             Self::CellReadBarriers => "cell_linearizable_read_barriers",

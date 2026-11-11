@@ -271,7 +271,12 @@ and the unchanged transport task limit. When optional coalescing cannot fit,
 the original bounded inline discovery remains available. Completed results leave
 the index before delivery, and route/configuration changes fence completion.
 `cell_leader_probe_owners` and `cell_leader_probe_joins` distinguish shared discovery
-from actual `cell_command_leader_probes`. Ten private ownership cases and the
+from actual `cell_command_leader_probes`. `cell_leader_probe_finishes` counts
+terminal owners, including failed plans and unpolled drops. A finished result can
+remain retained and charged by a waiter. These cumulative advisory counters do
+not constitute a capacity-release or authority proof. Coalescing covers an
+entered pending plan; subsequent plans still use the original finite invocation
+attempt bank after a completed plan. Ten private ownership cases and the
 existing retry, advice, codec and performance cases passed at source manifest
 `19402216`, together with focused strict Clippy and static checks. Endpoint-only
 repair and the public RO-03 through RO-09 qualification remain open.

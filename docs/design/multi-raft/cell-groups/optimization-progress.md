@@ -912,6 +912,81 @@ archive or maintenance assertion fails, the process harness records bounded
 snapshots from the voters, then propagates the original error. Snapshots do not
 retry a mutation, extend its reconciliation window or establish archive proof.
 Strict library/daemon Clippy and static checks passed before committing this
-source. Its immutable Linux image and three-voter Colima/RustFS campaign are
-running with the original limits and deadlines. The two preceding extent-image
-failures remain open pending that evidence.
+source. Its immutable Linux image passed both materialized and extent modes twice in
+fresh three-voter Colima/RustFS clusters. The image is
+`sha256:51b8a98add4ff1071f2f8ff198f194501644cb31edf24e3267d7c3afe5232901`.
+Both runs retained the original one-CPU/3-GiB voter caps, zero swap and request
+and maintenance deadlines. The independently checked ledgers cover original S3
+receipt acknowledgement after archive restoration, leader loss/restart,
+maintenance resume, park/wake, SQL/receipts and both native/Axum ingress paths.
+Evidence is in the Linux checkout's `linux-daemon-bb1d196501ed-diagnostics` and
+`linux-daemon-bb1d196501ed-repeat` directories. The earlier failed source and its
+disks remain retained; these passes do not establish the cause of those failures.
+The scope is three Linux voters with separate cgroups and disks in one VM,
+without independent failure-domain, performance or complete OPT acceptance.
+
+
+## RPC base integration and public probe candidate
+
+The optimization branch includes the RPC checkpoint base through `f1ad8b90` in
+merge `c51c8475`. Composed source manifest `cdfb3219` passed strict library/six-target
+Clippy and all 60 selected library cases. Its new public probe fixture passed
+the first cancellation case but failed the shutdown case because two concurrent
+commands used sequences one and two from the same client. Correct `SequenceGap`
+refusal exposed that invalid fixture ordering. The candidate now uses two
+independent clients at sequence one and preserves each exact ID for replay.
+The public oracle and complete composed runtime campaign remain under validation.
+No RO or OPT acceptance follows from the failed fixture run.
+
+
+The corrected-ID candidate `e0e57e6e` again passed strict Clippy and the 60
+selected library cases. Its first two public probe scenarios passed; the next
+scenario returned typed `Execution(Busy)` during exact-ID replay. The fixture now
+waits, within its existing five-second bound, for the actual voter SQL/controller
+owners to drain before starting replay. Quiescence only synchronizes the fixture;
+the subsequent replay must still establish the exact result and current authority.
+That correction is under validation. Both failed candidates retain their binaries,
+source manifests, logs and disks; neither is counted as full runtime acceptance.
+
+
+The `339df88c` candidate passed strict Clippy and the 60 library cases. Its first
+public scenario completed both exact-ID replays with two callbacks, but its final
+counter assertion rejected two sequential discovery plans (one join and four
+actual probes) during wake. That assertion confused cumulative starts with live
+ownership. The candidate now records terminal discovery owners, including failure
+and unpolled-drop paths. The held overlap still requires exactly one live owner,
+one join and one probe. Completed plans and joins must fit the two callers' existing
+four-attempt banks, and every plan retains its original three-member probe bound.
+Final owner termination and joined shutdown remain required. The new counter and
+revised oracle are under validation; the original failed records remain retained.
+
+## Composed public probe result and remaining failures
+
+Source manifest `ca1432ed`, based on merge `c51c8475`, passed strict library and
+six-target Clippy, all 60 selected library cases and the public
+`leader_probe_storm_is_bounded` oracle. All eight combinations of image mode,
+native/Axum HTTP and cancellation/joined-close cuts passed. During the held
+physical wake sync, SDK and HTTP callers shared exactly one authenticated probe
+owner, one join and one actual probe. The original two-slot ingress bank refused
+a third caller before admission. Both original command IDs reconciled with two
+callbacks and exact results; all entered probe plans terminated within the
+original attempt banks. This qualifies that selected oracle, not every RO-09 cut.
+
+The same immutable source and retained binaries passed all 193 nonignored
+execution cases, both primitive cases, all 21 storage cases, both public read
+ledger verifiers and the real RustFS segment-credit case in both image modes.
+Formatting, layout, native dependency and documentation checks passed. Evidence
+is retained in `composed-probes-ca1432ed`, including the source manifest, working
+patch, changed sources, seven executable hashes and complete logs.
+
+The composed campaign failed two existing cases. Scheduler results were ten
+passes and one failure: `periodic_raft_segment_settlement_retries_the_local_receipt`
+returned an ambiguous `Runtime(DeadlineExceeded)` for seed command client `c8`,
+sequence one, in materialized mode. The seven earlier routing cases had six passes
+and one failure: `refresh_storm_is_bounded` returned HTTP 503 with an ambiguous
+`Unavailable` outcome for client `a8`, sequence one, in the extent/native HTTP
+cold-refresh pair. Neither failure is treated as successful qualification or
+attributed to a particular change without further evidence. Limits, deadlines,
+receipt assertions and command identities were unchanged. These failures and
+matched-source Linux verification are the next integration priorities; live
+range-publication and remaining RO/RL, crash and performance gates stay open.

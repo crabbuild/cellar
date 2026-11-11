@@ -11,6 +11,9 @@ mod busy;
 #[path = "cell_group_routing_refresh.rs"]
 mod refresh;
 
+#[path = "cell_group_routing_probe.rs"]
+mod probe;
+
 #[path = "cell_group_routing_read_gate.rs"]
 mod read_gate;
 
@@ -83,6 +86,10 @@ pub(super) async fn refresh_storm_is_bounded() -> Result<()> {
         run(Scenario::RefreshClose { axum }).await?;
     }
     Ok(())
+}
+
+pub(super) async fn leader_probe_storm_is_bounded() -> Result<()> {
+    Box::pin(probe::run()).await
 }
 
 pub(super) async fn read_cohort_has_fresh_barrier() -> Result<()> {

@@ -298,6 +298,15 @@ async fn dropped_unpolled_owner_wakes_every_waiter() -> anyhow::Result<()> {
     let mut first = state.leader_probes.admit(state, key.clone())?;
     let second = state.leader_probes.admit(state, key)?;
     drop(first.owner.take());
+    let observed = state.performance.snapshot();
+    assert_eq!(
+        observed.counters[Counter::CellLeaderProbeOwners as usize].value,
+        1
+    );
+    assert_eq!(
+        observed.counters[Counter::CellLeaderProbeFinishes as usize].value,
+        1
+    );
     for admitted in [&first, &second] {
         assert_eq!(
             admitted.wait(state, state.domain.mono_ms()? + 1000).await,
@@ -386,5 +395,14 @@ async fn physical_probe_survives_first_cancellation_and_close_joins_it() -> anyh
     assert_eq!(state.usage().tasks, 0);
     assert_eq!(state.leader_probes.limit.usage(), (0, 0));
     drop(socket);
+    let observed = state.performance.snapshot();
+    assert_eq!(
+        observed.counters[Counter::CellLeaderProbeOwners as usize].value,
+        1
+    );
+    assert_eq!(
+        observed.counters[Counter::CellLeaderProbeFinishes as usize].value,
+        1
+    );
     fixture.close().await
 }
