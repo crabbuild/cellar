@@ -13,8 +13,8 @@ CG-17's [full primitive compatibility design](qualification.md#full-primitive-co
 adds eight delivery packages and 32 required cases. CG17-01, CG17-02 and
 CG17-03 are in progress. Ordinary JSON cell RPC handlers and async Storage
 transaction callbacks can suspend while the SQL worker serves other cells.
-Independent root checkpoint settlement passes scoped native RF3 qualification;
-see the current checkpoint below.
+Independent root checkpoint settlement and ordinary Storage sync pass scoped
+native RF3 and real-RustFS qualification; see the current checkpoint below.
 The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
 routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
 routing/read work and its remaining gates are tracked in
@@ -23,6 +23,47 @@ to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 ordinary Storage sync
+
+Source `6daed3cc` connects ordinary RPC `Storage::sync()` to the existing exact
+checkpoint owner. It reserves a slot in root-transaction call order, captures
+preceding private SQL/KV writes and completes after the invocation's quorum/S3
+proof. Dropping an unpolled result future leaves that admitted boundary owned by
+the RPC. Sync shares `max_pending_transactions` with callbacks, including typed
+overload and zero-limit refusal.
+
+Open synchronous and async transaction callbacks refuse sync before scheduling;
+no savepoint is published as a separate commit. Synchronous registered commands
+and immutable queries retain their existing completion contracts. Later RPC
+failure preserves applied sync checkpoints; live leader replacement fences the
+continuation and retains pending invocation uncertainty.
+
+The extended public case passes at `6daed3cc` in 60.368 seconds. It checks a
+queued root before explicit S3 sync, partial failure and original-ID replay,
+dropped sync futures, and live term replacement. Four further exact selections
+pass for committed Storage, ordinary native async transactions, Storage and HTML
+rewriting. No selected case is ignored or empty.
+
+The reusable `cell_groups.py --suite ordinary-primitives` also passes the exact
+RustFS case in 62.589 seconds at the same source and with the same executable hash. Both image
+modes use host-native RF3 TLS, two cells sharing a group and one SQL worker per
+node. The owned, digest-pinned RustFS container has one CPU and 2 GiB with no
+extra swap. It exits zero without OOM, its VM is stopped, and target/default VMs
+are unchanged. Voters are host-native tasks; constrained voter containers,
+physical crashes, partitions and disk-loss recovery are not qualified here.
+
+Formatting, strict all-target Clippy, layout, docs, native dependencies and the
+partial catalog check pass. Source, executable and log hashes, the scoped RustFS
+record and verified shutdown are retained in
+`.cellar/cell-groups-evidence/CG-17-sync-6daed3cc-01`. Basic requests retain five
+seconds and cancellation one second; multi-stage conformance requests retain
+their upfront twenty-second budget. Capacity bounds are unchanged; no latency
+or throughput SLO is qualified.
+
+Persistent activation, same-cell interleaving, automatic output/dispatch gates,
+remaining Storage methods, family/provider adapters and the complete CG-17
+matrix remain open. This checkpoint does not accept CG-17 or the release gate.
 
 ## CG-17 independent RPC transaction checkpoints
 

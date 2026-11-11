@@ -19,8 +19,13 @@ The RF3 public case at `77075d36` passes both image modes, partial failure,
 leader transfer, pending lookup, fresh sequence admission and unpolled-response
 replay. Nine exact native selections pass. Basic requests retain five-second
 deadlines; the six-commit conformance request declares twenty seconds upfront.
-Current-source RustFS and performance qualification stay open. Next complete
-persistent shared activation, same-cell interleaving, ordinary sync/output gates
+The [ordinary Storage sync checkpoint](progress.md#cg-17-ordinary-storage-sync)
+at `6daed3cc` adds ordered sync with bounded ownership and exact quorum/S3 proof.
+Five exact native selections and the matching real-RustFS RPC case pass, including
+both image modes, partial failure, dropped sync futures and live term replacement.
+The owned backend/VM is stopped. Full primitive and performance qualification
+remain open. Next complete persistent shared activation, same-cell interleaving,
+automatic output/dispatch gates, remaining Storage methods
 and the compiled export/deployment audit. That foundation supports durable work and family
 adapters. The catalog remains partial
 and CG-17 acceptance stays open. CG-13 can progress
