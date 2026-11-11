@@ -572,7 +572,9 @@ async fn run_native_cell_rpc(rooted: bool) -> Result<()> {
             ensure!(calls.load(Ordering::Acquire) == 6);
             Ok::<_, anyhow::Error>(())
         })
-        .await;
+        .await
+        .context("Raft RPC execution domain")
+        .and_then(std::convert::identity);
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;
