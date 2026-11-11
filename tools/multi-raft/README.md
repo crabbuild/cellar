@@ -110,6 +110,12 @@ python3 tools/multi-raft/cell_groups.py --suite ordinary-primitives \
   --target-directory /absolute/checkout-private/target
 ```
 
+Pass `--keep-going` to collect all standalone primitive case results after a
+case failure. Each case uses its own native process and store prefix. Any failed,
+ignored, empty or missing case keeps the campaign failed; executable/source
+changes and failed prerequisites still stop it. Managed process/fault suites do
+not accept this option. The report retains separate passed and failed case lists.
+
 This selects six exact cases that run both image modes on host-native RF3.
 The checkpoint case uses two cells sharing a group and one SQL worker per node. It checks ordinary
 Storage SQL/KV, independently committed async transactions, ordered explicit

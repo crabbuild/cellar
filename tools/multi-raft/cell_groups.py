@@ -580,7 +580,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--target-directory", type=Path, required=True,
                         help="absolute checkout-private Cargo target on the workspace volume")
+    parser.add_argument("--keep-going", action="store_true",
+                        help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
+    if args.keep_going and args.suite != "ordinary-primitives":
+        parser.error("--keep-going requires the process-isolated ordinary-primitives suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -599,6 +603,7 @@ def main():
         "suite": args.suite, "test_target": target,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(args.suite), "backend": remote, "prefix": prefix, "commands": [],
+        "keep_going": args.keep_going, "passed_cases": [], "failed_cases": [],
         "limitations": ("Host-native three-voter TLS fixture, both image forms, with RustFS in one local VM. "
                         + limitations + " Independent hosts remain a separate gate."),
     }
@@ -687,20 +692,29 @@ def main():
                         or sha(retained) != operator_hash):
                     raise RuntimeError("cold managed recovery operator changed during qualification")
             save()
-            if result.returncode:
-                raise RuntimeError(f"{selection} failed; see {log}")
+            if not match:
+                raise RuntimeError("missing executable provenance")
+            if result.returncode or (number != 0 and not exact_case_passed(output, selection)):
+                record["failed_cases"].append(selection)
+                save()
+                if not args.keep_going or number == 0:
+                    raise RuntimeError(f"{selection} failed; see {log}")
+                # These fixtures run in separate native processes with distinct
+                # store prefixes. No managed process/fault suite can use this.
+                print(f"FAIL {selection}; continuing independent cases", flush=True)
+                continue
             if number == 0:
                 for case in cases:
                     if not re.search(rf"^{re.escape(case)}: test$", output, re.M):
                         raise RuntimeError("missing exact RustFS test in executable inventory")
-            elif not exact_case_passed(output, selection):
-                raise RuntimeError("exact RustFS test was not executed successfully")
-            if not match:
-                raise RuntimeError("missing executable provenance")
+            else:
+                record["passed_cases"].append(selection)
             print(f"PASS {selection}", flush=True)
         if sources(args.suite) != record["source_inputs"]:
             raise RuntimeError("source changed during qualification")
         backend(args.backend.resolve())
+        if record["failed_cases"]:
+            raise RuntimeError(f"primitive campaign failed: {', '.join(record['failed_cases'])}")
         record["status"] = "PASSED"
         record["passed_cases"] = list(cases)
     except Exception:
