@@ -12,6 +12,7 @@ struct State {
     held: bool,
     entered: BTreeSet<String>,
     timed_out: bool,
+    queries: std::collections::BTreeMap<String, usize>,
 }
 
 #[derive(Default)]
@@ -42,6 +43,10 @@ impl Callbacks {
     pub fn query(&self, cell: &CellHistory) {
         self.queries.fetch_add(1, Ordering::AcqRel);
         let mut state = self.state.lock().unwrap();
+        *state
+            .queries
+            .entry(cell.cell.as_str().to_owned())
+            .or_default() += 1;
         if !state.held {
             return;
         }
@@ -62,6 +67,10 @@ impl Callbacks {
         } else {
             None
         }
+    }
+
+    pub fn entries(&self) -> std::collections::BTreeMap<String, usize> {
+        self.state.lock().unwrap().queries.clone()
     }
 
     pub fn clean(&self) -> Result<()> {

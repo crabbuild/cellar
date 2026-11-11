@@ -178,6 +178,8 @@ pub struct Store {
     pub range_before: RegistryGate,
     pub range_genesis_after: RegistryGate,
     pub first_group_birth_after: RegistryGate,
+    pub range_head_reads: AtomicUsize,
+    pub range_page_reads: AtomicUsize,
     pub range_page_puts: AtomicUsize,
     pub fail_closure_after: AtomicBool,
     pub fail_fleet_before: AtomicBool,
@@ -699,6 +701,12 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if path.as_ref().ends_with("/cell-groups/head") {
+            self.range_head_reads.fetch_add(1, Ordering::AcqRel);
+        }
+        if path.as_ref().contains("/cell-groups/ranges/") {
+            self.range_page_reads.fetch_add(1, Ordering::AcqRel);
+        }
         if self.deny_routing_metadata_reads.load(Ordering::Acquire)
             && (path.as_ref().contains("/cell-groups/")
                 || path.as_ref().contains("/fleet/")

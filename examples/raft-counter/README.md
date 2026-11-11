@@ -91,6 +91,7 @@ portable proof. A token does not grant access without the bearer credential.
 
 | Header | Value |
 | --- | --- |
+| `x-query-id` | Optional nonzero 16-byte invocation identity in hex, passed unchanged to the SDK; omission generates a fresh process-scoped identity |
 | `x-read-consistency` | `linearizable` (default), `at-least`, or `stale` |
 | `x-min-version` | A returned `version_token`; required for `at-least`, rejected for other modes |
 | `x-read-policy` | Stale reads only: `recent-source` (default) or explicitly `disconnected-historical`, which has no age bound |
