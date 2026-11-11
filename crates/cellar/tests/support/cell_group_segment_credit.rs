@@ -13,6 +13,9 @@ const INPUT_BYTES: usize = 12 * 1024;
 pub(super) async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     let cluster = Box::pin(start(rooted, store, false)).await?;
     let result = Box::pin(exercise(&cluster)).await;
+    if result.is_err() {
+        managed_fixture::diagnostics::record(&cluster, "segment-credit").await;
+    }
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
     if result.is_err() || joined.is_err() {
         for root in cluster.roots {
@@ -223,9 +226,20 @@ pub(super) async fn periodic(rooted: bool) -> Result<()> {
     let store = Arc::new(catalog_fault::Store::default());
     let cluster = Box::pin(start(rooted, store.clone(), true)).await?;
     let result = Box::pin(exercise_periodic(&cluster, &store)).await;
+    if result.is_err() {
+        managed_fixture::diagnostics::record(&cluster, "periodic-segment-credit").await;
+    }
     store.fleet_cas_hang.store(false, Ordering::Release);
     store.fleet_cas_resume.notify_waiters();
     let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+    if result.is_err() || joined.is_err() {
+        for root in cluster.roots {
+            eprintln!(
+                "retained periodic segment-credit disk: {}",
+                root.keep().display()
+            );
+        }
+    }
     cluster.fixtures[0].domain.shutdown().await;
     result.with_context(|| format!("periodic segment purge retry, extents={rooted}"))?;
     joined

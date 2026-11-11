@@ -14,6 +14,9 @@ mod refresh;
 #[path = "cell_group_routing_probe.rs"]
 mod probe;
 
+#[path = "cell_group_routing_ranges.rs"]
+mod ranges;
+
 #[path = "cell_group_routing_read_gate.rs"]
 mod read_gate;
 
@@ -92,6 +95,10 @@ pub(super) async fn leader_probe_storm_is_bounded() -> Result<()> {
     Box::pin(probe::run()).await
 }
 
+pub(super) async fn split_repairs_only_overlap() -> Result<()> {
+    Box::pin(ranges::split_repairs_only_overlap()).await
+}
+
 pub(super) async fn read_cohort_has_fresh_barrier() -> Result<()> {
     Box::pin(reads::run()).await
 }
@@ -150,6 +157,9 @@ async fn run(scenario: Scenario) -> Result<()> {
                 Box::pin(exercise(&cluster, &callbacks, Some(&store))).await
             }
         };
+        if result.is_err() {
+            crate::managed_fixture::diagnostics::record(&cluster.managed, "public-routing").await;
+        }
         store
             .deny_routing_metadata_reads
             .store(false, Ordering::Release);

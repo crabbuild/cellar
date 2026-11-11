@@ -50,3 +50,8 @@ async fn read_cohort_has_fresh_barrier() -> anyhow::Result<()> {
 async fn read_preferences_preserve_proof() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::read_preferences_preserve_proof()).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn split_repairs_only_overlap() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::split_repairs_only_overlap()).await
+}

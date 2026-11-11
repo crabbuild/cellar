@@ -39,6 +39,10 @@ pub async fn leader_probe_storm_is_bounded() -> Result<()> {
     optimization::leader_probe_storm_is_bounded().await
 }
 
+pub async fn split_repairs_only_overlap() -> Result<()> {
+    optimization::split_repairs_only_overlap().await
+}
+
 pub async fn read_cohort_has_fresh_barrier() -> Result<()> {
     optimization::read_cohort_has_fresh_barrier().await
 }

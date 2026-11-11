@@ -563,19 +563,13 @@ impl ManagedCluster {
             let selected = match selected {
                 Ok(selected) => selected,
                 Err(error) => {
-                    let failed: Vec<_> = hosts
-                        .iter()
-                        .map(|host| (host.resource_usage(), host.performance()))
-                        .collect();
-                    for (index, (host, (owners, performance))) in
-                        hosts.iter().zip(failed).enumerate()
-                    {
-                        let group = match host.group(history) {
-                            Ok(group) => format!("{:?}", group.observe(TIMEOUT).await),
-                            Err(error) => format!("{error:?}"),
-                        };
-                        eprintln!("initial group readiness failure voter={index}, extents={rooted}: group={group}; owners_at_failure={owners:?}; performance_at_failure={performance:?}");
-                    }
+                    super::diagnostics::record_parts(
+                        &hosts,
+                        &fixtures,
+                        history,
+                        "initial-group-readiness",
+                    )
+                    .await;
                     let joined = movement::close(nodes, &hosts).await;
                     for root in roots {
                         eprintln!(

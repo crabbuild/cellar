@@ -70,7 +70,7 @@ and its named RO/RL cases remain the acceptance contract:
 | Package | Outstanding delivery |
 | --- | --- |
 | OPT-01 | Finish smallest-scope negative-path repair and validate membership, public authority isolation and ambiguous outcomes; RO-01/02 runtime cases pass below, while broader RO-03/04/07/08 gates remain open |
-| OPT-02 | Interval-proof/generation candidate below; coalesced bounded demand refresh and public transition/version qualification for RO-05/06/09 remain open |
+| OPT-02 | Selected public RO-05 interval-repair oracle passes below; delayed lookup/generation and remaining demand-refresh cuts for RO-06/09 remain open |
 | OPT-03 | Automatic consistency-aware selection and bounded fallback candidate below; public network partition/RecentSource expiry and full RO-10 acceptance remain open; the public RO-11 cohort oracle passes at its source checkpoint below |
 | OPT-04 | Physical shared-file/segment release proof and once-only accounting qualification; RL-01 through RL-05 |
 | OPT-05 | Load telemetry, reserve-aware placement and repeated release-scale movement; RL-06 |
@@ -990,3 +990,52 @@ attributed to a particular change without further evidence. Limits, deadlines,
 receipt assertions and command identities were unchanged. These failures and
 matched-source Linux verification are the next integration priorities; live
 range-publication and remaining RO/RL, crash and performance gates stay open.
+
+## Failure isolation and live interval-repair candidate
+
+The retained `ca1432ed` binaries passed both originally failed cases when run
+individually in fresh clusters. The corresponding `a69acc34` control binaries
+also passed both cases. These four serial runs are retained in
+`isolated-failures-905fa882`; they do not erase the initial combined failures.
+
+A second full scheduler/earlier-routing run of the same `ca1432ed` binaries is
+retained in `broad-repeat-905fa882`. Each suite again had one failure, in different
+cases. Scheduler periodic settlement passed, while extent-image physical segment
+credit returned an ambiguous deadline for client `d4`, sequence nine. Routing
+refresh passed, while election-case startup failed at initial group readiness in
+materialized mode. The three startup observations had term one, no leader and no
+SQL/controller work admitted. They do not establish the cause of the other
+command deadlines. All original limits and deadlines remained unchanged.
+
+The next test-source candidate records compact owner, SQL, transport, performance
+and bounded actor observations only after a failure. It retains periodic-case
+disks and propagates the original failure. It adds no mutation retries or success
+criteria. The live `split_repairs_only_overlap` candidate uses six data nodes and
+a zero-replica ingress. Two actual RF3 splits must preserve unrelated cached
+ranges, original command receipts, old AtLeast tokens and all current replicas'
+SQL values within the existing two-history/512-MiB node profiles. Both image
+formats and SDK/native/Axum calls are required. The result follows below;
+RO-06 and all complete OPT packages remain open.
+
+## Live interval-repair result
+
+Source manifest `fc2e5e15` passed the new public RO-05
+`split_repairs_only_overlap` oracle in both image modes in 85 seconds. Six data
+nodes hosted two actual RF3 splits, while ingress retained zero replicas. The
+first split created two cached ranges; splitting one again preserved the other's
+zero-directory-lookup path before and after overlap repair. Changed cells used
+SDK and both HTTP adapters. Original IDs and S3 receipts replayed without extra
+callbacks, old AtLeast tokens remained valid, and every current voter returned
+the expected SQL value using the latest token. Per-node profiles remained at
+two histories and 512 MiB, with 256 MiB per group.
+
+The same source and retained binaries passed all eleven scheduler cases and all
+eight earlier routing cases. Separate focused runs of periodic settlement,
+physical segment credit, cold refresh and election also passed. Strict library
+and six-target Clippy, formatting, layout, dependency and documentation checks
+passed. The qualifier retained both executable hashes, changed sources and the
+working patch in `live-ranges-fc2e5e15` and checked unchanged source and HEAD
+throughout. This closes the selected public RO-05 functional oracle. The earlier
+variable failures remain retained; a passing run of this test-only change does
+not establish their cause. This campaign does not qualify the new source on
+Linux/RustFS, the delayed-lookup RO-06 case, performance or a complete OPT package.
