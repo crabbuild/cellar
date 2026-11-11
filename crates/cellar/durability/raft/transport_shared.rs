@@ -96,6 +96,18 @@ impl RaftTransport {
         history: GroupHistory,
         deadline: u64,
     ) -> Result<(), RuntimeError> {
+        use crate::raft::group_host::RouterRefreshOutcome;
+        match self.refresh_cell_router(history, deadline).await? {
+            RouterRefreshOutcome::Current => Ok(()),
+            RouterRefreshOutcome::StalePlacement => Err(RuntimeError::NotReady),
+        }
+    }
+
+    pub(crate) async fn refresh_cell_router(
+        &self,
+        history: GroupHistory,
+        deadline: u64,
+    ) -> Result<crate::raft::group_host::RouterRefreshOutcome, RuntimeError> {
         let (client, key) = {
             let state = &self.handle.0;
             let registry = state.registry.lock().map_err(|_| RuntimeError::Closed)?;

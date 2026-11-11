@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "4a00fd960ec2788fbe93695005637301d17b9d04",
+  "source_revision": "d6c4eae8ef53e0fad38b31159bbe8ada29d24841",
   "runtime_revision": "bc4e08c440d4a22baca7d9e05faf85c14c88614a",
-  "review_note": "Reviewed confirmed local source-quiescence reuse at bc4e08c4: bounded to the current two parents, cleared for a new operation/worker, with fresh coordinator inventory checks and cleanup ownership unchanged. At a3792fd0 strict host/core Clippy, five native retirement/reclamation/capacity/merge/fanout regressions and the full native/RustFS 64-cell/seven-group workflows pass both image modes under original leases, deadlines and resource/reserve limits. Owned backend and VM are stopped with objects retained; earlier failures remain and no failover SLA is claimed. All anchored bytes/excerpts remain unchanged. CG-11 stays IN_PROGRESS for automatic admitted-move handoff, relevant ownership accounting, bounded controller/journal behavior and its five-case/ten-command acceptance. Full load/physical/independent-domain/soak profiles remain CG-15/16 gates, preserving the whole design. See progress.md for exact records. Reviewed source checkpoint 4a00fd96: only the recovery harness anchor changes. The daemon binds the owned backend profile/context and explicit existing Colima/Lima homes; the guest still positively matches the captured Engine before launch. Voter/backend limits, workload/source-image assertions, cleanup inventory and request budgets are unchanged. Three routing/configuration tests and real Docker/SSH Engine plus cgroup/workspace-disk preflight passed; 31 local multi-Raft Python tests passed with one opt-in Docker case skipped. This aligns reviewed source only: node-container qualification, native startup stability, RO-09 and all remaining optimization/release gates stay open. See optimization-progress.md.",
+  "review_note": "Reviewed confirmed local source-quiescence reuse at bc4e08c4: bounded to the current two parents, cleared for a new operation/worker, with fresh coordinator inventory checks and cleanup ownership unchanged. At a3792fd0 strict host/core Clippy, five native retirement/reclamation/capacity/merge/fanout regressions and the full native/RustFS 64-cell/seven-group workflows pass both image modes under original leases, deadlines and resource/reserve limits. Owned backend and VM are stopped with objects retained; earlier failures remain and no failover SLA is claimed. All anchored bytes/excerpts remain unchanged. CG-11 stays IN_PROGRESS for automatic admitted-move handoff, relevant ownership accounting, bounded controller/journal behavior and its five-case/ten-command acceptance. Full load/physical/independent-domain/soak profiles remain CG-15/16 gates, preserving the whole design. See progress.md for exact records. Reviewed source checkpoint 4a00fd96: only the recovery harness anchor changes. The daemon binds the owned backend profile/context and explicit existing Colima/Lima homes; the guest still positively matches the captured Engine before launch. Voter/backend limits, workload/source-image assertions, cleanup inventory and request budgets are unchanged. Three routing/configuration tests and real Docker/SSH Engine plus cgroup/workspace-disk preflight passed; 31 local multi-Raft Python tests passed with one opt-in Docker case skipped. This aligns reviewed source only: node-container qualification, native startup stability, RO-09 and all remaining optimization/release gates stay open. See optimization-progress.md. CG17-01 reviewed source 9b9a7c49 adds only the primitive catalogue and refusal tests to the pinned SDK CI workflow anchor. Every other anchored byte and excerpt is unchanged. This is a tooling and acceptance checkpoint; no new primitive runtime capability is qualified. CG17-03 at d6c4eae8 re-pins the SQL pool anchor. The fixed pool services one ready continuation between queued requests while parked work retains the existing cell and byte admission. The preflight still checks the full anchored file and excerpt.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -43,8 +43,8 @@
     },
     "sql": {
       "path": "crates/cellar/durability/raft/host_sql/mod.rs",
-      "sha256": "816329ac5f2842cd865411b81b1ec2d6ce2ebdce11707b36a5d7327e3f781316",
-      "line": 110,
+      "sha256": "d14a17c6fe8f2028c9f31ec2a7b9686acbee6086244da95b613be1b58a1a7b29",
+      "line": 109,
       "excerpt": "pub(crate) struct Pool {\n    performance: Arc<Performance>,\n    domain: crate::asyncrt::DomainToken,\n    senders: Vec<mpsc::SyncSender<Envelope>>,\n    completion_slots: Vec<Arc<Semaphore>>,\n    slots: Vec<Arc<Semaphore>>,\n    workers: Vec<crate::asyncrt::TaskHandle<Result<(), ExecutionError>>>,\n    stopped: Arc<AtomicBool>,\n    running: Arc<AtomicUsize>,"
     },
     "runtime": {
@@ -145,7 +145,7 @@
     },
     "ci": {
       "path": ".github/workflows/native-sdk.yml",
-      "sha256": "561e170bfcb193754a6166aedfbd04678f58370aef07057b0013e20cda0a6c0d",
+      "sha256": "3efb16b136c6622ff225a3cfde95f41042f34ba00eeb98112072d9416bd95be9",
       "line": 67,
       "excerpt": "  RUST_VERSION: 1.98.1\n  # Process tests publish executable artifacts; DWARF makes those fixtures huge.\n  # Keep debug assertions and test behavior while omitting symbol information.\n  CARGO_PROFILE_DEV_DEBUG: \"0\"\n  CARGO_PROFILE_TEST_DEBUG: \"0\"\n\njobs:\n  filesystem_release:\n    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'"
     }

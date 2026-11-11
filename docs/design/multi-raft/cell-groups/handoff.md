@@ -7,15 +7,177 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 ## Published design scope
 
 CG-17's [primitive compatibility contract](qualification.md#full-primitive-compatibility-cg-17)
-defines eight packages and 32 required cases. It is TODO and gates CG-15/16
-acceptance; the inventory and shared Storage/async foundations can begin beside
-CG-13 implementation. The [TiKV optimization proposal](tikv-informed-optimization.md)
+defines eight packages and 32 required cases. It is in progress and gates CG-15/16
+acceptance. The [CG17-01 checkpoint](progress.md#cg-17-checkpoint-primitive-coverage-admission)
+delivers the starter catalog and CI/acceptance verifier. The
+[suspended RPC checkpoint](progress.md#cg-17-suspended-cell-rpc) lets
+ordinary JSON RPC retain one private Storage transaction across polls
+while other cells use the same worker. Registered queries use pinned
+committed Storage. Extend the driver to independent async transactions
+and nested callback settlement, and complete the compiled export and
+deployment audit. That foundation supports durable work and family
+adapters. The catalog remains partial
+and CG-17 acceptance stays open. CG-13 can progress
+independently and still gates task acceptance. The [TiKV optimization proposal](tikv-informed-optimization.md)
 builds on accepted CG-11/12 foundations and introduces additional optimization
-oracles, not new runtime qualification. Read the latest [progress](progress.md)
+oracles. Delivered routing and fresh ReadIndex work is recorded in
+[optimization progress](optimization-progress.md). Read the latest [progress](progress.md)
 for the signed fence/controller checkpoint before using the earlier source-specific
 recovery entries below.
 
-## Current CG-13 operator process delivery and qualification gap
+## Current combined source
+
+PR #166 integrates committed optimization source `19982a1b` with the recovery
+branch at `79f2ccc5`. All 63 selected unit/native cases and focused strict Clippy
+pass with the CI test profile, including the cached-source published-child SQL
+regression in both image modes. The merge preserves the sealed-source routing
+fence and exact reserved-child publication authorization. See [progress](progress.md)
+for source, executable and log records. Matching peers and clients require a
+rebuild for the response-format cutover. Uncommitted work in other optimization
+checkouts was not included.
+
+At `b85c609c`, the combined source passes three real RustFS suites in both image
+modes: closure selection, original SDK command retries and uncertain outbox
+recovery. The retry regression exposed a real one-operation verification conflict;
+the controller now shares a still-live admitted proof and separates covered output
+from pending hold retirement. Seven archive safety cases and full strict
+all-target Clippy pass. The strengthened exact-result test requires covered reuse
+without upload and blocks an uncovered successor until the final consumer drops.
+Budgets and deadlines are unchanged. See the
+[current-source checkpoint](progress.md#cg-13-checkpoint-held-receipt-replays-and-current-source-rustfs)
+for executable hashes, failed controls and scope. Owned RustFS exits zero without
+OOM and its VM is stopped; target/default VMs are unchanged.
+
+Next implement stable managed-group recovery admission/selection. The managed
+selection API currently requires an owned topology transition; direct group
+recovery preparation refuses managed births. Preserve exact Fleet/directory roots,
+old-host fencing and fresh incarnations without staging an artificial transition.
+Three CG-13 entry points remain missing: `managed_disaster_blocks_old_lifecycle`,
+`fence_all_possible_old_writers` and `all_disks_deleted_restore_all_cells`.
+Complete all six gates and the full 256-cell/five-node `rustfs_disaster` profile.
+Current-source native fencing-contract runs do not replace permanent Docker launch
+revocation or constrained voters. The earlier four-run Docker campaign below
+remains pinned to `320a40ce`. CG-17 implementation and all remaining OPT acceptance
+gates stay open. Acceptance remains 13/17 tasks and 147/195 cases.
+
+## Current CG-13 disk-erasure recovery delivery
+
+At `320a40ce`, the normal managed Docker driver passes published and unpublished
+split recovery in both real RustFS image formats on one image/binary. Published
+runs restore both child histories with newer S3 tails; unpublished runs restore
+the parent. Every run permanently fences and deletes all five source voter disks,
+refuses old restart attempts, restores on a different actual VM, commits fresh
+quorum and verifies SQL/receipts, old-token refusal, fresh S3 writes, retained
+restart, retirement and joined shutdown. See [progress](progress.md) for exact
+pins, durations, resource limits and retained failures.
+
+Source-cached SDK handles now pass receipt replay, fresh writes and linearizable/
+minimum-version reads before child Fleet promotion. Discovery and its receiver
+verify the exact owned publication and birth while children remain reserved;
+actual serving still requires activation/quorum and explicit origin grants.
+General enrollment and partition authority remain live-history-only. The focused
+native case uses optimization level 0; complete release-profile qualification
+remains open.
+
+Preparations remain sequential under the one-operation recovery pool. Release
+inputs only after the known seed result, and retain two bounded exact-release
+receipts. Unknown seed replies retain their original inputs. Serving release
+never thaws pending-recovery owners: join and restart them with current Fleet and
+serving authority. Preserve old-host exclusion and real Docker daemon identities.
+The two VMs remain on one Mac; independent hardware is not qualified. Both owned
+VMs/actors are stopped and the default VM is unchanged. Evidence and failed
+controls are hash-verified in both checkouts, excluding credentials and keys.
+
+Next pass all six exact current-source CG-13 cases, including merged-child and
+outbox ambiguity recovery plus the retained native archive/failure controls.
+Then deliver CG-17 compatibility, CG-15 combined qualification and CG-16 hard
+cutover. Acceptance remains 13/17 tasks and 147/195 cases; no full-release claim
+follows from the four scoped Counter drills.
+
+## Earlier CG-13 source cohort and controller checkpoint
+
+At `4eb4533b`, `managed_group_drill.py` passes the managed Docker source cohort
+in both image modes: SDK bootstrap, actual capacity admission, first-group
+publication/archive, concurrent RF3 startup, Quorum/S3 writes, strong reads,
+retained restart, original retries and joined close. Peer listeners must bind
+their exact advertised container IP. A retry may return a later SDK observation;
+check fixed results/histories and unchanged SQL/version around it. See the latest
+[progress](progress.md) for retained failures, probes and evidence limits.
+
+Use `managed-recovery` for the standalone post-fence SDK steps and
+`managed-node` for actual voter ownership. The operator's read-only reservation
+and seed APIs cannot allocate missing state; publication requires the selected
+seed set. Late reconciliation and retirement do not depend on an obsolete active
+barrier. See the [tool protocol](../../../../tools/multi-raft/README.md#managed-recovery-controller-steps).
+
+The first expanded RustFS case at `8437563c` exposes stale self-inspection after
+qualification advances the Fleet epoch. The local path now uses the existing
+original-deadline trust refresher before capture/validation. The deterministic
+held-background remote/local regression passes, and the original process case
+passes both image modes with fresh and retained qualification/activation. Both
+native joined-close cases also pass. Do not treat the close report's `active`
+manifest bit as a running-worker flag; activation must survive retained stop.
+
+Independent operator controls pass against both retained RustFS modes: two
+descriptions and 26 missing-proof refusals with unchanged Fleet heads. The initial
+post-case probe has an incorrect private schema digest, and a later startup
+disconnect executes no Cellar command. Both failures remain retained. Use the
+SDK-serialized connection rather than reconstructing a class digest from its base
+digest. Exact records, limits and timings are linked from [progress](progress.md).
+All owned actors/backend/VM are stopped. No CG-13 acceptance follows from these
+scoped passes.
+
+The missing preparation-to-serving workflow at that source now passes for an
+unpublished split at `b4dd07b5`, as described above. Preserve original requests
+and use phase-appropriate read APIs after unknown replies. Bind launch inventory
+to the exact SDK catalog and namespace digests; the namespace digest is not the
+raw NamespaceId. The remaining published/multi-range, liveness and six-case gates
+are listed in the current checkpoint.
+
+## Earlier CG-13 managed voter checkpoint
+
+`0c653ce9` delivers a real SDK `Node`/`RaftCells` process in
+`tools/multi-raft/node/managed_voter/`, plus the controller-side
+`managed_group_voter.py`. Physical start/prepare/seed/attach/activate calls use
+durable launcher assignments. Receiving voters reopen persisted S3 proofs and
+existing reservations with their pinned fence verifier; no in-memory proof or
+controller signing key crosses into a voter. The new SDK range reopening API is
+read-only. The process supports Counter and one namespace with the existing
+functional fixture limits; it does not widen recovery budgets or serving admission.
+
+The real RustFS process case passes both image modes: fresh boot, retained restart,
+exact process authentication/refusal, empty-standby read/write refusal and joined
+shutdown. The complete native closure case fails earlier, installing the merged
+child in the first materialized unpublished-parent setup, with
+`Runtime(DeadlineExceeded)`. It does not reach the new range assertions. Do not
+repeat that unchanged command or relabel the earlier diagnostic passes. The
+complete RustFS closure is not run on this source after the native failure.
+Both exact records and the check inventory are linked from [progress](progress.md).
+The owned backend/VM are stopped. CG-13 acceptance remains open.
+
+The following checkpoint predates the standalone controller steps above. Its
+remaining integration is the full managed Docker driver. Persist original
+operation identities and reconcile unknown replies; voter observations and seed
+descriptions are not portable proofs. Qualify positive seed-to-serving, permanent
+launch revocation and deletion of every old voter disk, then all six CG-13 cases
+on one source. Keep the retained setup and archive failures as explicit gates.
+
+## Earlier CG-13 operator process checkpoints
+
+Post-merge controller work at `d589e538` adds durable post-launch assignments.
+Use `ManagedLauncher.assign_histories` before the first seed/attach action;
+lost replies keep the history in every possible old writer's fencing inventory.
+The callback holds the same lock as launch/restart/revocation. New independent
+voter processes now use real `Node`/`RaftCells` and rederive recovery proofs as
+described above; the unmanaged tool service cannot stand in for that path.
+
+Diagnostic source `ae6f0d66` passes the complete closure and outbox RustFS roots
+in both image modes on one executable (510.210 / 250.807 seconds). It includes
+temporary probes excluded from publication. Earlier retirement `DeadlineExceeded`
+and materialized pre-payload `Unconfirmed` failures remain unresolved. A signed
+S3 startup 503 control runs no Cellar test. Exact failed and passing records are in
+`.cellar/cell-groups-evidence/CG-13-retirement-ae6f0d66-diagnostic-01/checkpoint.json`.
+No CG-13 acceptance or liveness-fix claim follows from these diagnostic passes.
 
 The SDK's portable recovery selection and read-only fence reopening are delivered
 at `0c85daf5`. The receiving process replays S3 cuts and verifies the persisted
@@ -32,9 +194,9 @@ recovery. Its two materialized scenarios finish; the later outbox case is not ru
 The exact failed record and two earlier configuration controls are retained in
 the latest [progress checkpoint](progress.md). All owned actors/backend/VM are stopped.
 
-Next isolate the retirement call's authority, directory and Raft phases and fix
-its liveness without enlarging the original deadline. Then deliver the managed
-Docker voter seed/attach/activation/serving driver and the complete six-case CG-13
+Next deliver the managed Docker voter seed/attach/activation/serving driver and
+use the retained diagnostics to reproduce the retirement/archive refusals within
+their original deadlines. Complete the six-case CG-13
 gate. Do not promote partial execution or predecessor evidence to current task
 acceptance. The production library/Cargo inputs are unchanged from the native
 checkpoint; fixture and operator changes have separate executable provenance.

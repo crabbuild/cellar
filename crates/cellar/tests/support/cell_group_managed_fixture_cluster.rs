@@ -56,7 +56,10 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         // A newly registered peer owns independent physical I/O.
         filesystem: Arc::new(cellar_ltx::DirectFileSystem),
         effects: f.effects,
+        sql_workers: f.sql_workers,
         max_input_bytes: f.max_input_bytes,
+        small_segments: f.small_segments,
+        settle_periodic_purges: false,
         image_bytes: f.image_bytes,
         logical_byte_capacity: f.logical_byte_capacity,
         placement_domains: f.placement_domains.clone(),

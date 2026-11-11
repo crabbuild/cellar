@@ -56,6 +56,49 @@ preparations retain their environment record for diagnosis. A separate cleanup
 step can remove the exact recorded resources after their data is no longer
 needed; never use a global Docker prune or delete a Colima profile as cleanup.
 
+## Primitive compatibility evidence
+
+CG17-01's [coverage contract](../../docs/design/multi-raft/cell-groups/qualification.md#machine-readable-inventory-and-acceptance-evidence)
+has a partial SDK catalog and an independent admission verifier. Check them with:
+
+```sh
+python3 tools/multi-raft/primitive_coverage.py check-catalog
+python3 -m unittest discover -s tools/multi-raft -p test_primitive_coverage.py
+```
+
+These commands validate the contract and synthetic refusal fixtures. They do
+not run public primitives, start voters, or qualify an SDK configuration. An
+acceptance report requires a reviewed catalog; the current partial catalog
+refuses it. Complete the compiled export audit before changing that status.
+
+The [format-1 schema](../../docs/design/multi-raft/cell-groups/primitive-coverage.schema.json)
+defines the report envelope. `plan.py` reads the three contracts from the tested
+source revision and verifies the report at CG-17/15/16 acceptance. The runner
+must preserve repository-relative artifacts, SHA-256 hashes, source input digest
+and application, voter, CLI and exact test executables for each feature mode.
+
+For each required row, capture the exact selected test and its normal libtest
+summary. The test emits a `cellar_primitive_evidence` JSON line with `cell`,
+`source_revision`, `configuration`, `observations_sha256` and `ledger_sha256`.
+One test can emit several rows it actually exercised. Reusing a passing log
+for an unobserved configuration refuses. Keep the log intact; the verifier
+handles structured lines interleaved with the libtest status line.
+
+- Physical observations retain initial group histories, voter process, disk and
+  cgroup identities, voter limits and ordered fault events. Disaster rows
+  require fencing and erasure for every voter in the observed source groups.
+- State ledgers retain each public symbol's original identity, expected and
+  observed outcome/result/state, required proof and duplicate-commit count.
+  Documented refusals retain their typed error codes. Archive/disaster payload,
+  filesystem and container rows also hash actual restored bytes.
+- Native, native without default features, Python, JavaScript and mixed-mode
+  regressions retain distinct backend and configuration identities. A Fleet or
+  bucket result cannot fill a shared Raft row.
+
+Real runners still need to capture these artifacts from public applications,
+owned process/RustFS fault runs and supported providers. A synthetic report,
+configuration label or passing test name alone establishes no runtime coverage.
+
 ## Shared cell-group managed ingress checks
 
 Use the same owned loopback RustFS backend and a fresh output directory.
@@ -141,6 +184,13 @@ source disks, restores the published group, checks explicit reconciliation statu
 and dispatches a fresh lane without reissuing the old request. Both image modes
 use real RustFS and unchanged limits. This does not qualify an external exactly-once
 service or permanent Docker launch revocation.
+
+Use `--suite managed-disaster-retry` to exercise recovery-seeded command retries
+through the normal SDK after confirming their archived receipts. It replays the
+original command IDs and inputs, requires fresh-history Quorum/S3 proofs, refuses
+old tokens and checks unchanged cell versions and subsequent SQL values. Both
+image modes use real RustFS and independent cold operator verification. The
+complete CG-13 profile and permanent Docker launch revocation remain separate gates.
 
 ## Published transfer closure after complete local erasure
 
@@ -477,6 +527,17 @@ whose entire voter set was replaced before the selected cut. It permanently
 closes their generations and histories before checking minimum identity coverage.
 Unknown launches, missing declarations or wrong disk/host identities refuse.
 
+For a group assigned after launch, use
+`assign_histories(generation, catalog, namespace, histories, invoke)` before its
+first SDK seed preparation or attachment. It durably appends the histories to
+the existing deployment and holds the launch/revocation lock through the bounded
+callback. Assignments conservatively cover every historical writer in that
+cohort. A failed or lost callback response keeps the assignment; retry with the
+same SDK operation identity. Assignments cannot remove histories, change the
+deployment's Fleet catalog, or admit any permanently revoked generation/history.
+This controller API is a foundation for the managed Docker driver; it does not
+establish the complete recovery gate.
+
 `fence(expected_digest, docker)` resumes exact immutable-ID deletion; only
 `certificate_payload(expected_digest, docker)` after confirmed complete absence
 can supply bytes to the private signer. No manual count/roster entry point is
@@ -526,8 +587,234 @@ constructs it without exposing credentials in output. Do not mount the controlle
 signing key or launch ledger in this process. Use a fresh private replay directory
 for each cold verification and keep credential configuration out of evidence.
 
-This operator bridge still needs the managed voter-side seed, attach, activation
-and serving-release driver before the complete independent-Docker CG-13 gate.
+### Managed recovery controller steps
+
+`CELLAR_GROUP_ACTION=managed-recovery` exposes the remaining SDK recovery
+operations in independent processes. The [configuration](node/managed_recovery.rs)
+contains the explicit existing S3 connection, one managed namespace, authenticated
+operator principal, pinned fence public key and one `command`. Keep credentials
+private and use a fresh replay directory for each invocation:
+
+```sh
+CELLAR_GROUP_ACTION=managed-recovery \
+CELLAR_GROUP_CONFIG=/private/run/recovery-step.json \
+CELLAR_GROUP_DATA=/private/run/replay-step \
+cellar-perf-cell-group
+```
+
+The controller persists each exact command before invocation. The sequence is:
+
+`describe` reports the opened catalog/namespace identity and image mode without
+initializing metadata or granting admission. It can verify the existing-root
+connection before proposing recovery work.
+
+1. `stage`: pass the retained `selection` and `replacements`, in selected-cut
+   order. Each replacement declares `history` (`group`/`incarnation`), `creation`,
+   `epoch`, `voters` and `learners` (`node`/`member`). Range boundaries come from
+   the verified cuts, never arbitrary caller keys. Retain the returned plan digest.
+2. `plan`, `reserve`/`reservation`, and `select_seeds`/`seeds` use
+   `basis: {selection, plan_digest}`. Range commands also take `history`.
+   `reservation` and `seeds` are read-only: absent records return null without
+   allocating capacity or choosing a receipt set. Seeding itself runs in each
+   managed voter after capacity admission and reservation.
+3. `publish` takes that `basis` and the already selected `seed_digest`. It only
+   reopens the selected quorum; it cannot create a missing seed selection.
+   Reconcile a lost publication response with `publication` and the same operation,
+   plan and seed IDs, including after the active barrier has been released.
+4. `publication`, `activation`, `settle`, `complete`, `release` and `retire` use
+   `request: {operation, plan_digest, seed_digest}`. `activation` adds a `history`;
+   `release` and `retire` add the exact `completion` digest. These commands
+   rederive the phase-appropriate durable SDK proofs. They do not require an
+   obsolete active-barrier proof after serving release. Retirement independently
+   verifies the permanent fence with the configured public key.
+
+Each invocation executes one bounded SDK step. Settlement and retirement report
+rooted cursors; the controller repeats the same request to advance the next
+bounded batch. All metadata/replay substeps share one 20-second command deadline.
+No mutation is automatically retried. JSON errors retain the SDK failure code and
+outcome; transport loss or timeout remains unknown. Keep the original command
+and reconcile it. Successful JSON output describes a durable decision; it grants
+no voter membership or permission to bypass SDK serving admission.
+
+### Managed voter process
+
+`CELLAR_GROUP_ACTION=managed-node` starts a real SDK `Node` and `RaftCells` with
+the existing managed namespace declaration and an owned engine. Set
+`CELLAR_GROUP_CONFIG` to a private configuration and `CELLAR_GROUP_DATA` to its
+absolute data directory. The required configuration field `retained` must be
+`true` only for an existing engine and `false` for fresh storage. Copy an explicit
+new configuration while the container is stopped for retained restart; its
+environment does not select this managed mode. Boot identities come from the configuration; leave the older numeric
+node/generation flags at zero. The [configuration](node/managed_voter/configuration.rs)
+requires explicit S3 roots/credentials, the compiled Counter contract, node/disk/
+process IDs, advertised peer endpoints, private TLS paths and an independently
+pinned fence public key. Never mount the controller signing key or launch ledger.
+The two-group and image/checkpoint capacities match the existing managed fixture.
+Recovery uses its four-cell, 1-MiB image and 4-MiB restore limits, with one shared
+import pool per process. This is a functional fixture envelope, not the release
+load envelope.
+
+The `control_ready` event opens only process control. The authenticated `/control`
+protocol binds every request to `x-cellar-node`, `x-cellar-disk` and
+`x-cellar-process`; a stale boot is refused before SDK work.
+
+The `qualify_node` and `activate_node` actions take the public SDK
+`RaftFleetNodeCapacity` request for this exact node. The deployment controller must
+provide its explicit platform attestation; the SDK independently checks the
+running observer, boot, profile and rooted inventory. An `observe` reply is not a
+capacity attestation. Stale boot evidence cannot admit placement capacity.
+Self-inspection catches up to the requested Fleet revision within the original
+deadline, including an activation immediately after qualification. It still
+rechecks the exact current boot, enrollment and installed trust.
+
+The recovery phases are:
+
+1. `reopen_recovery`: independently replay the existing S3 selection and verify
+   its persisted fence, then reopen the controller's exact replacement plan.
+2. `prepare_seed`: use read-only `reopen_transition_recovery_range` to find an
+   existing reservation, then prepare this engine's image under SDK admission.
+   A missing reservation is refused without allocating capacity. One preparation
+   is retained in the process; opaque proofs never cross the wire.
+3. `seed`: sync or reconcile that preparation's durable genesis and receipt.
+4. `attach` and `activate`: use descriptive operation/plan/seed IDs to rederive
+   the published reservation and prove the exact applied activation.
+
+Every phase keeps its original SDK bounds; metadata/physical substeps share the
+request budget. Recovery reopening uses the existing 20-second operator budget;
+other requests use five seconds. The SDK retains entered producers after a lost
+response. Reconcile the same identities; never invent a new command or plan.
+Clearing RPC caches releases only idle copies; SDK producers keep their own
+physical pins until the owning node/domain joins entered work.
+Joined stop requires the complete close inventory and no unresolved local
+producers. A retained manifest's `active` field records committed activation;
+it survives stop and does not indicate a running worker or serving permission.
+
+`managed_group_voter.ManagedVoter` binds a controller-owned historical launch to
+this protocol. Its start/prepare/seed/attach/activate methods durably assign the
+history and hold the launch/fencing lock through the bounded request. Raw calls
+cannot bypass that assignment. The client refuses redirects, ignores ambient
+proxies and never automatically retries a mutation. Ordinary Counter SDK reads
+default to linearizable consistency; writes require Quorum or explicit S3 proof.
+Missing groups or quorum refuse admission.
+
+### Managed Docker source cohort
+
+`managed_group_drill.py` supplies the source side of the managed recovery drill.
+Build `Dockerfile` from a clean committed source with a checkout-specific
+`TARGET_CACHE_ID` as above, then pass its immutable image ID:
+
+```sh
+python3 tools/multi-raft/managed_group_drill.py \
+  --context colima-cellar-multi-raft-my-run --image "$image" \
+  --mode materialized --port-base 19800 \
+  --output /tmp/cellar-managed-source-001
+```
+
+Repeat with `--mode extents` and a fresh output directory. The dedicated VM needs
+at least six CPUs and 14.5 GiB memory. Three voters each have one CPU, 3 GiB and
+no additional swap; RustFS has one CPU and 2 GiB. The colocated `Nodes` policy is
+explicit; all voters report the same Docker host identity. Capacity admission
+binds actual cgroup settings and measured usage to the running SDK boot/profile.
+The one-GiB disk budget is declared deployment capacity, not a filesystem quota.
+
+The `managed-bootstrap` process explicitly initializes new SDK Fleet/namespace
+roots and returns the actual compiled schema, capability and namespace digests.
+Ordinary managed opens cannot initialize missing roots. Separate
+`managed-recovery` processes register nodes and reserve, publish and archive the
+first shared group. Each voter independently verifies rooted startup and capacity.
+The controller grants namespace reads/writes explicitly; membership supplies no
+application permission. The three startup waiters enter concurrently under one
+durable assignment/fencing lock. The driver then checks three S3-durable SQL
+cells and subsequent Quorum commands in one physical group, minimum-token and
+linearizable reads at every ingress, retained
+restart with new process IDs, original receipt replay and joined SDK shutdown.
+Peer listeners bind the exact advertised container IP; wildcard listeners do not
+satisfy the physical group's local endpoint identity check.
+Retry results, histories and durability stay fixed; their SDK observation may
+advance to a later complete archived image. Reads before and after replay require
+the same current SQL value and version, so an extra application cannot pass.
+Only config and peer TLS snapshots enter stopped containers; the fencing key and
+launch ledger stay with the controller. Request identities are persisted before
+entry; lost mutations are retained for reconciliation without automatic retry.
+
+This is a source-cohort gate. Its report keeps `full_dr_completed: false`;
+transition preparation, permanent revocation, complete source-disk deletion and
+the positive managed seed-to-serving flow still require their combined gate.
+It establishes no throughput, independent-host resilience or full primitive
+compatibility claim.
+
+### Managed transition disaster driver
+
+`managed_group_transition.py` extends that exact source workflow with an
+unpublished split, source sealing, durable recovery-intent selection, permanent
+Docker fencing and new-history recovery. Use the same CLI arguments and a fresh
+output directory. Its dedicated VM needs eight CPUs and at least 21 GiB actual
+memory (a 24-GiB profile); five voters remain limited to one CPU/3 GiB each.
+Split rosters use the existing two-slot profiles without increasing their bounds.
+The old five-node cohort is permanently revoked and every disk deleted before
+the three fresh replacement nodes start on a different VM. Pass
+`--replacement-context` and `--replacement-image` for an idle, separately owned
+16-GiB VM with the exact image already loaded. Setup verifies that image before
+any disk erasure, stops the replacement VM and starts the 24-GiB source phase.
+After fencing, it gracefully restarts the retained RustFS service on an 8-GiB
+source VM before starting the 16-GiB replacement. This keeps guest reservations
+within 24 GiB on the 32-GiB development machine. No SDK request is entered during
+the declared service restart. The driver controls those existing VMs through
+profile-scoped Lima commands, checks exact CPU/memory, and preserves matching
+Colima resource metadata. This avoids Colima's macOS filesystem-watcher startup
+without touching default/remote contexts or creating another VM. VM stop refuses
+running containers. A one-CPU/1-GiB, 32-connection TCP bridge preserves
+S3 bytes/headers and joins its execution-domain tasks on stop. The old-host
+exclusion remains unchanged; inventing a replacement host ID is forbidden. This qualifies one Counter/namespace
+scenario; published child tails, external effects and all six CG-13 cases still
+require their complete gate.
+
+Publication attachment starts non-serving recovery owners. After committed
+activation, Fleet settlement, directory completion and serving release, the
+driver joins those owners and restarts their retained disks with new process
+identities. Startup independently validates the released receipt and current
+Fleet authority before establishing a fresh serving quorum. It does not reuse
+pending-recovery attachment for serving. An unknown release stops the workflow
+before any serving restart or application request.
+
+Pass `--published` to install and activate both split children, initialize their
+archives and acknowledge newer S3 writes in each child before selecting recovery.
+The replacement cohort owns both physical groups in its existing two-group
+profile. Each process prepares and seeds one range at a time under the unchanged
+one-operation recovery pool. After receiving the synchronized seed result, the
+controller explicitly releases the exact history/plan/commitment's idle
+preparation; unknown seeds retain their original input for reconciliation.
+Recovery binds every replacement to its exact fenced source, restores each
+cell's own new incarnation, and replays both parent and newer child receipts.
+This scenario retains the same resource/fence limits and does not qualify
+external-effect ambiguity or the complete CG-13/15 matrix.
+
+The standalone controller adds `fleet_status`, transition basis/admission/status,
+archive preparation/capture, recovery basis, hold preparation/acquisition,
+intent staging/reopening, challenge and fence commands. A prepared hold intent
+must be persisted before acquisition; an uncertain allocation keeps that exact
+intent. `RaftFleetControl` checks the principal, complete current recovery basis,
+selected source and namespace-owned registry. Serialized holds still require
+independent complete-closure verification before intent staging. None of these
+values grant startup, quorum or serving authority.
+
+`authorize_seal` and `seal_source` run on voter-backed control endpoints and use
+the SDK's physical observer and group owner. `setup_child` uses the existing
+install/attach/quorum/archive SDK steps; `ManagedVoter.setup_child` records its
+history under the launch/fencing lock before entry. Raw client calls cannot
+bypass that assignment. All standalone substeps share their original 20-second
+budget, while voter actions retain the five-second protocol budget. Unknown
+mutations stop for reconciliation; no transport failure silently retries them.
+An explicitly returned Accepted activation is reconciled with the same immutable
+request within one 20-second workflow budget; an unknown response stops it.
+
+The process regression is
+`process::rustfs_managed_voter_process_boot_restart_and_stop` in
+`native_cell_groups_disaster`. It covers both image modes, stale/unauthenticated
+requests, empty-standby read/write refusals, retained engine ownership and joined
+stop, plus stale capacity refusal and public qualification/activation admission.
+Full managed Docker seed-to-serving orchestration and the six-case disk-loss gate
+remain required for CG-13 acceptance.
 
 ## Cell-group transition contracts
 

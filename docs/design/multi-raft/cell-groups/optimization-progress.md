@@ -6,6 +6,24 @@ Purpose: Track implementation and validation against the
 [optimization design](tikv-informed-optimization.md), independently of historical
 CG acceptance and release qualification.
 
+## Recovery PR integration
+
+PR [#166](https://github.com/crabbuild/cellar/pull/166) includes this implementation
+through committed source `19982a1b`, merged with managed S3 recovery at
+`79f2ccc5`. The integration retains the source-seal routing fence and the narrow
+published-child discovery authorization. It passes 63 selected Rust cases and
+focused strict Clippy with the CI test profile, including all six public routing
+cases and cached-source SQL after child publication in both image formats.
+See [combined-source progress](progress.md#combined-recovery-and-tikv-optimization-source)
+for exact scope and retained records. At `b85c609c`, three combined-source recovery
+suites pass real RustFS in both image formats with host-native RF3 voters, including
+closure selection, seeded SDK retries and uncertain outbox recovery. Seven archive
+safety cases and full strict all-target Clippy pass. See the
+[current-source checkpoint](progress.md#cg-13-checkpoint-held-receipt-replays-and-current-source-rustfs)
+for held-proof reuse, failed controls and fencing limits. Full CG-13 and release
+profiles remain open. This checkpoint does not accept a complete OPT package,
+qualify any CG-17 primitive runtime case or establish a measured speedup.
+
 ## Current boundary
 
 Implementation starts from `d0c2873f` (the shared cell-group runtime merged into

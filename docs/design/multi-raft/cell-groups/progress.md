@@ -10,13 +10,638 @@ end-to-end implementation and hard cutover work is specified in the
 CG-01 through CG-12 have passed their scoped native gates.
 CG-13 and CG-15 are in progress. CG-14 has passed its scoped harness gate.
 CG-17's [full primitive compatibility design](qualification.md#full-primitive-compatibility-cg-17)
-adds eight delivery packages and 32 required cases; implementation remains TODO.
-The [TiKV-informed optimization proposal](tikv-informed-optimization.md) adds
-routing, cache repair, cleanup and shared-worker acceptance targets, with no new
-performance qualification or change to accepted CG-11/12 status.
+adds eight delivery packages and 32 required cases. CG17-01, CG17-02 and
+CG17-03 are in progress. Ordinary JSON cell RPC handlers can suspend and resume inside
+a private Raft transaction while the SQL worker serves other cells.
+The [TiKV-informed optimization design](tikv-informed-optimization.md) adds
+routing, cache repair, cleanup and shared-worker acceptance targets. Delivered
+routing/read work and its remaining gates are tracked in
+[optimization progress](optimization-progress.md); no measured speedup or change
+to accepted CG-11/12 status is claimed.
 CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-17 suspended cell RPC
+
+At `d6c4eae8`, the shared SQL worker retains a suspended handler, its
+private SQLite transaction and the existing cell, byte and log reservations.
+The original command attempt still owns the receipt and proposal identities.
+Each poll reinstalls Storage on that worker and checks the selected cell and
+leader authority. Pending polls release the worker queue slot. Other cells
+and immutable queries can proceed while the transaction is open.
+
+Worker turns rotate across ready continuations using coalesced wakes. Idle
+wake detection uses the existing 10 ms worker tick. Expiry, a closed
+preparation waiter, a revoked leader term or worker shutdown rolls back
+before submission. Successful completion records the result in the same
+transaction and follows the existing capture, proposal and exact receipt
+settlement path.
+
+`ordinary_json_rpc_uses_raft_owned_context` passed in 37.066 seconds at
+`5dbd90ba`, whose changes after `d6c4eae8` are confined to the test harness.
+It runs host-native RF3 in both image modes, two cells sharing
+a group and one SQL worker per node. A waiting handler retains private
+SQL/KV changes while an unrelated command and a committed query complete.
+Release resumes on the same private values and produces the exact quorum
+receipt. Replay skips the factory. Deadline expiry and a live guarded
+leadership transfer drop suspended handlers, reject stale continuation
+settlement and preserve the prior committed cell version.
+
+The first attempt failed because fixture timers lacked an execution domain.
+Clippy then caught an unpropagated inner scenario result in the domain wrapper.
+The corrected test propagates both results. Earlier pass-looking runs are
+excluded from qualification.
+
+The committed Storage case passed at the same test source. Six further
+regressions pass for due alarms, inbox replay, query cancellation, direct
+registered execution, rollback/result limits and native Storage. The archive
+fixture is in memory. This scope covers one atomic RPC transaction across
+polls. Real process-kill, topology, RustFS and full primitive qualification
+remain open.
+
+Strict Clippy for the affected libraries and five integration targets,
+formatting, layout, docs, native dependency, catalog and 44 plan checks pass.
+The reviewed SQL baseline anchor is re-pinned to the changed worker loop,
+with its source/excerpt assertion preserved. Source and executable hashes
+are retained in `.cellar/cell-groups-evidence/CG-17-async-rpc-5dbd90ba-01`.
+
+Next extend ordinary async `Storage::transaction()` and nested callback
+ownership on this driver. Track each independently committed mutation before
+advancing a multi-transaction invocation. Durable background work and
+provider adapters still need committed intents and recovery. The CG-17
+acceptance matrix and CG-13 stable managed recovery remain open.
+
+## CG-17 ordinary cell RPC
+
+At `92ba9476`, `Registry::raft_cell` registers an ordinary `Cell` factory
+under an explicit Raft class. `RaftClass::json_cell_rpc` binds an operation
+to that factory's `Cell::invoke(Invocation::CellRpc)`. The SQL worker supplies
+the exact cell identity and route epoch. Factory and handler share
+`Context::storage()` and the private receipt transaction. A valid JSON reply
+releases through the existing applied receipt and durability gates.
+
+The adapter constructs a disposable instance per admitted new attempt.
+Suspension and invalid replies abort private preparation. Storage and
+Context handles expire at the end of the turn. The scope is one-turn JSON
+RPC with Storage, and registered queries continue to serve committed reads.
+
+`ordinary_json_rpc_uses_raft_owned_context` passed in 21.878 seconds at
+`d8632d84` with host-native RF3 voters and both image modes. It checks that
+factory and handler SQL/KV changes follow the exact quorum receipt, an exact
+retry skips the factory, and a suspended handler or malformed reply leaves
+the committed image and version unchanged. It also checks escaped contexts
+and refusal of background work. The original probe hit the client sequence
+gap guard before entering the malformed-reply branch. The corrected case
+uses separate valid client identities and observes both handler branches.
+The committed Storage case passed at the same source. Registration refusal,
+inbox replay, native Storage, Queue and Worker Loader regressions passed at
+`92ba9476`. Strict Clippy for the affected libraries and six test targets
+and the format check passed at `af02d330`, whose production change is
+formatting only. Layout, native dependency, catalog and 44 plan checks also
+passed. The partial catalog lists 192 SDK symbols. The checkout retains
+source and executable hashes in
+`.cellar/cell-groups-evidence/CG-17-cell-rpc-d8632d84-01`.
+
+See the [suspended RPC checkpoint](#cg-17-suspended-cell-rpc) for the current
+driver and remaining async work.
+
+## CG-17 committed query Storage
+
+At `ab31066b`, `QueryContext::storage()` opens SDK Storage on the exact
+committed image already selected for the query. SQL, JSON and structured KV,
+point and range reads share the query's consistency grant, SQLite progress
+handler and observed cell version. Older images with no KV table read as
+empty. The query authorizer guards SQL and the Storage owner rejects mutation
+methods. Cloned handles expire with their callback and retain no image pin.
+
+`storage_reads_and_writes_exact_cell_versions` passed in 26.257 seconds with
+three host-native voters, three cells sharing one group and both image modes.
+It checks the default linearizable read and a token-based AtLeast read against
+exact receipt versions, read-only SQL and KV, absent KV schema, escaped views,
+rollback and exact command replay. S3 uses the in-memory archive fixture. Six
+regressions also passed for query write refusal, SQLite deadline cancellation
+and join, verified S3 effects, native Storage and immutable VFS reads.
+Strict Clippy for the affected libraries and five integration targets,
+formatting, layout, native dependency, catalog and 44 plan checks passed.
+The partial catalog now lists 190 SDK symbols. Source and executable hashes
+are retained in `.cellar/cell-groups-evidence/CG-17-query-ab31066b-01`.
+
+See the [ordinary cell RPC checkpoint](#cg-17-ordinary-cell-rpc) for the
+next activation and output-gate work. Acceptance remains
+**13/17 tasks, 147/195 cases**.
+
+## CG-17 command Storage checkpoint
+
+At `09c1ea11`, synchronous Raft commands acquire SDK `Storage` through
+`CommandContext::storage()`, and initializers acquire it through
+`CommandTransaction::storage()`. The Raft worker owns the private SQLite
+connection for the callback. The view carries callback identity, expires
+with that callback and refuses use in a later command. SQL, KV, savepoints
+and the command receipt share the existing transaction and LTX capture.
+Output still follows the applied receipt and requested durability proof.
+
+`command_storage_commits_sql_and_kv_together` passes in 20.699 seconds with
+host-native RF3 voters, two cells in one group and both image modes. It checks
+read-your-writes, nested and whole-command rollback, reserved-table and
+transaction-control refusal, expired views, exact replay, independent cell
+identities and Quorum/S3 acknowledgements. The S3 case uses the in-memory
+archive fixture. The native Storage and async transaction regressions pass,
+as do alarm delivery, lost inbox replies and verified S3 effects. All 44 plan
+tests, the partial 189-symbol inventory check and the layout check pass.
+Strict all-target Clippy passes at `52f9f9c1`, which adjusts only test fixture
+lint scope and the filesystem test's compiler recursion limit. The checkout's
+`.cellar/cell-groups-evidence/CG-17-storage-09c1ea11-01` directory retains the
+source and executable hashes.
+
+## CG-17 checkpoint: primitive coverage admission
+
+At `9b9a7c49`, CG17-01 adds the machine-readable inventory, configuration/fault
+requirements, format-1 report schema and independent verifier. The starter
+inventory lists 186 SDK symbols across 17 capability entries and all 11
+families, including the existing typed SQL dump refusal. It distinguishes cell
+state, provider payloads and ephemeral resources. Its 4,572 coverage rows are
+obligations for the listed APIs, not runtime passes or separate workloads.
+
+CI checks the catalog and refusal tests. CG-17, CG-15 and CG-16 task evidence
+must carry a separate coverage report pinned to the qualified source and
+contracts. The verifier checks exact case selection, executable hashes,
+test-emitted configuration/artifact digests, RF3 process and fault observations,
+per-symbol result/state reconciliation, durability and restored payload bytes.
+Named passes alone cannot satisfy the gate. Ordinary Fleet/bucket results and
+shared Raft results have distinct configuration rows.
+
+The catalog remains `partial`, which refuses acceptance. SDK root fingerprints
+catch top-level export changes; full compiled export reconciliation, including
+aliases, generated APIs and supported feature modes, remains open. Real native
+and constrained RustFS runs still need producers for these artifacts. The
+synthetic verifier fixtures test admission and refusals; they establish no
+runtime primitive capability. All 13 verifier tests and 44 plan tests pass,
+including missing-report refusal at each of the three acceptance gates. The
+reviewed baseline changes only the CI anchor; the preflight assertion is intact.
+
+Next finish the export/deployment inventory and port one ordinary `Context` /
+`Storage` SQL+KV transaction through the shared backend (CG17-02). This is the
+common boundary for async transactions, due work, Queue, EventStream, Workflow
+and the provider adapters. Stable managed recovery and full CG-13 disaster
+qualification remain separate prerequisites for CG-17 acceptance. Task totals
+remain **13/17 tasks, 147/195 cases**.
+
+## CG-13 checkpoint: held-receipt replays and current-source RustFS
+
+At `b85c609c`, three recovery suites pass against real RustFS on the combined
+recovery/TiKV source. Each covers materialized and extent images, host-native
+RF3 TLS voters, deletion of every owned source voter disk, fresh histories and
+quorum, SQL/receipt restoration, old-token refusal, retained restart and joined
+shutdown. The closure case covers unpublished parents and published merged-child
+tails. A separate cold operator reopens the selection and signed fence from S3.
+
+| RustFS suite | Whole-workflow duration | Result |
+| --- | ---: | --- |
+| `managed-disaster-retry` | 220.233 s | Original SDK command IDs/inputs return restored results and fresh-history Quorum/S3 proofs. |
+| `managed-transition-disaster-closure` | 378.309 s | Both publication states select the complete closure and preserve newer archived tails. |
+| `managed-disaster-outbox` | 182.025 s | Recovery preserves an uncertain external outcome without delivering it again. |
+
+The stronger retry case first failed at `31a3c503`: an S3 replay timed out while
+earlier receipt responses retained the one-operation verification admission.
+The archive controller now reuses a still-live admitted verification through a
+weak index. Each output still verifies its exact receipt, version, witness,
+durability minimum and current birth. A verified current head can prove covered
+outputs while an older hold awaits retirement; another archive allocation stays
+blocked. Pending retirement continues on the existing retry cadence.
+
+The native retry case passes at `abbf73f2` in 157.558 s with the same production
+source and executable as the final RustFS runs. Seven archive boundary cases
+pass at `b85c609c`, including exact results, archived observations, slow response
+ownership, compaction, publication reconciliation and peer archive reuse. The
+exact-result test now requires a covered duplicate to progress without another
+upload and an uncovered successor to wait until the final proof consumer drops.
+The original two-response budget, one-operation verification pool and deadlines
+are unchanged. Full strict all-target Clippy for `cellar`/`cellar-logic`, formatting
+and layout pass. Tooling records 68 passes and one opt-in skip; all 42 plan tests,
+documentation and dependency checks pass at their recorded source boundaries.
+
+All three RustFS records verify 2,805 source inputs, executable/operator hashes
+and seven signed backend probes. Native executable SHA-256:
+`e625b3dead91c31af4c5e6dcf081965b46ce99f0e58cfb6dc30c5ff8a3beeed8`.
+Cold operator SHA-256:
+`ed68ee3b4cdb12249a2841c8d601ef04e1f33d9c3876ff3469ed7d3a0ce84994`.
+Records, executables and failed controls remain under the checkout-private
+`cg13-transition-process.jgb3z3v_` workspace target. Summary SHA-256:
+`6765250d37feec9ba78f9997af82739494ad9980ea1555cb3e01f31b6d2ed8b1`.
+The initial exact-result failure and instrumented controls remain marked failed
+or diagnostic; they were not relabeled as qualification passes.
+
+RustFS is pinned to digest `bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858`
+with one CPU/2 GiB and no extra swap. The owned server exits zero without OOM;
+its VM is stopped, and the target/default VMs are unchanged. Voters use native
+fixtures with a fencing-authority contract, not constrained containers or current-source
+Docker launch revocation. The earlier permanent Docker fence results below retain
+their source pins. These durations are functional workflow times, not request
+latency or throughput measurements.
+
+CG-13 remains open. Stable managed groups still need an explicit recovery
+admission/selection path: the current managed API requires an owned split/merge
+transition, and direct group recovery preparation is restricted to unmanaged
+births. Three planned entry points remain absent:
+`managed_disaster_blocks_old_lifecycle`, `fence_all_possible_old_writers` and
+`all_disks_deleted_restore_all_cells`. Complete all six exact case gates and the
+required `rustfs_disaster` profile: 256 cells, five nodes, occupancy 64, 900 seconds,
+three repetitions, both image modes and at least six scenarios. No task or OPT
+package is newly accepted; totals remain **13/17 tasks, 147/195 cases**.
+
+## Combined recovery and TiKV optimization source
+
+PR [#166](https://github.com/crabbuild/cellar/pull/166) combines recovery source
+`eb7c5403` with committed optimization source `19982a1b` at `79f2ccc5`, based on
+`origin/main` at `d0c2873f`. It includes authenticated leader advice/direct writes,
+targeted range-cache repair, coalesced membership refresh, bounded retries and
+fresh ReadIndex cohorts. The merge retains the sealed-source routing refusal and
+the exact-publication authorization for reserved children. Matching peers and
+clients must be rebuilt together for the marker-1 response-format cutover.
+
+At `79f2ccc5`, 63 selected Rust cases pass: 48 cache/refresh/routing/wire/cohort
+unit cases, all six public SDK/native/Axum routing cases, six consensus cohort
+cases, two follower linearizable-read cases and the published-child SQL case.
+The latter covers cached-source receipt replay, fresh writes and strong reads in
+both image formats. The CI test profile uses Rust 1.98.1, optimization level 1,
+no debug information and enabled debug assertions and overflow checks. Focused
+strict Clippy (library, SDK binary, routing and execution targets), formatting,
+layout, dependency isolation, documentation and 42 plan tests pass. The controller
+and tooling suite records 68 passes and one opt-in skip.
+
+Source, executable and log hashes are retained in the checkout-private
+`cg13-transition-process.jgb3z3v_/include-tikv-merged-*.json` records under this
+checkout's workspace target. The summary SHA-256 is
+`09d6f44a746d36b571f20955fdcb0dade299c7da5a8f3e3fa6681b22f1acf6c9`.
+An initial driver stopped on an empty codec selector after five passing groups;
+the corrected driver continued the remaining groups without repeating them.
+That control and all raw logs remain retained.
+
+The four Docker RustFS runs below retain their earlier `320a40ce` source. The
+current-source native-voter RustFS results above qualify their explicit scope;
+the exact six-case CG-13 matrix, CG-17 compatibility and CG-15/16 release gates
+remain open. No OPT package or CG task is newly accepted by this checkpoint.
+
+## CG-13 checkpoint: routed SQL and four-run RustFS recovery
+
+At `320a40ce`, the unmodified managed recovery driver passes both publication
+states and image formats on one Linux image and executable:
+
+| Recovery source | Image format | Whole-workflow duration | Checks |
+| --- | --- | ---: | ---: |
+| Published children | Extents | 191.612 s | 21 |
+| Published children | Materialized | 203.165 s | 21 |
+| Unpublished parent | Materialized | 249.344 s | 16 |
+| Unpublished parent | Extents | 146.378 s | 16 |
+
+Each run permanently fences and deletes all five source voter disks, refuses
+old restart attempts, restores on a different actual VM host, commits fresh
+genesis/quorum and verifies SQL/receipts, old-token refusal, fresh S3 writes,
+retained restart, retirement and joined shutdown. Published runs restore both
+children, including their newer S3 tails; unpublished runs restore the parent.
+All checks pass and every surviving container exits 0 without OOM. Durations
+include VM setup/handoff and are not request latency measurements.
+
+The SDK now repairs sealed-source routing before mutation transmission. A
+separate discovery gap is also fixed: published transfer children remain
+`Reserved` in Fleet until retirement, so both caller and membership-inspection
+receiver verify the exact owned publication and selected birth. Actual serving
+still requires activation, fresh quorum and explicit origin permission. General
+enrollment and partition authorization remain restricted to live histories.
+The existing receiver control budget covers the additional metadata reservation.
+
+The public SDK regression passes both image forms in 69.06 s. It warms handles
+on the source leader, replays original receipts through both children, issues
+fresh writes and verifies linearizable and minimum-version reads before Fleet
+promotion. It also checks that generic group authorization still refuses those
+reserved children. This focused native run uses test optimization level 0 with
+debug/overflow assertions; the complete release-profile/native CG-13 matrix
+remains pending. The source SDK is unchanged from the strict Clippy pass at
+`c184af43`; formatting, layout, docs, dependencies, all 47 controller tests,
+42 plan tests and full plan validation pass at `320a40ce`.
+
+Image: `sha256:4016044f1c6fbcccdf2c48749ebea3e163ac20bd81ee10ed416aadf5762ef8dc`.
+Linux binary SHA-256:
+`9d7add55dc696970d9b43b1176ce0ef5afcf8be0f016a4d29e35412abc241b1e`.
+Source-manifest SHA-256:
+`454d2f7f3e3aed25c29792d370720438228470a0af1718530f018d9d354b80fa`.
+
+Evidence is hash-verified in both checkouts under
+`.cellar/cell-groups-evidence/CG-13-published-320a40ce-`,
+`CG-13-unpublished-320a40ce-` and `CG-13-routed-sql-320a40ce-checkpoint-01`.
+Failed controls and the explicitly unqualified diagnostic remain retained.
+The checkpoint scans 51 generated credential values with no matches; private
+configurations, signing keys and launch ledgers are excluded. Both owned VMs
+are stopped and the default VM is unchanged.
+
+Scope remains Counter, one namespace and two VMs on one Mac. Voters retain one
+CPU/3 GiB/no extra swap; RustFS one CPU/2 GiB; the S3 bridge one CPU/1 GiB and
+32 connections. Declared disk capacity is not a filesystem quota. These are
+functional drills, not load or independent-hardware qualification.
+
+Next close all six current-source CG-13 cases, including merged-child closure,
+external-effect ambiguity and the retained archive/failure controls. Then deliver
+CG-17 compatibility, CG-15 combined qualification and CG-16 hard cutover.
+Acceptance remains **13/17 tasks, 147/195 cases**.
+
+## Earlier CG-13 checkpoint: published children, S3 tails and cached source routing
+
+Published recovery now restores both selected child histories on one fresh RF3
+cohort. Each voter prepares, seeds and explicitly releases one range before
+preparing the next; the recovery pool remains one operation. Exact release
+receipts are bounded to the two-group profile. Unknown seed replies retain their
+original inputs. Namespace grants remain explicit, and voter-backed child archive
+initialization confirms its local publisher before returning.
+
+The normal published driver passes materialized images at `497f1e51` in
+**190.306 s**. Extent-mode qualification exposed the harness's cell-name ordering
+assumption; `14fbe3a5` uses the actual namespace-scoped routing hash and a median
+pivot, with cells and newer S3 writes on both sides. Its first S3 tail still
+refused with `Runtime(NotReady)`.
+
+At `66c38fd2`, sealed sources refuse read-only application routing observations
+while preserving ordinary Raft status for archive and retirement work. This lets
+the existing invocation refresh placement before mutation transmission, within
+its original deadline and attempt bank. The tagged extent-mode diagnostic
+`diagnostic-published-routing-66` completes the whole two-range recovery workflow
+in **242.634 s**, including all three S3 child tails, permanent fencing and deletion
+of all five source disks, fresh seeds/quorums, restored SQL/receipts, old-token
+refusal, fresh S3 writes, retained restart, retirement and joined shutdown.
+All 21 diagnostic checks pass. This is a private diagnostic, not the unmodified
+four-run qualification gate; durations include VM setup/handoff, not request latency.
+
+A new native regression warms handles on the source leader before sealing and
+replays their original receipts after child activation. It refuses with
+`Runtime(NotReady)` both before the guard and at `66c38fd2`; the remaining
+non-voter forwarding/discovery failure is under diagnosis. Do not treat the
+diagnostic recovery pass as completion of that public request-path regression.
+
+At `66c38fd2`, formatting, layout, docs, native dependency checks, full plan
+validation and all 42 plan tests pass. Current strict Clippy and the unmodified
+published/unpublished four-run gate remain pending. Evidence for the published
+pass, failed controls and diagnostic is hash-verified in both checkouts under
+`.cellar/cell-groups-evidence/CG-13-published-` and
+`.cellar/cell-groups-evidence/CG-13-diagnostic-published-`; generated credentials,
+private configurations and signing keys are excluded. Both owned VMs and all
+qualification actors are stopped; the default VM is unchanged.
+
+Next resolve cached-source forwarding, rerun both publication states and image
+modes on one clean source, then finish the six CG-13 cases including merged-child
+and external-effect recovery. Acceptance remains **13/17 tasks, 147/195 cases**.
+CG-17 compatibility, CG-15 qualification and CG-16 hard cutover remain required.
+
+## Earlier CG-13 checkpoint: managed recovery after permanent source-disk erasure
+
+At `b4dd07b5`, the unmodified `managed_group_transition.py` passes its full
+unpublished-split recovery workflow against real RustFS in both image modes:
+materialized **182.499 s**, extents **196.677 s**. Both use image
+`sha256:eab1685e008b54ac8e23e1b260e8dd77f8fcf95d871758b849ed8604dfc0158f`
+and Linux binary SHA-256
+`dbcb6987cfc1d1d40c6f07f3a1634911165d9d307b5562a6d8a1d1f882712612`.
+These are whole-workflow durations including VM handoff, not request latency.
+
+The SDK creates the managed namespace and RF3 group, then admits an actual split,
+prepares its archives, authorizes and commits source sealing, and captures the
+complete unpublished recovery basis. New hold APIs prepare persistable acquisition
+intents and acquire the exact namespace-owned holds. Each independent controller
+reopens its proofs; read-only inspection cannot allocate missing state.
+
+The Docker authority binds the SDK challenge to all five historical voters,
+permanently revokes their launch generation, SIGKILLs every source voter, deletes
+all five disks and proves restart refusal before signing the fence. Replacement
+placement uses a different actual Docker daemon/VM identity; the SDK's old-host,
+disk and node exclusions remain unchanged. Three fresh voters independently
+restore and seed the same genesis, commit activation, settle Fleet promotion,
+complete the directory and record serving release.
+
+Serving release does not thaw existing pending-recovery owners. The driver joins
+and restarts their retained disks with new process identities, current Fleet
+authority and the exact serving receipt. A fresh quorum then serves linearizable
+reads through all three voters. The oracle verifies restored SQL and original
+Quorum/S3 receipts, rejects old-incarnation tokens with `WrongHistory`, detects
+extra application through unchanged SQL/version around retries, acknowledges
+fresh S3 writes, repeats retained restart and retires all three old histories
+with the original Fleet slot released. Each run retains twelve joined-close
+records; all surviving containers exit 0 without OOM.
+
+Two failed controls remain retained. `587f52aa` attempts replacement on the old
+physical host and is correctly refused at reservation. `7192cdcf` reaches serving
+release but polls the intentionally fenced owners. The isolated restart probe
+observes all three fenced in term 2, then a serving leader in term 3 and a complete
+workflow pass. Two sequencing regressions fail before `b4dd07b5` and pass after;
+the third proves an unknown release cannot initiate serving restart or reads.
+All 33 controller tests, 42 plan tests, focused strict Clippy, formatting, layout,
+docs and native dependency checks pass on that clean source.
+
+Evidence is hash-verified in both checkouts under
+`.cellar/cell-groups-evidence/CG-13-unpublished-`: the two `b4dd07b5` image modes,
+`587f52aa-host-refusal-01`, `7192cdcf-serving-refusal-01`,
+`7192cdcf-serving-diagnostic-01` and `b4dd07b5-checkpoint-01`. Retained
+files exclude private configurations, launch ledgers and signing keys; scanning
+all fifteen generated credential values finds no matches. Both owned VMs and
+qualification actors are stopped; the default VM is unchanged.
+
+This qualifies one Counter namespace and one unpublished split on two VMs on the
+same Mac. Each voter has one CPU/3 GiB/no extra swap, RustFS one CPU/2 GiB, and
+the bounded S3 bridge one CPU/1 GiB with 32 connections. Guest reservations stay
+within 24 GiB; declared disk capacity is not a filesystem quota. Published child
+tails, multi-range recovery, external effects, independent hardware domains,
+load and the complete six-case CG-13 gate remain open. Earlier native merged-child,
+retirement and archive failures retain their own sources and are not resolved by
+this pass. Acceptance remains **13/17 tasks, 147/195 cases**; CG-17/15/16 and the
+full hard cutover remain required.
+
+## Earlier CG-13 checkpoint: constrained managed RF3 source cohort
+
+At `4eb4533b`, `managed_group_drill.py` provisions a fresh managed namespace
+through the public SDK, registers real Docker nodes, qualifies measured capacity,
+and reserves, publishes and archives its first shared group through independent
+controller processes. Bootstrap returns the compiled schema/capability and exact
+namespace digest; no reconstructed base digest or raw NamespaceId is substituted.
+The controller grants namespace read/write permission explicitly after checking
+authenticated peer boots. Membership does not grant application permission.
+
+All three startup waiters enter concurrently under one durable assignment/fencing
+lock. Stopped containers receive exact config/TLS snapshots, including an explicit
+fresh/retained mode. The authority key and launch ledger stay outside them.
+Original requests precede entry, and uncertain batch outcomes retain every voter.
+
+Both unmodified Docker runs pass on the same source and Linux executable:
+materialized **35.135 s**, extents **34.204 s**. Each checks three SQL cells in one
+physical RF3 group, S3 and Quorum writes, minimum-version and linearizable reads
+through every voter, retained restart with new process IDs, original command
+replay, and unchanged SQL values/versions before and after replay. Six exact-process
+joined-close records per run cover initial and retained boots. All four final
+containers exit 0 without OOM. The binary SHA-256 is
+`e52119fa6248597a95bbd9e14a03489fc30dd7bb9abae19102359ba3fef367a9`.
+
+Two failed controls and their causal probes are retained. `67f31888` binds peer
+listeners to a wildcard while advertising container IPs; all three group routes
+refuse `Transport(Identity)`, and partial attachments do not prove joined close.
+Changing only that input passes the diagnostic cohort. `f7cbe3a3` then incorrectly
+requires a retry's observation version to equal its first observation. A captured
+identical S3 request preserves result/history/durability while its token and
+observation advance from 2 to 3. The final oracle requires monotonic observations
+and unchanged current SQL/version around replay, detecting extra application.
+Both input/oracle regressions fail before their fixes and pass afterwards.
+
+Final-source strict focused Clippy, format/layout, docs/dependency checks,
+25 controller tests and 42 plan tests pass. Evidence is hash-verified in both
+checkouts under `.cellar/cell-groups-evidence/CG-13-cohort-4eb4533b-`:
+`materialized-01`, `extents-01` and `checkpoint-01`. The `67f31888` bind and
+`f7cbe3a3` observation failure/diagnostic directories retain the earlier controls.
+Private credentials, launch ledgers and signing keys remain outside that copy.
+
+This is a source-cohort gate with `full_dr_completed: false`. The colocated
+`Nodes` policy is explicit; voters each have one CPU/3 GiB/no extra swap and
+RustFS one CPU/2 GiB. Capacity uses real cgroup settings/usage and the running SDK
+profile; the declared 1-GiB disk budget is not a filesystem quota. There is no
+load, independent-host, full primitive or all-disk-loss recovery claim. The owned
+actors and VM are stopped; data and failed controls remain retained.
+CG-13 stays IN_PROGRESS and acceptance counts remain 13/17 tasks, 147/195 cases.
+Next connect managed transition admission/archive/seal preparation to permanent
+fencing and fresh seed-to-serving recovery after deleting all source disks.
+Earlier merged-child, retirement and archive liveness failures remain open.
+
+## CG-13 checkpoint: independent controller steps and immediate capacity admission
+
+`8437563c` adds `managed-recovery`: standalone SDK commands for replacement
+staging, range reservation, seed-quorum selection, publication, activation
+inspection, settlement, directory completion, serving release and retirement.
+Every process reopens its own durable proofs. Missing reservations and seed sets
+can be inspected without allocation or selection. Publication only reopens an
+already selected quorum. Late-phase reconciliation uses retained operation/plan/
+seed IDs instead of requiring an obsolete active recovery barrier. The operator
+never receives a controller signing key.
+
+Managed voters now expose SDK capacity qualification and activation through their
+real observer. The first real RustFS run at `8437563c` qualifies the voter but
+refuses immediate activation: local inspection validates its old installed Fleet
+cut, while the remote path already refreshes it. `1095507e` refreshes lagging local
+inspection within the original request deadline, then retains all boot, enrollment
+and installed-trust checks. A stalled-background regression exercises both remote
+and local inspection with one request each. Joined stop also preserves the synced
+manifest's activation bit; quiescence comes from the joined close outcome, not
+from clearing durable activation metadata.
+
+At clean source `1095507e`, on source/executable-pinned builds:
+
+- The stalled-background inspection case passes (1.49 seconds).
+- The expanded real RustFS process case passes both image modes (10.64 seconds):
+  fresh/retained ownership, stale capacity refusal, qualification followed by
+  immediate activation, identity/authentication refusals, empty-standby read/write
+  refusal and joined stop.
+- Both native joined-shutdown cases pass (39.97 seconds), including preserved
+  activation and applied receipts with an in-flight proposal.
+- Independent operator checks pass against both retained RustFS modes:
+  two existing-root descriptions and 26 missing-proof refusals across both modes.
+  The Fleet head bytes and ETags remain unchanged after every command.
+- Focused compilation, strict Clippy, formatting, layout, dependency/docs checks
+  and 42 plan tests pass. Profiles, leases, deadlines and reserves are unchanged.
+
+All owned processes, backend and VM are stopped. Voters are host-native and use
+the existing fixture's explicit attestations; RustFS is constrained to one CPU /
+2 GiB. These checks do not establish constrained-voter capacity, positive
+cross-process seed-to-serving, complete managed Docker disk-loss recovery or task
+acceptance. The new positive seed-set reopening assertions are checked in but the
+complete recovery root has not been rerun past its retained setup failure.
+
+Failed controls are retained. The combined process campaign records `FAILED`
+because its **post-case** operator probe supplied a base schema digest instead of
+the SDK-computed Counter schema; its Rust test itself passed. A resumed attempt
+disconnects during RustFS startup before any Cellar command. The final operator
+run uses the captured SDK connection, retains one signed startup HTTP 503, then
+passes readiness and all 28 controls. Passing SDK cases are not repeated.
+
+Records under `.cellar/cell-groups-evidence/CG-13-controller-1095507e-`:
+`inspection-01`, `process-01`, `shutdown-01`, `operator-01` and `checkpoint-01`.
+The checkpoint includes the original `8437563c` capacity failure and both later
+probe/setup failures. Earlier merged-child, retirement and archive-preflight
+failures remain unresolved at their recorded sources. CG-13 stays `IN_PROGRESS`;
+accepted task/case counts are unchanged. Next deliver the full managed Docker
+coordinator and its positive recovery and six-case gate. CG-17/15/16 remain open.
+
+## CG-13 checkpoint: real managed voter process
+
+At `0c653ce9`, `cellar-perf-cell-group managed-node` owns a real public SDK
+`Node` and `RaftCells`. It opens explicit existing S3 roots, verifies the persisted
+fence with its pinned public key, and reopens the selected replacement and range
+reservation. The new read-only range API never allocates or repairs missing state.
+Its bounded control protocol exposes local preparation, seeding, attachment and
+activation, plus quorum/S3 writes and linearizable/minimum-version reads. SDK
+admission still controls when recovered groups may serve.
+
+The controller client records each physical history assignment under the shared
+launch/fencing lock before sending the request. It does not retry mutations;
+lost replies retain the assignment. Requests authenticate the exact node, disk and
+process, reject ambiguous identity headers, and use the original operation budget.
+Shutdown closes and joins the node, group owners and private execution domain.
+This qualification adapter supports the compiled Counter class and one namespace;
+it is not the complete CG-17 application adapter or a release resource envelope.
+
+The new `process::rustfs_managed_voter_process_boot_restart_and_stop` case passes
+against real RustFS in both image modes. It checks fresh and retained processes,
+stable engine/disk ownership, changed process/boot identities, authentication and
+stale/duplicate identity refusals, empty-standby read/write refusal and joined stop.
+The test reports 5.30 seconds. Voters are host-native; RustFS is one CPU/2 GiB.
+The backend and owned VM stop successfully. This does not exercise the positive
+cross-process seed-to-serving path or establish RF3 quorum-loss qualification.
+
+**The current complete native closure case fails.** At the same clean source and
+executable it returns `Runtime(DeadlineExceeded)` while installing the merged child
+in the first materialized unpublished-parent setup, before recovery and the new
+read-only reservation assertions. Its failed control is retained; there is no
+unchanged retry or causal liveness-fix claim. The complete RustFS closure is not
+run on this source after that failure. Earlier diagnostic passes retain their own
+sources and do not qualify this implementation.
+
+Build, focused strict Clippy, formatting, layout, native dependency checks,
+17 managed-controller tests and 42 plan tests pass. Source/executable/input hashes
+and failed controls are retained under `.cellar/cell-groups-evidence/`:
+
+- `CG-13-managed-voter-0c653ce9-process-01/record.json` — scoped RustFS process pass.
+- `CG-13-managed-voter-0c653ce9-native-closure-01/record.json` — failed native root case.
+- `CG-13-managed-voter-0c653ce9-checkpoint-01/record.json` — source and check inventory.
+
+CG-13 remains `IN_PROGRESS`; accepted task/case counts are unchanged. Next connect
+the independent operator and Docker coordinator through replacement staging,
+capacity/range reservation, seed-quorum selection, publication, settlement and
+serving release. Use the actual managed voter processes for the all-source-disks
+deleted drill, address the retained setup/liveness failures within the original
+bounds, and pass all six cases on one clean source. CG-17/15/16 remain required.
+
+## CG-13 checkpoint: post-launch assignments and recovery diagnostics
+
+At `d589e538`, `ManagedLauncher.assign_histories` durably appends group histories
+before a bounded SDK seed/attach callback and holds the launch/revocation lock
+through that callback. Lost replies retain the assignment. Fencing includes every
+historical writer in the cohort; unknown deployments, foreign catalogs and revoked
+generations/histories refuse admission. Controller regressions cover persistence,
+lock ownership, lost replies, immutable declarations and stable fence payloads.
+This is a controller API foundation; the managed Docker voter driver is still open.
+
+At diagnostic source `ae6f0d66`, the complete real RustFS closure root case passes
+in 510.210 seconds: both image modes, both recovery cuts and their independent
+operator controls. The separate outbox-ambiguity root case passes both modes in
+250.807 seconds on the same executable. Temporary retirement/archive probes are
+excluded from the published change. Application deadlines, leases, resource
+profiles, reserves and assertions are unchanged. All owned actors/backend/VM are
+stopped; exact source, executable and output hashes remain retained.
+
+These diagnostic passes do **not** establish a causal fix or current-source task
+acceptance. The earlier extent-mode retirement `DeadlineExceeded` remains an
+unresolved control. An intervening run also fails earlier, in materialized merge
+replay: `Unconfirmed` arrives before the injected archive payload denial. Another
+attempt stops at signed S3 startup HTTP 503 before any Cellar test executes.
+Both failures are retained. The passing run reaches all eight payload-denial
+checks; neither transient runtime failure reproduces there.
+
+Record: `.cellar/cell-groups-evidence/CG-13-retirement-ae6f0d66-diagnostic-01/checkpoint.json`.
+CG-13 remains `IN_PROGRESS`. Next deliver the managed Docker voter
+seed/attach/activation/serving path using the durable assignment API, make the
+retained failures reproducible, and qualify all six cases on one clean source.
+CG-17/15/16 and the full hard cutover remain open; accepted task counts are unchanged.
 
 ## CG-13 checkpoint: portable recovery selection and independent operator
 
@@ -42,7 +667,7 @@ At `3d780669`, build, strict focused Clippy and formatting pass. The production
 library/Cargo inputs remain unchanged from the native checkpoint; the operator
 and qualification fixtures have their own recorded executable hashes.
 
-**The current combined RustFS case fails.** Its two materialized scenarios finish,
+**The combined RustFS case at `3d780669` fails.** Its two materialized scenarios finish,
 including the mandatory independent operator controls. Extent-mode unpublished
 parent setup then returns `Runtime(DeadlineExceeded)` from source-retirement
 `commit`, before that scenario reaches disaster recovery. This follows the

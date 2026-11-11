@@ -82,7 +82,7 @@ async fn run_case(
         let mut context = crate::host_io::IoContext::new();
         Arc::get_mut(&mut context).unwrap().native_activation = Some(activation.clone());
         let _context = crate::host_io::CurrentGuard::enter(context);
-        let db = Storage(activation, None, 0);
+        let db = Storage::native(activation, None, 0);
         super::super::schema::open(&db)?;
         let definition = definition();
         db.tx(|tx| {

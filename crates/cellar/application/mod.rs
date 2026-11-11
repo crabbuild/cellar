@@ -373,6 +373,7 @@ impl Registry {
     /// Register synchronous SQL commands and read-only queries. Raft classes
     /// cannot also have an ordinary `Cell` factory under the same class name.
     pub fn raft_class(mut self, class: consensus::RaftClass) -> Result<Self> {
+        class.validate_cell_factory()?;
         anyhow::ensure!(
             !self.cells.contains_key(class.name())
                 && !self.raft_classes.contains_key(class.name())
@@ -382,6 +383,16 @@ impl Registry {
         self.raft_classes
             .insert(class.name().into(), Arc::new(class));
         Ok(self)
+    }
+
+    /// Register an ordinary cell factory for the Raft operations declared by
+    /// this class. The factory belongs to the Raft namespace exclusively.
+    pub fn raft_cell(
+        self,
+        class: consensus::RaftClass,
+        factory: impl Fn(Context, &CellIdentity) -> Result<Arc<dyn Cell>> + Send + Sync + 'static,
+    ) -> Result<Self> {
+        self.raft_class(class.with_cell_factory(Arc::new(factory))?)
     }
 
     pub fn workflow(
@@ -554,6 +565,7 @@ pub(crate) struct Activation {
 
 #[derive(Clone)]
 pub struct Context {
+    pub(crate) raft_storage: Option<Storage>,
     pub(crate) container_supervision: Option<Arc<containers::Supervision>>,
     pub(crate) rpc_catalog: Option<Arc<rpc::Catalog>>,
     pub(crate) event_authority: Option<event_stream::Authority>,
@@ -571,10 +583,10 @@ pub struct Context {
     pub(crate) workflow_bindings: Arc<HashMap<String, workflow::Workflow>>,
     pub(crate) blob_bindings: Arc<HashMap<String, blob::Bucket>>,
     pub(crate) asset_binding: Option<(Arc<str>, assets::Fetcher)>,
-    pub(crate) queue_config: Arc<queue::Config>,
+    pub(crate) queue_config: Option<Arc<queue::Config>>,
     pub(crate) generation: crate::generation::GenerationId,
     pub(crate) worker_config: Arc<crate::worker_config::WorkerConfig>,
-    pub(crate) loader_owner: Arc<loader::Owner>,
+    pub(crate) loader_owner: Option<Arc<loader::Owner>>,
     pub(crate) loaded_environment: Option<Arc<cellar_native::clone::StructuredValue>>,
 }
 
@@ -653,6 +665,10 @@ impl Context {
 
     pub(crate) fn check_turn(&self) -> Result<()> {
         anyhow::ensure!(
+            self.raft_storage.is_none(),
+            consensus::CommandFailure::UnsupportedCapability
+        );
+        anyhow::ensure!(
             crate::host_io::installed_context()
                 .as_ref()
                 .is_some_and(|io| Arc::ptr_eq(io, &self.io)),
@@ -719,12 +735,16 @@ impl Context {
     }
 
     pub fn storage(&self) -> Result<Storage> {
+        if let Some(storage) = &self.raft_storage {
+            storage.check_raft_turn()?;
+            return Ok(storage.clone());
+        }
         self.check_turn()?;
         anyhow::ensure!(
             self.identity.is_some(),
             "stateless handlers have no cell storage"
         );
-        Ok(Storage(
+        Ok(Storage::native(
             self.io
                 .native_activation
                 .clone()

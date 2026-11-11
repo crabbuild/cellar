@@ -5,6 +5,7 @@
 
 mod mutation_route;
 pub(crate) use mutation_route::MutationRouting;
+pub(super) use mutation_route::MutationSelectionError;
 mod query_routing;
 mod receipt;
 pub use query_routing::CellQueryRouting;

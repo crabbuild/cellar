@@ -7,47 +7,83 @@ use crate::asyncrt::ExecutionDomain;
 use futures_util::FutureExt;
 
 #[test]
-fn only_busy_or_no_leader_retries_the_installed_placement() {
+fn busy_or_no_leader_retries_the_installed_placement() {
     assert_eq!(
         ProbeFailures {
             overloaded: true,
             ..Default::default()
         }
-        .leader_retry(),
-        Some(CommandFailure::Overloaded)
+        .repair(),
+        ProbeRepair::Retry(CommandFailure::Overloaded)
     );
     assert_eq!(
         ProbeFailures {
             no_leader: true,
             ..Default::default()
         }
-        .leader_retry(),
-        Some(CommandFailure::NotLeader { leader: None })
+        .repair(),
+        ProbeRepair::Retry(CommandFailure::NotLeader { leader: None })
     );
     assert_eq!(
         ProbeFailures {
             no_leader: true,
             overloaded: true,
-            discovery: false
+            ..Default::default()
         }
-        .leader_retry(),
-        Some(CommandFailure::NotLeader { leader: None })
+        .repair(),
+        ProbeRepair::Retry(CommandFailure::NotLeader { leader: None })
     );
 }
 
 #[test]
-fn unreachable_or_unverified_members_keep_the_discovery_fallback() {
-    assert_eq!(ProbeFailures::default().leader_retry(), None);
+fn unreachable_probes_preserve_placement_and_do_not_infer_membership_change() {
+    for error in [
+        TransportError::Timeout,
+        TransportError::Io("connection reset".into()),
+    ] {
+        let mut failures = ProbeFailures::default();
+        failures.observe(error).unwrap();
+        assert_eq!(
+            failures.repair(),
+            ProbeRepair::Retry(CommandFailure::Unavailable)
+        );
+    }
+}
+
+#[test]
+fn missing_or_stale_members_need_membership_discovery() {
+    assert_eq!(ProbeFailures::default().repair(), ProbeRepair::Membership);
     for (no_leader, overloaded) in [(false, false), (true, false), (false, true), (true, true)] {
         assert_eq!(
             ProbeFailures {
-                discovery: true,
+                membership: true,
+                unreachable: true,
                 no_leader,
                 overloaded
             }
-            .leader_retry(),
-            None
+            .repair(),
+            ProbeRepair::Membership
         );
+    }
+    for error in [TransportError::UnknownGroup, TransportError::StalePeer] {
+        let mut failures = ProbeFailures::default();
+        failures.observe(error).unwrap();
+        assert_eq!(failures.repair(), ProbeRepair::Membership);
+    }
+}
+
+#[test]
+fn probe_authority_failures_preserve_the_terminal_cause() {
+    for error in [
+        TransportError::Identity,
+        TransportError::Authentication,
+        TransportError::Refused,
+    ] {
+        let mut failures = ProbeFailures::default();
+        assert!(matches!(
+            failures.observe(error.clone()),
+            Err(MutationSelectionError::Terminal(CellDispatchError::Transport(actual))) if actual == error
+        ));
     }
 }
 

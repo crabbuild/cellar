@@ -192,6 +192,11 @@ jobs:
         run: python3 tools/test_native_dependencies.py
       - name: Verify documentation integrity
         run: python3 tools/docs/check.py
+      - name: Verify primitive coverage contracts and refusal cases
+        run: |
+          python3 tools/multi-raft/primitive_coverage.py check-catalog
+          python3 -m unittest discover -s tools/multi-raft -p test_primitive_coverage.py
+          python3 -m unittest discover -s docs/design/multi-raft/cell-groups -p test_plan.py
       - name: Test performance workload and evidence guards
         run: python3 -m unittest discover -s tools/perf -p 'test_*.py'
       - name: Test native Python prerequisite capture

@@ -124,11 +124,8 @@ impl CellCommandInvocation {
                     .await;
                     match selected {
                         Ok(member) => break member,
-                        Err(cause)
-                            if matches!(
-                                cause.refusal(),
-                                Some(CommandFailure::NotLeader { .. } | CommandFailure::Overloaded)
-                            ) && usize::from(self.current()?.ordinal())
+                        Err(MutationSelectionError::Retry(_))
+                            if usize::from(self.current()?.ordinal())
                                 < self.session.maximum_attempts() =>
                         {
                             routing
@@ -142,10 +139,9 @@ impl CellCommandInvocation {
                                 .map_err(|cause| self.error(cause))?;
                             self.retry().await?;
                         }
-                        Err(CellDispatchError::Runtime(
-                            RuntimeError::NotReady | RuntimeError::NotFound,
-                        )) if usize::from(self.current()?.ordinal())
-                            < self.session.maximum_attempts() =>
+                        Err(MutationSelectionError::StalePlacement)
+                            if usize::from(self.current()?.ordinal())
+                                < self.session.maximum_attempts() =>
                         {
                             // No callback or producer has entered. Only discovery
                             // retries here; a transmitted mutation is never retried.
@@ -158,7 +154,7 @@ impl CellCommandInvocation {
                                 .map_err(|cause| self.error(cause))?;
                             self.attempt = Some(refreshed);
                         }
-                        Err(cause) => return Err(self.error(cause)),
+                        Err(cause) => return Err(self.error(cause.into_dispatch())),
                     }
                 };
                 if let Some(member) = remote {

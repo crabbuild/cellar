@@ -8,8 +8,7 @@
 mod archive_store;
 #[path = "cell_group_checkpoint.rs"]
 mod checkpoint_fixture;
-#[path = "raft_storage_fault.rs"]
-mod fault;
+use crate::storage_fault as fault;
 #[path = "raft_ltx_fixture.rs"]
 mod images;
 #[path = "cell_group_runtime.rs"]

@@ -304,7 +304,7 @@ impl Directory {
         observer: &RaftCells,
         history: GroupHistory,
         deadline: u64,
-    ) -> Result<(), crate::raft::completion::RuntimeError> {
+    ) -> Result<super::RouterRefreshOutcome, crate::raft::completion::RuntimeError> {
         use crate::raft::completion::RuntimeError;
         remaining(log, deadline).map_err(|_| RuntimeError::DeadlineExceeded)?;
         if let Err(error) = self.refresh(log, transport, observer, Some(deadline)).await {
@@ -341,10 +341,7 @@ impl Directory {
             .map_err(|error| {
                 tracing::debug!(?history, %error, "targeted router discovery unavailable");
                 RuntimeError::NotReady
-            })?;
-        observer
-            .refresh_local_namespace_routes(history, deadline)
-            .await
+            })
     }
 
     async fn refresh(

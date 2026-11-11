@@ -12,10 +12,10 @@ use std::sync::{
     Mutex, Weak,
 };
 
-tokio::task_local! { static SCENE: Arc<State>; }
+tokio::task_local! { pub(crate) static SCENE: Arc<State>; }
 
 #[derive(Default)]
-pub(super) struct State {
+pub(crate) struct State {
     source: Mutex<Option<CellHistory>>,
     original: Mutex<Option<(CommandId, Vec<u8>)>>,
     attempts: AtomicUsize,
@@ -27,7 +27,7 @@ pub(super) struct State {
     endpoint: Mutex<Weak<Endpoint>>,
     failure: Mutex<Option<String>>,
     changed: AtomicBool,
-    checked: AtomicBool,
+    pub(crate) checked: AtomicBool,
     entered: tokio::sync::Notify,
     fresh_entered: tokio::sync::Notify,
 }
@@ -152,25 +152,6 @@ async fn send(
 
 pub(super) fn state() -> Option<Arc<State>> {
     SCENE.try_with(Arc::clone).ok()
-}
-
-pub(crate) async fn qualify(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
-    let state = Arc::new(State::default());
-    SCENE
-        .scope(state.clone(), async {
-            Box::pin(super::qualify_disaster(
-                rooted,
-                store,
-                RecoveryPoint::PublishedChildren,
-            ))
-            .await?;
-            ensure!(
-                state.checked.load(Ordering::Acquire),
-                "recovered outbox audit was not reached"
-            );
-            Ok(())
-        })
-        .await
 }
 
 pub(super) fn class() -> Result<Option<RaftClass>> {

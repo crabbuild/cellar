@@ -591,16 +591,22 @@ async fn snapshot_metadata_survives_process_kill() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn interrupted_purge_preserves_group() -> Result<()> {
-    let directory = tempfile::tempdir()?;
-    let path = directory.path().join("node");
-    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
-    let mut configuration = options(&path, LogOpenMode::Create, 1);
+fn purge_options(path: &Path, mode: LogOpenMode, process: u8) -> ReplicaLogOptions {
+    let mut configuration = options(path, mode, process);
     configuration.target_file_bytes = 4096;
     configuration.purge_threshold_bytes = 8192;
     configuration.purge_interval_ms = None;
-    let log = start(&domain, configuration, Arc::new(DirectFileSystem)).await?;
+    configuration
+}
+
+async fn seed_purge(path: &Path) -> Result<()> {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = start(
+        &domain,
+        purge_options(path, LogOpenMode::Create, 1),
+        Arc::new(DirectFileSystem),
+    )
+    .await?;
     let group = log.create_group(bootstrap(10)).await?;
     for index in 2..=17 {
         let mut write = GroupWrite::new(&group);
@@ -610,14 +616,24 @@ async fn interrupted_purge_preserves_group() -> Result<()> {
     }
     log.close().await?;
     domain.shutdown().await;
-    kill_at_cut(&path, "purge-delete").await?;
+    Ok(())
+}
+
+async fn verify_after_purge(path: &Path) -> Result<()> {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let log = start(
         &domain,
-        options(&path, LogOpenMode::Resume, 3),
+        options(path, LogOpenMode::Resume, 3),
         Arc::new(DirectFileSystem),
     )
     .await?;
+    check_purge_group(&log)?;
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+fn check_purge_group(log: &ReplicaLog) -> Result<()> {
     let group = log.group(&bootstrap(10).scope)?;
     assert_eq!(group.initial_state()?.hard_state.commit, 17);
     let entries = group.entries(2, 18, None, GetEntriesContext::empty(false))?;
@@ -625,9 +641,127 @@ async fn interrupted_purge_preserves_group() -> Result<()> {
     for entry in entries {
         assert!(entry.data.iter().all(|&byte| byte == entry.index as u8));
     }
-    log.close().await?;
-    domain.shutdown().await;
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn interrupted_purge_preserves_group() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("node");
+    seed_purge(&path).await?;
+    kill_at_cut(&path, "purge-delete").await?;
+    verify_after_purge(&path).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn segment_purge_receipt_resumes_and_replays_after_process_kill() -> Result<()> {
+    use raft_engine::FileNameExt as _;
+
+    for (cut, completed_process) in [("purge-journal-delete", 3), ("purge-journal-reply", 2)] {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("node");
+        seed_purge(&path).await?;
+        let before = log_reclaim::inventory(&path)?;
+        kill_at_cut(&path, cut).await?;
+        let at_cut = log_reclaim::inventory(&path)?;
+        let absent_at_cut: Vec<_> = before
+            .keys()
+            .filter(|name| !at_cut.contains_key(*name))
+            .collect();
+        ensure!(!absent_at_cut.is_empty());
+
+        let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let log = start(
+            &domain,
+            purge_options(&path, LogOpenMode::Resume, 3),
+            Arc::new(DirectFileSystem),
+        )
+        .await?;
+        if completed_process == 3 {
+            ensure!(matches!(
+                log.purge_segments(2).await,
+                Err(LogError::Invalid(_))
+            ));
+        }
+        let receipt = log.purge_segments(1).await?;
+        let after = log.segment_inventory().await?;
+        ensure!(receipt.number == 1 && receipt.engine == after.engine);
+        ensure!(receipt.node == after.node && receipt.disk == after.disk);
+        ensure!(receipt.prepared_process == ProcessGeneration::new([2; 16])?);
+        ensure!(receipt.completed_process == ProcessGeneration::new([completed_process; 16])?);
+        ensure!(receipt.completed_sequence > receipt.prepared_sequence);
+        ensure!(after.durable_sequence >= receipt.completed_sequence);
+        ensure!(!receipt.removed_files().is_empty());
+        for removed in receipt.removed_files() {
+            let name = std::ffi::OsString::from(removed.id.build_file_name());
+            ensure!(before.get(&name) == Some(&removed.bytes));
+            ensure!(after.files().iter().all(|file| file.id != removed.id));
+        }
+        for name in absent_at_cut {
+            ensure!(receipt
+                .removed_files()
+                .iter()
+                .any(|row| { std::ffi::OsString::from(row.id.build_file_name()) == *name }));
+        }
+        if completed_process == 2 {
+            let returned =
+                std::fs::read_to_string(directory.path().join("purge-journal-reply.receipt"))?;
+            ensure!(format!("{receipt:?}") == returned);
+        }
+        ensure!(log.purge_segments(1).await? == receipt);
+        ensure!(log.segment_inventory().await?.durable_sequence == after.durable_sequence);
+        check_purge_group(&log)?;
+        log.close().await?;
+        domain.shutdown().await;
+
+        let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let log = start(
+            &domain,
+            purge_options(&path, LogOpenMode::Resume, 4),
+            Arc::new(DirectFileSystem),
+        )
+        .await?;
+        ensure!(log.purge_segments(1).await? == receipt);
+        let next = log.purge_segments(2).await?;
+        ensure!(next.number == 2 && next.prepared_sequence > receipt.completed_sequence);
+        ensure!(next
+            .removed_files()
+            .iter()
+            .all(|new| { receipt.removed_files().iter().all(|old| old.id != new.id) }));
+        ensure!(matches!(
+            log.purge_segments(1).await,
+            Err(LogError::Invalid(_))
+        ));
+        check_purge_group(&log)?;
+        log.close().await?;
+        domain.shutdown().await;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn purge_requires_directory_sync_after_unlink() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("node");
+    seed_purge(&path).await?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let gate = Gate::new(None);
+    let log = start(
+        &domain,
+        purge_options(&path, LogOpenMode::Resume, 2),
+        Arc::new(FaultFileSystem { gate: gate.clone() }),
+    )
+    .await?;
+    let _release = gate.arm(FAIL_DIRECTORY_SYNC_AFTER_DELETE);
+    let result = log.purge().await;
+    let closed = log.close().await;
+    domain.shutdown().await;
+    ensure!(
+        matches!(&result, Err(LogError::Io(message)) if message.contains("injected Raft directory sync failure")),
+        "purge must report its post-unlink sync failure, got {result:?}"
+    );
+    ensure!(matches!(closed, Err(LogError::Io(_))));
+    verify_after_purge(&path).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -743,12 +877,11 @@ async fn storage_process_fixture() -> Result<()> {
     let signal = std::path::PathBuf::from(std::env::var("CELLAR_RAFT_TEST_SIGNAL")?);
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let gate = Gate::new(Some(signal.clone()));
-    let mut configuration = options(&path, LogOpenMode::Resume, 2);
-    if cut == "purge-delete" {
-        configuration.target_file_bytes = 4096;
-        configuration.purge_threshold_bytes = 8192;
-        configuration.purge_interval_ms = None;
-    }
+    let configuration = if cut.starts_with("purge-") {
+        purge_options(&path, LogOpenMode::Resume, 2)
+    } else {
+        options(&path, LogOpenMode::Resume, 2)
+    };
     let log = start(
         &domain,
         configuration,
@@ -767,15 +900,23 @@ async fn storage_process_fixture() -> Result<()> {
     let mode = match cut.as_str() {
         "before-sync" => CRASH_BEFORE_SYNC,
         "after-sync" | "snapshot-after-sync" => CRASH_AFTER_SYNC,
-        "after-reply" => OFF,
+        "after-reply" | "purge-journal-reply" => OFF,
         "torn-write" => TORN_WRITE,
-        "purge-delete" => CRASH_AFTER_DELETE,
+        "purge-delete" | "purge-journal-delete" => CRASH_AFTER_DELETE,
         _ => bail!("unknown crash cut"),
     };
     let _release = gate.arm(mode);
     if cut == "purge-delete" {
         log.purge().await?;
         bail!("purge did not reach an actual obsolete-file deletion");
+    } else if cut.starts_with("purge-journal-") {
+        let receipt = log.purge_segments(1).await?;
+        ensure!(
+            cut == "purge-journal-reply",
+            "purge did not reach the unlink cut"
+        );
+        ensure!(!receipt.removed_files().is_empty());
+        std::fs::write(signal.with_extension("receipt"), format!("{receipt:?}"))?;
     } else {
         let mut write = GroupWrite::new(&group);
         if cut == "snapshot-after-sync" {

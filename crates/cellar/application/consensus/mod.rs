@@ -9,11 +9,12 @@ pub(crate) mod admission;
 mod archive_status;
 pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
-pub(crate) use class::callback_active;
+pub(crate) use class::{callback_active, CommandTarget};
 pub(crate) mod group_client;
 mod group_contracts;
 pub(crate) use group_contracts::cell_routing_key;
 pub(crate) mod group_protocol;
+mod native_cell;
 mod performance;
 pub use performance::{
     RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,
@@ -250,7 +251,8 @@ pub mod verification {
         SnapshotDownload, SnapshotError, SnapshotLimits, SnapshotPackage, SnapshotReference,
     };
     pub use crate::raft::storage::{
-        CellGroupBootstrap, GroupBootstrap, LogError, ReplicaLog, SyncReceipt,
+        CellGroupBootstrap, GroupBootstrap, LogError, RaftSegmentFile, RaftSegmentId,
+        RaftSegmentInventory, RaftSegmentPurgeReceipt, RaftSegmentQueue, ReplicaLog, SyncReceipt,
     };
     pub use crate::raft::transport::{
         CellGroupCheckpointRegistration, CellGroupSeedError, CellGroupSeedSession, Delivery,

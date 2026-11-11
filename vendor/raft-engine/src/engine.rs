@@ -327,6 +327,14 @@ where
         self.purge_manager.purge_expired_files()
     }
 
+    /// Whether either log queue meets the current purge policy.
+    pub fn needs_purge(&self) -> bool {
+        self.purge_manager.needs_rewrite_log_files(LogQueue::Append)
+            || self
+                .purge_manager
+                .needs_rewrite_log_files(LogQueue::Rewrite)
+    }
+
     /// Returns count of fetched entries.
     pub fn fetch_entries_to<M: MessageExt>(
         &self,
@@ -396,8 +404,8 @@ where
     }
 
     /// Returns the sequence number range of active log files in the specific
-    /// log queue.
-    /// For testing only.
+    /// log queue. An owner inspecting the directory against this range must
+    /// serialize the inspection with appends, rotations, and purges.
     pub fn file_span(&self, queue: LogQueue) -> (u64, u64) {
         self.pipe_log.file_span(queue)
     }

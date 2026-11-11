@@ -124,6 +124,7 @@ mod observation;
 mod origins;
 mod recovery;
 mod repair;
+mod segment_reclamation;
 mod services;
 mod startup;
 mod stop;

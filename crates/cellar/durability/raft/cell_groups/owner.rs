@@ -814,6 +814,14 @@ impl CellGroupOwner {
         &self,
         include_advice: bool,
     ) -> Result<crate::raft::leader_advice::RoutingObservation, RuntimeError> {
+        self.live()?;
+        // A sealed source can retain its Raft leader for archive/retirement
+        // work, but that leader is no longer an application destination.
+        // Refuse this read-only observation before mutation transmission so
+        // the original routing session refreshes placement within its budget.
+        if self.current.marker().source_seal().is_some() {
+            return Err(RuntimeError::NotReady);
+        }
         let generation = self
             .parked
             .map(ParkGeneration::get)
@@ -826,7 +834,6 @@ impl CellGroupOwner {
             .map(ParkGeneration::new)
             .transpose()
             .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
-        self.live()?;
         let cache = self.group.read()?;
         let status = self.status_at(&cache);
         // Sample term, leader and the applied configuration in one owner turn.

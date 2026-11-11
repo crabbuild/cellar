@@ -1718,7 +1718,7 @@ async fn recover_selected(
         .eq(parent_holds.iter()));
     ensure!(authority.fences.load(Ordering::Acquire) == 1);
     ensure!(authority.verifications.load(Ordering::Acquire) == 2);
-    if let Some(store) = rustfs::operator_config() {
+    if let Some(store) = crate::rustfs_operator::config() {
         Box::pin(fence::verify_rustfs_operator(
             fixture,
             &portable,
@@ -1727,7 +1727,7 @@ async fn recover_selected(
             fenced.receipt_digest(),
         ))
         .await?;
-        rustfs::operator_verified()?;
+        crate::rustfs_operator::verified()?;
     }
     let cut = fleet.read(TIMEOUT).await?;
     Box::pin(fence::check_old_boot_refused(fixture)).await?;
@@ -1960,6 +1960,17 @@ async fn check_recovery_voter_reservations(
         }
 
         let first = plan.births()[0].route().history;
+        let before = fixture.catalog.read(TIMEOUT).await?.revision();
+        ensure!(Box::pin(control.reopen_transition_recovery_seed_quorums(
+            namespace, fenced, plan, TIMEOUT,
+        )).await?.is_none());
+        ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == before);
+        ensure!(Box::pin(control.reopen_transition_recovery_range(
+            namespace, fenced, plan, first, TIMEOUT,
+        ))
+        .await?
+        .is_none());
+        ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == before);
         fixture
             .store
             .fail_fleet_confirmation
@@ -1988,6 +1999,15 @@ async fn check_recovery_voter_reservations(
             .await?;
             ensure!(proof.route() == birth.route() && proof.plan_digest() == plan.digest());
             ensure!(proof.voter_boots() == boots.as_slice());
+            let reopened = Box::pin(fresh.reopen_transition_recovery_range(
+                namespace, fenced, plan, birth.route().history, TIMEOUT,
+            ))
+            .await?
+            .context("independent voter reopens the exact reserved range")?;
+            ensure!(reopened.route() == proof.route()
+                && reopened.plan_digest() == proof.plan_digest()
+                && reopened.applied_revision() == proof.applied_revision()
+                && reopened.voter_boots() == proof.voter_boots());
             ensure!(proof.applied_revision() > previous);
             previous = proof.applied_revision();
             reserved.push(Arc::new(proof));
@@ -2067,10 +2087,14 @@ async fn check_recovery_voter_reservations(
                 )).await;
                 ensure!(matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
                 ensure!(!fixture.store.fail_recovery_record_confirmation.load(Ordering::Acquire));
+                let readonly = Box::pin(fresh.reopen_transition_recovery_seed_quorums(
+                    namespace, fenced, plan, TIMEOUT,
+                )).await?.context("reopen selected seeds after losing selection response")?;
                 let selected = Box::pin(fresh.select_transition_recovery_seed_quorums(
                     namespace, fenced, plan, TIMEOUT,
                 )).await?;
                 ensure!(selected.plan_digest() == plan.digest() && selected.ranges().len() == reserved.len());
+                ensure!(readonly.digest() == selected.digest());
                 ensure!(selected.ranges().iter().zip(plan.births()).all(|(range, birth)| {
                     range.birth_digest() == birth.route().birth_digest
                         && range.members() == [21, 22]
@@ -2081,9 +2105,9 @@ async fn check_recovery_voter_reservations(
             let view = host.observe_node(TIMEOUT).await?;
             ensure!(view.node.groups == reserved.len() as u32 && view.registered_histories == 0);
         }
-        let reopened = Box::pin(control.select_transition_recovery_seed_quorums(
+        let reopened = Box::pin(control.reopen_transition_recovery_seed_quorums(
             namespace, fenced, plan, TIMEOUT,
-        )).await?;
+        )).await?.context("independent controller reopens the original seed set")?;
         ensure!(Some(reopened.digest()) == quorum_digest);
         ensure!(reopened.ranges().iter().all(|range| range.members() == [21, 22]));
         let request = FleetRecoveryAttachRequest {
@@ -2557,6 +2581,24 @@ async fn check_recovered_sql(
                     && restored.observation().version == query.version
                     && restored.observation().witness.group == history
             );
+            // The read-only lookup confirms this command committed before the
+            // disaster. Its normal SDK replay must consume the restored receipt,
+            // return the old result and prove it under the fresh cell history.
+            let replayed = handle
+                .command(
+                    &add,
+                    1i64.to_be_bytes().to_vec(),
+                    CommandOptions::new(original.id, retry),
+                )
+                .await
+                .context("replay recovery-seeded command through the SDK")?;
+            ensure!(
+                replayed.id == original.id
+                    && replayed.result == original.result
+                    && replayed.version == query.version
+                    && replayed.witness.group == history,
+                "recovery-seeded command changed its result or fresh-history proof"
+            );
             if let Some(tail) = sql.tail.filter(|tail| tail.version.history == *old_cell) {
                 let restored = handle
                     .receipt(
@@ -2576,6 +2618,25 @@ async fn check_recovered_sql(
                 ensure!(
                     restored.observation().version == query.version
                         && restored.observation().witness.group == history
+                );
+                let replayed = handle
+                    .command(
+                        &add,
+                        0i64.to_be_bytes().to_vec(),
+                        CommandOptions {
+                            durability: Durability::S3,
+                            ..CommandOptions::new(tail.id, retry)
+                        },
+                    )
+                    .await
+                    .context("replay recovery-seeded S3 tail through the SDK")?;
+                ensure!(
+                    replayed.id == tail.id
+                        && replayed.result == tail.result
+                        && replayed.version == query.version
+                        && replayed.witness.group == history
+                        && replayed.durability == Durability::S3,
+                    "recovery-seeded tail lost its result or S3 proof"
                 );
             }
             let id = CommandId::new(ClientId::new([212; 16])?, 1)?;

@@ -442,6 +442,7 @@ impl NativeWorker {
             .set(Arc::downgrade(&state))
             .map_err(|_| anyhow!("native invocation already owns an event state"))?;
         Ok(Context {
+            raft_storage: None,
             container_supervision: self.application.container_supervision(),
             rpc_catalog: self.rpc_catalog.clone(),
             event_authority: None,
@@ -459,10 +460,10 @@ impl NativeWorker {
             workflow_bindings: self.workflow_bindings.clone(),
             blob_bindings: self.blob_bindings.clone(),
             asset_binding: self.asset_binding.clone(),
-            queue_config: self.queue_config.clone(),
+            queue_config: Some(self.queue_config.clone()),
             generation: self.config.generation,
             worker_config: self.config.clone(),
-            loader_owner: self.loader_owner.clone(),
+            loader_owner: Some(self.loader_owner.clone()),
             loaded_environment: self.loaded_environment.clone(),
         })
     }

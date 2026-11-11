@@ -53,6 +53,13 @@ pub enum RaftFleetNamespaceScope {
 }
 
 impl RaftFleetControl {
+    /// Immutable namespace identity from this verified connection. This is the
+    /// catalog scope digest used by recovery/launch inventory, not NamespaceId.
+    /// Retaining it grants no placement, startup or serving permission.
+    pub fn namespace_digest(&self, namespace: &str) -> Result<[u8; 32]> {
+        Ok(self.managed_namespace(namespace)?.namespace().root_digest())
+    }
+
     /// Connect only to exact existing coordination and namespace roots. This
     /// never initializes a fleet, namespace, node or controller. The complete
     /// namespace set is checked before exposing any mutation interface.

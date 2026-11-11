@@ -7,7 +7,9 @@ mod collection;
 mod directory;
 pub(crate) use directory::require_local as require_local_fleet_boot;
 mod router_refresh;
-pub(crate) use router_refresh::{RouterRefreshClient, RouterRefreshKey, RouterRefreshRequest};
+pub(crate) use router_refresh::{
+    RouterRefreshClient, RouterRefreshKey, RouterRefreshOutcome, RouterRefreshRequest,
+};
 mod partition;
 mod provisioning;
 mod recovery;

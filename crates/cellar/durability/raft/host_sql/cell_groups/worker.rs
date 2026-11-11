@@ -1,7 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+
+#[path = "suspended_rpc.rs"]
+mod rpc;
 
 type VerificationCallback =
     Box<dyn FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>> + Send>;
@@ -23,6 +26,16 @@ pub(super) struct Stage {
     pub callback: Callback,
     pub lease: CellLease,
     pub bytes: Arc<Bytes>,
+}
+
+impl Stage {
+    fn is_cell_rpc(&self) -> bool {
+        matches!(
+            &self.callback,
+            Callback::Registered { class, system: false, .. }
+                if class.is_cell_rpc(&self.attempt.request.operation)
+        )
+    }
 }
 
 type Initializer = Box<dyn FnOnce(&CommandTransaction<'_>) -> anyhow::Result<()> + Send>;
@@ -75,6 +88,12 @@ struct Pending {
     _lease: CellLease,
 }
 
+struct StageRetention {
+    lease: CellLease,
+    bytes: Arc<Bytes>,
+    max_result: usize,
+}
+
 enum Producer {
     Command(Box<CellPrivateExecutor>),
     Enrollment(Box<CellPrivateEnrollment>),
@@ -106,6 +125,7 @@ impl Producer {
 #[derive(Default)]
 pub(in crate::raft::host_sql) struct Cells {
     pending: BTreeMap<CellHistory, Pending>,
+    suspended: VecDeque<rpc::Suspended>,
 }
 
 impl Cells {
@@ -146,6 +166,10 @@ impl Cells {
                     Action::Stage(stage) if stage.mode.expired(now) => Err(
                         crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded),
                     ),
+                    Action::Stage(stage) if stage.is_cell_rpc() => {
+                        timer.finish(self.start_rpc(cell, *stage, reply, max, domain));
+                        return;
+                    }
                     Action::Query(query) => super::query::run(*query, domain),
                     action => self.run(cell, action, max),
                 }
@@ -170,12 +194,7 @@ impl Cells {
         match action {
             Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
             Action::Stage(stage) => {
-                if self.pending.contains_key(&cell) {
-                    return Err(ExecutionError::Busy);
-                }
-                if self.pending.len() >= max {
-                    return Err(overloaded());
-                }
+                self.check_capacity(&cell, max)?;
                 let Stage {
                     options,
                     authority,
@@ -183,7 +202,7 @@ impl Cells {
                     mode,
                     callback,
                     lease,
-                    mut bytes,
+                    bytes,
                 } = *stage;
                 if authority.cell().version.history != cell {
                     return Err(ExecutionError::Invalid("SQL cell history"));
@@ -207,57 +226,19 @@ impl Cells {
                         }
                     }
                 };
-                match result {
-                    Ok(CellStageOutcome::Prepared(prepared)) => {
-                        let retained = prepared
-                            .bytes()
-                            .len()
-                            .checked_add(max_result)
-                            .and_then(|n| n.checked_add(4096))
-                            .ok_or_else(overloaded)?;
-                        Bytes::shrink(&mut bytes, retained)?;
-                        let prepared = CellSqlPrepared {
-                            prepared,
-                            _bytes: bytes,
-                        };
-                        self.pending.insert(
-                            cell,
-                            Pending {
-                                producer: Producer::Command(Box::new(executor)),
-                                prepared: prepared.clone(),
-                                submitted: false,
-                                _lease: lease,
-                            },
-                        );
-                        Ok(CellSqlOutcome::Prepared(prepared))
-                    }
-                    Ok(CellStageOutcome::Duplicate(receipt)) => {
-                        executor.close()?;
-                        let retained = receipt
-                            .receipt
-                            .result()
-                            .len()
-                            .checked_add(4096)
-                            .ok_or_else(overloaded)?;
-                        Bytes::shrink(&mut bytes, retained)?;
-                        Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
-                            receipt: *receipt,
-                            _retention: OutputRetention::Sql { _bytes: bytes },
-                        })))
-                    }
-                    Err(error) => {
-                        executor.close()?;
-                        Err(error)
-                    }
-                }
+                self.publish_stage(
+                    cell,
+                    executor,
+                    result,
+                    StageRetention {
+                        lease,
+                        bytes,
+                        max_result,
+                    },
+                )
             }
             Action::Initialize(request) => {
-                if self.pending.contains_key(&cell) {
-                    return Err(ExecutionError::Busy);
-                }
-                if self.pending.len() >= max {
-                    return Err(overloaded());
-                }
+                self.check_capacity(&cell, max)?;
                 let Initialize {
                     options,
                     authority,
@@ -430,8 +411,84 @@ impl Cells {
         }
     }
 
+    fn check_capacity(&self, cell: &CellHistory, max: usize) -> Result<(), ExecutionError> {
+        if self.pending.contains_key(cell) {
+            return Err(ExecutionError::Busy);
+        }
+        if self.pending.len() + self.suspended.len() >= max {
+            return Err(overloaded());
+        }
+        Ok(())
+    }
+
+    fn publish_stage(
+        &mut self,
+        cell: CellHistory,
+        executor: CellPrivateExecutor,
+        result: Result<CellStageOutcome, ExecutionError>,
+        retention: StageRetention,
+    ) -> SqlReply {
+        let StageRetention {
+            lease,
+            mut bytes,
+            max_result,
+        } = retention;
+        match result {
+            Ok(CellStageOutcome::Prepared(prepared)) => {
+                let shrink = prepared
+                    .bytes()
+                    .len()
+                    .checked_add(max_result)
+                    .and_then(|n| n.checked_add(4096))
+                    .ok_or_else(overloaded)
+                    .and_then(|retained| Bytes::shrink(&mut bytes, retained));
+                if let Err(error) = shrink {
+                    executor.close()?;
+                    return Err(error);
+                }
+                let prepared = CellSqlPrepared {
+                    prepared,
+                    _bytes: bytes,
+                };
+                self.pending.insert(
+                    cell,
+                    Pending {
+                        producer: Producer::Command(Box::new(executor)),
+                        prepared: prepared.clone(),
+                        submitted: false,
+                        _lease: lease,
+                    },
+                );
+                Ok(CellSqlOutcome::Prepared(prepared))
+            }
+            Ok(CellStageOutcome::Duplicate(receipt)) => {
+                executor.close()?;
+                let retained = receipt
+                    .receipt
+                    .result()
+                    .len()
+                    .checked_add(4096)
+                    .ok_or_else(overloaded)?;
+                Bytes::shrink(&mut bytes, retained)?;
+                Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
+                    receipt: *receipt,
+                    _retention: OutputRetention::Sql { _bytes: bytes },
+                })))
+            }
+            Err(error) => {
+                executor.close()?;
+                Err(error)
+            }
+        }
+    }
+
     pub fn close(&mut self) -> Result<(), ExecutionError> {
         let mut result = Ok(());
+        for suspended in std::mem::take(&mut self.suspended) {
+            if let Err(error) = suspended.close() {
+                result = Err(error);
+            }
+        }
         for (_, pending) in std::mem::take(&mut self.pending) {
             if let Err(error) = pending.producer.close() {
                 result = Err(error);

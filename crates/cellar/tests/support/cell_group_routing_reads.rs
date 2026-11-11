@@ -3,6 +3,7 @@
 //! SDK/native/Axum reads use actual admission, Raft persistence and SQL callbacks.
 use super::read_gate as gate;
 use super::*;
+use crate::storage_fault;
 use futures_util::{future::BoxFuture, FutureExt};
 use std::sync::atomic::AtomicU64;
 

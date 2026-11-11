@@ -32,7 +32,10 @@ pub struct Fixture {
     /// Captured physical I/O provider for the initial node owner.
     pub filesystem: Arc<dyn cellar_ltx::FileSystem>,
     pub effects: Option<RaftEffectOptions>,
+    pub sql_workers: usize,
     pub max_input_bytes: usize,
+    pub small_segments: bool,
+    pub settle_periodic_purges: bool,
     pub image_bytes: u64,
     /// Logical admission only; physical attestations and engine/image limits stay unchanged.
     pub logical_byte_capacity: Option<u64>,
@@ -72,6 +75,19 @@ impl Fixture {
         class: RaftClass,
         store: Arc<fault::Store>,
     ) -> Result<Self> {
+        let name = class.name().to_owned();
+        let application: Arc<dyn Application> =
+            Arc::new(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?);
+        Box::pin(Self::with_application(rooted, &name, application, store)).await
+    }
+
+    pub async fn with_application(
+        rooted: bool,
+        name: &str,
+        application: Arc<dyn Application>,
+        store: Arc<fault::Store>,
+    ) -> Result<Self> {
+        let class = application.resolve_raft_class(name)?;
         let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
         let catalog = Self::open_catalog(&domain, store.clone(), ClusterId::new([1; 16])?)?;
         catalog.initialize(TIMEOUT).await?;
@@ -116,8 +132,6 @@ impl Fixture {
                 )
                 .await?
         };
-        let application: Arc<dyn Application> =
-            Arc::new(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?);
         let spec = FleetNodeSpec {
             node: NodeId::new([4; 16])?,
             disk: DiskLineage::new([14; 16])?,
@@ -142,7 +156,10 @@ impl Fixture {
             application,
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             effects: None,
+            sql_workers: 2,
             max_input_bytes: 1024,
+            small_segments: false,
+            settle_periodic_purges: false,
             image_bytes: 256 * 1024 * 1024,
             logical_byte_capacity: None,
             placement_domains: None,
@@ -239,6 +256,14 @@ impl Fixture {
             authorization,
             namespaces: vec![self.declaration.clone()],
         });
+        if self.settle_periodic_purges {
+            host.settle_periodic_raft_purges = true;
+            host.member_cleanup = Some(FleetMovementServiceOptions {
+                interval: Duration::from_millis(100),
+                turn_timeout: TIMEOUT,
+                ..Default::default()
+            });
+        }
         if self.declaration.namespace.image_storage == RaftImageStorage::Extents {
             host.extents = Some(Default::default());
         }
@@ -250,8 +275,24 @@ impl Fixture {
             mode,
         );
         log.max_groups = 2;
+        if self.small_segments {
+            log.target_file_bytes = 4096;
+            log.purge_threshold_bytes = 8192;
+            log.purge_interval_ms = None;
+        }
+        if self.settle_periodic_purges {
+            log.purge_threshold_bytes = 64 * 1024;
+            log.purge_interval_ms = Some(500);
+        }
         let mut shared = limits();
+        shared.sql.workers = self.sql_workers;
         shared.dispatch.max_input_bytes = self.max_input_bytes;
+        if self.small_segments {
+            shared.controller.checkpoints = Some(CellGroupCheckpointPolicy {
+                interval_entries: 1,
+                max_parallel: 1,
+            });
+        }
         Ok((
             RaftCellsConfig {
                 infrastructure: NodeRaftConfig {

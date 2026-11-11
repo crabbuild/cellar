@@ -5,6 +5,9 @@
 
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
+#[path = "support/raft_storage_fault.rs"]
+pub mod storage_fault;
+
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
 #[path = "support/cell_group_rustfs.rs"]
@@ -21,6 +24,9 @@ mod automatic_repair;
 
 #[path = "support/cell_group_scheduler_fanout.rs"]
 mod fanout;
+
+#[path = "support/cell_group_segment_credit.rs"]
+mod segment_credit;
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::{
@@ -39,6 +45,113 @@ fn trace_scheduler() {
         )
         .with_test_writer()
         .try_init();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn raft_segment_settlement_replays_after_root_cas_uncertainty() -> Result<()> {
+    for rooted in [false, true] {
+        let store = std::sync::Arc::new(catalog_fault::Store::default());
+        let cluster = Box::pin(ManagedCluster::start_with_store(
+            rooted,
+            &[],
+            managed_fixture::ArchiveSetup::Initialized,
+            store.clone(),
+        ))
+        .await?;
+        let result = Box::pin(async {
+            use cellar::application::consensus::verification::{
+                FleetCatalogError, FleetChange, FleetMutation, FleetTable,
+            };
+
+            let catalog = &cluster.fixtures[0].catalog;
+            let host = &cluster.hosts[0];
+            let initial = catalog.read(TIMEOUT).await?;
+            ensure!(host.reclaim_raft_segments(2, TIMEOUT).await.is_err());
+            let first = host.reclaim_raft_segments(1, TIMEOUT).await?;
+            ensure!(first > 0);
+            let baseline = catalog.read(TIMEOUT).await?;
+            ensure!(baseline.revision() == initial.revision() + 2);
+            ensure!(host.reclaim_raft_segments(1, TIMEOUT).await? == first);
+
+            let forgery = FleetMutation {
+                id: [173; 16],
+                operation: [173; 16],
+                expected_revision: baseline.revision(),
+                principal: "test-segment-floor-removal".into(),
+                changes: vec![FleetChange {
+                    table: FleetTable::Operations,
+                    key: format!(
+                        "segment-floor/{}",
+                        hex::encode(host.identity().node.bytes())
+                    ),
+                    value: None,
+                }],
+            };
+            ensure!(matches!(
+                catalog.commit(&baseline, &forgery, TIMEOUT).await,
+                Err(FleetCatalogError::Invalid("segment settlement authority"))
+            ));
+
+            store.fail_fleet_before.store(true, Ordering::Release);
+            ensure!(host.reclaim_raft_segments(2, TIMEOUT).await.is_err());
+            ensure!(!store.fail_fleet_before.load(Ordering::Acquire));
+            ensure!(catalog.read(TIMEOUT).await?.revision() == baseline.revision());
+            ensure!(host.reclaim_raft_segments(3, TIMEOUT).await.is_err());
+            host.reclaim_raft_segments(2, TIMEOUT).await?;
+            let second = catalog.read(TIMEOUT).await?;
+            ensure!(second.revision() == baseline.revision() + 1);
+
+            store.fail_fleet_confirmation.store(true, Ordering::Release);
+            ensure!(host.reclaim_raft_segments(3, TIMEOUT).await.is_err());
+            ensure!(!store.fail_fleet_confirmation.load(Ordering::Acquire));
+            let third = catalog.read(TIMEOUT).await?;
+            ensure!(third.revision() == second.revision() + 1);
+            let bytes = host.reclaim_raft_segments(3, TIMEOUT).await?;
+            ensure!(host.reclaim_raft_segments(3, TIMEOUT).await? == bytes);
+            ensure!(host.reclaim_raft_segments(2, TIMEOUT).await.is_err());
+            ensure!(catalog.read(TIMEOUT).await?.revision() == third.revision());
+            Ok::<(), anyhow::Error>(())
+        })
+        .await;
+        let joined = movement::close(cluster.nodes, &cluster.hosts).await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result.with_context(|| format!("Raft segment settlement, extents={rooted}"))?;
+        joined?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn raft_segment_settlement_credits_files_after_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(segment_credit::qualify(
+            rooted,
+            std::sync::Arc::new(catalog_fault::Store::default()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn periodic_raft_segment_settlement_retries_the_local_receipt() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(segment_credit::periodic(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_raft_segment_settlement_credits_files_after_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        let store = std::sync::Arc::new(catalog_fault::Store::around(rustfs::store(
+            "segment-credit",
+            rooted,
+        )?));
+        Box::pin(segment_credit::qualify(rooted, store)).await?;
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

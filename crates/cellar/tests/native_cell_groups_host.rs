@@ -1,6 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Shared namespace host contracts and physical source-seal regression.
+#[path = "support/raft_storage_fault.rs"]
+pub mod storage_fault;
+
 #[path = "support/cell_group_host_context.rs"]
 mod fixture;
 

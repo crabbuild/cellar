@@ -204,7 +204,7 @@ impl FleetCatalog {
                         return Err(FleetCatalogError::InventoryIncomplete);
                     }
                     let attestation = resource_attestation(&input.capacity);
-                    let floor = self.resource_floor(&snapshot, &attestation).await?;
+                    let floor = self.admission_floor(&snapshot, &attestation).await?;
                     require_room(input, floor)?;
                 }
                 // No sample-age reset after catalog I/O, retry or root refresh. The

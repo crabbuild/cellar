@@ -268,8 +268,8 @@ impl RaftOutbox {
             payload.len() <= self.limits.max_payload_bytes,
             CommandFailure::Overloaded
         );
-        let connection = context.sql().framework();
-        install(connection)?;
+        let connection = context.sql().framework()?;
+        install(&connection)?;
         let metadata: (usize, usize) = connection.query_row(
             "SELECT count(*),coalesce(sum(length(request)),0) FROM __sys_raft_outbox",
             [],
@@ -321,8 +321,8 @@ impl RaftOutbox {
         ensure!(input.len() <= 1024, CommandFailure::Overloaded);
         let selected: Selected = serde_json::from_slice(input)?;
         let sequence = selected.number()?;
-        let connection = context.sql().framework();
-        if !exists(connection)? {
+        let connection = context.sql().framework()?;
+        if !exists(&connection)? {
             return Ok(vec![0]);
         }
         let Some(StoredIntent {
@@ -330,7 +330,7 @@ impl RaftOutbox {
             minimum,
             next_at,
             ..
-        }) = load(connection, &selected.lane, sequence)?
+        }) = load(&connection, &selected.lane, sequence)?
         else {
             return Ok(vec![0]);
         };
@@ -382,8 +382,8 @@ impl RaftOutbox {
         ensure!(input.len() <= 32 * 1024, CommandFailure::Overloaded);
         let completed: Complete = serde_json::from_slice(input)?;
         let sequence = completed.selected.number()?;
-        let connection = context.sql().framework();
-        if !exists(connection)? {
+        let connection = context.sql().framework()?;
+        if !exists(&connection)? {
             return Ok(vec![0]);
         }
         let Some(StoredIntent {
@@ -391,7 +391,7 @@ impl RaftOutbox {
             minimum,
             generation,
             ..
-        }) = load(connection, &completed.selected.lane, sequence)?
+        }) = load(&connection, &completed.selected.lane, sequence)?
         else {
             return Ok(vec![0]);
         };

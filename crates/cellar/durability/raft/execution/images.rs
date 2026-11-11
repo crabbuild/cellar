@@ -349,6 +349,13 @@ impl WorkingImage {
         }
     }
 
+    pub fn database_mut(&mut self) -> &mut crate::storage::CommandDatabase {
+        match self {
+            Self::Materialized(working) => &mut working.database,
+            Self::Rooted(working) => &mut working.database,
+        }
+    }
+
     pub fn begin_mutation(&mut self) {
         match self {
             Self::Materialized(working) => working.begin_mutation(),

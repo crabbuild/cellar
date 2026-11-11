@@ -722,15 +722,65 @@ impl FleetTrustReader {
             .await
     }
 
+    /// Reauthorize membership inspection independently on the receiver. Normal
+    /// live histories retain their existing metadata path, including sealed
+    /// parents needed by retirement. Reserved children require exact published
+    /// transition ownership and a selected birth; this is not enrollment.
+    pub(crate) async fn authorize_router_observation_at_least(
+        &self,
+        directory: &crate::raft::cell_groups::RangeDirectory,
+        scope: &cellar_logic::cell_group::GroupHistory,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Result<FleetGroupAuthorization> {
+        let catalog = &self.authorization.catalog;
+        catalog
+            .run(timeout, async {
+                let cut = catalog.inner.current().await?;
+                let current = catalog
+                    .host_from_record(&cut, self.authorization.node)
+                    .await?;
+                self.authorization.require_running_successor(&current)?;
+                if cut.revision() < minimum_revision {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let expected = catalog.binding(scope)?;
+                let key = expected
+                    .key()
+                    .map_err(|_| FleetCatalogError::Invalid("group binding"))?;
+                match catalog
+                    .authorize_live_group(&cut, expected.clone(), &key)
+                    .await
+                {
+                    Ok(authorization) => Ok(authorization),
+                    Err(FleetCatalogError::Conflict) => {
+                        let birth = catalog
+                            .inner
+                            .domain
+                            .run(directory.materialize_selected_history(*scope))
+                            .await
+                            .map_err(|_| FleetCatalogError::Closed)?
+                            .map_err(super::histories::catalog_error)?;
+                        catalog
+                            .authorize_router_history(&cut, expected, &key, directory, &birth)
+                            .await
+                    }
+                    Err(error) => Err(error),
+                }
+            })
+            .await
+    }
+
     /// Resolve one router group using the directory's isolated read turn.
     pub(crate) async fn authorize_router_group(
         &self,
         trust: &FleetTrustSnapshot,
-        scope: &cellar_logic::cell_group::GroupHistory,
+        directory: &crate::raft::cell_groups::RangeDirectory,
+        birth: &crate::raft::cell_groups::CellGroupBirth,
         timeout: Duration,
     ) -> Result<Option<super::permits::RouterDiscovery>> {
         let catalog = &self.authorization.catalog;
-        let expected = catalog.binding(scope)?;
+        let expected = catalog.binding(&birth.route().history)?;
         let key = expected
             .key()
             .map_err(|_| FleetCatalogError::Invalid("group binding"))?;
@@ -744,7 +794,7 @@ impl FleetTrustReader {
                     return Err(FleetCatalogError::Conflict);
                 }
                 catalog
-                    .authorize_router_discovery(&cut, expected, &key)
+                    .authorize_router_discovery(&cut, expected, &key, directory, birth)
                     .await
                     .map(Some)
             })

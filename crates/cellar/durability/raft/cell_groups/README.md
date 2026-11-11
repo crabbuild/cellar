@@ -732,6 +732,24 @@ reconciliation nor executes another callback. A duplicate receipt uses the same
 output phase. Cancellation keeps the admitted owner; terminal errors release
 output resources without quarantining a group whose SQL producer already closed.
 
+An output can reuse a still-live, admitted archive verification instead of
+reserving another verifier workspace for the same covered receipt. The owner
+keeps only weak references, coalescing clones of one verification while tracking
+independent verification instances separately. It checks the journaled hold,
+current birth, local prefix and exact archived receipt before settling output;
+later serving fences still apply. Uncovered requests continue through publication.
+This cache neither keeps an idle workspace alive nor grows with duplicate calls.
+
+An outstanding S3 output can retain the previous archive hold while the next
+verified head is already committed. That retention delays another archive
+allocation; it does not prevent new outputs from proving their receipts against
+the current head. The journal retains the old hold until every use ends, and
+acquisition or upload of another head waits for its confirmed release. This
+preserves the bound of one current head and one retiring head. Deferred
+retirement remains scheduled at the existing bounded retry cadence until the
+last output drops; it does not need another application request to release the
+old hold. An idle retirement retry does not rebuild an unused coverage proof.
+
 Shared log-engine I/O/corruption/closure and lost shared SQL worker replies still
 close the node. Unknown events and controller ownership violations fail closed.
 Initial-member provisioning and canonical startup use the same physical page

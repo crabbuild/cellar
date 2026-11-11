@@ -387,6 +387,23 @@ configuration and snapshot records survive engine rewrites. Engine compaction
 hints never authorize deleting a group's logical prefix; unresolved hints receive
 later bounded-rate passes even without new writes. An I/O failure closes and
 joins storage. `engine_purge` reports physical maintenance duration and outcomes.
+Purge syncs each directory changed by segment deletion before returning success.
+Fleet capacity accounting still requires a separate receipt tied to the charged
+files and a complete inventory.
+
+Managed nodes can set `RaftHostOptions::settle_periodic_raft_purges` alongside
+`member_cleanup` to settle periodic purges against the Fleet ledger. The
+cleanup worker shares its existing service slot with removed-member work and
+honors `ReplicaLogOptions::purge_interval_ms`. A failed catalog write leaves
+the numbered local receipt available for retry. An opted-in node needs Fleet
+catalog access to resume periodic reclamation.
+The verification API captures append and rewrite file identities and lengths on
+the storage worker. It checks the directory against both active queue spans and
+binds the result to the current node, disk, engine, process, and durable sequence.
+A numbered segment purge syncs that inventory before attempting deletion, then
+syncs and reconciles the directory and records the exact removed files at a
+second durable sequence. The current number can be resumed or replayed after
+restart. Its stored receipt remains available until the next number is selected.
 The file-size and purge thresholds are soft engine watermarks, not a disk quota.
 
 Every newly created engine persists a nonzero `EngineInstanceId` in both its

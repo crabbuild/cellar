@@ -91,6 +91,35 @@ async fn inspection_catches_up_trust_with_one_original_request() -> Result<()> {
             .fleet_trust_revision
             .is_some_and(|r| r >= cut.revision()));
         ensure!(second.store.active_fleet_reads.load(Ordering::Acquire) == 1);
+
+        // Advance the root again while the same background read is held. The
+        // local fast path must catch up too; it cannot use the previous RPC's
+        // installed cut or rely on another periodic refresh.
+        spare.node = NodeId::new([10; 16])?;
+        spare.disk = DiskLineage::new([20; 16])?;
+        spare.physical_host = IncarnationId::new([100; 16])?;
+        spare.label = "managed-local-inspection-spare".into();
+        let current = first.catalog.read(TIMEOUT).await?;
+        let current = first
+            .catalog
+            .register_node(&current, &request(10, current.revision()), &spare, TIMEOUT)
+            .await?
+            .snapshot;
+        ensure!(hosts[1]
+            .observe_node(TIMEOUT)
+            .await?
+            .fleet_trust_revision
+            .is_some_and(|r| r < current.revision()));
+        let local = hosts[1]
+            .inspect_peer_node(second.spec.node, current.revision(), TIMEOUT)
+            .await
+            .context("self-inspection must catch up without a caller retry")?;
+        ensure!(local.view.node.identity.node == second.spec.node);
+        ensure!(local
+            .view
+            .fleet_trust_revision
+            .is_some_and(|r| r >= current.revision()));
+        ensure!(second.store.active_fleet_reads.load(Ordering::Acquire) == 1);
         Ok::<_, anyhow::Error>(())
     }
     .await;

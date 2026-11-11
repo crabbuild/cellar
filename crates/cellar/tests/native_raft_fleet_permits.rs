@@ -19,6 +19,9 @@ use std::{
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
 
+#[path = "support/raft_storage_fault.rs"]
+pub mod storage_fault;
+
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(dead_code, unused_imports)]
 mod managed_fixture;

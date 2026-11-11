@@ -749,7 +749,7 @@ impl Node {
             data_dir: &self.info.data_dir,
             auth: self.raft_auth.clone(),
         }
-        .infrastructure(config, listeners, tls, None)
+        .infrastructure(config, listeners, tls, None, false)
         .await
     }
 

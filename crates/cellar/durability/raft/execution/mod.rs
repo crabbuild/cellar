@@ -9,7 +9,7 @@ use super::completion::GroupStatus;
 use super::receipts;
 mod cell;
 mod submission;
-pub(crate) use cell::authority_failure;
+pub(crate) use cell::{authority_failure, CellRpcStart, CellRpcTurn};
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
 mod command;
 mod enrollment;
@@ -174,7 +174,7 @@ pub fn query_registered(
         position: published.position(),
     };
     let result = class
-        .invoke_group_query(contract, &version, &database, input)
+        .invoke_group_query(contract, &version, database, input)
         .map_err(storage)?;
     if result.len() > limits.max_result_bytes {
         return Err(ExecutionError::Refused(CommandFailure::Overloaded));
@@ -601,7 +601,17 @@ impl PrivateExecutor {
         let command = attempt.request.id;
         let durability = attempt.request.durability;
         self.stage_admitted(attempt, allow_new, |transaction| {
-            class.invoke_command(&contract, &scope, command, durability, transaction, input)
+            class.invoke_command(
+                &contract,
+                crate::application::consensus::CommandTarget {
+                    cell: &scope,
+                    route_epoch: None,
+                },
+                command,
+                durability,
+                transaction,
+                input,
+            )
         })
     }
 
@@ -772,7 +782,7 @@ impl PrivateExecutor {
             .ok_or(ExecutionError::RebuildRequired)?;
         working.begin_mutation();
         command::apply(
-            working.database(),
+            working.database_mut(),
             self.options.limits,
             &attempt,
             maintenance,
@@ -801,12 +811,17 @@ impl PrivateExecutor {
             .ok_or(ExecutionError::RebuildRequired)?
             .begin_mutation();
         self.working
-            .as_ref()
+            .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?
-            .database()
-            .transaction(inputs, |connection, _| {
-                receipts::prune(connection, client, through, inputs.now_unix_millis)
-                    .map_err(anyhow::Error::new)
+            .database_mut()
+            .transaction(inputs, |transaction| {
+                receipts::prune(
+                    &*transaction.framework()?,
+                    client,
+                    through,
+                    inputs.now_unix_millis,
+                )
+                .map_err(anyhow::Error::new)
             })
             .map_err(private_failure)?;
         self.freeze(proposal, preview, Kind::Prune { client, through })

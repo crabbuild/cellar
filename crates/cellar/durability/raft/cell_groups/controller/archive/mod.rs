@@ -235,6 +235,7 @@ pub(super) struct Completed {
     group: GroupHistory,
     context: Option<job::Context>,
     result: Result<GroupManifest>,
+    maintenance_pending: bool,
     observation: std::result::Result<LogIndex, RuntimeError>,
     waiters: Vec<settlement::Request>,
 }
@@ -426,6 +427,7 @@ impl Manager {
             settlement::prune(&mut waiters, now);
             self.active_group = Some(group);
             self.job = Some(Box::pin(async move {
+                let mut maintenance_pending = false;
                 let result = std::panic::AssertUnwindSafe(async {
                     if context.is_none() {
                         context = Some(
@@ -438,21 +440,42 @@ impl Manager {
                             .await?,
                         );
                     }
-                    let coverage = job::drive(
+                    if !waiters.is_empty() {
+                        if let Some(retained) = job::retained(
+                            context.as_ref().expect("opened archive context"),
+                            &execution,
+                        )
+                        .await?
+                        {
+                            confirm_coverage(&runtime, group, &retained.coverage)?;
+                            waiters = settlement::prove(
+                                std::mem::take(&mut waiters),
+                                context.as_ref().expect("opened archive context"),
+                                &registration,
+                                &retained.coverage,
+                                &execution,
+                            )
+                            .await;
+                            if waiters.is_empty() {
+                                maintenance_pending = retained.maintenance_pending;
+                                return Ok(retained.published);
+                            }
+                            // Release this temporary reuse before asking for a
+                            // new verification. Only real output owners may
+                            // continue occupying the original pool admission.
+                        }
+                    }
+                    let driven = job::drive(
                         context.as_ref().expect("opened archive context"),
                         &registration,
                         &runtime,
                         &execution,
+                        !waiters.is_empty(),
                     )
                     .await?;
-                    let local = runtime
-                        .log()
-                        .cell_group(&group)
-                        .map_err(|error| Error::Runtime(error.into()))?;
-                    local
-                        .archive_compaction
-                        .confirm(&local, &coverage)
-                        .map_err(|error| Error::Runtime(error.into()))?;
+                    maintenance_pending = driven.maintenance_pending;
+                    let coverage = driven.coverage;
+                    confirm_coverage(&runtime, group, &coverage)?;
                     tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                         group = ?group.group, stage = "coverage", index = coverage.marker().position().index.get());
                     waiters = settlement::prove(
@@ -465,7 +488,7 @@ impl Manager {
                     .await;
                     tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                         group = ?group.group, stage = "settled", remaining = waiters.len());
-                    Ok(coverage.marker().clone())
+                    Ok(driven.published)
                 })
                 .catch_unwind()
                 .await
@@ -482,6 +505,7 @@ impl Manager {
                     group,
                     context,
                     result,
+                    maintenance_pending,
                     observation,
                     waiters,
                 }
@@ -510,12 +534,18 @@ impl Manager {
                 let covered = marker.position().index;
                 status.published = Some(marker);
                 status.error = None;
+                if completed.maintenance_pending {
+                    // Cached output does not complete durable publication or
+                    // retirement work. Keep its bounded retry cadence even
+                    // when no further commands or apply events arrive.
+                    entry.retry_at = now.saturating_add(shared.limits.retry_interval_ms);
+                }
                 match completed.observation {
                     Ok(applied) => {
                         let latest = entry
                             .latest_applied
                             .map_or(applied, |seen| seen.max(applied));
-                        entry.dirty = latest > covered;
+                        entry.dirty = latest > covered || completed.maintenance_pending;
                     }
                     Err(error) => {
                         let error = Error::Runtime(error);
@@ -625,6 +655,21 @@ impl Manager {
             status.stopped = true;
         }
     }
+}
+
+fn confirm_coverage(
+    runtime: &CellGroupRuntime,
+    group: GroupHistory,
+    coverage: &CellGroupArchiveCoverage,
+) -> Result<()> {
+    let local = runtime
+        .log()
+        .cell_group(&group)
+        .map_err(|error| Error::Runtime(error.into()))?;
+    local
+        .archive_compaction
+        .confirm(&local, coverage)
+        .map_err(|error| Error::Runtime(error.into()))
 }
 
 fn archive_retryable(error: &CellGroupArchiveError) -> bool {

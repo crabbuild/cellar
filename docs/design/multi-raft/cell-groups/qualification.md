@@ -254,8 +254,8 @@ must fail closed. Unreconciled old-origin outbox work must remain refused.
 
 ## Full primitive compatibility (CG-17)
 
-CG-17 is an implementation and qualification task. It starts TODO with no
-accepted cases; the existing SQL and effect tests do not establish this broader
+CG-17 is an implementation and qualification task. CG17-01 is in progress with
+no accepted cases; the existing SQL and effect tests do not establish this broader
 support. Its 32 exact cases are defined in `tasks.json` and displayed by
 `plan.py show CG-17`. Implementations of those planned cases are required
 outputs, not tests that this plan change has passed. CG-15 and CG-16 depend on
@@ -472,8 +472,9 @@ protocol, add old format readers or waive pending obligations after undeploy.
 
 ### Machine-readable inventory and acceptance evidence
 
-CG17-01 must create the following outputs; none is accepted runtime evidence just
-because its path is declared:
+CG17-01 owns the following outputs. The starter catalog, report schema and
+independent gate are present. The catalog's `partial` status blocks acceptance
+until the full export audit and real evidence producers are delivered:
 
 - `primitive-inventory.json`: fully qualified public operations, built-in resource
   classes, symbols/examples, feature conditions, owners and schemas, persistent
@@ -513,14 +514,16 @@ attempts without letting them satisfy acceptance. No mandatory cell becomes
 inapplicable because infrastructure is unavailable or a feature implementation is
 missing. Feature-off regressions are separate required observations.
 
-Integrate this validation into `plan.py check_evidence` for CG-17 and every
-CG-15/16 combined-source rerun. The current named-case checks and profile rules
-alone do not enforce this matrix; implementation of the independent report
-validation and its wiring remains required before task acceptance. The
-`primitives_complete_coverage_evidence` case must exercise that integration, not
-just call a checker in isolation. The plan's guards against removing cases,
-integration owners and output paths protect the delivery contract; they do not
-claim that the future coverage checker has already been implemented.
+`plan.py check_evidence` invokes the independent verifier for CG-17 and CG-15/16
+combined-source reruns. A `primitive_coverage` artifact in task evidence binds
+the report to the contracts at its source revision. CG-15/16 additionally record
+`primitive_test_executable_sha256`, separate from their campaign executable.
+The [runner contract](../../../../tools/multi-raft/README.md#primitive-compatibility-evidence)
+defines the test-emitted provenance and artifact shape. The
+`primitives_complete_coverage_evidence` case must exercise that integration with
+actual runtime artifacts; the current synthetic negative tests only qualify the
+verifier's refusal behavior. Complete inventory, artifact producers and the
+runtime matrix remain required before acceptance.
 
 Use backend factories to reuse existing public conformance suites. Explicitly
 exercise ordinary Fleet namespaces under both `fleet` and `bucket` durability,
