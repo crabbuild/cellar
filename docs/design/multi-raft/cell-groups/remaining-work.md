@@ -41,8 +41,9 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Finish shared Storage ownership through same-cell recursive dispatch and the
-   unresolved RPC/SDK deadlines. Deliver generation-aware ordinary typed cell,
+1. Finish remaining shared Storage compatibility and resolve the intermittent
+   full-campaign RPC/SDK deadline failures. The read-VM recursion/fence checkpoint
+   below is delivered. Deliver generation-aware ordinary typed cell,
    SQL and KV bindings with persistent child identities/intents, original deadlines
    and independent target durability proofs.
 2. Connect committed due-work discovery and fenced settlement to ordinary
@@ -80,8 +81,16 @@ receipt/effect metadata, pending-delivery refusal and SQLite-based eager SQL bat
 selection. Four owning native selections and the exact real RustFS Storage case
 pass; five earlier erasure-owner checks retain their separate source. See the
 [erasure checkpoint](progress.md#cg-17-transactional-business-state-erasure) for
-failed controls, exact pins and scope. Cursor recursion, the full RustFS campaign
-and ordinary bindings remain open.
+failed controls, exact pins and scope. The full RustFS campaign and ordinary
+bindings remain open.
+
+At `053b6be6`, live read VMs survive same-cell SDK dispatch without retaining writer
+admission. Five owning native selections pass, including lazy rows, current-image
+reads, leadership fencing and physical image release. The exact real RustFS SDK
+case passes in both image modes at Quorum/S3 minima with the same executable.
+The backend and VM are stopped. This closes the reproduced cursor deadlock;
+earlier intermittent full-campaign deadline failures and complete primitive-family
+acceptance remain open. See the [cursor checkpoint](progress.md#cg-17-read-cursors-across-dependent-sdk-calls).
 
 ## Current boundary
 
