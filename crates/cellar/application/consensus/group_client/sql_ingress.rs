@@ -129,20 +129,45 @@ impl RaftCells {
                             Err(error) => {
                                 // A concurrent creator may win. No business command
                                 // has been dispatched, so selecting that history is safe.
-                                match owner
-                                    .resolve_cell_history(
-                                        candidate.cluster,
-                                        candidate.namespace,
-                                        candidate.cell.clone(),
-                                        QueryOptions {
-                                            timeout: remaining()?,
-                                            ..QueryOptions::default()
-                                        },
-                                    )
-                                    .await
-                                {
-                                    Ok(Some(history)) => history,
-                                    _ => return Err(error.into()),
+                                loop {
+                                    match owner
+                                        .resolve_cell_history(
+                                            candidate.cluster,
+                                            candidate.namespace,
+                                            candidate.cell.clone(),
+                                            QueryOptions {
+                                                timeout: remaining()?,
+                                                ..QueryOptions::default()
+                                            },
+                                        )
+                                        .await
+                                    {
+                                        Ok(Some(history)) => break history,
+                                        Ok(None) => {
+                                            // Absence is only a read at this cut. The
+                                            // winning creation may still be pending.
+                                            // Wait for its name; do not create another
+                                            // candidate or dispatch any business input.
+                                            let delay = remaining()?.as_millis() as u64;
+                                            let delay = delay.min(
+                                                owner
+                                                    .handle
+                                                    .core
+                                                    .controller
+                                                    .limits()
+                                                    .retry_interval_ms,
+                                            );
+                                            let now = owner.handle.domain.mono_ms()?;
+                                            owner
+                                                .handle
+                                                .domain
+                                                .sleep_until(
+                                                    now.saturating_add(delay).min(deadline),
+                                                )?
+                                                .await;
+                                        }
+                                        Err(_) => return Err(error.into()),
+                                    }
                                 }
                             }
                         }
@@ -163,7 +188,9 @@ impl RaftCells {
                         && receipt.durability >= durability,
                     super::super::CommandFailure::CorruptState
                 );
-                native_rpc::decode_response(&receipt.result)
+                let response = native_rpc::decode_response(&receipt.result)?;
+                remaining()?;
+                Ok(response)
             };
             let timed = async {
                 let timer = owner.handle.domain.sleep_until(deadline)?;
