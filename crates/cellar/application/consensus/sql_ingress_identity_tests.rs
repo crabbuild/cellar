@@ -86,5 +86,16 @@ fn fixed_stream_requires_reserved_sql_contract_and_nonce() -> Result<()> {
             &input
         )
         .is_err());
+    // Registered commands accept opaque application bytes. The nonce marker
+    // must not reserve an unrelated raw command's input or client namespace.
+    let opaque = RaftClass::new("Opaque", 1, [3; 32])?
+        .command("Bytes", [4; 32], |_, input| Ok(input.to_vec()))?;
+    opaque.validate_command_identity(
+        &scope,
+        &opaque.contract("Bytes").unwrap(),
+        id,
+        Durability::Quorum,
+        &input,
+    )?;
     Ok(())
 }

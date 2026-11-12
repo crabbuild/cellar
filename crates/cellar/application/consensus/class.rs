@@ -1005,7 +1005,10 @@ impl RaftClass {
         input: &[u8],
     ) -> anyhow::Result<()> {
         let ingress = id.client == super::sql_ingress_identity::client();
-        if ingress || super::native_rpc::has_ingress_nonce(input) {
+        if (self.name == crate::deploy::SQL_CLASS && ingress)
+            || (self.is_cell_rpc(&contract.operation)
+                && super::native_rpc::has_ingress_nonce(input))
+        {
             anyhow::ensure!(
                 ingress
                     && self.name == crate::deploy::SQL_CLASS
