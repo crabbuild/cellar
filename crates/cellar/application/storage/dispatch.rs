@@ -52,6 +52,17 @@ impl RaftDispatch {
             .ok_or_else(|| anyhow!(consensus::CommandFailure::UnsupportedCapability))
     }
 
+    pub(crate) fn binding_hint(
+        &self,
+        route: &crate::application::cell_bindings::Route,
+    ) -> Result<Option<consensus::CellHistory>> {
+        self.remaining()?;
+        Ok(self
+            .context
+            .fence
+            .history_hint(route.cluster, route.namespace, &route.cell))
+    }
+
     pub(crate) fn limit_source(self, timeout: Duration) -> Result<Self> {
         let domain = self.context.domain.clone();
         self.limit(domain, timeout)

@@ -25,6 +25,7 @@ pub(crate) struct Route {
     pub max_result_bytes: usize,
     pub max_retry_window_ms: u64,
     pub json_only: bool,
+    pub history_hint: Option<CellHistory>,
 }
 
 /// The node installs an erased weak owner. A cached application object or a
@@ -142,6 +143,7 @@ impl Intent {
                     && history.namespace == route.namespace
                     && history.cell == route.cell
             });
+        let hint = route.history_hint.clone().or(hint);
         let enroll = hint.is_none();
         let candidate = hint.unwrap_or(CellHistory {
             cluster: route.cluster,
@@ -242,9 +244,11 @@ pub(crate) fn rpc(
             dispatch = dispatch.limit_source(Duration::from_millis(remaining))?;
         }
         let source = dispatch.binding_source()?;
-        let route = source
-            .host
-            .route(&source.history, source.configuration, &scope, &method)?;
+        let mut route =
+            source
+                .host
+                .route(&source.history, source.configuration, &scope, &method)?;
+        route.history_hint = dispatch.binding_hint(&route)?;
         let (class, _) = scope
             .split_once(':')
             .ok_or(CommandFailure::UnsupportedCapability)?;

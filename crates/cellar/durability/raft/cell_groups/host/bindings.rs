@@ -74,6 +74,7 @@ impl CellGroupHost {
             schema: config.schema_digest,
             contract,
             durability: config.minimum_durability,
+            history_hint: None,
             max_input_bytes: target.dispatcher.input_limit(),
             max_result_bytes: limits.max_result_bytes,
             max_retry_window_ms: limits.max_retry_window_ms,
