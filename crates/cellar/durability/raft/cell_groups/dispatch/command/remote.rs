@@ -20,8 +20,10 @@ impl CellCommandInvocation {
     }
 
     /// Execute this catalog attempt on an explicitly selected remote member.
-    /// Any possible transmission makes failure ambiguous. Retry this same
-    /// invocation/identity; a transport response is never a non-commit proof.
+    /// Failure after possible transmission stays ambiguous unless an authenticated
+    /// response proves rejection before admission. That proof settles only this
+    /// attempt; uncertainty from preceding attempts remains. Retry the same
+    /// invocation and identity within their original deadline and attempt bank.
     pub async fn execute_remote(
         &mut self,
         transport: &RaftTransport,

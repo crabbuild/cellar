@@ -501,7 +501,12 @@ including a namespace minimum. The positive command cases use an explicit
 controller binding, exact receipts from later archived images, retained proof
 admission and fresh routing/leader checks. Enrollment cases preserve the original
 creation after later mutations, honor namespace minimums, retain output proofs and
-retry without rerunning initialization. Receipt lookup preserves ambiguous absence,
+retry without rerunning initialization. Covered creation retries share one live
+verification, while its final consumer blocks an uncovered successor. Remote
+commands distinguish authenticated rejection before admission from an earlier
+lost admitted reply using one original invocation across retries. The outage case
+separately checks cold-ingress refusal and selected-destination Quorum progress
+within its unchanged retention ceiling. Receipt lookup preserves ambiguous absence,
 returns the actual later archived observation, reserves result bytes before fetch,
 and tests stored-minimum S3 delivery with a provider-configured TLS gateway.
 A bounded sequence of exact retries fills reduced real socket buffers without

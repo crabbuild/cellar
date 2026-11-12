@@ -748,6 +748,9 @@ independent verification instances separately. It checks the journaled hold,
 current birth, local prefix and exact archived receipt before settling output;
 later serving fences still apply. Uncovered requests continue through publication.
 This cache neither keeps an idle workspace alive nor grows with duplicate calls.
+Covered command, enrollment and receipt outputs can share this admission. Dropping
+one consumer cannot release the final consumer's verifier workspace, and an
+uncovered successor cannot borrow the historical proof or bypass its limits.
 
 An outstanding S3 output can retain the previous archive hold while the next
 verified head is already committed. That retention delays another archive
