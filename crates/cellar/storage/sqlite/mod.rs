@@ -2748,10 +2748,12 @@ unsafe fn sql_rows_read(statement: *mut rusqlite::ffi::sqlite3_stmt, emitted: u6
 /// `sqlite3_stmt_readonly` alone, which reported `changed_db: true` for
 /// `UPDATE ... WHERE 0` where upstream reports the false its name promises.
 fn sql_schema_version(connection: &Connection) -> i64 {
-    connection
-        .prepare_cached("PRAGMA schema_version")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .unwrap_or(0)
+    as_framework_sql(|| {
+        connection
+            .prepare_cached("PRAGMA schema_version")
+            .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+            .unwrap_or(0)
+    })
 }
 
 /// SQLite's own message for a failed SQL operation, with the poison

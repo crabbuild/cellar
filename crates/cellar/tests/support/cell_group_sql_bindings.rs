@@ -28,10 +28,14 @@ impl Cell for Caller {
                 }
                 "Batch" => {
                     let results = database.batch(&context, &[
+                        database.prepare("CREATE INDEX data_v ON data(v)"),
                         database.prepare("INSERT INTO data VALUES(?,?)").bind_json([json!(2), json!("two")])?,
                         database.prepare("INSERT INTO data VALUES(?,?)").bind_json([json!(3), json!("three")])?,
                     ]).await?;
-                    ensure!(results.len() == 2 && results.iter().all(|result| result.success && result.meta.changes == 1));
+                    ensure!(results.len() == 3);
+                    ensure!(results[0].meta.changed_db, "SQL DDL metadata: {:?}", results[0].meta);
+                    ensure!(results.iter().all(|result| result.success)
+                        && results[1..].iter().all(|result| result.meta.changes == 1));
                     json!(true)
                 }
                 "Read" => {
@@ -168,6 +172,12 @@ async fn database_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
         host.activate_managed_initial_group(authorization.clone(), TIMEOUT)
             .await?;
     }
+    let cut = fixture.catalog.read(TIMEOUT).await?;
+    for host in &cluster.hosts {
+        for voter in &cluster.fixtures {
+            managed_fixture::inspect_current(host, voter.spec.node, cut.revision()).await?;
+        }
+    }
     managed_fixture::leader(&cluster.hosts, history).await?;
     Ok(history)
 }
@@ -207,6 +217,10 @@ async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
 }
 
 pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::query_connection=debug")
+        .with_test_writer()
+        .try_init();
     let (application, declared) = application()?;
     let mut fixture = Fixture::with_namespaces(
         rooted,
