@@ -36,6 +36,7 @@ struct IntentWire<'a> {
     operation: &'a str,
     contract: [u8; 32],
     durability: u8,
+    enroll: bool,
     candidate: [u8; 16],
     creation: [u8; 16],
     child_client: [u8; 16],
@@ -85,7 +86,7 @@ pub(crate) fn prepare<T>(
             cluster: intent.route.cluster.bytes(), namespace: intent.route.namespace.bytes(), cell: intent.route.cell.as_str(),
             schema: intent.route.schema, operation: &intent.route.contract.operation, contract: intent.route.contract.digest,
             durability: match intent.route.durability { crate::application::consensus::Durability::Quorum => 1, crate::application::consensus::Durability::S3 => 2 },
-            candidate: intent.candidate.incarnation.bytes(), creation: intent.creation.bytes(), child_client: intent.child.client.bytes(),
+            enroll: intent.enroll, candidate: intent.candidate.incarnation.bytes(), creation: intent.creation.bytes(), child_client: intent.child.client.bytes(),
             child_sequence: intent.child.sequence(), retry_until_ms: intent.retry_until_ms,
         })?;
             connection.execute(
@@ -133,9 +134,9 @@ pub(crate) fn complete(intent: &Intent, history: &CellHistory, result: &[u8]) ->
         control(connection, "SAVEPOINT __sys_raft_binding_complete")?;
         let result = (|| {
         let changed = connection.execute(
-            "UPDATE __sys_raft_binding_intents SET phase=3,result_digest=?6 WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3 AND fingerprint=?4 AND selected=?5 AND format=1 AND phase=2",
+            "UPDATE __sys_raft_binding_intents SET phase=3,result_digest=?6,selected=?5 WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3 AND fingerprint=?4 AND format=1 AND ((phase=2 AND selected=?5) OR (phase=0 AND selected IS NULL AND ?7))",
             rusqlite::params![intent.parent.client.bytes().as_slice(), intent.parent.sequence().to_be_bytes().as_slice(),
-                intent.ordinal.to_be_bytes().as_slice(), intent.fingerprint.as_slice(), history.incarnation.bytes().as_slice(), digest.as_slice()],
+                intent.ordinal.to_be_bytes().as_slice(), intent.fingerprint.as_slice(), history.incarnation.bytes().as_slice(), digest.as_slice(), history == &intent.candidate],
         )?;
         ensure!(changed == 1, "cell binding completion is stale");
         let released = connection.execute(

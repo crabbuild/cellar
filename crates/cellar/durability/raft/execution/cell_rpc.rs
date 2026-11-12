@@ -163,6 +163,7 @@ impl CellPrivateExecutor {
                                 configuration,
                                 retry_until_ms: attempt.request.retry_until_ms,
                                 now_unix_millis: attempt.inputs.now_unix_millis,
+                                hint: Default::default(),
                             }
                         })
                     }),

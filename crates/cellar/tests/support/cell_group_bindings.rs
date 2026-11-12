@@ -145,10 +145,6 @@ pub async fn run(
     durability: Durability,
     store: Arc<catalog_fault::Store>,
 ) -> Result<()> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("off,cellar_binding_probe_619=warn")
-        .with_test_writer()
-        .try_init();
     let class = RaftClass::new("Counter", 1, [111; 32])?
         .initializer([112; 32], |_, tx| {
             tx.execute_batch(

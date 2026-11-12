@@ -71,6 +71,12 @@ pub(crate) struct Source {
     pub configuration: [u8; 32],
     pub retry_until_ms: u64,
     pub now_unix_millis: u64,
+    pub hint: Arc<Mutex<Option<Hint>>>,
+}
+
+pub(crate) struct Hint {
+    history: CellHistory,
+    _lease: BufferLease,
 }
 
 #[derive(Clone)]
@@ -83,6 +89,7 @@ pub(crate) struct Intent {
     pub route: Route,
     pub candidate: CellHistory,
     pub creation: ProposalId,
+    pub enroll: bool,
     pub child: CommandId,
     pub retry_until_ms: u64,
     pub input: Vec<u8>,
@@ -124,12 +131,24 @@ impl Intent {
         let mut creation: [u8; 32] = hash.finalize().into();
         creation[0] |= 1;
         creation[16] |= 1;
-        let candidate = CellHistory {
+        let hint = source
+            .hint
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|hint| hint.history.clone())
+            .filter(|history| {
+                history.cluster == route.cluster
+                    && history.namespace == route.namespace
+                    && history.cell == route.cell
+            });
+        let enroll = hint.is_none();
+        let candidate = hint.unwrap_or(CellHistory {
             cluster: route.cluster,
             namespace: route.namespace,
             cell: route.cell.clone(),
             incarnation: IncarnationId::new(creation[16..].try_into()?)?,
-        };
+        });
         let mut hash = Sha256::new();
         hash.update(b"cellar-native-binding-intent-1");
         hash.update(source.parent.client.bytes());
@@ -141,6 +160,8 @@ impl Intent {
         hash.update(creation);
         hash.update(child.sequence().to_be_bytes());
         hash.update(source.retry_until_ms.to_be_bytes());
+        hash.update(candidate.incarnation.bytes());
+        hash.update([u8::from(enroll)]);
         hash.update(route.cluster.bytes());
         hash.update(route.namespace.bytes());
         hash.update((route.cell.as_str().len() as u64).to_be_bytes());
@@ -162,6 +183,7 @@ impl Intent {
             route,
             candidate,
             creation: ProposalId::new(creation[..16].try_into()?)?,
+            enroll,
             child,
             retry_until_ms: source.retry_until_ms,
             input,
@@ -323,53 +345,39 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     lease: BufferLease,
 ) -> Result<(RpcData, BufferLease)> {
-    probe("prepared");
-    // The owned dispatch task already proved the Prepared source intent.
-    let found = source
-        .host
-        .resolve(intent.route.clone(), dispatch.remaining_timeout()?)
-        .await?;
-    probe("resolved");
-    let history = match found {
-        Some(history) => history,
-        None => {
-            let candidate = intent.candidate.clone();
-            crate::storage::raft_bindings::select(&intent, &candidate, true)?;
-            probe("enrolling-sync-start");
-            storage.sync().await?;
-            probe("enrolling-sync-done");
-            *selected.lock().unwrap() = Some(candidate.clone());
-            match source
+    // The Prepared source proof already authorizes this exact candidate and
+    // creation ID. A hint exists only after a verified target receipt in this
+    // same invocation; it never survives a request, movement or restart.
+    let history = if !intent.enroll {
+        intent.candidate.clone()
+    } else {
+        match source
+            .host
+            .enroll(
+                intent.candidate.clone(),
+                intent.creation,
+                intent.route.durability,
+                dispatch.remaining_timeout()?,
+            )
+            .await
+        {
+            Ok(()) => intent.candidate.clone(),
+            Err(error) => match source
                 .host
-                .enroll(
-                    candidate.clone(),
-                    intent.creation,
-                    intent.route.durability,
-                    dispatch.remaining_timeout()?,
-                )
+                .resolve(intent.route.clone(), dispatch.remaining_timeout()?)
                 .await
             {
-                Ok(()) => candidate,
-                Err(error) => {
-                    // Enrollment has not authorized a business callback. A
-                    // concurrent creator may have won this logical name.
-                    match source
-                        .host
-                        .resolve(intent.route.clone(), dispatch.remaining_timeout()?)
-                        .await
-                    {
-                        Ok(Some(history)) => history,
-                        _ => return Err(error),
-                    }
-                }
-            }
+                Ok(Some(history)) => history,
+                _ => return Err(error),
+            },
         }
     };
-    probe("enrolled");
-    crate::storage::raft_bindings::select(&intent, &history, false)?;
-    probe("ready-sync-start");
-    storage.sync().await?;
-    probe("ready-sync-done");
+    if history != intent.candidate {
+        // A different existing creator needs its own durable selection before
+        // any business callback. Never retarget an unknown dispatched command.
+        crate::storage::raft_bindings::select(&intent, &history, false)?;
+        storage.sync().await?;
+    }
     *selected.lock().unwrap() = Some(history.clone());
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
@@ -383,7 +391,6 @@ async fn run(
             options,
         )
         .await;
-    probe("target-done");
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
@@ -393,15 +400,22 @@ async fn run(
                 CommandFailure::CorruptState
             );
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
-            probe("complete-sync-start");
-            storage.sync().await?;
-            probe("complete-sync-done");
+            // This is private continuation state. Another effect must prove it
+            // before dispatch; the final source response also waits for proof.
+            // A crash before either retains the original unresolved intent.
+            if let Ok(memory) = source.host.admit(source.group, 8192) {
+                *source.hint.lock().unwrap() = Some(Hint {
+                    history,
+                    _lease: memory,
+                });
+            }
             Ok((
                 super::consensus::native_rpc::decode_response(&receipt.result)?,
                 lease,
             ))
         }
         Err(cause) => {
+            *source.hint.lock().unwrap() = None;
             let known = cause
                 .downcast_ref::<Arc<CellCommandError>>()
                 .is_some_and(|error| !error.ambiguous);
@@ -422,8 +436,4 @@ async fn run(
             .into())
         }
     }
-}
-
-fn probe(stage: &str) {
-    tracing::warn!(target: "cellar_binding_probe_619", stage, mono = crate::asyncrt::mono_ms(), "[CG17BIND619]");
 }
