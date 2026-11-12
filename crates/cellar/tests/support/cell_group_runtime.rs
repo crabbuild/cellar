@@ -5,6 +5,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "cell_group_archive_intents.rs"]
+mod archive_intents;
+pub(super) use archive_intents::persist_archive_intent;
+
 #[path = "raft_catalog_fault.rs"]
 #[allow(dead_code)]
 pub mod catalog_fault;

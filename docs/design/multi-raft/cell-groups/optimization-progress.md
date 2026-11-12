@@ -2227,3 +2227,113 @@ constrained voters, standby/replacement, occupancy 128, distinct endpoint/startu
 failures, authority and held-owner reclamation cuts, measured placement/fairness
 and the complete primitive/backend/performance matrix remain open. No full
 CG-13, CG-17 or OPT-01 through OPT-08 package is accepted by these scoped results.
+
+## Base-80 combined native and real-backend checkpoint
+
+Merge `a5b5a8b7` integrates base `80bd02b1`, including named bindings, private
+sequence retirement, leader-preferred publication and archive retry coalescing.
+Its input digest is `06dbb5b1`. The six retained native executables were built
+with Rust 1.98.1 (embedded compiler hash
+`48a229ceaefd4985c50990b14116b6d856af0985`), test opt-level 1, zero debug info,
+assertions and overflow checks enabled. Compilation took 1,682.002 seconds.
+Inputs stayed frozen through the native and backend runs.
+
+The selected native runtime checks passed:
+
+- All 71 transport units, 23 ordinary archive-controller tests and 32 ordinary
+  archive-protocol tests. The controller includes the new follower-prefix case
+  and both image modes of archive fairness. Its 24 RustFS-only entries and the
+  protocol target's seven RustFS-only entries are ignored in native invocations.
+- Five execution regressions covering mixed roles, hot-group fairness, both
+  image forms of TLS apply/bounded retry, and distinct-history batching.
+- The exact parked-cursor SDK case and all four named-binding configurations:
+  materialized/extents with Quorum/S3 source durability, under the original
+  deadlines and with a Quorum target minimum. These do not qualify a target
+  namespace with an S3 minimum or the complete HTTP/RPC primitive family.
+- One private binding-seal unit, six manifest-index units and four effect-summary
+  units. A supplemental run passed all ten actual `raft::receipts::tests` and
+  both private class-contract tests. The initial broad receipt-module filter
+  selected two fleet-finalization tests; its recorded scope remains those two.
+
+The complete configured **24-case archive RustFS campaign passed**, including
+actual backend stop/restart, follower-prefix verification and the two completed
+fairness profiles. It used the same retained controller executable as the native
+run and passed all seven signed capability probes and final backend/source
+guards. A separate exact RustFS named-binding case passed all four configurations
+in 75.596 seconds, with a fresh bucket/prefix and seven signed probes. Its
+executable matches the retained native primitive executable. These are
+host-native RF3 TLS voters with RustFS in the owned Colima VM. Host Clippy and
+the separate Linux image build ran concurrently; these runs establish no timing
+comparison or performance gain.
+
+The combined native campaign remains **failed** at three checks. Occupancy 128
+exhausted its original window at 60.004 seconds with ambiguous enrollment failure;
+full process time was 66.442 seconds. Later serialized observations show 76–77
+cells in the selected group, rather than one atomic deadline cut. Its disks,
+performance snapshots, observations and executable binding remain retained.
+SQL preparation consumed about 25.6/30.5/30.7 seconds of measured operation time
+on the three nodes; engine file-sync times were about 12.5/12.6/14.1 seconds.
+These durations overlap and cannot be summed as wall time or attributed to one
+cause. No speedup is claimed.
+
+Strict all-target Clippy found the archive-intent helper loaded twice in the
+archive-protocol target. The source preflight also refused two stale reviewed
+anchors. Formatting, layout, dependency, documentation, patch and 113 Python tool
+tests passed (one optional integration test skipped). All failed records remain
+unchanged under `base80-integration-native`; correct receipt-owner coverage is
+retained separately under `base80-binding-contract-units`. Backend records are
+`rustfs-base80-06dbb5b1` and `rustfs-named-bindings-base80-06dbb5b1`.
+
+The helper correction gives the shared runtime fixture one archive-intent module
+and reuses that function from both controller and protocol callers. The reviewed
+successor baseline pins `acb84750` and changes only the effects and CI hashes:
+private binding-seal contracts alone do not enable alarm/outbox scheduling;
+CI fetches historical Git objects and exports its checkout-owned target directory.
+The existing source, excerpt and line checks remain. All 44 design tests pass
+after that review; the earlier preflight failure remains recorded. Strict
+Clippy verification of the corrected helper is still pending at this checkpoint.
+
+## Constrained Linux maintenance and standby checkpoint
+
+Diagnostic follow-up `acb84750` changes three process-harness files while keeping
+production code identical to `a5b5a8b7`. It durably records the original operation,
+request, revision, arguments and attestation before the maintenance mutation.
+Failure GETs sample the current process's ingress once, retain address provenance
+and preserve the original mutation error. The 20-second command, 22-second outer
+CLI and two-second diagnostic GET bounds remain unchanged.
+
+Source `372b4822` built Linux image
+`d76a4cc24afa48e472aa43f9d42170ec448272e72c329b3d173835d9fab00c8d`.
+Both executables contain the same pinned Rust 1.98.1 compiler hash. This image
+uses the existing dev/test opt-level 0 and zero-debug-info Docker profile; its
+results are correctness evidence, rather than a native profile-1 comparison.
+
+The complete existing daemon campaign with **standby passed in both image
+modes**, taking 208.670 seconds overall. The materialized and extent fixture
+processes completed in 95.977 and 87.159 seconds, with 130 and 100 ledger events.
+Both modes include park/wake, archive outage and original S3 receipt replay,
+retained hard-kill/restart, public maintenance stop/return/resume, returned-leader
+SQL, and the fourth standby's capacity/binding, zero-group observer and joined
+startup-cancellation checks. Each ledger preserves all four exact maintenance
+requests, including the resume attestation. The failed-voter replacement gate
+was not enabled.
+
+Each mode retains six voter containers with the expected exit inventory
+`[0, 0, 0, 0, 1, 137]`. Twelve whitelisted post-teardown inspections and redacted
+logs retain one-CPU/3-GiB/no-extra-swap limits and no OOM kills. These inspections
+are separate from the runner's live cgroup evidence; mount inventories alone do
+not establish retained disk contents or graceful SDK shutdown. The run uses the
+same owned six-CPU/14-GiB VM and one-CPU/2-GiB RustFS backend, with separate voter
+disks and cgroups in one physical failure domain. Records are retained under
+`linux-current-build-acb847506c44-372b4822` and
+`linux-daemon-acb847506c44-372b4822-standby`.
+
+The earlier interrupted Linux run and the source-`f1500526` maintenance-resume
+failure remain unchanged. A passing fresh fixture does not resolve that original
+unknown mutation. Replacement still requires the existing 15-GiB parent guard.
+The upstream base has advanced again to fetched `d46ecc1d`, adding autonomous
+binding recovery; that implementation is not integrated or qualified by these
+records. Occupancy 128, remaining CI failures, authority and physical-owner cuts,
+release-scale placement/fairness, full primitive/provider coverage and the final
+single-source release matrix remain open. No complete CG-13, CG-17 or OPT package
+is accepted by this checkpoint.

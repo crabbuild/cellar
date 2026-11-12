@@ -35,9 +35,7 @@ mod tail_fixture;
 #[allow(dead_code, unused_imports)]
 mod runtime_fixture;
 
-#[path = "support/cell_group_archive_intents.rs"]
-mod archive_intents;
-use archive_intents::persist_archive_intent;
+use runtime_fixture::persist_archive_intent;
 
 include!("support/cell_group_engine_fixture.rs");
 

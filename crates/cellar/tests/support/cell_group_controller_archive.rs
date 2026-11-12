@@ -11,9 +11,7 @@ use futures_util::TryStreamExt;
 use object_store::ObjectStore;
 use std::sync::atomic::Ordering;
 
-#[path = "cell_group_archive_intents.rs"]
-mod archive_intents;
-use archive_intents::persist_archive_intent;
+use super::super::super::persist_archive_intent;
 
 pub(super) use super::super::super::archive_store;
 

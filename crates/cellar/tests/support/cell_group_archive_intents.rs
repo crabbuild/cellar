@@ -4,7 +4,7 @@
 use super::{Cluster, Result};
 use sha2::{Digest, Sha256};
 
-pub(super) async fn persist_archive_intent<T: serde::Serialize + serde::de::DeserializeOwned>(
+pub(crate) async fn persist_archive_intent<T: serde::Serialize + serde::de::DeserializeOwned>(
     cluster: &Cluster,
     intent: &T,
 ) -> Result<T> {
