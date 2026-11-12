@@ -91,6 +91,11 @@ benchmark or proof of the remaining S3 failure's cause. Temporary timing probes
 are removed. Compiler/missing-caller controls, exact source patches, binaries,
 checks and all runtime outcomes are retained under
 `.cellar/cell-groups-evidence/CG-17-archive-publisher-9e02f3f6-01`.
+The baseline timing probe's executable hash is recorded, but that executable was
+overwritten; its exact source patch/log remain. Later frozen preflight and runtime
+executables are retained. Locked builds, strict all-target Clippy, formatting,
+layout, native dependency, docs, partial-catalog and 13 coverage-validator tests
+pass. Private unit assertions compile under Clippy; these runs do not execute them.
 Both owned RustFS campaigns exit zero without OOM and stop their VM; the recorded
 target/default VMs are unchanged.
 
