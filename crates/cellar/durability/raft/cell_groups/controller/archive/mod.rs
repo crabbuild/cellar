@@ -928,11 +928,28 @@ impl Manager {
         if let Some(completed) = proof {
             self.complete_proof(completed, shared, 0, true);
         }
-        for entry in self.entries.values_mut() {
+        for (group, entry) in &mut self.entries {
             entry.execution.join().await;
             for request in entry.waiters.drain(..) {
                 request.fail(Arc::new(Error::Stopped));
             }
+            // A publication joined above may have selected a new head after
+            // shutdown closed scheduling. Finish its unretained predecessor
+            // before closing the verifier; retained outputs preserve durable
+            // debt and remote I/O failures remain visible in archive status.
+            if let Some(context) = &entry.context {
+                if let Err(error) = job::finish(context, &entry.execution).await {
+                    if let Some(status) = shared
+                        .archives
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .get_mut(group)
+                    {
+                        status.error = Some(Arc::new(error));
+                    }
+                }
+            }
+            entry.execution.join().await;
             entry.registration.store.close();
             if let Some(reply) = entry.reply.take() {
                 reply.send(Err(Arc::new(Error::Stopped)));

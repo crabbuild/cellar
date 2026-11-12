@@ -304,6 +304,9 @@ Group retirement closes proof admission on the controller before joining async
 attempts and escaped physical work.
 The one temporary completed verification drops after cleanup before a new cut
 needs physical verification, preserving the original pool bounds.
+Shutdown also attempts the joined publication's unretained predecessor cleanup
+before closing the verifier. A live output keeps its hold journaled; a failed
+cleanup remains durable and visible in archive status for retained restart.
 The held-retirement regression and current-source binding campaigns must pass
 before accepting this scheduling checkpoint; the existing S3 deadline gate is open.
 
