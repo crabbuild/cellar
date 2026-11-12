@@ -41,19 +41,25 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Complete SQL's stateless/public ingress and full recovery matrix, then KV
-   binding expiry/alarm/payload support and remaining Storage compatibility.
-   At `b82970a5`, normal SQL calls from Raft cells pass all four native/RustFS
-   materialized/extents configurations, with separate RF3 groups and remote
-   leaders. Exact SQL failures, rollback, sessions, migration history, restart,
-   replay and quorum refusal pass. Source and target native/Fleet paths refuse
-   downgrade. Two codec tests, 15 registration checks, two native SQL checks,
-   interrupted binding recovery 8/8, strict all-target Clippy and repository
-   checks pass. No complete primitive family is accepted. See the
-   [SQL checkpoint](progress.md#cg-17-grouped-sql-bindings-and-durable-rpc-errors).
-   Keep the independent ordinary S3-source deadline gate open: the retained
-   `2aca4c6b` cohort passed 5/8 ordinary binding configurations. That matrix was
-   not rerun in this SQL feature cohort. Preserve budgets, quotas and failures.
+1. Fix current-source interrupted-binding recovery: it passes 5/8, with two
+   RustFS S3 deadline failures and one RustFS Quorum extents retained-restart
+   clean-stop failure. Preserve original deadlines, stop assertions and failed
+   disks. Then complete bounded stateless SQL ingress identity ownership, ordinary
+   outbound RPC admission/accounting, direct operator/CLI HTTP and the full SQL
+   recovery matrix, then KV expiry/alarm/payload support.
+   At `5a36ca8d`, normal SQL calls from stateless native HTTP and Raft cells pass
+   all four native/RustFS materialized/extents configurations, including competing
+   first creators, rollback, retained restart, remote leaders and quorum refusal.
+   Each stateless call still allocates a fresh client identity; permanent floors
+   will exhaust the configured limit. Resolve that blocker while preserving
+   original quotas, retry identities and sequence fences before sustained load.
+   The generic interrupted-binding failures remain release blockers alongside
+   SQL-specific interruption, movement, wake, archive outage and disaster coverage.
+   No full primitive family is accepted. See the
+   [current SQL checkpoint](progress.md#cg-17-stateless-native-sql-ingress).
+   Keep the separate ordinary S3-source deadline gate open: the retained
+   `2aca4c6b` cohort passed 5/8 ordinary binding configurations and was not rerun
+   in this feature cohort. Preserve budgets, quotas and all failed controls.
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.
@@ -63,6 +69,11 @@ existing recovery and release dependencies rather than removing those gates.
 4. Admit full support only after every CG-17 case and the independent API ×
    scenario × configuration evidence gate passes, followed by CG-15/16 combined
    qualification. Quorum selection cannot fall back to Fleet/bucket durability.
+
+Full CLI plan preflight currently stops at the missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json` evidence file. Reviewed source
+anchors and plan/verifier unit tests pass; this does not replace the missing
+evidence or validate the complete release history.
 
 Feature checkpoints must identify the public API delivered and its remaining
 limits. Current-incarnation discovery passes its native control at `f2dcf1b0`,

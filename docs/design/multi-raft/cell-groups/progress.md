@@ -13249,3 +13249,81 @@ wake, outage and disaster-recovery coverage, then deliver KV expiry/alarm/payloa
 support and ordinary due-work adapters. The ordinary S3-source deadline failures
 retained at `2aca4c6b` remain a separate release gate and were not rerun here.
 CG-17/15/16 remain open; acceptance stays 13/17 tasks and 147/195 cases.
+
+## CG-17 stateless native SQL ingress
+
+At `5a36ca8d`, stateless native application handlers can use `Context::sql`
+against the node-owned shared-group SQL service. Declaration checks retain the
+exact global database identity and explicit namespace origin grants. The adapter
+borrows the joined node lifecycle; it does not keep the external SDK lifetime
+alive. Missing, closed or ambiguous services refuse admission.
+
+Name discovery, one enrollment candidate and one business command share the
+original absolute deadline. Concurrent first creators may lose enrollment while
+the winner remains pending. Reconciliation waits only for the committed name,
+using the existing controller retry interval and original deadline; it never
+repeats initialization or SQL. After business submission, the selected history,
+input and command ID stay fixed. Loss or cancellation preserves typed ambiguity.
+A final deadline check prevents returning a late successful SQL reply.
+
+Warm Raft bindings now use the existing charged namespace range cache and a
+live local voter's fully applied manifest as a history locator. No new cell cache
+or image pin is retained. Missing, changed, sealed, closed, reclaimed or non-voting
+metadata takes the ordinary discovery path. The source checkpoint still records
+the exact logical history, and destination quorum/incarnation checks remain
+mandatory. `cell_binding_applied_history_hints` counts locator selections. The
+drill checks actual eligibility: a hit needs one source checkpoint and one final
+source mutation; cold discovery retains its selection checkpoint, and undeclared
+calls create no child. Every configuration must exercise the eligible path.
+
+The RF3 SQL drill passes all four native/RustFS image configurations.
+It exercises stateless HTTP first access, competing creators on two voters,
+parameterized writes, reads through every voter, rollback and exact SQL errors,
+undeclared database refusal, retained restart and refusal without quorum. The
+existing SQL-from-Raft-cell cases also pass, including different caller/database
+leaders, migrations, sessions and exact receipt replay. Stateless calls retain
+the fixture's three-second node operation budget; Raft sources retain five seconds.
+The owned RustFS container remains limited to two CPUs and 2 GiB. Voters share
+one native macOS process; this is not independent Linux voter or load qualification.
+
+The same source passes two codec checks, 15 registration checks, two native SQL
+checks and 16 receipt identity/maintenance tests. Interrupted-binding recovery
+passes five of eight configurations. All four native
+configurations pass; RustFS passes materialized Quorum, but materialized S3
+misses the `Again` deadline, extents Quorum fails the retained-restart clean-stop
+assertion, and extents S3 expires before its target checkpoint notification.
+The **combined runtime gate is FAILED**. The frozen stop assertion does not
+render the actual `NodeOutcome`; its cause remains unresolved. On copied
+materialized S3 voter images, a complete parent `Again` receipt is present, but
+its timing relative to the deadline is unknown. This does not establish a cause.
+Independent strict all-target Clippy, formatting, layout, dependency and
+documentation checks pass. The source anchors and SDK inventory are refreshed
+after reviewing their actual changes. The 44 plan tests and 13 primitive verifier tests pass;
+reviewed source anchors match. Full CLI `plan.py preflight` remains blocked by the
+missing historical `CG-01-06-gates-e32115aa-02/CG-01-record.json` evidence file.
+No historical evidence was recreated or waived. All failed controls remain
+retained: the initial HTTP body error conversion and the four failed first-creation configurations at
+`4cad9e7a`, including twelve voter disks and the frozen executable. The latter
+passed the recovery regression and Clippy but failed the SQL feature gate.
+At `0ceeb262`, the creation fix passed both native forms and RustFS extents;
+RustFS materialized missed the original five-second `History` deadline. Inspection
+of copied, retained voter state found the target `__sqlMigrations` receipt and a
+parent still at partial step 2 with an unresolved selected intent. Receipt timing
+relative to the deadline is unknown. This motivated removing redundant warm
+selection work; it does not establish the sole cause or a workload speedup.
+
+Evidence is `.cellar/cell-groups-evidence/CG-17-sql-ingress-5a36ca8d-01`, with a
+workspace-volume backup and frozen binaries. The owned backend and VM are stopped.
+
+**This remains a basic-path checkpoint.** Each stateless SQL call currently uses
+a fresh client identity. Client floors persist, so sustained use will exhaust the
+configured client identity limit (1,024 by default), including identities used by
+other callers. First close the current-source recovery failures above. Integrate
+ordinary outbound RPC admission/accounting with bounded, restart-safe ingress
+ownership before release; raising the quota or deleting ordinary sequence floors
+is not a fix.
+Direct SQL operator/CLI HTTP routing and SQL-specific interruption, movement,
+wake, archive outage and disaster qualification also remain open. Then deliver
+KV expiry/alarm/payload semantics and the other primitive families. The separate
+ordinary S3-source deadline gate is unchanged and was not rerun here. Recorded
+acceptance remains **13/17 tasks, 147/195 cases**; no full primitive family is accepted.

@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "02b5ed2e037909b4f5d63791035fdc6aebcbb8e739b4acd19eff995a5cd6d3dd"
+    "crates/cellar/application/mod.rs": "5226780b70c9943f077c52e6a68e8a7913eff54990f640c832dd79c140f4465e"
   },
   "entries": [
     {
@@ -77,7 +77,11 @@
         "cellar::sdk::sql::PreparedStatement::raw"
       ],
       "owners": [
-        "crates/cellar/application/sql/mod.rs"
+        "crates/cellar/application/sql/mod.rs",
+        "crates/cellar/application/sql/ingress.rs",
+        "crates/cellar/application/consensus/native_services.rs",
+        "crates/cellar/application/consensus/group_client/sql_ingress.rs",
+        "crates/cellar/durability/raft/cell_groups/host/bindings.rs"
       ],
       "schemas": [
         "Target SQLite and migration history"
@@ -92,8 +96,8 @@
         "native",
         "axum"
       ],
-      "permission": "Independent database grant",
-      "proof": "Target DB commit at requested durability",
+      "permission": "Declared canonical database identity and explicit target namespace command origin",
+      "proof": "Target namespace minimum durability; SQL reads also execute as commands",
       "ordering": "Session bookmarks and atomic target batches",
       "recovery": "Restore target database and session/history bounds",
       "case": "primitives_sql_sessions_kv_ttl_and_revision_conditions",
