@@ -14,6 +14,20 @@ pub mod storage_fault;
 pub mod managed_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn superseded_boot_advice_cannot_change_route() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::superseded_boot_advice_cannot_change_route(None)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_superseded_boot_advice_cannot_change_route() -> anyhow::Result<()> {
+    Box::pin(
+        managed_fixture::requests::superseded_boot_advice_cannot_change_route(Some(rustfs::store)),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn untrusted_tls_advice_cannot_grant_authority() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::untrusted_tls_advice_cannot_grant_authority(None)).await
 }

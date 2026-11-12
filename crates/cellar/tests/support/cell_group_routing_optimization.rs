@@ -80,6 +80,12 @@ pub(super) async fn cached_leader_direct_write() -> Result<()> {
     run(Scenario::Direct).await
 }
 
+pub(super) async fn superseded_boot_advice_cannot_change_route(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    advice::superseded_boot(make).await
+}
+
 pub(super) async fn busy_leader_keeps_placement() -> Result<()> {
     run(Scenario::Busy).await
 }

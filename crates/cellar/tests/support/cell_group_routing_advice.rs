@@ -8,6 +8,9 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, JoinSet};
 
+#[path = "cell_group_routing_advice_boot.rs"]
+mod boot;
+
 #[path = "cell_group_routing_advice_tls.rs"]
 mod tls;
 
@@ -110,6 +113,15 @@ struct State {
     commands: Vec<serde_json::Value>,
     untrusted_attempts: u64,
     untrusted_rejections: Vec<String>,
+    held: Option<Arc<HeldReply>>,
+}
+
+#[derive(Default)]
+struct HeldReply {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+    prefix_bytes: std::sync::atomic::AtomicUsize,
+    result: Mutex<Option<String>>,
 }
 
 async fn serve_connection(
@@ -152,7 +164,7 @@ async fn serve_connection(
     };
     let mut connection = wire::Wire::new(stream)?;
     while let Some((request, input, binding)) = connection.receive().await? {
-        let (body, fault, record) = {
+        let (body, fault, record, held) = {
             let mut state = state
                 .lock()
                 .map_err(|_| anyhow::anyhow!("wire state poisoned"))?;
@@ -169,7 +181,7 @@ async fn serve_connection(
                         &u32::try_from(state.receipt.result.len())?.to_be_bytes(),
                     );
                     body.extend_from_slice(&state.receipt.result);
-                    (body, Fault::Control, None)
+                    (body, Fault::Control, None, None)
                 }
                 "Command" => {
                     ensure!(input.starts_with(b"CLGCCQ01") && input.len() >= 32);
@@ -190,22 +202,23 @@ async fn serve_connection(
                         "request": hex::encode(&input),
                         "response": hex::encode(&body),
                     }));
-                    (body, fault, Some(record))
+                    (body, fault, Some(record), state.held.take())
                 }
                 "CommandProbe" => {
                     ensure!(input.starts_with(b"CLGCPQ01"));
-                    (b"CLGCPS01\0\0".to_vec(), Fault::Control, None)
+                    (b"CLGCPS01\0\0".to_vec(), Fault::Control, None, None)
                 }
                 purpose => anyhow::bail!("unexpected owned wire request {purpose}"),
             }
         };
         let observed = state.clone();
-        connection
+        let result = connection
             .reply(
                 request,
                 binding,
                 body,
                 fault,
+                held.clone(),
                 move |header, tag, correct| {
                     if let Some(record) = record {
                         let mut state = observed
@@ -222,7 +235,20 @@ async fn serve_connection(
                     Ok(())
                 },
             )
-            .await?;
+            .await;
+        if let Some(held) = held {
+            *held
+                .result
+                .lock()
+                .map_err(|_| anyhow::anyhow!("held reply poisoned"))? = Some(match &result {
+                Ok(()) => "tail_written".into(),
+                Err(error) => format!("tail_refused: {error}"),
+            });
+            // A superseded socket may be closed by the real transport. Its
+            // observed outcome is evidence, never an invented delivered frame.
+            return Ok(());
+        }
+        result?;
     }
     Ok::<_, anyhow::Error>(())
 }
@@ -268,6 +294,7 @@ impl Server {
             commands: vec![],
             untrusted_attempts: 0,
             untrusted_rejections: vec![],
+            held: None,
         }));
         let observed = state.clone();
         let (stop, mut stopping) = oneshot::channel();
@@ -362,7 +389,56 @@ async fn call(
     command: &CommandOptions,
     expected: Option<i64>,
 ) -> Result<serde_json::Value> {
+    submit(
+        cell.clone(),
+        command.clone(),
+        command_request(cluster, caller, command)?,
+        expected,
+    )
+    .await
+}
+
+fn command_request(
+    cluster: &nodes::Cluster,
+    caller: Caller,
+    command: &CommandOptions,
+) -> Result<Option<reqwest::RequestBuilder>> {
     if matches!(caller, Caller::Sdk) {
+        return Ok(None);
+    }
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(TIMEOUT + Duration::from_secs(1))
+        .build()?;
+    Ok(Some(
+        client
+            .post(format!(
+                "{}?delta=1",
+                cluster
+                    .web()?
+                    .url(INGRESS, matches!(caller, Caller::Axum), "one")
+            ))
+            .bearer_auth(http::secret())
+            .header(
+                "x-command-id",
+                format!(
+                    "{}:{}",
+                    hex::encode(command.id.client.bytes()),
+                    command.id.sequence()
+                ),
+            )
+            .header("x-retry-until-ms", command.retry_until_ms)
+            .header("x-write-durability", "s3"),
+    ))
+}
+
+async fn submit(
+    cell: RaftCellHandle,
+    command: CommandOptions,
+    request: Option<reqwest::RequestBuilder>,
+    expected: Option<i64>,
+) -> Result<serde_json::Value> {
+    if request.is_none() {
         let result = cell
             .command(
                 &cell.contract("Increment")?,
@@ -389,30 +465,7 @@ async fn call(
         )));
         return Ok(json!({"ambiguous": failure.ambiguous, "failure": format!("{failure:?}")}));
     }
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(TIMEOUT + Duration::from_secs(1))
-        .build()?;
-    let response = client
-        .post(format!(
-            "{}?delta=1",
-            cluster
-                .web()?
-                .url(INGRESS, matches!(caller, Caller::Axum), "one")
-        ))
-        .bearer_auth(http::secret())
-        .header(
-            "x-command-id",
-            format!(
-                "{}:{}",
-                hex::encode(command.id.client.bytes()),
-                command.id.sequence()
-            ),
-        )
-        .header("x-retry-until-ms", command.retry_until_ms)
-        .header("x-write-durability", "s3")
-        .send()
-        .await?;
+    let response = request.context("owned public HTTP request")?.send().await?;
     let status = response.status().as_u16();
     let body = response.text().await?;
     if let Some(expected) = expected {
@@ -453,12 +506,21 @@ fn counter(host: &RaftCells, name: &str) -> Result<u64> {
 }
 
 async fn seed(cell: &RaftCellHandle, server: &Server, ordinal: usize) -> Result<()> {
+    seed_at(cell, server, ordinal, None).await
+}
+
+async fn seed_at(
+    cell: &RaftCellHandle,
+    server: &Server,
+    ordinal: usize,
+    term: Option<u64>,
+) -> Result<()> {
     let (member, expected) = {
         let mut state = server
             .state
             .lock()
             .map_err(|_| anyhow::anyhow!("wire state poisoned"))?;
-        state.advice.term += 4;
+        state.advice.term = term.unwrap_or(state.advice.term + 4);
         (MemberId::new(state.advice.issuer)?, state.receipt.clone())
     };
     let result = cell
@@ -500,6 +562,7 @@ fn peer_record(peer: &RaftPeerNode) -> serde_json::Value {
 enum Scenario {
     Advice,
     UntrustedTls,
+    SupersededBoot(Caller),
 }
 
 struct TlsDrill<'a> {
@@ -510,6 +573,21 @@ struct TlsDrill<'a> {
     rooted: bool,
     issuer: usize,
     leader: usize,
+    term: Term,
+    revision: LogIndex,
+    configuration: [u8; 32],
+}
+
+struct BootDrill<'a> {
+    callbacks: &'a AtomicUsize,
+    cell: &'a RaftCellHandle,
+    server: &'a Server,
+    rooted: bool,
+    caller: Caller,
+    issuer: usize,
+    leader: usize,
+    old_term: Term,
+    old_boot: FleetBootBinding,
     term: Term,
     revision: LogIndex,
     configuration: [u8; 32],
@@ -590,6 +668,17 @@ async fn exercise(
         .observe(TIMEOUT)
         .await?;
     let address = cluster.managed.peers[issuer].query_address;
+    let old_boot = if matches!(scenario, Scenario::SupersededBoot(_)) {
+        Some(
+            cluster.managed.hosts[issuer]
+                .observe_node(TIMEOUT)
+                .await?
+                .fleet_boot
+                .context("old issuer physical boot")?,
+        )
+    } else {
+        None
+    };
     cluster.stop(issuer).await?;
     let server = Server::start(
         address,
@@ -604,6 +693,29 @@ async fn exercise(
         original,
     )
     .await?;
+    if let Scenario::SupersededBoot(caller) = scenario {
+        let result = boot::exercise(
+            cluster,
+            &BootDrill {
+                callbacks,
+                cell: &cell,
+                server: &server,
+                rooted,
+                caller,
+                issuer,
+                leader,
+                old_term: prior.term,
+                old_boot: old_boot.context("captured issuer boot")?,
+                term: stable.status.term,
+                revision: stable.membership_revision,
+                configuration: membership.membership().configuration_digest(),
+            },
+        )
+        .await;
+        let joined = server.close().await;
+        result?;
+        return joined;
+    }
     if matches!(scenario, Scenario::UntrustedTls) {
         let result = tls::exercise(&TlsDrill {
             cluster,
@@ -720,16 +832,25 @@ pub(super) async fn untrusted_tls(make: Option<RoutingStoreFactory>) -> Result<(
     run_case(make, Scenario::UntrustedTls).await
 }
 
+pub(super) async fn superseded_boot(make: Option<RoutingStoreFactory>) -> Result<()> {
+    for caller in [Caller::Sdk, Caller::Native, Caller::Axum] {
+        run_case(make, Scenario::SupersededBoot(caller)).await?;
+    }
+    Ok(())
+}
+
 async fn run_case(make: Option<RoutingStoreFactory>, scenario: Scenario) -> Result<()> {
     for rooted in [false, true] {
         let callbacks = Arc::new(AtomicUsize::new(0));
         let observed = callbacks.clone();
         let store = Arc::new(match make {
             Some(make) => fault::Store::around(make(
-                if matches!(scenario, Scenario::Advice) {
-                    "wire-advice"
-                } else {
-                    "wire-advice-tls"
+                match scenario {
+                    Scenario::Advice => "wire-advice",
+                    Scenario::UntrustedTls => "wire-advice-tls",
+                    Scenario::SupersededBoot(Caller::Sdk) => "wire-advice-boot-sdk",
+                    Scenario::SupersededBoot(Caller::Native) => "wire-advice-boot-native",
+                    Scenario::SupersededBoot(Caller::Axum) => "wire-advice-boot-axum",
                 },
                 rooted,
             )?),

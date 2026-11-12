@@ -255,6 +255,21 @@ and TLS exporters. These entry points need their own current-source runtime
 evidence. Removed-member and superseded-boot cuts, constrained voter processes
 and full RO-03/CG/OPT acceptance remain open.
 
+## Superseded boot advice
+
+The separate `routing-boot` suite holds the last byte of an authenticated
+command reply while its actual issuer restarts from retained storage. Each
+caller/image pair starts a fresh fixture. The replacement starts without remote
+command grants. Public inspection must verify a successor physical boot on the
+same engine and install its current endpoint; a real owner query then warms
+routing before the old reply is released. The ledger records the actual old
+writer outcome and requires the first recovered command and exact replay to use
+one cached RPC each. A closed old socket is recorded as a refused tail, without
+claiming that the client decoded it. Run it with
+`cell_groups.py --suite routing-boot` and the same explicit backend, output and
+checkout-private target arguments. This candidate still needs its own runtime
+evidence; removed-member and full RO-03 acceptance remain open.
+
 ## Endpoint repair and held replies
 
 ```sh

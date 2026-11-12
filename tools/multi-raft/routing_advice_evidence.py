@@ -9,6 +9,7 @@ import re
 
 WIRE = "rustfs_wire_advice_preserves_admission"
 TLS = "rustfs_untrusted_tls_advice_cannot_grant_authority"
+BOOT = "rustfs_superseded_boot_advice_cannot_change_route"
 FAULTS = (
     "ForeignCluster", "ForeignNamespace", "ForeignGroup", "ForeignIncarnation",
     "NonMember", "Configuration", "LowerTerm", "ConflictingTerm",
@@ -75,7 +76,7 @@ def _common(row):
         raise ValueError("invalid advice identity, admission, routing or S3 evidence")
 
 
-def _frame(row, frame):
+def _frame(row, frame, *, leader=None):
     if not isinstance(frame, dict) or frame.get("fault") != row["fault"]:
         raise ValueError("wrong wire fault")
     request = _bytes(frame.get("request"), 64 * 1024)
@@ -132,10 +133,11 @@ def _frame(row, frame):
     term = row["seed_term"] - 1 if row["fault"] == "LowerTerm" else row["seed_term"]
     if row["fault"] not in ("LowerTerm", "ConflictingTerm"):
         term += 1
-    if (int.from_bytes(response[114:122], "big") != term
-            or int.from_bytes(response[122:130], "big") == 0
-            or (int.from_bytes(response[122:130], "big") != 99 if row["fault"] == "NonMember"
-                else int.from_bytes(response[122:130], "big") == row["seed_member"])):
+    actual_leader = int.from_bytes(response[122:130], "big")
+    wrong_leader = (actual_leader != leader if leader is not None
+                    else actual_leader != 99 if row["fault"] == "NonMember"
+                    else actual_leader == row["seed_member"])
+    if (int.from_bytes(response[114:122], "big") != term or actual_leader == 0 or wrong_leader):
         raise ValueError("wrong term or member fault")
     reverse = copy.deepcopy(route)
     reverse["source"], reverse["target"] = reverse["target"], reverse["source"]
@@ -155,7 +157,70 @@ def _frame(row, frame):
     return request[:timeout] + request[timeout + 8:], int.from_bytes(request[timeout:timeout + 8], "big")
 
 
+def _boot_observations(output):
+    prefix = "WIRE_BOOT_AUTHORITY_EVIDENCE "
+    rows = [json.loads(line.split(prefix, 1)[1]) for line in output.splitlines() if prefix in line]
+    expected = {(caller, mode) for caller in ("Sdk", "Native", "Axum") for mode in (False, True)}
+    if (len(rows) != 6 or any(not isinstance(row, dict) or type(row.get("schema")) is not int
+            or row["schema"] != 1 or row.get("case") != BOOT.removeprefix("rustfs_")
+            or type(row.get("extents")) is not bool for row in rows)
+            or {(row.get("ingress"), row["extents"]) for row in rows} != expected):
+        raise ValueError("incomplete superseded-boot caller/image coverage")
+    for row in rows:
+        _common(row)
+        old, current = row.get("old_issuer"), row.get("current_issuer")
+        previous, boot = row.get("old_boot"), row.get("current_boot")
+        if (row["callbacks_before"] != 1 or row["command"]["sequence"] != 2
+                or row.get("fault") != "Control" or not _uint(row.get("seed_term"), True)
+                or not _uint(row.get("seed_member"), True) or not _uint(row.get("term"), True)
+                or row["seed_term"] != row["term"] + 100
+                or old != row["issuer"] or not _peer(current)
+                or any(old[key] != current[key] for key in ("node", "disk", "label", "server_name"))
+                or old["process"] == current["process"] or old["query_address"] == current["query_address"]
+                or not _uint(row.get("trust_revision"), True)
+                or not _uint(row.get("elapsed_ms")) or row["elapsed_ms"] >= 5000
+                or not _uint(row.get("held_prefix_bytes"), True)
+                or not row["failure"]["ambiguous"]
+                or row["proven_rejections_before"] != row["proven_rejections_after_refusal"]):
+            raise ValueError("invalid actual boot cut, deadline or refusal")
+        for item in (previous, boot):
+            if (not isinstance(item, dict) or not _uint(item.get("epoch"), True)
+                    or any(not _hex(item.get(key), size) or item[key] == "0" * size
+                           for key, size in (("catalog", 64), ("fleet", 32), ("node", 32), ("disk", 32),
+                                             ("engine", 32), ("boot", 32), ("process", 32), ("join_key_sha256", 64)))):
+                raise ValueError("invalid physical boot record")
+        if (any(previous[key] != boot[key] for key in ("catalog", "fleet", "node", "disk", "engine"))
+                or boot["node"] != current["node"] or boot["disk"] != current["disk"]
+                or boot["epoch"] <= previous["epoch"]
+                or any(previous[key] == boot[key] for key in ("boot", "process", "join_key_sha256"))):
+            raise ValueError("physical boot did not advance on retained storage")
+        frames = row.get("wire_requests")
+        if not isinstance(frames, list) or len(frames) != 1:
+            raise ValueError("missing exact held old-boot attempt")
+        _frame(row, frames[0], leader=row["seed_member"])
+        body = bytes.fromhex(frames[0]["response"])
+        if body[122:130] != body[131:139]:
+            raise ValueError("old-boot reply has an unrelated status fault")
+        encoded = json.dumps(frames[0]["response_header"], ensure_ascii=False, separators=(",", ":")).encode()
+        if row["held_prefix_bytes"] != 20 + len(encoded) + 32 + len(bytes.fromhex(frames[0]["response"])) - 1:
+            raise ValueError("old reply was not held before its final byte")
+        tail = row.get("old_tail_result")
+        if not isinstance(tail, str) or not (tail == "tail_written" or tail.startswith("tail_refused: ") and len(tail) > 14):
+            raise ValueError("old writer has no observed completion")
+        for phase in ("recovery", "replay"):
+            before, after = row.get("routing_before_" + phase), row.get("routing_after_" + phase)
+            if (any(not isinstance(values, list) or len(values) != 6 or any(not _uint(value) for value in values)
+                    for values in (before, after))
+                    or [a-b for b,a in zip(before[:5], after[:5])] != [1, 0, 0, 0, 1]):
+                raise ValueError("old completion changed the first recovered or replay route")
+        if any(not isinstance(row.get(key), str) or not row[key] for key in ("version", "witness", "token")):
+            raise ValueError("missing exact S3 replay proof")
+    return rows, 6
+
+
 def _observations(output, case):
+    if case == BOOT:
+        return _boot_observations(output)
     if case not in (WIRE, TLS):
         raise ValueError("unknown advice evidence case")
     tls = case == TLS

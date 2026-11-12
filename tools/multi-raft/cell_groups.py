@@ -61,6 +61,19 @@ CASES = (
 )
 
 SUITES = {
+    "routing-boot": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_superseded_boot_advice_cannot_change_route",),
+        "a real issuer restart fences a held old-boot reply",
+        "Fresh SDK, native HTTP and Axum fixtures in both image modes hold the final byte of an "
+        "authenticated command reply while the issuer resumes retained storage under a new physical "
+        "boot. Remote writes remain disabled during startup. Public inspection installs the current "
+        "boot and a genuine owner query warms routing before release. The ledger records whether "
+        "the old socket writes its tail or is fenced, then requires unchanged refusal/SQL/callback "
+        "counts, original ambiguous identity, exact S3 recovery and one cached RPC for both the "
+        "first recovery and replay. Original five-second windows remain; removed-member wire cuts, "
+        "constrained voters and full RO-03/CG/OPT qualification remain open.",
+    ),
     "routing-advice": (
         "native_cell_groups_routing_optimization",
         ("rustfs_wire_advice_preserves_admission", "rustfs_untrusted_tls_advice_cannot_grant_authority"),
@@ -598,7 +611,7 @@ SUITES = {
     ),
 }
 
-ROUTING_SUITES = ("routing-range-repairs", "routing-authority", "routing-endpoint", "routing-advice")
+ROUTING_SUITES = ("routing-range-repairs", "routing-authority", "routing-endpoint", "routing-advice", "routing-boot")
 
 
 def named_binding_observations(output, case):
@@ -659,7 +672,7 @@ def archive_fairness_observations(output, case):
 
 def routing_observations(output, case):
     """Require complete caller/mode output; native cases enforce receipt oracles."""
-    if case in SUITES["routing-advice"][1]:
+    if case in SUITES["routing-advice"][1] + SUITES["routing-boot"][1]:
         return advice_observations(output, case)
     if case in ("rustfs_read_first_refreshes_endpoint", "rustfs_unrelated_endpoint_keeps_inflight_reply"):
         return endpoint_observations(output, case)

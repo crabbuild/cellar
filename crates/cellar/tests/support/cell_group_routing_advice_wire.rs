@@ -163,6 +163,7 @@ impl Wire {
         binding: [u8; 32],
         body: Vec<u8>,
         fault: Fault,
+        held: Option<Arc<HeldReply>>,
         observe: impl FnOnce(&[u8], [u8; 32], [u8; 32]) -> Result<()> + Send,
     ) -> Result<()> {
         let Route {
@@ -204,10 +205,29 @@ impl Wire {
             mac,
             tag(&self.exporter, Some(&binding), &prefix, &header)?,
         )?;
-        for bytes in [prefix.as_slice(), header.as_slice(), &mac, body.as_slice()] {
+        let tail = if held.is_some() { 1 } else { 0 };
+        ensure!(body.len() > tail);
+        for bytes in [
+            prefix.as_slice(),
+            header.as_slice(),
+            &mac,
+            &body[..body.len() - tail],
+        ] {
             self.stream.write_all(bytes).await?;
         }
         self.stream.flush().await?;
+        if let Some(held) = held {
+            held.prefix_bytes.store(
+                prefix.len() + header.len() + mac.len() + body.len() - 1,
+                Ordering::Release,
+            );
+            held.entered.notify_one();
+            tokio::time::timeout(TIMEOUT, held.release.notified())
+                .await
+                .context("held old-boot reply release")?;
+            self.stream.write_all(&body[body.len() - 1..]).await?;
+            self.stream.flush().await?;
+        }
         Ok(())
     }
 }

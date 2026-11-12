@@ -7,7 +7,7 @@ import hashlib
 import json
 import unittest
 
-from routing_advice_evidence import FAULTS, TLS, WIRE, advice_observations
+from routing_advice_evidence import BOOT, FAULTS, TLS, WIRE, advice_observations
 
 
 def peer(node, disk, process):
@@ -97,6 +97,42 @@ def rows(tls=False):
 def output(values, tls=False):
     prefix = "WIRE_TLS_AUTHORITY_EVIDENCE " if tls else "WIRE_ADVICE_EVIDENCE "
     return "\n".join(prefix + json.dumps(row) for row in values)
+
+
+def boot_rows():
+    result = []
+    for mode in (False, True):
+        for caller in ("Sdk", "Native", "Axum"):
+            row = copy.deepcopy(rows()[0])
+            row.update(case=BOOT.removeprefix("rustfs_"), ingress=caller, extents=mode,
+                       fault="Control", term=900, elapsed_ms=250, trust_revision=10,
+                       old_issuer=copy.deepcopy(row["issuer"]), current_issuer=peer(4,14,25),
+                       routing_before_recovery=[20,6,1,2,15,8], routing_after_recovery=[21,6,1,2,16,8],
+                       routing_before_replay=[21,6,1,2,16,8], routing_after_replay=[22,6,1,2,17,8],
+                       version="exact", witness="exact", token="exact", old_tail_result="tail_written")
+            row["current_issuer"]["query_address"] = "127.0.0.1:1235"
+            boot = {"catalog":"ab"*32, "fleet":"cd"*16, "node":row["issuer"]["node"],
+                    "disk":row["issuer"]["disk"], "engine":"ef"*16, "boot":"22"*16,
+                    "process":"33"*16, "epoch":1, "join_key_sha256":"44"*32}
+            row["old_boot"] = boot
+            row["current_boot"] = {**boot,"boot":"55"*16,"process":"66"*16,"epoch":2,
+                                   "join_key_sha256":"77"*32}
+            frame = row["wire_requests"][0]
+            frame["fault"] = "Control"
+            group = frame["route"]["scope"]["identity"]["group"]
+            body = (b"CLGCCS01\x01\x01" + bytes(n for part in group for n in part)
+                    + (1).to_bytes(8,"big") + bytes.fromhex(row["configuration_digest"])
+                    + (1001).to_bytes(8,"big") + (1).to_bytes(8,"big") + b"\x0c" + (1).to_bytes(8,"big"))
+            frame["response"] = body.hex()
+            frame["response_header"]["digest"] = list(hashlib.sha256(body).digest())
+            row["held_prefix_bytes"] = 20 + len(json.dumps(frame["response_header"],ensure_ascii=False,
+                                                          separators=(",",":")).encode()) + 32 + len(body)-1
+            result.append(row)
+    return result
+
+
+def boot_output(values):
+    return "\n".join("WIRE_BOOT_AUTHORITY_EVIDENCE " + json.dumps(row) for row in values)
 
 
 class AdviceEvidenceTests(unittest.TestCase):
@@ -204,3 +240,58 @@ class AdviceEvidenceTests(unittest.TestCase):
         for case in (WIRE, TLS, "rustfs_unknown"):
             with self.subTest(case=case), self.assertRaises(ValueError):
                 advice_observations("", case)
+
+
+class BootEvidenceTests(unittest.TestCase):
+    def test_complete_boot_cut_and_observed_socket_outcomes(self):
+        values = boot_rows()
+        self.assertEqual(advice_observations(boot_output(values), BOOT), (values, 6))
+        values[0]["old_tail_result"] = "tail_refused: ConnectionReset"
+        self.assertEqual(advice_observations(boot_output(values), BOOT), (values, 6))
+        import cell_groups
+        self.assertEqual(cell_groups.SUITES["routing-boot"][1], (BOOT,))
+        self.assertEqual(cell_groups.routing_observations(boot_output(values), BOOT), (values, 6))
+
+    def test_missing_or_duplicate_boot_profile_refuses(self):
+        values = boot_rows()
+        for candidate in (values[:-1], values[:-1] + [values[0]]):
+            with self.assertRaises(ValueError):
+                advice_observations(boot_output(candidate), BOOT)
+
+    def test_unchanged_boot_or_wrong_owner_refuses(self):
+        for field, value in (("epoch",1),("process","33"*16),("boot","22"*16),
+                             ("join_key_sha256","44"*32),("engine","aa"*16),("epoch",True)):
+            values=boot_rows(); values[0]["current_boot"][field]=value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                advice_observations(boot_output(values), BOOT)
+
+    def test_missing_wire_cut_deadline_or_refusal_evidence_refuses(self):
+        for field,value in (("old_tail_result",None),("held_prefix_bytes",0),("elapsed_ms",5000),
+                            ("trust_revision",0),("wire_requests",[]),("proven_rejections_after_refusal",3),
+                            ("failure",{"ambiguous":False,"failure":"unavailable"})):
+            values=boot_rows(); values[0][field]=value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                advice_observations(boot_output(values), BOOT)
+
+    def test_recovery_and_replay_each_use_current_cache(self):
+        for phase in ("recovery","replay"):
+            for index in (0,1,2,3,4):
+                values=boot_rows(); values[0]["routing_after_"+phase][index]+=1
+                with self.subTest(phase=phase,index=index), self.assertRaises(ValueError):
+                    advice_observations(boot_output(values),BOOT)
+
+    def test_new_process_cannot_masquerade_as_held_old_reply(self):
+        values=boot_rows()
+        values[0]["wire_requests"][0]["response_header"]["route"]["source"]["process"]=[25]*16
+        with self.assertRaises(ValueError):
+            advice_observations(boot_output(values),BOOT)
+
+    def test_old_reply_has_no_unrelated_status_fault(self):
+        values = boot_rows()
+        frame = values[0]["wire_requests"][0]
+        body = bytearray.fromhex(frame["response"])
+        body[-1] ^= 1
+        frame["response"] = body.hex()
+        frame["response_header"]["digest"] = list(hashlib.sha256(body).digest())
+        with self.assertRaises(ValueError):
+            advice_observations(boot_output(values), BOOT)
