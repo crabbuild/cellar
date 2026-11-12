@@ -177,6 +177,10 @@ pub(crate) async fn s3_late_receipt_uses_completed_verification(
         Ok::<_, anyhow::Error>(())
     }
     .await;
+    let denied_reads = h.remote.denied_chunk_reads.load(Ordering::Acquire);
+    let work = work.with_context(|| {
+        format!("completed verification handoff: extents={rooted}, denied chunk reads={denied_reads}")
+    });
     h.remote.deny_chunk_reads.store(false, Ordering::Release);
     drop(release);
     let closed = h.close().await;
