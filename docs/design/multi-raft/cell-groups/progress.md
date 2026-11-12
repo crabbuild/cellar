@@ -12727,3 +12727,57 @@ and pass the unchanged full matrix. No stable S3 latency, density, concurrent
 writer, independent-domain, lifecycle or release claim follows from these small
 functional runs. All failures, original catalogs, ledgers, logs and voter/store
 disks remain retained; no original result was rewritten as passed.
+
+## CG-17 read cursors across dependent SDK calls
+
+Runtime source `56fab3e2` fixes the reproduced writer-admission cycle when an
+ordinary RPC awaits a same-cell SDK command with a live SQL read VM. Qualification
+source `053b6be6` adds the leader-fence and physical image release oracles; its
+production Rust is unchanged. The test-only control on `447c35e7` fails after
+31.309 seconds with the original child identity and deadline. Its patch, executable
+and failure remain retained, explicitly outside task acceptance.
+
+The parked frame now retains the complete read image owner: SQLite, capture VFS,
+file lock and workspace reservation. Fresh callbacks use another bounded image
+slot, current authority and the original unfinished receipt. The old VM reads its
+source image; fresh Storage operations observe the latest committed image. Old
+VMs are detached from the statement cache before parking so they cannot be reused
+on the new connection. Cancellation/completion/fencing finalize VMs before closing
+their image. There is no idle SQLite owner in the native activation cache.
+There are at most 64 physical image slots per cell and one admitted writer.
+Every extent slot retains its full image/WAL/capture reservation; materialized
+slots use a bounded set of independently locked scratch directories.
+
+Five exact native selections pass at `053b6be6`:
+
+- `ordinary_cell_sdk_dispatch_requires_source_proof` (136.972 seconds).
+- `native_storage_transactions_cursors_and_proofs_use_production_turns` (0.156 seconds).
+- `storage_reads_and_writes_exact_cell_versions` (37.845 seconds).
+- `ordinary_json_rpc_uses_raft_owned_context` (72.273 seconds).
+- `ordinary_cell_activation_cache_is_bounded_and_fenced` (209.159 seconds).
+
+The SDK case covers both image modes and Quorum/S3 minima. It keeps a 257-row VM
+live through the child commit, checks old versus fresh image reads and identical
+SQL on the new connection, then requires extent workspaces to return to zero.
+Its leader-fence phase observes released writer admission while the read image
+remains retained, preserves the escaped child's ambiguity/identity, and checks
+physical image release after fencing. Original request/retry budgets, durability
+proofs, refusals and existing node/workspace/cursor ceilings are unchanged.
+
+The exact real RustFS SDK case also passes (119.283 seconds), covering the same
+four combinations with primitive executable SHA-256
+`1ae3d6ab0455b2d2e0890cad8f614eb0f657366c773ddbc9e5b15d00e15a7e0a`.
+Voters are native RF3 TLS fixtures. RustFS uses one CPU/2 GiB in the owned source
+VM. Its server exits zero without OOM; the source VM is stopped and target/default
+profiles are unchanged. This is not constrained-voter or load qualification.
+
+Locked builds, focused strict Clippy, repository formatting/layout, native
+dependency and documentation checks pass. Artifacts, source inputs, failed
+controls and owned shutdown proof are retained under
+`.cellar/cell-groups-evidence/CG-17-cursor-053b6be6-01`.
+
+This closes the deterministic live-VM recursive dispatch gap. It does not prove
+the cause of earlier intermittent RPC/SDK deadline misses or accept the complete
+six-case RustFS campaign. Those failures remain release gates. Full Storage,
+named bindings, due work and the remaining primitive adapters still require
+CG-17's independent matrix; task acceptance remains 13/17 tasks and 147/195 cases.

@@ -15,9 +15,9 @@ impl Suspended {
             self.executor = Some(executor);
             return Err(error);
         }
-        // Drop the SQLite connection, private workspace, file lock and old
-        // image authority before another request can acquire this cell.
-        executor.close()?;
+        // A read VM retains its source image and physical reservation, but no
+        // writer admission. New callbacks open a separate bounded image slot.
+        self.turn.retain_parked_image(executor)?;
         let activation = self.activation.as_mut().ok_or_else(unavailable)?;
         activation.fence = fence;
         cache.put(self.cell.clone(), activation.clone(), now)?;

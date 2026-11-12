@@ -512,9 +512,20 @@ statement before the connection or committed-image owner is released.
 A cursor created through constructor-cached Storage binds the current invocation;
 the cached Storage itself may be reused, but its SQL/KV cursor may not enter a
 later invocation. Cursors retain ordinary savepoint behavior within the live
-invocation. A live SQL VM retains its connection and prevents connection-free
-parking; other cells can continue using the shared SQL worker. Idle caches are
-cleared before a frame parks and may resume against a different working image.
+invocation. Between proven roots, a live read VM may retain its source connection,
+capture VFS, file lock and physical workspace reservation while releasing writer
+admission. A same-cell child uses another image slot; the parent continuation
+rechecks its original receipt and opens the latest committed image under current
+authority. Its existing VM continues reading its source image; fresh Storage
+operations use the new command image. Neither can read a child's private writes.
+There are at most 64 physical image slots per cell. Extent slots independently
+reserve their full image/WAL/capture bounds in the node inventory; exhaustion
+refuses admission. Materialized slots use a fixed bounded set of sibling
+directories, cleaned under their own locks before reuse, including after crashes.
+Idle caches are cleared before parking and retained VMs are detached from the
+cache so their statements cannot enter a different connection's cache. The worker
+closes retained images after their last VM is consumed/cancelled, or at invocation
+completion/abort. No image is retained in the idle native activation cache.
 Dropped tokens outside a turn only signal cancellation; the owning worker prunes
 them before its next poll/checkpoint. They cannot append unbounded cleanup work
 to an idle activation or finalize another invocation's VM.

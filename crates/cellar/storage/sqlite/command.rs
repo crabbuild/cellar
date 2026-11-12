@@ -169,7 +169,7 @@ impl ActiveCommand {
             Ok::<_, anyhow::Error>(Installed)
         })?;
         let _cursors = self.frame.cursors.install();
-        self.frame.cursors.prune();
+        self.frame.cursors.prune()?;
         drop(self.frame.connection()?);
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let result = callback(&CommandTransaction {
@@ -214,9 +214,7 @@ impl ActiveCommand {
     }
 
     pub(crate) fn can_park(&self) -> Result<bool> {
-        if !self.frame.cursors.can_park() {
-            return Ok(false);
-        }
+        self.frame.cursors.publishable()?;
         let work = self.frame.work.borrow();
         // Only a host-owned SDK task that has already proven its source root
         // can wait without SQLite. Transaction/sync tasks keep their writer.
@@ -263,7 +261,16 @@ impl ActiveCommand {
             self.frame.connection.borrow().is_none(),
             "parked RPC retains SQLite"
         );
+        self.frame.cursors.clear()?;
         Ok(())
+    }
+
+    pub(crate) fn retain_cursor_image(
+        &self,
+        database: *mut ffi::sqlite3,
+        close: Box<dyn FnOnce() -> Result<()>>,
+    ) -> Result<()> {
+        self.frame.cursors.retain_image(database, close)
     }
 
     pub(crate) fn take_checkpoint(
@@ -668,7 +675,7 @@ impl CommandDatabase {
         );
         // Idle cached statements also refer to this connection. A resumed RPC
         // may use a different working image, so none can cross a park.
-        active.frame.cursors.clear();
+        active.frame.cursors.park();
         {
             let connection = active.frame.connection()?;
             super::as_storage_transaction(|| connection.execute_batch("ROLLBACK"))?;
@@ -681,7 +688,7 @@ impl CommandDatabase {
     pub(crate) fn settle<T>(&mut self, active: ActiveCommand, result: Result<T>) -> Result<T> {
         let result = result.and_then(|value| {
             active.frame.cursors.publishable()?;
-            active.frame.cursors.clear();
+            active.frame.cursors.clear()?;
             let connection = active.frame.connection()?;
             super::as_storage_transaction(|| connection.execute_batch("COMMIT"))?;
             Ok(value)
@@ -699,7 +706,7 @@ impl CommandDatabase {
         let frame = Rc::try_unwrap(active.frame)
             .ok()
             .context("private SQLite is still installed")?;
-        frame.cursors.clear();
+        frame.cursors.clear()?;
         match (self.connection.is_some(), frame.connection.into_inner()) {
             (false, Some(connection)) => self.connection = Some(connection),
             (true, None) => (),

@@ -28,6 +28,27 @@ pub(crate) struct CellRpcTurn {
 }
 
 impl CellRpcTurn {
+    pub(crate) fn retain_parked_image(
+        &self,
+        executor: CellPrivateExecutor,
+    ) -> Result<(), ExecutionError> {
+        let connection = executor
+            .working
+            .as_ref()
+            .ok_or(ExecutionError::RebuildRequired)?
+            .database()
+            .framework();
+        // SAFETY: the whole executor moves into the cursor arena below. Its
+        // SQLite, capture VFS and admitted workspace outlive every retained VM.
+        let database = unsafe { connection.handle() };
+        self.transaction
+            .retain_cursor_image(
+                database,
+                Box::new(move || executor.close().map_err(anyhow::Error::from)),
+            )
+            .map_err(private_failure)
+    }
+
     pub(crate) fn can_park(&self) -> Result<bool, ExecutionError> {
         Ok(self.step != 0
             && self.output.as_ref().is_none_or(Result::is_ok)

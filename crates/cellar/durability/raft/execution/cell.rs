@@ -84,6 +84,13 @@ pub struct CellPrivateExecutor {
 }
 
 impl CellPrivateExecutor {
+    pub(crate) fn open_cursor_image(
+        options: PrivateOptions,
+        authority: CellExecutionAuthority,
+    ) -> Result<Self, ExecutionError> {
+        Self::open_image_kind(options.into(), authority, true)
+    }
+
     pub fn open(
         options: PrivateOptions,
         authority: CellExecutionAuthority,
@@ -102,6 +109,14 @@ impl CellPrivateExecutor {
         options: Options,
         authority: CellExecutionAuthority,
     ) -> Result<Self, ExecutionError> {
+        Self::open_image_kind(options, authority, false)
+    }
+
+    fn open_image_kind(
+        mut options: Options,
+        authority: CellExecutionAuthority,
+        cursor_images: bool,
+    ) -> Result<Self, ExecutionError> {
         options.limits.validate()?;
         options.images.validate_workspace(options.limits)?;
         authority.check().map_err(authority_failure)?;
@@ -109,11 +124,29 @@ impl CellPrivateExecutor {
             return Err(ExecutionError::Invalid("cell execution schema"));
         }
         let filesystem = options.host.filesystem();
-        options.prepare_directory()?;
+        let directory = options.directory.clone();
+        let mut acquired = None;
+        for slot in 0..if cursor_images { MAX_CURSOR_IMAGES } else { 1 } {
+            if slot != 0 {
+                let mut name = directory
+                    .file_name()
+                    .ok_or(ExecutionError::Invalid("private directory name"))?
+                    .to_os_string();
+                name.push(format!(".cursor-{slot}"));
+                options.directory = directory.with_file_name(name);
+            }
+            options.prepare_directory()?;
+            match filesystem.lock_file(&options.directory.join("working.lock")) {
+                Ok(lock) => {
+                    acquired = Some(lock);
+                    break;
+                }
+                Err(error) if cursor_images && error.kind() == std::io::ErrorKind::WouldBlock => (),
+                Err(error) => return Err(storage(error)),
+            }
+        }
         let lock = PrivateLock {
-            _lock: filesystem
-                .lock_file(&options.directory.join("working.lock"))
-                .map_err(storage)?,
+            _lock: acquired.ok_or(ExecutionError::Refused(CommandFailure::Overloaded))?,
             _workspace: options.images.workspace().cloned(),
         };
         let working = match WorkingImage::open_cell(
