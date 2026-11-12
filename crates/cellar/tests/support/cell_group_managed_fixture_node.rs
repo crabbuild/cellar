@@ -26,6 +26,7 @@ pub struct Fixture {
     pub store: Arc<fault::Store>,
     pub catalog: FleetCatalog,
     pub declaration: RaftNamespaceRegistration,
+    pub additional_namespaces: Vec<RaftNamespaceRegistration>,
     pub application: Arc<dyn Application>,
     /// One deployed application declaration, independent of each voter label.
     pub configuration: Option<cellar::engine_api::WorkerConfigOptions>,
@@ -86,11 +87,19 @@ impl Fixture {
         application: Arc<dyn Application>,
         store: Arc<fault::Store>,
     ) -> Result<Self> {
-        let class = application.resolve_raft_class(name)?;
+        Box::pin(Self::with_namespaces(rooted, &[name], application, store)).await
+    }
+
+    pub async fn with_namespaces(
+        rooted: bool,
+        names: &[&str],
+        application: Arc<dyn Application>,
+        store: Arc<fault::Store>,
+    ) -> Result<Self> {
+        ensure!(!names.is_empty());
         let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
         let catalog = Self::open_catalog(&domain, store.clone(), ClusterId::new([1; 16])?)?;
         catalog.initialize(TIMEOUT).await?;
-        let namespace = NamespaceId::new([2; 16])?;
         let namespace_catalog = Catalog::new(
             store.clone(),
             CatalogOptions {
@@ -98,48 +107,55 @@ impl Fixture {
                 ..Default::default()
             },
         )?;
-        let cut = catalog.read(TIMEOUT).await?;
-        let identity = request(1, cut.revision());
-        let directory_limits = DirectoryLimits::default();
-        let declaration = if rooted {
+        let mut declarations = Vec::new();
+        for (index, name) in names.iter().enumerate() {
+            let class = application.resolve_raft_class(name)?;
+            let namespace = NamespaceId::new(
+                [if index == 0 {
+                    2
+                } else {
+                    180 + u8::try_from(index)?
+                }; 16],
+            )?;
+            let cut = catalog.read(TIMEOUT).await?;
+            let identity = request(
+                if index == 0 {
+                    1
+                } else {
+                    200 + u8::try_from(index)?
+                },
+                cut.revision(),
+            );
             let mut config = NamespaceConfig::new(
                 ClusterId::new([1; 16])?,
                 namespace,
                 NamespaceMode::Raft,
                 class.schema_digest(),
             );
-            config.image_storage = RaftImageStorage::Extents;
-            catalog
-                .provision_managed_namespace(
-                    &identity,
-                    &namespace_catalog,
-                    config,
-                    &class,
-                    directory_limits,
-                    TIMEOUT,
-                )
-                .await?
-        } else {
-            catalog
-                .provision_managed_sql_namespace(
-                    &identity,
-                    &namespace_catalog,
-                    namespace,
-                    &class,
-                    directory_limits,
-                    TIMEOUT,
-                )
-                .await?
-        };
+            if rooted {
+                config.image_storage = RaftImageStorage::Extents;
+            }
+            declarations.push(
+                catalog
+                    .provision_managed_namespace(
+                        &identity,
+                        &namespace_catalog,
+                        config,
+                        &class,
+                        DirectoryLimits::default(),
+                        TIMEOUT,
+                    )
+                    .await?,
+            );
+        }
+        let declaration = declarations[0].clone();
         let spec = FleetNodeSpec {
             node: NodeId::new([4; 16])?,
             disk: DiskLineage::new([14; 16])?,
             physical_host: IncarnationId::new([90; 16])?,
             label: "shared-managed".into(),
             server_name: "localhost".into(),
-            capability_digest: RaftManagedHostOptions::capability_digest(std::slice::from_ref(
-                &declaration,
-            ))?,
+            capability_digest: RaftManagedHostOptions::capability_digest(&declarations)?,
             storage_instance: None,
         };
         let cut = catalog.read(TIMEOUT).await?;
@@ -151,6 +167,7 @@ impl Fixture {
             store,
             catalog,
             declaration,
+            additional_namespaces: declarations.into_iter().skip(1).collect(),
             application,
             configuration: None,
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
@@ -264,7 +281,9 @@ impl Fixture {
         host.node_directory = Some(RaftNodeDirectoryOptions::default());
         host.managed = Some(RaftManagedHostOptions {
             authorization,
-            namespaces: vec![self.declaration.clone()],
+            namespaces: std::iter::once(self.declaration.clone())
+                .chain(self.additional_namespaces.iter().cloned())
+                .collect(),
         });
         if self.declaration.namespace.image_storage == RaftImageStorage::Extents {
             host.extents = Some(Default::default());
@@ -278,6 +297,7 @@ impl Fixture {
         );
         log.max_groups = 2;
         let mut shared = limits();
+        shared.namespaces.max_namespaces = 1 + self.additional_namespaces.len();
         shared.sql.workers = self.sql_workers;
         shared.dispatch.max_input_bytes = self.max_input_bytes;
         Ok((
@@ -294,11 +314,14 @@ impl Fixture {
                     prefix: "managed/".into(),
                     ..Default::default()
                 },
-                namespaces: vec![RaftNamespaceConfig {
-                    namespace: self.declaration.namespace.clone(),
-                    class: "Counter".into(),
-                    initialize: None,
-                }],
+                namespaces: std::iter::once(&self.declaration)
+                    .chain(self.additional_namespaces.iter())
+                    .map(|declaration| RaftNamespaceConfig {
+                        namespace: declaration.namespace.clone(),
+                        class: declaration.class.clone(),
+                        initialize: None,
+                    })
+                    .collect(),
                 groups: vec![],
                 peers: vec![peer],
                 query_origins: vec![],

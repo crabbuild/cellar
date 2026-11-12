@@ -20,6 +20,7 @@ pub(crate) struct NativeCellConfiguration {
     pub(crate) compat: Compat,
     pub(crate) do_classes: Vec<String>,
     pub(crate) bindings: Vec<(String, String)>,
+    pub(crate) sql_bindings: Vec<(String, String)>,
 }
 
 impl NativeCellConfiguration {
@@ -30,7 +31,7 @@ impl NativeCellConfiguration {
             do_classes: self.do_classes.clone(),
             bindings: self.bindings.clone(),
             blob_bindings: Vec::new(),
-            sql_bindings: Vec::new(),
+            sql_bindings: self.sql_bindings.clone(),
             kv_bindings: Vec::new(),
             queue_bindings: Vec::new(),
             stream_bindings: Vec::new(),
@@ -51,6 +52,7 @@ pub(in crate::application) struct AdmittedCellConfiguration {
     pub(in crate::application) compat: Compat,
     pub(in crate::application) classes: Arc<BTreeSet<String>>,
     pub(in crate::application) bindings: Arc<BTreeMap<String, String>>,
+    pub(in crate::application) sql_bindings: Arc<BTreeMap<String, String>>,
 }
 
 impl AdmittedCellConfiguration {
@@ -61,7 +63,6 @@ impl AdmittedCellConfiguration {
         // adapter must first acquire shared execution and settlement authority.
         if !options.src.is_empty()
             || !options.modules.is_empty()
-            || !options.sql_bindings.is_empty()
             || !options.kv_bindings.is_empty()
             || !options.blob_bindings.is_empty()
             || !options.queue_bindings.is_empty()
@@ -106,7 +107,10 @@ impl AdmittedCellConfiguration {
         if bytes > 64 * 1024 {
             return Err(RegistrationError::Limit);
         }
-        if options.do_classes.len() > 256 || options.bindings.len() > 256 {
+        if options.do_classes.len() > 256
+            || options.bindings.len() > 256
+            || options.sql_bindings.len() > 256
+        {
             return Err(RegistrationError::Limit);
         }
         let mut classes = BTreeSet::new();
@@ -133,6 +137,28 @@ impl AdmittedCellConfiguration {
                 return Err(RegistrationError::Invalid("duplicate Raft cell binding"));
             }
         }
+        let mut sql_bindings = BTreeMap::new();
+        for (name, identity) in &options.sql_bindings {
+            if name.is_empty()
+                || name.len() > 256
+                || name.chars().any(char::is_control)
+                || identity.is_empty()
+                || identity.len() > 1024
+                || identity.chars().any(char::is_control)
+            {
+                return Err(RegistrationError::Invalid("Raft SQL binding"));
+            }
+            bytes = bytes
+                .checked_add(name.len())
+                .and_then(|n| n.checked_add(identity.len()))
+                .ok_or(RegistrationError::Limit)?;
+            if sql_bindings
+                .insert(name.clone(), identity.clone())
+                .is_some()
+            {
+                return Err(RegistrationError::Invalid("duplicate Raft SQL binding"));
+            }
+        }
         if bytes > 64 * 1024 {
             return Err(RegistrationError::Limit);
         }
@@ -142,6 +168,7 @@ impl AdmittedCellConfiguration {
             compat: options.compat,
             classes: Arc::new(classes),
             bindings: Arc::new(bindings),
+            sql_bindings: Arc::new(sql_bindings),
         })
     }
 
@@ -161,11 +188,17 @@ impl AdmittedCellConfiguration {
                     .expect("serializable cell bindings"),
             );
         }
+        if !self.sql_bindings.is_empty() {
+            hash.update(b"sql-bindings-1");
+            hash.update(
+                serde_json::to_vec(self.sql_bindings.as_ref()).expect("serializable SQL bindings"),
+            );
+        }
         hash.finalize().into()
     }
 
     pub(in crate::application) fn has_cell_bindings(&self) -> bool {
-        !self.classes.is_empty() || !self.bindings.is_empty()
+        !self.classes.is_empty() || !self.bindings.is_empty() || !self.sql_bindings.is_empty()
     }
 
     pub(in crate::application) fn options(&self) -> WorkerConfigOptions {
@@ -181,6 +214,11 @@ impl AdmittedCellConfiguration {
                 .bindings
                 .iter()
                 .map(|(name, class)| (name.clone(), class.clone()))
+                .collect(),
+            sql_bindings: self
+                .sql_bindings
+                .iter()
+                .map(|(name, identity)| (name.clone(), identity.clone()))
                 .collect(),
         }
         .options(&self.script)

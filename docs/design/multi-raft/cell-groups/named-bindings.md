@@ -24,6 +24,48 @@ A cross-class target must have exactly one matching namespace; missing and
 ambiguous targets refuse startup. The current class uses its source namespace.
 Binding dispatch has no Fleet or weaker-durability fallback.
 
+## SQL database bindings
+
+Shared native applications may declare `sql_bindings`, obtain a database with
+`Context::sql`, and use the ordinary prepared statement, batch, exec, session and
+migration APIs. Provision and load a separate `__SQLDatabase` namespace alongside
+the source namespaces, using the existing managed namespace provisioning API or
+`--provision-sql-namespace`. Include the source deployment's configuration in the
+provisioning plan, for example:
+
+```json
+{
+  "do_classes": ["Orders", "__SQLDatabase"],
+  "sql_bindings": [["DB", "shared/orders"]]
+}
+```
+
+The runtime supplies the reserved class factory and operation contracts; an
+application cannot register its own replacement. The service's canonical schema
+is independent of caller script, variables and binding aliases. Database names
+retain the existing global SQL identity, so two applications declaring the same
+database reach the same cell. A source may call only its declared SQL identities;
+exporting the reserved class does not grant access to arbitrary databases. The
+host refuses missing or ambiguous SQL namespaces before ingress.
+
+SQL requests use the ordinary durable binding protocol below, including the
+target namespace's independent minimum durability, original caller deadline,
+interrupted-call recovery and private sequence retirement. Queries use durable
+commands too; a SQL binding query does not use the stale-query default. Sessions
+retain the existing primary bookmark behavior.
+
+The service runs each request in an owned savepoint inside its Raft command.
+Batch, exec and migration failures roll back their partial changes before the
+SQL error response is encoded. User SQL retains the command authorizer; only
+fixed migration bookkeeping receives framework authority. No service request may
+commit the framework's outer command transaction. Existing SQL limits and the
+unsupported `Database::dump` behavior remain unchanged. KV binding admission
+still refuses until its expiry, alarm and payload adapters are delivered.
+
+This implementation checkpoint does not accept the full SQL/KV primitive family.
+See [remaining work](remaining-work.md#primitive-delivery-priority) for the public
+recovery and release gates, including the independent S3-source deadline blocker.
+
 ## Source intent and target proof
 
 Each call records its source intent before proving the source transaction. It

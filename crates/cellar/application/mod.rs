@@ -461,6 +461,9 @@ impl Application for Registry {
             )
         {
             if shared {
+                if class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty() {
+                    continue;
+                }
                 anyhow::ensure!(
                     self.raft_classes
                         .get(class)
@@ -489,14 +492,20 @@ impl Application for Registry {
                 }
             }
             let digest = config.digest();
-            let installed = self.raft_configuration.get_or_init(|| RaftConfiguration {
-                digest,
-                classes: self
-                    .raft_classes
-                    .iter()
-                    .map(|(name, class)| (name.clone(), Arc::new(class.configured_cell(&config))))
-                    .collect(),
-            });
+            let mut classes: HashMap<_, _> = self
+                .raft_classes
+                .iter()
+                .map(|(name, class)| (name.clone(), Arc::new(class.configured_cell(&config))))
+                .collect();
+            if !options.sql_bindings.is_empty() {
+                classes.insert(
+                    crate::deploy::SQL_CLASS.into(),
+                    Arc::new(consensus::sql_service()?),
+                );
+            }
+            let installed = self
+                .raft_configuration
+                .get_or_init(|| RaftConfiguration { digest, classes });
             anyhow::ensure!(
                 installed.digest == digest,
                 consensus::RegistrationError::ContractMismatch

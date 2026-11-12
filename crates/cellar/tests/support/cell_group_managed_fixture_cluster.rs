@@ -51,6 +51,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         store: Arc::new(fault::Store::around(f.store.clone())),
         catalog: f.catalog.clone(),
         declaration: f.declaration.clone(),
+        additional_namespaces: f.additional_namespaces.clone(),
         application: f.application.clone(),
         configuration: f.configuration.clone(),
         // A newly registered peer owns independent physical I/O.
@@ -119,6 +120,22 @@ pub async fn admit_capacity(
         evidence_digest: [71; 32],
         evidence_reference: "fixture-only/deployment-attestation".into(),
     };
+    let mut directories = vec![directory.clone()];
+    for declaration in &f.additional_namespaces {
+        let adapter = Catalog::new(
+            f.store.clone(),
+            CatalogOptions {
+                prefix: "managed/".into(),
+                ..Default::default()
+            },
+        )?;
+        directories.push(RangeDirectory::new(
+            adapter
+                .existing_namespace(declaration.namespace.clone())
+                .await?,
+            DirectoryLimits::default(),
+        )?);
+    }
     for (offset, action, state) in [
         (0, FleetCapacityAction::Qualify, FleetNodeState::Ready),
         (1, FleetCapacityAction::Activate, FleetNodeState::Active),
@@ -139,7 +156,7 @@ pub async fn admit_capacity(
                     action,
                 },
                 host,
-                std::slice::from_ref(directory),
+                &directories,
                 TIMEOUT,
             )
             .await?;
@@ -170,6 +187,14 @@ pub async fn leader(hosts: &[RaftCells], history: GroupHistory) -> Result<usize>
 }
 
 pub async fn close_group_nodes(nodes: Vec<Node>, hosts: &[RaftCells]) -> Result<()> {
+    close_group_nodes_with_groups(nodes, hosts, 1).await
+}
+
+pub async fn close_group_nodes_with_groups(
+    nodes: Vec<Node>,
+    hosts: &[RaftCells],
+    expected: usize,
+) -> Result<()> {
     for (node, host) in nodes.into_iter().zip(hosts) {
         ensure!(matches!(
             node.shutdown(ShutdownMode::Preserve).await?,
@@ -177,7 +202,7 @@ pub async fn close_group_nodes(nodes: Vec<Node>, hosts: &[RaftCells]) -> Result<
         ));
         let report = host.close().await?;
         ensure!(
-            report.groups_total == 1
+            report.groups_total == expected
                 && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers
         );
     }
@@ -364,6 +389,15 @@ impl ManagedCluster {
             .run(adapter.existing_namespace(f.declaration.namespace.clone()))
             .await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+        let mut inventory_directories = vec![directory.clone()];
+        for declaration in &f.additional_namespaces {
+            inventory_directories.push(RangeDirectory::new(
+                adapter
+                    .existing_namespace(declaration.namespace.clone())
+                    .await?,
+                DirectoryLimits::default(),
+            )?);
+        }
         let standby = f
             .catalog
             .observe_managed_standby(
@@ -483,7 +517,7 @@ impl ManagedCluster {
             let cut = f.catalog.read(TIMEOUT).await?;
             ensure!(
                 f.catalog
-                    .check_inventory(&cut, std::slice::from_ref(&directory), TIMEOUT)
+                    .check_inventory(&cut, &inventory_directories, TIMEOUT)
                     .await?
                     .histories()
                     == 1,
