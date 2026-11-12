@@ -68,6 +68,7 @@ enum Case {
     Overlap,
     OldLookup(Caller),
     Membership(Caller),
+    RemovedAdvice(Caller),
 }
 
 impl Case {
@@ -80,6 +81,9 @@ impl Case {
             Self::Membership(Caller::Sdk) => "routing-membership-sdk",
             Self::Membership(Caller::Native) => "routing-membership-native",
             Self::Membership(Caller::Axum) => "routing-membership-axum",
+            Self::RemovedAdvice(Caller::Sdk) => "routing-removed-advice-sdk",
+            Self::RemovedAdvice(Caller::Native) => "routing-removed-advice-native",
+            Self::RemovedAdvice(Caller::Axum) => "routing-removed-advice-axum",
         }
     }
 }
@@ -104,6 +108,24 @@ pub(super) async fn membership_refresh_keeps_range(
         run(Case::Membership(caller), make).await?;
     }
     Ok(())
+}
+
+pub(super) async fn removed_member_advice_cannot_grant_authority(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    for caller in [Caller::Sdk, Caller::Native, Caller::Axum] {
+        run(Case::RemovedAdvice(caller), make).await?;
+    }
+    Ok(())
+}
+
+pub(super) async fn replace_member_for_advice(
+    cluster: &ManagedCluster,
+    source: usize,
+    obsolete: usize,
+) -> Result<()> {
+    membership::replace(cluster, source, obsolete).await?;
+    membership::handoff(cluster, source, obsolete).await
 }
 
 async fn run(case: Case, make: Option<RoutingStoreFactory>) -> Result<()> {
@@ -149,7 +171,7 @@ async fn run(case: Case, make: Option<RoutingStoreFactory>) -> Result<()> {
             FirstGroupSetup::Operator,
         ))
         .await?;
-        let nodes: Vec<_> = std::mem::take(&mut cluster.nodes)
+        let mut nodes: Vec<_> = std::mem::take(&mut cluster.nodes)
             .into_iter()
             .map(Some)
             .collect();
@@ -215,6 +237,22 @@ async fn run(case: Case, make: Option<RoutingStoreFactory>) -> Result<()> {
                     ))
                     .await
                 }
+                Case::RemovedAdvice(caller) => {
+                    let caller = match caller {
+                        Caller::Sdk => super::advice::Caller::Sdk,
+                        Caller::Native => super::advice::Caller::Native,
+                        Caller::Axum => super::advice::Caller::Axum,
+                    };
+                    Box::pin(super::advice::removed_member(
+                        &cluster,
+                        web.as_ref().context("removed-member HTTP owners")?,
+                        &mut nodes,
+                        &callbacks,
+                        rooted,
+                        caller,
+                    ))
+                    .await
+                }
             }
         }
         .await;
@@ -231,7 +269,12 @@ async fn run(case: Case, make: Option<RoutingStoreFactory>) -> Result<()> {
             Some(web) => web.close().await,
             None => Ok(()),
         };
-        let joined = movement::close(nodes.into_iter().flatten().collect(), &cluster.hosts).await;
+        let remaining: Vec<_> = nodes
+            .iter()
+            .zip(&cluster.hosts)
+            .filter_map(|(node, host)| node.as_ref().map(|_| host.clone()))
+            .collect();
+        let joined = movement::close(nodes.into_iter().flatten().collect(), &remaining).await;
         for api in apis {
             *api.cells.lock().unwrap() = None;
         }

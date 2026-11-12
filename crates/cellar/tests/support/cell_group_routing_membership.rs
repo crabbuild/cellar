@@ -49,7 +49,11 @@ fn observations(host: &RaftCells) -> Result<[u64; 4]> {
     Ok(values)
 }
 
-async fn replace(cluster: &ManagedCluster, source: usize, obsolete: usize) -> Result<()> {
+pub(super) async fn replace(
+    cluster: &ManagedCluster,
+    source: usize,
+    obsolete: usize,
+) -> Result<()> {
     let (_, execution) = movement::admit_replacement(
         cluster,
         movement::ReplacementTarget {
@@ -146,7 +150,11 @@ async fn replace(cluster: &ManagedCluster, source: usize, obsolete: usize) -> Re
     Ok(())
 }
 
-async fn handoff(cluster: &ManagedCluster, source: usize, obsolete: usize) -> Result<()> {
+pub(super) async fn handoff(
+    cluster: &ManagedCluster,
+    source: usize,
+    obsolete: usize,
+) -> Result<()> {
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     tokio::time::timeout_at(deadline, async {
         loop {

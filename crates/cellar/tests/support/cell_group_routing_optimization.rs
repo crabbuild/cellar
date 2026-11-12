@@ -178,6 +178,12 @@ pub(super) async fn membership_refresh_keeps_range() -> Result<()> {
     Box::pin(ranges::membership_refresh_keeps_range(None)).await
 }
 
+pub(super) async fn removed_member_advice_cannot_grant_authority(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    ranges::removed_member_advice_cannot_grant_authority(make).await
+}
+
 pub(super) async fn split_repairs_only_overlap_with_store(make: RoutingStoreFactory) -> Result<()> {
     Box::pin(ranges::split_repairs_only_overlap(Some(make))).await
 }

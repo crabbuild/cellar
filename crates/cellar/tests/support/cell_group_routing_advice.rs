@@ -11,6 +11,9 @@ use tokio::task::{JoinHandle, JoinSet};
 #[path = "cell_group_routing_advice_boot.rs"]
 mod boot;
 
+#[path = "cell_group_routing_advice_removed.rs"]
+mod removed;
+
 #[path = "cell_group_routing_advice_tls.rs"]
 mod tls;
 
@@ -25,6 +28,7 @@ pub(super) enum Fault {
     ForeignGroup,
     ForeignIncarnation,
     NonMember,
+    RemovedMember,
     Configuration,
     LowerTerm,
     ConflictingTerm,
@@ -46,7 +50,7 @@ const FAULTS: [Fault; 10] = [
 ];
 
 #[derive(Clone, Copy, Debug)]
-enum Caller {
+pub(super) enum Caller {
     Sdk,
     Native,
     Axum,
@@ -268,13 +272,19 @@ struct Switch {
 
 async fn drain_connections(connections: &mut JoinSet<Result<()>>) -> Result<()> {
     connections.abort_all();
+    let mut failures = Vec::new();
     while let Some(result) = connections.join_next().await {
         match result {
-            Ok(result) => result?,
+            Ok(Ok(())) => (),
+            Ok(Err(error)) => failures.push(error),
             Err(error) if error.is_cancelled() => (),
-            Err(error) => return Err(error.into()),
+            Err(error) => failures.push(error.into()),
         }
     }
+    ensure!(
+        failures.is_empty(),
+        "joined wire connections failed: {failures:?}"
+    );
     Ok(())
 }
 
@@ -302,7 +312,8 @@ impl Server {
         let joined = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             let mut trusted = true;
-            loop {
+            let result = async {
+              loop {
                 cellar::asyncrt::select! {
                     _ = &mut stopping => break,
                     result = connections.join_next(), if !connections.is_empty() => { result.context("wire connection")???; }
@@ -321,9 +332,13 @@ impl Server {
                         connections.spawn(serve_connection(tcp, acceptor, state, !trusted));
                     }
                 }
+              }
+              Ok::<_, anyhow::Error>(())
             }
-            drain_connections(&mut connections).await?;
-            Ok(())
+            .await;
+            let drained = drain_connections(&mut connections).await;
+            result?;
+            drained
         });
         Ok(Self {
             state,
@@ -349,12 +364,17 @@ impl Server {
     }
 
     async fn close(mut self) -> Result<()> {
-        self.stop
+        let stopped = self
+            .stop
             .take()
-            .context("wire stop owner")?
-            .send(())
-            .map_err(|_| anyhow::anyhow!("wire server already stopped"))?;
-        self.joined.take().context("wire join owner")?.await?
+            .context("wire stop owner")
+            .and_then(|stop| {
+                stop.send(())
+                    .map_err(|_| anyhow::anyhow!("wire server already stopped"))
+            });
+        let joined = self.joined.take().context("wire join owner")?.await?;
+        joined?;
+        stopped
     }
 }
 
@@ -406,6 +426,17 @@ fn command_request(
     if matches!(caller, Caller::Sdk) {
         return Ok(None);
     }
+    command_request_for_web(cluster.web()?, caller, command)
+}
+
+fn command_request_for_web(
+    web: &http::Web,
+    caller: Caller,
+    command: &CommandOptions,
+) -> Result<Option<reqwest::RequestBuilder>> {
+    if matches!(caller, Caller::Sdk) {
+        return Ok(None);
+    }
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
@@ -414,9 +445,7 @@ fn command_request(
         client
             .post(format!(
                 "{}?delta=1",
-                cluster
-                    .web()?
-                    .url(INGRESS, matches!(caller, Caller::Axum), "one")
+                web.url(INGRESS, matches!(caller, Caller::Axum), "one")
             ))
             .bearer_auth(http::secret())
             .header(
@@ -503,6 +532,25 @@ fn counter(host: &RaftCells, name: &str) -> Result<u64> {
         .find(|c| c.name == name)
         .map(|c| c.value)
         .context("wire advice counter")
+}
+
+fn ingress_counters(ingress: &RaftCells) -> Result<[u64; 6]> {
+    let mut values = [0; 6];
+    for (index, name) in COUNTERS.iter().enumerate() {
+        values[index] = counter(ingress, name)?;
+    }
+    Ok(values)
+}
+
+pub(super) async fn removed_member(
+    cluster: &ManagedCluster,
+    web: &http::Web,
+    nodes: &mut [Option<Node>],
+    callbacks: &AtomicUsize,
+    rooted: bool,
+    caller: Caller,
+) -> Result<()> {
+    removed::exercise(cluster, web, nodes, callbacks, rooted, caller).await
 }
 
 async fn seed(cell: &RaftCellHandle, server: &Server, ordinal: usize) -> Result<()> {

@@ -61,6 +61,19 @@ CASES = (
 )
 
 SUITES = {
+    "routing-removed": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_removed_member_advice_cannot_grant_authority",),
+        "current authenticated advice cannot restore an actually removed voter",
+        "Six fresh SDK/nativeHTTP/Axum image configurations perform a real voter replacement using "
+        "the existing eight-turn admission, settlement and physical-retirement proof. Handoff, receipt "
+        "replay and a query on the new voter establish current client membership before a different "
+        "still-current issuer then sends authenticated advice naming the removed member under the "
+        "current configuration. One targeted membership repair preserves the range and the complete "
+        "pre-admission non-commit proof, with no SQL/callback entry. Restored permission replays the "
+        "same command once with exact S3 receipts. Original five-second windows, resource limits "
+        "and native host ownership remain. Constrained Linux and full RO-03/CG/OPT acceptance stay open.",
+    ),
     "routing-boot": (
         "native_cell_groups_routing_optimization",
         ("rustfs_superseded_boot_advice_cannot_change_route",),
@@ -611,7 +624,7 @@ SUITES = {
     ),
 }
 
-ROUTING_SUITES = ("routing-range-repairs", "routing-authority", "routing-endpoint", "routing-advice", "routing-boot")
+ROUTING_SUITES = ("routing-range-repairs", "routing-authority", "routing-endpoint", "routing-advice", "routing-boot", "routing-removed")
 
 
 def named_binding_observations(output, case):
@@ -672,7 +685,7 @@ def archive_fairness_observations(output, case):
 
 def routing_observations(output, case):
     """Require complete caller/mode output; native cases enforce receipt oracles."""
-    if case in SUITES["routing-advice"][1] + SUITES["routing-boot"][1]:
+    if case in SUITES["routing-advice"][1] + SUITES["routing-boot"][1] + SUITES["routing-removed"][1]:
         return advice_observations(output, case)
     if case in ("rustfs_read_first_refreshes_endpoint", "rustfs_unrelated_endpoint_keeps_inflight_reply"):
         return endpoint_observations(output, case)

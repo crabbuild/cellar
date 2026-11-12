@@ -75,6 +75,12 @@ pub async fn wire_advice_preserves_admission(make: Option<RoutingStoreFactory>) 
     optimization::wire_advice_preserves_admission(make).await
 }
 
+pub async fn removed_member_advice_cannot_grant_authority(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    optimization::removed_member_advice_cannot_grant_authority(make).await
+}
+
 pub async fn superseded_boot_advice_cannot_change_route(
     make: Option<RoutingStoreFactory>,
 ) -> Result<()> {
