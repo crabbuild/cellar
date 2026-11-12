@@ -261,8 +261,8 @@ pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>
         .lock()
         .map_err(|_| anyhow::anyhow!("held reply poisoned"))?
         .clone();
-    cellar::note!(
-        "WIRE_BOOT_AUTHORITY_EVIDENCE {}",
+    let mut evidence = serde_json::Map::new();
+    for chunk in [
         json!({
             "schema": 1, "case": "superseded_boot_advice_cannot_change_route", "ingress": format!("{:?}", drill.caller),
             "extents": drill.rooted, "old_issuer": peer_record(&old), "current_issuer": peer_record(&current),
@@ -273,7 +273,10 @@ pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>
             "retry_until_ms": command.retry_until_ms,
             "held_prefix_bytes": held.prefix_bytes.load(Ordering::Acquire), "old_tail_result": tail,
             "wire_requests": old_wire, "failure": failure, "recovered": recovered,
-            "routing_before": before, "routing_after_refusal": after, "routing_before_recovery": before_recovery, "routing_after_recovery": after_recovery,
+        }),
+        json!({
+            "routing_before": before, "routing_after_refusal": after,
+            "routing_before_recovery": before_recovery, "routing_after_recovery": after_recovery,
             "routing_before_replay": replay_before, "routing_after_replay": replay_after,
             "callbacks_before": callbacks, "callbacks_after_refusal": callbacks_refused,
             "callbacks_after_replay": drill.callbacks.load(Ordering::Acquire),
@@ -281,13 +284,24 @@ pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>
             "sql_stages_before": sql, "sql_stages_after_refusal": sql_refused,
             "proven_rejections_before": rejected, "proven_rejections_after_refusal": rejected_after,
             "required_durability": "S3", "achieved_durability": format!("{:?}", receipt.durability),
+        }),
+        json!({
             "fault": "Control", "seed_term": drill.term.get() + 100, "seed_member": drill.issuer as u64 + 1,
             "configuration_digest": hex::encode(drill.configuration), "term": observation.status.term.get(),
             "membership_revision": observation.membership_revision.get(),
-            "durability": format!("{:?}", receipt.durability), "result_be": hex::encode(receipt.result),
+            "durability": format!("{:?}", receipt.durability), "result_be": hex::encode(&receipt.result),
             "version": format!("{:?}", receipt.version), "witness": format!("{:?}", receipt.witness),
             "token": receipt.version_token.as_str(), "warm_replay_one_rpc": true,
-        })
+        }),
+    ] {
+        let serde_json::Value::Object(fields) = chunk else {
+            anyhow::bail!("fixed boot evidence object");
+        };
+        evidence.extend(fields);
+    }
+    cellar::note!(
+        "WIRE_BOOT_AUTHORITY_EVIDENCE {}",
+        serde_json::Value::Object(evidence)
     );
     Ok(())
 }
