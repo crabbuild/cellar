@@ -2337,3 +2337,43 @@ records. Occupancy 128, remaining CI failures, authority and physical-owner cuts
 release-scale placement/fairness, full primitive/provider coverage and the final
 single-source release matrix remain open. No complete CG-13, CG-17 or OPT package
 is accepted by this checkpoint.
+
+## Single archive-intent owner and connected binding recovery integration
+
+Correction `f40c5d39`, input digest `ca0d4e85`, passes strict all-target Clippy
+for `cellar` and `cellar-logic`, all 44 design tests, 113 tool tests (one optional
+skip), formatting, layout, dependency, docs and patch checks. All 23 ordinary
+controller tests, 32 archive-protocol tests and five selected execution tests
+pass on three retained Rust 1.98.1/profile-1 executables. The intent helper is
+loaded once by the shared runtime fixture and reused by its controller and root
+protocol callers; its durable file/write/readback behavior is unchanged. The
+first successor failed an ordinary unresolved parent import, retained under
+`archive-helper-single-owner`. The corrected source and passing run are retained
+under `archive-helper-single-owner-import`. These passes resolve the helper and
+reviewed-anchor checks; they do not resolve the earlier occupancy-128 failure.
+
+Merge `521fb92c` integrates upstream `b0356fea`, including the connected
+source-claim, authenticated target-retirement and source-lane settlement owner.
+The routing integration preserves the existing typed selection errors: terminal
+refusals stop selection, stale physical placement refreshes only the selected
+route within the original session, and bounded retries retain the exact target
+history and request. The receiver keeps its existing boxed future boundary while
+adding the private authenticated retirement purpose. No compiler limit, request
+window or resource ceiling is enlarged.
+
+The standard runner now has a `named-bindings` suite for the ordinary and
+interrupted/restarted binding cases. Each case must emit four distinct completed
+image/source-durability profiles with its own recovery flag. The runner retains
+hashed ledgers and refuses missing, duplicated, foreign, legacy or failed profile
+output. Process-isolated keep-going can collect the other case while retaining
+the campaign failure. This covers a Quorum target minimum, rather than the whole
+HTTP/RPC family or target-S3, cross-class, concurrent-creation and disaster gates.
+
+The reviewed successor baseline pins the merge and updates only the host anchor
+and its scheduler comment. Binding classes require bounded shared recovery even
+without optional user alarm/outbox scheduling; startup validates the existing
+bounds. Source metadata discovery excludes stored business arguments. The new
+class-schema seed and committed call due time require fresh matching namespaces
+and binaries; markers remain 1 and no legacy reader is introduced. This records
+source review and integration. Runtime qualification of this combined recovery
+source is still pending, and all complete CG/OPT acceptance remains open.
