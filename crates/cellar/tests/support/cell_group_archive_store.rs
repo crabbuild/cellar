@@ -32,6 +32,8 @@ pub struct Store {
     publication: Mutex<Option<Arc<Gate>>>,
     pub publication_cuts: Mutex<Vec<u64>>,
     pub deny_generation_writes: AtomicBool,
+    pub deny_chunk_reads: AtomicBool,
+    pub denied_chunk_reads: AtomicUsize,
     pub outage: AtomicBool,
     pub lose_publication_and_reads: AtomicBool,
 }
@@ -57,6 +59,8 @@ impl Store {
             publication: Mutex::new(None),
             publication_cuts: Mutex::new(Vec::new()),
             deny_generation_writes: AtomicBool::new(false),
+            deny_chunk_reads: AtomicBool::new(false),
+            denied_chunk_reads: AtomicUsize::new(0),
             outage: AtomicBool::new(false),
             lose_publication_and_reads: AtomicBool::new(false),
         })
@@ -219,6 +223,13 @@ impl ObjectStore for Store {
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> Result<GetResult> {
         self.gets.fetch_add(1, Ordering::AcqRel);
         self.available()?;
+        if path.as_ref().contains("/chunks/") && self.deny_chunk_reads.load(Ordering::Acquire) {
+            self.denied_chunk_reads.fetch_add(1, Ordering::AcqRel);
+            return Err(Error::Generic {
+                store: "archive chunk reads denied",
+                source: "injected after independent verification".into(),
+            });
+        }
         let gate = self
             .held
             .lock()

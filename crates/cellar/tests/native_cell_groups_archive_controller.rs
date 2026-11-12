@@ -475,6 +475,35 @@ async fn s3_receipt_lookup_tracks_archived_observations() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn late_s3_receipt_reuses_completed_background_verification() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_late_receipt_uses_completed_verification(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_late_s3_receipt_reuses_completed_background_verification() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_late_receipt_uses_completed_verification(
+                rooted,
+                rustfs::store("late-receipt-verification", rooted)?,
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
 async fn rustfs_s3_receipt_lookup_tracks_archived_observations() -> Result<()> {
     for rooted in [false, true] {
