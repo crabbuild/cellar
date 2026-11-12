@@ -34,7 +34,30 @@ impl RaftCells {
         cluster: ClusterId,
         namespace: NamespaceId,
         cell: CellId,
+        options: QueryOptions,
+    ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
+    {
+        self.resolve_cell_history_scoped(cluster, namespace, cell, options, false)
+    }
+
+    pub(crate) fn resolve_cell_history_direct(
+        &self,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+        cell: CellId,
+        options: QueryOptions,
+    ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
+    {
+        self.resolve_cell_history_scoped(cluster, namespace, cell, options, true)
+    }
+
+    fn resolve_cell_history_scoped(
+        &self,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+        cell: CellId,
         mut options: QueryOptions,
+        direct: bool,
     ) -> impl Future<Output = Result<Option<CellHistory>, Arc<CellDispatchError>>> + Send + 'static
     {
         let prepared = (|| {
@@ -60,13 +83,19 @@ impl RaftCells {
                 )));
             }
             options.routing.validate(limits)?;
-            let source = crate::storage::capture_raft_dispatch()
-                .and_then(|source| {
-                    source
-                        .map(|s| s.limit(self.handle.domain.clone(), options.timeout))
-                        .transpose()
-                })
-                .map_err(scoped_dispatch::failure)?;
+            let source = if direct {
+                crate::application::consensus::require_framework_dispatch()
+                    .map_err(scoped_dispatch::failure)?;
+                None
+            } else {
+                crate::storage::capture_raft_dispatch()
+                    .and_then(|source| {
+                        source
+                            .map(|s| s.limit(self.handle.domain.clone(), options.timeout))
+                            .transpose()
+                    })
+                    .map_err(scoped_dispatch::failure)?
+            };
             let directory = self.handle.core.host.name_directory(cluster, namespace)?;
             let bytes = cell
                 .as_str()

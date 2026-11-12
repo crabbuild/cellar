@@ -16,6 +16,7 @@ pub use concurrency::CallbackScope;
 pub mod assets;
 pub mod blob;
 pub mod cache;
+pub(crate) mod cell_bindings;
 pub mod cells;
 pub(crate) mod concurrency;
 pub mod consensus;
@@ -438,6 +439,10 @@ impl Application for Registry {
         &self,
         options: &crate::engine_api::WorkerConfigOptions,
     ) -> Result<()> {
+        let shared = self
+            .raft_classes
+            .values()
+            .any(|class| class.has_cell_factory());
         for class in self.rpc.classes() {
             anyhow::ensure!(
                 self.cells.contains_key(class),
@@ -455,6 +460,15 @@ impl Application for Registry {
                     .map(|binding| &binding.class),
             )
         {
+            if shared {
+                anyhow::ensure!(
+                    self.raft_classes
+                        .get(class)
+                        .is_some_and(|target| target.has_cell_factory()),
+                    consensus::RegistrationError::UnsupportedFactory(class.clone())
+                );
+                continue;
+            }
             anyhow::ensure!(
                 !self.raft_classes.contains_key(class),
                 consensus::RegistrationError::WrongMode {
@@ -469,6 +483,11 @@ impl Application for Registry {
             .any(|class| class.has_cell_factory())
         {
             let config = consensus::AdmittedCellConfiguration::from_options(options)?;
+            if config.has_cell_bindings() {
+                for class in self.raft_classes.values() {
+                    class.validate_binding_configuration()?;
+                }
+            }
             let digest = config.digest();
             let installed = self.raft_configuration.get_or_init(|| RaftConfiguration {
                 digest,
@@ -782,6 +801,14 @@ impl Context {
             );
         }
         Ok(())
+    }
+
+    pub(crate) fn check_binding_turn(&self) -> Result<()> {
+        if self.raft_storage.is_some() {
+            self.storage()?.check_raft_turn()
+        } else {
+            self.check_turn()
+        }
     }
 
     /// Background futures are polled by the same turn driver and retain the

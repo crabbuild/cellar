@@ -5,7 +5,7 @@
 use anyhow::{ensure, Context as _, Result};
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use rusqlite::{ffi, Connection, OpenFlags, Params, Row};
-use std::cell::{OnceCell, Ref, RefCell};
+use std::cell::{Cell, OnceCell, Ref, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -96,6 +96,7 @@ struct CommandFrame {
     failure: RefCell<Option<String>>,
     work: RefCell<Work>,
     dispatch: OnceCell<RaftDispatchContext>,
+    binding_serial: Cell<u64>,
 }
 
 struct Work {
@@ -345,6 +346,32 @@ pub(crate) fn capture_dispatch() -> Result<Option<RaftDispatch>> {
             },
             context,
         )))
+    })
+}
+
+pub(crate) fn binding_ordinal() -> Result<u64> {
+    CURRENT_COMMAND.with(|current| {
+        let current = current.borrow();
+        let frame = current
+            .as_ref()
+            .context("cell binding is outside its invocation")?;
+        let work = frame.work.borrow();
+        ensure!(
+            work.limit != 0,
+            crate::application::consensus::CommandFailure::UnsupportedCapability
+        );
+        ensure!(
+            work.active < work.limit,
+            crate::application::consensus::CommandFailure::Overloaded
+        );
+        let ordinal = frame
+            .binding_serial
+            .get()
+            .checked_add(1)
+            .filter(|value| *value <= 4096)
+            .ok_or(crate::application::consensus::CommandFailure::Overloaded)?;
+        frame.binding_serial.set(ordinal);
+        Ok(ordinal)
     })
 }
 
@@ -631,6 +658,7 @@ impl CommandDatabase {
                     checkpoint: None,
                 }),
                 dispatch: OnceCell::new(),
+                binding_serial: Cell::new(0),
             }),
             inputs,
         })

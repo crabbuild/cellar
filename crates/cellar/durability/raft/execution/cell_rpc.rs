@@ -5,6 +5,7 @@
 use super::*;
 use crate::application::{consensus::CommandTarget, HandlerFuture};
 use crate::storage::ActiveCommand;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 pub(crate) enum CellRpcStart {
@@ -12,10 +13,16 @@ pub(crate) enum CellRpcStart {
     Duplicate(Box<CellCommittedReceipt>),
 }
 
+pub(crate) struct CellRpcDispatch {
+    pub domain: crate::asyncrt::DomainToken,
+    pub deadline: u64,
+    pub bindings: Option<Arc<dyn crate::application::cell_bindings::Host>>,
+}
+
 pub(crate) struct CellRpcEnvironment<'a> {
     pub activation: &'a mut Option<crate::application::consensus::CellRpcActivation>,
     pub reserve: &'a mut dyn FnMut() -> Result<(), ExecutionError>,
-    pub dispatch: Option<(crate::asyncrt::DomainToken, u64)>,
+    pub dispatch: Option<CellRpcDispatch>,
 }
 
 pub(crate) struct CellRpcTurn {
@@ -134,12 +141,31 @@ impl CellPrivateExecutor {
                     .map(|activation| activation.resources()),
             )
             .map_err(private_failure)?;
-        if let Some((domain, deadline)) = environment.dispatch {
+        if let Some(CellRpcDispatch {
+            domain,
+            deadline,
+            bindings,
+        }) = environment.dispatch
+        {
             transaction
                 .bind_dispatch(crate::application::storage::RaftDispatchContext {
                     domain,
                     deadline,
                     fence: self.authority.activation_fence(),
+                    binding_source: bindings.and_then(|host| {
+                        class.cell_configuration_digest().map(|configuration| {
+                            crate::application::cell_bindings::Source {
+                                host,
+                                history: self.authority.cell().version.history.clone(),
+                                group: self.authority.route().history,
+                                parent: attempt.request.id,
+                                parent_fingerprint: attempt.request.request_digest,
+                                configuration,
+                                retry_until_ms: attempt.request.retry_until_ms,
+                                now_unix_millis: attempt.inputs.now_unix_millis,
+                            }
+                        })
+                    }),
                 })
                 .map_err(private_failure)?;
         }

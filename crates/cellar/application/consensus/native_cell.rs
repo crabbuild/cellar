@@ -22,10 +22,15 @@ pub(crate) struct NativeCellFactory {
     identity: Arc<()>,
 }
 
+pub(super) enum CellRpcMethod<'a> {
+    Json(&'a str),
+    Owned { method: &'a str, json_only: bool },
+}
+
 type CellRpcHandler = dyn Fn(
         &CellHistory,
         RouteEpoch,
-        &str,
+        CellRpcMethod<'_>,
         &[u8],
         &CommandTransaction<'_>,
         &mut Option<CellRpcActivation>,
@@ -41,6 +46,7 @@ pub(super) struct CellRpcFactory {
     handler: Arc<CellRpcHandler>,
     identity: Arc<()>,
     configuration: Option<[u8; 32]>,
+    binding_classes: std::collections::BTreeSet<String>,
     configure: Arc<ConfigureCellFactory>,
 }
 
@@ -53,6 +59,10 @@ impl CellRpcFactory {
         self.configuration
     }
 
+    pub(super) fn binding_classes(&self) -> &std::collections::BTreeSet<String> {
+        &self.binding_classes
+    }
+
     pub(super) fn accepts(&self, activation: &CellRpcActivation) -> bool {
         activation.0.belongs_to(&self.identity)
     }
@@ -61,12 +71,12 @@ impl CellRpcFactory {
         &self,
         cell: &CellHistory,
         epoch: RouteEpoch,
-        operation: &str,
+        method: CellRpcMethod<'_>,
         input: &[u8],
         transaction: &CommandTransaction<'_>,
         activation: &mut Option<CellRpcActivation>,
     ) -> Result<HandlerFuture<Vec<u8>>> {
-        (self.handler)(cell, epoch, operation, input, transaction, activation)
+        (self.handler)(cell, epoch, method, input, transaction, activation)
     }
 }
 
@@ -175,6 +185,12 @@ impl NativeCellFactory {
             AdmittedCellConfiguration::options,
         );
         let vars = Arc::new(options.vars.iter().cloned().collect());
+        let binding_classes = options
+            .do_classes
+            .iter()
+            .cloned()
+            .chain(options.bindings.iter().map(|(_, class)| class.clone()))
+            .collect();
         let config = WorkerConfig::new(options).with_egress(EgressPolicy::Deny);
         let compiled_factory = factory.clone();
         let compiled_class = class.to_owned();
@@ -189,14 +205,13 @@ impl NativeCellFactory {
         Arc::new(CellRpcFactory {
             identity,
             configuration: declared.map(AdmittedCellConfiguration::digest),
+            binding_classes,
             configure: Arc::new(move |config| {
                 Self::bind_configuration(&compiled_class, compiled_factory.clone(), Some(config))
             }),
-            handler: Arc::new(
-                move |cell, epoch, operation, input, transaction, activation| {
-                    owner.start(cell, epoch, operation, input, transaction, activation)
-                },
-            ),
+            handler: Arc::new(move |cell, epoch, method, input, transaction, activation| {
+                owner.start(cell, epoch, method, input, transaction, activation)
+            }),
         })
     }
 
@@ -208,17 +223,52 @@ impl NativeCellFactory {
         self: &Arc<Self>,
         cell: &CellHistory,
         epoch: RouteEpoch,
-        operation: &str,
+        method: CellRpcMethod<'_>,
         input: &[u8],
         transaction: &CommandTransaction<'_>,
         activation: &mut Option<CellRpcActivation>,
     ) -> Result<HandlerFuture<Vec<u8>>> {
-        let json = std::str::from_utf8(input)?;
-        serde_json::from_str::<serde::de::IgnoredAny>(json)?;
+        let owned_wire = matches!(method, CellRpcMethod::Owned { .. });
+        let (operation, args, incoming_name) = match method {
+            CellRpcMethod::Owned { method, json_only } => {
+                let request = super::native_rpc::decode_request(input)?;
+                super::native_rpc::validate_identity(
+                    &self.config.script_name,
+                    &self.class,
+                    cell.cell.as_str(),
+                    request.name.as_deref(),
+                )?;
+                anyhow::ensure!(
+                    !json_only || matches!(&request.args, RpcData::Json(_)),
+                    CommandFailure::UnsupportedCapability
+                );
+                (method, request.args, request.name)
+            }
+            CellRpcMethod::Json(operation) => {
+                let json = std::str::from_utf8(input)?;
+                serde_json::from_str::<serde::de::IgnoredAny>(json)?;
+                (operation, RpcData::Json(json.to_owned()), None)
+            }
+        };
+        let name = crate::storage::raft_bindings::cell_name(
+            &*transaction.framework()?,
+            incoming_name.as_deref(),
+        )?;
+        if !self.config.bindings.is_empty() || !self.config.do_classes.is_empty() {
+            crate::storage::raft_bindings::install(&*transaction.framework()?)?;
+        }
+        if name.is_some() {
+            super::native_rpc::validate_identity(
+                &self.config.script_name,
+                &self.class,
+                cell.cell.as_str(),
+                name.as_deref(),
+            )?;
+        }
         let identity = CellIdentity {
             scope: cell.cell.as_str().into(),
             class: self.class.clone(),
-            name: None,
+            name,
             epoch: epoch.get(),
         };
         let authority = transaction.storage()?.raft_command_authority()?;
@@ -239,7 +289,7 @@ impl NativeCellFactory {
         let context = self.context(identity, authority);
         let invocation = Invocation::CellRpc {
             method: operation.to_owned(),
-            args: RpcData::Json(json.to_owned()),
+            args,
         };
         let future = activation
             .as_ref()
@@ -247,11 +297,18 @@ impl NativeCellFactory {
             .0
             .invoke(context, invocation)?;
         Ok(Box::pin(async move {
-            let Output::Rpc(RpcData::Json(result)) = future.await? else {
+            let Output::Rpc(result) = future.await? else {
                 anyhow::bail!(CommandFailure::UnsupportedCapability);
             };
-            serde_json::from_str::<serde::de::IgnoredAny>(&result)?;
-            Ok(result.into_bytes())
+            if owned_wire {
+                super::native_rpc::encode_response(&result)
+            } else {
+                let RpcData::Json(result) = result else {
+                    anyhow::bail!(CommandFailure::UnsupportedCapability);
+                };
+                serde_json::from_str::<serde::de::IgnoredAny>(&result)?;
+                Ok(result.into_bytes())
+            }
         }))
     }
 

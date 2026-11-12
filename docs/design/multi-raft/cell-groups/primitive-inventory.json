@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "d1fca2fcb33efdce56b55b65bc277acace66e52928b217465cb1040ff9acb38e"
+    "crates/cellar/application/mod.rs": "02b5ed2e037909b4f5d63791035fdc6aebcbb8e739b4acd19eff995a5cd6d3dd"
   },
   "entries": [
     {
@@ -436,6 +436,7 @@
         "cellar::sdk::RaftClass",
         "cellar::sdk::RaftClass::command",
         "cellar::sdk::RaftClass::json_cell_rpc",
+        "cellar::sdk::RaftClass::cell_rpc",
         "cellar::sdk::RaftClass::query",
         "cellar::sdk::Registry::raft_cell",
         "cellar::sdk::CommandContext::sql",
@@ -488,16 +489,28 @@
         "cellar::sdk::Invocation::Rpc",
         "cellar::sdk::Invocation::CellRpc",
         "cellar::sdk::Context::wait_until",
-        "cellar::sdk::consensus::RaftCells::resolve_cell_history"
+        "cellar::sdk::consensus::RaftCells::resolve_cell_history",
+        "cellar::sdk::Context::namespace",
+        "cellar::sdk::Context::exported_namespace",
+        "cellar::sdk::cells::Namespace::get_by_name",
+        "cellar::sdk::cells::Stub::rpc",
+        "cellar::sdk::cells::Stub::rpc_with_signal",
+        "cellar::sdk::cells::Stub::call",
+        "cellar::sdk::cells::CallError"
       ],
       "owners": [
         "crates/cellar/application/mod.rs",
         "crates/cellar/application/service/mod.rs",
         "crates/cellar/application/cells.rs",
         "crates/cellar/application/rpc/mod.rs",
-        "crates/cellar/application/consensus/group_client/names.rs"
+        "crates/cellar/application/consensus/group_client/names.rs",
+        "crates/cellar/application/cell_bindings.rs",
+        "crates/cellar/application/consensus/native_rpc.rs",
+        "crates/cellar/storage/sqlite/raft_bindings.rs"
       ],
-      "schemas": [],
+      "schemas": [
+        "Source call intents, lane counters and protected business names"
+      ],
       "bindings": [
         "Service, cell and RPC endpoints"
       ],

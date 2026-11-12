@@ -6,7 +6,10 @@ use super::RegistrationError;
 use crate::engine_api::{Compat, WorkerConfigOptions};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 /// Provisioning carries the same values as the daemon's deployment. Node-local
 /// identity is deliberately excluded from the namespace's immutable definition.
@@ -15,6 +18,8 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(crate) struct NativeCellConfiguration {
     pub(crate) vars: Vec<(String, String)>,
     pub(crate) compat: Compat,
+    pub(crate) do_classes: Vec<String>,
+    pub(crate) bindings: Vec<(String, String)>,
 }
 
 impl NativeCellConfiguration {
@@ -22,8 +27,8 @@ impl NativeCellConfiguration {
         WorkerConfigOptions {
             script_name: script.into(),
             src: String::new(),
-            do_classes: Vec::new(),
-            bindings: Vec::new(),
+            do_classes: self.do_classes.clone(),
+            bindings: self.bindings.clone(),
             blob_bindings: Vec::new(),
             sql_bindings: Vec::new(),
             kv_bindings: Vec::new(),
@@ -44,6 +49,8 @@ pub(in crate::application) struct AdmittedCellConfiguration {
     pub(in crate::application) script: String,
     pub(in crate::application) vars: Arc<BTreeMap<String, String>>,
     pub(in crate::application) compat: Compat,
+    pub(in crate::application) classes: Arc<BTreeSet<String>>,
+    pub(in crate::application) bindings: Arc<BTreeMap<String, String>>,
 }
 
 impl AdmittedCellConfiguration {
@@ -54,8 +61,6 @@ impl AdmittedCellConfiguration {
         // adapter must first acquire shared execution and settlement authority.
         if !options.src.is_empty()
             || !options.modules.is_empty()
-            || !options.do_classes.is_empty()
-            || !options.bindings.is_empty()
             || !options.sql_bindings.is_empty()
             || !options.kv_bindings.is_empty()
             || !options.blob_bindings.is_empty()
@@ -101,10 +106,42 @@ impl AdmittedCellConfiguration {
         if bytes > 64 * 1024 {
             return Err(RegistrationError::Limit);
         }
+        if options.do_classes.len() > 256 || options.bindings.len() > 256 {
+            return Err(RegistrationError::Limit);
+        }
+        let mut classes = BTreeSet::new();
+        let mut bindings = BTreeMap::new();
+        for class in &options.do_classes {
+            super::class::validate_name(class)?;
+            bytes = bytes
+                .checked_add(class.len())
+                .ok_or(RegistrationError::Limit)?;
+            if !classes.insert(class.clone()) {
+                return Err(RegistrationError::Invalid("duplicate Raft exported class"));
+            }
+        }
+        for (name, class) in &options.bindings {
+            super::class::validate_name(class)?;
+            if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+                return Err(RegistrationError::Invalid("Raft cell binding name"));
+            }
+            bytes = bytes
+                .checked_add(name.len())
+                .and_then(|n| n.checked_add(class.len()))
+                .ok_or(RegistrationError::Limit)?;
+            if bindings.insert(name.clone(), class.clone()).is_some() {
+                return Err(RegistrationError::Invalid("duplicate Raft cell binding"));
+            }
+        }
+        if bytes > 64 * 1024 {
+            return Err(RegistrationError::Limit);
+        }
         Ok(Self {
             script: options.script_name.clone(),
             vars: Arc::new(vars),
             compat: options.compat,
+            classes: Arc::new(classes),
+            bindings: Arc::new(bindings),
         })
     }
 
@@ -117,7 +154,18 @@ impl AdmittedCellConfiguration {
             serde_json::to_vec(&(&self.script, self.vars.as_ref(), self.compat))
                 .expect("serializable cell configuration"),
         );
+        if self.has_cell_bindings() {
+            hash.update(b"cell-bindings-1");
+            hash.update(
+                serde_json::to_vec(&(self.classes.as_ref(), self.bindings.as_ref()))
+                    .expect("serializable cell bindings"),
+            );
+        }
         hash.finalize().into()
+    }
+
+    pub(in crate::application) fn has_cell_bindings(&self) -> bool {
+        !self.classes.is_empty() || !self.bindings.is_empty()
     }
 
     pub(in crate::application) fn options(&self) -> WorkerConfigOptions {
@@ -128,6 +176,12 @@ impl AdmittedCellConfiguration {
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
             compat: self.compat,
+            do_classes: self.classes.iter().cloned().collect(),
+            bindings: self
+                .bindings
+                .iter()
+                .map(|(name, class)| (name.clone(), class.clone()))
+                .collect(),
         }
         .options(&self.script)
     }

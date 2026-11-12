@@ -2022,6 +2022,11 @@ pub(crate) fn rpc_cell(
     args: RpcData,
     call_scope: crate::host_rpc::CallScope,
 ) -> HandlerFuture<RpcData> {
+    if context.raft_storage.is_some() {
+        return crate::application::cell_bindings::rpc(
+            context, scope, name, method, args, call_scope,
+        );
+    }
     if crate::application::event_stream::is_event_scope(&scope) {
         return Box::pin(async { Err(anyhow!("event stream calls require a bound capability")) });
     }

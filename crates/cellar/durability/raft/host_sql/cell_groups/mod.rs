@@ -423,6 +423,14 @@ impl WeakCellGroupSqlPool {
 }
 
 impl CellGroupSqlPool {
+    pub(crate) fn retain_binding_bytes(
+        &self,
+        group: GroupHistory,
+        bytes: usize,
+    ) -> Result<Arc<dyn Send + Sync>, ExecutionError> {
+        Ok(self.inner.admission.reserve_read(group, bytes)?)
+    }
+
     pub(crate) fn downgrade(&self) -> WeakCellGroupSqlPool {
         WeakCellGroupSqlPool(Arc::downgrade(&self.inner))
     }

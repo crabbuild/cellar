@@ -3,7 +3,7 @@
 //! Compiled Raft operations and their private application callbacks.
 
 use super::{
-    native_cell::{CellRpcActivation, CellRpcFactory, NativeCellFactory},
+    native_cell::{CellRpcActivation, CellRpcFactory, CellRpcMethod, NativeCellFactory},
     CommandId, CommittedVersion, Durability, RouteEpoch,
 };
 use crate::application::HandlerFuture;
@@ -20,6 +20,15 @@ use std::{
 };
 
 thread_local! { static CALLBACK_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { static FRAMEWORK_DISPATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+pub(crate) fn require_framework_dispatch() -> anyhow::Result<()> {
+    anyhow::ensure!(
+        FRAMEWORK_DISPATCH.with(std::cell::Cell::get),
+        super::CommandFailure::UnsupportedCapability
+    );
+    Ok(())
+}
 
 pub(crate) fn callback_active() -> bool {
     CALLBACK_ACTIVE.with(std::cell::Cell::get)
@@ -33,14 +42,18 @@ pub(crate) fn framework_dispatch<T>(
 ) -> anyhow::Result<T> {
     permit.check()?;
 
-    struct Restore(bool);
+    struct Restore(bool, bool);
 
     impl Drop for Restore {
         fn drop(&mut self) {
             CALLBACK_ACTIVE.with(|active| active.set(self.0));
+            FRAMEWORK_DISPATCH.with(|active| active.set(self.1));
         }
     }
-    let _restore = Restore(CALLBACK_ACTIVE.with(|active| active.replace(false)));
+    let _restore = Restore(
+        CALLBACK_ACTIVE.with(|active| active.replace(false)),
+        FRAMEWORK_DISPATCH.with(|active| active.replace(true)),
+    );
     Ok(callback())
 }
 
@@ -334,6 +347,7 @@ struct Command {
 enum CommandHandler {
     Registered(Arc<CommandCallback>),
     JsonCellRpc,
+    NativeCellRpc { method: String, json_only: bool },
 }
 
 pub(crate) struct CommandTarget<'a> {
@@ -685,6 +699,71 @@ impl RaftClass {
         Ok(self)
     }
 
+    /// Route owned JSON or structured RPC values through the ordinary cell.
+    /// Leased capabilities require their separate session adapter.
+    pub fn cell_rpc(
+        mut self,
+        operation: impl Into<String>,
+        digest: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
+        let operation = operation.into();
+        self.validate_new(&operation, digest)?;
+        self.commands.insert(
+            operation.clone(),
+            Command {
+                digest,
+                handler: CommandHandler::NativeCellRpc {
+                    method: operation,
+                    json_only: false,
+                },
+            },
+        );
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    pub(crate) fn binding_contract(&self, operation: &str) -> Option<OperationContract> {
+        let command = self.commands.get(operation)?;
+        match &command.handler {
+            CommandHandler::NativeCellRpc { .. } => self.contract(operation),
+            CommandHandler::JsonCellRpc => {
+                self.contract(&super::native_rpc::binding_operation(operation))
+            }
+            CommandHandler::Registered(_) => None,
+        }
+    }
+
+    pub(crate) fn binding_json_only(&self, operation: &str) -> Option<bool> {
+        match &self.commands.get(operation)?.handler {
+            CommandHandler::JsonCellRpc => Some(true),
+            CommandHandler::NativeCellRpc { json_only, .. } => Some(*json_only),
+            CommandHandler::Registered(_) => None,
+        }
+    }
+
+    pub(in crate::application) fn validate_binding_configuration(
+        &self,
+    ) -> Result<(), RegistrationError> {
+        let mut operations: BTreeSet<_> = self
+            .commands
+            .keys()
+            .chain(self.queries.keys())
+            .cloned()
+            .collect();
+        for (name, command) in &self.commands {
+            if matches!(command.handler, CommandHandler::JsonCellRpc) {
+                let wire = super::native_rpc::binding_operation(name);
+                if !operations.insert(wire.clone()) {
+                    return Err(RegistrationError::Duplicate(wire));
+                }
+            }
+        }
+        if operations.len() > 256 {
+            return Err(RegistrationError::Limit);
+        }
+        Ok(())
+    }
+
     pub(in crate::application) fn with_cell_factory(
         mut self,
         factory: crate::application::Factory,
@@ -698,6 +777,18 @@ impl RaftClass {
 
     pub(in crate::application) fn has_cell_factory(&self) -> bool {
         self.cell_factory.is_some()
+    }
+
+    pub(crate) fn cell_configuration_digest(&self) -> Option<[u8; 32]> {
+        self.cell_factory
+            .as_ref()
+            .and_then(|factory| factory.configuration_digest())
+    }
+
+    pub(crate) fn cell_binding_classes(&self) -> Option<&BTreeSet<String>> {
+        self.cell_factory
+            .as_ref()
+            .map(|factory| factory.binding_classes())
     }
 
     pub(in crate::application) fn configured_cell(
@@ -721,6 +812,22 @@ impl RaftClass {
             cell_factory: self.cell_factory.clone(),
         };
         if let Some(factory) = &self.cell_factory {
+            if configuration.has_cell_bindings() {
+                for (name, command) in &self.commands {
+                    if matches!(command.handler, CommandHandler::JsonCellRpc) {
+                        class.commands.insert(
+                            super::native_rpc::binding_operation(name),
+                            Command {
+                                digest: super::native_rpc::binding_digest(name, command.digest),
+                                handler: CommandHandler::NativeCellRpc {
+                                    method: name.clone(),
+                                    json_only: true,
+                                },
+                            },
+                        );
+                    }
+                }
+            }
             class.cell_factory = Some(factory.configured(configuration));
             class.bind_command_manifest();
         }
@@ -735,15 +842,21 @@ impl RaftClass {
     }
 
     fn uses_cell_factory(&self) -> bool {
-        self.commands
-            .values()
-            .any(|command| matches!(command.handler, CommandHandler::JsonCellRpc))
+        self.commands.values().any(|command| {
+            matches!(
+                command.handler,
+                CommandHandler::JsonCellRpc | CommandHandler::NativeCellRpc { .. }
+            )
+        })
     }
 
     pub(crate) fn is_cell_rpc(&self, operation: &str) -> bool {
-        self.commands
-            .get(operation)
-            .is_some_and(|command| matches!(command.handler, CommandHandler::JsonCellRpc))
+        self.commands.get(operation).is_some_and(|command| {
+            matches!(
+                command.handler,
+                CommandHandler::JsonCellRpc | CommandHandler::NativeCellRpc { .. }
+            )
+        })
     }
 
     pub(crate) fn start_cell_rpc(
@@ -767,14 +880,20 @@ impl RaftClass {
             .route_epoch
             .ok_or(super::CommandFailure::UnsupportedCapability)?;
         let _guard = CallbackGuard::enter()?;
-        factory.start(
-            target.cell,
-            epoch,
-            &contract.operation,
-            input,
-            transaction,
-            activation,
-        )
+        let method = match &self
+            .commands
+            .get(&contract.operation)
+            .ok_or(RegistrationError::KindMismatch)?
+            .handler
+        {
+            CommandHandler::JsonCellRpc => CellRpcMethod::Json(&contract.operation),
+            CommandHandler::NativeCellRpc { method, json_only } => CellRpcMethod::Owned {
+                method,
+                json_only: *json_only,
+            },
+            CommandHandler::Registered(_) => return Err(RegistrationError::KindMismatch.into()),
+        };
+        factory.start(target.cell, epoch, method, input, transaction, activation)
     }
 
     pub(crate) fn accepts_cell_activation(&self, activation: &CellRpcActivation) -> bool {
@@ -1217,6 +1336,16 @@ impl RaftClass {
                     hash.update((name.len() as u16).to_be_bytes());
                     hash.update(name.as_bytes());
                 }
+            }
+        }
+        for (name, command) in &self.commands {
+            if let CommandHandler::NativeCellRpc { method, json_only } = &command.handler {
+                hash.update(b"native-cell-rpc-1");
+                hash.update((name.len() as u16).to_be_bytes());
+                hash.update(name.as_bytes());
+                hash.update((method.len() as u16).to_be_bytes());
+                hash.update(method.as_bytes());
+                hash.update([u8::from(*json_only)]);
             }
         }
         if !self.system_commands.is_empty() {

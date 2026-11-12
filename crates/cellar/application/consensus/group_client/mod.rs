@@ -111,6 +111,7 @@ pub struct QueryResult {
 }
 
 mod actions;
+mod cell_bindings;
 mod close;
 mod directory;
 mod drain;
@@ -277,6 +278,14 @@ impl RaftCells {
                 close: close.clone(),
             })),
         };
+        service
+            .handle
+            .core
+            .host
+            .install_binding_host(Arc::new(cell_bindings::BindingHost(Arc::downgrade(
+                &service.handle,
+            ))))
+            .map_err(|_| CellGroupControllerError::Invalid("native binding host owner"))?;
         close::start(core, close, domain)?;
         service
             .handle

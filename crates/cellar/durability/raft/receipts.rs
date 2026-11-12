@@ -330,6 +330,7 @@ pub(super) fn complete_rpc(
     step: u64,
     result: Vec<u8>,
 ) -> anyhow::Result<()> {
+    crate::storage::raft_bindings::clear_resolved(connection, request.id)?;
     if step == 0 {
         return record(connection, request, result);
     }

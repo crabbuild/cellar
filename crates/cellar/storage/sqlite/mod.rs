@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 mod command;
 pub(crate) use command::bind_storage as bind_raft_command_storage;
+pub(crate) use command::binding_ordinal as next_raft_binding_ordinal;
 pub(crate) use command::capture_dispatch as capture_raft_dispatch;
 pub(crate) use command::commit_work as commit_raft_work;
 pub(crate) use command::require_storage as require_raft_command_storage;
@@ -36,6 +37,7 @@ pub(crate) mod filesystem;
 mod identity_tests;
 mod immutable;
 mod kv_cursor;
+pub(crate) mod raft_bindings;
 mod raft_cursors;
 pub(crate) use immutable::{require_storage as require_raft_query_storage, QueryFrame};
 pub(crate) use kv_cursor::KvCursorRange;

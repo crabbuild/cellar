@@ -117,9 +117,14 @@ pub struct CellGroupDispatcher {
     budget: Arc<Budget>,
     routes: Arc<crate::raft::catalog::RouteCache>,
     s3: Option<super::controller::S3Client>,
+    pub(crate) bindings: Arc<std::sync::OnceLock<Arc<dyn crate::application::cell_bindings::Host>>>,
 }
 
 impl CellGroupDispatcher {
+    pub(crate) fn input_limit(&self) -> usize {
+        self.limits.max_input_bytes
+    }
+
     pub(in crate::raft::cell_groups) fn directory(&self) -> RangeDirectory {
         self.directory.clone()
     }
@@ -217,6 +222,7 @@ impl CellGroupDispatcher {
             limits,
             budget,
             s3: None,
+            bindings: Arc::default(),
         })
     }
 

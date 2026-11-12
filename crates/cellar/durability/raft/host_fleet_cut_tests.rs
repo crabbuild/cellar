@@ -46,7 +46,7 @@ fn root(
     value["index"] = serde_json::json!(index);
     value["term"] = serde_json::json!(term);
     if mutation > 0 {
-        value["root"] = serde_json::json!({"digest":vec![digest;32],"height":2,"cells":2,"last_mutation_index":mutation,"last_mutation_term":1,"next_due_unix_millis":null});
+        value["root"] = serde_json::json!({"digest":vec![digest;32],"height":2,"cells":2,"pending_calls":0,"last_mutation_index":mutation,"last_mutation_term":1,"next_due_unix_millis":null});
     }
     serde_json::from_value(value).unwrap()
 }

@@ -12,6 +12,7 @@ pub(crate) struct RaftDispatchContext {
     pub domain: DomainToken,
     pub deadline: u64,
     pub fence: CellActivationFence,
+    pub binding_source: Option<crate::application::cell_bindings::Source>,
 }
 
 #[derive(Clone)]
@@ -37,6 +38,29 @@ impl RaftDispatchPermit {
 }
 
 impl RaftDispatch {
+    pub(crate) fn binding_source(&self) -> Result<crate::application::cell_bindings::Source> {
+        self.remaining()?;
+        let resources = &self.authority.resources;
+        anyhow::ensure!(
+            resources.transaction.lock().unwrap().is_none()
+                && resources.open_transaction.lock().unwrap().is_none(),
+            consensus::CommandFailure::UnsupportedCapability
+        );
+        self.context
+            .binding_source
+            .clone()
+            .ok_or_else(|| anyhow!(consensus::CommandFailure::UnsupportedCapability))
+    }
+
+    pub(crate) fn limit_source(self, timeout: Duration) -> Result<Self> {
+        let domain = self.context.domain.clone();
+        self.limit(domain, timeout)
+    }
+
+    pub(crate) fn remaining_timeout(&self) -> Result<Duration> {
+        self.remaining()
+    }
+
     pub(crate) fn check_current(&self) -> Result<()> {
         self.remaining().map(|_| ())
     }
@@ -105,6 +129,21 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
+        match self.try_schedule(action) {
+            Ok(call) => call,
+            Err(error) => DispatchCall {
+                started: Arc::new(AtomicBool::new(false)),
+                future: Box::pin(async move { Err(error) }),
+            },
+        }
+    }
+
+    pub(crate) fn try_schedule<T, F, Fut>(self, action: F) -> Result<DispatchCall<T>>
+    where
+        T: Send + 'static,
+        F: FnOnce(Duration) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
         let started = Arc::new(AtomicBool::new(false));
         let submitted = started.clone();
         let prepared = (|| -> Result<_> {
@@ -162,13 +201,14 @@ impl RaftDispatch {
             crate::storage::schedule_raft_dispatch_work(&authority, task, external)?;
             Ok(receive)
         })();
-        DispatchCall {
+        let receive = prepared?;
+        Ok(DispatchCall {
             started,
             future: Box::pin(async move {
-                prepared?
+                receive
                     .await
                     .map_err(|_| anyhow!(consensus::RuntimeError::Closed))?
             }),
-        }
+        })
     }
 }

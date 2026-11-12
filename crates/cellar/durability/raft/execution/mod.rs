@@ -9,7 +9,9 @@ use super::completion::GroupStatus;
 use super::receipts;
 mod cell;
 mod submission;
-pub(crate) use cell::{authority_failure, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
+pub(crate) use cell::{
+    authority_failure, CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn,
+};
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
 mod command;
 mod enrollment;

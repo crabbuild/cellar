@@ -9,13 +9,16 @@ pub(crate) mod admission;
 mod archive_status;
 pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
-pub(crate) use class::{callback_active, framework_dispatch, CommandTarget};
+pub(crate) use class::{
+    callback_active, framework_dispatch, require_framework_dispatch, CommandTarget,
+};
 pub(crate) mod group_client;
 mod group_contracts;
 pub(crate) use group_contracts::cell_routing_key;
 pub(crate) mod group_protocol;
 mod native_cell;
 mod native_configuration;
+pub(crate) mod native_rpc;
 pub(crate) use native_cell::CellRpcActivation;
 pub(in crate::application) use native_configuration::AdmittedCellConfiguration;
 pub(crate) use native_configuration::NativeCellConfiguration;

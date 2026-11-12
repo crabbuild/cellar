@@ -240,6 +240,21 @@ pub struct CellGroupController {
 }
 
 impl CellGroupController {
+    pub(crate) fn retain_binding_bytes(
+        &self,
+        group: cellar_logic::cell_group::GroupHistory,
+        bytes: usize,
+    ) -> Result<Arc<dyn Send + Sync>, ExecutionError> {
+        self.handle
+            .0
+            .sql
+            .upgrade()
+            .ok_or(ExecutionError::Refused(
+                cellar_logic::consensus::CommandFailure::Unavailable,
+            ))?
+            .retain_binding_bytes(group, bytes)
+    }
+
     pub(crate) fn limits(&self) -> CellGroupControllerLimits {
         self.handle.0.limits
     }

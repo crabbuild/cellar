@@ -2,6 +2,7 @@
 
 //! Namespace registrations over one shared node controller. Cell handles are
 //! disposable values; obtaining or cloning one neither enrolls nor caches a cell.
+mod bindings;
 mod sdk_dispatch;
 mod storage;
 pub use storage::CellGroupNamespaceStorage;
@@ -124,6 +125,7 @@ impl CellGroupHost {
             );
         }
         let namespaces = Arc::new(namespaces);
+        bindings::validate(&namespaces)?;
         controller
             .own_host_resources(Arc::new(HostResources {
                 namespaces: namespaces.clone(),

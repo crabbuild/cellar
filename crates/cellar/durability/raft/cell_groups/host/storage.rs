@@ -14,6 +14,10 @@ pub struct CellGroupNamespaceStorage {
 }
 
 impl CellGroupNamespaceStorage {
+    pub(super) fn options_limits(&self) -> crate::raft::execution::ExecutionLimits {
+        self.options.limits()
+    }
+
     pub fn new(mut options: CellSqlOptions) -> Result<Self, CellDispatchError> {
         options
             .limits()

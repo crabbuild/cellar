@@ -686,6 +686,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/named-bindings.md",
+      "title": "Ordinary named-cell binding delivery",
+      "summary": "Durable child identities, public adapters and remaining qualification boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/optimization-progress.md",
       "title": "TiKV-informed optimization implementation",
       "summary": "Track implementation and validation against the",

@@ -4,7 +4,7 @@
 
 use super::super::rpc_commit::{wait_checkpoint, CheckpointProof};
 use super::*;
-use crate::raft::execution::{CellRpcEnvironment, CellRpcStart, CellRpcTurn};
+use crate::raft::execution::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 use futures_util::future::BoxFuture;
 use std::task::{Context, Poll, Wake, Waker};
 
@@ -323,9 +323,11 @@ impl Cells {
                         CellRpcEnvironment {
                             activation: &mut activation.activation,
                             reserve: &mut reserve,
-                            dispatch: commits
-                                .as_ref()
-                                .map(|commits| (domain.clone(), commits.deadline)),
+                            dispatch: commits.as_ref().map(|commits| CellRpcDispatch {
+                                domain: domain.clone(),
+                                deadline: commits.deadline,
+                                bindings: commits.bindings.clone(),
+                            }),
                         },
                     )
                 });

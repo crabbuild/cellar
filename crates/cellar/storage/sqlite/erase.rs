@@ -40,6 +40,7 @@ fn retained(table: &str) -> bool {
 
 fn erase(connection: &Connection, scope: &str, delete_alarm: bool) -> anyhow::Result<()> {
     filesystem::check_clear(connection)?;
+    super::raft_bindings::check_clear(connection)?;
     crate::raft::effects::outbox::check_clear(connection)?;
     let has_outbox: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_outbox')",

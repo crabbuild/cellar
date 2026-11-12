@@ -1303,6 +1303,7 @@ impl CellGroupOwner {
             || self.node.raft.read_only.pending_read_count() != 0
             // Execution, enrollment and claimed-effect handles pin this fence.
             || Arc::strong_count(&self.leader_term) != 1
+            || marker.root().pending_calls() != 0
             || next_due_unix_millis.is_some_and(|due| due <= wall.saturating_add(remaining))
         {
             return Err(RuntimeError::NotReady);
