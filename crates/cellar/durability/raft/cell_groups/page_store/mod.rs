@@ -19,7 +19,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -47,6 +47,7 @@ pub struct ManifestPageStore {
     max_bytes: u64,
     quarantined: bool,
     collection_cursor: Option<[u8; 32]>,
+    collection_scan: Option<collection::Scan>,
     directory_batch: Option<Batch>,
 }
 
@@ -93,6 +94,9 @@ struct PageEntry {
     pack: Arc<Pack>,
     record: Record,
     lease: Arc<()>,
+    // A scan records existing leases; later pin creation marks this page live
+    // before a resumed scan may relocate/delete its containing file.
+    marked: AtomicBool,
 }
 
 /// Logical leases survive physical compaction and retain the directory lock.
@@ -104,7 +108,7 @@ pub(super) struct ManifestPagePin {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ManifestReclaimReport {
-    /// Physical packs inspected; each contains at most 96 page records.
+    /// Physical page records inspected, including resumed partial packs.
     pub scanned: usize,
     /// Net physical page records removed, after any admitted replacement copy.
     pub pages: usize,
@@ -180,6 +184,7 @@ impl ManifestPageStore {
             max_bytes,
             quarantined: false,
             collection_cursor: None,
+            collection_scan: None,
             directory_batch: None,
         };
         let mut pending = 0;
@@ -226,6 +231,7 @@ impl ManifestPageStore {
                         pack: opened.clone(),
                         record: *record,
                         lease: Arc::new(()),
+                        marked: AtomicBool::new(false),
                     });
                 if opened.id < entry.pack.id {
                     entry.pack = opened.clone();
@@ -338,6 +344,7 @@ impl ManifestPageStore {
                         pack: opened.clone(),
                         record: *record,
                         lease: Arc::new(()),
+                        marked: AtomicBool::new(false),
                     },
                 );
             }
@@ -349,7 +356,7 @@ impl ManifestPageStore {
 
     // The caller has already charged the complete file and quarantined the owner.
     // Publication does not overwrite even an unindexed unexpected destination.
-    fn finish_pack(&self, mut pending: Pending) -> Result<Arc<Pack>, ManifestError> {
+    fn finish_pack(&self, pending: Pending) -> Result<Arc<Pack>, ManifestError> {
         let id = pack::identity(&pending.records, pending.data_end);
         let path = self.directory.join(format!("{}.pack", hex::encode(id)));
         match self.filesystem.symlink_metadata(&path) {
@@ -357,11 +364,13 @@ impl ManifestPageStore {
             Err(error) => return Err(error.into()),
             Ok(_) => return Err(ManifestError::Invalid("page pack destination exists")),
         }
-        pending
+        let mut file = pending
             .file
-            .write_all(&pack::footer(&pending.records, pending.data_end))?;
-        pending.file.sync_all()?;
-        drop(pending.file);
+            .into_inner()
+            .map_err(|_| ManifestError::Quarantined)?;
+        file.write_all(&pack::footer(&pending.records, pending.data_end))?;
+        file.sync_all()?;
+        drop(file);
         self.filesystem.rename(&pending.path, &path)?;
         Ok(Arc::new(Pack {
             id,
@@ -404,6 +413,7 @@ impl ManifestPageStore {
             .inventory
             .get(&key)
             .ok_or(ManifestError::Invalid("missing page"))?;
+        entry.marked.store(true, Ordering::Release);
         Ok(ManifestPagePin {
             _owner: self.owner.clone(),
             _lease: entry.lease.clone(),
@@ -537,7 +547,7 @@ impl ManifestPageStore {
             file.write_all(pack::MAGIC)?;
             self.directory_batch.as_mut().unwrap().pending = Some(Pending {
                 path,
-                file,
+                file: Mutex::new(file),
                 records: Vec::with_capacity(MAX_BATCH_PAGES),
                 data_end: HEADER_BYTES,
             });
@@ -554,8 +564,12 @@ impl ManifestPageStore {
             offset: pending.data_end,
             length: bytes.len() as u32,
         };
-        pending.file.write_all(&record.header())?;
-        pending.file.write_all(bytes)?;
+        let file = pending
+            .file
+            .get_mut()
+            .map_err(|_| ManifestError::Quarantined)?;
+        file.write_all(&record.header())?;
+        file.write_all(bytes)?;
         pending.data_end = record.end();
         pending.records.push(record);
         self.usage.written_pages += 1;

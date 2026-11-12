@@ -54,7 +54,7 @@ pub fn read(directory: &Path, key: [u8; 32]) -> Result<Vec<u8>> {
     let frame = locate(directory, key)?;
     let bytes = std::fs::read(&frame.path)?;
     let page = bytes[frame.offset..frame.offset + frame.length].to_vec();
-    ensure!(<[u8; 32]>::from(Sha256::digest(&page)) == key);
+    ensure!(page_digest(&page) == key);
     Ok(page)
 }
 
@@ -66,7 +66,7 @@ pub fn encode(pages: &[Vec<u8>]) -> Result<(String, Vec<u8>)> {
     let mut records = Vec::new();
     for page in pages {
         ensure!((1..=16 * 1024).contains(&page.len()));
-        let key: [u8; 32] = Sha256::digest(page).into();
+        let key = page_digest(page);
         ensure!(!records.iter().any(|(other, _, _)| other == &key));
         let offset = bytes.len() as u64;
         let length = page.len() as u32;
@@ -92,4 +92,11 @@ pub fn encode(pages: &[Vec<u8>]) -> Result<(String, Vec<u8>)> {
     bytes.extend_from_slice(&end.to_be_bytes());
     bytes.extend_from_slice(&id);
     Ok((format!("{}.pack", hex::encode(id)), bytes))
+}
+
+fn page_digest(bytes: &[u8]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"cellar-cell-group-manifest-page-1\0");
+    hash.update(bytes);
+    hash.finalize().into()
 }

@@ -53,6 +53,7 @@ CASES = (
     "rustfs_s3_enrollment_requires_the_original_archived_creation",
     "rustfs_s3_enrollment_deadlines_preserve_resolved_ownership",
     "rustfs_s3_receipt_lookup_tracks_archived_observations",
+    "rustfs_late_s3_receipt_reuses_completed_background_verification",
     "rustfs_s3_receipt_lookup_honors_namespace_and_stored_minimums",
     "rustfs_s3_receipt_lookup_preserves_typed_failures_and_result_admission",
     "rustfs_s3_receipt_lookup_deadlines_refund_read_admission",

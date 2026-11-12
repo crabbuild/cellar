@@ -5,7 +5,10 @@
 use super::{digest, ManifestError, MAX_BATCH_PAGES, MAX_PAGE_BYTES};
 use cellar_ltx::HostFile;
 use sha2::{Digest, Sha256};
-use std::{path::PathBuf, sync::atomic::AtomicBool};
+use std::{
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Mutex},
+};
 
 pub(super) const MAGIC: &[u8; 8] = b"CLRCMP01";
 const FOOTER_MAGIC: &[u8; 8] = b"CLRCMS01";
@@ -46,7 +49,10 @@ pub(super) struct Pack {
 
 pub(super) struct Pending {
     pub path: PathBuf,
-    pub file: HostFile,
+    // Preserve the store's Sync contract while retaining a Send-only host
+    // writer. All access uses get_mut/into_inner under exclusive store ownership;
+    // no synchronous guard crosses an await or escapes to a reader.
+    pub file: Mutex<HostFile>,
     pub records: Vec<Record>,
     pub data_end: u64,
 }

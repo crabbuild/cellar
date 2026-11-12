@@ -58,8 +58,11 @@ archive streams and snapshots. Only a subsequent source unlink and final shared
 directory barrier release the source allocation. Failed copies and uncertain
 deletions remain charged and quarantine the owner.
 
-A scan counts physical containers, each with at most 96 resident descriptors.
-The file deletion budget counts actual container unlinks. At most 96 live records
+A scan counts physical page records, preserving the existing page-scan ceiling.
+A bounded container reference and record cursor resume across maintenance calls;
+no file is removed before its complete record scan. Creating a new page pin marks
+it live even if a preceding scan step observed it unpinned. The file deletion
+budget separately counts actual container unlinks. At most 96 live records
 are read/relocated across one node-wide maintenance request; one page buffer and
 bounded source/destination indices stay within its existing scratch reservation.
 Whole orphan deletions share the final directory barrier. If a copy cannot fit,
@@ -77,7 +80,7 @@ Cleanup completion checks container emptiness, rather than logical index size.
 The existing changed-path, independent-image, old-reader, corruption, quota,
 engine-publication and process-crash assertions remain required. Physical fault
 locations use an independent fixture decoder. New owning storage tests cover
-reader-preserving relocation, exact encoded-file accounting, refused copy
+reader-preserving relocation, a late pin between one-record scan steps, exact encoded-file accounting, refused copy
 headroom, file/rename/directory/unlink failures, interrupted-copy duplicates,
 pending cleanup and malformed framing. A successful focused check alone is not
 OPT-04/06 acceptance.

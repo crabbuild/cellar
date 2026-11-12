@@ -5,22 +5,31 @@
 use super::*;
 use std::ops::Bound::{Excluded, Unbounded};
 
+// Only a bounded container reference and offset survive a maintenance turn.
+// Its existing inventory marks record any pins acquired between scan steps.
+pub(super) struct Scan {
+    source: Arc<Pack>,
+    next: usize,
+}
+
 impl ManifestPageStore {
-    /// Inspect at most `scan_limit` physical containers and relocate at most 96
+    /// Inspect at most `scan_limit` physical page records and relocate at most 96
     /// live records in total. A copy must fit alongside its
     /// source in the existing quotas. Live leases retain their logical identity.
     /// Only completed copy/unlink/directory barriers release physical credit.
     pub fn reclaim(&mut self, scan_limit: usize) -> Result<ManifestReclaimReport, ManifestError> {
-        self.reclaim_with_compaction(scan_limit, MAX_BATCH_PAGES)
+        self.reclaim_with_limits(scan_limit, scan_limit, MAX_BATCH_PAGES)
     }
 
-    pub(crate) fn reclaim_with_compaction(
+    pub(crate) fn reclaim_with_limits(
         &mut self,
         scan_limit: usize,
+        file_limit: usize,
         max_compaction_pages: usize,
     ) -> Result<ManifestReclaimReport, ManifestError> {
         self.require_live()?;
         if !(1..=4096).contains(&scan_limit)
+            || !(1..=4096).contains(&file_limit)
             || max_compaction_pages > MAX_BATCH_PAGES
             || self.directory_batch.is_some()
         {
@@ -30,19 +39,44 @@ impl ManifestPageStore {
         let mut report = ManifestReclaimReport::default();
         let mut removed_pages = 0;
         let mut removed_bytes = 0;
-        for _ in 0..scan_limit {
-            let start = self.collection_cursor.map_or(Unbounded, Excluded);
-            let Some((id, source)) = self
-                .packs
-                .range((start, Unbounded))
-                .next()
-                .map(|(id, pack)| (*id, pack.clone()))
-            else {
-                self.collection_cursor = None;
-                break;
+        while report.scanned < scan_limit && report.files < file_limit {
+            let mut scan = match self.collection_scan.take() {
+                Some(scan) => scan,
+                None => {
+                    let start = self.collection_cursor.map_or(Unbounded, Excluded);
+                    let Some(source) = self
+                        .packs
+                        .range((start, Unbounded))
+                        .next()
+                        .map(|(_, pack)| pack.clone())
+                    else {
+                        self.collection_cursor = None;
+                        break;
+                    };
+                    Scan { source, next: 0 }
+                }
             };
+            let source = scan.source.clone();
+            while scan.next < source.records.len() && report.scanned < scan_limit {
+                let record = source.records[scan.next];
+                if let Some(entry) = self
+                    .inventory
+                    .get(&record.key)
+                    .filter(|entry| Arc::ptr_eq(&entry.pack, &source))
+                {
+                    entry
+                        .marked
+                        .store(Arc::strong_count(&entry.lease) > 1, Ordering::Release);
+                }
+                scan.next += 1;
+                report.scanned += 1;
+            }
+            if scan.next != source.records.len() {
+                self.collection_scan = Some(scan);
+                break;
+            }
+            let id = source.id;
             self.collection_cursor = Some(id);
-            report.scanned += 1;
             // The complete small record index is already resident. Filesystem
             // reads have a shared record budget and use one page buffer.
             let live: Vec<_> = source
@@ -51,7 +85,7 @@ impl ManifestPageStore {
                 .copied()
                 .filter(|record| {
                     self.inventory.get(&record.key).is_some_and(|entry| {
-                        Arc::ptr_eq(&entry.pack, &source) && Arc::strong_count(&entry.lease) > 1
+                        Arc::ptr_eq(&entry.pack, &source) && entry.marked.load(Ordering::Acquire)
                     })
                 })
                 .collect();
@@ -107,7 +141,7 @@ impl ManifestPageStore {
                     copied_bytes = length;
                     let opened = self.finish_pack(Pending {
                         path,
-                        file,
+                        file: Mutex::new(file),
                         records,
                         data_end: end,
                     })?;

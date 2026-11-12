@@ -128,10 +128,29 @@ async fn compaction_preserves_held_roots_and_refunds_only_physical_bytes() -> Re
     let fixture = Fixture::new().await?;
     let mut pages = fixture.open(64, 1024 * 1024)?;
     let a = fixture.prepare(&mut pages, 0)?;
-    let b = fixture.prepare(&mut pages, 1)?;
-    pages.reconcile_retained(&[a.clone(), b.clone()])?;
+    pages.reconcile_retained(std::slice::from_ref(&a))?;
     let before = pages.usage();
     assert_eq!((before.pages, before.files), (3, 1));
+    let reads = fixture.trace.reads.load(Ordering::Acquire);
+    let sealed = fixture.trace.image_seals.lock().unwrap().len();
+    let directories = fixture.trace.synced_paths.lock().unwrap().len();
+    for _ in 0..2 {
+        let partial = pages.reclaim(1)?;
+        assert_eq!(partial.scanned, 1, "one-record scan budget");
+        assert_eq!((partial.files, partial.pages, partial.bytes), (0, 0, 0));
+        assert_eq!(
+            pages.usage(),
+            before,
+            "partial scan earns no physical credit"
+        );
+        assert_eq!(fixture.trace.reads.load(Ordering::Acquire), reads);
+        assert_eq!(fixture.trace.image_seals.lock().unwrap().len(), sealed);
+        assert_eq!(fixture.trace.synced_paths.lock().unwrap().len(), directories);
+    }
+    // B was observed unpinned on the previous scan step. A new real reader
+    // before completion must mark it live without restarting or losing the bound.
+    let b = fixture.prepare(&mut pages, 1)?;
+    pages.reconcile_retained(&[a.clone(), b.clone()])?;
     let report = pages.reclaim(1)?;
     assert_eq!(
         (
@@ -216,7 +235,7 @@ async fn compaction_refuses_unfunded_copy_without_credit_or_quarantine() -> Resu
         pages.reconcile_retained(&[a.clone(), b.clone()])?;
         let before = pages.usage();
         fixture.trace.image_seals.lock().unwrap().clear();
-        let report = pages.reclaim(1)?;
+        let report = pages.reclaim(3)?;
         assert_eq!(report.blocked_compactions, 1);
         assert_eq!((report.files, report.pages, report.bytes), (0, 0, 0));
         assert_eq!(pages.usage(), before);
@@ -265,7 +284,7 @@ async fn compaction_uncertain_cuts_retain_credit_and_recover_held_roots() -> Res
         } else {
             fixture.trace.mode.store(mode, Ordering::Release);
         }
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pages.reclaim(1)));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pages.reclaim(3)));
         if mode == 254 {
             assert!(result.is_err());
         } else {

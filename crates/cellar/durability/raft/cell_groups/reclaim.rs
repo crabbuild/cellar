@@ -18,7 +18,7 @@ use std::{
 pub struct CellGroupReclaimLimits {
     pub max_selected_cells: u32,
     pub max_files: usize,
-    /// Physical manifest containers (at most 96 records each) inspected.
+    /// Physical manifest page records inspected, including resumed packs.
     pub max_page_scan: usize,
 }
 
@@ -249,7 +249,7 @@ impl ReclaimCells {
             }
             let pages = owner
                 .pages
-                .reclaim_with_compaction(scan.min(files), compact)
+                .reclaim_with_limits(scan, files, compact)
                 .map_err(CellGroupReclaimError::Manifest)?;
             scan -= pages.scanned;
             files -= pages.files;

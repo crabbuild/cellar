@@ -2486,3 +2486,35 @@ tests and the full native profile-1 storage/runtime/backend/container gates stil
 need execution. Earlier occupancy-128 and original CI/compiler failures retain
 their recorded outcomes. No performance or full CG/OPT acceptance follows from
 these compile checks.
+
+The first complete all-target check at `f1dd6a1a`, source `d7b1fbae`, rejects
+the archive/disaster futures: retaining a Send-only host writer made the page
+store lose its existing `Sync` contract. The follow-up contains that writer in a
+mutex accessed only through exclusive ownership on blocking workers. It also
+corrects the independent fixture's logical-page hash to use the established
+domain prefix. A retained original occupancy-128 page independently confirms
+that domain-prefixed SHA-256 matches its filename and plain SHA-256 does not.
+Production page hashes remain unchanged. The first candidate's native runtime
+and remaining checks retain their own frozen source; corrected-source runtime
+and full all-target validation remain pending.
+The corrected-source default RustFS archive suite also requires the new
+late-receipt verification-handoff regression, bringing its fixed case set to 25.
+The preceding source's 24-case backend evidence retains its original scope.
+
+The retained first native candidate at `f1dd6a1a`, source `d7b1fbae`, builds in
+669.528 seconds with verified Rust 1.98.1/profile-1 executable hashes. Its full
+owning storage run completes with 19 passed, three failed and two harness-child
+cases ignored. The changed-path 64-image test now passes the single-file-barrier
+oracle, as do every preceding storage, quota, held-reader, engine-publication and
+process-crash case and the new malformed-framing case. The three new compaction
+cases fail at the independent helper's plain-SHA condition before reaching their
+compaction oracles. This candidate remains failed; corrected-source evidence
+must establish the actual physical-copy and held-root contracts.
+
+The follow-up also preserves the existing page-scan unit and ceiling. A bounded
+per-pack cursor resumes record inspection across maintenance calls; a new pin
+marks its page live if it arrives after an earlier scan step. Physical unlinks
+retain their separate file budget. The owning compaction test now requires two
+one-record turns without page reads, barriers or credit. It admits a previously
+unpinned reader, then
+requires the final one-record turn to preserve both real roots during relocation.
