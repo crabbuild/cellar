@@ -300,19 +300,38 @@ pub(super) async fn verified_current(
     .context("archive ownership did not finish predecessor cleanup")?;
     let hold = selected.context("selected settled journal hold")?;
     let destination = verifier(fixture, route, rooted, name).await?;
-    let coverage = registry
-        .verify_hold(
-            &fixture.cluster.domain,
-            &hold,
-            &config.tails,
-            config.checkpoints.receive_archive(
-                destination,
-                config.scratch.clone(),
-                config.scratch_directory.clone(),
-            )?,
-        )
-        .await?;
-    Ok(coverage)
+    let mut verified = None;
+    // Maintenance may still own the sole replay slot after clearing debt.
+    // Verification is read-only: retry only admission Busy, without increasing
+    // the pool or treating any storage/integrity failure as eventual success.
+    controller::wait_for(async || {
+        let receiver = match config.checkpoints.receive_archive(
+            destination.clone(),
+            config.scratch.clone(),
+            config.scratch_directory.clone(),
+        ) {
+            Ok(receiver) => receiver,
+            Err(CellGroupCheckpointError::Busy) => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        match registry
+            .verify_hold(&fixture.cluster.domain, &hold, &config.tails, receiver)
+            .await
+        {
+            Ok(coverage) => {
+                verified = Some(coverage);
+                Ok(true)
+            }
+            Err(
+                CellGroupArchiveError::Busy
+                | CellGroupArchiveError::Checkpoint(CellGroupCheckpointError::Busy),
+            ) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    })
+    .await
+    .context("archive audit verification admission did not settle")?;
+    verified.context("verified settled archive")
 }
 
 async fn audit(
