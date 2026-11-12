@@ -104,7 +104,7 @@ fn system_allocator_reads_no_pending_payload_or_receipt() -> Result<()> {
         } else {
             rusqlite::hooks::Authorization::Allow
         }
-    }));
+    }))?;
     assert_eq!(
         next_command(&database, &scope)?,
         CommandId::new(client, 10)?
