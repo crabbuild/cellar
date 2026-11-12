@@ -2546,3 +2546,16 @@ slices. The writer's maximum 96-record allocation is temporary, including for
 one-page checkpoint imports; the unchanged parent admission now charges the
 bounded writer/sealed-index overlap. Current-source runtime and all-target checks
 must include this residency correction as well as the expanded crash matrix.
+
+At `b92843bd`, frozen source `ed7a05fe`, the full native profile-1 storage suite
+again passes all 22 cases (two directly ignored harness children). The retained
+driver independently verifies all 52 distinct mode/boundary evidence rows, 26 per
+image mode, including the actual replacement/source container checks. Build time
+is 393.879 seconds and runtime 20.486 seconds, with compiler/executable hashes
+and unchanged inputs verified. The all-target campaign fails only at its new
+`println!` evidence call, which violates the repository's forbidden-macro policy;
+format, layout, dependencies, documentation, design, tooling and patch checks
+pass. The follow-up uses the existing `cellar::note!` output helper. This failed
+Clippy record remains failed, and the queued broader native campaign records
+`NOT_RUN_PARENT_FAILED`; it performs no runtime tests. The corrected output needs
+its own full storage/52-row and all-target checks before that broader campaign.

@@ -786,7 +786,7 @@ pub async fn crash_matrix() -> Result<()> {
                 "1",
                 "recovery must not rerun the callback"
             );
-            println!(
+            cellar::note!(
                 "manifest crash boundary extents={} cut={cut}: PASS",
                 matches!(mode, Mode::Extents)
             );
