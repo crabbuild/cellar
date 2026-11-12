@@ -2442,6 +2442,23 @@ adapter capacity checks the other owner and repeated release. Shared native/Raft
 SDK assertions retain quota text checks, require exact typed initial refusals,
 prove rejected prefixes did not execute and require an executed prefix to survive
 a later quota failure without acquiring the refusal type. The guest buffer oracle
-also checks a real written prefix before cleanup. Candidate runtime and Clippy
-checks remain pending; the two failed controls remain failed. This compatibility
-fix grants no full CG/OPT acceptance or performance claim.
+also checks a real written prefix before cleanup.
+
+On `e114b360`, frozen source `32ffe248`, all 18 combined Node/V8 worker cases
+pass, as do all nine Node-only cases; the Node-only dependency graph excludes
+V8. The native storage case and all eight ordinary Raft primitive cases pass
+(eight RustFS cases are ignored), including independently checked four-profile
+ordinary and interrupted-recovery binding ledgers. Strict all-target Clippy for
+the affected core, logic, guest and JavaScript adapters, formatting, layout,
+dependency, documentation, design and fixture checks pass. Records are
+`typed-cursor-workers-with-bundles`, `typed-cursor-workers-node-only` and
+`typed-cursor-sdk-and-clippy-with-bundles` under the same qualification target.
+These checks use Rust 1.98.1, Node 24.22.2 and CI test opt-level 0; they do not
+replace the profile-1 performance and backend matrix. The two failed controls
+remain failed. This compatibility fix grants no full CG/OPT acceptance or
+performance claim.
+
+The next integration includes base `d290719c` and its bounded completed archive
+verification handoff. Both test-helper exports retain the idle-peer regression
+and the late-receipt regression. Qualification of the combined source remains
+separate from the completed cursor-fix checks above.

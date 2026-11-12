@@ -41,17 +41,16 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Close the connected binding recovery and original deadline gates. At
-   `bb02bae5`, 34 component tests pass; interrupted restart passes only native
-   materialized Quorum, while all RustFS restart configurations fail. The retained
-   S3 image proves claim and target sealing but no source settlement. Replace the
-   allocator's full command-bank reservation with a fixed-size read on the existing
-   SQL owner, preserve typed failures, and establish shutdown quiescence at a safe
-   joined boundary. Keep the strict shutdown assertion, original request deadlines
-   and all failed controls. Ordinary bindings pass only RustFS extents Quorum in
-   this cohort; the complete workload remains failed. Then deliver remaining
-   Storage compatibility and ordinary SQL/KV bindings. See the
-   [current recovery checkpoint](progress.md#cg-17-connected-binding-recovery-qualification).
+1. Deliver ordinary SQL/KV bindings and remaining Storage compatibility through
+   the passing Quorum binding foundation. At `2aca4c6b`, a bounded live archive
+   proof handoff passes its native and real RustFS regression in both image forms.
+   Six native archive/S3 checks, four managed checks and all eight interrupted
+   binding configurations pass. Ordinary bindings pass 5/8: every Quorum-source
+   configuration passes, while native extents S3 and both RustFS S3 forms still
+   miss the first Relay deadline. Keep that S3 gate open alongside feature
+   delivery; preserve complete archive verification, original five-second budgets,
+   quotas and failed controls. No full primitive family is accepted. See the
+   [current checkpoint](progress.md#cg-17-live-archive-proof-handoff).
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.

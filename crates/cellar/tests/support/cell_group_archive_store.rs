@@ -5,7 +5,7 @@
 use futures_util::stream::BoxStream;
 use object_store::{path::Path, *};
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     Arc, Mutex,
 };
 use tokio::sync::Notify;
@@ -14,6 +14,7 @@ use tokio::sync::Notify;
 pub struct Gate {
     pub entered: Notify,
     pub release: Notify,
+    pub publication_index: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -30,9 +31,11 @@ pub struct Store {
     held: Mutex<Option<(Path, usize, Arc<Gate>)>>,
     held_put: Mutex<Option<(Path, Arc<Gate>)>>,
     held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
-    publication: Mutex<Option<Arc<Gate>>>,
+    publication: Mutex<Option<(u64, Arc<Gate>)>>,
     pub publication_cuts: Mutex<Vec<u64>>,
     pub deny_generation_writes: AtomicBool,
+    pub deny_chunk_reads: AtomicBool,
+    pub denied_chunk_reads: AtomicUsize,
     pub outage: AtomicBool,
     pub lose_publication_and_reads: AtomicBool,
 }
@@ -59,14 +62,24 @@ impl Store {
             publication: Mutex::new(None),
             publication_cuts: Mutex::new(Vec::new()),
             deny_generation_writes: AtomicBool::new(false),
+            deny_chunk_reads: AtomicBool::new(false),
+            denied_chunk_reads: AtomicUsize::new(0),
             outage: AtomicBool::new(false),
             lose_publication_and_reads: AtomicBool::new(false),
         })
     }
 
+    /// Hold the next registry write containing a selected root, including
+    /// reservation/hold changes. Use `hold_publication_after` for a newer cut.
     pub fn hold_publication(&self) -> Arc<Gate> {
+        self.hold_publication_after(0)
+    }
+
+    /// Reservations retain the previous selected root. Wait for a genuinely
+    /// newer selected cut, whose independent verification already finished.
+    pub fn hold_publication_after(&self, index: u64) -> Arc<Gate> {
         let gate = Arc::new(Gate::default());
-        *self.publication.lock().unwrap() = Some(gate.clone());
+        *self.publication.lock().unwrap() = Some((index, gate.clone()));
         gate
     }
 
@@ -156,9 +169,20 @@ impl ObjectStore for Store {
         } else {
             None
         };
-        if publication.is_some() {
-            let gate = self.publication.lock().unwrap().take();
+        if let Some(index) = publication {
+            let gate = {
+                let mut pending = self.publication.lock().unwrap();
+                if pending
+                    .as_ref()
+                    .is_some_and(|(previous, _)| index > *previous)
+                {
+                    pending.take().map(|(_, gate)| gate)
+                } else {
+                    None
+                }
+            };
             if let Some(gate) = gate {
+                gate.publication_index.store(index, Ordering::Release);
                 gate.entered.notify_one();
                 gate.release.notified().await;
             }
@@ -232,6 +256,13 @@ impl ObjectStore for Store {
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> Result<GetResult> {
         self.gets.fetch_add(1, Ordering::AcqRel);
         self.available()?;
+        if path.as_ref().contains("/chunks/") && self.deny_chunk_reads.load(Ordering::Acquire) {
+            self.denied_chunk_reads.fetch_add(1, Ordering::AcqRel);
+            return Err(Error::Generic {
+                store: "archive chunk reads denied",
+                source: "injected after independent verification".into(),
+            });
+        }
         let gate = self
             .held
             .lock()

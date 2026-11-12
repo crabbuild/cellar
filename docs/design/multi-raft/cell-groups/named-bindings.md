@@ -211,3 +211,25 @@ all original deadlines and shutdown assertions. A fixed-size system allocator
 read and a safe joined shutdown proof are the next recovery priorities, followed
 by the ordinary binding deadline gate and SQL/KV delivery. No full family is
 accepted by these component results.
+
+At `90e19b34`, fixed allocator reads and joined closure observation pass all
+eight native/RustFS interrupted-binding configurations, 36 component tests and
+four managed shutdown/restart regressions. The drill preserves unknown parent
+outcomes, releases source obligations autonomously, avoids duplicate target
+mutation and advances beyond the sealed child sequence. Ordinary bindings pass
+6/8 configurations; native extents S3 and RustFS materialized S3 still miss the
+first Relay deadline. The five-second budgets, quotas and strict closure
+assertions are unchanged. Full family and lifecycle acceptance remains open.
+See the [current checkpoint](progress.md#cg-17-binding-liveness-and-joined-closure)
+and [next priorities](handoff.md#immediate-feature-priorities).
+
+At `2aca4c6b`, the archive owner hands one live verification to unexamined proof
+requests from the preceding background turn. The existing node-wide admission
+remains charged; exact birth/journal and receipt checks still run. The handoff
+releases before another group, uncovered successor, idle queue, retirement or
+shutdown can need that workspace. It introduces no per-group idle cache.
+The regression passes in both image forms on native storage and real RustFS.
+Interrupted recovery remains 8/8; ordinary bindings pass 5/8, with three S3-source
+deadline failures still open. All Quorum-source controls pass. These results do
+not accept a full primitive family or establish a workload speedup. See the
+[current checkpoint](progress.md#cg-17-live-archive-proof-handoff).

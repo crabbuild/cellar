@@ -951,6 +951,16 @@ Idle registrations do not retain replay workspaces. Active consumers can occupy
 those shared workspaces and backpressure subsequent archival until consumption;
 this is explicit pool admission, without an unaccounted metadata-only proof cache.
 
+A background turn may finish independent verification after newer proof requests
+have entered the controller queue. The owner can hand its still-live physical
+coverage to the next fair archive turn for those unexamined requests. At most one
+such handoff exists per node. It retains the original replay admission and remote
+hold; birth/journal ownership and each exact receipt are checked again before any
+output. A different selected group, an uncovered successor, an idle queue,
+retirement or shutdown drops the handoff before reusing the physical workspace.
+This avoids downloading and recovering an already verified cut twice without
+turning an archive-status sample into proof or retaining an idle group cache.
+
 Explicit unarchived-byte/disk admission, physical shared-engine Raft file purge, fenced fresh-incarnation serving,
 load and process-kill qualification remain required gates. This local command
 boundary is not the complete CG-06 or public SDK/fleet cutover gate.
