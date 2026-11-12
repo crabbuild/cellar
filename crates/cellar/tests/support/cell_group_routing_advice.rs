@@ -548,7 +548,10 @@ async fn exercise(
                     "routing_before": before, "routing_after_refusal": after,
                     "callbacks_before": entered, "callbacks_after_refusal": callbacks_refused, "callbacks_after_replay": callbacks.load(Ordering::Acquire),
                     "sql_stages_before": stages, "sql_stages_after_refusal": stages_refused, "sql_stages_after_replay": authority::sql_stages(cluster)?,
+                    "proven_rejections_before": rejected, "proven_rejections_after_refusal": counter(ingress, "cell_command_pre_admission_refusals")?,
                     "required_durability": "S3", "achieved_durability": format!("{:?}", replay.durability),
+                    "result_be": hex::encode(&replay.result), "membership_revision": current.membership_revision.get(),
+                    "configuration_digest": hex::encode(membership.membership().configuration_digest()), "term_unchanged": true,
                     "receipt": {"version": format!("{:?}", replay.version), "witness": format!("{:?}", replay.witness), "token": replay.version_token.as_str()},
                     "recovered": recovered,
                 }));
