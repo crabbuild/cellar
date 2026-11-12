@@ -128,7 +128,11 @@ async fn http_request(context: Context, invocation: Invocation) -> Result<Output
         .next()
         .context("HTTP operation")?
         .to_string();
-    let input = context.take_body(request.body)?.try_concat().await?;
+    let input = context
+        .take_body(request.body)?
+        .try_concat()
+        .await
+        .map_err(anyhow::Error::msg)?;
     let database = context.sql("DB")?;
     let result: Result<serde_json::Value> = async {
         match operation.as_str() {
