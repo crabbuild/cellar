@@ -19,7 +19,7 @@ pub(crate) fn contract() -> OperationContract {
 
 /// The owning recovery adapter supplies the immutable original target identity.
 /// Its own maintenance deadline/retry horizon is independent of business expiry.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Request {
     pub format: u8,

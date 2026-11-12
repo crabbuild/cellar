@@ -53,6 +53,14 @@ pub(crate) trait Host: Send + Sync {
         timeout: Duration,
     ) -> HandlerFuture<()>;
 
+    /// Recovery follows a proven source claim. It may finish the exact durable
+    /// enrollment intent, but never dispatches the expired business input.
+    fn retire(
+        &self,
+        pending: crate::storage::raft_binding_recovery::Pending,
+        timeout: Duration,
+    ) -> HandlerFuture<bool>;
+
     fn command(
         &self,
         history: CellHistory,

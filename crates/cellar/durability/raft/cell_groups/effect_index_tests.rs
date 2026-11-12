@@ -357,6 +357,7 @@ fn pending_calls_are_authenticated_across_tree_updates() {
     let previous = f.leaves[3].clone();
     let mut next = previous.clone();
     next.effects.pending_calls = 2;
+    next.effects.next_call_unix_millis = Some(20);
     next.version.sequence = next.version.sequence.checked_next().unwrap();
     next.version.image.txid += 1;
     next.version.image.commitment = CellImageCommitment::Materialized([10; 32]);

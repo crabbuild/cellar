@@ -1141,6 +1141,71 @@ fn shared_name_lookup_purpose_is_read_only_and_authenticated() {
 }
 
 #[test]
+fn binding_retirement_is_bounded_and_has_an_authenticated_command_purpose() {
+    let mut client = [19; 16];
+    client[..4].copy_from_slice(b"RCB1");
+    let call = binding::Call {
+        request: crate::raft::execution::binding_seal::Request {
+            format: 1,
+            client,
+            sequence: 1,
+            operation: "Add".into(),
+            contract: [21; 32],
+            request_digest: [22; 32],
+            durability: 2,
+            retry_until_ms: 60_000,
+        },
+        timeout_ms: 5000,
+        route_epoch: 3,
+        birth_digest: [84; 32],
+    };
+    let body = call.encode(8192).unwrap();
+    assert_eq!(
+        binding::Call::decode(&body, 8192)
+            .unwrap()
+            .encode(8192)
+            .unwrap(),
+        body
+    );
+    for end in 0..body.len() {
+        assert!(binding::Call::decode(&body[..end], 8192).is_err());
+    }
+    assert!(binding::Call::decode(&body, body.len() - 1).is_err());
+    assert!(command::CellCommandCall::decode(&body, 8192).is_err());
+    let mut invalid = binding::Call::decode(&body, 8192).unwrap();
+    invalid.request.client = [19; 16];
+    assert!(invalid.encode(8192).is_err());
+    let read = Route::new_shared(
+        identity(1).node_identity(),
+        "node-1",
+        &identity(2),
+        "node-2",
+        &cell_observation().version.history,
+        [9; 32],
+    )
+    .unwrap();
+    let retirement = read.clone().for_binding_retirement().unwrap();
+    assert!(retirement.requires_command_grant());
+    assert!(retirement.is_binding_retirement());
+    assert!(!read.requires_command_grant());
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let request = RequestHead::new(retirement, 4, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    for purpose in ["Query", "Command", "Enrollment", "Receipt", "Name"] {
+        let mut value = serde_json::to_value(&request).unwrap();
+        value["route"]["purpose"] = serde_json::json!(purpose);
+        let changed = FrameHead {
+            prefix: head.prefix,
+            header: serde_json::to_vec(&value).unwrap(),
+            tag: head.tag,
+            payload_len: head.payload_len,
+        };
+        assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+    }
+}
+
+#[test]
 fn shared_enrollment_wire_preserves_captured_identity_and_inputs() {
     let call = enrollment_call();
     let bytes = call.encode(4096).unwrap();

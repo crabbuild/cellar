@@ -9,6 +9,10 @@ use crate::application::{
     HandlerFuture,
 };
 use crate::raft::completion::RuntimeError;
+use cellar_logic::{
+    cell_group::CellId,
+    consensus::{ClusterId, IncarnationId, NamespaceId, ProposalId},
+};
 
 pub(super) struct BindingHost(pub std::sync::Weak<Handle>);
 
@@ -88,6 +92,95 @@ impl Host for BindingHost {
         Box::pin(async move {
             prepared?.await.map_err(anyhow::Error::from)?;
             Ok(())
+        })
+    }
+
+    fn retire(
+        &self,
+        pending: crate::storage::raft_binding_recovery::Pending,
+        timeout: Duration,
+    ) -> HandlerFuture<bool> {
+        let owner = self.owner();
+        Box::pin(async move {
+            let owner = owner?;
+            let body = &pending.body;
+            let history = CellHistory {
+                cluster: ClusterId::new(body.cluster)?,
+                namespace: NamespaceId::new(body.namespace)?,
+                cell: CellId::new(&body.cell)?,
+                incarnation: IncarnationId::new(pending.selected.unwrap_or(body.candidate))?,
+            };
+            let deadline = owner
+                .handle
+                .core
+                .log
+                .domain()
+                .mono_ms()?
+                .checked_add(u64::try_from(timeout.as_millis())?)
+                .ok_or(RuntimeError::DeadlineExceeded)?;
+            let remaining = || -> anyhow::Result<Duration> {
+                Ok(Duration::from_millis(
+                    deadline
+                        .checked_sub(owner.handle.core.log.domain().mono_ms()?)
+                        .filter(|n| *n != 0)
+                        .ok_or(RuntimeError::DeadlineExceeded)?,
+                ))
+            };
+            let minimum = crate::storage::raft_binding_recovery::durability(body.durability)?;
+            let target = owner.handle.core.host.cell(history.clone())?;
+            target.verify_binding_recovery_schema(body.schema)?;
+            if body.enroll && pending.selected.is_none() {
+                // Enrollment is an independently idempotent, durable creation
+                // obligation. Recovery uses its original creation and policy,
+                // never the original RPC input or a fresh candidate history.
+                let enrolled = owner
+                    .cell(history.clone())?
+                    .enroll_direct(
+                        CellEnrollmentRequest {
+                            creation: ProposalId::new(body.creation)?,
+                            durability: minimum,
+                        },
+                        remaining()?,
+                    )
+                    .await;
+                if let Err(error) = enrolled {
+                    let observed = owner
+                        .resolve_cell_history_direct(
+                            history.cluster,
+                            history.namespace,
+                            history.cell.clone(),
+                            QueryOptions {
+                                timeout: remaining()?,
+                                ..QueryOptions::default()
+                            },
+                        )
+                        .await?;
+                    if observed.as_ref().is_some_and(|current| current != &history)
+                        && body.child_sequence == 1
+                    {
+                        return Ok(true);
+                    }
+                    return Err(error.into());
+                }
+            }
+            target
+                .retire_binding(
+                    &owner.handle.core.transport,
+                    body.schema,
+                    crate::raft::execution::binding_seal::Request {
+                        format: 1,
+                        client: body.child_client,
+                        sequence: body.child_sequence,
+                        operation: body.operation.clone(),
+                        contract: body.contract,
+                        request_digest: body.request_digest,
+                        durability: body.durability,
+                        retry_until_ms: body.retry_until_ms,
+                    },
+                    remaining()?,
+                )
+                .await?;
+            Ok(false)
         })
     }
 

@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Shared bounds for the owned alarm/outbox scheduler.
+//! Shared bounds for the owned alarm/outbox/binding recovery scheduler.
 use anyhow::{ensure, Result};
 
 #[derive(Clone, Copy, Debug)]

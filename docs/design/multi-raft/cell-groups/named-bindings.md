@@ -60,7 +60,10 @@ not skip a target's next sequence. Destination counters are indexed, capped at
 have a separate lane epoch. Retained restart preserves names and counters.
 The binding configuration digest changes with these internal semantics; old
 prototype namespaces refuse schema admission rather than interpreting the old
-counter layout or the earlier intent body without its physical origin.
+counter layout or the earlier intent body without its physical origin. The
+committed effect summary now includes binding due time; all classes use a new
+schema digest seed. Use fresh compatible namespaces and matching voter binaries
+for this internal hard cutover, including classes without bindings.
 Cellar-owned format markers remain at 1.
 
 `cells::CallError` preserves the actual child identity, selected history when
@@ -101,10 +104,43 @@ reserves both receipt rows and both client slots when needed; outer failure roll
 back the seal. An S3 child minimum requires S3 maintenance acknowledgement. Target
 retirement does not itself release the source lane or establish a parent result.
 
-Automatic discovery, authenticated remote maintenance routing and durable source
-settlement are not connected yet. Until that owner is complete, interrupted calls
-retain their original source intents and busy lanes. This private target boundary
-is not autonomous binding recovery or a completed primitive-family case.
+## Autonomous claim, retirement and settlement
+
+The shared node effect owner now discovers binding deadlines through the
+committed manifest index. Discovery reads bounded identity/digest metadata and
+never allocates the stored business arguments. Binding classes require this
+owner even when the application has not enabled optional alarm/outbox work;
+startup validates its bounds against the host execution limits. There is no
+per-cell task, timer or idle SQLite scan.
+
+After the original request deadline, a private source command claims the exact
+intent while the SQL worker excludes every same-cell live or parked callback.
+The executor supplies the current physical group and leader term. Logical source
+incarnation and original source minimum must match; terms are compared only
+within the same physical history. The committed claim is proven at the source
+minimum before target maintenance begins. A claimed intent rejects late ordinary
+selection or completion.
+
+Recovery may finish the exact originally authorized enrollment, with independent
+maintenance admission. It never invents a new candidate or dispatches expired
+business input. An unselected losing candidate can release only its provisional
+sequence after a different creation wins the name. Selected/retired histories
+never redirect unknown business work to another incarnation.
+
+Target retirement uses a separate authenticated command purpose on the existing
+transport. Namespace/process command grants, revocation, current route, birth,
+schema and incarnation still apply. The target allocates its own private system
+sequence; its response binds the immutable retirement request and proves the
+original target minimum. Source and target response admission are released before
+loopback work needs the same SQL/archive slot.
+
+A final source command settles only the claimed metadata digest and exact lane
+serial at the original source minimum. It removes the obligation and preserves
+the parent outcome as unknown. A self-call rereads the private system allocator
+before settlement. Orphaned resolved intents are removed without releasing a
+lane that a newer call has reused. Every failed turn rediscovers committed state;
+it never resumes an arbitrary Rust callback. Runtime qualification of this flow
+is still pending; these contracts do not constitute a primitive-family pass.
 
 ## Archive publication scheduling
 
@@ -138,9 +174,9 @@ RF3 restart. It uses both image forms and source Quorum/S3 requests against a ta
 whose minimum is Quorum. It does not qualify a target namespace with an S3 minimum,
 cross-class namespace selection or concurrent creation.
 
-Autonomous reconciliation after process loss and sequence sealing remain required,
-as do deadline/refusal exhaustion, capacity, leader-loss and movement/wake/disaster
-qualification. SQL/KV bindings, committed due work and the remaining public/provider
+Autonomous reconciliation and sequence sealing now have a connected implementation;
+process-loss qualification, deadline/refusal exhaustion, capacity, leader-loss
+and movement/wake/disaster qualification remain required. SQL/KV bindings, committed due work and the remaining public/provider
 primitive adapters are separate unfinished deliveries. Do not claim the full
 HTTP/RPC primitive-family case from a focused binding pass.
 

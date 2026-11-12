@@ -24,6 +24,8 @@ pub mod catalog_fault;
 // The host fixture controls wall clocks, test processes and on-disk faults.
 #[path = "support/cell_group_activations.rs"]
 mod activations;
+#[path = "support/cell_group_binding_recovery.rs"]
+mod binding_recovery;
 #[path = "support/cell_group_bindings.rs"]
 mod bindings;
 #[path = "support/cell_group_configuration.rs"]
@@ -1703,4 +1705,15 @@ async fn ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
     Box::pin(bindings::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn interrupted_named_bindings_recover_after_retained_restart() -> Result<()> {
+    Box::pin(bindings::qualify_recovery(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_interrupted_named_bindings_recover_after_retained_restart() -> Result<()> {
+    Box::pin(bindings::qualify_recovery(true)).await
 }

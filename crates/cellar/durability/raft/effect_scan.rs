@@ -15,6 +15,7 @@ mod tests;
 
 pub(crate) enum DueEffect {
     Alarm(alarm::DueAlarm),
+    Binding(Box<crate::storage::raft_binding_recovery::Pending>),
     Delivery {
         selected: outbox::Selected,
         minimum: Durability,
@@ -23,16 +24,21 @@ pub(crate) enum DueEffect {
 }
 
 impl DueEffect {
-    pub fn minimum(&self) -> Durability {
+    pub fn minimum(&self) -> Result<Durability> {
         match self {
-            Self::Alarm(due) => due.minimum,
-            Self::Delivery { minimum, .. } => *minimum,
+            Self::Alarm(due) => Ok(due.minimum),
+            Self::Binding(pending) => pending.minimum(),
+            Self::Delivery { minimum, .. } => Ok(*minimum),
         }
     }
 
     pub fn command(&self) -> Result<(String, Vec<u8>)> {
         Ok(match self {
             Self::Alarm(due) => (due.operation.clone(), due.input.clone()),
+            Self::Binding(pending) => (
+                crate::storage::raft_binding_recovery::CLAIM.into(),
+                serde_json::to_vec(&pending.key)?,
+            ),
             Self::Delivery { selected, .. } => {
                 (outbox::CLAIM.into(), serde_json::to_vec(selected)?)
             }
@@ -86,10 +92,28 @@ fn scan_connection(
     let alarm = || -> Result<Option<DueEffect>> {
         Ok(alarm::due(connection, class, now)?.map(DueEffect::Alarm))
     };
-    let due = if prefer_delivery {
+    let binding = || -> Result<Option<DueEffect>> {
+        if !class.has_binding_maintenance() {
+            return Ok(None);
+        }
+        let pending = crate::storage::raft_binding_recovery::due(connection, now)?;
+        if let Some(pending) = &pending {
+            pending.minimum()?;
+        }
+        Ok(pending.map(|pending| DueEffect::Binding(Box::new(pending))))
+    };
+    // Alternate existing work with binding recovery. A hot binding lane cannot
+    // indefinitely starve alarms/outbox work in the same cell.
+    let previous_binding:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_raft_receipts r JOIN __sys_raft_clients c ON r.client_id=c.client_id AND r.sequence=c.last_sequence WHERE c.client_id=?1 AND r.operation IN('__sys_raft_binding_claim','__sys_raft_binding_settle'))",[client.bytes().as_slice()],|row|row.get(0))?;
+    let other = if prefer_delivery {
         delivery()?.or(alarm()?)
     } else {
         alarm()?.or(delivery()?)
+    };
+    let due = if previous_binding {
+        other.or(binding()?)
+    } else {
+        binding()?.or(other)
     };
     ensure!(
         due.is_none() || class.has_system_commands(),

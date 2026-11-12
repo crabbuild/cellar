@@ -36,12 +36,12 @@ pub(super) fn read(
     };
     let (_, next_alarm_unix_millis) = scan("__sys_raft_alarms", "due")?;
     let (pending_outbox, _) = scan("__sys_raft_outbox", "next_at")?;
-    let (calls, _) = scan("__sys_raft_binding_intents", "phase")?;
+    let (calls, next_call_unix_millis) = scan("__sys_raft_binding_intents", "next_at")?;
     let pending_calls = if calls == 0 {
         0
     } else {
         let (pending, invalid): (u64, u64) = connection.query_row(
-            "SELECT COALESCE(SUM(phase<3),0),COALESCE(SUM(CASE WHEN typeof(format)='integer' AND format=1 AND phase<=3 THEN 0 ELSE 1 END),0) FROM __sys_raft_binding_intents",
+            "SELECT COALESCE(SUM(phase!=3),0),COALESCE(SUM(CASE WHEN typeof(format)='integer' AND format=1 AND phase BETWEEN 0 AND 4 THEN 0 ELSE 1 END),0) FROM __sys_raft_binding_intents",
             [], |row| Ok((row.get(0)?, row.get(1)?)),
         ).map_err(storage)?;
         if invalid != 0 {
@@ -52,6 +52,7 @@ pub(super) fn read(
     let next_outbox_unix_millis = outbox_front(connection, pending_outbox)?;
     Ok(EffectSummary {
         next_alarm_unix_millis,
+        next_call_unix_millis,
         next_outbox_unix_millis,
         pending_outbox,
         // The current inbox is synchronous receipt/deduplication state, not an

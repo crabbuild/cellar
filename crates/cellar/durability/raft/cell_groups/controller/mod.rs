@@ -17,6 +17,7 @@ pub use archive::{
 };
 mod checkpoints;
 pub use checkpoints::CellGroupCheckpointPolicy;
+mod binding_recovery;
 mod commands;
 mod queries;
 mod query_routes;

@@ -127,3 +127,47 @@ fn select<'a>(
     }
     Ok((*key, binding))
 }
+
+impl CellGroupCellHandle {
+    pub(crate) fn verify_binding_recovery_schema(
+        &self,
+        schema: [u8; 32],
+    ) -> Result<(), CellDispatchError> {
+        if self.binding.class.schema_digest() != schema
+            || !self.binding.class.has_binding_maintenance()
+        {
+            return Err(CellDispatchError::Registration(
+                RegistrationError::ContractMismatch,
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn retire_binding(
+        &self,
+        transport: &crate::raft::transport::RaftTransport,
+        schema: [u8; 32],
+        request: crate::raft::execution::binding_seal::Request,
+        timeout: std::time::Duration,
+    ) -> Result<(), CellDispatchError> {
+        self.host.check_open()?;
+        let options = self.binding.options(&self.history)?;
+        self.host
+            .controller
+            .binding_retire_routed(
+                &self.binding.dispatcher,
+                transport,
+                options,
+                (
+                    self.history.clone(),
+                    schema,
+                    request,
+                    CellRoutingLimits {
+                        timeout,
+                        max_attempts: 4,
+                    },
+                ),
+            )
+            .await
+    }
+}

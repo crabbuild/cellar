@@ -37,6 +37,39 @@ impl Cell for BoundCounter {
                     "value": update(&self.0, input.as_i64().context("delta")?)?,
                     "name": context.identity().context("identity")?.name,
                 }),
+                "Hold" => {
+                    update(&self.0, 1)?;
+                    self.0.sync().await?;
+                    // The durable target checkpoint survives the lost response.
+                    // The original kernel deadline cancels this frame.
+                    return std::future::pending().await;
+                }
+                "Abandon" => {
+                    context
+                        .namespace("COUNTERS")?
+                        .get_by_name("held-target")
+                        .rpc(&context, "Hold", RpcData::Json("{}".into()))
+                        .await?;
+                    anyhow::bail!("held target must never return a business response")
+                }
+                "Again" => {
+                    let reply = context
+                        .namespace("COUNTERS")?
+                        .get_by_name("held-target")
+                        .rpc(&context, "Add", RpcData::Json("2".into()))
+                        .await?;
+                    return Ok(Output::Rpc(reply));
+                }
+                "RecoveryProbe" => {
+                    let mut clear = false;
+                    let attempted: Result<()> = self.0.transaction_sync(|tx| {
+                        tx.delete_all()?;
+                        clear = true;
+                        anyhow::bail!("probe rolls back all business and framework changes")
+                    });
+                    ensure!(attempted.is_err());
+                    json!(clear)
+                }
                 "Relay" => {
                     update(&self.0, 1)?;
                     let namespace = context.namespace("COUNTERS")?;
@@ -122,7 +155,7 @@ impl Cell for BoundCounter {
     }
 }
 
-fn identity(name: &str) -> Result<CellId> {
+pub(super) fn identity(name: &str) -> Result<CellId> {
     let namespace = cellar_native::cell_id::Namespace::new(
         "Counter",
         format!("cells:v1:{}:{SCRIPT}:Counter", SCRIPT.len()),
@@ -130,7 +163,7 @@ fn identity(name: &str) -> Result<CellId> {
     Ok(CellId::new(namespace.id_from_name(name).scope())?)
 }
 
-fn options(sequence: u64, durability: Durability) -> Result<CommandOptions> {
+pub(super) fn options(sequence: u64, durability: Durability) -> Result<CommandOptions> {
     Ok(CommandOptions {
         durability,
         ..CommandOptions::new(
@@ -143,13 +176,25 @@ fn options(sequence: u64, durability: Durability) -> Result<CommandOptions> {
 /// Exercise every configuration even when an earlier one fails. Any failure
 /// still fails the combined case with its original error and deadline.
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
+    qualify_case(real_rustfs, false).await
+}
+
+pub async fn qualify_recovery(real_rustfs: bool) -> Result<()> {
+    qualify_case(real_rustfs, true).await
+}
+
+async fn qualify_case(real_rustfs: bool, recovery: bool) -> Result<()> {
     let mut failures = Vec::new();
     for rooted in [false, true] {
         for durability in [Durability::Quorum, Durability::S3] {
             let result = async {
                 let store = if real_rustfs {
                     Arc::new(catalog_fault::Store::around(rustfs::store(
-                        if durability == Durability::S3 {
+                        if recovery && durability == Durability::S3 {
+                            "binding-recovery-s3"
+                        } else if recovery {
+                            "binding-recovery-quorum"
+                        } else if durability == Durability::S3 {
                             "named-bindings-s3"
                         } else {
                             "named-bindings-quorum"
@@ -159,18 +204,22 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                 } else {
                     Arc::new(catalog_fault::Store::default())
                 };
-                Box::pin(run(rooted, durability, store)).await
+                if recovery {
+                    Box::pin(super::binding_recovery::run(rooted, durability, store)).await
+                } else {
+                    Box::pin(run(rooted, durability, store)).await
+                }
             }
             .await;
             match result {
                 Ok(()) => eprintln!(
-                    "named binding configuration extents={rooted} source={durability:?}: PASS"
+                    "named binding configuration recovery={recovery} extents={rooted} source={durability:?}: PASS"
                 ),
                 Err(error) => {
                     let error = error.context(format!(
-                        "named binding configuration RustFS={real_rustfs} extents={rooted} source={durability:?}"
+                        "named binding configuration recovery={recovery} RustFS={real_rustfs} extents={rooted} source={durability:?}"
                     ));
-                    eprintln!("named binding configuration extents={rooted} source={durability:?}: FAILED: {error:?}");
+                    eprintln!("named binding configuration recovery={recovery} extents={rooted} source={durability:?}: FAILED: {error:?}");
                     failures.push(error);
                 }
             }
@@ -185,11 +234,10 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
     }
 }
 
-pub async fn run(
+pub(super) async fn start(
     rooted: bool,
-    durability: Durability,
     store: Arc<catalog_fault::Store>,
-) -> Result<()> {
+) -> Result<ManagedCluster> {
     let class = RaftClass::new("Counter", 1, [111; 32])?
         .initializer([112; 32], |_, tx| {
             tx.execute_batch(
@@ -203,6 +251,10 @@ pub async fn run(
         .json_cell_rpc("Atomic", [116; 32])?
         .cell_rpc("Echo", [117; 32])?
         .json_cell_rpc("Cancel", [123; 32])?
+        .json_cell_rpc("Hold", [125; 32])?
+        .json_cell_rpc("Abandon", [126; 32])?
+        .json_cell_rpc("Again", [127; 32])?
+        .json_cell_rpc("RecoveryProbe", [128; 32])?
         .query("Get", [118; 32], |context, _| {
             Ok(serde_json::to_vec(&context.storage().get_json("value")?)?)
         })?;
@@ -219,7 +271,7 @@ pub async fn run(
     let mut fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
     fixture.configuration = Some(declared);
     fixture.sql_workers = 1;
-    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+    Box::pin(ManagedCluster::start_with_applications(
         fixture,
         &[],
         ArchiveSetup::Initialized,
@@ -227,9 +279,17 @@ pub async fn run(
         None,
         FirstGroupSetup::Normal,
     ))
-    .await?;
-    let work = cluster.fixtures[0]
-        .domain
+    .await
+}
+
+pub async fn run(
+    rooted: bool,
+    durability: Durability,
+    store: Arc<catalog_fault::Store>,
+) -> Result<()> {
+    let mut cluster = Box::pin(start(rooted, store)).await?;
+    let domain = cluster.fixtures[0].domain.clone();
+    let work = domain
         .run(async {
             let group = cluster.history;
             let leader = managed_fixture::leader(&cluster.hosts, group).await?;
@@ -347,34 +407,7 @@ pub async fn run(
                 .await?;
             ensure!(cancelled_value.result == b"2");
             let source_history = source.history().clone();
-            let old_hosts = std::mem::take(&mut cluster.hosts);
-            managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &old_hosts)
-                .await?;
-            cluster.peers.clear();
-            for (index, fixture) in cluster.fixtures.iter().enumerate() {
-                let node = fixture.start_node(cluster.roots[index].path()).await?;
-                let started = async {
-                    let (mut config, services) = fixture
-                        .config(&node, LogOpenMode::Resume, 104 + index as u8)
-                        .await?;
-                    managed_fixture::archives::configure(&mut config);
-                    let peer = config.peers[0].clone();
-                    node.start_raft_cells(config, services)
-                        .await
-                        .map(|host| (host, peer))
-                }
-                .await;
-                let (host, peer) = match started {
-                    Ok(started) => started,
-                    Err(error) => {
-                        node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
-                        return Err(error).context("retained named binding node");
-                    }
-                };
-                cluster.nodes.push(node);
-                cluster.hosts.push(host);
-                cluster.peers.push(peer);
-            }
+            Box::pin(restart(&mut cluster)).await?;
             let leader = managed_fixture::leader(&cluster.hosts, group).await?;
             let current = cluster.hosts[leader].cell(source_history)?;
             let replay = current
@@ -405,4 +438,35 @@ pub async fn run(
     cluster.fixtures[0].domain.shutdown().await;
     work?;
     joined
+}
+
+pub(super) async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
+    let old_hosts = std::mem::take(&mut cluster.hosts);
+    managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &old_hosts).await?;
+    cluster.peers.clear();
+    for (index, fixture) in cluster.fixtures.iter().enumerate() {
+        let node = fixture.start_node(cluster.roots[index].path()).await?;
+        let started = async {
+            let (mut config, services) = fixture
+                .config(&node, LogOpenMode::Resume, 104 + index as u8)
+                .await?;
+            managed_fixture::archives::configure(&mut config);
+            let peer = config.peers[0].clone();
+            node.start_raft_cells(config, services)
+                .await
+                .map(|host| (host, peer))
+        }
+        .await;
+        let (host, peer) = match started {
+            Ok(started) => started,
+            Err(error) => {
+                node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+                return Err(error).context("retained named binding node");
+            }
+        };
+        cluster.nodes.push(node);
+        cluster.hosts.push(host);
+        cluster.peers.push(peer);
+    }
+    Ok(())
 }

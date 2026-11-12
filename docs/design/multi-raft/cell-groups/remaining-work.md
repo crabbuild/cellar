@@ -41,11 +41,12 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Add a durable source recovery claim before target sealing, then connect
-   autonomous named-binding recovery to the private target sequence seal, physical
-   source origin and bounded committed-work owner. Finish
-   authenticated remote maintenance routing and durable source lane settlement,
-   then remaining shared Storage compatibility and ordinary SQL/KV bindings.
+1. Qualify the connected autonomous named-binding claim, exact target retirement
+   and source settlement flow through retained RF3 restart and real RustFS. The
+   implementation now includes manifest due discovery, physical source authority,
+   authenticated remote maintenance and exact lane settlement; it is not yet a
+   runtime pass. Then finish remaining shared Storage compatibility and ordinary
+   SQL/KV bindings.
    The latest native checkpoint passes extents Quorum but fails materialized
    Quorum and both S3 configurations. Earlier real RustFS passes retain their old
    source. Preserve exact identities, original ownership/input/policy/expiry and

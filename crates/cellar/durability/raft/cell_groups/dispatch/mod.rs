@@ -3,7 +3,8 @@
 //! Catalog-bound invocations over the existing consensus and SQL owners.
 //! Routing observations never replace destination authority or ingress grants.
 
-mod mutation_route;
+mod binding_recovery;
+pub(in crate::raft::cell_groups) mod mutation_route;
 pub(crate) use mutation_route::MutationRouting;
 mod query_routing;
 mod receipt;

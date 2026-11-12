@@ -40,7 +40,7 @@ fn open(shared: &Shared) -> Result<(), Error> {
     }
 }
 
-fn clock(shared: &Shared) -> Result<u64, Error> {
+pub(super) fn clock(shared: &Shared) -> Result<u64, Error> {
     shared
         .domain
         .mono_ms()
@@ -162,7 +162,7 @@ pub(super) async fn run(
     let Some(due) = due else {
         return Ok(());
     };
-    let minimum = due.minimum();
+    let minimum = due.minimum().map_err(effect)?;
     let (operation, input) = due.command().map_err(effect)?;
     let retry_until = wall()?
         .checked_add(registration.options.retry_window_ms)
@@ -179,6 +179,72 @@ pub(super) async fn run(
         .local_receipt()
         .ok_or(Error::Invalid("local effect receipt"))?;
     match due {
+        DueEffect::Binding(_) => {
+            let pending: Option<crate::storage::raft_binding_recovery::Pending> =
+                serde_json::from_slice(receipt.result())
+                    .map_err(|_| Error::Invalid("binding claim result"))?;
+            let Some(pending) = pending else {
+                return Ok(());
+            };
+            let route = execution.route().clone();
+            let authority = execution
+                .effect_authority(&local.version, local.position.term)
+                .map_err(Error::Runtime)?;
+            // Release the source proof's SQL/archive response slot before a
+            // loopback target needs the same admission bank.
+            drop(receipt);
+            authority.check().map_err(Error::Runtime)?;
+            let host = registration
+                .dispatcher
+                .bindings
+                .get()
+                .ok_or(Error::Invalid("binding recovery host"))?;
+            let candidate_lost = host
+                .retire(
+                    pending.clone(),
+                    Duration::from_millis(registration.options.operation_timeout_ms),
+                )
+                .await
+                .map_err(effect)?;
+            authority.check().map_err(Error::Runtime)?;
+            // Self-calls and concurrent target maintenance may have consumed the
+            // same system client's next sequence. Read its allocator anew.
+            let deadline = clock(shared)?
+                .checked_add(registration.options.operation_timeout_ms)
+                .ok_or(Error::Invalid("binding settlement deadline"))?;
+            let next = super::super::binding_recovery::next_system(
+                shared,
+                &registration.dispatcher,
+                options.clone(),
+                cell.clone(),
+                route,
+                deadline,
+            )
+            .await
+            .map_err(|_| Error::Invalid("binding settlement allocator"))?;
+            let input = serde_json::to_vec(&crate::storage::raft_binding_recovery::Settlement {
+                key: pending.key,
+                digest: pending.digest,
+                candidate_lost,
+            })
+            .map_err(|_| Error::Invalid("binding settlement input"))?;
+            let receipt = command(
+                shared,
+                registration,
+                &cell,
+                options,
+                request(
+                    registration,
+                    next,
+                    crate::storage::raft_binding_recovery::SETTLE,
+                    input,
+                    minimum,
+                    retry_until,
+                )?,
+            )
+            .await?;
+            check_result(receipt.result())
+        }
         DueEffect::Alarm(_) => check_result(receipt.result()),
         DueEffect::Delivery {
             selected,

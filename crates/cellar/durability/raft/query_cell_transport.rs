@@ -415,6 +415,7 @@ impl State {
 pub(super) enum IncomingCall {
     Shared(CellQueryCall),
     Command(crate::raft::query_wire::command::CellCommandCall),
+    Binding(crate::raft::query_wire::binding::Call),
     CommandProbe(crate::raft::query_wire::command::CellCommandProbe),
     Enrollment(crate::raft::query_wire::enrollment::CellEnrollmentCall),
     Receipt(crate::raft::query_wire::receipt::CellReceiptCall),
@@ -427,6 +428,11 @@ impl IncomingCall {
         bytes: &[u8],
         limit: usize,
     ) -> Result<Self, TransportError> {
+        if route.is_binding_retirement() {
+            return Ok(Self::Binding(
+                crate::raft::query_wire::binding::Call::decode(bytes, limit)?,
+            ));
+        }
         if route.is_name() {
             return Ok(Self::Name(
                 crate::raft::query_wire::name::CellNameCall::decode(bytes, limit)?,
@@ -459,6 +465,7 @@ impl IncomingCall {
         match self {
             Self::Shared(call) => call.timeout_ms,
             Self::Command(call) => call.timeout_ms,
+            Self::Binding(call) => call.timeout_ms,
             Self::CommandProbe(call) => call.timeout_ms,
             Self::Enrollment(call) => call.timeout_ms,
             Self::Receipt(call) => call.timeout_ms,
@@ -473,6 +480,11 @@ impl IncomingCall {
         deadline: u64,
     ) -> Result<super::query_replies::Reply, TransportError> {
         match self {
+            Self::Binding(call) => {
+                state
+                    .execute_binding_retirement(route, call, deadline)
+                    .await
+            }
             Self::Name(call) => state.execute_cell_name(route, call, deadline).await,
             Self::Command(call) => state.execute_cell_command(route, call, deadline).await,
             Self::CommandProbe(call) => {

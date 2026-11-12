@@ -49,51 +49,35 @@ source-pinned summaries/hashes survive in Git but do not establish current raw
 artifact retention or a fresh combined qualification. Rebuild and rerun the
 focused checks before claiming this new target boundary qualified.
 
-## Next autonomous binding-recovery delivery
+## Connected autonomous binding-recovery implementation
 
-Deliver one complete recovery flow, rather than enabling a scheduling hint
-before its owner can settle work:
+The current source connects bounded committed due discovery, a private durable
+source claim, exact local/remote target sequence retirement and durable source
+settlement. The SQL worker excludes live/parked frames for all three maintenance
+operations. Recovery reads only bounded intent metadata, preserves the original
+parent outcome as unknown and never replays expired business input. It may
+complete the exact durable enrollment obligation; selected histories do not
+retarget. Startup requires the shared owner for binding classes. All classes
+have a new schema seed for the committed due-summary shape: this is a hard
+cutover to fresh compatible namespaces, with format markers still at 1.
 
-1. Persist the original child input digest in the intent body so discovery reads
-   bounded metadata rather than copying business arguments. Add a private source
-   claim operation on the existing system client. It must take current physical
-   group/term authority from the executor, reject live/parked source frames, fix
-   the immutable intent and prove the original source durability before any
-   target retirement. Preserve original selection and known-refusal information.
-2. Connect committed manifest discovery and `controller/effects` to one bounded
-   claim/retire/settle turn. Include orphaned resolved intents in cleanup. Keep
-   group/cell fairness, node metadata admission and one shared timer; empty cells
-   must not gain tasks, timers or SQLite scans. Release claim response admission
-   before loopback target work needs the same SQL/archive slot.
-3. Add a bounded authenticated target maintenance request on the existing command
-   transport. Preserve explicit namespace/process command grants and revocation,
-   target birth/route/incarnation, immutable child identity/input/policy and a
-   separate maintenance timeout. Normal SDK/public ingress still refuses private
-   operations. Target-local allocation of the existing system client's sequence
-   must reconcile concurrent or uncertain maintenance, never skip a sequence or
-   retry business input. Verify and consume target proof metadata before releasing
-   its response admission and starting source settlement.
-4. Handle a never-enrolled candidate through an explicit recovery-enrollment
-   contract. Define whether the durable source intent authorizes completion of
-   its exact original creation/initialization before sealing, with independent
-   maintenance admission; qualify that authorization before enabling it. The
-   expired business RPC input never dispatches. A conflicting creator needs a
-   proof that the original candidate cannot admit the old child, not retargeting
-   of unknown business work. Receipt/name absence and a source term change alone
-   do not exclude a delayed isolated sender. An absence shortcut needs a stronger
-   permanent dispatch fence and enrollment-before-business causality. Other
-   missing/retired histories require their own lineage proof.
-5. Commit source settlement only for the exact claimed intent and lane serial,
-   with the original source durability. Preserve unknown parent/partial outcomes;
-   an arbitrary Rust callback never replays. Then qualify process loss before
-   target admission, after target commit and before source settlement, concurrent
-   parked frames, known refusals, candidate creation, lane exhaustion, retained
-   restart, movement and recovery with real RustFS in both image/durability modes.
+Qualification is pending. New owning tests cover claim/settlement identity,
+source minimum, physical movement, transactional rollback and reused lanes.
+The public retained-restart case deliberately loses a binding after a committed
+target checkpoint, then checks autonomous source-lane release, unchanged target
+state, unknown parent replay and a subsequent named call. It runs both image
+forms and source Quorum/S3 minima, with original five-second request deadlines.
+The target namespace minimum remains Quorum. The existing ordinary binding
+matrix stays an independent gate; earlier failures are retained above.
 
-The latest materialized-Quorum and S3 deadline failures remain independent release
-gates. Complete SQL/KV bindings and committed alarms/cron, Queue, EventStream and
-Workflow after this recovery flow; keep the remaining provider and full lifecycle
-matrix in CG-17/15/16.
+Next qualify process loss before target admission, after target commit and before
+source settlement, parked-frame races, known refusals, competing candidate
+creation, remote command revocation, lane exhaustion, movement, wake and disaster
+recovery. Do not infer complete HTTP/RPC support from component passes. Profile
+the materialized-Quorum and S3 deadline failures without increasing budgets or
+repeating campaigns until green. Then deliver SQL/KV bindings and committed
+alarms/cron, Queue, EventStream and Workflow, followed by the remaining providers
+and combined CG-17/15/16 matrix.
 
 ## Current archive publisher and named-binding checkpoint
 
