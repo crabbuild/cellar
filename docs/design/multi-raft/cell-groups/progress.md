@@ -27,6 +27,17 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## Local artifact availability after workspace removal
+
+On 2026-11-12, the source/build/evidence root
+`/Volumes/Workspace/crabbuild-target/cellar-cg09-operator-continuity.NIVQ3e`
+was removed during a build. The committed implementation and historical
+source-pinned summaries/hashes remain in Git. Raw controls, executables and
+retained disks rooted in that deleted directory are no longer available.
+Earlier statements about artifact retention describe their checkpoint time;
+do not use those missing artifacts as new combined release evidence. The new
+binding-seal build must complete and execute its checks in the restored checkout.
+
 ## CG-17 leader archive publication and Quorum binding checkpoint
 
 Managed group registration now selects `CellGroupArchivePublisher::GroupLeader`.

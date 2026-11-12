@@ -29,6 +29,8 @@ Binding dispatch has no Fleet or weaker-durability fallback.
 Each call records its source intent before proving the source transaction. It
 fixes the target name, candidate incarnation, enrollment identity, operation,
 input, child identity, source/target durability and original absolute expiry.
+It also fixes the originating physical `GroupHistory` and leader term. A term
+number alone cannot fence recovery after movement to another physical group.
 Group-local applied metadata and an invocation-local verified history cache may
 supply a locator; neither is a target execution authority or durability proof.
 The cache retains one charged entry and does not survive the invocation.
@@ -58,14 +60,15 @@ not skip a target's next sequence. Destination counters are indexed, capped at
 have a separate lane epoch. Retained restart preserves names and counters.
 The binding configuration digest changes with these internal semantics; old
 prototype namespaces refuse schema admission rather than interpreting the old
-counter layout. Cellar-owned format markers remain at 1.
+counter layout or the earlier intent body without its physical origin.
+Cellar-owned format markers remain at 1.
 
 `cells::CallError` preserves the actual child identity, selected history when
 known, original cause and ambiguity. Cancellation after admission may leave owned
 work running; cancellation does not prove non-commit. A known target refusal is
 reported as known only after the source proves that refusal. Non-admission has
 not consumed the target sequence, so its intent and busy lane remain reserved.
-Unknown outcomes likewise retain their exact identity and lane. A future recovery
+Unknown outcomes likewise retain their exact identity and lane. The recovery
 owner must reconcile or seal these sequences before releasing them; it must never
 replay known-refused business input.
 
@@ -74,6 +77,34 @@ removes only resolved intents. Business-state erasure preserves protocol counter
 names and receipts and refuses unresolved calls. Authenticated manifest summaries
 count unresolved calls and prevent hibernation while obligations remain. Node/group
 SQL admission charges retained call/reply buffers through response handoff.
+
+## Private target sequence retirement
+
+A declared binding class has a private `__sys_raft_binding_seal` contract, absent
+from public operation discovery and ordinary command admission. The node's
+maintenance client invokes it through the existing command owner. It validates
+the exact registered target operation, input digest, child identity, retry horizon
+and minimum durability. The current cell incarnation and ordinary Raft admission
+still apply. Maintenance may use its own deadline after the original business
+expiry; it never dispatches the business input.
+
+The SQL worker refuses sealing while a same-cell RPC continuation remains live
+or parked, including a writer-free parked frame. An unresolved producer retains
+its existing cell writer admission. An unused contiguous sequence is recorded as
+an unfinished receipt with no business result. A later ordinary retry therefore
+remains typed unknown and cannot execute the callback; the next sequence can be
+admitted. An existing complete or partial receipt is preserved. An expired-through
+floor reports consumption without claiming a retained input/result proof.
+
+The seal and maintenance receipt share one transaction and publication. Admission
+reserves both receipt rows and both client slots when needed; outer failure rolls
+back the seal. An S3 child minimum requires S3 maintenance acknowledgement. Target
+retirement does not itself release the source lane or establish a parent result.
+
+Automatic discovery, authenticated remote maintenance routing and durable source
+settlement are not connected yet. Until that owner is complete, interrupted calls
+retain their original source intents and busy lanes. This private target boundary
+is not autonomous binding recovery or a completed primitive-family case.
 
 ## Archive publication scheduling
 

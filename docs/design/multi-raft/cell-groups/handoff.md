@@ -4,6 +4,42 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current binding sequence-retirement implementation
+
+Source `5323c59e` adds a private target sequence seal and persists the original
+physical source `GroupHistory` and term in each binding intent/fingerprint.
+Configured binding classes include the new maintenance contract in their schema;
+earlier prototype intent layouts require fresh compatible namespaces, with no
+legacy reader or migration. The seal uses normal current-incarnation command
+admission and cannot invoke business input. It preserves complete/partial
+receipts, distinguishes an expired-through floor, and consumes an unused sequence
+as an unfinished receipt whose normal result remains unknown. Reserve both the
+child and maintenance receipt/client slots. Outer failure rolls everything back.
+The SQL worker refuses seals while any same-cell RPC frame remains live/parked.
+This target maintenance operation alone does not schedule per-cell work.
+
+Next connect the bounded committed-work owner to authenticated remote target
+maintenance and durable source settlement. The source owner must exclude the
+original live/parked continuation using the exact originating physical history
+and term; never treat expiry, receipt absence or cancellation as non-commit.
+Retain the selected target history and all original identities, input, policy
+and expiry. An interrupted arbitrary Rust callback is never replayed. Release
+its source lane only after target sequence consumption and the original source
+durability are proven. Retire orphaned resolved intents as well as unresolved
+obligations. Candidate enrollment, partial callbacks, movement and fresh-incarnation
+refusals need explicit qualification. SQL/KV bindings and committed alarms/cron,
+Queue, EventStream and Workflow remain the next public feature deliveries.
+See the [target contract](named-bindings.md#private-target-sequence-retirement).
+
+The former source/build/evidence root
+`/Volumes/Workspace/crabbuild-target/cellar-cg09-operator-continuity.NIVQ3e`
+was removed during the current build. Source commits remain intact. The current
+checkout now owns the PR branch directly; builds use its new checkout-specific
+workspace target. Raw artifacts under the removed root are unavailable. Earlier
+source-pinned summaries/hashes survive in Git but do not establish current raw
+artifact retention or a fresh combined qualification. Rebuild and rerun the
+focused checks before claiming this new target boundary qualified.
+
 ## Current archive publisher and named-binding checkpoint
 
 Production code at `202c0452` uses leader-preferred managed archive publication,

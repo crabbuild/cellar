@@ -41,7 +41,9 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Complete autonomous named-binding intent recovery and target sequence sealing,
+1. Connect autonomous named-binding intent recovery to the private target sequence
+   seal, persisted physical source origin and bounded committed-work owner. Finish
+   authenticated remote maintenance routing and durable source lane settlement,
    then remaining shared Storage compatibility and ordinary SQL/KV bindings.
    Quorum binding requests now pass both image forms on native storage and real
    RustFS. Preserve exact identities, original ownership/input/policy/expiry and
