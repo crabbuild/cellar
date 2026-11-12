@@ -230,6 +230,46 @@ These entry points need their own runtime evidence. They do not close forged
 or conflicting-term advice, restarted endpoint wire cuts, full RO-03, constrained
 voter-process or performance qualification.
 
+## Faulty wire advice and untrusted TLS
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-advice \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-advice-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Two cases cover SDK, native HTTP and Axum in both image modes. The first retains
+60 observations of ten command/reply faults. The second joins the cached trusted
+connection before presenting an untrusted certificate at the same enrolled
+endpoint. It requires an actual `UnknownCA` alert and no RPC decoding, SQL entry
+or new non-commit proof. Restoring trust and permission must replay the original
+command exactly once with S3 durability.
+
+The runner checks complete caller/image coverage, physical identities, captured
+wire headers and bodies, response correlation and authenticators, original input
+and deadline preservation, routing/refusal counters and receipt observations.
+Native fixtures own TLS authentication and receipt verification. Evidence retains
+message authenticators and the public certificate fingerprint; it excludes keys
+and TLS exporters. These entry points need their own current-source runtime
+evidence. Removed-member and superseded-boot cuts, constrained voter processes
+and full RO-03/CG/OPT acceptance remain open.
+
+## Superseded boot advice
+
+The separate `routing-boot` suite holds the last byte of an authenticated
+command reply while its actual issuer restarts from retained storage. Each
+caller/image pair starts a fresh fixture. The replacement starts without remote
+command grants. Public inspection must verify a successor physical boot on the
+same engine and install its current endpoint; a real owner query then warms
+routing before the old reply is released. The ledger records the actual old
+writer outcome and requires the first recovered command and exact replay to use
+one cached RPC each. A closed old socket is recorded as a refused tail, without
+claiming that the client decoded it. Run it with
+`cell_groups.py --suite routing-boot` and the same explicit backend, output and
+checkout-private target arguments. This candidate still needs its own runtime
+evidence; removed-member and full RO-03 acceptance remain open.
+
 ## Endpoint repair and held replies
 
 ```sh

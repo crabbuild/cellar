@@ -80,6 +80,12 @@ pub(super) async fn cached_leader_direct_write() -> Result<()> {
     run(Scenario::Direct).await
 }
 
+pub(super) async fn superseded_boot_advice_cannot_change_route(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    advice::superseded_boot(make).await
+}
+
 pub(super) async fn busy_leader_keeps_placement() -> Result<()> {
     run(Scenario::Busy).await
 }
@@ -134,6 +140,12 @@ pub(super) async fn wire_advice_preserves_admission(
     make: Option<RoutingStoreFactory>,
 ) -> Result<()> {
     Box::pin(advice::run(make)).await
+}
+
+pub(super) async fn untrusted_tls_advice_cannot_grant_authority(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    Box::pin(advice::untrusted_tls(make)).await
 }
 
 pub(super) async fn cached_advice_respects_origin_revocation_with_store(

@@ -23,6 +23,7 @@ from local import command
 from store_probe import probe
 from backend_control import BackendControl
 from routing_endpoint_evidence import endpoint_observations
+from routing_advice_evidence import advice_observations
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
@@ -60,6 +61,32 @@ CASES = (
 )
 
 SUITES = {
+    "routing-boot": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_superseded_boot_advice_cannot_change_route",),
+        "a real issuer restart fences a held old-boot reply",
+        "Fresh SDK, native HTTP and Axum fixtures in both image modes hold the final byte of an "
+        "authenticated command reply while the issuer resumes retained storage under a new physical "
+        "boot. Remote writes remain disabled during startup. Public inspection installs the current "
+        "boot and a genuine owner query warms routing before release. The ledger records whether "
+        "the old socket writes its tail or is fenced, then requires unchanged refusal/SQL/callback "
+        "counts, original ambiguous identity, exact S3 recovery and one cached RPC for both the "
+        "first recovery and replay. Original five-second windows remain; removed-member wire cuts, "
+        "constrained voters and full RO-03/CG/OPT qualification remain open.",
+    ),
+    "routing-advice": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_wire_advice_preserves_admission", "rustfs_untrusted_tls_advice_cannot_grant_authority"),
+        "faulty wire advice and untrusted TLS cannot authorize a command",
+        "SDK, native HTTP and Axum in both image modes. Ten independently retained command/reply "
+        "faults preserve original identities and inputs, no SQL/callback entry under revoked "
+        "permission and once-only S3 replay. A separately rejected certificate cannot reach RPC "
+        "decoding or become pre-admission proof; its cached trusted socket is joined first. "
+        "The ledger requires all 60 wire observations and all six certificate observations. "
+        "Keys and TLS exporters are excluded from evidence; retained authenticators are message tags. Original "
+        "five-second windows and parent limits remain. Removed-member and superseded-boot wire "
+        "cuts, constrained voters and full RO-03/CG/OPT acceptance remain separate gates.",
+    ),
     "routing-endpoint": (
         "native_cell_groups_routing_optimization",
         ("rustfs_endpoint_refresh_keeps_membership", "rustfs_unrelated_follower_keeps_leader",
@@ -584,6 +611,8 @@ SUITES = {
     ),
 }
 
+ROUTING_SUITES = ("routing-range-repairs", "routing-authority", "routing-endpoint", "routing-advice", "routing-boot")
+
 
 def named_binding_observations(output, case):
     """Require the exact case's four completed image/source-policy profiles."""
@@ -643,6 +672,8 @@ def archive_fairness_observations(output, case):
 
 def routing_observations(output, case):
     """Require complete caller/mode output; native cases enforce receipt oracles."""
+    if case in SUITES["routing-advice"][1] + SUITES["routing-boot"][1]:
+        return advice_observations(output, case)
     if case in ("rustfs_read_first_refreshes_endpoint", "rustfs_unrelated_endpoint_keeps_inflight_reply"):
         return endpoint_observations(output, case)
     if case not in SUITES["routing-range-repairs"][1] + SUITES["routing-authority"][1] + SUITES["routing-endpoint"][1]:
@@ -879,7 +910,7 @@ def main():
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
-            if number and (args.suite in ("routing-range-repairs", "routing-authority", "routing-endpoint")
+            if number and (args.suite in ROUTING_SUITES
                            or selection == ARCHIVE_FAIRNESS_CASE
                            or selection in NAMED_BINDING_CASES):
                 argv.append("--show-output")
@@ -913,7 +944,7 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle", "routing-range-repairs", "routing-authority", "routing-endpoint") and result.returncode == 0:
+            if args.suite in ("managed-ingress", "managed-lifecycle", *ROUTING_SUITES) and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")
@@ -955,7 +986,7 @@ def main():
                 for case in cases:
                     if not re.search(rf"^{re.escape(case)}: test$", output, re.M):
                         raise RuntimeError("missing exact RustFS test in executable inventory")
-            if args.suite in ("routing-range-repairs", "routing-authority", "routing-endpoint") and number:
+            if args.suite in ROUTING_SUITES and number:
                 rows, scenarios = routing_observations(output, selection)
                 ledger = out / f"{number:02}-routing-evidence.json"
                 ledger.write_text(json.dumps(rows, indent=2) + "\n")

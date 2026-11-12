@@ -93,6 +93,25 @@ pub(super) fn acceptor() -> Result<tokio_rustls::TlsAcceptor> {
     Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
 }
 
+pub(super) fn untrusted_acceptor() -> Result<(tokio_rustls::TlsAcceptor, [u8; 32])> {
+    let issued = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    let fingerprint = Sha256::digest(issued.cert.der().as_ref()).into();
+    let mut config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_protocol_versions(&[&rustls::version::TLS13])?
+    .with_no_client_auth()
+    .with_single_cert(
+        vec![issued.cert.der().clone()],
+        rustls::pki_types::PrivatePkcs8KeyDer::from(issued.signing_key.serialize_der()).into(),
+    )?;
+    config.alpn_protocols = vec![b"cellar-raft-1".to_vec()];
+    Ok((
+        tokio_rustls::TlsAcceptor::from(Arc::new(config)),
+        fingerprint,
+    ))
+}
+
 pub(super) struct Wire {
     stream: TlsStream<TcpStream>,
     exporter: [u8; 32],
@@ -144,6 +163,8 @@ impl Wire {
         binding: [u8; 32],
         body: Vec<u8>,
         fault: Fault,
+        held: Option<Arc<HeldReply>>,
+        observe: impl FnOnce(&[u8], [u8; 32], [u8; 32]) -> Result<()> + Send,
     ) -> Result<()> {
         let Route {
             purpose,
@@ -177,10 +198,36 @@ impl Wire {
             exporter[0] ^= 1;
         }
         let mac = tag(&exporter, Some(&binding), &prefix, &header)?;
-        for bytes in [prefix.as_slice(), header.as_slice(), &mac, body.as_slice()] {
+        // Retain public frame authenticators, never the TLS exporter or keys.
+        // Recording before the first write keeps refusal observations race-free.
+        observe(
+            &header,
+            mac,
+            tag(&self.exporter, Some(&binding), &prefix, &header)?,
+        )?;
+        let tail = if held.is_some() { 1 } else { 0 };
+        ensure!(body.len() > tail);
+        for bytes in [
+            prefix.as_slice(),
+            header.as_slice(),
+            &mac,
+            &body[..body.len() - tail],
+        ] {
             self.stream.write_all(bytes).await?;
         }
         self.stream.flush().await?;
+        if let Some(held) = held {
+            held.prefix_bytes.store(
+                prefix.len() + header.len() + mac.len() + body.len() - 1,
+                Ordering::Release,
+            );
+            held.entered.notify_one();
+            tokio::time::timeout(TIMEOUT, held.release.notified())
+                .await
+                .context("held old-boot reply release")?;
+            self.stream.write_all(&body[body.len() - 1..]).await?;
+            self.stream.flush().await?;
+        }
         Ok(())
     }
 }

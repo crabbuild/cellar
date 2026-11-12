@@ -478,6 +478,25 @@ impl Cluster {
 
     /// Resume one voter while ingress retains its warm logical routing state.
     pub async fn restart_voter(&mut self, index: usize, generation: u8) -> Result<()> {
+        self.restart_voter_configured(index, generation, true).await
+    }
+
+    /// Resume without restoring remote write permission during an authority cut.
+    pub async fn restart_voter_without_command_grants(
+        &mut self,
+        index: usize,
+        generation: u8,
+    ) -> Result<()> {
+        self.restart_voter_configured(index, generation, false)
+            .await
+    }
+
+    async fn restart_voter_configured(
+        &mut self,
+        index: usize,
+        generation: u8,
+        command_grants: bool,
+    ) -> Result<()> {
         ensure!(index < INGRESS);
         self.stop(index).await?;
         let fixture = &self.managed.fixtures[index];
@@ -514,7 +533,7 @@ impl Cluster {
         host.start_managed_first_group(self.managed.history, TIMEOUT)
             .await?;
         for peer in &self.managed.peers {
-            if peer.node != host.identity().node {
+            if command_grants && peer.node != host.identity().node {
                 host.grant_command_origin(NamespaceCommandOrigin {
                     cluster: self.managed.history.cluster,
                     namespace: self.managed.history.namespace,
