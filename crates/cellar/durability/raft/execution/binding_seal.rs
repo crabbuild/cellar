@@ -77,9 +77,8 @@ pub(crate) fn execute(
         CommandFailure::CommandConflict
     );
     let connection = transaction.framework()?;
-    let state = crate::storage::as_framework_sql(|| {
-        receipts::seal_binding_sequence(&connection, &original, maintenance.client, &limits)
-    })?;
+    let state =
+        receipts::seal_binding_sequence(&connection, &original, maintenance.client, &limits)?;
     // 0: unused sequence consumed without business execution; 1: an exact
     // complete/partial/sealed receipt already consumed it. Neither is a child
     // business result. 2 reports only a replicated expired-through floor.

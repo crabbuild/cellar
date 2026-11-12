@@ -36,7 +36,7 @@ fn binding_seal_checks_policy_and_rolls_back_with_outer_transaction() -> anyhow:
         None,
         limits.max_image_bytes,
     )?;
-    crate::storage::as_framework_sql(|| receipts::install(database.framework()))?;
+    receipts::install(database.framework())?;
     // The original business expiry is in the past. Sealing cannot dispatch it;
     // maintenance has its own admission clock and must preserve its S3 minimum.
     let inputs = CommandInputs {
