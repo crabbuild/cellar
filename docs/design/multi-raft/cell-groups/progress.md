@@ -27,6 +27,82 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 leader archive publication and Quorum binding checkpoint
+
+Managed group registration now selects `CellGroupArchivePublisher::GroupLeader`.
+New publications prefer the local Raft leader. Followers acquire and independently
+verify advancing published prefixes; explicit single-replica archivers retain
+`LocalReplica` publication. A role sample schedules work without granting serving
+or S3 authority. Journaled intents still reconcile across role changes. Reclamation
+keeps its independent physical-closure and local term/index checks.
+
+Managed publication uses a validated 100 ms minimum retry/coalescing interval on
+the existing shared controller timer. A first newly waiting S3 proof can initiate
+one immediate attempt, while subsequent waiters share its work and retry cadence.
+Request deadlines and quorum/S3 proof requirements are unchanged. This interval
+is not a response-time or disaster-recovery RPO promise. See the
+[archive scheduling contract](named-bindings.md#archive-publication-scheduling).
+
+The new follower-prefix regression holds a newer publication and denies new
+archive payload writes. A follower must independently verify the older published
+prefix in both image forms. It passes natively and against real RustFS. This
+qualifies prefix acquisition, not sustained reclamation under load.
+
+At `202c0452`, all 14 selected native commands pass: the original named-binding
+case (83.087 seconds), follower-prefix verification, nine archive safety cases,
+SDK dispatch (98.881), Storage (27.366) and ordinary RPC (56.249). The nine archive
+cases cover peer reuse, compaction gating, stable cuts during writes, uncertain
+publication/joined close, namespace minima, sibling dependencies, exact results,
+S3 deadlines and receipt observations.
+The same source/executables pass all six existing primitive RustFS commands:
+Storage (29.164), SDK dispatch (144.283), RPC (65.633), activation (207.040),
+interleaving (174.139) and name discovery (82.179 seconds). The new follower-prefix
+RustFS case passes in 7.080 seconds. The named-binding RustFS case fails its first
+materialized S3-source request in 46.779 seconds total. Its materialized Quorum
+configuration completes; fail-fast reporting did not reach extents.
+The primitive executable SHA-256 is
+`7bec7c58ed0757499ff1c99b6d2e208b928b41326939a4521579f9c6647b4743`;
+the archive-controller executable SHA-256 is
+`4787a19d1fd59f84aec55b701b3d7a6e68104edfd80b1c65c29edeebf1ce6c26`.
+
+At `9e02f3f6`, the binding wrapper reports every independent configuration and
+still fails if any fails. The original workload, assertions and five-second
+command deadlines are unchanged. These two test files are the only changes
+since `202c0452`; production code is identical.
+
+| Binding source request | Native materialized | Native extents | RustFS materialized | RustFS extents |
+| --- | --- | --- | --- | --- |
+| Quorum | Pass | Pass | Pass | Pass |
+| S3 | Deadline failure | Deadline failure | Deadline failure | Deadline failure |
+
+The earlier complete native pass does not waive these later failures. Both
+combined matrix cases remain failed. Target minimum durability is Quorum in this
+fixture; cross-class targets, concurrent creation and S3-minimum target namespaces
+remain separate binding qualification work. The existing six-case primitive
+RustFS campaign now has a current-source complete pass; previous failed campaigns
+remain retained and do not establish a latency SLA.
+
+Focused failed diagnostic runs exposed 24 captures for ten log indexes with
+replica publication, then nine captures with leader publication. Leader-only
+waiting initially launched 1,887 archive attempts; the bounded retry run launches
+100. Those runs stop at different positions, and the final run also observes a
+leader change. These are diagnostic work counts, not a throughput or latency
+benchmark or proof of the remaining S3 failure's cause. Temporary timing probes
+are removed. Compiler/missing-caller controls, exact source patches, binaries,
+checks and all runtime outcomes are retained under
+`.cellar/cell-groups-evidence/CG-17-archive-publisher-9e02f3f6-01`.
+Both owned RustFS campaigns exit zero without OOM and stop their VM; the recorded
+target/default VMs are unchanged.
+
+No full primitive family, CG-17 case or release gate is accepted. The catalog
+remains partial at 18 entries, 202 symbols and 4,872 required coverage cells;
+task acceptance remains 13/17 and 147/195 cases. Next deliver autonomous intent
+reconciliation and target sequence sealing, including persisted source physical
+group/term and live-continuation fencing. Never replay an ambiguous parent Rust
+callback or known-refused business input. Complete SQL/KV bindings and committed
+due work for alarms/cron, Queue, EventStream and Workflow. The S3-source deadline
+failure and full lifecycle/provider/release matrix remain required gates.
+
 ## CG-17 ordinary named-cell bindings: qualification open
 
 Source `db614e6d` implements ordinary declared named-cell bindings over shared

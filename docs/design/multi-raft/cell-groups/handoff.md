@@ -4,27 +4,36 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current named-cell binding implementation
+## Current archive publisher and named-binding checkpoint
 
-Source `db614e6d` implements declared ordinary named bindings, owned structured
-RPC, source intents, per-destination sequences, target auto-enrollment and bounded
-owned dispatch. Repeated calls, self-calls, cancellation, transaction refusal and
-retained restart complete inside the materialized Quorum configuration in one
-native and one real RustFS run. The complete cases fail on the first S3-source
-request; an identical native control also fails on the third Quorum request.
-Extents configurations were not reached. All five-second deadlines and assertions
-remain unchanged; no binding family/case is accepted.
+Production code at `202c0452` uses leader-preferred managed archive publication,
+independent follower prefix verification and 100 ms bounded retry/coalescing on
+the existing controller timer. Explicit single-replica archivers keep their
+publication mode. All 14 selected native commands pass at this source, including
+ordinary RPC/SDK/Storage and the unchanged named-binding case. All six existing
+primitive RustFS commands and the new follower-prefix case pass. The RustFS
+named-binding case still fails its first materialized S3-source request.
 
-Next profile source proof and subsequent dispatch: retained RustFS images show
-target Add committed and a prepared Echo intent at expiry. Preserve the failed
-controls and uncertainty rather than repeating runs until green. Finish autonomous
-intent reconciliation and sequence sealing, then remaining SQL/KV bindings and
-committed work discovery for alarms/cron, Queue, EventStream and Workflow. Recovery
-must preserve exact identity/history/input/policy/expiry and must not replay
-known-refused business input. Pending obligations currently fail closed on
-hibernate/erase. See the [checkpoint](progress.md#cg-17-ordinary-named-cell-bindings-qualification-open)
-and [adapter contract](named-bindings.md). The full primitive compatibility and
-combined release gates remain required.
+At `9e02f3f6`, only the two binding test files change: report all four independent
+configurations and fail on any failure. Both native and real RustFS now establish
+Quorum binding coverage in both image forms; S3 source requests fail in both.
+Keep all original deadlines/assertions and the complete failed matrix. The older
+native complete pass is not a waiver. Both owned RustFS runs are cleanly stopped.
+See the [checkpoint](progress.md#cg-17-leader-archive-publication-and-quorum-binding-checkpoint)
+and [adapter contract](named-bindings.md).
+
+Next implement interrupted-intent recovery and target sequence sealing using the
+bounded committed-work owner. Persist the original physical GroupHistory and
+term alongside logical origin/identity/input/policy/expiry; term alone cannot
+fence movement to another group. Target sealing needs current ownership and
+same-cell SQL admission, must detect live/parked continuations, and may return
+existing complete/partial consumption or atomically consume an unused sequence
+without business execution. Partial outcomes remain typed unknown. Source lane
+release needs a durable settlement proof. Never replay an unfinished arbitrary
+Rust callback, infer non-commit from receipt absence, or retarget an unknown old
+incarnation. Then deliver SQL/KV bindings and committed due work for alarms/cron,
+Queue, EventStream and Workflow. Preserve the S3-source deadline and complete
+lifecycle/provider/release gates; no complete primitive family is accepted.
 
 ## Current Storage erasure and SQL batch parsing
 

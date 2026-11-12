@@ -75,6 +75,29 @@ names and receipts and refuses unresolved calls. Authenticated manifest summarie
 count unresolved calls and prevent hibernation while obligations remain. Node/group
 SQL admission charges retained call/reply buffers through response handoff.
 
+## Archive publication scheduling
+
+Managed archive registration uses `CellGroupArchivePublisher::GroupLeader`.
+New upload allocations prefer the local Raft leader; follower registrations
+acquire and independently verify advancing published prefixes. A role sample
+schedules work and grants no serving, quorum or archive authority. Journaled
+reservations/publications reconcile after role loss. Explicitly selected
+single-replica publishers use `LocalReplica`, including the Docker qualification
+service. Every leader-eligible managed voter needs an archive configuration.
+
+Managed registrations use a 100 ms minimum archive retry/coalescing interval,
+validated within 10–60,000 ms and driven by the existing controller timer. The
+first newly waiting S3 proof initiates one immediate attempt; subsequent waiters
+share its work and bounded schedule. Requests keep their original deadlines.
+This scheduling interval is not a disaster-recovery RPO or response-time promise.
+Quorum acknowledgements remain independent of asynchronous archival.
+
+Followers may acquire an older published prefix while later local entries are
+unarchived. Its route, complete physical closure and local term/index match must
+verify before it can advance the historical reclamation frontier. It cannot
+prove a newer command result. S3 output still checks the exact archived receipt
+and current birth; local compaction still requires its own admitted checkpoint.
+
 ## Remaining qualification and delivery
 
 The focused public regression exercises ordinary named calls, repeated calls,
@@ -89,3 +112,9 @@ as do deadline/refusal exhaustion, capacity, leader-loss and movement/wake/disas
 qualification. SQL/KV bindings, committed due work and the remaining public/provider
 primitive adapters are separate unfinished deliveries. Do not claim the full
 HTTP/RPC primitive-family case from a focused binding pass.
+
+The current per-configuration report at `9e02f3f6` passes Quorum source requests
+in both image forms on native storage and real RustFS. S3 source requests fail
+in both forms under the original five-second deadlines. The target namespace
+minimum in these cases is Quorum. The combined binding case remains failed;
+these results do not establish complete HTTP/RPC-family support.
