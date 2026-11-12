@@ -219,17 +219,10 @@ impl CellPrivateExecutor {
         let durability = attempt.request.durability;
         let route_epoch = self.authority.route().epoch;
         let limits = self.options.limits;
+        let system_request = system.then(|| attempt.request.clone());
         self.stage(attempt, allow_new, |transaction| {
-            if system {
-                class.invoke_system_command(
-                    &contract,
-                    &history,
-                    command,
-                    durability,
-                    transaction,
-                    input,
-                    limits,
-                )
+            if let Some(request) = system_request {
+                class.invoke_system_command(&history, &request, transaction, input, limits)
             } else {
                 class.invoke_command(
                     &contract,

@@ -1143,34 +1143,37 @@ impl RaftClass {
 
     pub(crate) fn invoke_system_command(
         &self,
-        contract: &OperationContract,
         scope: &CellHistory,
-        command: CommandId,
-        durability: Durability,
+        request: &crate::raft::execution::CommandRequest,
         transaction: &CommandTransaction<'_>,
         input: &[u8],
         limits: crate::raft::execution::ExecutionLimits,
     ) -> anyhow::Result<Vec<u8>> {
-        self.validate_system_operation(contract)?;
+        let contract = OperationContract {
+            operation: request.operation.clone(),
+            kind: OperationKind::Command,
+            digest: request.contract_digest,
+        };
+        self.validate_system_operation(&contract)?;
         if contract.operation == crate::raft::execution::binding_seal::OPERATION {
             let _guard = CallbackGuard::enter()?;
             return crate::raft::execution::binding_seal::execute(
                 self,
-                command,
-                durability,
+                request.id,
+                request.durability,
                 transaction,
                 input,
                 limits,
             );
         }
         self.invoke_registered_command(
-            RegisteredCommand::System(contract),
+            RegisteredCommand::System(&contract),
             CommandTarget {
                 cell: scope,
                 route_epoch: None,
             },
-            command,
-            durability,
+            request.id,
+            request.durability,
             transaction,
             input,
         )
