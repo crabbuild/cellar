@@ -7,7 +7,7 @@ use cellar::sdk::clone::{Object, StructuredValue, Value};
 
 const SCRIPT: &str = "named-binding-service";
 
-struct BoundCounter(Storage);
+struct BoundCounter(Storage, Arc<Notify>);
 
 fn graph() -> StructuredValue {
     StructuredValue {
@@ -40,6 +40,7 @@ impl Cell for BoundCounter {
                 "Hold" => {
                     update(&self.0, 1)?;
                     self.0.sync().await?;
+                    self.1.notify_one();
                     // The durable target checkpoint survives the lost response.
                     // The original kernel deadline cancels this frame.
                     return std::future::pending().await;
@@ -252,6 +253,14 @@ pub(super) async fn start(
     rooted: bool,
     store: Arc<catalog_fault::Store>,
 ) -> Result<ManagedCluster> {
+    start_with_checkpoint(rooted, store, Arc::new(Notify::new())).await
+}
+
+pub(super) async fn start_with_checkpoint(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    checkpoint: Arc<Notify>,
+) -> Result<ManagedCluster> {
     let class = RaftClass::new("Counter", 1, [111; 32])?
         .initializer([112; 32], |_, tx| {
             tx.execute_batch(
@@ -273,10 +282,15 @@ pub(super) async fn start(
             Ok(serde_json::to_vec(&context.storage().get_json("value")?)?)
         })?;
     let application = Arc::new(
-        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
-            .raft_cell(class, |context, _| {
-                Ok(Arc::new(BoundCounter(context.storage()?)))
-            })?,
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
+            class,
+            move |context, _| {
+                Ok(Arc::new(BoundCounter(
+                    context.storage()?,
+                    checkpoint.clone(),
+                )))
+            },
+        )?,
     );
     let mut declared = configuration::options(SCRIPT);
     declared.do_classes = vec!["Counter".into()];

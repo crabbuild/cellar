@@ -8,7 +8,13 @@ pub async fn run(
     durability: Durability,
     store: Arc<catalog_fault::Store>,
 ) -> Result<()> {
-    let mut cluster = Box::pin(bindings::start(rooted, store)).await?;
+    let checkpoint = Arc::new(Notify::new());
+    let mut cluster = Box::pin(bindings::start_with_checkpoint(
+        rooted,
+        store,
+        checkpoint.clone(),
+    ))
+    .await?;
     let domain = cluster.fixtures[0].domain.clone();
     let work = domain
         .run(async {
@@ -31,12 +37,30 @@ pub async fn run(
                 .await?;
             let original = bindings::options(1, durability)?;
             ensure!(original.timeout == TIMEOUT);
-            let error = source
+            let original_call = source
                 .command(
                     &source.contract("Abandon")?,
                     b"{}".to_vec(),
                     original.clone(),
                 )
+                .boxed();
+            let original_call = cellar::asyncrt::timeout(TIMEOUT, async {
+                match futures_util::future::select(original_call, checkpoint.notified().boxed())
+                    .await
+                {
+                    futures_util::future::Either::Left((result, _)) => {
+                        anyhow::bail!("binding returned before its target checkpoint: {result:?}")
+                    }
+                    futures_util::future::Either::Right(((), call)) => Ok(call),
+                }
+            })
+            .await
+            .context("original five-second checkpoint deadline")??;
+            let source_history = source.history().clone();
+            // Stop immediately after the durable target checkpoint, while the
+            // original RPC is still awaiting its response and before due recovery.
+            Box::pin(bindings::restart(&mut cluster)).await?;
+            let error = original_call
                 .await
                 .err()
                 .context("interrupted call cannot complete")?;
@@ -44,7 +68,9 @@ pub async fn run(
                 error.ambiguous,
                 "source intent must have committed: {error}"
             );
-            let source_history = source.history().clone();
+            drop(source);
+            let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+            let source = cluster.hosts[leader].cell(source_history)?;
             let target_history = cluster.hosts[leader]
                 .resolve_cell_history(
                     group.cluster,
@@ -67,11 +93,7 @@ pub async fn run(
                 value.result == b"1",
                 "target checkpoint committed before the lost response"
             );
-            drop((source, target, value));
-
-            Box::pin(bindings::restart(&mut cluster)).await?;
-            let leader = managed_fixture::leader(&cluster.hosts, group).await?;
-            let source = cluster.hosts[leader].cell(source_history)?;
+            drop((target, value));
             // Give the node-owned due worker time to act without any client retry.
             cellar::asyncrt::sleep(Duration::from_secs(2)).await;
             let end = cellar::asyncrt::mono_ms() + 60_000;
