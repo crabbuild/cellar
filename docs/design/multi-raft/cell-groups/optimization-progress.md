@@ -2765,6 +2765,24 @@ The subsequent PR integration includes base `ab06b48a`, which adds stateless SQL
 ingress and reuse of locally applied binding histories. The counter registry
 retains both branches' counters, and the baseline retains both review histories;
 all anchored file hashes still match the reviewed `89ad604c` checkpoint. Runtime
-results above remain bound to their stated revisions. This newer combined
-source needs separate validation, and the base's recorded RustFS interrupted-
-binding failures remain open.
+results above remain bound to their stated revisions.
+
+Combined checkpoint `8d578fba`, source digest `837c0127`, passes all 18 selected
+native cases: five performance-registry, two native SQL, one public SQL-binding,
+six CLI and four public routing/read cases. SQL bindings cover both image modes
+in 113.549 seconds; CLI cases pass in 18.004 seconds. Faulty-wire advice passes
+in 86.093 seconds with all 60 observations independently checked. Entered-source
+expiry passes in 15.086 seconds with all six profiles independently checked;
+preferences and the cohort pass in 27.932 and 26.506 seconds. Strict core/logic
+all-target Clippy passes in 1208.402 seconds, and all seven other static/source
+checks pass. The build preserves native profile-1 settings, the pinned compiler,
+original deadlines and assertions. Seven executable identities, their original
+Cargo artifacts, source inputs and both evidence ledgers are retained under
+`qualification/pr167-sql-ingress-base-ab06b48a`; its source/HEAD/clean-tree guard
+remains unchanged through completion.
+
+This qualifies the selected native integration. Earlier failed records remain
+failed, and the original uninstrumented standby timeouts remain unexplained.
+Current-source RustFS/Linux, broader native/storage/primitive coverage, measured
+performance and full CG/OPT acceptance remain open. The base's recorded RustFS
+interrupted-binding failures are not resolved by these native results.
