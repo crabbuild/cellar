@@ -31,14 +31,6 @@ fn stages(cluster: &nodes::Cluster, replaced: usize) -> Result<u64> {
     Ok(stages)
 }
 
-fn routing(ingress: &RaftCells) -> Result<[u64; 6]> {
-    let mut values = [0; 6];
-    for (index, name) in COUNTERS.iter().enumerate() {
-        values[index] = counter(ingress, name)?;
-    }
-    Ok(values)
-}
-
 pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>) -> Result<()> {
     let group = cluster.managed.history;
     let old = cluster.managed.peers[drill.issuer].clone();
@@ -67,7 +59,7 @@ pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>
     let command = options(2)?;
     let request = command_request(cluster, drill.caller, &command)?;
     let ingress = cluster.managed.hosts[INGRESS].clone();
-    let before = routing(&ingress)?;
+    let before = ingress_counters(&ingress)?;
     let callbacks = drill.callbacks.load(Ordering::Acquire);
     let sql = stages(cluster, drill.issuer)?;
     let rejected = counter(&ingress, "cell_command_pre_admission_refusals")?;
@@ -187,7 +179,7 @@ pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>
     .context("old reply writer completion")??;
     let rejected_after = counter(&ingress, "cell_command_pre_admission_refusals")?;
     ensure!(rejected_after == rejected);
-    let after = routing(&ingress)?;
+    let after = ingress_counters(&ingress)?;
     ensure!(after[0] > before[0] && after[4] > before[4]);
     for host in &cluster.managed.hosts[..INGRESS] {
         host.grant_command_origin(NamespaceCommandOrigin {
@@ -197,9 +189,9 @@ pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>
             peer: origin.clone(),
         })?;
     }
-    let before_recovery = routing(&ingress)?;
+    let before_recovery = ingress_counters(&ingress)?;
     let recovered = call(cluster, drill.caller, drill.cell, &command, Some(2)).await?;
-    let after_recovery = routing(&ingress)?;
+    let after_recovery = ingress_counters(&ingress)?;
     ensure!(
         after_recovery[..5]
             .iter()
@@ -210,7 +202,7 @@ pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>
         "old-boot completion changed the first recovered command route"
     );
     let before_replay = counter(&ingress, "cell_command_rpc_attempts")?;
-    let replay_before = routing(&ingress)?;
+    let replay_before = ingress_counters(&ingress)?;
     let probes = counter(&ingress, "cell_command_leader_probes")?;
     let directories = counter(&ingress, "cell_command_directory_lookups")?;
     let membership = counter(&ingress, "cell_membership_demand_refreshes")?;
@@ -229,7 +221,7 @@ pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>
             && receipt.durability == Durability::S3
     );
     ensure!(drill.callbacks.load(Ordering::Acquire) == callbacks + 1);
-    let replay_after = routing(&ingress)?;
+    let replay_after = ingress_counters(&ingress)?;
     ensure!(
         counter(&ingress, "cell_command_rpc_attempts")? == before_replay + 1
             && counter(&ingress, "cell_command_leader_probes")? == probes

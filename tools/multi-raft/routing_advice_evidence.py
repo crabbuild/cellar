@@ -10,6 +10,7 @@ import re
 WIRE = "rustfs_wire_advice_preserves_admission"
 TLS = "rustfs_untrusted_tls_advice_cannot_grant_authority"
 BOOT = "rustfs_superseded_boot_advice_cannot_change_route"
+REMOVED = "rustfs_removed_member_advice_cannot_grant_authority"
 FAULTS = (
     "ForeignCluster", "ForeignNamespace", "ForeignGroup", "ForeignIncarnation",
     "NonMember", "Configuration", "LowerTerm", "ConflictingTerm",
@@ -218,7 +219,71 @@ def _boot_observations(output):
     return rows, 6
 
 
+
+def _removed_observations(output):
+    prefix = "WIRE_REMOVED_AUTHORITY_EVIDENCE "
+    rows = [json.loads(line.split(prefix, 1)[1]) for line in output.splitlines() if prefix in line]
+    expected = {(caller, mode) for caller in ("Sdk", "Native", "Axum") for mode in (False, True)}
+    if (len(rows) != 6 or any(not isinstance(row, dict) or type(row.get("schema")) is not int
+            or row["schema"] != 1 or row.get("case") != REMOVED.removeprefix("rustfs_")
+            or type(row.get("extents")) is not bool for row in rows)
+            or {(row.get("ingress"), row["extents"]) for row in rows} != expected):
+        raise ValueError("incomplete removed-member caller/image coverage")
+    for row in rows:
+        _common(row)
+        removed = row.get("removed_member")
+        peer = row.get("removed_peer")
+        previous, current = row.get("previous_voters"), row.get("current_voters")
+        if (not _uint(removed, True) or removed not in (1,2,3)
+                or not _peer(peer) or peer["node"] in (row["issuer"]["node"],row["origin"]["node"])
+                or previous != [1,2,3] or any(type(member) is not int for member in previous)
+                or current != [member for member in (1,2,3,5) if member != removed]
+                or any(type(member) is not int for member in current)
+                or not _uint(row.get("seed_member"), True) or row["seed_member"] not in current
+                or row.get("current_voters_outgoing") != [] or row.get("current_learners") != []
+                or row.get("current_learners_next") != [] or row.get("current_auto_leave") is not False
+                or not _uint(row.get("previous_membership_revision"),True)
+                or row["membership_revision"] <= row["previous_membership_revision"]
+                or row.get("removed_replica_in_configuration") is not False
+                or type(row.get("removed_replica_member")) is not int or row["removed_replica_member"] != removed
+                or row["callbacks_before"] != 1 or row["command"]["sequence"] != 2
+                or type(row.get("replacement_leader")) is not int or row["replacement_leader"] != 5
+                or type(row.get("replacement_served_by")) is not int or row["replacement_served_by"] != 5
+                or row.get("replacement_result_be") != (1).to_bytes(8,"big").hex()
+                or not isinstance(row.get("replacement_version"),str) or not row["replacement_version"]
+                or row.get("original_version") != row["replacement_version"]
+                or not isinstance(row.get("replacement_token"),str) or not row["replacement_token"]
+                or row.get("fault") != "RemovedMember" or row["failure"]["ambiguous"]
+                or not _uint(row.get("seed_term"),True) or not _uint(row.get("term"),True)
+                or row["seed_term"] != row["term"] + 104
+                or type(row.get("term_after")) is not int or row["term_after"] != row["term"]
+                or type(row.get("membership_revision_after")) is not int
+                or row["membership_revision_after"] != row["membership_revision"]
+                or not _hex(row.get("directory_before"),64) or row["directory_before"] == "00"*32
+                or row.get("directory_after") != row["directory_before"]):
+            raise ValueError("invalid actual removal, role, configuration or unchanged range")
+        before, after = row["routing_before"], row["routing_after_refusal"]
+        if ([after[index]-before[index] for index in (0,2,3,4)] != [1,0,1,1]
+                or row["proven_rejections_after_refusal"] != row["proven_rejections_before"]+1):
+            raise ValueError("removed advice lost refusal proof or repaired unrelated placement")
+        frames = row.get("wire_requests")
+        if not isinstance(frames,list) or len(frames)!=1:
+            raise ValueError("missing exact current-issuer application attempt")
+        _frame(row,frames[0],leader=removed)
+        body = bytes.fromhex(frames[0]["response"])
+        if body[122:130] != body[131:139]:
+            raise ValueError("removed-member reply has an unrelated status fault")
+        if (any(not isinstance(row.get(key),str) or not row[key] for key in ("version","witness","token","replay_token"))
+                or row.get("token_observation_version") != row["version"]
+                or row.get("token_observation_witness") != row["witness"]
+                or row.get("replay_token_observation_version") != row["version"]
+                or row.get("replay_token_observation_witness") != row["witness"]):
+            raise ValueError("missing authenticated exact S3 receipt replay")
+    return rows,6
+
 def _observations(output, case):
+    if case == REMOVED:
+        return _removed_observations(output)
     if case == BOOT:
         return _boot_observations(output)
     if case not in (WIRE, TLS):

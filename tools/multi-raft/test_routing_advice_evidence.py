@@ -7,7 +7,7 @@ import hashlib
 import json
 import unittest
 
-from routing_advice_evidence import BOOT, FAULTS, TLS, WIRE, advice_observations
+from routing_advice_evidence import BOOT, FAULTS, REMOVED, TLS, WIRE, advice_observations
 
 
 def peer(node, disk, process):
@@ -133,6 +133,40 @@ def boot_rows():
 
 def boot_output(values):
     return "\n".join("WIRE_BOOT_AUTHORITY_EVIDENCE " + json.dumps(row) for row in values)
+
+
+def removed_rows():
+    result = []
+    for mode in (False,True):
+        for caller in ("Sdk","Native","Axum"):
+            row = copy.deepcopy(rows()[0])
+            row.update(case=REMOVED.removeprefix("rustfs_"),extents=mode,ingress=caller,
+                       fault="RemovedMember",removed_member=2,removed_peer=peer(2,12,22),
+                       previous_voters=[1,2,3],current_voters=[1,3,5],
+                       current_voters_outgoing=[],current_learners=[],current_learners_next=[],current_auto_leave=False,
+                       previous_membership_revision=1,membership_revision=2,membership_revision_after=2,
+                       removed_replica_in_configuration=False,removed_replica_member=2,
+                       term=896,term_after=896,version="exact",witness="exact",token="exact",
+                       replay_token="refreshed",token_observation_version="exact",token_observation_witness="exact",
+                       replay_token_observation_version="exact",replay_token_observation_witness="exact",
+                       replacement_leader=5,replacement_served_by=5,replacement_result_be=(1).to_bytes(8,"big").hex(),
+                       replacement_version="original",original_version="original",replacement_token="original-proof",
+                       directory_before="ab"*32,directory_after="ab"*32,
+                       failure={"ambiguous":False,"failure":"NotLeader"},proven_rejections_after_refusal=3)
+            frame=row["wire_requests"][0]
+            frame["fault"]="RemovedMember"
+            group=frame["route"]["scope"]["identity"]["group"]
+            body=(b"CLGCCS01\x01\x01" + bytes(n for part in group for n in part)
+                  + (2).to_bytes(8,"big") + bytes.fromhex(row["configuration_digest"])
+                  + (1001).to_bytes(8,"big") + (2).to_bytes(8,"big") + b"\x0c" + (2).to_bytes(8,"big"))
+            frame["response"]=body.hex()
+            frame["response_header"]["digest"]=list(hashlib.sha256(body).digest())
+            result.append(row)
+    return result
+
+
+def removed_output(values):
+    return "\n".join("WIRE_REMOVED_AUTHORITY_EVIDENCE " + json.dumps(row) for row in values)
 
 
 class AdviceEvidenceTests(unittest.TestCase):
@@ -295,3 +329,79 @@ class BootEvidenceTests(unittest.TestCase):
         frame["response_header"]["digest"] = list(hashlib.sha256(body).digest())
         with self.assertRaises(ValueError):
             advice_observations(boot_output(values), BOOT)
+
+
+class RemovedEvidenceTests(unittest.TestCase):
+    def test_complete_actual_removal_contract_and_fixed_suite(self):
+        import cell_groups
+        values=removed_rows()
+        self.assertEqual(advice_observations(removed_output(values),REMOVED),(values,6))
+        self.assertEqual(cell_groups.SUITES["routing-removed"][1],(REMOVED,))
+        self.assertEqual(cell_groups.routing_observations(removed_output(values),REMOVED),(values,6))
+
+    def test_missing_or_duplicate_removed_profile_refuses(self):
+        values=removed_rows()
+        for candidate in (values[:-1],values[:-1]+[values[0]]):
+            with self.assertRaises(ValueError):
+                advice_observations(removed_output(candidate),REMOVED)
+
+    def test_a_removed_label_cannot_replace_membership_and_physical_proof(self):
+        for field,value in (("current_voters",[1,2,3]),("previous_voters",[1,3,5]),
+                            ("removed_replica_in_configuration",True),("removed_replica_member",3),
+                            ("previous_membership_revision",2),("current_voters_outgoing",[2]),
+                            ("current_learners_next",[2]),("current_auto_leave",True),
+                            ("removed_member",99),("seed_member",2)):
+            values=removed_rows();values[0][field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                advice_observations(removed_output(values),REMOVED)
+
+    def test_authenticated_single_attempt_preserves_non_commit_proof(self):
+        for field,value in (("failure",{"ambiguous":True,"failure":"Unavailable"}),
+                            ("proven_rejections_after_refusal",2),("callbacks_after_refusal",2),
+                            ("sql_stages_after_refusal",11)):
+            values=removed_rows();values[0][field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                advice_observations(removed_output(values),REMOVED)
+
+    def test_one_targeted_membership_repair_preserves_range(self):
+        for index in (0,2,3,4):
+            values=removed_rows();values[0]["routing_after_refusal"][index]+=1
+            with self.subTest(index=index),self.assertRaises(ValueError):
+                advice_observations(removed_output(values),REMOVED)
+        values=removed_rows();values[0]["directory_after"]="cd"*32
+        with self.assertRaises(ValueError):
+            advice_observations(removed_output(values),REMOVED)
+
+    def test_reply_must_name_the_actual_removed_member(self):
+        values=removed_rows();frame=values[0]["wire_requests"][0]
+        body=bytearray.fromhex(frame["response"]);body[122:130]=(99).to_bytes(8,"big")
+        frame["response"]=body.hex();frame["response_header"]["digest"]=list(hashlib.sha256(body).digest())
+        with self.assertRaises(ValueError):
+            advice_observations(removed_output(values),REMOVED)
+
+    def test_changed_term_configuration_or_s3_result_refuses(self):
+        for field,value in (("term_after",897),("membership_revision_after",3),
+                            ("achieved_durability","Quorum"),("token",""),("result_be","00"*8)):
+            values=removed_rows();values[0][field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                advice_observations(removed_output(values),REMOVED)
+
+
+    def test_current_client_membership_is_proven_by_the_new_voter(self):
+        for field,value in (("replacement_leader",1),("replacement_served_by",1),
+                            ("replacement_result_be","00"*8),("replacement_version","different"),
+                            ("original_version","different"),("replacement_token","")):
+            values=removed_rows();values[0][field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                advice_observations(removed_output(values),REMOVED)
+
+
+    def test_refreshed_tokens_keep_exact_authenticated_progress(self):
+        values=removed_rows()
+        self.assertNotEqual(values[0]["token"],values[0]["replay_token"])
+        self.assertEqual(advice_observations(removed_output(values),REMOVED),(values,6))
+        for field in ("token_observation_version","token_observation_witness",
+                      "replay_token_observation_version","replay_token_observation_witness","replay_token"):
+            values=removed_rows();values[0][field]=""
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                advice_observations(removed_output(values),REMOVED)

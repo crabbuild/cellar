@@ -270,6 +270,34 @@ claiming that the client decoded it. Run it with
 checkout-private target arguments. This candidate still needs its own runtime
 evidence; removed-member and full RO-03 acceptance remain open.
 
+## Removed-member wire advice
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-removed \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-removed-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Six fresh caller/image fixtures replace a real voter through the existing
+eight-turn movement protocol and verify its retired physical inventory. A
+leadership handoff to the new voter, receipt replay and a query served by that
+voter establish current client membership. A different, still-current issuer
+sends authenticated advice naming that removed
+member under the current committed configuration. Revoked write permission must
+prevent SQL and callback entry. One membership refresh preserves the range and
+the authenticated pre-admission non-commit proof. Restored permission reuses the
+original command identity with exact S3 receipts and one callback.
+Both replay tokens must authenticate the exact version and witness; their
+per-reply issue and expiry timestamps may differ.
+
+The ledger requires both voter sets, an advanced configuration revision, the
+removed replica's role, complete wire framing, refusal and routing counters,
+unchanged directory and exact receipt observations. Native fixtures own TLS,
+membership/inventory authentication and receipt verification. These entry points
+need their own runtime evidence; constrained Linux and full RO-03/CG/OPT
+acceptance remain open.
+
 ## Endpoint repair and held replies
 
 ```sh
