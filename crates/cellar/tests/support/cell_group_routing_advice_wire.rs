@@ -61,7 +61,8 @@ fn tag(
     prefix: &[u8],
     header: &[u8],
 ) -> Result<[u8; 32]> {
-    let mut mac = Hmac::<Sha256>::new_from_slice(&[17; 32])?;
+    // Match the managed node fixture, independently of the older runtime probes.
+    let mut mac = Hmac::<Sha256>::new_from_slice(&[11; 32])?;
     for part in std::iter::once(if binding.is_some() { RESPONSE } else { REQUEST })
         .chain(std::iter::once(exporter.as_slice()))
         .chain(binding.map(|value| value.as_slice()))
