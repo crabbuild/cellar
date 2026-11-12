@@ -6,51 +6,49 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current binding recovery checkpoint
 
-The implementation at `eaf7a0db`, qualified with the tightened public fixture at
-`bb02bae5`, connects source claim, due discovery, authenticated exact target
-retirement and source settlement. It preserves unknown parent outcomes and never
-replays business callbacks. Current physical authority, source/target minima,
-live/parked-frame exclusion, original identities and exact lane serials remain
-required. All classes have a new due-summary schema seed: use fresh compatible
-namespaces and matching voters; format markers remain at 1.
+Source `90e19b34` closes the retained-restart recovery drill in all eight native
+and real RustFS configurations. It replaces full command-bank allocation and
+effect scanning with a bounded allocator query on the existing SQL owner,
+preserves typed recovery failures and observes closure after physical joins.
+Source claim, exact target-sequence retirement and source settlement retain their
+authority checks. Recovery preserves unknown parent outcomes and never replays
+business callbacks. All classes retain the existing due-summary schema hard
+cutover: fresh compatible namespaces and matching voters, with format markers 1.
 
-The locked build, 34 component selections and final all-target strict Clippy
-pass, along with formatting, layout, dependencies and docs. The combined runtime cohort fails: interrupted restart passes only
-native materialized Quorum; real RustFS restart is 0/4. Ordinary binding controls
-are native 0/4 and RustFS 1/4 (extents Quorum). Six restart configurations fail the
-unchanged `NoUnresolvedLocalProducers` shutdown assertion. RustFS materialized S3
-passes the interruption cut but cannot settle its source obligation within the
-observation window. No full primitive family or task is accepted.
+The locked build, 36 component tests, four managed shutdown/restart regressions,
+strict all-target Clippy, formatting, layout, dependency and documentation checks
+pass. Ordinary bindings pass 3/4 natively and 3/4 with RustFS. Native extents S3
+and RustFS materialized S3 still miss the first Relay deadline; every Quorum-source
+configuration passes. The combined cohort remains FAILED. No complete primitive
+family or task is accepted; counts remain 13/17 tasks and 147/195 cases.
 
-Evidence is `.cellar/cell-groups-evidence/CG-17-binding-recovery-bb02bae5-03`,
-including frozen binaries, exact commands, failed controls and 42 voter disks.
-The read-only S3 image observation shows target seal receipts, repeated source
-claims, one phase-4 intent and a busy lane, with no source settlement. The owned
-RustFS backend and source VM are stopped. The default user VM is unchanged.
+Evidence is `.cellar/cell-groups-evidence/CG-17-binding-liveness-90e19b34-01`,
+including frozen binaries, exact commands, all outcomes and six failed voter
+disks. The previous `bb02bae5` failed cohort and its 42 disks remain retained.
+The owned RustFS backend and source VM are stopped; the default VM is unchanged.
 
 ## Immediate feature priorities
 
-1. Fix system sequence discovery under load. `controller/binding_recovery.rs`
-   currently takes **all 64 KiB** of the fixture's command-byte bank and calls the
-   full effect scanner just to read an allocator. Logs repeatedly fail at source
-   settlement allocation. Factor the fixed client/last-sequence read out of
-   `effect_scan.rs`; return only bounded sequence metadata through the existing
-   `CellGroupSqlPool::query` owner. Retain linearizable authority, exact route and
-   cell history, physical SQL admission and deadline/cancellation ownership. Do
-   not increase banks or deadlines, scan payloads, or introduce per-cell tasks.
-   Add an owning test proving unrelated pending payloads are not decoded by this
-   allocator read. Preserve typed retirement/allocator errors in the turn log;
-   the current generic conversion masks them as corrupt state or an invalid label.
-2. Fix/qualify the strict shutdown proof. `group_client/close.rs` samples
-   `local_producers_quiesced` and SQL usage **before** joined `host.close()`. Study
-   whether the sealed admission and post-join counters can establish the same
-   conservative proof after all controller/SQL work has joined. Preserve held
-   response accounting, poisoned admission and group failure checks. Do not remove
-   the strict assertion from the fixture or reinterpret unknown as resolved.
-3. Qualify both fixes at one frozen source, including the ordinary binding gate.
-   One S3-source first target call takes 4,800 ms of its unchanged five-second
-   parent budget. Keep every old failure; do not repeat campaigns until green.
-4. Then implement ordinary SQL/KV bindings, durable alarms/cron, Queue,
+1. Diagnose and fix the two remaining ordinary S3-source binding deadlines.
+   The native extents failure returns Add after 2,378 ms; RustFS materialized
+   returns it after 2,910 ms. Neither returns Echo before the original parent
+   deadline. Read-only saved RustFS images contain a source step-2 receipt with a
+   prepared Echo intent and no target Echo receipt. These are separate saved cuts,
+   not a timing proof or an asserted latest manifest. Enable the existing
+   `cellar::raft::group_archive` stage tracing in the owning fixture to distinguish
+   checkpoint submission, archive verification/publication and target dispatch.
+   Keep the frozen failed control; do not repeat unchanged campaigns until green.
+2. Preserve the now-passing recovery and closure contracts: exact history/route
+   and linearizable reads; no payload scan or command-bank reservation for the
+   allocator; bounded retries within the maintenance deadline; held-response and
+   poisoned-admission accounting; failed groups withhold the closure proof.
+   Quiescence after joins proves neither caller delivery nor archive coverage.
+3. Implement ordinary SQL/KV bindings through the same durable intent owner.
+   Admission must bind declared identities and operation contracts, provision the
+   reserved service namespaces, populate Context binding maps and adapt the
+   built-in Storage/transaction paths. Removing the configuration refusal alone
+   is insufficient. Preserve independent target durability and original deadlines.
+4. Deliver durable alarms/cron, Queue,
    EventStream and Workflow, followed by filesystem/payload/WebSocket/provider
    adapters and the full lifecycle matrix. Complete CG-17/15/16 gates still apply.
 

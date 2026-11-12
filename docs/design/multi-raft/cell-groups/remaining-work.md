@@ -41,17 +41,19 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Close the connected binding recovery and original deadline gates. At
-   `bb02bae5`, 34 component tests pass; interrupted restart passes only native
-   materialized Quorum, while all RustFS restart configurations fail. The retained
-   S3 image proves claim and target sealing but no source settlement. Replace the
-   allocator's full command-bank reservation with a fixed-size read on the existing
-   SQL owner, preserve typed failures, and establish shutdown quiescence at a safe
-   joined boundary. Keep the strict shutdown assertion, original request deadlines
-   and all failed controls. Ordinary bindings pass only RustFS extents Quorum in
-   this cohort; the complete workload remains failed. Then deliver remaining
-   Storage compatibility and ordinary SQL/KV bindings. See the
-   [current recovery checkpoint](progress.md#cg-17-connected-binding-recovery-qualification).
+1. Close the ordinary binding deadline gate, then deliver SQL/KV bindings and
+   remaining Storage compatibility. At `90e19b34`, the fixed-size allocator read
+   and post-join closure observation pass 36 component tests, four managed
+   shutdown/restart regressions and all eight native/RustFS interrupted-binding
+   configurations. Ordinary bindings pass 6/8 configurations: native extents S3
+   and RustFS materialized S3 still expire during the first Relay request. All
+   Quorum-source configurations pass. Trace the existing archive stages around
+   source checkpoint proof and the second target dispatch; the saved RustFS
+   images contain Add's receipt and a prepared Echo intent, without an Echo
+   receipt. Those images alone do not establish when archive coverage became
+   available. Keep the strict shutdown assertion, original five-second deadlines,
+   quotas and failed controls. See the
+   [current recovery checkpoint](progress.md#cg-17-binding-liveness-and-joined-closure).
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.

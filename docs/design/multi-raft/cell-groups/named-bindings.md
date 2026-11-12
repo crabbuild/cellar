@@ -211,3 +211,14 @@ all original deadlines and shutdown assertions. A fixed-size system allocator
 read and a safe joined shutdown proof are the next recovery priorities, followed
 by the ordinary binding deadline gate and SQL/KV delivery. No full family is
 accepted by these component results.
+
+At `90e19b34`, fixed allocator reads and joined closure observation pass all
+eight native/RustFS interrupted-binding configurations, 36 component tests and
+four managed shutdown/restart regressions. The drill preserves unknown parent
+outcomes, releases source obligations autonomously, avoids duplicate target
+mutation and advances beyond the sealed child sequence. Ordinary bindings pass
+6/8 configurations; native extents S3 and RustFS materialized S3 still miss the
+first Relay deadline. The five-second budgets, quotas and strict closure
+assertions are unchanged. Full family and lifecycle acceptance remains open.
+See the [current checkpoint](progress.md#cg-17-binding-liveness-and-joined-closure)
+and [next priorities](handoff.md#immediate-feature-priorities).
