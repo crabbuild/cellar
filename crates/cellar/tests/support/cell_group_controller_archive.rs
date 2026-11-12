@@ -11,7 +11,7 @@ use futures_util::TryStreamExt;
 use object_store::ObjectStore;
 use std::sync::atomic::Ordering;
 
-use super::super::super::persist_archive_intent;
+use super::super::persist_archive_intent;
 
 pub(super) use super::super::super::archive_store;
 
