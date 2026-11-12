@@ -60,6 +60,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         effects: f.effects,
         sql_workers: f.sql_workers,
         max_pending_transactions: f.max_pending_transactions,
+        max_client_identities: f.max_client_identities,
         max_input_bytes: f.max_input_bytes,
         stale_source_timeout_ms: f.stale_source_timeout_ms,
         small_segments: f.small_segments,
@@ -200,10 +201,11 @@ pub async fn close_group_nodes_with_groups(
     expected: usize,
 ) -> Result<()> {
     for (node, host) in nodes.into_iter().zip(hosts) {
-        ensure!(matches!(
-            node.shutdown(ShutdownMode::Preserve).await?,
-            NodeOutcome::Stopped(_)
-        ));
+        let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+        ensure!(
+            matches!(outcome, NodeOutcome::Stopped(_)),
+            "managed node stop: {outcome:?}"
+        );
         let report = host.close().await?;
         ensure!(
             report.groups_total == expected

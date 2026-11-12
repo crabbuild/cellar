@@ -456,6 +456,16 @@ impl RaftCellHandle {
         input: Vec<u8>,
         options: CommandOptions,
     ) -> impl Future<Output = Result<CommandReceipt, Arc<CellCommandError>>> + Send + 'static {
+        self.command_retaining(contract, input, options, None)
+    }
+
+    pub(super) fn command_retaining(
+        &self,
+        contract: &OperationContract,
+        input: Vec<u8>,
+        options: CommandOptions,
+        reservation: Option<crate::rpc_reservation::Reservation>,
+    ) -> impl Future<Output = Result<CommandReceipt, Arc<CellCommandError>>> + Send + 'static {
         let id = options.id;
         let accepted = self
             .owner
@@ -466,7 +476,7 @@ impl RaftCellHandle {
                 cause: Box::new(cause),
             })
             .and_then(|()| {
-                self.cell.command(
+                self.cell.command_retaining(
                     CellCommandRequest {
                         id,
                         contract: contract.clone(),
@@ -478,6 +488,7 @@ impl RaftCellHandle {
                         timeout: options.timeout,
                         max_attempts: 4,
                     },
+                    reservation,
                 )
             });
         let owner = self.owner.clone();

@@ -279,6 +279,17 @@ pub struct QueryContext<'a> {
 }
 
 impl QueryContext<'_> {
+    pub(super) fn sql_ingress_sequence(&self, input: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let QueryVersion::Cell(observation) = self.version else {
+            anyhow::bail!(super::CommandFailure::UnsupportedCapability);
+        };
+        super::sql_ingress_identity::observe(
+            self.frame.database().connection(),
+            observation.version.sequence.get(),
+            input,
+        )
+    }
+
     pub fn outbox_progress(&self, lane: &str) -> anyhow::Result<super::RaftOutboxProgress> {
         crate::raft::effects::outbox::progress(
             self.frame.database().connection(),
@@ -406,7 +417,7 @@ impl RaftClass {
         Self::definition(
             crate::deploy::SQL_CLASS.into(),
             1,
-            Sha256::digest(b"cellar-raft-sql-service-1").into(),
+            Sha256::digest(b"cellar-raft-sql-service-ingress-identity-1").into(),
         )
     }
 
@@ -993,6 +1004,20 @@ impl RaftClass {
         durability: Durability,
         input: &[u8],
     ) -> anyhow::Result<()> {
+        let ingress = id.client == super::sql_ingress_identity::client();
+        if (self.name == crate::deploy::SQL_CLASS && ingress)
+            || (self.is_cell_rpc(&contract.operation)
+                && super::native_rpc::has_ingress_nonce(input))
+        {
+            anyhow::ensure!(
+                ingress
+                    && self.name == crate::deploy::SQL_CLASS
+                    && self.is_cell_rpc(&contract.operation)
+                    && super::native_rpc::has_ingress_nonce(input),
+                super::CommandFailure::UnsupportedCapability
+            );
+            super::native_rpc::decode_request(input)?;
+        }
         if let Some(inbox) = self.inboxes.get(&contract.operation) {
             anyhow::ensure!(
                 durability >= inbox.durability,

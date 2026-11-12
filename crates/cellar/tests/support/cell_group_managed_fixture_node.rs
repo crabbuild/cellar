@@ -37,6 +37,7 @@ pub struct Fixture {
     pub effects: Option<RaftEffectOptions>,
     pub sql_workers: usize,
     pub max_pending_transactions: usize,
+    pub max_client_identities: usize,
     pub max_input_bytes: usize,
     /// An explicit, shorter source-observation lifetime for expiry drills.
     pub stale_source_timeout_ms: Option<u64>,
@@ -181,6 +182,7 @@ impl Fixture {
             effects: None,
             sql_workers: 2,
             max_pending_transactions: 32,
+            max_client_identities: 1024,
             max_input_bytes: 1024,
             stale_source_timeout_ms: None,
             small_segments: false,
@@ -273,6 +275,7 @@ impl Fixture {
         // Snapshot/current/private/apply/incoming ownership admits eight copies.
         host.execution.max_image_bytes = self.image_bytes / 8;
         host.execution.max_pending_transactions = self.max_pending_transactions;
+        host.execution.max_client_identities = self.max_client_identities;
         let (region, zone) = self
             .placement_domains
             .as_ref()

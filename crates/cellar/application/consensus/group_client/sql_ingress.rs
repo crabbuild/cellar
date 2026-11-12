@@ -2,26 +2,41 @@
 
 //! A stateless request has one target command identity and no source transaction.
 
+use super::super::sql_ingress_identity::{self, Observation};
 use super::*;
 use crate::application::{cell_bindings::CallError, consensus::native_rpc, HandlerFuture};
 use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
-use cellar_logic::consensus::{ClientId, IncarnationId, ProposalId};
+use cellar_logic::consensus::{IncarnationId, ProposalId};
 use rand::RngCore as _;
 
 impl RaftCells {
     pub(crate) fn sql_ingress(
         &self,
-        scope: String,
-        name: Option<String>,
-        method: String,
-        args: RpcData,
+        admitted: crate::outbound_rpc::Admitted,
         call_scope: crate::host_rpc::CallScope,
         deadline: u64,
     ) -> HandlerFuture<RpcData> {
+        let crate::outbound_rpc::Admitted {
+            reservation,
+            scope,
+            name,
+            method,
+            args,
+        } = admitted;
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
-            let route = self.handle.core.host.sql_ingress_route(&scope, &method)?;
+            let route =
+                self.handle
+                    .core
+                    .host
+                    .sql_ingress_route(&scope, &method, &self.handle.core.log)?;
+            if route.history_hint.is_some() {
+                self.handle.core.log.performance().increment(
+                    crate::raft::performance::Counter::CellBindingAppliedHistoryHints,
+                    1,
+                );
+            }
             let bytes = route
                 .max_input_bytes
                 .checked_mul(2)
@@ -41,18 +56,21 @@ impl RaftCells {
                     .ok_or(RuntimeError::DeadlineExceeded)?,
             );
             let (_, memory) = self.metadata_admission(timeout, bytes)?;
-            let input = native_rpc::encode_request(name.as_deref(), &args, route.max_input_bytes)?;
             let mut rng = crate::asyncrt::rng("stateless-sql-command");
-            let mut client = [0; 16];
+            let mut nonce = [0; 16];
             let mut creation = [0; 16];
             let mut incarnation = [0; 16];
-            rng.fill_bytes(&mut client);
+            rng.fill_bytes(&mut nonce);
             rng.fill_bytes(&mut creation);
             rng.fill_bytes(&mut incarnation);
-            client[0] |= 1;
             creation[0] |= 1;
             incarnation[0] |= 1;
-            let id = CommandId::new(ClientId::new(client)?, 1)?;
+            let input = native_rpc::encode_ingress_request(
+                name.as_deref(),
+                &args,
+                nonce,
+                route.max_input_bytes,
+            )?;
             let creation = ProposalId::new(creation)?;
             let candidate = CellHistory {
                 cluster: route.cluster,
@@ -66,9 +84,9 @@ impl RaftCells {
             Ok((
                 route.contract,
                 route.durability,
+                route.history_hint,
                 candidate,
                 creation,
-                id,
                 retry_until_ms,
                 input,
                 deadline,
@@ -80,15 +98,16 @@ impl RaftCells {
             let (
                 contract,
                 durability,
+                history_hint,
                 candidate,
                 creation,
-                id,
                 retry_until_ms,
                 input,
                 deadline,
                 _memory,
             ) = prepared?;
             let selected = Mutex::new(None);
+            let command = Mutex::new(None);
             let submitted = std::sync::atomic::AtomicBool::new(false);
             let remaining = || -> anyhow::Result<Duration> {
                 let now = owner.handle.domain.mono_ms()?;
@@ -100,36 +119,38 @@ impl RaftCells {
                 ))
             };
             let operation = async {
-                let history = match owner
-                    .resolve_cell_history(
-                        candidate.cluster,
-                        candidate.namespace,
-                        candidate.cell.clone(),
-                        QueryOptions {
-                            timeout: remaining()?,
-                            ..QueryOptions::default()
-                        },
-                    )
-                    .await?
-                {
-                    Some(history) => history,
-                    None => {
-                        let enrolled = owner
-                            .cell(candidate.clone())?
-                            .enroll(
-                                CellEnrollmentRequest {
-                                    creation,
-                                    durability,
-                                },
-                                remaining()?,
-                            )
-                            .await;
-                        match enrolled {
-                            Ok(_) => candidate.clone(),
-                            Err(error) => {
-                                // A concurrent creator may win. No business command
-                                // has been dispatched, so selecting that history is safe.
-                                loop {
+                // A local applied history is only a locator. The sequence query
+                // and command still require the exact target's fresh quorum.
+                let (history, newly_enrolled) = if let Some(history) = history_hint {
+                    (history, false)
+                } else {
+                    match owner
+                        .resolve_cell_history(
+                            candidate.cluster,
+                            candidate.namespace,
+                            candidate.cell.clone(),
+                            QueryOptions {
+                                timeout: remaining()?,
+                                ..QueryOptions::default()
+                            },
+                        )
+                        .await?
+                    {
+                        Some(history) => (history, false),
+                        None => {
+                            match owner
+                                .cell(candidate.clone())?
+                                .enroll(
+                                    CellEnrollmentRequest {
+                                        creation,
+                                        durability,
+                                    },
+                                    remaining()?,
+                                )
+                                .await
+                            {
+                                Ok(_) => (candidate.clone(), true),
+                                Err(error) => loop {
                                     match owner
                                         .resolve_cell_history(
                                             candidate.cluster,
@@ -142,14 +163,9 @@ impl RaftCells {
                                         )
                                         .await
                                     {
-                                        Ok(Some(history)) => break history,
+                                        Ok(Some(history)) => break (history, false),
                                         Ok(None) => {
-                                            // Absence is only a read at this cut. The
-                                            // winning creation may still be pending.
-                                            // Wait for its name; do not create another
-                                            // candidate or dispatch any business input.
-                                            let delay = remaining()?.as_millis() as u64;
-                                            let delay = delay.min(
+                                            let delay = (remaining()?.as_millis() as u64).min(
                                                 owner
                                                     .handle
                                                     .core
@@ -168,20 +184,83 @@ impl RaftCells {
                                         }
                                         Err(_) => return Err(error.into()),
                                     }
-                                }
+                                },
                             }
                         }
                     }
                 };
                 *selected.lock().unwrap() = Some(history.clone());
                 let cell = owner.cell(history.clone())?;
-                let mut options = CommandOptions::new(id, retry_until_ms);
-                options.durability = durability;
-                options.timeout = remaining()?;
-                // SDK submission retains admitted work if the response is lost.
-                // Never choose another history or invent a mutation retry identity.
-                submitted.store(true, Ordering::Release);
-                let receipt = cell.command(&contract, input, options).await?;
+                // The runtime-owned initializer creates an empty stream. This
+                // is a hint at the enrollment cut, never an exclusive sequence
+                // reservation: another caller can still consume it first.
+                let next = if newly_enrolled {
+                    1
+                } else {
+                    observe(&cell, 0, remaining()?).await?.next
+                };
+                *command.lock().unwrap() =
+                    Some(CommandId::new(sql_ingress_identity::client(), next)?);
+                let fingerprint = super::super::command_request_digest(&input);
+                let mut attempt = 0u64;
+                let receipt = loop {
+                    let id = command
+                        .lock()
+                        .unwrap()
+                        .ok_or(super::super::CommandFailure::CorruptState)?;
+                    let mut options = CommandOptions::new(id, retry_until_ms);
+                    options.durability = durability;
+                    options.timeout = remaining()?;
+                    let dispatch_budget_ms = options.timeout.as_millis();
+                    attempt = attempt
+                        .checked_add(1)
+                        .ok_or(super::super::CommandFailure::Overloaded)?;
+                    submitted.store(true, Ordering::Release);
+                    let result = cell
+                        .command_retaining(
+                            &contract,
+                            input.clone(),
+                            options,
+                            Some(reservation.clone()),
+                        )
+                        .await;
+                    match result {
+                        Ok(receipt) => break receipt,
+                        Err(error)
+                            if matches!(
+                                error.cause.refusal(),
+                                Some(super::super::CommandFailure::CommandConflict)
+                            ) =>
+                        {
+                            // The dispatch error alone is not non-commit proof. A
+                            // fresh quorum read must find a different immutable
+                            // fingerprint at this exact occupied sequence.
+                            let observed = match observe(&cell, id.sequence(), remaining()?).await {
+                                Ok(observed) => observed,
+                                Err(proof_error) => {
+                                    return Err(anyhow::Error::from(error).context(format!(
+                                        "SQL sequence conflict proof failed: {proof_error}"
+                                    )))
+                                }
+                            };
+                            if !observed.consumed_other(id.sequence(), fingerprint) {
+                                return Err(dispatch_failure(error, attempt, dispatch_budget_ms));
+                            }
+                            submitted.store(false, Ordering::Release);
+                            *command.lock().unwrap() = Some(CommandId::new(
+                                sql_ingress_identity::client(),
+                                observed.next,
+                            )?);
+                        }
+                        Err(error) => {
+                            return Err(dispatch_failure(error, attempt, dispatch_budget_ms))
+                        }
+                    }
+                };
+                let id = command
+                    .lock()
+                    .unwrap()
+                    .ok_or(super::super::CommandFailure::CorruptState)?;
                 anyhow::ensure!(
                     receipt.id == id
                         && receipt.version.history == history
@@ -189,6 +268,14 @@ impl RaftCells {
                     super::super::CommandFailure::CorruptState
                 );
                 let response = native_rpc::decode_response(&receipt.result)?;
+                if let Some(limit) = reservation.reply_limit() {
+                    anyhow::ensure!(
+                        matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
+                        crate::application::rpc::Failure::new(
+                            crate::application::rpc::Code::InvalidResponse
+                        )
+                    );
+                }
                 remaining()?;
                 Ok(response)
             };
@@ -206,12 +293,15 @@ impl RaftCells {
             )
             .await
             .map_err(|cause| {
+                let Some(command) = command.into_inner().unwrap() else {
+                    return cause;
+                };
                 let ambiguous = cause.downcast_ref::<Arc<CellCommandError>>().map_or_else(
                     || submitted.load(Ordering::Acquire),
                     |error| error.ambiguous,
                 );
                 CallError {
-                    command: id,
+                    command,
                     target: selected.into_inner().unwrap(),
                     ambiguous,
                     cause,
@@ -219,5 +309,62 @@ impl RaftCells {
                 .into()
             })
         })
+    }
+}
+
+async fn observe(
+    cell: &RaftCellHandle,
+    sequence: u64,
+    timeout: Duration,
+) -> anyhow::Result<Observation> {
+    let mut nonce = [0; 16];
+    crate::asyncrt::rng("sql-ingress-sequence-query").fill_bytes(&mut nonce);
+    nonce[0] |= 1;
+    let result = cell
+        .query(
+            ProposalId::new(nonce)?,
+            &cell.contract(sql_ingress_identity::OPERATION)?,
+            sequence.to_be_bytes().to_vec(),
+            QueryOptions {
+                consistency: QueryConsistency::Linearizable,
+                timeout,
+                ..QueryOptions::default()
+            },
+        )
+        .await?;
+    anyhow::ensure!(
+        result.version.history == *cell.history(),
+        super::super::CommandFailure::CorruptState
+    );
+    Observation::decode(&result.result)
+}
+
+fn dispatch_failure(error: Arc<CellCommandError>, attempt: u64, budget_ms: u128) -> anyhow::Error {
+    // Preserve the typed original cause and ambiguity while exposing whether
+    // discovery consumed the budget or the target itself missed its deadline.
+    let message =
+        format!("SQL target attempt {attempt} started with {budget_ms}ms remaining: {error}");
+    anyhow::Error::from(error).context(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_context_keeps_the_typed_unknown_outcome() -> anyhow::Result<()> {
+        let original = Arc::new(CellCommandError {
+            command: CommandId::new(sql_ingress_identity::client(), 2)?,
+            ambiguous: true,
+            cause: Box::new(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+        });
+        let contextual = dispatch_failure(original.clone(), 2, 987);
+        assert!(contextual.to_string().contains("987ms remaining"));
+        assert!(contextual.to_string().contains("DeadlineExceeded"));
+        assert!(Arc::ptr_eq(
+            contextual.downcast_ref::<Arc<CellCommandError>>().unwrap(),
+            &original
+        ));
+        Ok(())
     }
 }

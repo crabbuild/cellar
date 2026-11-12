@@ -334,6 +334,15 @@ impl CellGroupCellHandle {
         request: CellCommandRequest,
         limits: CellRoutingLimits,
     ) -> Result<CellCommandCall, CellCommandError> {
+        self.command_retaining(request, limits, None)
+    }
+
+    pub(crate) fn command_retaining(
+        &self,
+        request: CellCommandRequest,
+        limits: CellRoutingLimits,
+        reservation: Option<crate::rpc_reservation::Reservation>,
+    ) -> Result<CellCommandCall, CellCommandError> {
         self.host.check_open().map_err(|cause| CellCommandError {
             command: request.id,
             ambiguous: false,
@@ -347,13 +356,18 @@ impl CellGroupCellHandle {
                 ambiguous: false,
                 cause: Box::new(cause),
             })?;
-        self.host.controller.dispatch_command(
-            &self.binding.dispatcher,
+        let mut pending = self.binding.dispatcher.prepare_command(
             self.history.clone(),
             request,
             limits,
-            options,
-        )
+            None,
+            None,
+            false,
+        )?;
+        pending.retain_submission(reservation);
+        self.host
+            .controller
+            .dispatch_prepared_command(pending, options)
     }
 
     /// Queue a read with its explicit consistency and original invocation deadline.

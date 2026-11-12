@@ -26,6 +26,11 @@ pub(in crate::application) fn sql_service() -> Result<RaftClass, RegistrationErr
         digest.update(method);
         class = class.cell_rpc(method, digest.finalize().into())?;
     }
+    class = class.query(
+        super::sql_ingress_identity::OPERATION,
+        Sha256::digest(b"cellar-sql-ingress-sequence-1").into(),
+        |query, input| query.sql_ingress_sequence(input),
+    )?;
     class = class.with_cell_factory(Arc::new(|context, _| {
         crate::application::sql::create_cell(&context)
     }))?;

@@ -13327,3 +13327,83 @@ wake, archive outage and disaster qualification also remain open. Then deliver
 KV expiry/alarm/payload semantics and the other primitive families. The separate
 ordinary S3-source deadline gate is unchanged and was not rerun here. Recorded
 acceptance remains **13/17 tasks, 147/195 cases**; no full primitive family is accepted.
+
+## CG-17 bounded stateless SQL ownership
+
+Source `b233dfbb` replaces stateless SQL's per-call client identity allocation with
+one reserved client stream per database history. A fresh 128-bit request nonce
+keeps identical SQL calls distinct. The private sequence query reads existing
+replicated floors without modifying them. A conflict error alone cannot authorize
+another mutation: a fresh quorum query of the selected history must find a
+different immutable request fingerprint at that exact sequence. Missing, pruned
+and matching receipts preserve uncertainty. Every attempt keeps its input, nonce,
+history, expiry and original deadline. No floor is deleted and no node-local
+per-cell map, worker or timer is introduced.
+
+Only reserved SQL RPC contracts admit the fixed identity/nonce envelope. Opaque
+registered commands preserve arbitrary input bytes and unrelated client IDs.
+The SQL service schema digest changes; use fresh compatible SQL namespaces and
+matching voters. Format markers remain at 1. Native RPC error and capability
+validation remain intact.
+
+The normal outbound RPC budget now admits and densely normalizes SQL submissions.
+The admission ticket transfers from pending preparation into the controller-owned
+SQL business command, including unresolved physical producers. Expiring or dropping
+the response does not release that command's ticket. Reply limits remain enforced;
+metadata/name/enrollment operations retain their independent existing Raft admission.
+The API carries the existing `Admitted` request value intact.
+
+The locked source build, strict all-target Clippy and repository checks pass.
+The selected codec/identity/receipt/maintenance/outbound and dispatch-context tests pass: 25 checks,
+including 32 sequential commands under a one-client ceiling, partial/pruned/missing
+receipt semantics, nonce bounds, reserved roles and opaque input compatibility.
+Registration checks pass 15/15 and native SQL checks pass 2/2. The public SQL drill
+passes **4/4** native/RustFS backend/image configurations under a four-client
+ceiling, including identical racing inserts, SQL failures/rollback, sessions,
+migrations, retained restart and quorum refusal. Original stateless three-second
+and Raft-source five-second budgets remain unchanged. No production quota is raised.
+
+Interrupted binding recovery passes **7/8** at the same source:
+
+| Backend | Materialized Quorum | Materialized S3 | Extents Quorum | Extents S3 |
+| --- | --- | --- | --- | --- |
+| Native store | Pass | Pass | Pass | Pass |
+| Real RustFS | Pass | **Failed** | Pass | Pass |
+
+The failure is the post-recovery `Again` request at parent sequence 4, returning
+ambiguous `Runtime(DeadlineExceeded)` under the original five-second budget.
+Read-only inspection of retained immutable voter images finds a completed
+`RecoveryProbe(true)` at sequence 3 and a partial `Again` receipt at sequence 4.
+That narrows the failing phase without establishing which publication or target
+stage exhausted the budget. The inspection does not select the authoritative
+manifest or execute recovery. Three voter disks, binary hashes, logs and the
+inspection record are retained. The combined runtime gate is **FAILED**. Preserve
+each failed outcome; this is not a complete primitive/release pass. Earlier S3
+deadline and clean-stop failures remain open regardless of later
+individual passes. The `c43aef1f` control passed SQL 4/4 and recovery 7/8 but failed
+Clippy's eight-argument limit. Its repeat failure was the RustFS materialized S3
+`Again` request, parent sequence 3, after retained recovery. Three voter disks,
+frozen binaries and failed logs remain. The carrier cleanup at `0f08af9d` changed no SQL operation body, but its final
+SQL matrix passed 3/4: RustFS extents first access reached command sequence 2 and
+missed the original three-second deadline. All failed disks remain. The current
+source removes a redundant name lookup when the charged local applied-voter
+metadata supplies a locator, and uses a sequence-1 hint after acknowledged empty
+enrollment. Target quorum, incarnation and receipt checks remain mandatory. The
+public drill checks that the applied locator is actually used. Failure context
+records the target attempt and remaining dispatch budget without changing the
+typed cause or ambiguity. These reductions do not establish the sole cause or a
+workload speedup. The earlier stopped build/opaque-marker control is
+not a runtime result. All prior `5a36ca8d` controls and their disks remain retained.
+
+Evidence is `.cellar/cell-groups-evidence/CG-17-sql-bounded-b233dfbb-01`, with a
+workspace-volume backup and frozen binaries. RustFS is constrained to two CPUs
+and 2 GiB; RF3 voters share a native macOS process. Independent Linux voter and
+load qualification remain open. Private backend credentials are excluded.
+
+The full CLI plan preflight remains blocked by the absent historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json` evidence file. Reviewed source anchors
+and plan/verifier unit checks do not recreate or waive it. Recorded acceptance
+stays **13/17 tasks, 147/195 cases**. SQL-specific interruption, movement, wake,
+archive outage and disaster recovery, operator/CLI/Axum paths, KV and all remaining
+primitive families and combined release gates remain open. The separate ordinary
+S3-source binding deadline matrix was not rerun in this cohort.

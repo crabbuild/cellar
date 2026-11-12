@@ -131,6 +131,7 @@ struct Origin {
 /// The controller retains this non-cloneable invocation across waiter cancellation.
 /// Dropping it never releases the SQL worker's unresolved physical producer.
 pub struct CellCommandInvocation {
+    _submission: Option<crate::rpc_reservation::Reservation>,
     dispatcher: CellGroupDispatcher,
     system: bool,
     cell: CellHistory,
@@ -150,6 +151,7 @@ pub struct CellCommandInvocation {
 /// Synchronous request capture for the node queue. No SQL or routing I/O has
 /// begun; dropping this preparation releases only its invocation reservation.
 pub(crate) struct PendingCellCommand {
+    submission: Option<crate::rpc_reservation::Reservation>,
     dispatcher: CellGroupDispatcher,
     cell: CellHistory,
     request: CellCommandRequest,
@@ -272,6 +274,7 @@ impl CellGroupDispatcher {
         request.input = request.input.into_boxed_slice().into_vec();
         request.contract.operation = request.contract.operation.into_boxed_str().into_string();
         Ok(PendingCellCommand {
+            submission: None,
             dispatcher: self.clone(),
             cell,
             request,
@@ -287,6 +290,13 @@ impl CellGroupDispatcher {
 }
 
 impl PendingCellCommand {
+    pub(crate) fn retain_submission(
+        &mut self,
+        reservation: Option<crate::rpc_reservation::Reservation>,
+    ) {
+        self.submission = reservation;
+    }
+
     pub(crate) fn controller_admission(
         &self,
         domain: &DomainToken,
@@ -318,6 +328,7 @@ impl PendingCellCommand {
 
     pub(crate) async fn finish(self) -> Result<CellCommandInvocation, CellCommandError> {
         let Self {
+            submission,
             dispatcher,
             cell,
             request,
@@ -367,6 +378,7 @@ impl PendingCellCommand {
             .map_err(|e| error(CellDispatchError::Routing(e)))?
             .using_cache(dispatcher.routes.clone());
         Ok(CellCommandInvocation {
+            _submission: submission,
             dispatcher,
             system,
             cell,

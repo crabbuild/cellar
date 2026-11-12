@@ -19,6 +19,7 @@ pub(crate) mod group_protocol;
 mod native_cell;
 mod native_configuration;
 mod native_services;
+pub(crate) mod sql_ingress_identity;
 pub(in crate::application) use native_services::sql_service;
 pub(crate) mod native_rpc;
 pub(crate) use native_cell::CellRpcActivation;
