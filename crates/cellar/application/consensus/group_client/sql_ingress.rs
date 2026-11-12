@@ -26,7 +26,17 @@ impl RaftCells {
         } = admitted;
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
-            let route = self.handle.core.host.sql_ingress_route(&scope, &method)?;
+            let route =
+                self.handle
+                    .core
+                    .host
+                    .sql_ingress_route(&scope, &method, &self.handle.core.log)?;
+            if route.history_hint.is_some() {
+                self.handle.core.log.performance().increment(
+                    crate::raft::performance::Counter::CellBindingAppliedHistoryHints,
+                    1,
+                );
+            }
             let bytes = route
                 .max_input_bytes
                 .checked_mul(2)
@@ -74,6 +84,7 @@ impl RaftCells {
             Ok((
                 route.contract,
                 route.durability,
+                route.history_hint,
                 candidate,
                 creation,
                 retry_until_ms,
@@ -87,6 +98,7 @@ impl RaftCells {
             let (
                 contract,
                 durability,
+                history_hint,
                 candidate,
                 creation,
                 retry_until_ms,
@@ -107,36 +119,38 @@ impl RaftCells {
                 ))
             };
             let operation = async {
-                let history = match owner
-                    .resolve_cell_history(
-                        candidate.cluster,
-                        candidate.namespace,
-                        candidate.cell.clone(),
-                        QueryOptions {
-                            timeout: remaining()?,
-                            ..QueryOptions::default()
-                        },
-                    )
-                    .await?
-                {
-                    Some(history) => history,
-                    None => {
-                        let enrolled = owner
-                            .cell(candidate.clone())?
-                            .enroll(
-                                CellEnrollmentRequest {
-                                    creation,
-                                    durability,
-                                },
-                                remaining()?,
-                            )
-                            .await;
-                        match enrolled {
-                            Ok(_) => candidate.clone(),
-                            Err(error) => {
-                                // A concurrent creator may win. No business command
-                                // has been dispatched, so selecting that history is safe.
-                                loop {
+                // A local applied history is only a locator. The sequence query
+                // and command still require the exact target's fresh quorum.
+                let (history, newly_enrolled) = if let Some(history) = history_hint {
+                    (history, false)
+                } else {
+                    match owner
+                        .resolve_cell_history(
+                            candidate.cluster,
+                            candidate.namespace,
+                            candidate.cell.clone(),
+                            QueryOptions {
+                                timeout: remaining()?,
+                                ..QueryOptions::default()
+                            },
+                        )
+                        .await?
+                    {
+                        Some(history) => (history, false),
+                        None => {
+                            match owner
+                                .cell(candidate.clone())?
+                                .enroll(
+                                    CellEnrollmentRequest {
+                                        creation,
+                                        durability,
+                                    },
+                                    remaining()?,
+                                )
+                                .await
+                            {
+                                Ok(_) => (candidate.clone(), true),
+                                Err(error) => loop {
                                     match owner
                                         .resolve_cell_history(
                                             candidate.cluster,
@@ -149,14 +163,9 @@ impl RaftCells {
                                         )
                                         .await
                                     {
-                                        Ok(Some(history)) => break history,
+                                        Ok(Some(history)) => break (history, false),
                                         Ok(None) => {
-                                            // Absence is only a read at this cut. The
-                                            // winning creation may still be pending.
-                                            // Wait for its name; do not create another
-                                            // candidate or dispatch any business input.
-                                            let delay = remaining()?.as_millis() as u64;
-                                            let delay = delay.min(
+                                            let delay = (remaining()?.as_millis() as u64).min(
                                                 owner
                                                     .handle
                                                     .core
@@ -175,19 +184,25 @@ impl RaftCells {
                                         }
                                         Err(_) => return Err(error.into()),
                                     }
-                                }
+                                },
                             }
                         }
                     }
                 };
                 *selected.lock().unwrap() = Some(history.clone());
                 let cell = owner.cell(history.clone())?;
-                let witness = observe(&cell, 0, remaining()?).await?;
-                *command.lock().unwrap() = Some(CommandId::new(
-                    sql_ingress_identity::client(),
-                    witness.next,
-                )?);
+                // The runtime-owned initializer creates an empty stream. This
+                // is a hint at the enrollment cut, never an exclusive sequence
+                // reservation: another caller can still consume it first.
+                let next = if newly_enrolled {
+                    1
+                } else {
+                    observe(&cell, 0, remaining()?).await?.next
+                };
+                *command.lock().unwrap() =
+                    Some(CommandId::new(sql_ingress_identity::client(), next)?);
                 let fingerprint = super::super::command_request_digest(&input);
+                let mut attempt = 0u64;
                 let receipt = loop {
                     let id = command
                         .lock()
@@ -196,6 +211,10 @@ impl RaftCells {
                     let mut options = CommandOptions::new(id, retry_until_ms);
                     options.durability = durability;
                     options.timeout = remaining()?;
+                    let dispatch_budget_ms = options.timeout.as_millis();
+                    attempt = attempt
+                        .checked_add(1)
+                        .ok_or(super::super::CommandFailure::Overloaded)?;
                     submitted.store(true, Ordering::Release);
                     let result = cell
                         .command_retaining(
@@ -225,7 +244,7 @@ impl RaftCells {
                                 }
                             };
                             if !observed.consumed_other(id.sequence(), fingerprint) {
-                                return Err(error.into());
+                                return Err(dispatch_failure(error, attempt, dispatch_budget_ms));
                             }
                             submitted.store(false, Ordering::Release);
                             *command.lock().unwrap() = Some(CommandId::new(
@@ -233,7 +252,9 @@ impl RaftCells {
                                 observed.next,
                             )?);
                         }
-                        Err(error) => return Err(error.into()),
+                        Err(error) => {
+                            return Err(dispatch_failure(error, attempt, dispatch_budget_ms))
+                        }
                     }
                 };
                 let id = command
@@ -305,6 +326,7 @@ async fn observe(
             &cell.contract(sql_ingress_identity::OPERATION)?,
             sequence.to_be_bytes().to_vec(),
             QueryOptions {
+                consistency: QueryConsistency::Linearizable,
                 timeout,
                 ..QueryOptions::default()
             },
@@ -315,4 +337,34 @@ async fn observe(
         super::super::CommandFailure::CorruptState
     );
     Observation::decode(&result.result)
+}
+
+fn dispatch_failure(error: Arc<CellCommandError>, attempt: u64, budget_ms: u128) -> anyhow::Error {
+    // Preserve the typed original cause and ambiguity while exposing whether
+    // discovery consumed the budget or the target itself missed its deadline.
+    let message =
+        format!("SQL target attempt {attempt} started with {budget_ms}ms remaining: {error}");
+    anyhow::Error::from(error).context(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_context_keeps_the_typed_unknown_outcome() -> anyhow::Result<()> {
+        let original = Arc::new(CellCommandError {
+            command: CommandId::new(sql_ingress_identity::client(), 2)?,
+            ambiguous: true,
+            cause: Box::new(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+        });
+        let contextual = dispatch_failure(original.clone(), 2, 987);
+        assert!(contextual.to_string().contains("987ms remaining"));
+        assert!(contextual.to_string().contains("DeadlineExceeded"));
+        assert!(Arc::ptr_eq(
+            contextual.downcast_ref::<Arc<CellCommandError>>().unwrap(),
+            &original
+        ));
+        Ok(())
+    }
 }

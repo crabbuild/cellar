@@ -99,7 +99,10 @@ request is a separate mutation rather than an automatic retry.
 Stateless SQL uses one reserved client stream per database history. A fresh
 128-bit nonce in the owned request envelope distinguishes independent calls even
 when their SQL and parameters are identical. A linearizable metadata query reads
-the next contiguous sequence from the existing receipt floors. Node restart and
+the next contiguous sequence from existing receipt floors. A live applied-voter
+history can supply the name locator. An acknowledged empty enrollment can start
+with sequence 1 as a hint; another caller may still consume it first. The command
+always validates current ownership and receipt identity under quorum. Node restart and
 movement reuse that replicated state; no node-local client map or new lifetime
 client identity is allocated per call.
 
@@ -123,7 +126,7 @@ command into the controller-owned invocation, including unresolved producers.
 Dropping its response waiter does not release that ticket. Reply limits and the
 original cancellation/deadline remain enforced.
 
-Qualification of this ownership change is pending. The owning receipt tests use
+Qualification of this ownership change is pending, including the optimized first-access path. The owning receipt tests use
 a one-client ceiling; the public SQL drill lowers its ceiling to four and races
 identical first-access SQL requests. SQL-specific recovery, sustained-load and
 full SQL-family acceptance remain open, alongside the previous current-source

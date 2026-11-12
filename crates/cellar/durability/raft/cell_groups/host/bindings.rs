@@ -63,6 +63,7 @@ impl CellGroupHost {
         &self,
         scope: &str,
         method: &str,
+        log: &crate::raft::storage::ReplicaLog,
     ) -> Result<Route, CellDispatchError> {
         self.inner.check_lifecycle()?;
         let mut services = self
@@ -78,7 +79,9 @@ impl CellGroupHost {
                 "declared SQL namespace is ambiguous",
             ));
         }
-        route(*key, target, scope, method)
+        let mut route = route(*key, target, scope, method)?;
+        route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
+        Ok(route)
     }
 }
 

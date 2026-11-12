@@ -473,6 +473,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             }
             Ok::<_, anyhow::Error>(())
         }).await??;
+        let public_hints_before = applied_hints(&cluster)?;
         let raced = futures_util::try_join!(
             public_sql(&cluster, 0, "IngressRace", json!(1)),
             public_sql(&cluster, 2, "IngressRace", json!(1)),
@@ -488,6 +489,8 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         for node in 0..3 {
             ensure!(public_sql(&cluster, node, "IngressRead", json!(null)).await? == json!([[7],[8]]));
         }
+        ensure!(applied_hints(&cluster)? > public_hints_before,
+            "stateless SQL did not exercise the applied history locator");
         let namespace = cellar_native::cell_id::Namespace::new("Counter", format!("cells:v1:{}:{SCRIPT}:Counter", SCRIPT.len()));
         let source = cluster.hosts[leader].cell(CellHistory { cluster: group.cluster, namespace: group.namespace, cell: CellId::new(namespace.id_from_name("source").scope())?, incarnation: IncarnationId::new([185; 16])? })?;
         source.enroll(CellEnrollmentRequest { creation: ProposalId::new([186; 16])?, durability: Durability::Quorum }, TIMEOUT).await?;
