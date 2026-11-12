@@ -2884,3 +2884,51 @@ This candidate still requires compilation and runtime validation. Synthetic
 verifier controls prove only evidence refusal. Other reader/snapshot/transfer
 cuts, Fleet settlement, allocated-block accounting, constrained voters and full
 RL-02/CG/OPT acceptance remain open.
+
+## Current-base checks and archive physical-owner evidence
+
+Review checkpoint `59288cb2`, source `8ec3cfed`, passes strict core/logic
+all-target Clippy and all seven repository checks. The corresponding native
+checkout has source `5dfb5855`; its 3,278 shared input hashes match, while the
+review checkout additionally contains sixty ignored generated JavaScript
+artifacts. These full input manifests remain distinct.
+
+The first native runner aborts after 29 passing performance/SQL/receipt/CLI
+functions because its inventory expectation says 22 ordinary routing cases;
+the executable contains 21. The corrected runner checks their exact names.
+That campaign passes 45 functions, then fails the superseded-boot case at the
+original five-second initial-group readiness prerequisite on voter 2. Four
+SDK/native HTTP boot profiles complete before startup of the Axum/materialized
+fixture fails, before fault injection. The four later routing cases are not run.
+Two exact unchanged-binary repetitions complete all six profiles in 42.514 and
+45.801 seconds; those diagnostic passes do not establish the original cause or
+relabel the failed campaign. The same setup/close path is being isolated for a
+temporary repeated-startup diagnostic, with original budgets unchanged.
+
+Archive-owner checkpoint `eaa86194`, source `1d97ce33`, passes its focused
+physical-reader cancellation case and all 33 ordinary archive tests; eight
+RustFS tests remain ignored. All eight static/source checks pass, including
+fresh strict Clippy. The two physical-owner image ledgers are independently
+checked. The first full-target runner incorrectly classifies a nested ignored
+RustFS test by its name prefix; it retains its failed campaign record with the
+actual 33-passed/eight-ignored summary. The corrected runner asks libtest for
+its ignored inventory. Exact inputs, executables and records are retained under
+`qualification/archive-physical-owner-native-ignored-inventory`.
+All 3,281 inputs match the Git archive byte for byte; this establishes source
+identity for a future Linux build, not Linux qualification. Fleet byte credit,
+other held-owner cuts and full RL-02/CG/OPT acceptance remain open.
+
+## Performance collector registry integration
+
+Hosted CI at `59288cb2` fails its Python 3.14 job before adapter execution, in
+`test_metric_contract_matches_the_native_owner`. The same existing regression
+fails locally on Python 3.14 and 3.15: the current native registry has 68
+counters, and the collector has 67. Its sole missing entry is
+`cell_binding_applied_history_hints`; inserting it at native index 54 preserves
+every other name and ordering. The collector now includes that existing native
+counter. No native counter, parser assertion or request/resource bound changes.
+The full 317-test performance guard suite now passes on Python 3.14 in 17.044
+seconds (two skips) and Python 3.15 in 16.427 seconds (one skip). The existing
+exact-registry regression fails before this change and passes afterward. The
+prior eight-check campaigns did not include this separate CI step; these guard
+results do not qualify the skipped Python adapter/ABI runtime steps.

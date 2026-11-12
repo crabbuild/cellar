@@ -113,6 +113,7 @@ COUNTERS = (
     'cell_membership_refresh_joins',
     'cell_linearizable_read_barriers',
     'cell_linearizable_read_cohort_joins',
+    'cell_binding_applied_history_hints',
     'cell_linearizable_read_cohorts_started',
     'cell_leader_probe_owners',
     'cell_leader_probe_joins',
