@@ -190,7 +190,7 @@ impl Server {
         let joined = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
-                tokio::select! {
+                cellar::asyncrt::select! {
                     _ = &mut stopping => break,
                     result = connections.join_next(), if !connections.is_empty() => { result.context("wire connection")???; }
                     accepted = listener.accept() => {

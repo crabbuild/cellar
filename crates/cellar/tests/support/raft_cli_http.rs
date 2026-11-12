@@ -105,7 +105,7 @@ impl Server {
                     respond(stream, &observed).await
                 }
             };
-            tokio::select! {
+            cellar::asyncrt::select! {
                 result = request => result,
                 _ = stopped => Ok(()),
             }

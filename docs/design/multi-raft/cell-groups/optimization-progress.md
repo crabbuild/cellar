@@ -2736,7 +2736,10 @@ compilation and execution. The separate test-only source `35cc0f95`, digest
 `76ec66fe`, passes its native faulty-wire advice case in 87.586 seconds. Its
 independently checked 60 rows cover ten advice/authentication faults across SDK,
 native HTTP and Axum in both image forms, with no SQL entry during refusal and
-once-only S3 replay under the original command identity. Strict checks still
-remain for that source, along with removed-member, untrusted-certificate and
-superseded-boot coverage. The preceding RustFS/Linux results remain tied to
+once-only S3 replay under the original command identity. Its strict all-target
+Clippy check fails because the new responder uses the forbidden Tokio select
+macro. The follow-up switches both new fixtures to Cellar's fair polling macro;
+the failed lint record remains failed and that source needs another runtime and
+strict-check pass. Removed-member, untrusted-certificate and superseded-boot
+coverage remains open. The preceding RustFS/Linux results remain tied to
 their exact revisions; no full RO-03, CG-13, CG-17 or OPT package is accepted.
