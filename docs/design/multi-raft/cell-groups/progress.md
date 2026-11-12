@@ -27,6 +27,59 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 ordinary named-cell bindings: qualification open
+
+Source `db614e6d` implements ordinary declared named-cell bindings over shared
+Raft groups: `Context::namespace`/`exported_namespace`, `Namespace::get_by_name`
+and `Stub::rpc`/`rpc_with_signal`/`call`. Owned JSON/structured values retain cycles
+and UTF-16 values. Host validation selects a configured class namespace without
+Fleet or weaker-durability fallback. Source intent precedes target admission;
+the target checks its exact history and independent minimum durability.
+
+The adapter persists protected business names, source intents, original source
+policy/expiry, exclusive lane serials and per-destination command sequences.
+Switching destinations no longer sends a sequence gap to a new target. Verified
+target results are folded into the next source proof or final acknowledgement.
+Cancellation keeps owned work and typed uncertainty; unconsumed refusals and
+unknown outcomes retain their lanes. Pending-call manifest summaries refuse
+hibernation and business-state erasure. See the [adapter contract](named-bindings.md).
+
+Qualification is **failed**, with unchanged five-second command deadlines and
+assertions. At `db614e6d`, the native run completes the materialized-image Quorum
+configuration, including retained RF3 restart, then fails the first S3-source
+request (52.206 seconds total). An identical-binary control fails the third
+Quorum request (23.132 seconds total).
+Real RustFS likewise completes the materialized Quorum configuration and fails
+the first S3-source request (59.051 seconds total). Extents configurations were
+not reached. A completed inner configuration is not acceptance of the combined
+case. Exact controls, build/check records and shutdown proof are retained under
+`.cellar/cell-groups-evidence/CG-17-bindings-db614e6d-01`. The executable SHA-256 is
+`0ba0281639a19e5c6a215865eb161f32f6bca02f2e320c229aec3ae96039f2ca`.
+
+Read-only inspection of the retained RustFS failure images finds target value 2,
+a resolved Add source intent and a prepared Echo intent at expiry. It narrows
+profiling to the source-proof/next-dispatch path without establishing a deadlock
+or performance cause. Earlier failed controls exposed missing factory metadata,
+savepoint authority, redundant proof latency and cross-destination sequence gaps;
+their source-specific logs/binaries remain separate. The Rust compiler incremental
+ICE control is also retained; the final build disables incremental compilation.
+The owning build and focused strict Clippy pass. The existing dependent SDK and
+Storage selections pass (127.972 and 37.581 seconds); ordinary RPC fails on its
+first gated Quorum update (20.039 seconds total), retaining the broader deadline
+gate. These are separate outcomes, not a successful regression campaign. The
+owned RustFS container exits zero without OOM, its VM is stopped and the recorded
+target/default VMs are unchanged.
+
+The catalog now classifies named bindings as replicated state, requiring archive,
+movement and disaster coverage. It remains partial: 18 entries, 202 symbols and
+4,872 required API/scenario/configuration cells. No complete primitive family,
+CG-17 case or release gate is accepted. Source/target S3-minimum combinations,
+concurrent creation, cross-class targets, capacity and autonomous interruption
+reconciliation still need delivery/qualification. In particular, recovery must
+seal unconsumed target sequences before releasing their source lanes, and must
+never replay known-refused business input. SQL/KV bindings and the remaining
+primitive adapters retain the full [delivery priorities](remaining-work.md#primitive-delivery-priority).
+
 ## CG-17 transactional business-state erasure
 
 The shared Storage adapter now admits `Storage::delete_all` only in a writable

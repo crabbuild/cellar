@@ -41,11 +41,13 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Finish remaining shared Storage compatibility and resolve the intermittent
-   full-campaign RPC/SDK deadline failures. The read-VM recursion/fence checkpoint
-   below is delivered. Deliver generation-aware ordinary typed cell,
-   SQL and KV bindings with persistent child identities/intents, original deadlines
-   and independent target durability proofs.
+1. Close the ordinary named-binding and existing RPC deadline failures. Profile
+   source proof/next dispatch using the retained failure images; do not repeat
+   campaigns until green or increase their deadlines. The named-binding adapter,
+   destination sequences and source intents are implemented, with qualification
+   still failed. Complete autonomous reconciliation/sequence sealing, remaining
+   shared Storage compatibility and ordinary SQL/KV bindings while preserving
+   target histories, original deadlines and independent durability proofs.
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.
@@ -91,6 +93,14 @@ case passes in both image modes at Quorum/S3 minima with the same executable.
 The backend and VM are stopped. This closes the reproduced cursor deadlock;
 earlier intermittent full-campaign deadline failures and complete primitive-family
 acceptance remain open. See the [cursor checkpoint](progress.md#cg-17-read-cursors-across-dependent-sdk-calls).
+
+The ordinary named-cell adapter is implemented at `db614e6d`, but its native
+and real RustFS cases fail their unchanged deadlines. Materialized Quorum runs
+complete before the S3-source failure; a native control also fails under Quorum.
+No binding case or family is accepted, and the extents configurations were not
+reached. The catalog now treats these intents/counters as replicated state:
+18 partial entries, 202 public symbols and 4,872 required coverage cells. See the
+[current binding checkpoint](progress.md#cg-17-ordinary-named-cell-bindings-qualification-open).
 
 ## Current boundary
 

@@ -489,28 +489,16 @@
         "cellar::sdk::Invocation::Rpc",
         "cellar::sdk::Invocation::CellRpc",
         "cellar::sdk::Context::wait_until",
-        "cellar::sdk::consensus::RaftCells::resolve_cell_history",
-        "cellar::sdk::Context::namespace",
-        "cellar::sdk::Context::exported_namespace",
-        "cellar::sdk::cells::Namespace::get_by_name",
-        "cellar::sdk::cells::Stub::rpc",
-        "cellar::sdk::cells::Stub::rpc_with_signal",
-        "cellar::sdk::cells::Stub::call",
-        "cellar::sdk::cells::CallError"
+        "cellar::sdk::consensus::RaftCells::resolve_cell_history"
       ],
       "owners": [
         "crates/cellar/application/mod.rs",
         "crates/cellar/application/service/mod.rs",
         "crates/cellar/application/cells.rs",
         "crates/cellar/application/rpc/mod.rs",
-        "crates/cellar/application/consensus/group_client/names.rs",
-        "crates/cellar/application/cell_bindings.rs",
-        "crates/cellar/application/consensus/native_rpc.rs",
-        "crates/cellar/storage/sqlite/raft_bindings.rs"
+        "crates/cellar/application/consensus/group_client/names.rs"
       ],
-      "schemas": [
-        "Source call intents, lane counters and protected business names"
-      ],
+      "schemas": [],
       "bindings": [
         "Service, cell and RPC endpoints"
       ],
@@ -525,6 +513,43 @@
       "proof": "Independent mutation proofs; transport outcomes may be uncertain",
       "ordering": "Separate cross-cell and provider transactions",
       "recovery": "Reconnect and reconcile declared stable external identities",
+      "case": "primitives_http_rpc_and_cross_cell_effects",
+      "refusals": {}
+    },
+    {
+      "id": "named-cell-bindings",
+      "family": "http-rpc",
+      "symbols": [
+        "cellar::sdk::Context::namespace",
+        "cellar::sdk::Context::exported_namespace",
+        "cellar::sdk::cells::Namespace::get_by_name",
+        "cellar::sdk::cells::Stub::rpc",
+        "cellar::sdk::cells::Stub::rpc_with_signal",
+        "cellar::sdk::cells::Stub::call",
+        "cellar::sdk::cells::CallError"
+      ],
+      "owners": [
+        "crates/cellar/application/cell_bindings.rs",
+        "crates/cellar/application/consensus/native_rpc.rs",
+        "crates/cellar/storage/sqlite/raft_bindings.rs"
+      ],
+      "schemas": [
+        "Protected business names, source call intents, global lane serials and per-destination command sequences"
+      ],
+      "bindings": [
+        "Declared class namespace and named-cell bindings"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Same configured cluster/application, declared target class, operation, incarnation and original deadline",
+      "proof": "Durable source intent before target admission; independent target policy and verified receipt before parent proof",
+      "ordering": "Exclusive source lanes and contiguous per-target-history command identities; unresolved outcomes retain reservations",
+      "recovery": "Restore exact target/input/identity/policy/expiry; reconcile without replaying refused business input or weakening fences",
       "case": "primitives_http_rpc_and_cross_cell_effects",
       "refusals": {}
     },

@@ -4,6 +4,28 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current named-cell binding implementation
+
+Source `db614e6d` implements declared ordinary named bindings, owned structured
+RPC, source intents, per-destination sequences, target auto-enrollment and bounded
+owned dispatch. Repeated calls, self-calls, cancellation, transaction refusal and
+retained restart complete inside the materialized Quorum configuration in one
+native and one real RustFS run. The complete cases fail on the first S3-source
+request; an identical native control also fails on the third Quorum request.
+Extents configurations were not reached. All five-second deadlines and assertions
+remain unchanged; no binding family/case is accepted.
+
+Next profile source proof and subsequent dispatch: retained RustFS images show
+target Add committed and a prepared Echo intent at expiry. Preserve the failed
+controls and uncertainty rather than repeating runs until green. Finish autonomous
+intent reconciliation and sequence sealing, then remaining SQL/KV bindings and
+committed work discovery for alarms/cron, Queue, EventStream and Workflow. Recovery
+must preserve exact identity/history/input/policy/expiry and must not replay
+known-refused business input. Pending obligations currently fail closed on
+hibernate/erase. See the [checkpoint](progress.md#cg-17-ordinary-named-cell-bindings-qualification-open)
+and [adapter contract](named-bindings.md). The full primitive compatibility and
+combined release gates remain required.
+
 ## Current Storage erasure and SQL batch parsing
 
 At `2f6b7735`, transactional `Storage::delete_all` preserves the reserved Raft
