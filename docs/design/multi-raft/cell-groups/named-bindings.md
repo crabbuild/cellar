@@ -18,6 +18,12 @@ bindings are declared. `RaftClass::cell_rpc` registers owned JSON or structured
 values. Cycles and UTF-16 values remain structured values. Leased capabilities
 require their session adapter.
 
+Owned RPC replies retain well-formed remote error envelopes as durable results,
+including their original graph and causes. Requests still accept clone values
+only; malformed or capability-bearing replies refuse admission. The owned RPC
+schema digest binds these reply semantics. Use compatible fresh namespaces and
+matching voters for this prototype cutover; format markers remain at 1.
+
 The host validates every declared target before ingress. A binding selects a
 class namespace in the same cluster and immutable application configuration.
 A cross-class target must have exactly one matching namespace; missing and

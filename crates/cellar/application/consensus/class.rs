@@ -1442,7 +1442,7 @@ impl RaftClass {
         }
         for (name, command) in &self.commands {
             if let CommandHandler::NativeCellRpc { method, json_only } = &command.handler {
-                hash.update(b"native-cell-rpc-1");
+                hash.update(b"native-cell-rpc-error-replies-1");
                 hash.update((name.len() as u16).to_be_bytes());
                 hash.update(name.as_bytes());
                 hash.update((method.len() as u16).to_be_bytes());
