@@ -1815,10 +1815,23 @@ Current GitHub native CI subsequently failed five measurement-runner tests at
 `CARGO_TARGET_DIR`, which these evidence-retaining fixtures require. The job
 now explicitly selects `${{ github.workspace }}/target`, matching Cargo's
 existing output location. A fresh CI-profile executable reproduced the exact
-error immediately with the variable absent. The same executable then passed
-the warm-verifier-cache test with the variable exported; its full serial
-21-test campaign remains in progress. Evidence is retained in
-`ci-perf-target-b9ff44ba`. This workflow change establishes the cause of the
-setup failure, not a startup or protocol fix. A separate attempt selected an
+error immediately with the variable absent. With the variable exported, the
+same executable completed its serial campaign in 467.533 seconds: **19 passed,
+two failed**. Warm-verifier-cache, rooted-image reclamation and occupancy-32
+archive diagnostics passed. Both failures reached occupancy-128 enrollment
+and consumed the original 60-second total window, with 66 and 59 cells present
+respectively. The original enrollment identities and fixture disks remain
+retained. Evidence is in `ci-perf-target-b9ff44ba`; its profile is opt-level one,
+debug zero, with debug assertions and overflow checks enabled.
+
+The first failed fixture's later observations had committed/applied index 68
+and archive publication at 66. The second had a different cell count and
+publication position. Those observations do not prove one coherent failure
+cut or a fixed 64-cell ceiling. Aggregate SQL preparation, staging, publishing
+and engine-sync timings identify boundaries for profiling, not a causal
+performance fix. The campaign used host-native voters and an in-memory object
+store; it does not qualify constrained Linux, RustFS or measured speedup.
+This workflow change establishes the cause of the setup failure, not a startup
+or protocol fix. A separate attempt selected an
 older CLI executable instead of the test harness; it is retained as a harness
 selector error and contributes no valid qualification evidence.
