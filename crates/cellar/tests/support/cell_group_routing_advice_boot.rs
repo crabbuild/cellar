@@ -2,7 +2,6 @@
 
 //! An actual issuer restart fences its held, authenticated old-boot reply.
 use super::*;
-use sha2::Digest as _;
 
 fn boot_record(boot: &FleetBootBinding) -> serde_json::Value {
     json!({"catalog": hex::encode(boot.catalog), "fleet": hex::encode(boot.fleet),
@@ -134,7 +133,7 @@ pub(super) async fn exercise(cluster: &mut nodes::Cluster, drill: &BootDrill<'_>
                     &drill.cell.contract("Get")?,
                     vec![],
                     QueryOptions {
-                        consistency: QueryConsistency::Strong,
+                        consistency: QueryConsistency::Linearizable,
                         timeout: TIMEOUT,
                         max_attempts: 1,
                         routing: QueryRouting::Replicas {
