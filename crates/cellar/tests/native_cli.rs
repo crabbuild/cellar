@@ -4,6 +4,11 @@
 use anyhow::{ensure, Context, Result};
 use std::{io::Write, process::Command};
 
+// These fixtures own child processes, local listeners and certificate files.
+#[path = "support/raft_cli_http.rs"]
+#[allow(clippy::disallowed_methods)]
+mod raft_http;
+
 #[test]
 fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
     let executable = env!("CARGO_BIN_EXE_cellar");

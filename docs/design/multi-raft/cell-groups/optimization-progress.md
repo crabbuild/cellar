@@ -2693,3 +2693,50 @@ and RPC error compatibility changes. Their integration needs its own checks and
 cannot inherit these broader combined-source results. Failed-voter replacement,
 independent domains, physical hard-storage bounds, repeated performance, full
 primitive/provider compatibility and all remaining CG/OPT acceptance stay open.
+
+## Grouped SQL integration and operator certificate I/O
+
+Combined source at `ca5f92df`, digest `296e79b9`, integrates base `7c893506`
+with packed manifests and the public source-expiry regression. Its native
+profile-1 campaign passes 51 selected cases: two SQL, 15 Raft host, 22 storage,
+nine ordinary primitives, two RPC reply-envelope and one public cohort case.
+An independent audit verifies all 52 storage crash cuts on its retained
+executable. All eight static/source checks pass, including strict core/logic
+all-target Clippy. The build and checks preserve the pinned compiler, original
+assertions, limits and frozen inputs.
+
+That campaign remains failed. Expiry and preferences stop in their prerequisite
+five-second standby CLI call, before their proof oracles, in 37.384 and 7.422
+seconds overall. Cohorts pass in 47.234 seconds. A later diagnostic repeats the
+exact preference executable and matching retained CLI in three fresh processes:
+all pass in 32.993, 34.823 and 34.939 seconds. External monitoring observes no CLI
+child long enough to trigger its 2.5-second sampling threshold. These repetitions
+do not identify a cause or replace the failed campaign.
+
+The actual compiled dependency graph enables both native and bundled certificate
+roots in reqwest. Five alternating isolated construction probes observe native
+root loading at 139–176 ms versus 43–48 microseconds with only native loading
+disabled. These contextual component measurements are not a workload speedup or
+cold-start qualification.
+
+A separate induced control runs the actual retained operator CLI against an
+independent loopback HTTP standby service. An empty regular certificate file
+allows all three requests in 10–12 ms. Replacing only that file with an owned
+unwritten FIFO blocks all three invocations until their original five-second
+deadline; none reaches the HTTP service. Process samples locate the wait in
+reqwest client construction, native certificate loading and file open. This
+establishes an unnecessary certificate-store I/O dependency for HTTP. It does
+not establish why the original, uninstrumented standby calls timed out.
+
+The next candidate disables built-in certificate acquisition for HTTP management
+URLs and retains it for HTTPS. Redirect refusal remains in force. Three actual
+CLI regressions cover the blocked certificate source, explicit HTTPS native-root
+trust and rejection of an untrusted HTTPS server. This candidate still requires
+compilation and execution. The separate test-only source `35cc0f95`, digest
+`76ec66fe`, passes its native faulty-wire advice case in 87.586 seconds. Its
+independently checked 60 rows cover ten advice/authentication faults across SDK,
+native HTTP and Axum in both image forms, with no SQL entry during refusal and
+once-only S3 replay under the original command identity. Strict checks still
+remain for that source, along with removed-member, untrusted-certificate and
+superseded-boot coverage. The preceding RustFS/Linux results remain tied to
+their exact revisions; no full RO-03, CG-13, CG-17 or OPT package is accepted.
