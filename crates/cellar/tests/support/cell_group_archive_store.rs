@@ -67,6 +67,8 @@ impl Store {
         })
     }
 
+    /// Hold the next registry write containing a selected root, including
+    /// reservation/hold changes. Use `hold_publication_after` for a newer cut.
     pub fn hold_publication(&self) -> Arc<Gate> {
         self.hold_publication_after(0)
     }
