@@ -913,6 +913,18 @@ impl NativeWorker {
                 let mut entered = crate::application::rpc::Entered::new(&invocation);
                 match &context.identity {
                     Some(identity) => {
+                        // Reserved services otherwise bypass Application's
+                        // ordinary factory lookup. A declared Raft service
+                        // must never execute against Fleet-owned storage.
+                        anyhow::ensure!(
+                            self.application
+                                .resolve_raft_class(&identity.class)
+                                .is_err(),
+                            crate::application::consensus::RegistrationError::WrongMode {
+                                class: identity.class.clone(),
+                                mode: cellar_logic::NamespaceMode::Fleet,
+                            }
+                        );
                         if let Invocation::CellRpc { method, args } = &invocation {
                             if let Some(catalog) = self.rpc_catalog.as_deref() {
                                 if let Some(refusal) =

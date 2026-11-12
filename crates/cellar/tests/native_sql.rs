@@ -393,6 +393,57 @@ async fn operator(runtime: &RuntimeManager, bytes: Vec<u8>) -> Result<HttpRespon
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn raft_sql_service_refuses_fleet_activation() -> Result<()> {
+    cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
+    let application = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
+        cellar::sdk::RaftClass::new("Caller", 1, [81; 32])?.json_cell_rpc("Tick", [82; 32])?,
+        |_, _| Err(anyhow!("Fleet must not construct a Raft cell")),
+    )?;
+    let generation = Generation::build_native(
+        1,
+        graph(),
+        GenerationOptions {
+            node: "test".into(),
+            region: "test".into(),
+        },
+        std::collections::HashMap::from([(
+            "native-sql".into(),
+            Arc::new(application) as Arc<dyn cellar::application::Application>,
+        )]),
+    )?;
+    let directory = tempfile::tempdir()?;
+    let runtime = RuntimeManager::start(
+        generation,
+        RuntimeOptions {
+            data_dir: directory.path().into(),
+            replication: None,
+            wake: None,
+            alarm_observer: Arc::new(|_, _| {}),
+            node: "test".into(),
+            region: "test".into(),
+            bucket: None,
+        },
+    )?;
+    let scope = cellar::engine_api::sql_cell_scope(IDENTITY);
+    open(&runtime, &scope).await?;
+    let result = runtime
+        .rpc(
+            scope.clone(),
+            Some(IDENTITY.into()),
+            "__sqlQuery".into(),
+            RpcData::Json(r#"[{"sql":"SELECT 1","params":[],"first":false}]"#.into()),
+            Some(cellar::engine_api::next_request_id()),
+        )
+        .await;
+    runtime.swap_out_cell(&scope, 1).await?;
+    let error = result
+        .err()
+        .ok_or_else(|| anyhow!("Raft SQL executed on Fleet storage"))?;
+    assert!(error.to_string().contains("WrongMode"), "{error:#}");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_sql_sdk_and_operator_use_protected_migration_history() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     cellar::asyncrt::timeout(Duration::from_secs(30), run_native_sql_test()).await??;
