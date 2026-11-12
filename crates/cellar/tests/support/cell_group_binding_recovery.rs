@@ -59,9 +59,15 @@ pub async fn run(
             let source_history = source.history().clone();
             // Stop immediately after the durable target checkpoint, while the
             // original RPC is still awaiting its response and before due recovery.
-            Box::pin(bindings::restart(&mut cluster)).await?;
-            let error = original_call
-                .await
+            // Poll the lost-response waiter while shutdown joins admitted work.
+            // An unconsumed response deliberately retains node admission.
+            let (restarted, original_result) = futures_util::future::join(
+                Box::pin(bindings::restart(&mut cluster)),
+                original_call,
+            )
+            .await;
+            restarted?;
+            let error = original_result
                 .err()
                 .context("interrupted call cannot complete")?;
             ensure!(
