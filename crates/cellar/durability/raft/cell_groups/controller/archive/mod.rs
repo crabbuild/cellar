@@ -284,7 +284,7 @@ pub(super) struct ProofCompleted {
 }
 
 pub(super) enum Completed {
-    Publication(PublicationCompleted),
+    Publication(Box<PublicationCompleted>),
     Proof(ProofCompleted),
 }
 
@@ -454,10 +454,10 @@ impl Manager {
     pub async fn next(&mut self) -> Completed {
         match (self.job.as_mut(), self.proof_job.as_mut()) {
             (Some(publication), Some(proof)) => crate::asyncrt::select! {
-                completed = publication => Completed::Publication(completed),
+                completed = publication => Completed::Publication(Box::new(completed)),
                 completed = proof => Completed::Proof(completed),
             },
-            (Some(publication), None) => Completed::Publication(publication.await),
+            (Some(publication), None) => Completed::Publication(Box::new(publication.await)),
             (None, Some(proof)) => Completed::Proof(proof.await),
             (None, None) => unreachable!("active archive work"),
         }
@@ -739,7 +739,7 @@ impl Manager {
     pub fn complete(&mut self, completed: Completed, shared: &Shared, now: u64, closing: bool) {
         match completed {
             Completed::Publication(completed) => {
-                self.complete_publication(completed, shared, now, closing)
+                self.complete_publication(*completed, shared, now, closing)
             }
             Completed::Proof(completed) => self.complete_proof(completed, shared, now, closing),
         }

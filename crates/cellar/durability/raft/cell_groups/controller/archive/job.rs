@@ -235,9 +235,11 @@ async fn retire(
 /// Live output proofs keep their exact hold journaled for the next owner; this
 /// never allocates an archive or drops a consumer's physical protection.
 pub(super) async fn finish(context: &Context, execution: &ControllerExecution) -> Result<()> {
-    context.authority.require_current().await?;
     let mut record = load(context, execution).await?;
-    retire(context, execution, &mut record).await?;
+    if record.retire.is_some() {
+        context.authority.require_current().await?;
+        retire(context, execution, &mut record).await?;
+    }
     Ok(())
 }
 
