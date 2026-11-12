@@ -416,11 +416,11 @@ pub(crate) async fn follower_acquires_published_prefix(
             .response()
             .await?;
         let tail = next.local_receipt().context("tail receipt")?.position;
-        ensure!(tail.index > at.index);
+        anyhow::ensure!(tail.index > at.index);
         drop(next);
         tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
         controller::applied(&h.fixture, h.route.history, tail.index).await?;
-        ensure!(h.fixture.runtimes[1].status(h.route.history).await?.leader == Some(1));
+        anyhow::ensure!(h.fixture.runtimes[1].status(h.route.history).await?.leader == Some(1));
         // The leader's tail publication is held. An attempted follower upload
         // cannot succeed, but metadata acquisition and physical verification can.
         h.remote
@@ -438,8 +438,8 @@ pub(crate) async fn follower_acquires_published_prefix(
             .archive_status(h.route.history)?
             .and_then(|status| status.published)
             .context("independently verified follower prefix")?;
-        ensure!(prefix.position() == at);
-        ensure!(h.fixture.runtimes[1].status(h.route.history).await?.leader == Some(1));
+        anyhow::ensure!(prefix.position() == at);
+        anyhow::ensure!(h.fixture.runtimes[1].status(h.route.history).await?.leader == Some(1));
         Ok::<_, anyhow::Error>(())
     }
     .await;
