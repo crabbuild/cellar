@@ -2518,3 +2518,31 @@ retain their separate file budget. The owning compaction test now requires two
 one-record turns without page reads, barriers or credit. It admits a previously
 unpinned reader, then
 requires the final one-record turn to preserve both real roots during relocation.
+
+At `04e70637`, frozen source `f4bf00d7`, the complete native profile-1 storage
+suite passes: 22 cases, zero failures and two harness children ignored by direct
+selection (the parent crash cases launch them). Build time is 592.065 seconds;
+runtime is 11.443 seconds. Compiler and executable hashes and unchanged inputs
+are verified. This includes all four new compaction/framing contracts, the late
+pin between bounded scan turns, all original storage/crash assertions and the
+single-file-barrier oracle. Strict native core/logic all-target Clippy also passes
+in 924.883 seconds. Other repository checks pass except formatting of the new
+compaction assertions; that campaign remains failed for formatting, with the
+runtime and Clippy results retained separately. The follow-up formats the file.
+
+The follow-up expands the existing process-kill matrix from 30
+to 52 cuts: 26 boundaries in each image mode. It retains all original cuts and
+adds full-frame writes and both sides of pack rename, plus eight compaction
+copy/publication/unlink boundaries. The parent independently authenticates the
+replacement container or its written prefix, requires both source and copy
+before unlink and requires selected-root recovery from the copy after unlink.
+Every cut still verifies exact recovered SQL/receipts and one durable callback
+execution. Per-boundary mode/cut evidence is emitted only after those checks.
+This expanded matrix needs its own runtime evidence; no broader lifecycle,
+backend, occupancy-128 or full CG/OPT acceptance is inherited.
+
+Sealed pack indexes additionally retain only their actual record count in boxed
+slices. The writer's maximum 96-record allocation is temporary, including for
+one-page checkpoint imports; the unchanged parent admission now charges the
+bounded writer/sealed-index overlap. Current-source runtime and all-target checks
+must include this residency correction as well as the expanded crash matrix.

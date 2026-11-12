@@ -706,14 +706,25 @@ pub async fn crash_matrix() -> Result<()> {
             "image-directory-sync",
             "after-image",
             "manifest-write",
+            "manifest-frame-write",
             "manifest-before-sync",
             "manifest-file-sync",
+            "manifest-before-rename",
+            "manifest-after-rename",
             "manifest-directory-sync",
             "after-manifest",
             "engine-before-sync",
             "engine-after-sync",
             "after-publication",
             "reclaim-after-remove",
+            "reclaim-copy-write",
+            "reclaim-copy-frame-write",
+            "reclaim-copy-before-sync",
+            "reclaim-copy-file-sync",
+            "reclaim-copy-before-rename",
+            "reclaim-copy-after-rename",
+            "reclaim-copy-directory-sync",
+            "reclaim-copy-after-remove",
         ] {
             let temp = tempfile::tempdir()?;
             seed(temp.path(), mode, false).await?;
@@ -758,9 +769,13 @@ pub async fn crash_matrix() -> Result<()> {
                 assert_eq!(status.signal(), Some(9));
             }
             assert!(!status.success());
+            if let Some(boundary) = cut.strip_prefix("reclaim-copy-") {
+                verify_copy_cut(temp.path(), boundary)?;
+            }
             let expected = match cut {
                 "engine-before-sync" => None,
                 "engine-after-sync" | "after-publication" | "reclaim-after-remove" => Some(4),
+                cut if cut.starts_with("reclaim-copy-") => Some(4),
                 _ => Some(3),
             };
             recover_and_check(temp.path(), mode, expected)
@@ -770,6 +785,10 @@ pub async fn crash_matrix() -> Result<()> {
                 std::fs::read_to_string(temp.path().join("executions"))?,
                 "1",
                 "recovery must not rerun the callback"
+            );
+            println!(
+                "manifest crash boundary extents={} cut={cut}: PASS",
+                matches!(mode, Mode::Extents)
             );
         }
     }
@@ -834,8 +853,11 @@ pub async fn process_fixture() -> Result<()> {
     }
     let select = |prefix: &str| match cut_name.strip_prefix(prefix) {
         Some("write") => faults::AFTER_IMAGE_WRITE,
+        Some("frame-write") => faults::AFTER_PACK_FRAME_WRITE,
         Some("before-sync") => faults::BEFORE_IMAGE_SYNC,
         Some("file-sync") => faults::AFTER_IMAGE_SYNC,
+        Some("before-rename") => faults::BEFORE_PACK_RENAME,
+        Some("after-rename") => faults::AFTER_PACK_RENAME,
         Some("directory-sync") => faults::AFTER_DIRECTORY_SYNC,
         _ => 0,
     };
@@ -871,7 +893,85 @@ pub async fn process_fixture() -> Result<()> {
             .store(faults::AFTER_REMOVE, Ordering::Release);
         collect_pages(&mut pages)?;
     }
+    if cut_name.starts_with("reclaim-copy-") {
+        if cut_name == "reclaim-copy-after-remove" {
+            // All fixture page records fit in one bounded scan. Whole
+            // orphan unlinks defer their directory barrier, so the first barrier
+            // belongs to the live sibling's replacement copy. Arm removal only
+            // there, after its file sync/rename and before the old source unlink.
+            ensure!(pages.usage().pages <= 16, "copy must enter the first scan");
+            let fault = page_fault.clone();
+            *page_fault.before_directory_sync.lock().unwrap() = Some(Box::new(move || {
+                fault.mode.store(faults::AFTER_REMOVE, Ordering::Release);
+            }));
+        } else {
+            let selected = select("reclaim-copy-");
+            ensure!(selected != 0, "known compaction crash boundary");
+            page_fault.mode.store(selected, Ordering::Release);
+        }
+        collect_pages(&mut pages)?;
+    }
     bail!("requested cut was never reached: {cut_name}")
+}
+
+fn verify_copy_cut(path: &Path, boundary: &str) -> Result<()> {
+    let mut pending = Vec::new();
+    let mut completed = Vec::new();
+    for entry in std::fs::read_dir(path.join("pages"))? {
+        let file = entry?.path();
+        if file.extension().is_some_and(|s| s == "pending") {
+            pending.push(file);
+        } else if file.extension().is_some_and(|s| s == "pack") {
+            completed.push(manifest_pages::keys(&file)?);
+        }
+    }
+    match boundary {
+        "write" | "frame-write" | "before-sync" | "file-sync" | "before-rename" => {
+            ensure!(pending.len() == 1, "one physical replacement must exist");
+            let bytes = std::fs::read(&pending[0])?;
+            if boundary == "write" {
+                ensure!(bytes == b"CLRCMP01", "held after replacement header write");
+            } else {
+                ensure!(bytes.len() >= 44);
+                let length = u32::from_be_bytes(bytes[40..44].try_into()?) as usize;
+                ensure!(length <= 16 * 1024 && 44 + length <= bytes.len());
+                let (_, expected) = manifest_pages::encode(&[bytes[44..44 + length].to_vec()])?;
+                if boundary == "frame-write" {
+                    ensure!(
+                        bytes == expected[..expected.len() - 52],
+                        "complete copied page without footer"
+                    );
+                } else {
+                    ensure!(
+                        bytes == expected,
+                        "completed single-page replacement before publication"
+                    );
+                    ensure!(manifest_pages::keys(&pending[0])?.len() == 1);
+                }
+            }
+            ensure!(
+                completed.iter().any(|keys| keys.len() == 2),
+                "partly live source still exists"
+            );
+        }
+        "after-rename" | "directory-sync" => {
+            ensure!(pending.is_empty());
+            ensure!(
+                completed.iter().any(|copy| copy.len() == 1
+                    && completed
+                        .iter()
+                        .any(|source| source.len() == 2 && source.contains(&copy[0]))),
+                "both completed replacement and its actual partly live source must exist"
+            );
+        }
+        "after-remove" => {
+            ensure!(pending.is_empty());
+            ensure!(!completed.is_empty() && completed.iter().all(|keys| keys.len() == 1),
+                "old partly live container must be unlinked; selected root must recover from its copy");
+        }
+        _ => bail!("unknown copy boundary"),
+    }
+    Ok(())
 }
 
 fn enrollment_entry(record: &EnrollmentRecord, cut: &images::Cut) -> Result<Vec<u8>> {

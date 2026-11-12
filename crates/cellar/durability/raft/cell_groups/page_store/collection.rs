@@ -105,7 +105,7 @@ impl ManifestPageStore {
                     // An interrupted prior compaction can leave an identical
                     // completed destination. Validate its actual selected bytes
                     // and complete fresh owner barriers before releasing source.
-                    if existing.records != records {
+                    if existing.records.as_ref() != records.as_slice() {
                         return Err(ManifestError::Invalid("page pack identity collision"));
                     }
                     for record in &records {
@@ -150,7 +150,7 @@ impl ManifestPageStore {
                     self.packs.insert(opened.id, opened.clone());
                     opened
                 };
-                for record in &target.records {
+                for record in target.records.iter() {
                     let entry = self
                         .inventory
                         .get_mut(&record.key)
@@ -165,7 +165,7 @@ impl ManifestPageStore {
             }
             self.quarantined = true;
             self.filesystem.remove_file(&source.path)?;
-            for record in &source.records {
+            for record in source.records.iter() {
                 if self
                     .inventory
                     .get(&record.key)

@@ -42,7 +42,9 @@ pub(super) struct Pack {
     pub id: [u8; 32],
     pub path: PathBuf,
     pub length: u64,
-    pub records: Vec<Record>,
+    // Sealed indexes retain only their actual records, rather than the writer's
+    // maximum 96-record allocation for every one-page checkpoint container.
+    pub records: Box<[Record]>,
     // A completed barrier from this owner, never an integrity cache.
     pub persisted: AtomicBool,
 }
@@ -138,7 +140,7 @@ pub(super) fn open(
         id,
         path,
         length,
-        records,
+        records: records.into_boxed_slice(),
         persisted: AtomicBool::new(false),
     })
 }

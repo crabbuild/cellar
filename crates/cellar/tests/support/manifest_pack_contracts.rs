@@ -145,7 +145,10 @@ async fn compaction_preserves_held_roots_and_refunds_only_physical_bytes() -> Re
         );
         assert_eq!(fixture.trace.reads.load(Ordering::Acquire), reads);
         assert_eq!(fixture.trace.image_seals.lock().unwrap().len(), sealed);
-        assert_eq!(fixture.trace.synced_paths.lock().unwrap().len(), directories);
+        assert_eq!(
+            fixture.trace.synced_paths.lock().unwrap().len(),
+            directories
+        );
     }
     // B was observed unpinned on the previous scan step. A new real reader
     // before completion must mark it live without restarting or losing the bound.

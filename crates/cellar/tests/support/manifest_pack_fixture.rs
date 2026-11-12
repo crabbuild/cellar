@@ -58,6 +58,36 @@ pub fn read(directory: &Path, key: [u8; 32]) -> Result<Vec<u8>> {
     Ok(page)
 }
 
+/// Authenticate a completed fixture container, including its independent index
+/// encoding. Pending files may be inspected after a child has stopped writing.
+pub fn keys(path: &Path) -> Result<Vec<[u8; 32]>> {
+    let bytes = std::fs::read(path)?;
+    ensure!(bytes.len() >= 60 && bytes.len() <= 96 * (16 * 1024 + 36) + 60);
+    ensure!(&bytes[..8] == b"CLRCMP01");
+    let end = bytes.len() - 52;
+    ensure!(&bytes[end..end + 8] == b"CLRCMS01");
+    let count = u32::from_be_bytes(bytes[end + 8..end + 12].try_into()?) as usize;
+    ensure!((1..=96).contains(&count));
+    let mut cursor = 8;
+    let mut keys = Vec::with_capacity(count);
+    let mut pages = Vec::with_capacity(count);
+    for _ in 0..count {
+        ensure!(cursor + 36 <= end);
+        let key: [u8; 32] = bytes[cursor..cursor + 32].try_into()?;
+        let length = u32::from_be_bytes(bytes[cursor + 32..cursor + 36].try_into()?) as usize;
+        ensure!((1..=16 * 1024).contains(&length) && cursor + 36 + length <= end);
+        let page = bytes[cursor + 36..cursor + 36 + length].to_vec();
+        ensure!(page_digest(&page) == key);
+        keys.push(key);
+        pages.push(page);
+        cursor += 36 + length;
+    }
+    ensure!(cursor == end);
+    let (_, expected) = encode(&pages)?;
+    ensure!(bytes == expected);
+    Ok(keys)
+}
+
 /// Valid closed-store fixtures for interrupted compaction and malformed-input
 /// tests. The independent encoder does not call any PageStore implementation.
 pub fn encode(pages: &[Vec<u8>]) -> Result<(String, Vec<u8>)> {

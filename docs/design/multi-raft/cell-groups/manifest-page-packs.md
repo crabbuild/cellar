@@ -15,7 +15,10 @@ and assertions and overflow checks enabled. No request or resource limit changes
 
 The [page store](../../../../crates/cellar/durability/raft/cell_groups/page_store/mod.rs)
 streams one AVL update into one bounded immutable container. It retains at most
-96 frame descriptors and streams each existing bounded page buffer. Reads during
+96 frame descriptors and streams each existing bounded page buffer. Sealed
+containers retain only the actual record count in a boxed index; operation admission
+includes the bounded writer/sealed-index overlap. This avoids retaining the
+maximum writer capacity for every one-page checkpoint container. Reads during
 the update use a separate injected file handle; the writer's cursor never moves.
 The final footer precedes a single file sync, final rename and directory sync.
 Only then may the root escape the update scope. Quota, I/O failure or unwind after
@@ -84,6 +87,13 @@ reader-preserving relocation, a late pin between one-record scan steps, exact en
 headroom, file/rename/directory/unlink failures, interrupted-copy duplicates,
 pending cleanup and malformed framing. A successful focused check alone is not
 OPT-04/06 acceptance.
+
+The expanded existing process harness additionally requires 52 SIGKILL cuts
+across both image modes. Pack-copy cases independently inspect the real partial
+or completed replacement and old source before reopening, then verify the exact
+selected SQL state/receipts and the durable once-only callback ledger. This
+matrix has separate source-bound execution evidence; its existence is not a
+passing qualification result.
 
 The full native profile-1 storage/lifecycle matrix, matching real RustFS and
 constrained Linux campaigns, original occupancy-128 gate, repeated measurements

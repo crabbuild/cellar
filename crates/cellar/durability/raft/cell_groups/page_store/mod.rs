@@ -58,10 +58,10 @@ pub(super) struct PageOwner {
 // At most three page saves per level of the bounded (32-level) AVL update.
 pub(crate) const MAX_BATCH_PAGES: usize = 3 * 32;
 
-// One bounded index and a set of reopened packs needing a directory barrier.
+// A bounded writer index, its sealing overlap, and reopened packs needing a barrier.
 // The already charged logical-page buffer is streamed, never retained per page.
 pub(crate) const DIRECTORY_BATCH_BYTES: usize = MAX_BATCH_PAGES
-    * (std::mem::size_of::<Record>() + std::mem::size_of::<Arc<Pack>>())
+    * (2 * std::mem::size_of::<Record>() + std::mem::size_of::<Arc<Pack>>())
     + std::mem::size_of::<Batch>()
     + FRAME_BYTES as usize;
 
@@ -221,7 +221,7 @@ impl ManifestPageStore {
                 &mut store.filesystem.open(&path)?,
             )?);
             store.charge(opened.records.len(), opened.length, 1)?;
-            for record in &opened.records {
+            for record in opened.records.iter() {
                 // Crash between copy publication and old unlink can retain both
                 // containers. Charge both; choose a deterministic logical index.
                 let entry = store
@@ -337,7 +337,7 @@ impl ManifestPageStore {
         }
         if let Some(opened) = opened {
             opened.persisted.store(true, Ordering::Release);
-            for record in &opened.records {
+            for record in opened.records.iter() {
                 self.inventory.insert(
                     record.key,
                     PageEntry {
@@ -376,7 +376,7 @@ impl ManifestPageStore {
             id,
             path,
             length: pending.data_end + FOOTER_BYTES,
-            records: pending.records,
+            records: pending.records.into_boxed_slice(),
             persisted: AtomicBool::new(false),
         }))
     }
