@@ -10,6 +10,19 @@ const MIGRATIONS: &str = "__sys_sql_migrations";
 
 struct Caller(cellar::sdk::sql::Database);
 
+fn sql_failure<T>(
+    result: std::result::Result<T, cellar::sdk::sql::Error>,
+    messages: &[&str],
+) -> Result<serde_json::Value> {
+    let error = result.err().context("expected the SQL statement failure")?;
+    let message = error.to_string();
+    ensure!(
+        messages.iter().any(|expected| message.contains(expected)),
+        "unexpected SQL failure: {message}"
+    );
+    Ok(json!(true))
+}
+
 impl Cell for Caller {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -44,15 +57,15 @@ impl Cell for Caller {
                     ensure!(session.get_bookmark().as_deref() == Some("cellar:primary"));
                     json!(result)
                 }
-                "FailedExec" => json!(database.exec(&context, "INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM missing_table;").await.is_err()),
-                "FailedBatch" => json!(database.batch(&context, &[
+                "FailedExec" => sql_failure(database.exec(&context, "INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM missing_table;").await, &["no such table: missing_table"] )?,
+                "FailedBatch" => sql_failure(database.batch(&context, &[
                     database.prepare("INSERT INTO data VALUES(99,'must-roll-back')"),
                     database.prepare("INSERT INTO data VALUES(1,'duplicate')"),
-                ]).await.is_err()),
-                "FailedMigration" => json!(database.migrate(&context, "failed", "CREATE TABLE transient(value); INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM missing_table;", MIGRATIONS).await.is_err()),
+                ]).await, &["UNIQUE constraint failed: data.id"] )?,
+                "FailedMigration" => sql_failure(database.migrate(&context, "failed", "CREATE TABLE transient(value); INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM missing_table;", MIGRATIONS).await, &["no such table: missing_table"] )?,
                 "History" => json!(database.migrations(&context, MIGRATIONS).await?),
                 "Transient" => json!(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='transient'").first(&context, Some("n")).await?),
-                "Reject" => json!(database.exec(&context, input.as_str().context("SQL")?).await.is_err()),
+                "Reject" => sql_failure(database.exec(&context, input.as_str().context("SQL")?).await, &["not authorized", "prohibited"] )?,
                 "Undeclared" => {
                     ensure!(context.sql("MISSING").is_err());
                     json!(context.rpc_cell(
@@ -244,7 +257,38 @@ async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
     Ok(())
 }
 
-pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+pub async fn qualify(real_rustfs: bool) -> Result<()> {
+    let mut failures = Vec::new();
+    for rooted in [false, true] {
+        let result = async {
+            let store = if real_rustfs {
+                Arc::new(catalog_fault::Store::around(rustfs::store(
+                    "sql-bindings",
+                    rooted,
+                )?))
+            } else {
+                Arc::new(catalog_fault::Store::default())
+            };
+            Box::pin(run(rooted, store)).await
+        }
+        .await;
+        match result {
+            Ok(()) => eprintln!("SQL binding RustFS={real_rustfs} extents={rooted}: PASS"),
+            Err(error) => {
+                eprintln!("SQL binding RustFS={real_rustfs} extents={rooted}: FAILED: {error:#}");
+                failures.push(format!("extents={rooted}: {error:#}"));
+            }
+        }
+    }
+    ensure!(
+        failures.is_empty(),
+        "SQL binding qualification: {}",
+        failures.join("; ")
+    );
+    Ok(())
+}
+
+async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::query_connection=debug")
         .with_test_writer()

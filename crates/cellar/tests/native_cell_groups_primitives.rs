@@ -1722,28 +1722,11 @@ async fn rustfs_interrupted_named_bindings_recover_after_retained_restart() -> R
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_sql_bindings_use_managed_shared_groups() -> Result<()> {
-    for rooted in [false, true] {
-        Box::pin(sql_bindings::run(
-            rooted,
-            Arc::new(catalog_fault::Store::default()),
-        ))
-        .await
-        .with_context(|| format!("SQL binding extents={rooted}"))?;
-    }
-    Ok(())
+    Box::pin(sql_bindings::qualify(false)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_ordinary_sql_bindings_use_managed_shared_groups() -> Result<()> {
-    for rooted in [false, true] {
-        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
-            "sql-bindings",
-            rooted,
-        )?));
-        Box::pin(sql_bindings::run(rooted, store))
-            .await
-            .with_context(|| format!("RustFS SQL binding extents={rooted}"))?;
-    }
-    Ok(())
+    Box::pin(sql_bindings::qualify(true)).await
 }

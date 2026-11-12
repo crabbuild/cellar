@@ -26,7 +26,7 @@ Binding dispatch has no Fleet or weaker-durability fallback.
 
 ## SQL database bindings
 
-Shared native applications may declare `sql_bindings`, obtain a database with
+Shared native cells may declare `sql_bindings`, obtain a database with
 `Context::sql`, and use the ordinary prepared statement, batch, exec, session and
 migration APIs. Provision and load a separate `__SQLDatabase` namespace alongside
 the source namespaces, using the existing managed namespace provisioning API or
@@ -47,6 +47,18 @@ retain the existing global SQL identity, so two applications declaring the same
 database reach the same cell. A source may call only its declared SQL identities;
 exporting the reserved class does not grant access to arbitrary databases. The
 host refuses missing or ambiguous SQL namespaces before ingress.
+
+Remote calls also require the existing explicit `NamespaceCommandOrigin` and
+`NamespaceQueryOrigin` host grants. Voter membership does not confer write
+permission. Trusted startup must install the configured grants after verifying
+current peer boots and endpoints, and restore them after restart. The SQL drill
+forces different caller and database leaders to cover this requirement.
+
+The ordinary runtime refuses activation of Raft-declared classes. Native callers
+also refuse legacy SQL HTTP/RPC egress at the source, so another co-hosted script
+cannot supply a weaker SQL service through the global identity. Direct stateless
+SQL ingress still requires its shared-group adapter; these refusals are not a
+completed stateless SQL implementation.
 
 SQL requests use the ordinary durable binding protocol below, including the
 target namespace's independent minimum durability, original caller deadline,
