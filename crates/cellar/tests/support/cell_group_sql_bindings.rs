@@ -439,6 +439,9 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     fixture.configuration = Some(declared);
     fixture.sql_workers = 1;
     fixture.max_input_bytes = 16 * 1024;
+    // The old per-call client allocation fails this public drill. The fixed
+    // ingress stream must share four permanent slots with ordinary bindings.
+    fixture.max_client_identities = 4;
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
         fixture,
         &[],
@@ -472,7 +475,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         }).await??;
         let raced = futures_util::try_join!(
             public_sql(&cluster, 0, "IngressRace", json!(1)),
-            public_sql(&cluster, 2, "IngressRace", json!(2)),
+            public_sql(&cluster, 2, "IngressRace", json!(1)),
         )?;
         ensure!(raced == (json!(true), json!(true)));
         ensure!(public_sql(&cluster, 1, "IngressRaceCount", json!(null)).await? == json!(2));

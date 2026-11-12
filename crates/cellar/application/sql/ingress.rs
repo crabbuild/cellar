@@ -43,7 +43,26 @@ pub(crate) fn rpc(
             .filter(|remaining| *remaining != 0)
             .ok_or(crate::raft::completion::RuntimeError::DeadlineExceeded)?;
         let owner = services.raft_lifecycle().application_service()?;
-        Ok(owner.sql_ingress(scope, name, method, args, call_scope, deadline))
+        let admitted = services
+            .admit_outbound_rpc(&scope, name.as_deref(), &method, &args)
+            .ok_or_else(|| {
+                if services.accepts_work() {
+                    CommandFailure::Overloaded
+                } else {
+                    CommandFailure::Unavailable
+                }
+            })?;
+        // Relinquish caller-owned spare capacity/backing before any async wait.
+        drop((scope, name, method, args));
+        let crate::outbound_rpc::Admitted {
+            reservation,
+            scope,
+            name,
+            method,
+            args,
+        } = admitted;
+        let reservation = reservation.with_reply_limit(call_scope.reply_limit());
+        Ok(owner.sql_ingress(scope, name, method, args, call_scope, deadline, reservation))
     })();
     Box::pin(async move { prepared?.await })
 }

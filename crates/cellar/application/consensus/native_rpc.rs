@@ -9,6 +9,10 @@ use anyhow::{ensure, Context as _, Result};
 const MAGIC: &[u8; 4] = b"CRPC";
 const FORMAT: u8 = 1;
 
+pub(crate) fn has_ingress_nonce(input: &[u8]) -> bool {
+    input.starts_with(&[b'C', b'R', b'P', b'C', FORMAT, 3])
+}
+
 pub(crate) struct Request {
     pub name: Option<String>,
     pub args: RpcData,
@@ -108,7 +112,15 @@ pub(crate) fn encode_request(
 }
 
 pub(crate) fn decode_request(input: &[u8]) -> Result<Request> {
-    let mut reader = Reader::new(input, 1)?;
+    let purpose = *input.get(5).context("truncated native RPC purpose")?;
+    ensure!(
+        purpose == 1 || purpose == 3,
+        "invalid native RPC request purpose"
+    );
+    let mut reader = Reader::new(input, purpose)?;
+    if purpose == 3 {
+        reader.take(16)?;
+    }
     let name = match reader.byte()? {
         0 => None,
         1 => {
@@ -121,6 +133,26 @@ pub(crate) fn decode_request(input: &[u8]) -> Result<Request> {
     let args = reader.value(ValuePurpose::Argument)?;
     reader.finish()?;
     Ok(Request { name, args })
+}
+
+/// Independent ingress calls with identical SQL still have different retained
+/// request fingerprints when they race for the same bounded client sequence.
+pub(crate) fn encode_ingress_request(
+    name: Option<&str>,
+    args: &RpcData,
+    nonce: [u8; 16],
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    let limit = max_bytes
+        .checked_sub(16)
+        .ok_or(super::CommandFailure::Overloaded)?;
+    let request = encode_request(name, args, limit)?;
+    let mut output = Vec::with_capacity(request.len() + 16);
+    output.extend_from_slice(&request[..5]);
+    output.push(3);
+    output.extend_from_slice(&nonce);
+    output.extend_from_slice(&request[6..]);
+    Ok(output)
 }
 
 pub(crate) fn encode_response(value: &RpcData) -> Result<Vec<u8>> {

@@ -2,11 +2,12 @@
 
 //! A stateless request has one target command identity and no source transaction.
 
+use super::super::sql_ingress_identity::{self, Observation};
 use super::*;
 use crate::application::{cell_bindings::CallError, consensus::native_rpc, HandlerFuture};
 use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
-use cellar_logic::consensus::{ClientId, IncarnationId, ProposalId};
+use cellar_logic::consensus::{IncarnationId, ProposalId};
 use rand::RngCore as _;
 
 impl RaftCells {
@@ -18,6 +19,7 @@ impl RaftCells {
         args: RpcData,
         call_scope: crate::host_rpc::CallScope,
         deadline: u64,
+        reservation: crate::rpc_reservation::Reservation,
     ) -> HandlerFuture<RpcData> {
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
@@ -41,18 +43,21 @@ impl RaftCells {
                     .ok_or(RuntimeError::DeadlineExceeded)?,
             );
             let (_, memory) = self.metadata_admission(timeout, bytes)?;
-            let input = native_rpc::encode_request(name.as_deref(), &args, route.max_input_bytes)?;
             let mut rng = crate::asyncrt::rng("stateless-sql-command");
-            let mut client = [0; 16];
+            let mut nonce = [0; 16];
             let mut creation = [0; 16];
             let mut incarnation = [0; 16];
-            rng.fill_bytes(&mut client);
+            rng.fill_bytes(&mut nonce);
             rng.fill_bytes(&mut creation);
             rng.fill_bytes(&mut incarnation);
-            client[0] |= 1;
             creation[0] |= 1;
             incarnation[0] |= 1;
-            let id = CommandId::new(ClientId::new(client)?, 1)?;
+            let input = native_rpc::encode_ingress_request(
+                name.as_deref(),
+                &args,
+                nonce,
+                route.max_input_bytes,
+            )?;
             let creation = ProposalId::new(creation)?;
             let candidate = CellHistory {
                 cluster: route.cluster,
@@ -68,7 +73,6 @@ impl RaftCells {
                 route.durability,
                 candidate,
                 creation,
-                id,
                 retry_until_ms,
                 input,
                 deadline,
@@ -82,13 +86,13 @@ impl RaftCells {
                 durability,
                 candidate,
                 creation,
-                id,
                 retry_until_ms,
                 input,
                 deadline,
                 _memory,
             ) = prepared?;
             let selected = Mutex::new(None);
+            let command = Mutex::new(None);
             let submitted = std::sync::atomic::AtomicBool::new(false);
             let remaining = || -> anyhow::Result<Duration> {
                 let now = owner.handle.domain.mono_ms()?;
@@ -175,13 +179,64 @@ impl RaftCells {
                 };
                 *selected.lock().unwrap() = Some(history.clone());
                 let cell = owner.cell(history.clone())?;
-                let mut options = CommandOptions::new(id, retry_until_ms);
-                options.durability = durability;
-                options.timeout = remaining()?;
-                // SDK submission retains admitted work if the response is lost.
-                // Never choose another history or invent a mutation retry identity.
-                submitted.store(true, Ordering::Release);
-                let receipt = cell.command(&contract, input, options).await?;
+                let witness = observe(&cell, 0, remaining()?).await?;
+                *command.lock().unwrap() = Some(CommandId::new(
+                    sql_ingress_identity::client(),
+                    witness.next,
+                )?);
+                let fingerprint = super::super::command_request_digest(&input);
+                let receipt = loop {
+                    let id = command
+                        .lock()
+                        .unwrap()
+                        .ok_or(super::super::CommandFailure::CorruptState)?;
+                    let mut options = CommandOptions::new(id, retry_until_ms);
+                    options.durability = durability;
+                    options.timeout = remaining()?;
+                    submitted.store(true, Ordering::Release);
+                    let result = cell
+                        .command_retaining(
+                            &contract,
+                            input.clone(),
+                            options,
+                            Some(reservation.clone()),
+                        )
+                        .await;
+                    match result {
+                        Ok(receipt) => break receipt,
+                        Err(error)
+                            if matches!(
+                                error.cause.refusal(),
+                                Some(super::super::CommandFailure::CommandConflict)
+                            ) =>
+                        {
+                            // The dispatch error alone is not non-commit proof. A
+                            // fresh quorum read must find a different immutable
+                            // fingerprint at this exact occupied sequence.
+                            let observed = match observe(&cell, id.sequence(), remaining()?).await {
+                                Ok(observed) => observed,
+                                Err(proof_error) => {
+                                    return Err(anyhow::Error::from(error).context(format!(
+                                        "SQL sequence conflict proof failed: {proof_error}"
+                                    )))
+                                }
+                            };
+                            if !observed.consumed_other(id.sequence(), fingerprint) {
+                                return Err(error.into());
+                            }
+                            submitted.store(false, Ordering::Release);
+                            *command.lock().unwrap() = Some(CommandId::new(
+                                sql_ingress_identity::client(),
+                                observed.next,
+                            )?);
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                };
+                let id = command
+                    .lock()
+                    .unwrap()
+                    .ok_or(super::super::CommandFailure::CorruptState)?;
                 anyhow::ensure!(
                     receipt.id == id
                         && receipt.version.history == history
@@ -189,6 +244,14 @@ impl RaftCells {
                     super::super::CommandFailure::CorruptState
                 );
                 let response = native_rpc::decode_response(&receipt.result)?;
+                if let Some(limit) = reservation.reply_limit() {
+                    anyhow::ensure!(
+                        matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
+                        crate::application::rpc::Failure::new(
+                            crate::application::rpc::Code::InvalidResponse
+                        )
+                    );
+                }
                 remaining()?;
                 Ok(response)
             };
@@ -206,12 +269,15 @@ impl RaftCells {
             )
             .await
             .map_err(|cause| {
+                let Some(command) = command.into_inner().unwrap() else {
+                    return cause;
+                };
                 let ambiguous = cause.downcast_ref::<Arc<CellCommandError>>().map_or_else(
                     || submitted.load(Ordering::Acquire),
                     |error| error.ambiguous,
                 );
                 CallError {
-                    command: id,
+                    command,
                     target: selected.into_inner().unwrap(),
                     ambiguous,
                     cause,
@@ -220,4 +286,30 @@ impl RaftCells {
             })
         })
     }
+}
+
+async fn observe(
+    cell: &RaftCellHandle,
+    sequence: u64,
+    timeout: Duration,
+) -> anyhow::Result<Observation> {
+    let mut nonce = [0; 16];
+    crate::asyncrt::rng("sql-ingress-sequence-query").fill_bytes(&mut nonce);
+    nonce[0] |= 1;
+    let result = cell
+        .query(
+            ProposalId::new(nonce)?,
+            &cell.contract(sql_ingress_identity::OPERATION)?,
+            sequence.to_be_bytes().to_vec(),
+            QueryOptions {
+                timeout,
+                ..QueryOptions::default()
+            },
+        )
+        .await?;
+    anyhow::ensure!(
+        result.version.history == *cell.history(),
+        super::super::CommandFailure::CorruptState
+    );
+    Observation::decode(&result.result)
 }

@@ -96,14 +96,38 @@ submission, the selected history, input and command identity remain fixed.
 Cancellation or timeout does not establish non-commit, and a new application
 request is a separate mutation rather than an automatic retry.
 
-This implementation uses a fresh client identity per call. The target retains
-client sequence floors permanently, so the configured client limit will eventually
-refuse further calls. Bounded, restart-safe ingress identity ownership is a release
-blocker. Preserve deduplication and sequence fencing, including retained restart,
-clock regression and recovery; increasing quotas or deleting ordinary floors does
-not satisfy the contract. Ordinary outbound RPC admission/accounting also remains
-required. The public-path drill is a component checkpoint; sustained-load and full
-SQL-family acceptance remain open.
+Stateless SQL uses one reserved client stream per database history. A fresh
+128-bit nonce in the owned request envelope distinguishes independent calls even
+when their SQL and parameters are identical. A linearizable metadata query reads
+the next contiguous sequence from the existing receipt floors. Node restart and
+movement reuse that replicated state; no node-local client map or new lifetime
+client identity is allocated per call.
+
+Concurrent callers can select the same sequence. A conflict error alone does not
+authorize another mutation. The adapter may advance only after a fresh quorum
+query of the selected history finds a different immutable request fingerprint at
+that exact sequence. Missing, pruned and matching receipts provide no such proof;
+timeout, cancellation and other failures retain their original ambiguity. Every
+attempt keeps the same nonce, input, target history, expiry and absolute deadline.
+A proven competing request permits a new sequence, not a retry of an unknown
+mutation. Partial committed receipts also fix their request fingerprint.
+
+Only the reserved SQL service's native RPC contracts admit the nonce envelope
+with the fixed stream identity. Ordinary clients and classes cannot use it. The
+SQL service schema digest changes; use fresh compatible SQL namespaces and
+matching voters for this prototype hard cutover. Format markers remain at 1.
+
+The adapter uses normal outbound RPC admission and dense request normalization,
+plus the existing Raft control budget. The SDK ticket transfers with the pending
+command into the controller-owned invocation, including unresolved producers.
+Dropping its response waiter does not release that ticket. Reply limits and the
+original cancellation/deadline remain enforced.
+
+Qualification of this ownership change is pending. The owning receipt tests use
+a one-client ceiling; the public SQL drill lowers its ceiling to four and races
+identical first-access SQL requests. SQL-specific recovery, sustained-load and
+full SQL-family acceptance remain open, alongside the previous current-source
+binding recovery failures.
 
 ## Source intent and target proof
 

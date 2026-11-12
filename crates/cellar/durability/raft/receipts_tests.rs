@@ -17,6 +17,72 @@ fn request(sequence: u64, retry_until_ms: u64) -> CommandRequest {
 }
 
 #[test]
+fn sql_ingress_reuses_one_floor_and_proves_only_other_consumed_requests() -> anyhow::Result<()> {
+    use crate::application::consensus::sql_ingress_identity::{self as ingress, Observation};
+    let connection = Connection::open_in_memory()?;
+    install(&connection)?;
+    let limits = ExecutionLimits {
+        max_client_identities: 1,
+        ..Default::default()
+    };
+    for sequence in 1..=32 {
+        let next = Observation::decode(&ingress::observe(
+            &connection,
+            sequence,
+            &0u64.to_be_bytes(),
+        )?)?;
+        assert_eq!(next.next, sequence);
+        let mut command = request(sequence, 1000);
+        command.id = CommandId::new(ingress::client(), sequence)?;
+        let wire = crate::application::consensus::native_rpc::encode_ingress_request(
+            Some("db"),
+            &crate::engine_api::RpcData::Json("[\"INSERT INTO data VALUES(1)\"]".into()),
+            [sequence as u8; 16],
+            1024,
+        )?;
+        command.request_digest = crate::application::consensus::command_request_digest(&wire);
+        assert!(preflight(&connection, &command, &limits)?.is_none());
+        record(&connection, &command, vec![7])?;
+        let witness = Observation::decode(&ingress::observe(
+            &connection,
+            sequence + 1,
+            &sequence.to_be_bytes(),
+        )?)?;
+        assert!(witness.consumed_other(sequence, [99; 32]));
+        assert!(!witness.consumed_other(sequence, command.request_digest));
+    }
+    assert_eq!(
+        connection.query_row("SELECT count(*) FROM __sys_raft_clients", [], |r| r
+            .get::<_, u64>(0))?,
+        1
+    );
+    prune(&connection, ingress::client(), 31, 1001)?;
+    let pruned = Observation::decode(&ingress::observe(&connection, 33, &1u64.to_be_bytes())?)?;
+    assert!(!pruned.consumed_other(1, [99; 32]));
+    // A partial committed receipt still fixes its immutable request identity.
+    let mut parked = request(33, 1000);
+    parked.id = CommandId::new(ingress::client(), 33)?;
+    record_rpc_step(&connection, &parked, &limits, 1)?;
+    let parked = Observation::decode(&ingress::observe(&connection, 34, &33u64.to_be_bytes())?)?;
+    assert!(parked.consumed_other(33, [99; 32]));
+    Ok(())
+}
+
+#[test]
+fn sql_ingress_missing_schema_is_only_valid_before_the_first_mutation() -> anyhow::Result<()> {
+    use crate::application::consensus::sql_ingress_identity::{self as ingress, Observation};
+    let connection = Connection::open_in_memory()?;
+    assert_eq!(
+        Observation::decode(&ingress::observe(&connection, 1, &0u64.to_be_bytes())?)?.next,
+        1
+    );
+    assert!(ingress::observe(&connection, 2, &0u64.to_be_bytes()).is_err());
+    connection.execute_batch("CREATE TABLE __sys_raft_clients(client_id BLOB)")?;
+    assert!(ingress::observe(&connection, 1, &0u64.to_be_bytes()).is_err());
+    Ok(())
+}
+
+#[test]
 fn retry_deadline_is_inclusive() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     install(&connection)?;
