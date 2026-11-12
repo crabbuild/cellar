@@ -369,6 +369,15 @@ checkpoint is skipped before capture so quorum apply and sibling checkpoint work
 continue. This is a prerequisite for retained-log admission, not its byte/disk
 bound or the physical Raft file reclamation gate.
 
+An archive upload selects its exact reservation intent in the durable local
+journal before the allocation CAS. Ordinary uploads keep that intent selected
+through immutable object writes: the persistent live reservation reconstructs
+the same ticket across unrelated registry revisions. Collection protects the
+partial generation even after its local upload handle exits. An aborted or
+consumed ticket cannot be allocated again. The publication intent is durably
+selected before its CAS; a lost publication response still reconciles that exact
+intent. Recovering a ticket supplies neither archive coverage nor serving rights.
+
 `capture_snapshot` pins the retained checkpoint named by the exact Raft snapshot,
 including its original membership/configuration, after ordinary apply has advanced
 the current root. A concurrent checkpoint replacement may refuse capture; a

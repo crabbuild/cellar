@@ -21,6 +21,10 @@ mod runtime_fixture;
 #[path = "support/cell_group_rustfs.rs"]
 mod rustfs;
 
+#[path = "support/cell_group_archive_intents.rs"]
+mod archive_intents;
+use archive_intents::persist_archive_intent;
+
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -331,6 +335,32 @@ async fn controller_archive_publishes_stable_cuts_while_quorum_advances() -> Res
 async fn controller_archive_reconciles_exact_intent_and_joins_close() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::archive_controller_reconcile(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_archive_reservation_recovers_after_immutable_response_loss() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_reservation_recovery(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_controller_archive_reservation_recovers_after_immutable_response_loss() -> Result<()>
+{
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_reservation_recovery(
+            rooted,
+            rustfs::store("reservation-recovery", rooted)?,
+        ))
+        .await?;
     }
     Ok(())
 }

@@ -37,6 +37,7 @@ CASES = (
     "rustfs_s3_remote_slow_delivery_retains_proofs_and_bounds",
     "rustfs_controller_archive_publishes_stable_cuts",
     "rustfs_controller_archive_reconciles_exact_intent_and_joins_close",
+    "rustfs_controller_archive_reservation_recovers_after_immutable_response_loss",
     "rustfs_unproved_s3_responses_refuse",
     "rustfs_s3_commands_require_exact_archived_results",
     "rustfs_s3_replays_from_peer_archive_without_new_upload",
@@ -366,6 +367,18 @@ SUITES = {
         "Logical retained-entry admission and controlled-geometry Raft file purge are tested. "
         "Global physical disk bounds, process-kill restart, fencing/DR and sustained performance "
         "remain separate gates.",
+    ),
+    "archive-reservation": (
+        TARGET,
+        ("rustfs_controller_archive_reservation_recovers_after_immutable_response_loss",),
+        "durable reservation intent recovers an upload after an accepted immutable PUT loses its response",
+        "Both image modes use real host-native RF3 engines and conditional RustFS I/O. "
+        "The original controllers, SQL workers and Raft runtimes join before an independent "
+        "archive domain reopens the registry. The persisted selected root is independently "
+        "recovered; exact ticket replay crosses an unrelated registry revision without another "
+        "allocation. Collection preserves partial uploaded data and complete SQLite verification "
+        "precedes publication. This archive-owner handoff is not a full node/process restart, "
+        "power-loss or constrained-voter performance qualification.",
     ),
     "archive-publication-race": (
         "native_cell_groups_archive",

@@ -35,6 +35,10 @@ mod tail_fixture;
 #[allow(dead_code, unused_imports)]
 mod runtime_fixture;
 
+#[path = "support/cell_group_archive_intents.rs"]
+mod archive_intents;
+use archive_intents::persist_archive_intent;
+
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -505,32 +509,6 @@ async fn new_archive(
         cluster.birth.route().history,
     )?;
     start_upload(cluster, &archive, &label).await
-}
-
-async fn persist_archive_intent<T: serde::Serialize + serde::de::DeserializeOwned>(
-    cluster: &Cluster,
-    intent: &T,
-) -> Result<T> {
-    let bytes = serde_json::to_vec(intent)?;
-    let name = hex::encode(Sha256::digest(&bytes));
-    let directory = cluster._root.path().join("archive-intents");
-    let loaded = cluster
-        .domain
-        .blocking(move || -> Result<Vec<u8>> {
-            use std::io::Write;
-            std::fs::create_dir_all(&directory)?;
-            let path = directory.join(name);
-            let mut file = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&path)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            std::fs::File::open(&directory)?.sync_all()?;
-            Ok(std::fs::read(path)?)
-        })?
-        .await??;
-    Ok(serde_json::from_slice(&loaded)?)
 }
 
 async fn start_upload(

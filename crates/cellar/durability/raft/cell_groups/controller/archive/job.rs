@@ -355,7 +355,9 @@ pub(super) async fn drive(
             }
             Err(error) => return Err(error.into()),
         }
-        store(context, execution, &record).await?;
+        // The durable Reserve intent reconstructs this exact live ticket,
+        // including after uploaded objects or unrelated registry revisions.
+        // Keep that intent through upload; persist Publish before its CAS below.
     }
     let Pending::Upload(ticket) = record.pending else {
         return Err(Error::Invalid("archive upload stage"));

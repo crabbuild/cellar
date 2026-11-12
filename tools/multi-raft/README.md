@@ -470,7 +470,7 @@ python3 tools/multi-raft/cell_groups.py \
 
 The runner verifies the backend's ownership label, image, running state, endpoint
 and actual resource limits, then makes seven signed S3 probes in a new bucket.
-It runs twenty exact ignored RustFS cases, each in materialized and extent modes:
+It runs twenty-three exact ignored RustFS cases, each in materialized and extent modes:
 archive-gated local compaction with independent sibling checkpoint progress,
 stable publication with continuing quorum, uncertain-publication reconciliation
 with joined close, refusal of unproved S3 responses, positive local command S3
@@ -485,6 +485,16 @@ revocation and timeout. Catalog setup, archive
 objects, conditional registry updates and independent recovery use the actual
 S3 client. Fault injection surrounds that client; lost publication responses are
 injected after the real conditional write commits. No memory fallback exists.
+
+`--suite archive-reservation` selects the durable-reservation recovery case.
+An accepted immutable PUT loses its response and subsequent reads fail. After
+the original controllers, SQL workers and Raft runtimes join, a fresh archive
+domain reopens the registry and reconstructs the exact ticket from its persisted
+reservation intent. An unrelated registry revision and collection cannot replace
+that ticket or delete its partial upload. The selected local root and complete
+SQLite archive are independently verified before publication. This is an
+archive-owner handoff; full node/process restart and power-loss remain separate
+gates. The same case is also required by the default archive suite.
 
 The refusal case verifies that an unbound dispatcher cannot claim S3 durability,
 including a namespace minimum. The positive command cases use an explicit

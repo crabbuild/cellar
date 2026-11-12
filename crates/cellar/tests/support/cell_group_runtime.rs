@@ -911,7 +911,10 @@ pub(super) use sql::{
     archived_groups_reclaim_independently,
 };
 #[allow(unused_imports)]
-pub(super) use sql::{archive_controller_publish_store, archive_controller_reconcile_store};
+pub(super) use sql::{
+    archive_controller_publish_store, archive_controller_reconcile_store,
+    archive_controller_reservation_recovery,
+};
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_dependencies, archive_progress_wakes_commands, full_backend_outage,

@@ -23,6 +23,7 @@ pub struct Store {
     pub gets: AtomicUsize,
     pub lose_put_response: AtomicBool,
     pub lose_immutable_put_response: AtomicBool,
+    pub lose_immutable_put_and_reads: AtomicBool,
     pub lose_directory_head_and_reads: AtomicBool,
     pub deletes: AtomicUsize,
     pub lose_delete_response: AtomicBool,
@@ -48,6 +49,7 @@ impl Store {
             gets: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
             lose_immutable_put_response: AtomicBool::new(false),
+            lose_immutable_put_and_reads: AtomicBool::new(false),
             lose_directory_head_and_reads: AtomicBool::new(false),
             deletes: AtomicUsize::new(0),
             lose_delete_response: AtomicBool::new(false),
@@ -164,6 +166,17 @@ impl ObjectStore for Store {
         let immutable =
             matches!(opts.mode, PutMode::Create) && path.as_ref().contains("/generations/");
         let result = self.inner.put_opts(path, payload, opts).await?;
+        if immutable
+            && self
+                .lose_immutable_put_and_reads
+                .swap(false, Ordering::AcqRel)
+        {
+            self.outage.store(true, Ordering::Release);
+            return Err(Error::Generic {
+                store: "lost immutable archive PUT and subsequent reads",
+                source: "injected after accepted create".into(),
+            });
+        }
         if immutable
             && self
                 .lose_immutable_put_response
