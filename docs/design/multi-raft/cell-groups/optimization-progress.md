@@ -2786,3 +2786,79 @@ failed, and the original uninstrumented standby timeouts remain unexplained.
 Current-source RustFS/Linux, broader native/storage/primitive coverage, measured
 performance and full CG/OPT acceptance remain open. The base's recorded RustFS
 interrupted-binding failures are not resolved by these native results.
+
+## Certificate and actual-boot wire authority
+
+Checkpoint `0a923923`, source `f43eecff`, passes all twelve selected native cases
+and all eight static/source checks. The actual untrusted-certificate case passes
+in 12.960 seconds with all six SDK/native HTTP/Axum image profiles independently
+checked. Each cached trusted connection is joined before changing certificates;
+the real client sends `UnknownCA`, no RPC or SQL producer enters, and restored
+trust and permission reuse the original command once with S3 proof. The wire
+case passes in 83.081 seconds with all sixty captured request/reply observations
+checked against the stricter framing, correlation and authenticator ledger.
+Native profile-1 settings, original five-second windows, executable identities
+and frozen inputs are retained at `qualification/untrusted-tls-advice-native`.
+These runs use in-memory object storage, not a current RustFS/Linux deployment.
+
+Checkpoint `26b045da`, source `3f38fcd6`, passes all thirteen selected native
+cases, fresh strict core/logic all-target Clippy, and all seven same-source
+repository checks. The latter are reused only after verifying the preflight's
+exact HEAD, complete source manifest, clean tree and retained record hash. The
+actual issuer-restart case passes in 39.709 seconds across six fresh caller/image
+fixtures. Its controlled call/boot changes take 314–601 ms within the original
+five-second budget. Public inspection verifies a successor physical boot on the
+same engine; all old tails are written to their owned TLS streams after current
+trust and a genuine owner query are installed. This records local writes, not a
+claim that the client decoded the old reply. No SQL/callback or non-commit proof
+is admitted, ambiguity remains, and both the first recovered S3 command and exact
+replay use one cached RPC. The matching wire, certificate, origin-revocation,
+read-expiry, preference, cohort and CLI controls pass on the same retained
+executables. Records are under `qualification/superseded-boot-advice-native`.
+
+The first boot-source preflight fails at the evidence JSON macro's recursion
+limit; the next fails at an invalid SDK query variant. Both remain failed with
+their seven passing static checks. The corrected checkpoint uses smaller evidence
+objects and the existing `Linearizable` API; no request bound or assertion is
+relaxed. These are scoped native authority checkpoints, not full RO-03, CG or
+OPT acceptance.
+
+The subsequent integration includes base `55fff63a`, with bounded stateless SQL
+identities and nonce-bearing RPC envelopes. Its changed production source needs
+new combined validation; it cannot inherit the preceding checkpoints. Actual
+combined authority coverage, current-source RustFS/Linux, broader native and
+primitive/provider coverage, physical-owner accounting and performance gates
+remain open.
+
+## Removed-member wire authority checkpoint
+
+Checkpoint `543634b8`, source `2df204aa`, passes the focused native
+`removed_member_advice_cannot_grant_authority` case in 62.656 seconds. The
+independent ledger checks all six SDK/native HTTP/Axum image profiles. Each
+fixture actually replaces and retires an original voter, moves leadership to
+member 5, verifies physical inventory exclusion and establishes a successful
+linearizable query through the new voter before injecting authenticated advice
+that names the removed member. The command enters no SQL producer; its complete
+pre-admission refusal preserves a known non-commit outcome. Restored permission
+reuses the original command identity once with S3 proof, with unchanged current
+membership, term and logical range.
+
+The first candidate `0ce7cad1`, source `aa899b54`, passes its source preflight but
+fails its final replay assertion; an unchanged repetition reproduces that
+failure. A focused probe shows that both tokens authenticate the same canonical
+version and witness, all receipt/callback invariants hold, and only token bytes
+differ. Tokens include a fresh issue time on each reply. The corrected oracle
+authenticates both tokens and checks their decoded version and witness exactly,
+while retaining command identity, result, durability, coverage and callback
+assertions. Two diagnostic attempts fail earlier with `StalePeer`; those remain
+separate setup failures. The corrected fixture uses the existing current-trust
+inspection barrier before membership inspection, without claiming that this
+establishes the cause of those earlier failures.
+
+The frozen source, executable identities and six captured wire observations are
+retained under `qualification/removed-member-authenticated-replay`; the evidence
+file SHA-256 is
+`09adeb1943ca02cfd3db3fa0acd91e7030369f6ccfdb3a3fa09d9f1b8900acb6`.
+This uses in-memory object storage and the original request/resource bounds.
+It does not qualify current-base integration, strict Clippy, RustFS/Linux,
+full RO-03, CG-13, CG-17 or OPT-01–08.
