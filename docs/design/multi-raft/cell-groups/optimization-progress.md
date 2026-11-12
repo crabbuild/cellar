@@ -1907,3 +1907,85 @@ and startup failures, standby/replacement, authority/ambiguity cuts, held-owner
 reclamation, placement/fairness and the complete primitive/backend/performance
 matrix remain open. This checkpoint accepts no complete CG-13, CG-17 or
 OPT-01 through OPT-08 package.
+
+## Archive reservation checkpoint and recovery control
+
+Runtime source manifest `c273e2b0be74`, committed as `dfc0d424`, removes one
+intermediate local journal checkpoint from an ordinary archive upload. The
+original reservation intent is already durable before its allocation CAS.
+The persistent pending generation reconciles that exact intent to its original
+ticket, even after unrelated registry revisions and partial immutable writes.
+The journal therefore retains `Reserve` through upload instead of writing a
+second `Upload` record. Publication intent remains durable before its CAS;
+seed uploads retain their existing checkpoint path. Neither recovered tickets
+nor partial objects establish archive coverage or serving authority.
+
+The new regression holds the actual reservation CAS, reads the durable intent,
+then loses an accepted immutable-create response and denies subsequent reads.
+It joins the original controllers, SQL workers and Raft runtimes before opening
+the registry in a new archive execution domain. An unrelated durable allocation
+advances the registry, yet the persisted original intent reconstructs the same
+ticket without another PUT. Collection preserves its partial generation after
+the original local upload handle has exited. Recovery independently reopens the
+selected local root, completes the upload and independently verifies the archive
+before publication. Published coverage is then audited against the full SQLite
+contents. Publication intent is persisted before commit; consumed
+ticket replay refuses without another allocation, and all owners join cleanup.
+The original ReplicaLog engines remain open: this archive-owner handoff is not
+full node/process restart or power-loss qualification.
+
+On unchanged old production code, every recovery, collection, SQLite and
+joined-cleanup assertion passed before the final journal assertion reproduced
+the extra `Upload` checkpoint. The candidate passes that assertion in both
+image modes. Both controls explicitly use Rust 1.98.1; retained executable
+compiler hashes were checked. Initial fixture attempts remain retained: one
+missed the shared test-intent helper and another tried checkpoint capture after
+the runtime had closed. The corrected fixture uses persisted-root recovery.
+The before control's initial driver classification was corrected by inspecting
+both retained output streams; it was not rerun under a new mutation identity.
+
+The candidate's native campaign remains **failed**. Two archive-journal unit
+tests passed. The controller target reported **16 passed, four failed, 23
+ignored**, including a passing new recovery case. The archive-protocol target
+reported **31 passed, one failed, seven ignored**. Its failure was
+`quorum_continues_bounded_s3_outage`, at the fresh remote catalog-discovery
+assertion. Original occupancy-128 enrollment also failed within its unchanged
+60-second total window; the complete failed test and joined observations took
+69.752 seconds. No scale acceptance or measured speedup follows from removing
+this checkpoint. Strict library/affected-test/runner Clippy, formatting (2,215
+files), layout, dependency, documentation and patch checks passed. The multi-raft
+tool suite ran 105 tests with one opt-in skip and passed. Source inputs remained frozen
+through actual completion.
+
+A separate paired comparison uses the retained old-production and candidate
+executables, with identical test code, profiles and Rust 1.98.1. In both,
+`s3_enrollment_requires_the_original_archived_creation` fails at the duplicate
+response ownership assertion and
+`s3_remote_outputs_preserve_durability_and_creation` fails at the unbound remote
+ambiguity assertion. The deadline and slow-delivery cases that failed in the
+full controller campaign each pass independently on both executables. Those
+repeats neither erase the full campaign failures nor prove their causes. The
+archive-protocol outage failure has no paired before control in this campaign.
+No assertions, request windows, identities or resource limits were changed.
+
+The committed candidate then **passed** the named RustFS `archive-reservation`
+suite: seven signed S3 capability probes and its exact ignored recovery case,
+which exercises both materialized and extent modes. Its retained executable
+hash matches the native candidate exactly, including the embedded Rust 1.98.1
+compiler hash. Backend ownership, pinned image, loopback endpoint and live
+one-CPU/2-GiB/no-extra-swap limits were checked before and after the campaign.
+The backend runs in the owned Colima VM; these RF3 voters are host-native.
+This pass qualifies the recovery case, not the default 23-case archive suite,
+constrained container voters, full node restart or the broader S3 failures.
+
+Records are retained under `archive-reservation-before`,
+`archive-reservation-before-v2`, `archive-reservation-before-v3`,
+`archive-reservation-candidate`, `archive-reservation-paired-regressions` and
+`rustfs-archive-reservation-dfc0d424` in the checkout's private qualification
+root. The latest constrained Linux evidence remains bound to source `46eca779`
+and image `ef0024789e9f`; it does not qualify this candidate. Next priorities
+remain occupancy-128 cost, the S3 ownership/ambiguity/outage failures and distinct
+endpoint/startup failures, followed by latest-source constrained Linux,
+standby/replacement, authority and reclamation cuts, placement/fairness and the
+complete primitive/backend/performance matrix. Full CG-13, CG-17 and OPT-01
+through OPT-08 remain open.
