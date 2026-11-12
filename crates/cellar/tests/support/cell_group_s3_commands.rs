@@ -25,7 +25,7 @@ use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
     s3_late_receipt_uses_completed_verification, s3_receipt_deadline, s3_receipt_failures,
-    s3_receipt_minimums, s3_receipt_observations,
+    s3_receipt_minimums, s3_receipt_observations, s3_response_precedes_hold_retirement,
 };
 pub(crate) use remote::{s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery};
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -289,6 +289,14 @@ verify before it can advance the historical reclamation frontier. It cannot
 prove a newer command result. S3 output still checks the exact archived receipt
 and current birth; local compaction still requires its own admitted checkpoint.
 
+After selecting a verified publication, the owner durably journals its new head
+and previous-hold retirement debt before settling output proofs. Remote release
+of the previous hold runs as maintenance; it cannot delay an already covered
+response. Another allocation still requires that retirement, preserving the
+current-plus-retiring bound across cancellation, shutdown and retained restart.
+The held-retirement regression and current-source binding campaigns must pass
+before accepting this scheduling checkpoint; the existing S3 deadline gate is open.
+
 ## Remaining qualification and delivery
 
 The focused public regression exercises ordinary named calls, repeated calls,

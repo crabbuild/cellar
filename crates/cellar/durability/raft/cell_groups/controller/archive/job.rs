@@ -179,14 +179,15 @@ async fn select(
     record.retire = record.head.replace(head);
     record.pending = Pending::None;
     store(context, execution, record).await?;
-    // The new head is already durable and independently verified. An earlier
-    // output can retain the previous hold without preventing use of this head.
-    // Its pending retirement still blocks allocation of another archive below.
-    let allocation_ready = retire(context, execution, record).await?;
+    // The new head and its predecessor's retirement debt are now durable.
+    // Cleanup is not part of this publication's proof: a slow release must not
+    // hold an already verified response on the archive lane. The next drive
+    // retires the predecessor before allocating again, retaining the existing
+    // current-plus-retiring bound across failures and restart.
     Ok(Driven {
         published: coverage.marker().clone(),
         coverage,
-        maintenance_pending: !allocation_ready,
+        maintenance_pending: record.retire.is_some(),
     })
 }
 

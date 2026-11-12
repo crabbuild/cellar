@@ -101,6 +101,143 @@ impl Harness {
     }
 }
 
+/// A verified publication can serve while its journaled predecessor awaits
+/// retirement. Cleanup still prevents a third allocation and joins on close.
+pub(crate) async fn s3_response_precedes_hold_retirement(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let h = Harness::new(rooted, store, 1).await?;
+    let previous = h.controllers[0]
+        .archive_status(h.route.history)?
+        .context("archive status")?
+        .published
+        .context("initial archive cut")?
+        .position()
+        .index;
+    let gate = h.remote.hold_retirement_after(previous.get());
+
+    struct Release(Arc<archive_controller::archive_store::Gate>);
+
+    impl Drop for Release {
+        fn drop(&mut self) {
+            self.0.release.notify_one();
+        }
+    }
+
+    let release = Release(gate.clone());
+    let work = async {
+        let response = async {
+            Ok::<_, anyhow::Error>(
+                h.command(
+                    1,
+                    b"published-before-cleanup",
+                    Durability::S3,
+                    Duration::from_secs(5),
+                )
+                .await?
+                .response()
+                .await?,
+            )
+        };
+        // Keep polling the actual command while retirement is held. Waiting for
+        // both outcomes accepts either scheduling order; the hold is not
+        // released to make an otherwise expired S3 response succeed.
+        let (entered, response) = futures_util::future::join(
+            tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()),
+            response,
+        )
+        .await;
+        entered.context("previous archive hold reached retirement")?;
+        let response = response.context("verified output waited for predecessor cleanup")?;
+        assert_eq!(response.durability(), Durability::S3);
+        assert_eq!(response.result(), b"published-before-cleanup");
+        let covered = response
+            .local_receipt()
+            .context("local S3 receipt")?
+            .position
+            .index;
+        assert!(gate.publication_index.load(Ordering::Acquire) >= covered.get());
+
+        let registries = h.remote.inner.list(None).try_collect::<Vec<_>>().await?;
+        let registry = registries
+            .iter()
+            .find(|object| object.location.as_ref().ends_with("/ownership/registry"))
+            .context("archive registry")?;
+        let bytes = h
+            .remote
+            .inner
+            .get(&registry.location)
+            .await?
+            .bytes()
+            .await?;
+        let state: serde_json::Value = serde_json::from_slice(&bytes)?;
+        assert_eq!(state["holds"].as_array().context("archive holds")?.len(), 2);
+        assert!(state["pending"]
+            .as_array()
+            .context("archive allocations")?
+            .is_empty());
+        let published = gate.publication_index.load(Ordering::Acquire);
+        drop(response);
+        let newer = h
+            .command(
+                2,
+                b"quorum-during-cleanup",
+                Durability::Quorum,
+                Duration::from_secs(5),
+            )
+            .await?
+            .response()
+            .await?;
+        assert_eq!(newer.durability(), Durability::Quorum);
+        assert_eq!(newer.result(), b"quorum-during-cleanup");
+        assert!(h
+            .remote
+            .publication_cuts
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|cut| *cut <= published));
+        let bytes = h
+            .remote
+            .inner
+            .get(&registry.location)
+            .await?
+            .bytes()
+            .await?;
+        let state: serde_json::Value = serde_json::from_slice(&bytes)?;
+        assert_eq!(
+            state["holds"]
+                .as_array()
+                .context("retained archive holds")?
+                .len(),
+            2
+        );
+        assert!(state["pending"]
+            .as_array()
+            .context("blocked third allocation")?
+            .is_empty());
+        drop(newer);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if let Err(error) = work {
+        drop(release);
+        h.close().await?;
+        return Err(error);
+    }
+    let mut closing = Box::pin(h.close());
+    let early = tokio::time::timeout(Duration::from_millis(30), closing.as_mut()).await;
+    let premature = early.is_ok();
+    drop(release);
+    let closed = match early {
+        Ok(result) => result,
+        Err(_) => closing.await,
+    };
+    anyhow::ensure!(!premature, "close released an entered archive retirement");
+    closed
+}
+
 /// A proof arriving during background publication must consume its already
 /// verified physical cut, without downloading that same checkpoint again.
 pub(crate) async fn s3_late_receipt_uses_completed_verification(
