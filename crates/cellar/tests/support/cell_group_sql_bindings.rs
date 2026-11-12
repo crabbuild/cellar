@@ -178,7 +178,12 @@ async fn database_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
     let mut database_fixture = fixture.clone();
     database_fixture.declaration = declaration.clone();
     let intent_root = cluster.roots[0].path().join("sql-archive");
-    std::fs::create_dir(&intent_root)?;
+    let filesystem = fixture.filesystem.clone();
+    let directory = intent_root.clone();
+    fixture
+        .domain
+        .blocking(move || cellar_ltx::create_dir_all_durable(filesystem.as_ref(), &directory))?
+        .await??;
     managed_fixture::archives::initialize(&database_fixture, &adapter, history, &intent_root)
         .await?;
     for host in &cluster.hosts {

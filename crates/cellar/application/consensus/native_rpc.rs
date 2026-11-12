@@ -14,6 +14,28 @@ pub(crate) struct Request {
     pub args: RpcData,
 }
 
+#[derive(Clone, Copy)]
+enum ValuePurpose {
+    Argument,
+    Reply,
+}
+
+fn validate_structured(bytes: &[u8], purpose: ValuePurpose) -> Result<()> {
+    match purpose {
+        ValuePurpose::Argument => {
+            cellar_native::clone::decode(bytes)?;
+        }
+        ValuePurpose::Reply => match cellar_native::rpc::decode_response(bytes) {
+            Ok(_) => (),
+            // A well-formed remote exception is a complete, retainable reply.
+            // Malformed graphs and capability envelopes remain refusals.
+            Err(error) if error.is::<cellar_native::rpc::RemoteError>() => (),
+            Err(error) => return Err(error),
+        },
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_identity(
     script: &str,
     class: &str,
@@ -81,7 +103,7 @@ pub(crate) fn encode_request(
         }
         None => output.push(0),
     }
-    encode_value(&mut output, args)?;
+    encode_value(&mut output, args, ValuePurpose::Argument)?;
     Ok(output)
 }
 
@@ -96,7 +118,7 @@ pub(crate) fn decode_request(input: &[u8]) -> Result<Request> {
         }
         _ => anyhow::bail!("invalid cell routing name marker"),
     };
-    let args = reader.value()?;
+    let args = reader.value(ValuePurpose::Argument)?;
     reader.finish()?;
     Ok(Request { name, args })
 }
@@ -106,18 +128,18 @@ pub(crate) fn encode_response(value: &RpcData) -> Result<Vec<u8>> {
     output.extend_from_slice(MAGIC);
     output.push(FORMAT);
     output.push(2);
-    encode_value(&mut output, value)?;
+    encode_value(&mut output, value, ValuePurpose::Reply)?;
     Ok(output)
 }
 
 pub(crate) fn decode_response(input: &[u8]) -> Result<RpcData> {
     let mut reader = Reader::new(input, 2)?;
-    let value = reader.value()?;
+    let value = reader.value(ValuePurpose::Reply)?;
     reader.finish()?;
     Ok(value)
 }
 
-fn encode_value(output: &mut Vec<u8>, value: &RpcData) -> Result<()> {
+fn encode_value(output: &mut Vec<u8>, value: &RpcData, purpose: ValuePurpose) -> Result<()> {
     match value {
         RpcData::Json(json) => {
             serde_json::from_str::<serde::de::IgnoredAny>(json)?;
@@ -125,8 +147,7 @@ fn encode_value(output: &mut Vec<u8>, value: &RpcData) -> Result<()> {
             write(output, json.as_bytes())?;
         }
         RpcData::Structured(bytes) => {
-            // Validate before recording an intent or admitting a target call.
-            cellar_native::clone::decode(bytes)?;
+            validate_structured(bytes, purpose)?;
             output.push(2);
             write(output, bytes)?;
         }
@@ -171,7 +192,7 @@ impl<'a> Reader<'a> {
         self.take(length)
     }
 
-    fn value(&mut self) -> Result<RpcData> {
+    fn value(&mut self, purpose: ValuePurpose) -> Result<RpcData> {
         match self.byte()? {
             1 => {
                 let json = std::str::from_utf8(self.bytes()?)?;
@@ -180,7 +201,7 @@ impl<'a> Reader<'a> {
             }
             2 => {
                 let bytes = self.bytes()?;
-                cellar_native::clone::decode(bytes)?;
+                validate_structured(bytes, purpose)?;
                 Ok(RpcData::Structured(bytes.to_vec().into()))
             }
             _ => anyhow::bail!("invalid native RPC value kind"),
@@ -189,6 +210,58 @@ impl<'a> Reader<'a> {
 
     fn finish(self) -> Result<()> {
         ensure!(self.0.is_empty(), "trailing native RPC bytes");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_reply_preserves_graph_and_cause_without_becoming_an_argument() -> Result<()> {
+        let bytes = cellar_native::rpc::encode_error(
+            "SQL_EXEC_ERROR: no such table: missing_table",
+            "Error",
+            Some("no such table: missing_table"),
+        )?;
+        let value = RpcData::Structured(bytes.clone().into());
+        let mut packet = encode_response(&value)?;
+        let decoded = decode_response(&packet)?;
+        let RpcData::Structured(actual) = &decoded else {
+            panic!("error reply changed representation");
+        };
+        assert_eq!(actual.as_ref(), bytes.as_slice());
+        let error = crate::application::decode_rpc_result(&decoded).unwrap_err();
+        let remote = error
+            .downcast_ref::<cellar_native::rpc::RemoteError>()
+            .unwrap();
+        assert_eq!(
+            remote.message,
+            "SQL_EXEC_ERROR: no such table: missing_table"
+        );
+        assert!(encode_request(None, &value, 4096).is_err());
+        packet[5] = 1;
+        packet.insert(6, 0); // An argument packet also carries the optional name.
+        assert!(decode_request(&packet).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_and_capability_replies_remain_refused() -> Result<()> {
+        for bytes in [
+            vec![],
+            vec![0],
+            vec![0, 0xff, 15],
+            vec![1, 0xff, 15],
+            vec![2, 0xff, 15],
+        ] {
+            assert!(encode_response(&RpcData::Structured(bytes.clone().into())).is_err());
+            let mut packet = MAGIC.to_vec();
+            packet.extend([FORMAT, 2, 2]);
+            write(&mut packet, &bytes)?;
+            assert!(decode_response(&packet).is_err());
+        }
         Ok(())
     }
 }
