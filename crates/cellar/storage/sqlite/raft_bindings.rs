@@ -53,7 +53,7 @@ pub(crate) fn prepare<T>(
     schedule: impl FnOnce(Intent) -> Result<T>,
 ) -> Result<T> {
     command::with(|connection| as_framework_sql(|| {
-        connection.execute_batch("SAVEPOINT __sys_raft_binding_prepare")?;
+        control(connection, "SAVEPOINT __sys_raft_binding_prepare")?;
         let result = (|| {
         let epoch = source.history.incarnation.bytes();
         let mut available = None;
@@ -96,11 +96,11 @@ pub(crate) fn prepare<T>(
             schedule(intent)
         })();
         if result.is_ok() {
-            if let Err(error) = connection.execute_batch("RELEASE __sys_raft_binding_prepare") {
+            if let Err(error) = control(connection, "RELEASE __sys_raft_binding_prepare") {
                 command::poison(format!("binding intent release failed: {error}"));
                 return Err(error.into());
             }
-        } else if let Err(error) = connection.execute_batch("ROLLBACK TO __sys_raft_binding_prepare; RELEASE __sys_raft_binding_prepare") {
+        } else if let Err(error) = control(connection, "ROLLBACK TO __sys_raft_binding_prepare; RELEASE __sys_raft_binding_prepare") {
             command::poison(format!("binding intent rollback failed: {error}"));
             return Err(error.into());
         }
@@ -130,7 +130,7 @@ pub(crate) fn complete(intent: &Intent, history: &CellHistory, result: &[u8]) ->
     use sha2::{Digest, Sha256};
     let digest: [u8; 32] = Sha256::digest(result).into();
     command::with(|connection| as_framework_sql(|| {
-        connection.execute_batch("SAVEPOINT __sys_raft_binding_complete")?;
+        control(connection, "SAVEPOINT __sys_raft_binding_complete")?;
         let result = (|| {
         let changed = connection.execute(
             "UPDATE __sys_raft_binding_intents SET phase=3,result_digest=?6 WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3 AND fingerprint=?4 AND selected=?5 AND format=1 AND phase=2",
@@ -146,11 +146,11 @@ pub(crate) fn complete(intent: &Intent, history: &CellHistory, result: &[u8]) ->
         Ok(())
         })();
         if result.is_ok() {
-            if let Err(error) = connection.execute_batch("RELEASE __sys_raft_binding_complete") {
+            if let Err(error) = control(connection, "RELEASE __sys_raft_binding_complete") {
                 command::poison(format!("binding completion release failed: {error}"));
                 return Err(error.into());
             }
-        } else if let Err(error) = connection.execute_batch("ROLLBACK TO __sys_raft_binding_complete; RELEASE __sys_raft_binding_complete") {
+        } else if let Err(error) = control(connection, "ROLLBACK TO __sys_raft_binding_complete; RELEASE __sys_raft_binding_complete") {
             command::poison(format!("binding completion rollback failed: {error}"));
             return Err(error.into());
         }
@@ -228,4 +228,10 @@ pub(crate) fn cell_name(connection: &Connection, incoming: Option<&str>) -> Resu
         connection.execute("INSERT INTO __sys_raft_cell_name VALUES(1,1,?1)", [name])?;
         Ok(Some(name.to_owned()))
     })
+}
+
+// The authorizer grants transaction control independently from access to the
+// framework tables. Only these fixed savepoint statements receive that grant.
+fn control(connection: &Connection, statement: &'static str) -> rusqlite::Result<()> {
+    as_storage_transaction(|| connection.execute_batch(statement))
 }
