@@ -39,6 +39,23 @@ async fn cached_advice_respects_origin_revocation() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_advice_preserves_admission() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::wire_advice_preserves_admission(
+        None,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_wire_advice_preserves_admission() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::wire_advice_preserves_admission(
+        Some(rustfs::store),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_cached_advice_respects_origin_revocation() -> anyhow::Result<()> {
     Box::pin(

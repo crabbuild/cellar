@@ -11,7 +11,7 @@ enum Caller {
     Axum,
 }
 
-fn sql_stages(cluster: &nodes::Cluster) -> Result<u64> {
+pub(super) fn sql_stages(cluster: &nodes::Cluster) -> Result<u64> {
     let mut started = 0;
     for host in &cluster.managed.hosts[..INGRESS] {
         let sample = host.performance();

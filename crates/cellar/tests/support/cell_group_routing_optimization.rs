@@ -5,6 +5,9 @@ use super::*;
 use crate::storage_fault;
 use std::sync::atomic::AtomicUsize;
 
+#[path = "cell_group_routing_advice.rs"]
+mod advice;
+
 #[path = "cell_group_routing_authority.rs"]
 mod authority;
 
@@ -125,6 +128,12 @@ pub(super) async fn endpoint_refresh_keeps_membership_with_store(
 
 pub(super) async fn cached_advice_respects_origin_revocation() -> Result<()> {
     run(Scenario::OriginRevocation).await
+}
+
+pub(super) async fn wire_advice_preserves_admission(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    Box::pin(advice::run(make)).await
 }
 
 pub(super) async fn cached_advice_respects_origin_revocation_with_store(

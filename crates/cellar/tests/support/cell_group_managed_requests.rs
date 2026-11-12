@@ -71,6 +71,10 @@ pub async fn cached_advice_respects_origin_revocation() -> Result<()> {
     optimization::cached_advice_respects_origin_revocation().await
 }
 
+pub async fn wire_advice_preserves_admission(make: Option<RoutingStoreFactory>) -> Result<()> {
+    optimization::wire_advice_preserves_admission(make).await
+}
+
 pub async fn cached_advice_respects_origin_revocation_with_store(
     make: RoutingStoreFactory,
 ) -> Result<()> {
