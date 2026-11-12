@@ -196,7 +196,7 @@ impl RouteCache {
         }))
     }
 
-    pub(in crate::raft::cell_groups) fn get(
+    pub(in crate::raft) fn get(
         &self,
         cell: &CellHistory,
         minimum_revision: u64,
