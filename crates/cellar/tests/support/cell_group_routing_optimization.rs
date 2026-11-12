@@ -136,6 +136,12 @@ pub(super) async fn wire_advice_preserves_admission(
     Box::pin(advice::run(make)).await
 }
 
+pub(super) async fn untrusted_tls_advice_cannot_grant_authority(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    Box::pin(advice::untrusted_tls(make)).await
+}
+
 pub(super) async fn cached_advice_respects_origin_revocation_with_store(
     make: RoutingStoreFactory,
 ) -> Result<()> {

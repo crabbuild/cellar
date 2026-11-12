@@ -8,6 +8,9 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, JoinSet};
 
+#[path = "cell_group_routing_advice_tls.rs"]
+mod tls;
+
 #[path = "cell_group_routing_advice_wire.rs"]
 mod wire;
 
@@ -105,17 +108,51 @@ struct State {
     receipt: CommandReceipt,
     fault: Fault,
     commands: Vec<serde_json::Value>,
+    untrusted_attempts: u64,
+    untrusted_rejections: Vec<String>,
 }
 
 async fn serve_connection(
     tcp: tokio::net::TcpStream,
     acceptor: tokio_rustls::TlsAcceptor,
     state: Arc<Mutex<State>>,
+    untrusted: bool,
 ) -> Result<()> {
-    let stream = acceptor.accept(tcp).await?;
+    if untrusted {
+        let mut state = state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("wire state poisoned"))?;
+        ensure!(
+            state.untrusted_attempts < 128,
+            "bounded untrusted TLS attempts"
+        );
+        state.untrusted_attempts += 1;
+    }
+    let stream = match acceptor.accept(tcp).await {
+        Ok(_) if untrusted => anyhow::bail!("the client accepted an untrusted TLS issuer"),
+        Ok(stream) => stream,
+        Err(error) if untrusted => {
+            if matches!(
+                error
+                    .get_ref()
+                    .and_then(|source| source.downcast_ref::<rustls::Error>()),
+                Some(rustls::Error::AlertReceived(
+                    rustls::AlertDescription::UnknownCA
+                ))
+            ) {
+                state
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("wire state poisoned"))?
+                    .untrusted_rejections
+                    .push(format!("{error:?}"));
+            }
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
     let mut connection = wire::Wire::new(stream)?;
     while let Some((request, input, binding)) = connection.receive().await? {
-        let (body, fault) = {
+        let (body, fault, record) = {
             let mut state = state
                 .lock()
                 .map_err(|_| anyhow::anyhow!("wire state poisoned"))?;
@@ -132,7 +169,7 @@ async fn serve_connection(
                         &u32::try_from(state.receipt.result.len())?.to_be_bytes(),
                     );
                     body.extend_from_slice(&state.receipt.result);
-                    (body, Fault::Control)
+                    (body, Fault::Control, None)
                 }
                 "Command" => {
                     ensure!(input.starts_with(b"CLGCCQ01") && input.len() >= 32);
@@ -143,24 +180,49 @@ async fn serve_connection(
                     body.push(12);
                     body.extend_from_slice(&state.advice.leader.to_be_bytes());
                     ensure!(state.commands.len() < 1024, "finite command attempt bank");
+                    let record = state.commands.len();
                     state.commands.push(json!({
                         "fault": format!("{fault:?}"), "route": request.route,
+                        "request_header": request, "request_authenticator": hex::encode(binding),
                         "client": hex::encode(&input[8..24]),
                         "sequence": u64::from_be_bytes(input[24..32].try_into()?),
                         "input_sha256": hex::encode(<[u8; 32]>::from(sha2::Sha256::digest(&input))),
                         "request": hex::encode(&input),
                         "response": hex::encode(&body),
                     }));
-                    (body, fault)
+                    (body, fault, Some(record))
                 }
                 "CommandProbe" => {
                     ensure!(input.starts_with(b"CLGCPQ01"));
-                    (b"CLGCPS01\0\0".to_vec(), Fault::Control)
+                    (b"CLGCPS01\0\0".to_vec(), Fault::Control, None)
                 }
                 purpose => anyhow::bail!("unexpected owned wire request {purpose}"),
             }
         };
-        connection.reply(request, binding, body, fault).await?;
+        let observed = state.clone();
+        connection
+            .reply(
+                request,
+                binding,
+                body,
+                fault,
+                move |header, tag, correct| {
+                    if let Some(record) = record {
+                        let mut state = observed
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("wire state poisoned"))?;
+                        let row = state
+                            .commands
+                            .get_mut(record)
+                            .context("owned command frame")?;
+                        row["response_header"] = serde_json::from_slice(header)?;
+                        row["response_authenticator"] = hex::encode(tag).into();
+                        row["expected_authenticator"] = hex::encode(correct).into();
+                    }
+                    Ok(())
+                },
+            )
+            .await?;
     }
     Ok::<_, anyhow::Error>(())
 }
@@ -169,6 +231,25 @@ struct Server {
     state: Arc<Mutex<State>>,
     stop: Option<oneshot::Sender<()>>,
     joined: Option<JoinHandle<Result<()>>>,
+    control: tokio::sync::mpsc::Sender<Switch>,
+    untrusted_fingerprint: [u8; 32],
+}
+
+struct Switch {
+    trusted: bool,
+    complete: oneshot::Sender<()>,
+}
+
+async fn drain_connections(connections: &mut JoinSet<Result<()>>) -> Result<()> {
+    connections.abort_all();
+    while let Some(result) = connections.join_next().await {
+        match result {
+            Ok(result) => result?,
+            Err(error) if error.is_cancelled() => (),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 impl Server {
@@ -179,44 +260,65 @@ impl Server {
     ) -> Result<Self> {
         let listener = tokio::net::TcpListener::bind(address).await?;
         let acceptor = wire::acceptor()?;
+        let (untrusted_acceptor, untrusted_fingerprint) = wire::untrusted_acceptor()?;
         let state = Arc::new(Mutex::new(State {
             advice,
             receipt,
             fault: Fault::Control,
             commands: vec![],
+            untrusted_attempts: 0,
+            untrusted_rejections: vec![],
         }));
         let observed = state.clone();
         let (stop, mut stopping) = oneshot::channel();
+        let (control, mut controls) = tokio::sync::mpsc::channel::<Switch>(1);
         let joined = tokio::spawn(async move {
             let mut connections = JoinSet::new();
+            let mut trusted = true;
             loop {
                 cellar::asyncrt::select! {
                     _ = &mut stopping => break,
                     result = connections.join_next(), if !connections.is_empty() => { result.context("wire connection")???; }
+                    Some(change) = controls.recv() => {
+                        // A cached authenticated socket must not carry a new
+                        // certificate test. Join its physical owner first.
+                        drain_connections(&mut connections).await?;
+                        trusted = change.trusted;
+                        let _ = change.complete.send(());
+                    }
                     accepted = listener.accept() => {
                         let (tcp, _) = accepted?;
-                        let acceptor = acceptor.clone();
+                        let acceptor = if trusted { acceptor.clone() } else { untrusted_acceptor.clone() };
                         let state = observed.clone();
                         ensure!(connections.len() < 8, "bounded owned wire connections");
-                        connections.spawn(serve_connection(tcp, acceptor, state));
+                        connections.spawn(serve_connection(tcp, acceptor, state, !trusted));
                     }
                 }
             }
-            connections.abort_all();
-            while let Some(result) = connections.join_next().await {
-                match result {
-                    Ok(result) => result?,
-                    Err(error) if error.is_cancelled() => (),
-                    Err(error) => return Err(error.into()),
-                }
-            }
+            drain_connections(&mut connections).await?;
             Ok(())
         });
         Ok(Self {
             state,
             stop: Some(stop),
             joined: Some(joined),
+            control,
+            untrusted_fingerprint,
         })
+    }
+
+    async fn trust(&self, trusted: bool) -> Result<()> {
+        tokio::time::timeout(TIMEOUT, async {
+            let (complete, completed) = oneshot::channel();
+            self.control
+                .send(Switch { trusted, complete })
+                .await
+                .map_err(|_| anyhow::anyhow!("wire control owner closed"))?;
+            completed.await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        Ok(())
     }
 
     async fn close(mut self) -> Result<()> {
@@ -394,10 +496,30 @@ fn peer_record(peer: &RaftPeerNode) -> serde_json::Value {
     })
 }
 
+#[derive(Clone, Copy)]
+enum Scenario {
+    Advice,
+    UntrustedTls,
+}
+
+struct TlsDrill<'a> {
+    cluster: &'a nodes::Cluster,
+    callbacks: &'a AtomicUsize,
+    cell: &'a RaftCellHandle,
+    server: &'a Server,
+    rooted: bool,
+    issuer: usize,
+    leader: usize,
+    term: Term,
+    revision: LogIndex,
+    configuration: [u8; 32],
+}
+
 async fn exercise(
     cluster: &mut nodes::Cluster,
     callbacks: &AtomicUsize,
     rooted: bool,
+    scenario: Scenario,
 ) -> Result<()> {
     cluster.authorize_commands()?;
     cluster.authorize_ingress_reads()?;
@@ -482,6 +604,24 @@ async fn exercise(
         original,
     )
     .await?;
+    if matches!(scenario, Scenario::UntrustedTls) {
+        let result = tls::exercise(&TlsDrill {
+            cluster,
+            callbacks,
+            cell: &cell,
+            server: &server,
+            rooted,
+            issuer,
+            leader,
+            term: stable.status.term,
+            revision: stable.membership_revision,
+            configuration: membership.membership().configuration_digest(),
+        })
+        .await;
+        let joined = server.close().await;
+        result?;
+        return joined;
+    }
     let work = async {
         let ingress = &cluster.managed.hosts[INGRESS];
         let origin = cluster.managed.peers[INGRESS].clone();
@@ -502,6 +642,10 @@ async fn exercise(
                     let mut state = server.state.lock().map_err(|_| anyhow::anyhow!("wire state poisoned"))?;
                     state.fault = fault;
                     state.commands.len()
+                };
+                let (seed_term, seed_member) = {
+                    let state = server.state.lock().map_err(|_| anyhow::anyhow!("wire state poisoned"))?;
+                    (state.advice.term, state.advice.issuer)
                 };
                 let failure = call(cluster, caller, &cell, &command, None).await?;
                 let after = sample(cluster)?;
@@ -545,6 +689,7 @@ async fn exercise(
                     "history": format!("{group:?}"), "issuer": peer_record(&cluster.managed.peers[issuer]), "origin": peer_record(&origin),
                     "command": {"client": hex::encode(command.id.client.bytes()), "sequence": command.id.sequence()},
                     "request_timeout_ms": TIMEOUT.as_millis(), "retry_until_ms": command.retry_until_ms,
+                    "seed_term": seed_term, "seed_member": seed_member,
                     "failure": failure, "wire_requests": records,
                     "routing_before": before, "routing_after_refusal": after,
                     "callbacks_before": entered, "callbacks_after_refusal": callbacks_refused, "callbacks_after_replay": callbacks.load(Ordering::Acquire),
@@ -568,11 +713,26 @@ async fn exercise(
 }
 
 pub(super) async fn run(make: Option<RoutingStoreFactory>) -> Result<()> {
+    run_case(make, Scenario::Advice).await
+}
+
+pub(super) async fn untrusted_tls(make: Option<RoutingStoreFactory>) -> Result<()> {
+    run_case(make, Scenario::UntrustedTls).await
+}
+
+async fn run_case(make: Option<RoutingStoreFactory>, scenario: Scenario) -> Result<()> {
     for rooted in [false, true] {
         let callbacks = Arc::new(AtomicUsize::new(0));
         let observed = callbacks.clone();
         let store = Arc::new(match make {
-            Some(make) => fault::Store::around(make("wire-advice", rooted)?),
+            Some(make) => fault::Store::around(make(
+                if matches!(scenario, Scenario::Advice) {
+                    "wire-advice"
+                } else {
+                    "wire-advice-tls"
+                },
+                rooted,
+            )?),
             None => fault::Store::default(),
         });
         let mut cluster = Box::pin(nodes::Cluster::start_with_callback(
@@ -583,7 +743,7 @@ pub(super) async fn run(make: Option<RoutingStoreFactory>) -> Result<()> {
             }),
         ))
         .await?;
-        let result = Box::pin(exercise(&mut cluster, &callbacks, rooted)).await;
+        let result = Box::pin(exercise(&mut cluster, &callbacks, rooted, scenario)).await;
         let joined = cluster.close().await;
         if result.is_err() || joined.is_err() {
             for root in std::mem::take(&mut cluster.managed.roots) {

@@ -230,6 +230,31 @@ These entry points need their own runtime evidence. They do not close forged
 or conflicting-term advice, restarted endpoint wire cuts, full RO-03, constrained
 voter-process or performance qualification.
 
+## Faulty wire advice and untrusted TLS
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-advice \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-advice-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Two cases cover SDK, native HTTP and Axum in both image modes. The first retains
+60 observations of ten command/reply faults. The second joins the cached trusted
+connection before presenting an untrusted certificate at the same enrolled
+endpoint. It requires an actual `UnknownCA` alert and no RPC decoding, SQL entry
+or new non-commit proof. Restoring trust and permission must replay the original
+command exactly once with S3 durability.
+
+The runner checks complete caller/image coverage, physical identities, captured
+wire headers and bodies, response correlation and authenticators, original input
+and deadline preservation, routing/refusal counters and receipt observations.
+Native fixtures own TLS authentication and receipt verification. Evidence retains
+message authenticators and the public certificate fingerprint; it excludes keys
+and TLS exporters. These entry points need their own current-source runtime
+evidence. Removed-member and superseded-boot cuts, constrained voter processes
+and full RO-03/CG/OPT acceptance remain open.
+
 ## Endpoint repair and held replies
 
 ```sh
