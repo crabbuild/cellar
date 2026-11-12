@@ -158,8 +158,9 @@ closure and claims no graceful proof.
 For shared-group Raft, the close report checks local producer quiescence after
 the controller, SQL and runtime owners have joined, with new admission sealed.
 Held responses, poisoned admission, failed groups or failed joins leave that
-proof unavailable. `retained_calls_at_shutdown` records admission retained when
-closure began; it is a historical sample. Quiescence does not establish that a
+proof unavailable. `retained_calls_at_shutdown` records consumer admission still
+retained at that joined boundary; a nonzero count also withholds proof.
+Quiescence does not establish that a
 caller received its result, that S3 covers every write, or that old disks can be
 deleted. Retain individual command identities after unknown outcomes.
 
