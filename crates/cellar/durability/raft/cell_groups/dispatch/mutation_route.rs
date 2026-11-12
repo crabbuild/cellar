@@ -15,7 +15,7 @@ pub(crate) struct MutationRouting<'a> {
 }
 
 impl MutationRouting<'_> {
-    pub(super) async fn backoff(
+    pub(in crate::raft::cell_groups) async fn backoff(
         &self,
         domain: &DomainToken,
         deadline: u64,
@@ -25,7 +25,7 @@ impl MutationRouting<'_> {
     }
 }
 
-pub(super) async fn backoff(
+pub(in crate::raft::cell_groups) async fn backoff(
     domain: &DomainToken,
     deadline: u64,
     retry_interval_ms: u64,
@@ -116,7 +116,7 @@ async fn refresh_endpoint(
         })
 }
 
-pub(super) async fn mutation_peer(
+pub(in crate::raft::cell_groups) async fn mutation_peer(
     runtime: &CellGroupRuntime,
     transport: &RaftTransport,
     session: &CellRoutingSession,

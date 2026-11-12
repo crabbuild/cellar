@@ -210,9 +210,12 @@ impl Cells {
                 // A parked RPC has released its writer lease, but still owns a
                 // continuation that may later complete the original sequence.
                 // Seal only after every same-cell frame has physically joined.
-                if stage.attempt.request.operation
-                    == crate::raft::execution::binding_seal::OPERATION
-                    && self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
+                if matches!(
+                    stage.attempt.request.operation.as_str(),
+                    crate::raft::execution::binding_seal::OPERATION
+                        | crate::storage::raft_binding_recovery::CLAIM
+                        | crate::storage::raft_binding_recovery::SETTLE
+                ) && self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
                 {
                     return Err(ExecutionError::Busy);
                 }

@@ -17,6 +17,8 @@ use sha2::{Digest, Sha256};
 
 #[path = "leader_advice_wire.rs"]
 pub(super) mod advice;
+#[path = "binding_cell_wire.rs"]
+pub(super) mod binding;
 #[path = "query_cell_wire.rs"]
 pub(super) mod cell;
 #[path = "command_cell_wire.rs"]

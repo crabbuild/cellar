@@ -77,8 +77,9 @@ pub struct RaftHostOptions {
     /// Shared inventory and caches for namespaces selecting extent images.
     pub extents: Option<RaftExtentOptions>,
     pub close_report: super::operations::RaftCloseReportLimits,
-    /// Explicit committed alarm/outbox scheduling. Definitions refuse activation when
-    /// this capability is absent; ordinary classes do not start a scheduler.
+    /// Explicit committed alarm/outbox scheduling. Definitions refuse activation
+    /// when absent. Binding classes always register shared recovery, using bounded
+    /// defaults when this override is absent.
     pub effects: Option<super::effects::RaftEffectOptions>,
     /// Opt in to bounded automatic repair and optional leadership balancing.
     pub controller: Option<RaftControllerOptions>,

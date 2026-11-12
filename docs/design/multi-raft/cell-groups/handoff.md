@@ -4,96 +4,69 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current binding sequence-retirement implementation
+## Current binding recovery checkpoint
 
-Source `5323c59e` adds a private target sequence seal and persists the original
-physical source `GroupHistory` and term in each binding intent/fingerprint.
-Configured binding classes include the new maintenance contract in their schema;
-earlier prototype intent layouts require fresh compatible namespaces, with no
-legacy reader or migration. The seal uses normal current-incarnation command
-admission and cannot invoke business input. It preserves complete/partial
-receipts, distinguishes an expired-through floor, and consumes an unused sequence
-as an unfinished receipt whose normal result remains unknown. Reserve both the
-child and maintenance receipt/client slots. Outer failure rolls everything back.
-The SQL worker refuses seals while any same-cell RPC frame remains live/parked.
-This target maintenance operation alone does not schedule per-cell work.
+The implementation at `eaf7a0db`, qualified with the tightened public fixture at
+`bb02bae5`, connects source claim, due discovery, authenticated exact target
+retirement and source settlement. It preserves unknown parent outcomes and never
+replays business callbacks. Current physical authority, source/target minima,
+live/parked-frame exclusion, original identities and exact lane serials remain
+required. All classes have a new due-summary schema seed: use fresh compatible
+namespaces and matching voters; format markers remain at 1.
 
-All five private seal unit tests pass at `5323c59e`. The native named-binding
-matrix passes only extents Quorum; materialized Quorum and both S3 forms fail the
-first parent command deadline. Keep all budgets unchanged. Strict all-target
-Clippy passes at handler-only refactor `2f168bb4`. Frozen binaries, failed native
-disks and logs are retained in the new cohort. No real RustFS run or runtime
-seal/parked-frame race is qualified at this source. See the
-[current checkpoint](progress.md#cg-17-private-target-sequence-retirement-checkpoint).
+The locked build, 34 component selections and final all-target strict Clippy
+pass, along with formatting, layout, dependencies and docs. The combined runtime cohort fails: interrupted restart passes only
+native materialized Quorum; real RustFS restart is 0/4. Ordinary binding controls
+are native 0/4 and RustFS 1/4 (extents Quorum). Six restart configurations fail the
+unchanged `NoUnresolvedLocalProducers` shutdown assertion. RustFS materialized S3
+passes the interruption cut but cannot settle its source obligation within the
+observation window. No full primitive family or task is accepted.
 
-Next implement a durable source recovery claim before target sealing, then
-connect the bounded committed-work owner to authenticated remote target
-maintenance and durable source settlement. The source owner must exclude the
-original live/parked continuation using the exact originating physical history
-and term; never treat expiry, receipt absence or cancellation as non-commit.
-Retain the selected target history and all original identities, input, policy
-and expiry. An interrupted arbitrary Rust callback is never replayed. Release
-its source lane only after target sequence consumption and the original source
-durability are proven. Retire orphaned resolved intents as well as unresolved
-obligations. Candidate enrollment, partial callbacks, movement and fresh-incarnation
-refusals need explicit qualification. SQL/KV bindings and committed alarms/cron,
-Queue, EventStream and Workflow remain the next public feature deliveries.
-See the [target contract](named-bindings.md#private-target-sequence-retirement).
+Evidence is `.cellar/cell-groups-evidence/CG-17-binding-recovery-bb02bae5-03`,
+including frozen binaries, exact commands, failed controls and 42 voter disks.
+The read-only S3 image observation shows target seal receipts, repeated source
+claims, one phase-4 intent and a busy lane, with no source settlement. The owned
+RustFS backend and source VM are stopped. The default user VM is unchanged.
 
-The former source/build/evidence root
+## Immediate feature priorities
+
+1. Fix system sequence discovery under load. `controller/binding_recovery.rs`
+   currently takes **all 64 KiB** of the fixture's command-byte bank and calls the
+   full effect scanner just to read an allocator. Logs repeatedly fail at source
+   settlement allocation. Factor the fixed client/last-sequence read out of
+   `effect_scan.rs`; return only bounded sequence metadata through the existing
+   `CellGroupSqlPool::query` owner. Retain linearizable authority, exact route and
+   cell history, physical SQL admission and deadline/cancellation ownership. Do
+   not increase banks or deadlines, scan payloads, or introduce per-cell tasks.
+   Add an owning test proving unrelated pending payloads are not decoded by this
+   allocator read. Preserve typed retirement/allocator errors in the turn log;
+   the current generic conversion masks them as corrupt state or an invalid label.
+2. Fix/qualify the strict shutdown proof. `group_client/close.rs` samples
+   `local_producers_quiesced` and SQL usage **before** joined `host.close()`. Study
+   whether the sealed admission and post-join counters can establish the same
+   conservative proof after all controller/SQL work has joined. Preserve held
+   response accounting, poisoned admission and group failure checks. Do not remove
+   the strict assertion from the fixture or reinterpret unknown as resolved.
+3. Qualify both fixes at one frozen source, including the ordinary binding gate.
+   One S3-source first target call takes 4,800 ms of its unchanged five-second
+   parent budget. Keep every old failure; do not repeat campaigns until green.
+4. Then implement ordinary SQL/KV bindings, durable alarms/cron, Queue,
+   EventStream and Workflow, followed by filesystem/payload/WebSocket/provider
+   adapters and the full lifecycle matrix. Complete CG-17/15/16 gates still apply.
+
+The fixture now stops after the target's durable checkpoint and concurrently
+polls the original response during retained restart. Final closure still uses the
+strict existing helper. The corrected temp directory is uniquely owned under
+`/Volumes/Workspace/crabbuild-target`; the earlier long path exceeded macOS's Unix
+socket limit. A zero-test effect-scan filter was rejected; the corrected exact
+selection passes. Both failed controls remain in the evidence cohort.
+
+The former workspace root
 `/Volumes/Workspace/crabbuild-target/cellar-cg09-operator-continuity.NIVQ3e`
-was removed during the current build. Source commits remain intact. The current
-checkout now owns the PR branch directly; builds use its new checkout-specific
-workspace target. Raw artifacts under the removed root are unavailable. Earlier
-source-pinned summaries/hashes survive in Git but do not establish current raw
-artifact retention or a fresh combined qualification. Rebuild and rerun the
-focused checks before claiming this new target boundary qualified.
-
-## Next autonomous binding-recovery delivery
-
-Deliver one complete recovery flow, rather than enabling a scheduling hint
-before its owner can settle work:
-
-1. Persist the original child input digest in the intent body so discovery reads
-   bounded metadata rather than copying business arguments. Add a private source
-   claim operation on the existing system client. It must take current physical
-   group/term authority from the executor, reject live/parked source frames, fix
-   the immutable intent and prove the original source durability before any
-   target retirement. Preserve original selection and known-refusal information.
-2. Connect committed manifest discovery and `controller/effects` to one bounded
-   claim/retire/settle turn. Include orphaned resolved intents in cleanup. Keep
-   group/cell fairness, node metadata admission and one shared timer; empty cells
-   must not gain tasks, timers or SQLite scans. Release claim response admission
-   before loopback target work needs the same SQL/archive slot.
-3. Add a bounded authenticated target maintenance request on the existing command
-   transport. Preserve explicit namespace/process command grants and revocation,
-   target birth/route/incarnation, immutable child identity/input/policy and a
-   separate maintenance timeout. Normal SDK/public ingress still refuses private
-   operations. Target-local allocation of the existing system client's sequence
-   must reconcile concurrent or uncertain maintenance, never skip a sequence or
-   retry business input. Verify and consume target proof metadata before releasing
-   its response admission and starting source settlement.
-4. Handle a never-enrolled candidate through an explicit recovery-enrollment
-   contract. Define whether the durable source intent authorizes completion of
-   its exact original creation/initialization before sealing, with independent
-   maintenance admission; qualify that authorization before enabling it. The
-   expired business RPC input never dispatches. A conflicting creator needs a
-   proof that the original candidate cannot admit the old child, not retargeting
-   of unknown business work. Receipt/name absence and a source term change alone
-   do not exclude a delayed isolated sender. An absence shortcut needs a stronger
-   permanent dispatch fence and enrollment-before-business causality. Other
-   missing/retired histories require their own lineage proof.
-5. Commit source settlement only for the exact claimed intent and lane serial,
-   with the original source durability. Preserve unknown parent/partial outcomes;
-   an arbitrary Rust callback never replays. Then qualify process loss before
-   target admission, after target commit and before source settlement, concurrent
-   parked frames, known refusals, candidate creation, lane exhaustion, retained
-   restart, movement and recovery with real RustFS in both image/durability modes.
-
-The latest materialized-Quorum and S3 deadline failures remain independent release
-gates. Complete SQL/KV bindings and committed alarms/cron, Queue, EventStream and
-Workflow after this recovery flow; keep the remaining provider and full lifecycle
-matrix in CG-17/15/16.
+was removed earlier. Git preserves source and historical summaries, but raw
+artifacts under that removed root are unavailable. Current artifacts use the
+checkout-specific `cellar-cell-group-effects-binding-seal-5323c59e` target and its
+independent frozen binary copies. Never clean another checkout's artifacts.
 
 ## Current archive publisher and named-binding checkpoint
 

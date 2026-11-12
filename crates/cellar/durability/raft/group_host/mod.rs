@@ -566,12 +566,20 @@ pub(crate) async fn start(
             let config = namespace.directory.namespace_config();
             let storage = CellGroupNamespaceStorage::new(images.sql(config, &options)?)?;
             if namespace.class.has_scheduled_work() {
+                let effect_options = options
+                    .effects
+                    .or_else(|| {
+                        namespace
+                            .class
+                            .has_binding_maintenance()
+                            .then(crate::raft::effects::RaftEffectOptions::default)
+                    })
+                    .ok_or_else(|| anyhow::anyhow!("effects require a scheduler"))?;
+                effect_options.validate(&options)?;
                 let resources = storage.clone();
                 effects.push(CellGroupEffectRegistration::new(
                     dispatcher.clone(),
-                    options
-                        .effects
-                        .ok_or_else(|| anyhow::anyhow!("effects require a scheduler"))?,
+                    effect_options,
                     move |cell| Ok(resources.for_cell(cell)),
                 )?);
             }

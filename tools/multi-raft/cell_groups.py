@@ -27,6 +27,10 @@ from routing_endpoint_evidence import endpoint_observations
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
 ARCHIVE_FAIRNESS_CASE = "rustfs_short_archived_groups_checkpoint_and_recover_independently"
+NAMED_BINDING_CASES = {
+    "rustfs_ordinary_named_cell_bindings_use_shared_group_quorum": False,
+    "rustfs_interrupted_named_bindings_recover_after_retained_restart": True,
+}
 CASES = (
     "rustfs_quorum_continues_bounded_s3_outage",
     "rustfs_group_archive_requires_all_dependencies",
@@ -100,6 +104,18 @@ SUITES = {
         "metadata gates use the original five-second call windows. Peer/boot wire authority cuts, "
         "recovery publication, process crashes, measured load and complete optimization acceptance "
         "remain separate gates.",
+    ),
+    "named-bindings": (
+        "native_cell_groups_primitives",
+        tuple(NAMED_BINDING_CASES),
+        "ordinary named calls and autonomous interrupted-call recovery on shared RF3",
+        "Both image modes and Quorum/S3 source durability with a Quorum target minimum. "
+        "The ordinary case checks exact calls, structured values, cancellation, recursive "
+        "cursors and retained restart. Recovery joins the interrupted producer, restarts "
+        "retained RF3, waits for autonomous settlement, preserves the parent's unknown "
+        "result and target value, and advances the sealed target sequence. Each case "
+        "must emit all four completed configurations. Target S3 minimum, cross-class "
+        "selection, concurrent creation, movement/disaster and full CG-17 remain open.",
     ),
     "ordinary-primitives": (
         "native_cell_groups_primitives",
@@ -568,6 +584,30 @@ SUITES = {
 }
 
 
+def named_binding_observations(output, case):
+    """Require the exact case's four completed image/source-policy profiles."""
+    if case not in NAMED_BINDING_CASES:
+        raise ValueError("unknown named binding evidence case")
+    expected = NAMED_BINDING_CASES[case]
+    rows = []
+    prefix = "named binding configuration "
+    for line in output.splitlines():
+        if prefix not in line:
+            continue
+        payload = line.split(prefix, 1)[1]
+        match = re.fullmatch(
+            r"recovery=(false|true) extents=(false|true) source=(Quorum|S3): PASS", payload,
+        )
+        if match is None or (match[1] == "true") != expected:
+            raise ValueError("incomplete or foreign named binding profile")
+        rows.append({"recovery": expected, "extents": match[2] == "true",
+                     "source_durability": match[3], "outcome": "PASS"})
+    if (len(rows) != 4 or {(row["extents"], row["source_durability"]) for row in rows}
+            != {(mode, policy) for mode in (False, True) for policy in ("Quorum", "S3")}):
+        raise ValueError("incomplete named binding image/source-policy evidence")
+    return rows
+
+
 def archive_fairness_observations(output, case):
     """Require the joined, independently verified profile for both image forms."""
     if case != ARCHIVE_FAIRNESS_CASE:
@@ -772,8 +812,8 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite != "ordinary-primitives":
-        parser.error("--keep-going requires the process-isolated ordinary-primitives suite")
+    if args.keep_going and args.suite not in ("ordinary-primitives", "named-bindings"):
+        parser.error("--keep-going requires a process-isolated primitive suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -839,7 +879,8 @@ def main():
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if number and (args.suite in ("routing-range-repairs", "routing-authority", "routing-endpoint")
-                           or selection == ARCHIVE_FAIRNESS_CASE):
+                           or selection == ARCHIVE_FAIRNESS_CASE
+                           or selection in NAMED_BINDING_CASES):
                 argv.append("--show-output")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
@@ -926,6 +967,25 @@ def main():
                 ledger = out / f"{number:02}-fairness-evidence.json"
                 ledger.write_text(json.dumps(rows, indent=2) + "\n")
                 record.setdefault("archive_fairness_evidence", []).append({
+                    "case": selection, "path": ledger.name, "sha256": sha(ledger), "records": len(rows),
+                })
+            if number and selection in NAMED_BINDING_CASES:
+                try:
+                    rows = named_binding_observations(output, selection)
+                except ValueError as error:
+                    record["failed_cases"].append(selection)
+                    record.setdefault("evidence_failures", []).append({
+                        "case": selection, "reason": str(error),
+                    })
+                    save()
+                    if not args.keep_going:
+                        raise
+                    print(f"FAIL {selection}: incomplete binding evidence; continuing independent cases",
+                          flush=True)
+                    continue
+                ledger = out / f"{number:02}-binding-evidence.json"
+                ledger.write_text(json.dumps(rows, indent=2) + "\n")
+                record.setdefault("named_binding_evidence", []).append({
                     "case": selection, "path": ledger.name, "sha256": sha(ledger), "records": len(rows),
                 })
             if number:

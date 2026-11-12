@@ -41,17 +41,17 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Add a durable source recovery claim before target sealing, then connect
-   autonomous named-binding recovery to the private target sequence seal, physical
-   source origin and bounded committed-work owner. Finish
-   authenticated remote maintenance routing and durable source lane settlement,
-   then remaining shared Storage compatibility and ordinary SQL/KV bindings.
-   The latest native checkpoint passes extents Quorum but fails materialized
-   Quorum and both S3 configurations. Earlier real RustFS passes retain their old
-   source. Preserve exact identities, original ownership/input/policy/expiry and
-   live-continuation fences; never replay an ambiguous parent callback. S3-source
-   binding requests still miss their original deadlines in both forms. Profile
-   those failures without increasing budgets or repeating campaigns until green.
+1. Close the connected binding recovery and original deadline gates. At
+   `bb02bae5`, 34 component tests pass; interrupted restart passes only native
+   materialized Quorum, while all RustFS restart configurations fail. The retained
+   S3 image proves claim and target sealing but no source settlement. Replace the
+   allocator's full command-bank reservation with a fixed-size read on the existing
+   SQL owner, preserve typed failures, and establish shutdown quiescence at a safe
+   joined boundary. Keep the strict shutdown assertion, original request deadlines
+   and all failed controls. Ordinary bindings pass only RustFS extents Quorum in
+   this cohort; the complete workload remains failed. Then deliver remaining
+   Storage compatibility and ordinary SQL/KV bindings. See the
+   [current recovery checkpoint](progress.md#cg-17-connected-binding-recovery-qualification).
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.

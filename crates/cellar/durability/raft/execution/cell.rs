@@ -220,9 +220,13 @@ impl CellPrivateExecutor {
         let route_epoch = self.authority.route().epoch;
         let limits = self.options.limits;
         let system_request = system.then(|| attempt.request.clone());
+        let origin = crate::storage::raft_binding_recovery::Origin {
+            group: self.authority.route().history,
+            term: self.authority.term().get(),
+        };
         self.stage(attempt, allow_new, |transaction| {
             if let Some(request) = system_request {
-                class.invoke_system_command(&history, &request, transaction, input, limits)
+                class.invoke_system_command(&history, &request, transaction, input, limits, origin)
             } else {
                 class.invoke_command(
                     &contract,

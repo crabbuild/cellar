@@ -46,8 +46,17 @@ fn named_binding_seal_is_private_and_binds_the_schema() -> anyhow::Result<()> {
     let seal = class.system_contract(binding_seal::OPERATION).unwrap();
     assert!(class.contract(binding_seal::OPERATION).is_none());
     assert!(class.validate_operation(&seal).is_err());
+    for operation in [
+        crate::storage::raft_binding_recovery::CLAIM,
+        crate::storage::raft_binding_recovery::SETTLE,
+    ] {
+        assert!(plain.system_contract(operation).is_none());
+        let contract = class.system_contract(operation).unwrap();
+        assert!(class.contract(operation).is_none());
+        assert!(class.validate_operation(&contract).is_err());
+    }
     assert_ne!(class.schema_digest(), plain.schema_digest());
     assert!(class.has_system_commands());
-    assert!(!class.has_scheduled_work());
+    assert!(class.has_scheduled_work());
     Ok(())
 }

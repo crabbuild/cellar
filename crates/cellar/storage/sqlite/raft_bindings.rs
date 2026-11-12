@@ -6,7 +6,7 @@ use super::*;
 use crate::application::cell_bindings::{Intent, Route, Source};
 use crate::application::consensus::{CellHistory, CommandId};
 use anyhow::{ensure, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub(crate) fn install(connection: &Connection) -> Result<()> {
     as_framework_sql(|| {
@@ -14,8 +14,10 @@ pub(crate) fn install(connection: &Connection) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS __sys_raft_binding_intents(
           parent_client BLOB NOT NULL,parent_sequence BLOB NOT NULL,ordinal BLOB NOT NULL,
           format INTEGER NOT NULL CHECK(format=1),fingerprint BLOB NOT NULL,body BLOB NOT NULL,args BLOB NOT NULL,
-          phase INTEGER NOT NULL CHECK(phase BETWEEN 0 AND 3),selected BLOB,result_digest BLOB,
+          phase INTEGER NOT NULL CHECK(phase BETWEEN 0 AND 4),selected BLOB,result_digest BLOB,
+          next_at INTEGER NOT NULL CHECK(next_at>=0),
           PRIMARY KEY(parent_client,parent_sequence,ordinal)) WITHOUT ROWID;
+         CREATE INDEX IF NOT EXISTS __sys_raft_binding_due ON __sys_raft_binding_intents(next_at,parent_client,parent_sequence,ordinal);
          CREATE TABLE IF NOT EXISTS __sys_raft_binding_lanes(
           epoch BLOB NOT NULL,lane INTEGER NOT NULL CHECK(lane BETWEEN 0 AND 63),
           sequence BLOB NOT NULL,busy INTEGER NOT NULL CHECK(busy IN(0,1)),
@@ -29,31 +31,33 @@ pub(crate) fn install(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-#[derive(Serialize)]
-struct IntentWire<'a> {
-    epoch: [u8; 16],
-    lane: u64,
-    serial: u64,
-    source_cluster: [u8; 16],
-    source_namespace: [u8; 16],
-    source_group: [u8; 16],
-    source_group_incarnation: [u8; 16],
-    source_term: u64,
-    source_durability: u8,
-    deadline_unix_ms: u64,
-    cluster: [u8; 16],
-    namespace: [u8; 16],
-    cell: &'a str,
-    schema: [u8; 32],
-    operation: &'a str,
-    contract: [u8; 32],
-    durability: u8,
-    enroll: bool,
-    candidate: [u8; 16],
-    creation: [u8; 16],
-    child_client: [u8; 16],
-    child_sequence: u64,
-    retry_until_ms: u64,
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IntentWire {
+    pub epoch: [u8; 16],
+    pub lane: u64,
+    pub serial: u64,
+    pub source_cluster: [u8; 16],
+    pub source_namespace: [u8; 16],
+    pub source_group: [u8; 16],
+    pub source_group_incarnation: [u8; 16],
+    pub source_term: u64,
+    pub source_durability: u8,
+    pub deadline_unix_ms: u64,
+    pub cluster: [u8; 16],
+    pub namespace: [u8; 16],
+    pub cell: String,
+    pub schema: [u8; 32],
+    pub operation: String,
+    pub contract: [u8; 32],
+    pub durability: u8,
+    pub enroll: bool,
+    pub candidate: [u8; 16],
+    pub creation: [u8; 16],
+    pub child_client: [u8; 16],
+    pub child_sequence: u64,
+    pub request_digest: [u8; 32],
+    pub retry_until_ms: u64,
 }
 
 /// Prepare the durable intent and owned task admission in one synchronous
@@ -97,9 +101,9 @@ pub(crate) fn prepare<T>(
         )?;
         let body = wire(&intent)?;
             connection.execute(
-                "INSERT INTO __sys_raft_binding_intents VALUES(?1,?2,?3,1,?4,?5,?6,0,NULL,NULL)",
+                "INSERT INTO __sys_raft_binding_intents VALUES(?1,?2,?3,1,?4,?5,?6,0,NULL,NULL,?7)",
                 rusqlite::params![intent.parent.client.bytes().as_slice(), intent.parent.sequence().to_be_bytes().as_slice(),
-                    intent.ordinal.to_be_bytes().as_slice(), intent.fingerprint.as_slice(), body, intent.input.as_slice()],
+                    intent.ordinal.to_be_bytes().as_slice(), intent.fingerprint.as_slice(), body, intent.input.as_slice(), i64::try_from(intent.deadline_unix_ms)?],
             )?;
             schedule(intent)
         })();
@@ -343,9 +347,9 @@ fn wire(intent: &Intent) -> Result<Vec<u8>> {
         deadline_unix_ms: intent.deadline_unix_ms,
         cluster: intent.route.cluster.bytes(),
         namespace: intent.route.namespace.bytes(),
-        cell: intent.route.cell.as_str(),
+        cell: intent.route.cell.as_str().to_owned(),
         schema: intent.route.schema,
-        operation: &intent.route.contract.operation,
+        operation: intent.route.contract.operation.clone(),
         contract: intent.route.contract.digest,
         durability: durability(intent.route.durability),
         enroll: intent.enroll,
@@ -353,6 +357,7 @@ fn wire(intent: &Intent) -> Result<Vec<u8>> {
         creation: intent.creation.bytes(),
         child_client: intent.child.client.bytes(),
         child_sequence: intent.child.sequence(),
+        request_digest: crate::application::consensus::command_request_digest(&intent.input),
         retry_until_ms: intent.retry_until_ms,
     })?)
 }

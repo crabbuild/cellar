@@ -37,6 +37,7 @@ pub(crate) mod filesystem;
 mod identity_tests;
 mod immutable;
 mod kv_cursor;
+pub(crate) mod raft_binding_recovery;
 pub(crate) mod raft_bindings;
 mod raft_cursors;
 pub(crate) use immutable::{require_storage as require_raft_query_storage, QueryFrame};

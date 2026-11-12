@@ -12978,3 +12978,80 @@ the cause of earlier intermittent RPC/SDK deadline misses or accept the complete
 six-case RustFS campaign. Those failures remain release gates. Full Storage,
 named bindings, due work and the remaining primitive adapters still require
 CG-17's independent matrix; task acceptance remains 13/17 tasks and 147/195 cases.
+
+
+## CG-17 connected binding recovery qualification
+
+Source `eaf7a0db` connects the private source claim, bounded manifest due discovery,
+exact local/remote target retirement and source settlement. The executor supplies
+current physical group/term authority; the SQL worker excludes live/parked frames.
+Discovery reads bounded metadata, not business arguments. Binding classes always
+register the shared recovery owner, with startup-validated bounds. No arbitrary
+Rust callback or expired business input is replayed. Source and target response
+admission release before loopback work; settlement rereads the system allocator
+for self-calls and matches the exact intent digest and lane serial.
+
+The due-summary shape and binding intent body use an internal hard cutover.
+All classes have a new schema seed; fresh compatible namespaces and matching
+voters are required. Cellar-owned format markers remain at 1.
+
+The final qualification source is `bb02bae5`, including the tightened public drill:
+observe the target's committed checkpoint, restart all voters while polling the
+original lost-response waiter, preserve the parent's unknown outcome, observe
+source-lane release, and require a subsequent named call without duplicate target
+mutation. Each request retains its original five-second deadline. Source Quorum
+and S3 settings are distinct from the target namespace's Quorum minimum.
+
+The locked unit/native build passes. All **34 selected component tests pass**:
+23 binding selections, one exact effect-scan selection, four effect summaries and
+six manifest/effect-index tests. Strict final all-target Clippy passes at
+`bb02bae5`, as do formatting, layout, native dependency and documentation checks.
+The earlier working-tree preflight retains its separate record.
+
+Runtime results at this source:
+
+| Workload | Materialized / Quorum source | Materialized / S3 source | Extents / Quorum source | Extents / S3 source |
+| --- | --- | --- | --- | --- |
+| Native interrupted restart | PASS | FAIL | FAIL | FAIL |
+| RustFS interrupted restart | FAIL | FAIL | FAIL | FAIL |
+| Native ordinary bindings | FAIL | FAIL | FAIL | FAIL |
+| RustFS ordinary bindings | FAIL | FAIL | PASS | FAIL |
+
+Six interrupted-restart configurations fail the unchanged strict shutdown
+assertion requiring `NoUnresolvedLocalProducers`; the RustFS materialized S3 case
+instead reaches fresh startup but fails to release its source obligation within
+the 60-second observation window. Its retained voter images contain repeated
+source claim receipts, repeated target seal receipts, a phase-4 source intent and
+a busy lane. Logs identify failed settlement allocator reads. The helper currently
+reserves the entire 64 KiB command-byte bank to discover the next system sequence;
+contention is a concrete liveness concern, not yet a proven sole root cause.
+Preserve typed recovery errors rather than masking unrelated failures as corrupt
+state. The shutdown proof is sampled before host/controller/SQL joins; determine
+whether it can safely be established after joined closure without weakening the
+assertion or discarding retained responses.
+
+Ordinary bindings retain their deadline/closure failures. One native materialized
+S3 source call returns its first target result after 4,800 ms, leaving little of
+the unchanged five-second parent budget for the second call and final proof.
+This is a diagnostic observation, not a performance or RPO qualification.
+
+The first broad unit selection failed an unrelated Unix-socket path limit under
+the long temporary path. A shorter unique temp directory on the same workspace
+volume passes the original test. The first effect-scan filter selected zero tests;
+the guard rejected it, and the corrected exact selection passes. Both controls
+remain retained; zero selections are never counted as passes. The earlier private
+seal binaries also retain their recorded hashes after this rebuild.
+
+Evidence, logs, source patch and 42 failed voter disks are retained in
+`.cellar/cell-groups-evidence/CG-17-binding-recovery-bb02bae5-03`. Frozen executable
+hashes are unit `bfff99d7fd006c35cb21f00e05a67d0fc33931bd83e451e719991ab783e2a754`
+and native `1c2bb5818c64895921cb33db1810933dd6cc20f087d00522afba001965609520`.
+Real RustFS uses image `sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858`
+in one owned 2-CPU/2-GiB container. RF3 hosts share a native macOS process; this
+is not independent constrained Linux voter qualification. The backend and owned
+VM are stopped; the user's default running VM is unchanged.
+
+The combined cohort is **FAILED**. No full primitive family or task is accepted;
+counts remain **13/17 tasks and 147/195 cases**. Next deliver a fixed-size allocator
+read on the existing SQL query owner, safe post-join shutdown observation, and
+binding deadline closure; then SQL/KV bindings and ordinary due-work adapters.

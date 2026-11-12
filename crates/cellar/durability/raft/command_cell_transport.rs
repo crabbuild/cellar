@@ -23,6 +23,8 @@ use cellar_logic::{
 use queries::{QueryConnection, SendQuery};
 use std::time::Duration;
 
+#[path = "binding_cell_transport.rs"]
+mod bindings;
 #[path = "name_cell_transport.rs"]
 mod names;
 pub(crate) use names::CellRemoteNameResponse;
@@ -159,6 +161,7 @@ impl CellRemoteReceiptResponse {
 
 enum WriteCall {
     Command(CellCommandCall),
+    Binding(wire::binding::Call),
     Probe(CellCommandProbe),
     Enrollment(CellEnrollmentCall),
     Receipt(CellReceiptCall),
@@ -169,6 +172,7 @@ impl WriteCall {
     fn encode(&self, limit: usize) -> Result<Vec<u8>, TransportError> {
         match self {
             Self::Command(c) => c.encode(limit),
+            Self::Binding(c) => c.encode(limit),
             Self::Probe(c) => c.encode(limit),
             Self::Enrollment(c) => c.encode(limit),
             Self::Receipt(c) => c.encode(limit),
@@ -179,6 +183,7 @@ impl WriteCall {
     fn shorten_timeout(&mut self, remaining: u64) {
         let timeout = match self {
             Self::Command(c) => &mut c.timeout_ms,
+            Self::Binding(c) => &mut c.timeout_ms,
             Self::Probe(c) => &mut c.timeout_ms,
             Self::Enrollment(c) => &mut c.timeout_ms,
             Self::Receipt(c) => &mut c.timeout_ms,
@@ -190,6 +195,7 @@ impl WriteCall {
     fn input_bytes(&self) -> usize {
         match self {
             Self::Command(c) => c.request.input.len(),
+            Self::Binding(_) => 4096,
             Self::Enrollment(_) | Self::Probe(_) | Self::Name(_) => 0,
             Self::Receipt(c) => c.request.input.len(),
         }
@@ -198,6 +204,7 @@ impl WriteCall {
 
 enum WriteValue {
     Command(CellCommandValue),
+    Binding,
     Probe(bool),
     Enrollment(CellEnrollmentValue),
     Receipt(CellReceiptValue),
@@ -624,6 +631,7 @@ impl State {
                     )?;
                     let route = match &request.call {
                         WriteCall::Command(_) => route.for_command()?,
+                        WriteCall::Binding(_) => route.for_binding_retirement()?,
                         WriteCall::Probe(_) => route.for_command_probe()?,
                         WriteCall::Enrollment(_) => route.for_enrollment()?,
                         WriteCall::Receipt(_) => route.for_receipt()?,
@@ -650,6 +658,34 @@ impl State {
                         return Err(TransportError::StalePeer);
                     }
                     match &request.call {
+                        WriteCall::Binding(call) => {
+                            let now = u64::try_from(crate::asyncrt::wall_ms())
+                                .map_err(|_| TransportError::Authentication)?;
+                            let result = wire::binding::decode_reply(
+                                &body,
+                                (
+                                    &call.request,
+                                    &request.cell,
+                                    request.route.schema_digest,
+                                    request.keys.as_ref().ok_or(TransportError::Protocol)?,
+                                    now,
+                                    self.options.max_query_response_bytes,
+                                    request.peer.replica.member,
+                                ),
+                            );
+                            if matches!(
+                                &result,
+                                Err(TransportError::Command(CommandFailure::NotLeader { .. }))
+                            ) {
+                                self.suspect_cell_leader(
+                                    &request.route,
+                                    request.leader_generation.as_ref(),
+                                    request.peer.replica.member,
+                                );
+                            }
+                            result?;
+                            return Ok(WriteValue::Binding);
+                        }
                         WriteCall::Command(call) => {
                             let now = u64::try_from(crate::asyncrt::wall_ms())
                                 .map_err(|_| TransportError::Authentication)?;

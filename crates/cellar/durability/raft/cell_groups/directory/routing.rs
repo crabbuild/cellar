@@ -12,6 +12,7 @@ use std::fmt;
 pub enum CellRouteOperation {
     Command(CommandId),
     Receipt(CommandId),
+    BindingRetirement(CommandId),
     Enrollment(ProposalId),
     Query(ProposalId),
 }

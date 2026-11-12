@@ -50,6 +50,24 @@ impl Reply {
         })
     }
 
+    pub(super) fn binding_retirement(
+        result: Result<CellCommandResponse, CommandFailure>,
+        request: &crate::raft::execution::binding_seal::Request,
+        limit: usize,
+    ) -> Result<Self, TransportError> {
+        let bytes = wire::binding::encode_reply(&result, request, limit)?;
+        let owner = result
+            .ok()
+            .filter(|r| r.durability() == Durability::S3)
+            .map(|response| Owner::Command {
+                _response: Box::new(response),
+            });
+        Ok(Self {
+            bytes,
+            _owner: owner,
+        })
+    }
+
     pub(super) fn enrollment(
         result: Result<CellSqlEnrollment, CommandFailure>,
         limit: usize,

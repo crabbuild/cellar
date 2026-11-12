@@ -1056,10 +1056,21 @@ impl RaftClass {
     /// System operations are absent from public discovery and normal command
     /// validation. Only the node's owned business-feature adapters use them.
     pub(crate) fn system_contract(&self, operation: &str) -> Option<OperationContract> {
-        if self.has_binding_maintenance()
-            && operation == crate::raft::execution::binding_seal::OPERATION
-        {
-            return Some(crate::raft::execution::binding_seal::contract());
+        if self.has_binding_maintenance() {
+            if operation == crate::raft::execution::binding_seal::OPERATION {
+                return Some(crate::raft::execution::binding_seal::contract());
+            }
+            if matches!(
+                operation,
+                crate::storage::raft_binding_recovery::CLAIM
+                    | crate::storage::raft_binding_recovery::SETTLE
+            ) {
+                return Some(OperationContract {
+                    operation: operation.into(),
+                    kind: OperationKind::Command,
+                    digest: Sha256::digest(operation.as_bytes()).into(),
+                });
+            }
         }
         let command = self.system_commands.get(operation)?;
         Some(OperationContract {
@@ -1073,10 +1084,10 @@ impl RaftClass {
         !self.system_commands.is_empty() || self.has_binding_maintenance()
     }
 
-    /// Target sequence retirement is invoked by a recovery owner; it is not
-    /// independently scheduled work in the target cell.
+    /// Bindings require the shared recovery owner even without user effects.
+    /// Target retirement itself is invoked by the claiming source owner.
     pub(crate) fn has_scheduled_work(&self) -> bool {
-        !self.system_commands.is_empty()
+        !self.system_commands.is_empty() || self.has_binding_maintenance()
     }
 
     pub(crate) fn has_binding_maintenance(&self) -> bool {
@@ -1148,6 +1159,7 @@ impl RaftClass {
         transaction: &CommandTransaction<'_>,
         input: &[u8],
         limits: crate::raft::execution::ExecutionLimits,
+        origin: crate::storage::raft_binding_recovery::Origin,
     ) -> anyhow::Result<Vec<u8>> {
         let contract = OperationContract {
             operation: request.operation.clone(),
@@ -1165,6 +1177,40 @@ impl RaftClass {
                 input,
                 limits,
             );
+        }
+        if matches!(
+            contract.operation.as_str(),
+            crate::storage::raft_binding_recovery::CLAIM
+                | crate::storage::raft_binding_recovery::SETTLE
+        ) {
+            let _guard = CallbackGuard::enter()?;
+            anyhow::ensure!(
+                input.len() <= crate::storage::raft_binding_recovery::MAX_METADATA,
+                super::CommandFailure::Overloaded
+            );
+            let connection = transaction.framework()?;
+            if contract.operation == crate::storage::raft_binding_recovery::CLAIM {
+                let key = serde_json::from_slice(input)?;
+                return Ok(serde_json::to_vec(
+                    &crate::storage::raft_binding_recovery::claim(
+                        &connection,
+                        scope,
+                        origin,
+                        request.durability,
+                        transaction.inputs().now_unix_millis,
+                        &key,
+                    )?,
+                )?);
+            }
+            let settlement = serde_json::from_slice(input)?;
+            crate::storage::raft_binding_recovery::settle(
+                &connection,
+                scope,
+                origin,
+                request.durability,
+                &settlement,
+            )?;
+            return Ok(vec![1]);
         }
         self.invoke_registered_command(
             RegisteredCommand::System(&contract),
@@ -1313,7 +1359,7 @@ impl RaftClass {
 
     fn bind_command_manifest(&mut self) {
         let mut hash = Sha256::new();
-        hash.update(b"cellar-cell-class-1");
+        hash.update(b"cellar-cell-class-call-schedule-1");
         hash.update(self.base_schema_digest);
         if let Some(initializer) = &self.initializer {
             hash.update(b"initializer-1");
@@ -1383,6 +1429,8 @@ impl RaftClass {
         if self.has_binding_maintenance() {
             hash.update(b"binding-sequence-seal-1");
             hash.update(crate::raft::execution::binding_seal::contract().digest);
+            hash.update(crate::storage::raft_binding_recovery::CLAIM.as_bytes());
+            hash.update(crate::storage::raft_binding_recovery::SETTLE.as_bytes());
         }
         if !self.system_commands.is_empty() {
             hash.update(b"system-commands-1");

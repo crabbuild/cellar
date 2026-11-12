@@ -154,6 +154,24 @@ The runner retains source, executable and log hashes. It does not accept the
 complete CG-17 primitive matrix or qualify declared bindings, other automatic
 output/dispatch gates, independent voter processes or disk loss.
 
+The scoped declared-binding and interrupted-call recovery cases have a separate
+suite:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite named-bindings --keep-going \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-named-bindings-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Each process must complete materialized and extent images with Quorum and S3
+source durability. The runner requires four distinct case-specific profiles,
+retains `*-binding-evidence.json` and keeps the campaign failed after any case
+failure. The target minimum is Quorum. This suite does not qualify a target S3
+minimum, cross-class/concurrent creation, movement, disaster or the full HTTP/RPC
+primitive family. Both `named-bindings` and `ordinary-primitives` accept
+`--keep-going`; managed process/fault suites remain fail-fast.
+
 ## Membership and split routing repair
 
 Run the public range-repair cases against the same owned backend:
