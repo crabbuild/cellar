@@ -24,6 +24,8 @@ impl RaftTransport {
             .filter(|n| *n != 0)
             .ok_or(TransportError::Timeout)?;
         let response = self
+            .handle
+            .0
             .write_cell(
                 route,
                 cell,
