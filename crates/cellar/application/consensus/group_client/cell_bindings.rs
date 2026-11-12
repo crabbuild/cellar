@@ -46,12 +46,21 @@ impl Host for BindingHost {
         scope: &str,
         method: &str,
     ) -> anyhow::Result<Route> {
-        Ok(self
-            .owner()?
-            .handle
-            .core
-            .host
-            .binding_route(source, configuration, scope, method)?)
+        let owner = self.owner()?;
+        let route = owner.handle.core.host.binding_route(
+            source,
+            configuration,
+            scope,
+            method,
+            &owner.handle.core.log,
+        )?;
+        if route.history_hint.is_some() {
+            owner.handle.core.log.performance().increment(
+                crate::raft::performance::Counter::CellBindingAppliedHistoryHints,
+                1,
+            );
+        }
+        Ok(route)
     }
 
     fn resolve(&self, route: Route, timeout: Duration) -> HandlerFuture<Option<CellHistory>> {

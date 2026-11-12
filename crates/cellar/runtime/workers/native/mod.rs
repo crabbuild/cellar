@@ -2066,6 +2066,16 @@ pub(crate) fn rpc_cell(
             context, scope, name, method, args, call_scope,
         );
     }
+    if context.state.raft_sql
+        && context.identity().is_none()
+        && scope
+            .split_once(':')
+            .is_some_and(|(class, _)| class == crate::deploy::SQL_CLASS)
+    {
+        return crate::application::sql::ingress::rpc(
+            context, scope, name, method, args, call_scope,
+        );
+    }
     if let Err(error) = check_fleet_sql(context, &scope) {
         return Box::pin(async move { Err(error) });
     }

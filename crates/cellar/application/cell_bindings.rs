@@ -284,7 +284,7 @@ pub(crate) fn rpc(
             source
                 .host
                 .route(&source.history, source.configuration, &scope, &method)?;
-        route.history_hint = dispatch.binding_hint(&route)?;
+        route.history_hint = dispatch.binding_hint(&route)?.or(route.history_hint.take());
         let (class, _) = scope
             .split_once(':')
             .ok_or(CommandFailure::UnsupportedCapability)?;

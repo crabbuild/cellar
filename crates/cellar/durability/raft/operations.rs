@@ -251,6 +251,20 @@ impl NodeLifecycle {
         Ok(state.service.clone())
     }
 
+    /// Native ingress borrows this node's joined owner. Retaining a request
+    /// must not keep the external SDK lifetime alive after node shutdown.
+    pub(crate) fn application_service(&self) -> Result<RaftCells, CommandFailure> {
+        let state = self.state.lock().map_err(|_| CommandFailure::Unavailable)?;
+        if state.sealed || state.poisoned || self.maintenance.public_closed() {
+            return Err(CommandFailure::Unavailable);
+        }
+        state
+            .service
+            .as_ref()
+            .map(RaftCells::internal_observer)
+            .ok_or(CommandFailure::Unavailable)
+    }
+
     pub(crate) fn resource_usage(
         &self,
     ) -> Result<

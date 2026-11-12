@@ -4,6 +4,7 @@
 //! database identity across events and take the executing context per call.
 //! Owner lookup, admission and durability remain host responsibilities.
 
+pub(crate) mod ingress;
 mod wire;
 
 use super::{

@@ -11,6 +11,56 @@ use std::sync::{
     Arc, RwLock, Weak,
 };
 
+impl GroupLog<GroupHistory> {
+    /// A locator from a live local voter's fully applied tree. Callers must
+    /// first select this exact route from their charged namespace range cache.
+    /// This grants no read lease, execution, enrollment or durability authority.
+    pub(crate) fn applied_history_hint(
+        &self,
+        route: &GroupRoute,
+        cell: &CellId,
+        schema: [u8; 32],
+    ) -> Result<Option<CellHistory>, crate::raft::storage::LogError> {
+        use crate::raft::storage::LogError;
+        if self.identity.scope != route.history
+            || !self.consensus_claimed.load(Ordering::Acquire)
+            || self.closed.load(Ordering::Acquire)
+            || self.reclaimed.load(Ordering::Acquire)
+        {
+            return Ok(None);
+        }
+        let key = cell_routing_key(route.history.namespace, cell);
+        if !route.range.contains(&key) {
+            return Ok(None);
+        }
+        let cache = match self.read() {
+            Ok(cache) => cache,
+            Err(LogError::Closed | LogError::NotFound) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if !cache.membership.permits_group(&self.identity)
+            || !cache
+                .conf_state
+                .voters
+                .iter()
+                .chain(&cache.conf_state.voters_outgoing)
+                .any(|member| *member == self.identity.member.get())
+            || cache
+                .group_manifest
+                .as_ref()
+                .is_none_or(|manifest| !manifest.is_active() || manifest.route() != route)
+        {
+            return Ok(None);
+        }
+        Ok(cache
+            .manifest_pins
+            .as_ref()
+            .and_then(|pins| pins.get(&key))
+            .filter(|(leaf, _)| leaf.enrollment.schema() == schema)
+            .map(|(leaf, _)| leaf.version.history.clone()))
+    }
+}
+
 /// A weak cache fence, never execution, image or durability authority.
 #[derive(Clone)]
 pub(crate) struct CellActivationFence {

@@ -274,6 +274,38 @@ impl CellGroupDispatcher {
         self.routes.usage().map_err(catalog_failure)
     }
 
+    /// Reuse existing bounded route metadata and a local applied manifest.
+    /// Cold, remote-only or changed routes fall back to ordinary discovery.
+    pub(in crate::raft::cell_groups) fn applied_history_hint(
+        &self,
+        log: &crate::raft::storage::ReplicaLog,
+        cell: &cellar_logic::cell_group::CellId,
+    ) -> Result<Option<CellHistory>, CellDispatchError> {
+        if !self.uses_domain(&log.domain()) {
+            return Err(CellDispatchError::Invalid("binding hint engine domain"));
+        }
+        let config = self.directory.namespace_config();
+        let candidate = CellHistory {
+            cluster: config.cluster,
+            namespace: config.namespace,
+            cell: cell.clone(),
+            // Only a range-cache key; never used for enrollment or dispatch.
+            incarnation: cellar_logic::consensus::IncarnationId::new([1; 16])
+                .map_err(|_| CellDispatchError::Invalid("binding hint identity"))?,
+        };
+        let Some((route, _, _)) = self.routes.get(&candidate, 0).map_err(catalog_failure)? else {
+            return Ok(None);
+        };
+        let group = match log.cell_group(&route.history) {
+            Ok(group) => group,
+            Err(crate::raft::storage::LogError::NotFound) => return Ok(None),
+            Err(error) => return Err(CellDispatchError::Runtime(error.into())),
+        };
+        group
+            .applied_history_hint(&route, cell, self.class.schema_digest())
+            .map_err(|error| CellDispatchError::Runtime(error.into()))
+    }
+
     /// Observe the current directory and invalidate verified changed intervals.
     /// Missing or over-budget proofs select full invalidation. Retained entries
     /// keep their original verified revisions rather than inheriting this head.
