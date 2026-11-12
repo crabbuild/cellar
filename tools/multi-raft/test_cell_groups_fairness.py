@@ -60,6 +60,10 @@ class ArchiveFairnessEvidenceTests(unittest.TestCase):
         rows[0]["shared_extent_roots_min"] = 14
         with self.assertRaises(ValueError):
             self.check(rows)
+        rows = profiles()
+        del rows[0]["shared_extent_roots_min"]
+        with self.assertRaises(ValueError):
+            self.check(rows)
 
     def test_all_owner_and_isolation_proofs_are_required(self):
         for key in ("runtime_joined", "foreign_hold_refused", "corrupt_tail_refused",

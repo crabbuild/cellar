@@ -587,6 +587,7 @@ def archive_fairness_observations(output, case):
             or any(not isinstance(row, dict)
                    or row.get("case") != case.removeprefix("rustfs_")
                    or type(row.get("extents")) is not bool
+                   or "shared_extent_roots_min" not in row
                    or (row["extents"] and (type(row.get("shared_extent_roots_min")) is not int
                                            or row["shared_extent_roots_min"] < 14))
                    or (not row["extents"] and row.get("shared_extent_roots_min") is not None)
