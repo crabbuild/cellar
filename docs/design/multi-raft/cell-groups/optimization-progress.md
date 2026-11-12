@@ -2131,3 +2131,99 @@ Evidence is retained under `quorum-recovery-exchange-series`, `peer-idle-before`
 campaigns remain unchanged. Occupancy, distinct endpoint/startup failures,
 current-source constrained Colima voters, standby/replacement and the remaining
 authority, reclamation, fairness and full qualification matrix remain open.
+
+## Shared archive fairness in both image modes
+
+The archive campaign previously passed all 23 configured cases on source
+`f1500526`, but its three-group fairness entry exercised materialized images
+only. An audit of the retained log reproduced the missing evidence: a passing
+libtest result alone cannot establish both image modes. The old campaign remains
+a pass for its actual configured scope; it does not prove extent fairness.
+
+Changes `27e1d706`, `abd76b1d` and `3bb0d605` run the fairness fixture separately
+with materialized and extent images. All three extent groups reuse each node's
+existing physical extent inventory and quota, and the fixture checks at least
+14 roots in each shared inventory. It independently restores all 14 images and
+compares their bytes and storage kinds, including the two initial images. The
+existing single checkpoint slot, held publication, lost immutable-PUT response,
+foreign-hold refusal, corrupt-tail refusal, healthy sibling cut and exact
+repaired-tail checks remain. Original request windows and resource limits are
+unchanged. Completed profiles are emitted only after runtime close and zero tail
+operations. The RustFS runner requires exactly one complete record per image
+mode and retains their hashed ledger; it rejects missing or duplicate profiles,
+wrong resource values, missing inventory evidence and incomplete owner proofs.
+Eight parser tests exercise these acceptance and refusal cases.
+
+The shared archive-intent helper now belongs to its controller-archive fixture
+module. This corrects an ordinary missing-import build failure in the execution
+target; the first failed build is retained separately. Production Rust is
+unchanged by this fairness follow-up.
+
+Qualified source `1c757c7e` / commit `3bb0d605` passed:
+
+- All 22 ordinary archive-controller tests, with zero failures and the 23
+  RustFS-only entries ignored in this native invocation. The actual fairness
+  output contains both completed image profiles and 14 shared roots for extents.
+- Five exact execution regressions: mixed group roles, hot-group fairness,
+  materialized and extent TLS apply/bounded retry, and distinct-history batching.
+- Strict library/affected-test Clippy and 113 Python tool tests (one optional
+  integration test skipped), plus formatting, layout, dependency, documentation
+  and patch checks.
+
+Rust 1.98.1 is explicitly selected. Both retained native executables contain
+compiler hash `48a229ceaefd4985c50990b14116b6d856af0985`; test opt-level 1,
+zero debug info, assertions and overflow checks remain enabled. The controller
+executable SHA-256 is
+`456d9b824e81c1de4f8d370fedae0a0417b79680412ad51ae830653b6da43308`.
+Source inputs remained frozen through qualification. Records are retained under
+`archive-fairness-before-coverage`, `archive-extent-fairness-native` and
+`archive-extent-fairness-native-wiring`.
+
+The full configured **23-case RustFS campaign passed** on that same source and
+exact controller executable. Seven signed S3 probes, real backend stop/restart,
+all case selections and the final backend/source guards passed. The fairness
+ledger contains both completed image modes, verifies all 14 restored images in
+each and records a shared-inventory minimum of 14 roots for extents. Its SHA-256
+is `f3d41346572b6ab1d67233f9791401f1ca60d9a376918021f4452343b461cac5`.
+The record is retained under `rustfs-extent-fairness-1c757c7e`. Voters in this
+campaign are host-native RF3 TLS tasks; RustFS runs in the owned Colima VM with
+the unchanged pinned image and one-CPU/2-GiB/no-extra-swap limits. This does not
+qualify independent voter containers or the full scheduling/failure matrix.
+
+## Latest performance and constrained-voter limits
+
+On the preceding production source `f1500526`, all 71 transport unit tests,
+22 ordinary controller tests, 32 ordinary archive-protocol tests and the exact
+parked-cursor SDK case passed, together with strict Clippy and repository checks.
+The combined native campaign remains failed at occupancy 128: enrollment reached
+its original 60-second window with an ambiguous deadline error. Its snapshots
+and later owner observations are distinct cuts. A separate pinned-source
+reproduction with three passive stack samples again failed; the stacks show
+manifest-page file synchronization and other persistence barriers. Sampling is
+diagnostic evidence, without a measured speedup or causal attribution to one
+barrier. Records remain under `peer-idle-native-combined-fresh` and
+`enrollment128-f150-phase-profile-after-maintenance`.
+
+The matching Rust 1.98.1 Linux image built as `a3c9d314`. The first constrained
+runtime attempt was interrupted by a confirmed stopped Colima VM. After restoring
+the same VM and exact RustFS container, a fresh materialized run failed at public
+`resume-maintenance` with unknown outcome, before standby or extent mode. It
+reached 95 events, including retained hard-kill/restart. Its original operation,
+request and resume identities and 20-second command window remain authoritative;
+a later fixture cannot resolve that mutation. Five redacted voter logs and
+mount inventories are retained. The returning voter opened new ingress, while
+its failure snapshot queried the old address; that snapshot cannot establish
+that the voter was down. Mount inventories alone do not prove retained disk
+contents, and forced cleanup is not joined SDK shutdown evidence. Records remain
+under `linux-daemon-999a1fbf5c80-f1500526-standby`, its `-restored` sibling and
+`f150-qualification-pipeline`.
+
+Base PR #166 has advanced to fetched `9ccccad7`, adding named bindings, target
+sequence sealing, leader-preferred archive publication and retry coalescing.
+It is not integrated into this controlled checkpoint. Two fixture conflicts
+remain in `cell_group_runtime.rs` and `cell_group_sql.rs`; integration and
+combined-source qualification are the next prerequisite. Current-source
+constrained voters, standby/replacement, occupancy 128, distinct endpoint/startup
+failures, authority and held-owner reclamation cuts, measured placement/fairness
+and the complete primitive/backend/performance matrix remain open. No full
+CG-13, CG-17 or OPT-01 through OPT-08 package is accepted by these scoped results.
