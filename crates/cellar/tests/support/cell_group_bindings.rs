@@ -196,7 +196,9 @@ pub async fn qualify_recovery(real_rustfs: bool) -> Result<()> {
 
 async fn qualify_case(real_rustfs: bool, recovery: bool) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::cell_groups::controller::effects=debug")
+        .with_env_filter(
+            "cellar::raft::cell_groups::controller::effects=debug,cellar::raft::group_archive=debug",
+        )
         .with_test_writer()
         .try_init();
     let mut failures = Vec::new();

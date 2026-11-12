@@ -13055,3 +13055,143 @@ The combined cohort is **FAILED**. No full primitive family or task is accepted;
 counts remain **13/17 tasks and 147/195 cases**. Next deliver a fixed-size allocator
 read on the existing SQL query owner, safe post-join shutdown observation, and
 binding deadline closure; then SQL/KV bindings and ordinary due-work adapters.
+
+## CG-17 binding liveness and joined closure
+
+Source `90e19b34` replaces binding maintenance's full command-bank reservation
+and effect scan with a fixed allocator query on the existing SQL owner. It reads
+only the exact history's system-client counter and returns eight sequence bytes.
+The read retains linearizable authority, exact route/history validation, bounded
+SQL admission and the maintenance deadline. Only pre-admission busy/not-ready
+failures retry; no business input is replayed and no per-cell task is added.
+Retirement and allocator errors retain their phase and typed causal failures.
+
+Closure now samples producer and SQL quiescence after host/controller/SQL joins,
+behind sealed admission. Held responses, poisoned admission, nonzero retained
+calls, failed groups or incomplete physical closure still withhold the proof.
+`NoUnresolvedLocalProducers` does not establish caller delivery, S3 coverage or
+permission to delete/restart a deployment. The retained-call count and proof are
+observed together after the joins, preserving managed stop-proof validation.
+
+The locked unit/native build passes. All **36 selected component tests pass**:
+23 binding tests, two allocator tests, one exact scan test, four effect summaries
+and six manifest/effect-index tests. The new allocator tests deny reads of pending
+payload/receipt tables and reject malformed or exhausted counters without reset.
+Four managed regressions also pass: archive lag, pending proposal, retained
+restart/exact stop ownership and joining an entered directory refresh.
+Final strict all-target Clippy, formatting, layout, native dependency and
+documentation checks pass at this source. The earlier Clippy preflight remains
+recorded separately at `78f52b01`.
+
+| Workload | Materialized / Quorum source | Materialized / S3 source | Extents / Quorum source | Extents / S3 source |
+| --- | --- | --- | --- | --- |
+| Native interrupted restart | PASS | PASS | PASS | PASS |
+| RustFS interrupted restart | PASS | PASS | PASS | PASS |
+| Native ordinary bindings | PASS | PASS | PASS | FAIL |
+| RustFS ordinary bindings | PASS | FAIL | PASS | PASS |
+
+The interrupted drill now passes all **eight configurations** with unchanged
+five-second request deadlines, quotas and strict closure assertions. It observes
+the target's committed checkpoint, restarts every voter, waits for autonomous
+source-obligation release, preserves the parent's unknown outcome, refuses
+duplicate target execution and completes a subsequent call beyond the sealed
+child sequence. This closes the scoped recovery drill, not the full family or
+movement/wake/disaster matrix. Target namespace minimum remains Quorum in these
+tests, independent of each source's Quorum/S3 policy.
+
+Ordinary bindings pass **6/8 configurations**. Native extents S3 and RustFS
+materialized S3 expire during the first Relay request. Their Add results return
+after 2,378 ms and 2,910 ms respectively; Echo does not return before the original
+parent deadline. Saved RustFS materialized images contain Add's target receipt
+and a source step-2 receipt with a prepared Echo intent, without an Echo receipt.
+Each image is a separate saved cut; these observations establish neither the
+latest manifest nor the time archive coverage became available. Trace the
+existing archive stages before choosing the next latency fix. No deadline,
+capacity or durability assertion was relaxed to obtain the passing results.
+
+Artifacts, command/source records, frozen binaries and six failed voter disks
+are retained under `.cellar/cell-groups-evidence/CG-17-binding-liveness-90e19b34-01`.
+Executable SHA-256 values are unit
+`d0a2134771fc8317c3aefb27386957a52a6c765b02a5cd4b91e80403dcae6969`, native
+`8579a1d694af052f5e16b295fde99b49adc76c1f18504ba7a7f028f351449f1a`
+and managed `583c39810bcc82dcbfecb37201fe534d32de29c7e2d3c286423af43aa48ccf4e`.
+The prior `bb02bae5` failed cohort and its 42 voter disks remain retained.
+RustFS uses the same immutable image in an owned 2-CPU/2-GiB container; native
+RF3 TLS hosts share a macOS process. Independent constrained Linux voter and
+load qualification remain open. The owned backend and VM stop successfully;
+the default user VM is unchanged.
+
+The combined cohort remains **FAILED**, with **13/17 tasks and 147/195 accepted
+cases**. No full primitive family is accepted. Next close the two ordinary S3
+deadline failures, deliver SQL/KV bindings, then ordinary alarms/cron, Queue,
+EventStream and Workflow execution before the remaining providers and full
+combined recovery/release gates.
+
+## CG-17 live archive proof handoff
+
+Source `2aca4c6b` preserves one live physical archive verification for proof
+requests that arrived while background publication was running. Previously the
+owner discarded the recovered cut before examining those requests, requiring
+another download/recovery or a newer publication even when that cut covered the
+requested receipt. The handoff keeps the existing replay admission charged and
+rechecks current birth/journal ownership and the exact receipt. It drops before
+another selected group, an uncovered successor, an idle queue, retirement or
+shutdown needs the workspace. It adds no per-group idle cache, task or timer and
+changes no deadlines, admission ceilings, format markers or durability minima.
+
+The corrected regression holds publication only after a genuinely newer selected
+cut has been independently verified. It asserts coverage of the written receipt
+position, queues a late S3 lookup and uses a later Quorum command as an admission
+barrier. It then refuses actual checkpoint chunk GETs and requires the exact S3
+receipt/token from the retained cut. The later Quorum mutation cannot substitute
+for this historical receipt proof.
+
+At baseline `af49a4bb`, cut 5 is verified and published, but the late proof expires
+at its original five-second deadline after **667 refused chunk reads**. The fixed
+test passes in both image forms on native storage and real RustFS, without a
+refused chunk read before the proof returns. Earlier controls `1ba1f80f` and
+`bfcd8a9b`, and attempts `1ae447c7`/`c5a8c50f`, used a gate that also intercepted
+reservation writes before verification. They remain retained as failed setup
+evidence and are excluded as proof of redundant replay. The revised gate checks
+the selected index explicitly; the generic older gate is documented accordingly.
+
+The locked build passes. All **six selected native archive/S3 cases** pass:
+late-proof handoff, exact/held outputs, deadline handling, archived receipt
+observations, reconciliation/joined close and independent group recovery. All
+**four managed shutdown/restart cases** pass. Final strict all-target Clippy,
+formatting, layout, native dependency and documentation checks pass at this
+source. The 36 component tests from `90e19b34` retain their earlier separate
+record; they were not rerun as part of this cohort.
+
+| Workload | Materialized / Quorum source | Materialized / S3 source | Extents / Quorum source | Extents / S3 source |
+| --- | --- | --- | --- | --- |
+| Native interrupted restart | PASS | PASS | PASS | PASS |
+| RustFS interrupted restart | PASS | PASS | PASS | PASS |
+| Native ordinary bindings | PASS | PASS | PASS | FAIL |
+| RustFS ordinary bindings | PASS | FAIL | PASS | FAIL |
+
+Interrupted recovery remains **8/8**. Ordinary bindings are **5/8** in this cohort;
+every Quorum-source configuration passes. The three remaining S3-source failures
+occur on the first parent Relay request, after Echo returns at 4,205 ms (native
+extents), 3,852 ms (RustFS materialized) or 4,415 ms (RustFS extents). The parent misses its remaining deadline during final source completion;
+its publication/proof stages still need isolation. These are callback-relative
+fixture observations, not latency/RPO benchmarks or proof of a sole root cause.
+The passing handoff regression does not waive these failures or establish a
+workload speedup. Source policies remain independent of the Quorum target minimum.
+
+Evidence is `.cellar/cell-groups-evidence/CG-17-binding-handoff-2aca4c6b-02`,
+including the valid baseline, excluded setup controls, exact commands, source
+patch, frozen executables and nine failed voter disks. Executable SHA-256 values
+are archive `4ac826ef27f26cec9308f0e3684d6239a2fea51cd2d094f28842cd4d2335164f`,
+native `8a6cd25fd5b91a24acace49803c140ff38a5e4bd8f9e801a3d15881cdea9cacc`
+and managed `17531bfc3e625bc91a9a03536f00d4633a801027eafdfc49e212f3b6c89a385e`.
+Prior failed cohorts remain retained. Real RustFS uses the same immutable image
+in an owned 2-CPU/2-GiB container. RF3 TLS voter hosts share a native macOS
+process; this is not independent constrained Linux voter or load qualification.
+The owned backend and source VM stop successfully; the default VM is unchanged.
+
+The combined cohort remains **FAILED**. Counts stay **13/17 tasks and 147/195
+accepted cases**; no full primitive family is accepted. Next deliver ordinary
+SQL/KV bindings on the passing Quorum foundation, alongside the still-required
+S3 deadline gate. Ordinary alarms/cron, Queue, EventStream, Workflow, remaining
+providers and the full combined recovery/release matrix remain required.
