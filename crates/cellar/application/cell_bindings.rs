@@ -323,17 +323,21 @@ async fn run(
     selected: Arc<Mutex<Option<CellHistory>>>,
     lease: BufferLease,
 ) -> Result<(RpcData, BufferLease)> {
+    probe("prepared");
     // The owned dispatch task already proved the Prepared source intent.
     let found = source
         .host
         .resolve(intent.route.clone(), dispatch.remaining_timeout()?)
         .await?;
+    probe("resolved");
     let history = match found {
         Some(history) => history,
         None => {
             let candidate = intent.candidate.clone();
             crate::storage::raft_bindings::select(&intent, &candidate, true)?;
+            probe("enrolling-sync-start");
             storage.sync().await?;
+            probe("enrolling-sync-done");
             *selected.lock().unwrap() = Some(candidate.clone());
             match source
                 .host
@@ -361,8 +365,11 @@ async fn run(
             }
         }
     };
+    probe("enrolled");
     crate::storage::raft_bindings::select(&intent, &history, false)?;
+    probe("ready-sync-start");
     storage.sync().await?;
+    probe("ready-sync-done");
     *selected.lock().unwrap() = Some(history.clone());
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
@@ -376,6 +383,7 @@ async fn run(
             options,
         )
         .await;
+    probe("target-done");
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
@@ -385,7 +393,9 @@ async fn run(
                 CommandFailure::CorruptState
             );
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
+            probe("complete-sync-start");
             storage.sync().await?;
+            probe("complete-sync-done");
             Ok((
                 super::consensus::native_rpc::decode_response(&receipt.result)?,
                 lease,
@@ -412,4 +422,8 @@ async fn run(
             .into())
         }
     }
+}
+
+fn probe(stage: &str) {
+    tracing::warn!(target: "cellar_binding_probe_619", stage, mono = crate::asyncrt::mono_ms(), "[CG17BIND619]");
 }
