@@ -71,7 +71,7 @@ and its named RO/RL cases remain the acceptance contract:
 | --- | --- |
 | OPT-01 | Finish smallest-scope negative-path repair and validate membership, public authority isolation and ambiguous outcomes; RO-01/02 runtime cases pass below, while broader RO-03/04/07/08 gates remain open |
 | OPT-02 | Selected public RO-05 interval-repair and RO-06 SDK/native HTTP/Axum split oracles pass below; recovery lookup cuts and remaining demand-refresh qualification stay open |
-| OPT-03 | Automatic consistency-aware selection and bounded fallback candidate below; public network partition/RecentSource expiry and full RO-10 acceptance remain open; the public RO-11 cohort oracle passes at its source checkpoint below |
+| OPT-03 | Automatic preferences, bounded fallback and public entered-source expiry/pin checks pass below; public partition coverage and full RO-10 acceptance remain open; the public RO-11 cohort oracle passes at its source checkpoints below |
 | OPT-04 | Physical shared-file/segment release proof and once-only accounting qualification; RL-01 through RL-05 |
 | OPT-05 | Load telemetry, reserve-aware placement and repeated release-scale movement; RL-06 |
 | OPT-06 | Measured scheduling fairness, batching and queue isolation; RL-07 |
@@ -2642,3 +2642,54 @@ movement/settlement qualification, broader fairness and placement measurements,
 failed-voter replacement/all-disk-loss, full SDK/provider compatibility and the
 single-source release matrix remain open. These checkpoints accept no complete
 CG-13, CG-17 or OPT-01 through OPT-08 package.
+
+## Public source expiry and matching packed runtime
+
+At test-only follow-up `3261b2fe`, source `d572b657`, the retained native
+profile-1 build completes in 1056.624 seconds. The new public expiry case passes
+in 25.678 seconds, with all six SDK/native HTTP/Axum and image-mode profiles
+independently checked. Each returns `VersionUnavailable` in 308–464 ms within
+its original five-second request budget, retains one physical image pin and one
+ordinary admission while SQL remains held, then releases both after physical
+completion. The next S3 command and fresh query preserve the exact cell result,
+version and receipt without a ReadIndex barrier or historical fallback. The
+existing preference case passes in 39.328 seconds. Strict core/logic all-target
+Clippy passes in 1121.486 seconds; all eight source/static checks pass.
+
+That first campaign remains failed: the cohort case times out in its prerequisite
+`first-group standby` CLI call after 5.971 seconds, before any cohort assertion.
+Its original five-second CLI limit and retained operator directory remain intact.
+A fresh-process follow-up explicitly retains and selects the matching CLI,
+verifies both compiler/executable identities and reuses only those unchanged-input
+static checks. Expiry and preferences pass in 23.211 and 42.237 seconds; three
+complete independent cohort attempts pass in 42.088, 42.163 and 51.250 seconds.
+All six expiry profiles are checked again. The failed CLI attempt is not relabeled
+or attributed to the executable path. Hashing/copying observes executable file
+data; these passes are not cold-start or controlled speedup qualification.
+
+The complete standard RustFS campaign at packed-runtime checkpoint `6b883dd0`,
+source `3c86d6fa`, then passes all 25 archive cases in 215.534 seconds and both
+four-profile binding cases in 147.798 seconds. It retains the exact native
+executables, signed backend probes, original deadlines, original backend caps
+and frozen inputs. Rust/anyhow backtraces are enabled for diagnosis. The first
+two failed campaigns and all focused repetitions retain their original outcomes;
+their transient deadline causes remain unresolved.
+
+Matching Linux image
+`sha256:8ce943291bdcdc8e21bd8b3ec8c99f5b440dedcc324c516ed2713a314d8f6bcb`
+passes the complete existing daemon campaign with standby, native/Axum ingress
+and real RustFS in both image modes in 203.688 seconds. Both daemon and CLI ELF
+binaries have the pinned Rust 1.98.1 compiler identity. Materialized and extent
+fixtures exit zero in 86.198 and 95.288 seconds. The original six-CPU/14-GiB VM,
+one-CPU/3-GiB/no-extra-swap voters and one-CPU/2-GiB backend remain enforced.
+Independent inspection verifies all 12 retained voter-log hashes, run/image
+identities, voter caps and no OOM. Post-teardown exits include intentional fault
+stops; this inventory is not proof of graceful close for every file or container.
+
+These are distinct source checkpoints: the new read qualification is a test-only
+follow-up, while the full native/storage/backend/Linux packing evidence is bound
+to `6b883dd0`. The subsequently fetched base `7c893506` adds grouped SQL bindings
+and RPC error compatibility changes. Their integration needs its own checks and
+cannot inherit these broader combined-source results. Failed-voter replacement,
+independent domains, physical hard-storage bounds, repeated performance, full
+primitive/provider compatibility and all remaining CG/OPT acceptance stay open.
