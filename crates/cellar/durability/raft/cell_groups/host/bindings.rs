@@ -27,6 +27,7 @@ impl CellGroupHost {
         configuration: [u8; 32],
         scope: &str,
         method: &str,
+        log: &crate::raft::storage::ReplicaLog,
     ) -> Result<Route, CellDispatchError> {
         self.inner.check_lifecycle()?;
         let key = (source.cluster, source.namespace);
@@ -51,7 +52,9 @@ impl CellGroupHost {
             ));
         }
         let (target_key, target) = select(&self.inner.namespaces, key, configuration, class)?;
-        route(target_key, target, scope, method)
+        let mut route = route(target_key, target, scope, method)?;
+        route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
+        Ok(route)
     }
 
     /// Stateless SQL has no source namespace. A global database identity must

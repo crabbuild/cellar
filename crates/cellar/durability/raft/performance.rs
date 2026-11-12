@@ -240,9 +240,10 @@ pub(crate) enum Counter {
     CellMembershipRefreshJoins,
     CellReadBarriers,
     CellReadCohortJoins,
+    CellBindingAppliedHistoryHints,
 }
 
-const COUNTERS: [Counter; 54] = [
+const COUNTERS: [Counter; 55] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -297,11 +298,13 @@ const COUNTERS: [Counter; 54] = [
     Counter::CellMembershipRefreshJoins,
     Counter::CellReadBarriers,
     Counter::CellReadCohortJoins,
+    Counter::CellBindingAppliedHistoryHints,
 ];
 
 impl Counter {
     fn name(self) -> &'static str {
         match self {
+            Self::CellBindingAppliedHistoryHints => "cell_binding_applied_history_hints",
             Self::CellMembershipDiscoveryOwners => "cell_membership_discovery_owners",
             Self::CellMembershipRefreshJoins => "cell_membership_refresh_joins",
             Self::CellReadBarriers => "cell_linearizable_read_barriers",

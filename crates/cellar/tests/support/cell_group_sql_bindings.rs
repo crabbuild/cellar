@@ -226,6 +226,21 @@ async fn public_sql(
     Ok(serde_json::from_str(&body)?)
 }
 
+fn applied_hints(cluster: &ManagedCluster) -> Result<u64> {
+    let mut total = 0;
+    for host in &cluster.hosts {
+        let sample = host.performance();
+        ensure!(sample.available && !sample.saturated);
+        total += sample
+            .counters
+            .iter()
+            .find(|counter| counter.name == "cell_binding_applied_history_hints")
+            .context("missing applied binding history observations")?
+            .value;
+    }
+    Ok(total)
+}
+
 async fn database_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
     let fixture = &cluster.fixtures[0];
     let declaration = &fixture.additional_namespaces[0];
@@ -484,10 +499,32 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             ("Reject", json!("INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM __sys_raft_binding_intents;"), json!(true)),
             ("Undeclared", json!(null), json!(true)), ("Read", json!(null), expected.clone()),
         ];
+        let mut source_sequence = 1;
+        let initial_hints = applied_hints(&cluster)?;
         for (index, (method, input, expected)) in cases.iter().enumerate() {
-            let result = source.command(&source.contract(method)?, serde_json::to_vec(input)?, bindings::options(index as u64 + 1, Durability::Quorum)?).await.with_context(|| format!("SQL binding {method}"))?;
+            let hints_before = applied_hints(&cluster)?;
+            let started = cellar::asyncrt::mono_ms();
+            let result = source.command(&source.contract(method)?, serde_json::to_vec(input)?, bindings::options(index as u64 + 1, Durability::Quorum)?).await;
+            eprintln!("SQL binding {method}: elapsed_ms={} completed={}", cellar::asyncrt::mono_ms()-started, result.is_ok());
+            let result = result.with_context(|| format!("SQL binding {method}"))?;
             ensure!(serde_json::from_slice::<serde_json::Value>(&result.result)? == *expected, "SQL binding {method}: {:?}", result.result);
+            // Eligible local metadata supplies only a locator: one source
+            // checkpoint and one final result remain required. A cold locator
+            // retains ordinary enrollment/selection; an undeclared call emits
+            // no child. Observe actual eligibility, not follower catchup timing.
+            let hints = applied_hints(&cluster)?.checked_sub(hints_before)
+                .context("binding observations regressed")?;
+            ensure!(hints <= 1, "SQL binding {method}: duplicated locator selection");
+            let mutations = if *method == "Undeclared" { ensure!(hints == 0); 1 }
+                else if hints == 1 { 2 } else { 3 };
+            ensure!(result.version.sequence.get() == source_sequence + mutations,
+                "SQL binding {method}: redundant source mutations: {} -> {}",
+                source_sequence, result.version.sequence.get());
+            eprintln!("SQL binding {method}: applied_hints={hints} source_mutations={mutations}");
+            source_sequence = result.version.sequence.get();
         }
+        ensure!(applied_hints(&cluster)? > initial_hints,
+            "SQL fixture did not exercise the applied history locator");
         ensure!(cluster.hosts[leader].resolve_cell_history(
             sql_group.cluster, sql_group.namespace,
             CellId::new(cellar::engine_api::sql_cell_scope("undeclared/database"))?,
