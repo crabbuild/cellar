@@ -2377,3 +2377,39 @@ class-schema seed and committed call due time require fresh matching namespaces
 and binaries; markers remain 1 and no legacy reader is introduced. This records
 source review and integration. Runtime qualification of this combined recovery
 source is still pending, and all complete CG/OPT acceptance remains open.
+
+## Binding allocator and joined-close follow-up
+
+The published transport repair `87d42d77` sends private target retirement through
+`RaftTransport`'s shared state, as command and name calls already do. The first
+combined pre-publication check at `8272ead9` emitted E0599 for the missing method.
+That owned compiler was stopped after the deterministic diagnostic; its terminal
+return 101 and interruption reason remain under `pr167-prepublish-8272ead9`.
+This was not a compiler panic. Fresh strict checks of the repaired source use the
+same pinned toolchain/profile under `pr167-prepublish-87d42d77`; they remain in
+progress at this checkpoint.
+
+Reviewed merge `7192455f` integrates base `90e19b34`. Binding maintenance now reads
+only its fixed-size system allocator through the existing SQL query owner and a
+linearizable exact route/history check. It takes no command-byte reservation or
+pending-effect payload; transient contention repeats only that read within its
+original maintenance deadline. Retirement and allocator errors preserve their
+causes. Shutdown seals admission and joins controller/SQL/runtime owners before
+sampling producer quiescence. Failed joins, poisoned admission, retained responses
+and unresolved owners still withhold the proof. This neither resolves a lost
+business response nor authorizes deletion of old disks.
+
+All 44 design tests pass on the merge with every reviewed anchor unchanged.
+New allocator tests deny pending-payload reads and refuse malformed/exhausted
+counters without resetting them. Native execution and real-backend recovery on
+this combined source remain pending. The next native selection covers query-wire
+separately from transport, chooses the actual Raft receipt owner by a unique test
+name and requires four profile records for each ordinary/recovery binding case.
+The original occupancy-128 failure, source-bound RustFS/Linux checkpoints and all
+remaining CG/OPT gates retain their recorded scopes.
+
+Hosted predecessor CI logs confirm both JavaScript worker adapters fail at
+`alice/bounds` with an ambiguous outcome (14 other worker tests pass), while the
+Typed RPC 3.14 full job reports incomplete host shutdown in the Rust/Rust ABA
+peer-cycle case. These failures need their own reproductions; current-source
+native Raft tests alone cannot qualify them.
