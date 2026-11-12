@@ -139,8 +139,9 @@ serial at the original source minimum. It removes the obligation and preserves
 the parent outcome as unknown. A self-call rereads the private system allocator
 before settlement. Orphaned resolved intents are removed without releasing a
 lane that a newer call has reused. Every failed turn rediscovers committed state;
-it never resumes an arbitrary Rust callback. Runtime qualification of this flow
-is still pending; these contracts do not constitute a primitive-family pass.
+it never resumes an arbitrary Rust callback. The connected runtime qualification fails its combined gate; see the
+[current checkpoint](progress.md#cg-17-connected-binding-recovery-qualification).
+These contracts do not constitute a primitive-family pass.
 
 ## Archive publication scheduling
 
@@ -192,3 +193,13 @@ command deadline. Five private sequence-retirement unit tests pass. Strict
 all-target Clippy passes at the subsequent handler-only refactor `2f168bb4`.
 No new real RustFS run or complete family case is accepted. See the
 [current checkpoint](progress.md#cg-17-private-target-sequence-retirement-checkpoint).
+
+
+At `bb02bae5`, 34 owning component selections pass. Interrupted restart passes
+only native materialized Quorum; every real RustFS restart configuration fails.
+The S3 retained image proves claim and target sealing but no source settlement.
+Ordinary bindings pass only RustFS extents Quorum in the same cohort. Preserve
+all original deadlines and shutdown assertions. A fixed-size system allocator
+read and a safe joined shutdown proof are the next recovery priorities, followed
+by the ordinary binding deadline gate and SQL/KV delivery. No full family is
+accepted by these component results.
