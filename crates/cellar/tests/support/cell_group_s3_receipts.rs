@@ -112,7 +112,14 @@ pub(crate) async fn s3_late_receipt_uses_completed_verification(
         .with_test_writer()
         .try_init();
     let h = Harness::new(rooted, store, 1).await?;
-    let gate = h.remote.hold_publication();
+    let previous = h.controllers[0]
+        .archive_status(h.route.history)?
+        .context("archive status")?
+        .published
+        .context("initial archived cut")?
+        .position()
+        .index;
+    let gate = h.remote.hold_publication_after(previous.get());
 
     struct Release(Arc<archive_controller::archive_store::Gate>);
 
@@ -129,8 +136,17 @@ pub(crate) async fn s3_late_receipt_uses_completed_verification(
             .response()
             .await?;
         let version = written.observation().version;
+        let written_index = written
+            .local_receipt()
+            .context("local write")?
+            .position
+            .index;
         drop(written);
         tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+        anyhow::ensure!(
+            gate.publication_index.load(Ordering::Acquire) >= written_index.get(),
+            "the gated publication must already verify the requested receipt cut"
+        );
         // This job began with no proof requests and has already independently
         // recovered its source cut. Queue the lookup only after that recovery.
         let mut lookup = h
