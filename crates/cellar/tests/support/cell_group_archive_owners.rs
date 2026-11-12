@@ -112,9 +112,12 @@ pub(super) async fn cancelled_checkpoint_read(
         archive_usage,
         "physical reader retains archive admission"
     );
+    let refused = source(&sources, &cluster)
+        .err()
+        .context("physical reader must retain the only source slot")?;
     assert!(matches!(
-        source(&sources, &cluster),
-        Err(CellGroupCheckpointError::Busy)
+        refused.downcast_ref::<CellGroupCheckpointError>(),
+        Some(CellGroupCheckpointError::Busy)
     ));
 
     // Change every populated cell through the real Raft/apply path. The old
