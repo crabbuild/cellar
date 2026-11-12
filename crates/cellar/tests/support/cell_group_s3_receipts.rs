@@ -107,6 +107,10 @@ pub(crate) async fn s3_late_receipt_uses_completed_verification(
     rooted: bool,
     store: Arc<dyn ObjectStore>,
 ) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::group_archive=debug")
+        .with_test_writer()
+        .try_init();
     let h = Harness::new(rooted, store, 1).await?;
     let gate = h.remote.hold_publication();
 
@@ -179,7 +183,9 @@ pub(crate) async fn s3_late_receipt_uses_completed_verification(
     .await;
     let denied_reads = h.remote.denied_chunk_reads.load(Ordering::Acquire);
     let work = work.with_context(|| {
-        format!("completed verification handoff: extents={rooted}, denied chunk reads={denied_reads}")
+        format!(
+            "completed verification handoff: extents={rooted}, denied chunk reads={denied_reads}"
+        )
     });
     h.remote.deny_chunk_reads.store(false, Ordering::Release);
     drop(release);
