@@ -8,8 +8,8 @@ use crate::application::consensus::{CellUpdate, ImageCommitment, LtxImage};
 use crate::raft::{cache::CommittedImage, rooted::RootPublishedImage};
 use cellar_ltx::{
     internal::{
-        CacheLimits, Geometry, ImageBinding, ImageRootUpdate, NodeExtentStore, NodeWorkspace,
-        SealedImageRoot, WorkspaceBounds,
+        CacheLimits, ExtentManifest, ExtentRootReference, Geometry, ImageBinding, ImageRootUpdate,
+        NodeExtentStore, NodeWorkspace, SealedImageRoot, WorkspaceBounds,
     },
     stream_snapshot::ScratchPool,
     TXID,
@@ -230,6 +230,25 @@ pub(super) struct RootState {
 }
 
 impl RootState {
+    // Private comparison metadata only. The empty workspace has no durable
+    // inventory root and this value cannot stand in for an image seal.
+    pub fn empty(binding: ImageBinding) -> anyhow::Result<Self> {
+        let geometry = Geometry::new(0, 0)?;
+        let manifest = ExtentManifest::new(binding, geometry, &[])?;
+        Ok(Self {
+            image: LtxImage {
+                epoch: binding.epoch,
+                txid: binding.txid,
+                checksum: binding.checksum,
+                commitment: ImageCommitment::Extents(ExtentRootReference::new(
+                    manifest.root(),
+                    manifest.encode()?.len().try_into()?,
+                )?),
+            },
+            geometry,
+        })
+    }
+
     pub fn of(root: &SealedImageRoot) -> Self {
         let binding = root.manifest().binding();
         Self {

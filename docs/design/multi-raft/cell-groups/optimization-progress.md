@@ -1835,3 +1835,75 @@ This workflow change establishes the cause of the setup failure, not a startup
 or protocol fix. A separate attempt selected an
 older CLI executable instead of the test harness; it is retained as a harness
 selector error and contributes no valid qualification evidence.
+
+
+## Disposable extent initializer base and pinned-toolchain control
+
+The initializer follow-up uses runtime source manifest `aeffb378`. An unenrolled extent initializer
+previously staged and sealed a durable transaction-zero root solely to open its
+disposable SQLite workspace. It now uses `ExtentWorkspace::empty`, which checks
+the canonical transaction-zero binding without allocating an inventory root.
+The private comparison marker remains metadata. Existing published bases retain
+their actual sealed images, and initialized results still take the original LTX,
+sealed-image, manifest and durability-proof path. Callback admission, workspace
+ownership, command identities, deadlines and resource banks remain unchanged.
+
+The regression observes actual inventory usage while an initializer is held.
+The old production code reported one root and one admitted workspace; the new
+code reports zero roots and one workspace. Both observations use the existing
+concurrent enrollment/cancellation case, including its original callback,
+reconciliation, conflict and joined-close assertions. The assertion runs after
+cleanup so its failure cannot strand the held callback. New LTX public tests
+exercise real SQLite writes, last-handle admission retention and invalid
+binding/quota refusal before file creation.
+
+A compiler-provenance audit found that the recent 19-passed/two-failed runner
+campaign and its OS stack samples used ambient `stable`, which had become Rust
+1.99.1. Their optimization/assertion flags matched CI, but they do not qualify
+the pinned Rust 1.98.1 toolchain. Embedded compiler hashes independently confirm
+that the earlier source-`46eca779` RustFS routing artifacts and temporary HTTP
+probe used 1.98.1. The 1.99.1 candidate compilation panic and all diagnostics are
+retained; no compiler fix is claimed.
+
+The controlled before/after therefore explicitly selects Rust 1.98.1, with its
+compiler hash checked in retained executables. The original production code,
+plus the new inventory assertion, reproduced the one-root/one-workspace failure.
+It also reproduced the original occupancy-128 enrollment deadline: the total
+window ended at 60.000 seconds, with later observations of 54 cells in the main
+group. The candidate passed all 19 native enrollment cases and 29 LTX cases
+across workspace, source-backed workspace, admission and apply targets. Two LTX
+entries are marked ignored: the isolated write-failure child is exercised by its
+passing parent, while the retained decimal-10-GB campaign remains unrun.
+Strict library/affected-test Clippy, formatting (2,214 files), layout,
+dependencies, documentation and patch checks passed. Pinned LTX core-only and
+all-feature builds also passed. Their first attempt returned zero from both
+compiler commands but failed its source guard after a component README edit;
+that attempt is retained as failed. Restoring the exact tested README and
+repeating both feature checks passed with the guard intact.
+
+The candidate's original occupancy-128 case still **failed**: enrollment used
+60.003 seconds and later observations showed 77 cells in the main group.
+The complete failed test, including observations and joined close, took 76.471
+seconds; the before test took 67.962 seconds. Those separate observations and
+single attempts establish neither a coherent failure cut nor a measured
+speedup. The optimization removes the extra empty inventory root; it does not
+close the scale gate. Stack samples from the earlier diagnostic exposed
+manifest-page, archive-journal and engine persistence barriers for further
+investigation. No persistence requirement is relaxed by that observation.
+
+Records are retained under `enrollment128-profile-46eca779`,
+`enrollment-empty-base-regression`, `enrollment-empty-base-candidate`,
+`enrollment-empty-base-pinned-before` and
+`enrollment-empty-base-pinned-after` in the checkout's private qualification
+root. The pinned candidate campaign remains **failed** solely at `scale128`;
+its other listed checks passed. Source inputs stayed frozen through each
+actual job's completion. The before and candidate incremental caches are
+retained separately, with the same compiler/profile settings.
+
+Actual RustFS and constrained Linux have not yet qualified `aeffb378`.
+The prior source-`46eca779` endpoint results and both passing daemon modes stay
+bound to that earlier source. Occupancy-128 enrollment, the distinct endpoint
+and startup failures, standby/replacement, authority/ambiguity cuts, held-owner
+reclamation, placement/fairness and the complete primitive/backend/performance
+matrix remain open. This checkpoint accepts no complete CG-13, CG-17 or
+OPT-01 through OPT-08 package.

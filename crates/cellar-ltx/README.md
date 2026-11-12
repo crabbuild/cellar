@@ -372,8 +372,13 @@ unchanged extents are shared. `ExtentWorkspace` creates a disposable writable
 sparse main file from that exact base. `ExtentWorkspace::from_source` accepts
 an authenticated manifest and an `ExtentSource` whose owner retains its complete
 dependency closure, allowing private writes before the base is fully local.
-Both constructors fault extents through the same admitted, independently verified
-cache and track actual main-file changes across checkpoints. Open SQLite handles
+Local and source-backed constructors fault extents through the same admitted,
+independently verified cache and track actual main-file changes across checkpoints.
+`ExtentWorkspace::empty` validates a transaction-zero binding and opens an
+initializer without allocating or sealing a durable empty root. It retains the
+caller's private-file admission through every open SQLite/VFS handle. The
+initialized result still requires its independent publication and image proofs.
+Open SQLite handles
 retain the source even after the workspace registration closes; this includes an
 empty base. The source contract does not persist a remote reference or grant a
 durable image seal. Its caller must separately establish and maintain those proofs.

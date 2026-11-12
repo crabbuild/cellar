@@ -141,6 +141,11 @@ pub(super) async fn concurrent(rooted: bool) -> Result<()> {
             .map_err(anyhow::Error::new)
     })?;
     tokio::time::timeout(Duration::from_secs(5), started).await??;
+    let unpublished_base = fixture.cluster.voters[0]
+        .extents
+        .as_ref()
+        .map(|store| store.usage().map(|usage| (usage.roots, usage.workspaces)))
+        .transpose()?;
     waiter.abort();
     assert!(waiter.await.is_err());
     let mut other = a.clone();
@@ -335,7 +340,15 @@ pub(super) async fn concurrent(rooted: bool) -> Result<()> {
         .record()
         .is_none());
     drop(pool);
-    fixture.close().await
+    fixture.close().await?;
+    if rooted {
+        assert_eq!(
+            unpublished_base,
+            Some((0, 1)),
+            "a held initializer needs its admitted workspace, not a durable empty base"
+        );
+    }
+    Ok(())
 }
 
 pub(super) async fn recovery(rooted: bool) -> Result<()> {
