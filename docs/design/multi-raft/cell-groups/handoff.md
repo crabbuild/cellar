@@ -4,7 +4,36 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current SQL feature checkpoint
+## Current stateless SQL checkpoint
+
+Source `5a36ca8d` adds node-owned stateless native `Context::sql` dispatch and
+bounded reconciliation of competing first creators. Warm bindings also reuse
+charged range-cache/applied-voter metadata, with counter and source-mutation
+oracles preserving target authority and cold discovery. The public HTTP and existing
+Raft-cell SQL drill passes 4/4 native/RustFS image configurations; interrupted
+binding recovery passes 5/8 (native 4/4; RustFS 1/4). The combined runtime gate
+is **FAILED** on two S3 deadline checks and a Quorum retained-restart clean-stop
+assertion. Their causes remain unresolved. Build, codec, registration, native SQL,
+strict all-target Clippy, formatting, layout, dependency and documentation checks
+pass. See the
+[checkpoint](progress.md#cg-17-stateless-native-sql-ingress) for exact scope,
+failed controls, evidence and the unchanged three/five-second budgets.
+The reviewed source anchors match and plan/verifier unit tests pass; full CLI
+preflight cannot complete because a historical CG-01 evidence record is absent.
+Retain that failure rather than recreating evidence or weakening validation.
+
+First resolve the current-source binding deadline and clean-stop failures without
+weakening the existing gates. The next SQL blocker is bounded ingress identity
+ownership: fresh per-call client IDs consume permanent target client floors,
+eventually reaching the configured limit. Include ordinary outbound RPC admission
+and accounting. Preserve exact replay, ambiguity, admission and sequence fences
+across restarts; quotas remain unchanged. Then wire direct SQL operator/CLI
+HTTP and finish SQL interruption/movement/wake/archive/disaster qualification,
+followed by KV expiry, alarms and payloads. The ordinary S3-source deadline gate
+and all other primitive/recovery/release gates remain open. No complete family is
+accepted: **13/17 tasks, 147/195 cases**. Owned RustFS and its VM are stopped.
+
+## Previous SQL feature checkpoint
 
 Source `b82970a5` implements normal SQL bindings from Raft cells through a
 runtime-owned reserved service in a separate shared group. The public drill passes
@@ -57,12 +86,15 @@ See the [checkpoint](progress.md#cg-17-live-archive-proof-handoff).
 
 ## Immediate feature priorities
 
-1. Finish full SQL compatibility: direct stateless/public ingress and SQL-specific
-   interruption/recovery, movement, wake and archive-outage coverage. The normal
-   binding path inside Raft cells now passes its four native/RustFS configurations.
-   Then deliver KV bindings with expiry, durable alarm and external-payload
-   semantics; keep incomplete adapters refused. Preserve exact database grants,
-   independent target durability, original deadlines and sequence recovery.
+1. Resolve the current-source recovery failures (two S3 deadline checks and a
+   Quorum extents clean-stop assertion). Then deliver bounded, restart-safe
+   stateless SQL ingress identities and ordinary outbound RPC admission/accounting.
+   Fresh client IDs consume persistent sequence floors; preserve deduplication and fencing
+   without increasing quotas or clearing ordinary floors. Wire direct SQL
+   operator/CLI HTTP, then finish SQL-specific interruption/recovery, movement,
+   wake, archive outage and disaster coverage. Stateless native SDK and Raft-cell
+   SQL now pass their basic four-configuration drill. Then deliver KV bindings
+   with expiry, durable alarm and external-payload semantics.
 2. Keep the ordinary S3 deadline gate open alongside feature delivery. Native
    extents S3 returns Echo after 4,205 ms; RustFS materialized/extents S3 return it
    after 3,852/4,415 ms. The final source completion misses the unchanged parent budget.

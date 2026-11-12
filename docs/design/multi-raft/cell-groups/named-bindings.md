@@ -62,11 +62,13 @@ forces different caller and database leaders to cover this requirement.
 
 The ordinary runtime refuses activation of Raft-declared classes. Native callers
 also refuse legacy SQL HTTP/RPC egress at the source, so another co-hosted script
-cannot supply a weaker SQL service through the global identity. Direct stateless
-SQL ingress still requires its shared-group adapter; these refusals are not a
-completed stateless SQL implementation.
+cannot supply a weaker SQL service through the global identity. Stateless native
+handlers in a Raft application use the node-owned SQL group service directly.
+Only declared database identities and compiled SQL methods are admitted. The host
+requires exactly one loaded SQL namespace. Direct SQL operator/CLI HTTP routing
+still requires its group adapter; ordinary SQL HTTP activation remains refused.
 
-SQL requests use the ordinary durable binding protocol below, including the
+SQL calls from Raft cells use the durable binding protocol below, including the
 target namespace's independent minimum durability, original caller deadline,
 interrupted-call recovery and private sequence retirement. Queries use durable
 commands too; a SQL binding query does not use the stale-query default. Sessions
@@ -84,6 +86,25 @@ This implementation checkpoint does not accept the full SQL/KV primitive family.
 See [remaining work](remaining-work.md#primitive-delivery-priority) for the public
 recovery and release gates, including the independent S3-source deadline blocker.
 
+## Stateless SQL ownership boundary
+
+Stateless native calls have no source cell transaction. Name lookup, one creation
+attempt and one independently durable SQL command share the original absolute
+node/caller deadline. When another first creator wins, reconciliation waits for
+the committed canonical name without repeating enrollment or SQL. After business
+submission, the selected history, input and command identity remain fixed.
+Cancellation or timeout does not establish non-commit, and a new application
+request is a separate mutation rather than an automatic retry.
+
+This implementation uses a fresh client identity per call. The target retains
+client sequence floors permanently, so the configured client limit will eventually
+refuse further calls. Bounded, restart-safe ingress identity ownership is a release
+blocker. Preserve deduplication and sequence fencing, including retained restart,
+clock regression and recovery; increasing quotas or deleting ordinary floors does
+not satisfy the contract. Ordinary outbound RPC admission/accounting also remains
+required. The public-path drill is a component checkpoint; sustained-load and full
+SQL-family acceptance remain open.
+
 ## Source intent and target proof
 
 Each call records its source intent before proving the source transaction. It
@@ -91,9 +112,14 @@ fixes the target name, candidate incarnation, enrollment identity, operation,
 input, child identity, source/target durability and original absolute expiry.
 It also fixes the originating physical `GroupHistory` and leader term. A term
 number alone cannot fence recovery after movement to another physical group.
-Group-local applied metadata and an invocation-local verified history cache may
-supply a locator; neither is a target execution authority or durability proof.
-The cache retains one charged entry and does not survive the invocation.
+Group-local applied metadata, the existing charged target namespace range cache
+and an invocation-local verified history cache may supply a locator. None grants
+target execution authority or durability proof.
+The invocation cache retains one charged entry and does not survive the invocation.
+A cached target range may select a live local voter whose exact active applied
+manifest contains the same schema/history. Sealed, closed, reclaimed, non-voting
+or changed roots supply no hint. These metadata lookups retain no image pins and
+never grant destination execution, reads or durability authority.
 
 An unknown name uses its proven candidate and enrollment identity. A concurrent
 creator may win; dispatch to that different history requires a new durable source

@@ -103,14 +103,142 @@ fn application() -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptio
         class = class.json_cell_rpc(method, [u8::try_from(index + 192)?; 32])?;
     }
     let application = Arc::new(
-        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+        Registry::new(|context, invocation| Box::pin(http_request(context, invocation)))
             .raft_cell(class, |context, _| Ok(Arc::new(Caller(context.sql("DB")?))))?,
     );
     let mut declared = configuration::options(SCRIPT);
     declared.do_classes = vec!["Counter".into(), cellar::deploy::SQL_CLASS.into()];
     declared.sql_bindings = vec![("DB".into(), DATABASE.into())];
+    declared
+        .sql_bindings
+        .push(("RACE".into(), "shared/sql-enrollment-race".into()));
     application.validate_deployment(&configuration::deployment(declared.clone()))?;
     Ok((application, declared))
+}
+
+async fn http_request(context: Context, invocation: Invocation) -> Result<Output> {
+    use futures_util::TryStreamExt as _;
+    let Invocation::Fetch(request) = invocation else {
+        anyhow::bail!("HTTP required");
+    };
+    ensure!(context.identity().is_none(), "public SQL must be stateless");
+    let operation = request
+        .url
+        .rsplit('/')
+        .next()
+        .context("HTTP operation")?
+        .to_string();
+    let input = context
+        .take_body(request.body)?
+        .try_concat()
+        .await
+        .map_err(anyhow::Error::msg)?;
+    let database = context.sql("DB")?;
+    let result: Result<serde_json::Value> = async {
+        match operation.as_str() {
+            "IngressRace" => {
+                let database = context.sql("RACE")?;
+                database.exec(&context, "CREATE TABLE IF NOT EXISTS race(v INTEGER);").await?;
+                let value: i64 = serde_json::from_slice(&input)?;
+                database.prepare("INSERT INTO race VALUES(?)").bind([value.into()]).run(&context).await?;
+                Ok(json!(true))
+            }
+            "IngressRaceCount" => {
+                Ok(json!(context.sql("RACE")?.prepare("SELECT count(*) AS n FROM race").first(&context, Some("n")).await?))
+            }
+            "IngressSetup" => {
+                database.exec(&context, "CREATE TABLE ingress(v INTEGER PRIMARY KEY); INSERT INTO ingress VALUES(7);").await?;
+                Ok(json!(true))
+            }
+            "IngressWrite" => {
+                let value: i64 = serde_json::from_slice(&input)?;
+                let result = database.prepare("INSERT INTO ingress VALUES(?)")
+                    .bind([value.into()]).run(&context).await?;
+                ensure!(result.meta.changes == 1);
+                Ok(json!(true))
+            }
+            "IngressRead" => Ok(json!(database.prepare("SELECT v FROM ingress ORDER BY v").raw(&context, false).await?)),
+            "IngressRollback" => {
+                sql_failure(database.batch(&context, &[
+                    database.prepare("INSERT INTO ingress VALUES(99)"),
+                    database.prepare("SELECT * FROM missing_table"),
+                ]).await, &["no such table: missing_table"])
+            }
+            "IngressUnknown" => {
+                let error = context.rpc_cell(
+                    cellar::engine_api::sql_cell_scope("undeclared/http"),
+                    Some("undeclared/http".into()), "__sqlExec".into(),
+                    RpcData::Json("[\"CREATE TABLE forbidden(v)\"]".into()),
+                ).await.err().context("undeclared stateless SQL was admitted")?;
+                ensure!(error.downcast_ref::<CommandFailure>() == Some(&CommandFailure::UnsupportedCapability));
+                Ok(json!(true))
+            }
+            _ => {
+                let result = Arc::new(Caller(database)).invoke(context, Invocation::CellRpc {
+                    method: operation, args: RpcData::Json(String::from_utf8(input)?),
+                }).await?;
+                let Output::Rpc(RpcData::Json(result)) = result else { anyhow::bail!("JSON response required"); };
+                Ok(serde_json::from_str(&result)?)
+            }
+        }
+    }.await;
+    let (status, body) = match result {
+        Ok(value) => (200, serde_json::to_vec(&value)?),
+        Err(error) => (
+            503,
+            serde_json::to_vec(&json!({"error": format!("{error:#}")}))?,
+        ),
+    };
+    Ok(Output::Http(cellar::engine_api::HttpResponse {
+        status,
+        headers: vec![],
+        body,
+        stream: None,
+        websocket: None,
+        write_position: None,
+        observed_position: None,
+    }))
+}
+
+async fn public_sql(
+    cluster: &ManagedCluster,
+    node: usize,
+    method: &str,
+    input: serde_json::Value,
+) -> Result<serde_json::Value> {
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(TIMEOUT + Duration::from_secs(1))
+        .build()?
+        .post(format!(
+            "http://{}/{method}",
+            cluster.nodes[node].info().public_address
+        ))
+        .body(serde_json::to_vec(&input)?)
+        .send()
+        .await?;
+    let status = response.status();
+    let body = response.text().await?;
+    ensure!(
+        status == 200,
+        "public SQL {method} node {node}: {status} {body}"
+    );
+    Ok(serde_json::from_str(&body)?)
+}
+
+fn applied_hints(cluster: &ManagedCluster) -> Result<u64> {
+    let mut total = 0;
+    for host in &cluster.hosts {
+        let sample = host.performance();
+        ensure!(sample.available && !sample.saturated);
+        total += sample
+            .counters
+            .iter()
+            .find(|counter| counter.name == "cell_binding_applied_history_hints")
+            .context("missing applied binding history observations")?
+            .value;
+    }
+    Ok(total)
 }
 
 async fn database_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
@@ -342,6 +470,21 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             }
             Ok::<_, anyhow::Error>(())
         }).await??;
+        let raced = futures_util::try_join!(
+            public_sql(&cluster, 0, "IngressRace", json!(1)),
+            public_sql(&cluster, 2, "IngressRace", json!(2)),
+        )?;
+        ensure!(raced == (json!(true), json!(true)));
+        ensure!(public_sql(&cluster, 1, "IngressRaceCount", json!(null)).await? == json!(2));
+        // First access is a public, stateless request and must enroll through
+        // the SQL group. Every voter exposes the same canonical database.
+        ensure!(public_sql(&cluster, 0, "IngressSetup", json!(null)).await? == json!(true));
+        ensure!(public_sql(&cluster, 1, "IngressWrite", json!(8)).await? == json!(true));
+        ensure!(public_sql(&cluster, 2, "IngressRollback", json!(null)).await? == json!(true));
+        ensure!(public_sql(&cluster, 0, "IngressUnknown", json!(null)).await? == json!(true));
+        for node in 0..3 {
+            ensure!(public_sql(&cluster, node, "IngressRead", json!(null)).await? == json!([[7],[8]]));
+        }
         let namespace = cellar_native::cell_id::Namespace::new("Counter", format!("cells:v1:{}:{SCRIPT}:Counter", SCRIPT.len()));
         let source = cluster.hosts[leader].cell(CellHistory { cluster: group.cluster, namespace: group.namespace, cell: CellId::new(namespace.id_from_name("source").scope())?, incarnation: IncarnationId::new([185; 16])? })?;
         source.enroll(CellEnrollmentRequest { creation: ProposalId::new([186; 16])?, durability: Durability::Quorum }, TIMEOUT).await?;
@@ -356,10 +499,32 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             ("Reject", json!("INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM __sys_raft_binding_intents;"), json!(true)),
             ("Undeclared", json!(null), json!(true)), ("Read", json!(null), expected.clone()),
         ];
+        let mut source_sequence = 1;
+        let initial_hints = applied_hints(&cluster)?;
         for (index, (method, input, expected)) in cases.iter().enumerate() {
-            let result = source.command(&source.contract(method)?, serde_json::to_vec(input)?, bindings::options(index as u64 + 1, Durability::Quorum)?).await.with_context(|| format!("SQL binding {method}"))?;
+            let hints_before = applied_hints(&cluster)?;
+            let started = cellar::asyncrt::mono_ms();
+            let result = source.command(&source.contract(method)?, serde_json::to_vec(input)?, bindings::options(index as u64 + 1, Durability::Quorum)?).await;
+            eprintln!("SQL binding {method}: elapsed_ms={} completed={}", cellar::asyncrt::mono_ms()-started, result.is_ok());
+            let result = result.with_context(|| format!("SQL binding {method}"))?;
             ensure!(serde_json::from_slice::<serde_json::Value>(&result.result)? == *expected, "SQL binding {method}: {:?}", result.result);
+            // Eligible local metadata supplies only a locator: one source
+            // checkpoint and one final result remain required. A cold locator
+            // retains ordinary enrollment/selection; an undeclared call emits
+            // no child. Observe actual eligibility, not follower catchup timing.
+            let hints = applied_hints(&cluster)?.checked_sub(hints_before)
+                .context("binding observations regressed")?;
+            ensure!(hints <= 1, "SQL binding {method}: duplicated locator selection");
+            let mutations = if *method == "Undeclared" { ensure!(hints == 0); 1 }
+                else if hints == 1 { 2 } else { 3 };
+            ensure!(result.version.sequence.get() == source_sequence + mutations,
+                "SQL binding {method}: redundant source mutations: {} -> {}",
+                source_sequence, result.version.sequence.get());
+            eprintln!("SQL binding {method}: applied_hints={hints} source_mutations={mutations}");
+            source_sequence = result.version.sequence.get();
         }
+        ensure!(applied_hints(&cluster)? > initial_hints,
+            "SQL fixture did not exercise the applied history locator");
         ensure!(cluster.hosts[leader].resolve_cell_history(
             sql_group.cluster, sql_group.namespace,
             CellId::new(cellar::engine_api::sql_cell_scope("undeclared/database"))?,
@@ -372,6 +537,9 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         managed_fixture::leader(&cluster.hosts, sql_group).await?;
         let leader = managed_fixture::leader(&cluster.hosts, group).await?;
         let source = cluster.hosts[leader].cell(history)?;
+        ensure!(public_sql(&cluster, 2, "IngressRead", json!(null)).await? == json!([[7],[8]]));
+        ensure!(public_sql(&cluster, 1, "IngressWrite", json!(9)).await? == json!(true));
+        ensure!(public_sql(&cluster, 0, "IngressRead", json!(null)).await? == json!([[7],[8],[9]]));
         let replay = source.command(&source.contract("FailedBatch")?, b"null".to_vec(), batch_options).await?;
         ensure!(replay.result == duplicate.result);
         let result = source.command(&source.contract("Read")?, b"null".to_vec(), bindings::options(15, Durability::Quorum)?).await?;
@@ -383,6 +551,13 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         let stopped = cluster.nodes.split_off(1);
         managed_fixture::close_group_nodes_with_groups(stopped, &cluster.hosts[1..], 2).await?;
         cluster.hosts.truncate(1);
+        let response = reqwest::Client::builder().no_proxy().timeout(TIMEOUT + Duration::from_secs(1)).build()?
+            .post(format!("http://{}/IngressWrite", cluster.nodes[0].info().public_address))
+            .body("10").send().await?;
+        let status = response.status();
+        let refused = response.text().await?;
+        ensure!(status == 503 && (refused.contains("DeadlineExceeded") || refused.contains("Unavailable")
+            || refused.contains("NotReady") || refused.contains("Timeout")), "quorum SQL refusal: {status} {refused}");
         let source = cluster.hosts[0].cell(source.history().clone())?;
         let options = bindings::options(17, Durability::Quorum)?;
         let command = options.id;

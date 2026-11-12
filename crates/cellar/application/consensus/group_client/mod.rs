@@ -129,6 +129,7 @@ mod repair;
 mod scoped_dispatch;
 mod segment_reclamation;
 mod services;
+mod sql_ingress;
 mod startup;
 mod stop;
 mod transition;

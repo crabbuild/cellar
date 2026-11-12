@@ -2760,3 +2760,11 @@ controlled performance.
 Removed-member, untrusted-certificate and superseded-boot
 coverage remains open. The preceding RustFS/Linux results remain tied to
 their exact revisions; no full RO-03, CG-13, CG-17 or OPT package is accepted.
+
+The subsequent PR integration includes base `ab06b48a`, which adds stateless SQL
+ingress and reuse of locally applied binding histories. The counter registry
+retains both branches' counters, and the baseline retains both review histories;
+all anchored file hashes still match the reviewed `89ad604c` checkpoint. Runtime
+results above remain bound to their stated revisions. This newer combined
+source needs separate validation, and the base's recorded RustFS interrupted-
+binding failures remain open.
