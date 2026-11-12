@@ -77,12 +77,45 @@ impl From<crate::asyncrt::DomainClosed> for CellGroupArchiveControlError {
 type Error = CellGroupArchiveControlError;
 type Result<T> = std::result::Result<T, Error>;
 
+/// Selects who produces new cuts; existing journal intents always reconcile.
+/// This scheduling choice grants no serving or archive authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellGroupArchivePublisher {
+    /// Managed groups configure archiving on every leader-eligible voter.
+    /// Followers independently acquire and verify published prefixes.
+    GroupLeader {
+        /// Minimum shared-timer interval for blocked/background archive work.
+        /// A newly waiting S3 request may initiate one immediate attempt.
+        retry_interval_ms: u64,
+    },
+    /// An explicitly registered archiver publishes regardless of Raft role.
+    /// Use when only a selected replica owns archive publication.
+    LocalReplica,
+}
+
+impl CellGroupArchivePublisher {
+    fn validate(self) -> bool {
+        match self {
+            Self::GroupLeader { retry_interval_ms } => (10..=60_000).contains(&retry_interval_ms),
+            Self::LocalReplica => true,
+        }
+    }
+
+    fn retry_interval_ms(self, ordinary: u64) -> u64 {
+        match self {
+            Self::GroupLeader { retry_interval_ms } => ordinary.max(retry_interval_ms),
+            Self::LocalReplica => ordinary,
+        }
+    }
+}
+
 /// Share all admission pools across this node's registrations. The binding must
 /// already be initialized in the namespace catalog. The controller owns and
 /// closes the private verifier store after joining archive work. Use fresh stores
 /// on restart. No application callback is needed for background publication.
 #[derive(Clone)]
 pub struct CellGroupArchiveRegistration {
+    pub publisher: CellGroupArchivePublisher,
     pub directory: RangeDirectory,
     pub birth: CellGroupBirth,
     pub io: CellGroupArchivePool,
@@ -147,6 +180,9 @@ impl CellGroupController {
         registration: CellGroupArchiveRegistration,
     ) -> Result<CellGroupArchiveCall> {
         let shared = &self.handle.0;
+        if !registration.publisher.validate() {
+            return Err(Error::Invalid("archive publisher retry interval"));
+        }
         if shared.closing.load(Ordering::Acquire) {
             return Err(Error::Stopped);
         }
@@ -372,6 +408,11 @@ impl Manager {
             )));
             return;
         }
+        // One newly waiting foreground proof bypasses background coalescing.
+        // Further waiters share that attempt and its bounded retry schedule.
+        if entry.waiters.is_empty() {
+            entry.retry_at = 0;
+        }
         entry.waiters.push(request);
         entry.dirty = true;
         if !entry.queued {
@@ -522,6 +563,10 @@ impl Manager {
             .get_mut(&completed.group)
             .expect("completed archive owner");
         entry.context = completed.context;
+        let retry_interval = entry
+            .registration
+            .publisher
+            .retry_interval_ms(shared.limits.retry_interval_ms);
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
         let mut statuses = shared
@@ -538,7 +583,7 @@ impl Manager {
                     // Cached output does not complete durable publication or
                     // retirement work. Keep its bounded retry cadence even
                     // when no further commands or apply events arrive.
-                    entry.retry_at = now.saturating_add(shared.limits.retry_interval_ms);
+                    entry.retry_at = now.saturating_add(retry_interval);
                 }
                 match completed.observation {
                     Ok(applied) => {
@@ -552,7 +597,7 @@ impl Manager {
                         entry.fatal = !retryable(&error);
                         status.stopped = entry.fatal;
                         entry.dirty = true;
-                        entry.retry_at = now.saturating_add(shared.limits.retry_interval_ms);
+                        entry.retry_at = now.saturating_add(retry_interval);
                         status.error = Some(Arc::new(error));
                     }
                 }
@@ -561,7 +606,7 @@ impl Manager {
                 entry.fatal = !retryable(&error);
                 status.stopped = entry.fatal;
                 entry.dirty = true;
-                entry.retry_at = now.saturating_add(shared.limits.retry_interval_ms);
+                entry.retry_at = now.saturating_add(retry_interval);
                 status.error = Some(Arc::new(error));
             }
         }
@@ -578,6 +623,18 @@ impl Manager {
             }
         } else if !entry.waiters.is_empty() {
             entry.dirty = true;
+        }
+        if entry.dirty
+            && !entry.fatal
+            && entry.waiters.is_empty()
+            && matches!(
+                entry.registration.publisher,
+                CellGroupArchivePublisher::GroupLeader { .. }
+            )
+        {
+            // Coalesce background applied cuts and remote-head polling. This
+            // uses the controller's shared timer, never a task/timer per group.
+            entry.retry_at = entry.retry_at.max(now.saturating_add(retry_interval));
         }
         if entry.dirty && !entry.fatal && !entry.queued {
             entry.queued = true;

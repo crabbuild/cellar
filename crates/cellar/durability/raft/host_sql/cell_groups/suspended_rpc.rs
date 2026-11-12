@@ -4,7 +4,7 @@
 
 use super::super::rpc_commit::{wait_checkpoint, CheckpointProof};
 use super::*;
-use crate::raft::execution::{CellRpcEnvironment, CellRpcStart, CellRpcTurn};
+use crate::raft::execution::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 use futures_util::future::BoxFuture;
 use std::task::{Context, Poll, Wake, Waker};
 
@@ -52,6 +52,10 @@ enum CheckpointPhase {
 }
 
 impl Suspended {
+    pub(super) fn belongs_to(&self, cell: &CellHistory) -> bool {
+        &self.cell == cell
+    }
+
     pub(super) fn close(mut self) -> Result<(), ExecutionError> {
         let rolled_back = match self.executor.take() {
             Some(mut executor) => {
@@ -323,9 +327,11 @@ impl Cells {
                         CellRpcEnvironment {
                             activation: &mut activation.activation,
                             reserve: &mut reserve,
-                            dispatch: commits
-                                .as_ref()
-                                .map(|commits| (domain.clone(), commits.deadline)),
+                            dispatch: commits.as_ref().map(|commits| CellRpcDispatch {
+                                domain: domain.clone(),
+                                deadline: commits.deadline,
+                                bindings: commits.bindings.clone(),
+                            }),
                         },
                     )
                 });

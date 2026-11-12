@@ -949,11 +949,11 @@ pub(super) use sql::{
 };
 #[allow(unused_imports)]
 pub(super) use sql::{
-    archive_dependencies, archive_progress_wakes_commands, full_backend_outage,
-    output_during_apply, peer_connection_idle, s3_commands, s3_deadline, s3_enrollment,
-    s3_enrollment_deadline, s3_missing_sibling, s3_namespace_minimum, s3_receipt_deadline,
-    s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations, s3_remote_deadlines,
-    s3_remote_outputs, s3_remote_slow_delivery, s3_replays_from_peer_archive,
+    archive_dependencies, archive_progress_wakes_commands, follower_acquires_published_prefix,
+    full_backend_outage, output_during_apply, peer_connection_idle, s3_commands, s3_deadline,
+    s3_enrollment, s3_enrollment_deadline, s3_missing_sibling, s3_namespace_minimum,
+    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
+    s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery, s3_replays_from_peer_archive,
 };
 pub(super) use sql::{
     background_admission, command_admission_starts_before_poll, command_waits_for_apply,

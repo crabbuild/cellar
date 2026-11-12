@@ -240,6 +240,7 @@ fn marker_one_references_require_nullable_due_summary() {
         digest: [1; 32],
         height: 1,
         cells: 1,
+        pending_calls: 0,
         last_mutation_index: 1,
         last_mutation_term: 1,
         next_due_unix_millis: None,
@@ -255,7 +256,7 @@ fn marker_one_references_require_nullable_due_summary() {
         .unwrap()
         .remove("next_due_unix_millis");
     assert!(serde_json::from_value::<PageRef>(value).is_err());
-    for field in ["last_mutation_index", "last_mutation_term"] {
+    for field in ["last_mutation_index", "last_mutation_term", "pending_calls"] {
         let mut value = serde_json::to_value(reference).unwrap();
         value.as_object_mut().unwrap().remove(field);
         assert!(serde_json::from_value::<PageRef>(value).is_err());
@@ -346,4 +347,51 @@ fn verified_pinned_index_matches_page_lookup_without_opening_images() {
             }
         }
     }
+}
+
+#[test]
+fn pending_calls_are_authenticated_across_tree_updates() {
+    let mut f = fixture(false);
+    let original = f.root;
+    assert_eq!(original.pending_calls(), 0);
+    let previous = f.leaves[3].clone();
+    let mut next = previous.clone();
+    next.effects.pending_calls = 2;
+    next.version.sequence = next.version.sequence.checked_next().unwrap();
+    next.version.image.txid += 1;
+    next.version.image.commitment = CellImageCommitment::Materialized([10; 32]);
+    next.last_mutation.index = LogIndex::new(100);
+    next.witness.position = next.last_mutation;
+    next.witness.proposal = ProposalId::new([10; 16]).unwrap();
+    let updated = f
+        .tree
+        .update(&mut f.store, original, next, Some(&previous.version))
+        .unwrap();
+    assert_eq!(original.pending_calls(), 0);
+    assert_eq!(updated.pending_calls(), 2);
+    f.tree
+        .verify(
+            &f.store,
+            updated,
+            LogPosition {
+                index: LogIndex::new(100),
+                term: Term::new(1),
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+    let mut forged = updated;
+    forged.0.as_mut().unwrap().pending_calls = 0;
+    assert!(f
+        .tree
+        .verify(
+            &f.store,
+            forged,
+            LogPosition {
+                index: LogIndex::new(100),
+                term: Term::new(1)
+            },
+            |_| Ok(())
+        )
+        .is_err());
 }

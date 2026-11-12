@@ -15,7 +15,7 @@ use cellar_logic::cell_group::{CellVersion, MutationSequence};
 
 #[path = "cell_rpc.rs"]
 mod rpc;
-pub(crate) use rpc::{CellRpcEnvironment, CellRpcStart, CellRpcTurn};
+pub(crate) use rpc::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 
 /// A receipt read from the exact committed cell image. This is not S3 coverage.
 pub struct CellCommittedReceipt {
@@ -218,16 +218,11 @@ impl CellPrivateExecutor {
         let command = attempt.request.id;
         let durability = attempt.request.durability;
         let route_epoch = self.authority.route().epoch;
+        let limits = self.options.limits;
+        let system_request = system.then(|| attempt.request.clone());
         self.stage(attempt, allow_new, |transaction| {
-            if system {
-                class.invoke_system_command(
-                    &contract,
-                    &history,
-                    command,
-                    durability,
-                    transaction,
-                    input,
-                )
+            if let Some(request) = system_request {
+                class.invoke_system_command(&history, &request, transaction, input, limits)
             } else {
                 class.invoke_command(
                     &contract,

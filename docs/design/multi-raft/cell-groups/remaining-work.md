@@ -41,11 +41,17 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Finish remaining shared Storage compatibility and resolve the intermittent
-   full-campaign RPC/SDK deadline failures. The read-VM recursion/fence checkpoint
-   below is delivered. Deliver generation-aware ordinary typed cell,
-   SQL and KV bindings with persistent child identities/intents, original deadlines
-   and independent target durability proofs.
+1. Add a durable source recovery claim before target sealing, then connect
+   autonomous named-binding recovery to the private target sequence seal, physical
+   source origin and bounded committed-work owner. Finish
+   authenticated remote maintenance routing and durable source lane settlement,
+   then remaining shared Storage compatibility and ordinary SQL/KV bindings.
+   The latest native checkpoint passes extents Quorum but fails materialized
+   Quorum and both S3 configurations. Earlier real RustFS passes retain their old
+   source. Preserve exact identities, original ownership/input/policy/expiry and
+   live-continuation fences; never replay an ambiguous parent callback. S3-source
+   binding requests still miss their original deadlines in both forms. Profile
+   those failures without increasing budgets or repeating campaigns until green.
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.
@@ -91,6 +97,16 @@ case passes in both image modes at Quorum/S3 minima with the same executable.
 The backend and VM are stopped. This closes the reproduced cursor deadlock;
 earlier intermittent full-campaign deadline failures and complete primitive-family
 acceptance remain open. See the [cursor checkpoint](progress.md#cg-17-read-cursors-across-dependent-sdk-calls).
+
+At `202c0452`, leader-preferred publication, verified follower prefixes and
+bounded archive retries pass all 14 selected native commands and all six existing
+primitive RustFS commands. At `9e02f3f6`, per-configuration reporting confirms
+Quorum named bindings in both image forms on native storage and real RustFS;
+both S3-source configurations fail their unchanged deadlines. The complete
+binding case remains failed. Both owned RustFS campaigns stop cleanly. The
+catalog remains partial: 18 entries, 202 symbols and 4,872 coverage cells. No
+complete family or task is accepted. See the
+[current checkpoint](progress.md#cg-17-leader-archive-publication-and-quorum-binding-checkpoint).
 
 ## Current boundary
 

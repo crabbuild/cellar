@@ -185,6 +185,9 @@ pub(crate) fn validate_application_classes<'a>(
                 || class == cellar_logic::cron::RESERVED_CLASS
                 || class == crate::deploy::workflow_class(script)
                 || application.supports_cell(class)
+                // Export validation accepts the hosted Raft factory. Fleet
+                // activation still requires its separate ordinary factory.
+                || application.resolve_raft_class(class).is_ok_and(|class| class.has_cell_factory())
                 || application.sandbox_executor(class).is_some(),
             "native application {script} has no factory for {class}"
         );
@@ -2022,6 +2025,11 @@ pub(crate) fn rpc_cell(
     args: RpcData,
     call_scope: crate::host_rpc::CallScope,
 ) -> HandlerFuture<RpcData> {
+    if context.raft_storage.is_some() {
+        return crate::application::cell_bindings::rpc(
+            context, scope, name, method, args, call_scope,
+        );
+    }
     if crate::application::event_stream::is_event_scope(&scope) {
         return Box::pin(async { Err(anyhow!("event stream calls require a bound capability")) });
     }

@@ -85,6 +85,8 @@ pub struct EffectSummary {
     pub next_outbox_unix_millis: Option<u64>,
     pub pending_outbox: u64,
     pub pending_inbox: u64,
+    /// Unresolved ordinary calls pin their exact child history and prevent park.
+    pub pending_calls: u64,
 }
 
 impl EffectSummary {
@@ -207,6 +209,11 @@ impl ManifestRoot {
 
     pub fn depth(self) -> u8 {
         self.0.map_or(0, |p| p.height)
+    }
+
+    /// Authenticated unresolved-call count after complete-root verification.
+    pub(crate) fn pending_calls(self) -> u64 {
+        self.0.map_or(0, |page| page.pending_calls)
     }
 
     /// Authenticated subtree hint after complete-root verification. No SQLite

@@ -495,6 +495,11 @@ case and retains them in `*-fairness-evidence.json`. The summary reports the
 number of executed cases; it does not assign an unchecked mode count to every
 suite entry.
 
+The archive suite also selects the follower-prefix case in both image forms.
+While a leader's newer publication is held, a follower independently verifies
+the older published prefix with new image uploads refused. That prefix cannot
+prove a result from the unpublished tail.
+
 `--suite archive-reservation` selects the durable-reservation recovery case.
 An accepted immutable PUT loses its response and subsequent reads fail. After
 the original controllers, SQL workers and Raft runtimes join, a fresh archive

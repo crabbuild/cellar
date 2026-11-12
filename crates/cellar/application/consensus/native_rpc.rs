@@ -1,0 +1,194 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Owned ordinary RPC values inside independently durable command receipts.
+//! Leased capabilities require their session owner and cannot enter this wire.
+
+use crate::engine_api::RpcData;
+use anyhow::{ensure, Context as _, Result};
+
+const MAGIC: &[u8; 4] = b"CRPC";
+const FORMAT: u8 = 1;
+
+pub(crate) struct Request {
+    pub name: Option<String>,
+    pub args: RpcData,
+}
+
+pub(crate) fn validate_identity(
+    script: &str,
+    class: &str,
+    scope: &str,
+    name: Option<&str>,
+) -> Result<()> {
+    let namespace = cellar_native::cell_id::Namespace::new(
+        class,
+        crate::engine_api::namespace_key(script, class),
+    );
+    let (actual_class, id) = scope
+        .split_once(':')
+        .context("invalid named cell identity")?;
+    ensure!(actual_class == class, "named cell class differs");
+    namespace.id_from_string(id)?;
+    if let Some(name) = name {
+        ensure!(
+            namespace.id_from_name(name).scope() == scope,
+            "named cell identity differs"
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn binding_operation(operation: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(operation.as_bytes());
+    format!("__cellar_rpc_{}", hex::encode(&digest[..16]))
+}
+
+pub(crate) fn binding_digest(operation: &str, digest: [u8; 32]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"cellar-native-binding-operation-1");
+    hash.update((operation.len() as u64).to_le_bytes());
+    hash.update(operation.as_bytes());
+    hash.update(digest);
+    hash.finalize().into()
+}
+
+pub(crate) fn encode_request(
+    name: Option<&str>,
+    args: &RpcData,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    let bytes = match args {
+        RpcData::Json(value) => value.len(),
+        RpcData::Structured(value) => value.len(),
+        RpcData::Leased { .. } => anyhow::bail!(super::CommandFailure::UnsupportedCapability),
+    };
+    let length = bytes
+        .checked_add(12)
+        .and_then(|n| n.checked_add(name.map_or(0, |name| name.len().saturating_add(4))))
+        .ok_or(super::CommandFailure::Overloaded)?;
+    ensure!(length <= max_bytes, super::CommandFailure::Overloaded);
+    let mut output = Vec::new();
+    output.extend_from_slice(MAGIC);
+    output.push(FORMAT);
+    output.push(1);
+    match name {
+        Some(name) => {
+            ensure!(name.len() <= 1024, "cell routing name exceeds its bound");
+            output.push(1);
+            write(&mut output, name.as_bytes())?;
+        }
+        None => output.push(0),
+    }
+    encode_value(&mut output, args)?;
+    Ok(output)
+}
+
+pub(crate) fn decode_request(input: &[u8]) -> Result<Request> {
+    let mut reader = Reader::new(input, 1)?;
+    let name = match reader.byte()? {
+        0 => None,
+        1 => {
+            let bytes = reader.bytes()?;
+            ensure!(bytes.len() <= 1024, "cell routing name exceeds its bound");
+            Some(std::str::from_utf8(bytes)?.to_owned())
+        }
+        _ => anyhow::bail!("invalid cell routing name marker"),
+    };
+    let args = reader.value()?;
+    reader.finish()?;
+    Ok(Request { name, args })
+}
+
+pub(crate) fn encode_response(value: &RpcData) -> Result<Vec<u8>> {
+    let mut output = Vec::new();
+    output.extend_from_slice(MAGIC);
+    output.push(FORMAT);
+    output.push(2);
+    encode_value(&mut output, value)?;
+    Ok(output)
+}
+
+pub(crate) fn decode_response(input: &[u8]) -> Result<RpcData> {
+    let mut reader = Reader::new(input, 2)?;
+    let value = reader.value()?;
+    reader.finish()?;
+    Ok(value)
+}
+
+fn encode_value(output: &mut Vec<u8>, value: &RpcData) -> Result<()> {
+    match value {
+        RpcData::Json(json) => {
+            serde_json::from_str::<serde::de::IgnoredAny>(json)?;
+            output.push(1);
+            write(output, json.as_bytes())?;
+        }
+        RpcData::Structured(bytes) => {
+            // Validate before recording an intent or admitting a target call.
+            cellar_native::clone::decode(bytes)?;
+            output.push(2);
+            write(output, bytes)?;
+        }
+        RpcData::Leased { .. } => anyhow::bail!(super::CommandFailure::UnsupportedCapability),
+    }
+    Ok(())
+}
+
+fn write(output: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
+    output.extend_from_slice(&u32::try_from(bytes.len())?.to_le_bytes());
+    output.extend_from_slice(bytes);
+    Ok(())
+}
+
+struct Reader<'a>(&'a [u8]);
+
+impl<'a> Reader<'a> {
+    fn new(input: &'a [u8], purpose: u8) -> Result<Self> {
+        let mut reader = Self(input);
+        ensure!(
+            reader.take(4)? == MAGIC && reader.byte()? == FORMAT && reader.byte()? == purpose,
+            "invalid native RPC format/purpose"
+        );
+        Ok(reader)
+    }
+
+    fn take(&mut self, length: usize) -> Result<&'a [u8]> {
+        let (value, rest) = self
+            .0
+            .split_at_checked(length)
+            .context("truncated native RPC value")?;
+        self.0 = rest;
+        Ok(value)
+    }
+
+    fn byte(&mut self) -> Result<u8> {
+        Ok(self.take(1)?[0])
+    }
+
+    fn bytes(&mut self) -> Result<&'a [u8]> {
+        let length = u32::from_le_bytes(self.take(4)?.try_into()?) as usize;
+        self.take(length)
+    }
+
+    fn value(&mut self) -> Result<RpcData> {
+        match self.byte()? {
+            1 => {
+                let json = std::str::from_utf8(self.bytes()?)?;
+                serde_json::from_str::<serde::de::IgnoredAny>(json)?;
+                Ok(RpcData::Json(json.to_owned()))
+            }
+            2 => {
+                let bytes = self.bytes()?;
+                cellar_native::clone::decode(bytes)?;
+                Ok(RpcData::Structured(bytes.to_vec().into()))
+            }
+            _ => anyhow::bail!("invalid native RPC value kind"),
+        }
+    }
+
+    fn finish(self) -> Result<()> {
+        ensure!(self.0.is_empty(), "trailing native RPC bytes");
+        Ok(())
+    }
+}

@@ -14,6 +14,7 @@ pub(crate) struct RpcCommitContext {
     pub route: cellar_logic::cell_group::GroupRoute,
     pub limits: ExecutionLimits,
     pub deadline: u64,
+    pub bindings: Option<Arc<dyn crate::application::cell_bindings::Host>>,
 }
 
 pub(super) enum CheckpointProof {

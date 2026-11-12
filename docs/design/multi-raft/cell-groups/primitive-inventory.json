@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "d1fca2fcb33efdce56b55b65bc277acace66e52928b217465cb1040ff9acb38e"
+    "crates/cellar/application/mod.rs": "02b5ed2e037909b4f5d63791035fdc6aebcbb8e739b4acd19eff995a5cd6d3dd"
   },
   "entries": [
     {
@@ -436,6 +436,7 @@
         "cellar::sdk::RaftClass",
         "cellar::sdk::RaftClass::command",
         "cellar::sdk::RaftClass::json_cell_rpc",
+        "cellar::sdk::RaftClass::cell_rpc",
         "cellar::sdk::RaftClass::query",
         "cellar::sdk::Registry::raft_cell",
         "cellar::sdk::CommandContext::sql",
@@ -512,6 +513,43 @@
       "proof": "Independent mutation proofs; transport outcomes may be uncertain",
       "ordering": "Separate cross-cell and provider transactions",
       "recovery": "Reconnect and reconcile declared stable external identities",
+      "case": "primitives_http_rpc_and_cross_cell_effects",
+      "refusals": {}
+    },
+    {
+      "id": "named-cell-bindings",
+      "family": "http-rpc",
+      "symbols": [
+        "cellar::sdk::Context::namespace",
+        "cellar::sdk::Context::exported_namespace",
+        "cellar::sdk::cells::Namespace::get_by_name",
+        "cellar::sdk::cells::Stub::rpc",
+        "cellar::sdk::cells::Stub::rpc_with_signal",
+        "cellar::sdk::cells::Stub::call",
+        "cellar::sdk::cells::CallError"
+      ],
+      "owners": [
+        "crates/cellar/application/cell_bindings.rs",
+        "crates/cellar/application/consensus/native_rpc.rs",
+        "crates/cellar/storage/sqlite/raft_bindings.rs"
+      ],
+      "schemas": [
+        "Protected business names, source call intents, global lane serials and per-destination command sequences"
+      ],
+      "bindings": [
+        "Declared class namespace and named-cell bindings"
+      ],
+      "state": "replicated",
+      "provider": "none",
+      "paths": [
+        "sdk",
+        "native",
+        "axum"
+      ],
+      "permission": "Same configured cluster/application, declared target class, operation, incarnation and original deadline",
+      "proof": "Durable source intent before target admission; independent target policy and verified receipt before parent proof",
+      "ordering": "Exclusive source lanes and contiguous per-target-history command identities; unresolved outcomes retain reservations",
+      "recovery": "Restore exact target/input/identity/policy/expiry; reconcile without replaying refused business input or weakening fences",
       "case": "primitives_http_rpc_and_cross_cell_effects",
       "refusals": {}
     },

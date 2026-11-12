@@ -24,6 +24,8 @@ pub mod catalog_fault;
 // The host fixture controls wall clocks, test processes and on-disk faults.
 #[path = "support/cell_group_activations.rs"]
 mod activations;
+#[path = "support/cell_group_bindings.rs"]
+mod bindings;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
 #[path = "support/sql_cursor_rollback.rs"]
@@ -1715,4 +1717,15 @@ async fn rustfs_storage_reads_and_writes_exact_cell_versions() -> Result<()> {
             .with_context(|| format!("RustFS Storage bridge extents={rooted}"))?;
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
+    Box::pin(bindings::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
+    Box::pin(bindings::qualify(true)).await
 }

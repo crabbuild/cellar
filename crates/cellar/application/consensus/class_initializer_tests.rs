@@ -29,3 +29,25 @@ fn initializer_contract_binds_schema_and_admits_shared_host() -> anyhow::Result<
         .is_err());
     Ok(())
 }
+
+#[test]
+fn named_binding_seal_is_private_and_binds_the_schema() -> anyhow::Result<()> {
+    use super::super::native_configuration::{AdmittedCellConfiguration, NativeCellConfiguration};
+    use crate::raft::execution::binding_seal;
+    let plain = RaftClass::new("Counter", 1, [21; 32])?
+        .json_cell_rpc("Add", [22; 32])?
+        .with_cell_factory(Arc::new(|_, _| {
+            anyhow::bail!("seal must never construct a cell")
+        }))?;
+    assert!(plain.system_contract(binding_seal::OPERATION).is_none());
+    let mut options = NativeCellConfiguration::default().options("binding-test");
+    options.do_classes = vec!["Counter".into()];
+    let class = plain.configured_cell(&AdmittedCellConfiguration::from_options(&options)?);
+    let seal = class.system_contract(binding_seal::OPERATION).unwrap();
+    assert!(class.contract(binding_seal::OPERATION).is_none());
+    assert!(class.validate_operation(&seal).is_err());
+    assert_ne!(class.schema_digest(), plain.schema_digest());
+    assert!(class.has_system_commands());
+    assert!(!class.has_scheduled_work());
+    Ok(())
+}

@@ -75,7 +75,7 @@ impl CellGroupController {
     ) -> Result<(), crate::raft::cell_groups::CellDispatchError> {
         use crate::raft::cell_groups::CellDispatchError;
         let (_, class, _) = dispatcher.host_binding()?;
-        if !class.has_system_commands() {
+        if !class.has_scheduled_work() {
             return Ok(());
         }
         let effects = self

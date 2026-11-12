@@ -14,6 +14,7 @@ fn effects_are_bounded_and_inbox_receipts_do_not_schedule_work() {
             next_outbox_unix_millis: Some(10),
             pending_outbox: 2,
             pending_inbox: 0,
+            pending_calls: 0,
         }
     );
     assert!(read(&db, 1).is_err());
@@ -58,4 +59,20 @@ fn malformed_effect_state_refuses_instead_of_reporting_idle() {
         db.execute_batch(ddl).unwrap();
         assert!(read(&db, 100).is_err(), "{ddl}");
     }
+}
+
+#[test]
+fn unresolved_calls_prevent_idle_without_inventing_a_due_callback() {
+    let db = rusqlite::Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE __sys_raft_binding_intents(format,phase); INSERT INTO __sys_raft_binding_intents VALUES(1,0),(1,1),(1,2),(1,3);").unwrap();
+    let summary = read(&db, 4).unwrap();
+    assert_eq!(summary.pending_calls, 3);
+    assert_eq!(summary.next_due_unix_millis(), None);
+    assert!(read(&db, 3).is_err());
+    db.execute("UPDATE __sys_raft_binding_intents SET phase=3", [])
+        .unwrap();
+    assert_eq!(read(&db, 4).unwrap().pending_calls, 0);
+    db.execute("UPDATE __sys_raft_binding_intents SET phase=4", [])
+        .unwrap();
+    assert!(read(&db, 4).is_err());
 }

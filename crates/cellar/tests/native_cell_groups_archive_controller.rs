@@ -90,6 +90,31 @@ async fn rustfs_s3_replays_from_peer_archive_without_new_upload() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn follower_archiver_verifies_a_published_prefix_without_upload() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::follower_acquires_published_prefix(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_follower_archiver_verifies_a_published_prefix_without_upload() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::follower_acquires_published_prefix(
+            rooted,
+            rustfs::store("follower-archive-prefix", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archived_progress_wakes_commands_without_maintenance_poll() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::archive_progress_wakes_commands(rooted)).await?;

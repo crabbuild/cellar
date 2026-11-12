@@ -603,6 +603,7 @@ impl CellCommandInvocation {
                 route: attempt.route().clone(),
                 limits: options.limits(),
                 deadline: attempt.deadline_ms(),
+                bindings: self.dispatcher.bindings.get().cloned(),
             };
             sql.stage_rpc_owned(
                 options,

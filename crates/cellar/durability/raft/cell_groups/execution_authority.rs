@@ -81,6 +81,38 @@ impl CellActivationFence {
         self.current_version(true)
     }
 
+    /// A routing hint from this group's authenticated applied tree. This is
+    /// neither a read lease nor admission: the source proof records the exact
+    /// history and the destination must still validate it under quorum.
+    pub(crate) fn history_hint(
+        &self,
+        cluster: cellar_logic::consensus::ClusterId,
+        namespace: cellar_logic::consensus::NamespaceId,
+        cell: &CellId,
+    ) -> Option<CellHistory> {
+        if cluster != self.route.history.cluster
+            || namespace != self.route.history.namespace
+            || !self.continuation_current()
+        {
+            return None;
+        }
+        let key = cell_routing_key(namespace, cell);
+        if !self.route.range.contains(&key) {
+            return None;
+        }
+        let cache = self.cache.upgrade()?;
+        let cache = cache.read().ok()?;
+        let current = cache.group_manifest.as_ref()?;
+        if !current.is_active() || current.route() != &self.route {
+            return None;
+        }
+        cache
+            .manifest_pins
+            .as_ref()?
+            .get(&key)
+            .map(|(leaf, _)| leaf.version.history.clone())
+    }
+
     fn current_version(&self, successor: bool) -> bool {
         let (Some(closed), Some(reclaimed), Some(leader), Some(cache)) = (
             self.closed.upgrade(),

@@ -207,6 +207,15 @@ impl Cells {
             Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
             Action::Stage(stage) => {
                 self.check_capacity(&cell, max)?;
+                // A parked RPC has released its writer lease, but still owns a
+                // continuation that may later complete the original sequence.
+                // Seal only after every same-cell frame has physically joined.
+                if stage.attempt.request.operation
+                    == crate::raft::execution::binding_seal::OPERATION
+                    && self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
+                {
+                    return Err(ExecutionError::Busy);
+                }
                 let Stage {
                     options,
                     authority,

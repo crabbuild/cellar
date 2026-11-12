@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Business cell identities and callable namespaces over existing host routing.
+pub use super::cell_bindings::CallError;
 use super::*;
 use cellar_native::cell_id;
 pub use cellar_native::cell_id::Id;
@@ -73,7 +74,7 @@ impl Stub {
     }
 
     fn check(&self, context: &Context) -> Result<()> {
-        context.check_turn()?;
+        context.check_binding_turn()?;
         if let Some(reason) = self.broken.lock().unwrap().as_ref() {
             return Err(anyhow!(reason.to_string()));
         }
@@ -87,6 +88,7 @@ impl Stub {
             if error
                 .downcast_ref::<crate::cell_dispatch::RoutedRequestError>()
                 .is_some()
+                || error.is::<CallError>()
             {
                 return error;
             }
@@ -182,7 +184,12 @@ impl Stub {
         let stub = self.clone();
         Box::pin(async move {
             let result = call.await;
-            context.check_turn()?;
+            // Raft replies contain owned values only. Their completed result
+            // and original child error may outlive the invocation; starting a
+            // new call still requires its current Context and source proof.
+            if context.raft_storage.is_none() {
+                context.check_turn()?;
+            }
             stub.finish(result)
         })
     }
@@ -207,6 +214,10 @@ impl Stub {
                 Some(signal.clone()),
             ),
         );
+        if context.raft_storage.is_some() {
+            // The binding owner attaches the admitted child identity to aborts.
+            return call;
+        }
         Box::pin(async move {
             crate::asyncrt::select_biased! { "a cell RPC abort wins an undelivered reply";
                 reason=signal.cancelled()=>Err(reason.into()), result=call=>result,
@@ -297,18 +308,24 @@ impl Context {
     /// }));
     /// ```
     pub fn namespace(&self, binding: &str) -> Result<Namespace> {
-        self.check_turn()?;
+        self.check_binding_turn()?;
         let (_, class) = self
             .worker_config
             .bindings
             .iter()
             .find(|(name, _)| name == binding)
             .ok_or_else(|| anyhow!("no cell namespace binding named {binding}"))?;
+        if self.raft_storage.is_some() {
+            return Ok(Namespace(cell_id::Namespace::new(
+                class.as_str(),
+                crate::engine_api::namespace_key(&self.worker_config.script_name, class),
+            )));
+        }
         self.exported_namespace(class)
     }
 
     pub fn exported_namespace(&self, class: &str) -> Result<Namespace> {
-        self.check_turn()?;
+        self.check_binding_turn()?;
         anyhow::ensure!(
             self.worker_config
                 .do_classes

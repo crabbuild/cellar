@@ -389,6 +389,75 @@ pub(crate) async fn s3_replays_from_peer_archive(
     h.close().await
 }
 
+/// A follower can pin a published prefix while a newer local cut is not archived.
+pub(crate) async fn follower_acquires_published_prefix(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let h = Harness::new(rooted, store, 4).await?;
+    let first = h
+        .command(
+            1,
+            b"archived-prefix",
+            Durability::S3,
+            Duration::from_secs(5),
+        )
+        .await?
+        .response()
+        .await?;
+    let at = first.local_receipt().context("archived receipt")?.position;
+    drop(first);
+    let gate = h.remote.hold_publication();
+    let result = async {
+        let next = h
+            .command(
+                2,
+                b"unpublished-tail",
+                Durability::Quorum,
+                Duration::from_secs(5),
+            )
+            .await?
+            .response()
+            .await?;
+        let tail = next.local_receipt().context("tail receipt")?.position;
+        anyhow::ensure!(tail.index > at.index);
+        drop(next);
+        tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+        controller::applied(&h.fixture, h.route.history, tail.index).await?;
+        anyhow::ensure!(h.fixture.runtimes[1].status(h.route.history).await?.leader == Some(1));
+        // The leader's tail publication is held. An attempted follower upload
+        // cannot succeed, but metadata acquisition and physical verification can.
+        h.remote
+            .deny_generation_writes
+            .store(true, Ordering::Release);
+        let peer = CellGroupArchiveRegistration {
+            publisher: CellGroupArchivePublisher::GroupLeader {
+                retry_interval_ms: 100,
+            },
+            store: archive_controller::verifier(&h.fixture, &h.route, rooted, "follower-prefix")
+                .await?,
+            ..h.archive.clone()
+        };
+        h.controllers[1].archive(peer)?.response().await?;
+        archive_controller::published(&h.controllers[1], h.route.history, at.index).await?;
+        let prefix = h.controllers[1]
+            .archive_status(h.route.history)?
+            .and_then(|status| status.published)
+            .context("independently verified follower prefix")?;
+        anyhow::ensure!(prefix.position() == at);
+        anyhow::ensure!(h.fixture.runtimes[1].status(h.route.history).await?.leader == Some(1));
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    h.remote
+        .deny_generation_writes
+        .store(false, Ordering::Release);
+    gate.release.notify_one();
+    let closed = h.close().await;
+    result?;
+    closed
+}
+
 pub(crate) async fn archive_progress_wakes_commands(rooted: bool) -> Result<()> {
     let h = Harness::configured_resources(
         rooted,

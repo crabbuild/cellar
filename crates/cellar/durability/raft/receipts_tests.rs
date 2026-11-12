@@ -255,3 +255,180 @@ fn interrupted_rpc_retains_the_original_expiry_floor() -> anyhow::Result<()> {
     assert_eq!(retained_count(&connection)?, 0);
     Ok(())
 }
+
+fn binding(sequence: u64) -> CommandRequest {
+    let mut request = request(sequence, 1000);
+    let mut client = [9; 16];
+    client[..4].copy_from_slice(b"RCB1");
+    request.id = CommandId::new(ClientId::new(client).unwrap(), sequence).unwrap();
+    request
+}
+
+#[test]
+fn binding_seal_consumes_sequence_without_success_or_business_execution() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    install(&connection)?;
+    connection
+        .execute_batch("CREATE TABLE business(value); INSERT INTO business VALUES(0); BEGIN")?;
+    let original = binding(1);
+    let limits = ExecutionLimits::default();
+    assert_eq!(
+        seal_binding_sequence(&connection, &original, request(1, 2000).id.client, &limits)?,
+        BindingSequenceState::SealedUnused
+    );
+    assert_eq!(client(&connection, original.id.client)?, Some((1, 0)));
+    assert!(matches!(
+        lookup_identity(&connection, &original, &limits),
+        Err(ExecutionError::Uncertain)
+    ));
+    assert_eq!(
+        seal_binding_sequence(&connection, &original, request(1, 2000).id.client, &limits)?,
+        BindingSequenceState::Retained
+    );
+    assert!(preflight(&connection, &binding(2), &limits)?.is_none());
+    let mut conflicting = original.clone();
+    conflicting.request_digest[0] ^= 1;
+    assert!(matches!(
+        seal_binding_sequence(
+            &connection,
+            &conflicting,
+            request(1, 2000).id.client,
+            &limits
+        ),
+        Err(ExecutionError::Refused(CommandFailure::CommandConflict))
+    ));
+    assert!(matches!(
+        seal_binding_sequence(
+            &connection,
+            &binding(3),
+            request(1, 2000).id.client,
+            &limits
+        ),
+        Err(ExecutionError::Refused(CommandFailure::SequenceGap {
+            next: 2
+        }))
+    ));
+    assert_eq!(
+        connection.query_row("SELECT value FROM business", [], |row| row.get::<_, u64>(0))?,
+        0
+    );
+    connection.execute_batch("COMMIT")?;
+    Ok(())
+}
+
+#[test]
+fn binding_seal_preserves_complete_partial_and_expired_outcomes() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    install(&connection)?;
+    connection.execute_batch("BEGIN")?;
+    let limits = ExecutionLimits::default();
+    let original = binding(1);
+    record(&connection, &original, vec![7, 8])?;
+    assert_eq!(
+        seal_binding_sequence(&connection, &original, request(1, 2000).id.client, &limits)?,
+        BindingSequenceState::Retained
+    );
+    assert_eq!(
+        lookup_identity(&connection, &original, &limits)?
+            .unwrap()
+            .result(),
+        &[7, 8]
+    );
+    let partial = binding(2);
+    record_rpc_step(&connection, &partial, &limits, 1)?;
+    assert_eq!(
+        seal_binding_sequence(&connection, &partial, request(1, 2000).id.client, &limits)?,
+        BindingSequenceState::Retained
+    );
+    assert_eq!(
+        lookup_rpc_identity(&connection, &partial, &limits)?
+            .unwrap()
+            .rpc_step,
+        Some(1)
+    );
+    assert!(matches!(
+        lookup_identity(&connection, &partial, &limits),
+        Err(ExecutionError::Uncertain)
+    ));
+    for mutated in [
+        CommandRequest {
+            durability: Durability::S3,
+            ..original.clone()
+        },
+        CommandRequest {
+            retry_until_ms: 1001,
+            ..original.clone()
+        },
+    ] {
+        assert!(matches!(
+            seal_binding_sequence(&connection, &mutated, request(1, 2000).id.client, &limits),
+            Err(ExecutionError::Refused(CommandFailure::CommandConflict))
+        ));
+    }
+    prune(&connection, original.id.client, 1, 1001)?;
+    assert_eq!(
+        seal_binding_sequence(&connection, &original, request(1, 2000).id.client, &limits)?,
+        BindingSequenceState::Expired
+    );
+    assert!(matches!(
+        lookup_identity(&connection, &original, &limits),
+        Err(ExecutionError::Refused(CommandFailure::CommandExpired))
+    ));
+    connection.execute_batch("COMMIT")?;
+    Ok(())
+}
+
+#[test]
+fn binding_seal_reserves_both_receipts_and_rolls_back_with_maintenance() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    install(&connection)?;
+    let original = binding(1);
+    assert!(seal_binding_sequence(
+        &connection,
+        &original,
+        request(1, 2000).id.client,
+        &ExecutionLimits::default()
+    )
+    .is_err());
+    connection.execute_batch("BEGIN")?;
+    let mut limits = ExecutionLimits {
+        max_retained_receipts: 1,
+        ..Default::default()
+    };
+    assert!(matches!(
+        seal_binding_sequence(&connection, &original, request(1, 2000).id.client, &limits),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    assert!(client(&connection, original.id.client)?.is_none());
+    limits.max_retained_receipts = 2;
+    limits.max_client_identities = 1;
+    assert!(matches!(
+        seal_binding_sequence(&connection, &original, request(1, 2000).id.client, &limits),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    assert!(client(&connection, original.id.client)?.is_none());
+    limits.max_client_identities = 2;
+    assert_eq!(
+        seal_binding_sequence(&connection, &original, request(1, 2000).id.client, &limits)?,
+        BindingSequenceState::SealedUnused
+    );
+    record(&connection, &request(1, 2000), vec![0])?;
+    assert_eq!(retained_count(&connection)?, 2);
+    connection.execute_batch("ROLLBACK; BEGIN")?;
+    assert!(client(&connection, original.id.client)?.is_none());
+    assert_eq!(retained_count(&connection)?, 0);
+    let public = request(1, 1000);
+    assert!(
+        seal_binding_sequence(&connection, &public, request(1, 2000).id.client, &limits).is_err()
+    );
+    limits.max_client_identities = 1;
+    record(&connection, &public, vec![1])?;
+    limits.max_retained_receipts = 3;
+    assert!(matches!(
+        seal_binding_sequence(&connection, &original, request(1, 2000).id.client, &limits),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    assert!(client(&connection, original.id.client)?.is_none());
+    connection.execute_batch("ROLLBACK")?;
+    Ok(())
+}
