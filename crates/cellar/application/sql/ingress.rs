@@ -54,15 +54,11 @@ pub(crate) fn rpc(
             })?;
         // Relinquish caller-owned spare capacity/backing before any async wait.
         drop((scope, name, method, args));
-        let crate::outbound_rpc::Admitted {
-            reservation,
-            scope,
-            name,
-            method,
-            args,
-        } = admitted;
-        let reservation = reservation.with_reply_limit(call_scope.reply_limit());
-        Ok(owner.sql_ingress(scope, name, method, args, call_scope, deadline, reservation))
+        let mut admitted = admitted;
+        admitted.reservation = admitted
+            .reservation
+            .with_reply_limit(call_scope.reply_limit());
+        Ok(owner.sql_ingress(admitted, call_scope, deadline))
     })();
     Box::pin(async move { prepared?.await })
 }

@@ -13,14 +13,17 @@ use rand::RngCore as _;
 impl RaftCells {
     pub(crate) fn sql_ingress(
         &self,
-        scope: String,
-        name: Option<String>,
-        method: String,
-        args: RpcData,
+        admitted: crate::outbound_rpc::Admitted,
         call_scope: crate::host_rpc::CallScope,
         deadline: u64,
-        reservation: crate::rpc_reservation::Reservation,
     ) -> HandlerFuture<RpcData> {
+        let crate::outbound_rpc::Admitted {
+            reservation,
+            scope,
+            name,
+            method,
+            args,
+        } = admitted;
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
             let route = self.handle.core.host.sql_ingress_route(&scope, &method)?;
