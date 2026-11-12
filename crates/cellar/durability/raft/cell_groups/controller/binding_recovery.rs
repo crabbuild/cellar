@@ -205,38 +205,84 @@ pub(super) async fn next_system(
     deadline: u64,
 ) -> Result<CommandId, CellDispatchError> {
     let (_, class, _) = dispatcher.host_binding()?;
-    let metadata = shared
-        .commands
-        .acquire(64 * 1024)
-        .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
+    if !class.has_binding_maintenance() || class.schema_digest() != route.schema_digest {
+        return Err(CellDispatchError::Registration(
+            crate::application::consensus::RegistrationError::ContractMismatch,
+        ));
+    }
     let sql = shared
         .sql
         .upgrade()
         .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?;
-    let authority = shared
-        .runtime
-        .read_authority(
-            route.history,
-            cell,
-            CellReadConsistency::Linearizable,
-            deadline,
-        )
-        .await
-        .map_err(CellDispatchError::Runtime)?;
-    if authority.route() != &route {
-        return Err(CellDispatchError::Invalid("binding maintenance route"));
+    let client = crate::raft::effects::system_client(&cell)
+        .map_err(|failure| CellDispatchError::Execution(ExecutionError::Refused(failure)))?;
+    loop {
+        let selected = async {
+            let authority = shared
+                .runtime
+                .read_authority(
+                    route.history,
+                    cell.clone(),
+                    CellReadConsistency::Linearizable,
+                    deadline,
+                )
+                .await
+                .map_err(CellDispatchError::Runtime)?;
+            if authority.route() != &route {
+                return Err(CellDispatchError::Invalid("binding maintenance route"));
+            }
+            // The SQL owner already bounds and joins this read. Do not acquire
+            // command admission or inspect effect payloads to read one counter;
+            // active business commands must be able to coexist with discovery.
+            let read = sql
+                .query(options.clone(), authority, |database, version| {
+                    Ok(crate::raft::effects::scan::next_command(
+                        database.connection(),
+                        &version.history,
+                    )?
+                    .sequence()
+                    .to_be_bytes()
+                    .to_vec())
+                })
+                .await
+                .map_err(CellDispatchError::Execution)?;
+            if read.version().history != cell {
+                return Err(CellDispatchError::Invalid("binding allocator history"));
+            }
+            let sequence = u64::from_be_bytes(
+                read.result()
+                    .try_into()
+                    .map_err(|_| CellDispatchError::Invalid("binding allocator result"))?,
+            );
+            drop(read);
+            CommandId::new(client, sequence)
+                .map_err(|_| CellDispatchError::Invalid("binding allocator sequence"))
+        }
+        .await;
+        match selected {
+            Err(CellDispatchError::Runtime(RuntimeError::Overloaded | RuntimeError::NotReady))
+            | Err(CellDispatchError::Execution(
+                ExecutionError::Busy | ExecutionError::Refused(CommandFailure::Overloaded),
+            )) => {
+                let now = shared
+                    .domain
+                    .mono_ms()
+                    .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+                if now >= deadline {
+                    return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+                }
+                // Only repeat the read, within its original maintenance budget.
+                // Retrying the whole turn would publish another source claim.
+                shared
+                    .domain
+                    .sleep_until(
+                        now.saturating_add(shared.limits.retry_interval_ms)
+                            .min(deadline),
+                    )
+                    .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
+                    .await;
+            }
+            result => return result,
+        }
     }
-    let scan = sql
-        .scan_effects(
-            options,
-            authority,
-            class,
-            u64::try_from(crate::asyncrt::wall_ms())
-                .map_err(|_| CellDispatchError::Invalid("binding clock"))?,
-            metadata,
-        )
-        .await
-        .map_err(CellDispatchError::Execution)?
-        .into_scan();
-    Ok(scan.next)
 }

@@ -60,21 +60,8 @@ fn scan_connection(
     prefer_delivery: bool,
     reservation: Permit,
 ) -> Result<EffectScan> {
-    let client = super::system_client(scope)?;
-    let last:Option<Vec<u8>>=connection.query_row("SELECT CASE WHEN typeof(last_sequence)='blob' AND length(last_sequence)=8 THEN last_sequence ELSE NULL END FROM __sys_raft_clients WHERE client_id=?1",[client.bytes().as_slice()],|row|row.get(0)).optional()?;
-    let last = last
-        .map(|bytes| {
-            bytes
-                .try_into()
-                .map(u64::from_be_bytes)
-                .map_err(|_| CommandFailure::CorruptState)
-        })
-        .transpose()?
-        .unwrap_or(0);
-    let next = CommandId::new(
-        client,
-        last.checked_add(1).ok_or(CommandFailure::Overloaded)?,
-    )?;
+    let next = next_command(connection, scope)?;
+    let client = next.client;
     let delivery = || -> Result<Option<DueEffect>> {
         let Some(definition) = class.outbox_definition() else {
             return Ok(None);
@@ -124,6 +111,29 @@ fn scan_connection(
         due,
         _reservation: reservation,
     })
+}
+
+/// Read only the fixed-size allocator row. Maintenance must not discover or
+/// decode pending effects merely to allocate its next private command identity.
+pub(crate) fn next_command(
+    connection: &rusqlite::Connection,
+    scope: &cellar_logic::cell_group::CellHistory,
+) -> Result<CommandId> {
+    let client = super::system_client(scope)?;
+    let last:Option<Vec<u8>>=connection.query_row("SELECT CASE WHEN typeof(last_sequence)='blob' AND length(last_sequence)=8 THEN last_sequence ELSE NULL END FROM __sys_raft_clients WHERE client_id=?1",[client.bytes().as_slice()],|row|row.get(0)).optional()?;
+    let last = last
+        .map(|bytes| {
+            bytes
+                .try_into()
+                .map(u64::from_be_bytes)
+                .map_err(|_| CommandFailure::CorruptState)
+        })
+        .transpose()?
+        .unwrap_or(0);
+    Ok(CommandId::new(
+        client,
+        last.checked_add(1).ok_or(CommandFailure::Overloaded)?,
+    )?)
 }
 
 /// Alternate adapter preference using the last committed private operation.
