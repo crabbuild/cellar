@@ -274,6 +274,7 @@ pub(super) struct Completed {
     maintenance_pending: bool,
     observation: std::result::Result<LogIndex, RuntimeError>,
     waiters: Vec<settlement::Request>,
+    coverage: Option<CellGroupArchiveCoverage>,
 }
 
 #[derive(Default)]
@@ -282,6 +283,11 @@ pub(super) struct Manager {
     queue: VecDeque<GroupHistory>,
     job: Option<BoxFuture<'static, Completed>>,
     active_group: Option<GroupHistory>,
+    // At most one just-completed verification can cross the controller turn
+    // for requests that arrived while it was running. Never cache idle groups:
+    // the next launch drops this pin before another group's verification or an
+    // uncovered successor needs the same bounded physical replay admission.
+    handoff: Option<(GroupHistory, CellGroupArchiveCoverage)>,
 }
 
 impl Manager {
@@ -433,6 +439,7 @@ impl Manager {
         if self.running() {
             return;
         }
+        let handoff = self.handoff.take();
         for _ in 0..self.queue.len() {
             let group = self.queue.pop_front().expect("archive roster queue");
             let entry = self.entries.get_mut(&group).expect("archive roster entry");
@@ -463,12 +470,16 @@ impl Manager {
             // node's potentially larger total command admission.
             let count = entry.waiters.len().min(32);
             let mut waiters = entry.waiters.drain(..count).collect();
+            let handoff = handoff
+                .filter(|(selected, _)| *selected == group)
+                .map(|(_, coverage)| coverage);
             tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                 group = ?group.group, stage = "launch", waiters = count);
             settlement::prune(&mut waiters, now);
             self.active_group = Some(group);
             self.job = Some(Box::pin(async move {
                 let mut maintenance_pending = false;
+                let mut completed_coverage = None;
                 let result = std::panic::AssertUnwindSafe(async {
                     if context.is_none() {
                         context = Some(
@@ -481,30 +492,39 @@ impl Manager {
                             .await?,
                         );
                     }
-                    if !waiters.is_empty() {
-                        if let Some(retained) = job::retained(
+                    // `prove` indexed this live verification before completion.
+                    // Retain it only through the exact reuse check, which still
+                    // validates current birth/journal ownership and each receipt.
+                    let retained = if !waiters.is_empty() {
+                        job::retained(
                             context.as_ref().expect("opened archive context"),
                             &execution,
                         )
                         .await?
-                        {
-                            confirm_coverage(&runtime, group, &retained.coverage)?;
-                            waiters = settlement::prove(
-                                std::mem::take(&mut waiters),
-                                context.as_ref().expect("opened archive context"),
-                                &registration,
-                                &retained.coverage,
-                                &execution,
-                            )
-                            .await;
-                            if waiters.is_empty() {
-                                maintenance_pending = retained.maintenance_pending;
-                                return Ok(retained.published);
-                            }
-                            // Release this temporary reuse before asking for a
-                            // new verification. Only real output owners may
-                            // continue occupying the original pool admission.
+                    } else {
+                        None
+                    };
+                    drop(handoff);
+                    if let Some(retained) = retained {
+                        confirm_coverage(&runtime, group, &retained.coverage)?;
+                        tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
+                            group = ?group.group, stage = "reuse", index = retained.coverage.marker().position().index.get(), waiters = waiters.len());
+                        waiters = settlement::prove(
+                            std::mem::take(&mut waiters),
+                            context.as_ref().expect("opened archive context"),
+                            &registration,
+                            &retained.coverage,
+                            &execution,
+                        )
+                        .await;
+                        if waiters.is_empty() {
+                            maintenance_pending = retained.maintenance_pending;
+                            completed_coverage = Some(retained.coverage);
+                            return Ok(retained.published);
                         }
+                        // Release this temporary reuse before asking for a new
+                        // verification. Only real output owners may continue
+                        // occupying the original pool admission.
                     }
                     let driven = job::drive(
                         context.as_ref().expect("opened archive context"),
@@ -529,6 +549,7 @@ impl Manager {
                     .await;
                     tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                         group = ?group.group, stage = "settled", remaining = waiters.len());
+                    completed_coverage = Some(coverage);
                     Ok(driven.published)
                 })
                 .catch_unwind()
@@ -549,6 +570,7 @@ impl Manager {
                     maintenance_pending,
                     observation,
                     waiters,
+                    coverage: completed_coverage,
                 }
             }));
             break;
@@ -558,6 +580,7 @@ impl Manager {
     pub fn complete(&mut self, completed: Completed, shared: &Shared, now: u64, closing: bool) {
         self.job = None;
         self.active_group = None;
+        self.handoff = None;
         let entry = self
             .entries
             .get_mut(&completed.group)
@@ -567,6 +590,7 @@ impl Manager {
             .registration
             .publisher
             .retry_interval_ms(shared.limits.retry_interval_ms);
+        let unexamined_waiters = !entry.waiters.is_empty();
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
         let mut statuses = shared
@@ -623,6 +647,11 @@ impl Manager {
             }
         } else if !entry.waiters.is_empty() {
             entry.dirty = true;
+            if !closing && unexamined_waiters {
+                self.handoff = completed
+                    .coverage
+                    .map(|coverage| (completed.group, coverage));
+            }
         }
         if entry.dirty
             && !entry.fatal
@@ -655,6 +684,13 @@ impl Manager {
     }
 
     pub(super) fn retire(&mut self, group: GroupHistory, shared: &Shared) -> bool {
+        if self
+            .handoff
+            .as_ref()
+            .is_some_and(|(selected, _)| *selected == group)
+        {
+            self.handoff = None;
+        }
         if let Some(entry) = self.entries.get_mut(&group) {
             entry.stopping = true;
         }
@@ -688,6 +724,7 @@ impl Manager {
     }
 
     pub async fn finish(&mut self, shared: &Shared) {
+        self.handoff = None;
         if let Some(job) = self.job.take() {
             let completed = job.await;
             self.complete(completed, shared, 0, true);
