@@ -422,3 +422,60 @@ pub(super) fn prune(
         .map_err(storage)?;
     Ok(())
 }
+
+/// Consume an unused outgoing-binding sequence without invoking application
+/// code. The caller holds the current cell writer and has excluded live/parked
+/// continuations. Both this row and the maintenance receipt publish atomically.
+/// A pending receipt is deliberately never exposed as successful business output.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum BindingSequenceState {
+    SealedUnused = 0,
+    Retained = 1,
+    Expired = 2,
+}
+
+pub(super) fn seal_binding_sequence(
+    connection: &Connection,
+    request: &CommandRequest,
+    maintenance: ClientId,
+    limits: &ExecutionLimits,
+) -> Result<BindingSequenceState, ExecutionError> {
+    if connection.is_autocommit()
+        || request.id.client == maintenance
+        || !request.id.client.bytes().starts_with(b"RCB1")
+    {
+        return Err(ExecutionError::Invalid("binding seal transaction/client"));
+    }
+    let receipt = match lookup_rpc_identity(connection, request, limits) {
+        Err(ExecutionError::Refused(CommandFailure::CommandExpired)) => {
+            // The replicated non-reusable floor proves consumption, but no
+            // longer retains input/result identity. Report that weaker fact.
+            return Ok(BindingSequenceState::Expired);
+        }
+        result => result?,
+    };
+    if let Some(receipt) = receipt {
+        if receipt.minimum_durability != request.durability
+            || receipt.retry_until_ms != request.retry_until_ms
+        {
+            return Err(ExecutionError::Refused(CommandFailure::CommandConflict));
+        }
+        return Ok(BindingSequenceState::Retained);
+    }
+    // The outer maintenance command also needs a receipt. The ordinary command
+    // preflight reserved only that outer row, not this second retained identity.
+    if retained_count(connection)?
+        .checked_add(2)
+        .is_none_or(|count| count > limits.max_retained_receipts)
+    {
+        return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+    }
+    let mut original_limits = *limits;
+    if client(connection, maintenance)?.is_none() {
+        original_limits.max_client_identities =
+            original_limits.max_client_identities.saturating_sub(1);
+    }
+    preflight_identity(connection, request, &original_limits)?;
+    record_rpc_step(connection, request, limits, 1).map_err(super::execution::storage)?;
+    Ok(BindingSequenceState::SealedUnused)
+}

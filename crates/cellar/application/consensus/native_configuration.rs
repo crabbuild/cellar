@@ -155,7 +155,7 @@ impl AdmittedCellConfiguration {
                 .expect("serializable cell configuration"),
         );
         if self.has_cell_bindings() {
-            hash.update(b"cell-bindings-destination-sequences-1");
+            hash.update(b"cell-bindings-origin-and-sealing-1");
             hash.update(
                 serde_json::to_vec(&(self.classes.as_ref(), self.bindings.as_ref()))
                     .expect("serializable cell bindings"),

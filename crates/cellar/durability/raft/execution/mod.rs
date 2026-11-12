@@ -13,6 +13,7 @@ pub(crate) use cell::{
     authority_failure, CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn,
 };
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
+pub(crate) mod binding_seal;
 mod command;
 mod enrollment;
 mod registered;

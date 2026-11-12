@@ -1056,6 +1056,11 @@ impl RaftClass {
     /// System operations are absent from public discovery and normal command
     /// validation. Only the node's owned business-feature adapters use them.
     pub(crate) fn system_contract(&self, operation: &str) -> Option<OperationContract> {
+        if self.has_binding_maintenance()
+            && operation == crate::raft::execution::binding_seal::OPERATION
+        {
+            return Some(crate::raft::execution::binding_seal::contract());
+        }
         let command = self.system_commands.get(operation)?;
         Some(OperationContract {
             operation: operation.into(),
@@ -1065,7 +1070,18 @@ impl RaftClass {
     }
 
     pub(crate) fn has_system_commands(&self) -> bool {
+        !self.system_commands.is_empty() || self.has_binding_maintenance()
+    }
+
+    /// Target sequence retirement is invoked by a recovery owner; it is not
+    /// independently scheduled work in the target cell.
+    pub(crate) fn has_scheduled_work(&self) -> bool {
         !self.system_commands.is_empty()
+    }
+
+    pub(crate) fn has_binding_maintenance(&self) -> bool {
+        self.cell_binding_classes()
+            .is_some_and(|classes| !classes.is_empty())
     }
 
     pub(crate) fn validate_system_operation(
@@ -1133,7 +1149,20 @@ impl RaftClass {
         durability: Durability,
         transaction: &CommandTransaction<'_>,
         input: &[u8],
+        limits: crate::raft::execution::ExecutionLimits,
     ) -> anyhow::Result<Vec<u8>> {
+        self.validate_system_operation(contract)?;
+        if contract.operation == crate::raft::execution::binding_seal::OPERATION {
+            let _guard = CallbackGuard::enter()?;
+            return crate::raft::execution::binding_seal::execute(
+                self,
+                command,
+                durability,
+                transaction,
+                input,
+                limits,
+            );
+        }
         self.invoke_registered_command(
             RegisteredCommand::System(contract),
             CommandTarget {
@@ -1347,6 +1376,10 @@ impl RaftClass {
                 hash.update(method.as_bytes());
                 hash.update([u8::from(*json_only)]);
             }
+        }
+        if self.has_binding_maintenance() {
+            hash.update(b"binding-sequence-seal-1");
+            hash.update(crate::raft::execution::binding_seal::contract().digest);
         }
         if !self.system_commands.is_empty() {
             hash.update(b"system-commands-1");

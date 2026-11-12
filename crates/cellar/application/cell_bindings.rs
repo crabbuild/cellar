@@ -67,6 +67,7 @@ pub(crate) struct Source {
     pub host: Arc<dyn Host>,
     pub history: CellHistory,
     pub group: GroupHistory,
+    pub term: u64,
     pub parent: CommandId,
     pub parent_fingerprint: [u8; 32],
     pub configuration: [u8; 32],
@@ -89,6 +90,8 @@ pub(crate) struct Intent {
     pub epoch: [u8; 16],
     pub lane: u64,
     pub serial: u64,
+    pub source_group: GroupHistory,
+    pub source_term: u64,
     pub source_durability: Durability,
     pub deadline_unix_ms: u64,
     pub fingerprint: [u8; 32],
@@ -110,6 +113,10 @@ impl Intent {
         lane: u64,
         serial: u64,
     ) -> Result<Self> {
+        anyhow::ensure!(
+            source.group.same_namespace(&source.history) && source.term != 0,
+            CommandFailure::Unavailable
+        );
         anyhow::ensure!(
             input.len() <= route.max_input_bytes,
             CommandFailure::Overloaded
@@ -162,6 +169,11 @@ impl Intent {
         hash.update(source.parent.sequence().to_be_bytes());
         hash.update(ordinal.to_be_bytes());
         hash.update(source.parent_fingerprint);
+        hash.update(source.group.cluster.bytes());
+        hash.update(source.group.namespace.bytes());
+        hash.update(source.group.group.bytes());
+        hash.update(source.group.incarnation.bytes());
+        hash.update(source.term.to_be_bytes());
         hash.update(source.configuration);
         hash.update(client);
         hash.update(creation);
@@ -193,6 +205,8 @@ impl Intent {
             epoch: source.history.incarnation.bytes(),
             lane,
             serial,
+            source_group: source.group,
+            source_term: source.term,
             source_durability: source.durability,
             deadline_unix_ms,
             fingerprint: hash.finalize().into(),

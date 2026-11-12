@@ -158,6 +158,7 @@ impl CellPrivateExecutor {
                                 host,
                                 history: self.authority.cell().version.history.clone(),
                                 group: self.authority.route().history,
+                                term: self.authority.term().get(),
                                 parent: attempt.request.id,
                                 parent_fingerprint: attempt.request.request_digest,
                                 configuration,

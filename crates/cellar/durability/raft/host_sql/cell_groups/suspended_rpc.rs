@@ -52,6 +52,10 @@ enum CheckpointPhase {
 }
 
 impl Suspended {
+    pub(super) fn belongs_to(&self, cell: &CellHistory) -> bool {
+        &self.cell == cell
+    }
+
     pub(super) fn close(mut self) -> Result<(), ExecutionError> {
         let rolled_back = match self.executor.take() {
             Some(mut executor) => {

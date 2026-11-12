@@ -562,7 +562,7 @@ pub(crate) async fn start(
             .with_s3(&controller)?;
             let config = namespace.directory.namespace_config();
             let storage = CellGroupNamespaceStorage::new(images.sql(config, &options)?)?;
-            if namespace.class.has_system_commands() {
+            if namespace.class.has_scheduled_work() {
                 let resources = storage.clone();
                 effects.push(CellGroupEffectRegistration::new(
                     dispatcher.clone(),
