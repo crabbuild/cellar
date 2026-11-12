@@ -51,35 +51,68 @@ impl CellGroupHost {
             ));
         }
         let (target_key, target) = select(&self.inner.namespaces, key, configuration, class)?;
-        let (config, _, _) = target.dispatcher.host_binding()?;
-        let limits = target
-            .storage
-            .lock()
-            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
-            .as_ref()
-            .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?
-            .options_limits();
-        let contract = target.class.binding_contract(method).ok_or_else(|| {
-            CellDispatchError::Registration(RegistrationError::UnknownOperation(method.into()))
-        })?;
-        Ok(Route {
-            cluster: target_key.0,
-            namespace: target_key.1,
-            cell: cellar_logic::cell_group::CellId::new(scope)
-                .map_err(|_| CellDispatchError::Invalid("cell binding identity"))?,
-            schema: config.schema_digest,
-            contract,
-            durability: config.minimum_durability,
-            history_hint: None,
-            max_input_bytes: target.dispatcher.input_limit(),
-            max_result_bytes: limits.max_result_bytes,
-            max_retry_window_ms: limits.max_retry_window_ms,
-            json_only: target
-                .class
-                .binding_json_only(method)
-                .ok_or(CellDispatchError::Invalid("cell binding codec"))?,
-        })
+        route(target_key, target, scope, method)
     }
+
+    /// Stateless SQL has no source namespace. A global database identity must
+    /// select exactly one loaded SQL service; multiple clusters are ambiguous.
+    pub(crate) fn sql_ingress_route(
+        &self,
+        scope: &str,
+        method: &str,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let mut services = self
+            .inner
+            .namespaces
+            .iter()
+            .filter(|(_, binding)| binding.class.name() == crate::deploy::SQL_CLASS);
+        let (key, target) = services.next().ok_or(CellDispatchError::Invalid(
+            "declared SQL namespace is missing",
+        ))?;
+        if services.next().is_some() {
+            return Err(CellDispatchError::Invalid(
+                "declared SQL namespace is ambiguous",
+            ));
+        }
+        route(*key, target, scope, method)
+    }
+}
+
+fn route(
+    target_key: (ClusterId, NamespaceId),
+    target: &Binding,
+    scope: &str,
+    method: &str,
+) -> Result<Route, CellDispatchError> {
+    let (config, _, _) = target.dispatcher.host_binding()?;
+    let limits = target
+        .storage
+        .lock()
+        .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
+        .as_ref()
+        .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?
+        .options_limits();
+    let contract = target.class.binding_contract(method).ok_or_else(|| {
+        CellDispatchError::Registration(RegistrationError::UnknownOperation(method.into()))
+    })?;
+    Ok(Route {
+        cluster: target_key.0,
+        namespace: target_key.1,
+        cell: cellar_logic::cell_group::CellId::new(scope)
+            .map_err(|_| CellDispatchError::Invalid("cell binding identity"))?,
+        schema: config.schema_digest,
+        contract,
+        durability: config.minimum_durability,
+        history_hint: None,
+        max_input_bytes: target.dispatcher.input_limit(),
+        max_result_bytes: limits.max_result_bytes,
+        max_retry_window_ms: limits.max_retry_window_ms,
+        json_only: target
+            .class
+            .binding_json_only(method)
+            .ok_or(CellDispatchError::Invalid("cell binding codec"))?,
+    })
 }
 
 pub(super) fn validate(

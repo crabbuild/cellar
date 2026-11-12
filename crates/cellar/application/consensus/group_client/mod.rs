@@ -128,6 +128,7 @@ mod recovery;
 mod repair;
 mod scoped_dispatch;
 mod services;
+mod sql_ingress;
 mod startup;
 mod stop;
 mod transition;

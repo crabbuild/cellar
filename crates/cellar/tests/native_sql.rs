@@ -411,7 +411,7 @@ async fn run_raft_sql_fence() -> Result<()> {
                 .await
                 .err()
                 .ok_or_else(|| anyhow!("stateless SQL used Fleet egress"))?;
-            assert!(error.to_string().contains("WrongMode"), "{error}");
+            assert!(error.to_string().contains("Unavailable"), "{error}");
             let error = context
                 .fetch_cell(
                     cellar::engine_api::sql_cell_scope(IDENTITY),
