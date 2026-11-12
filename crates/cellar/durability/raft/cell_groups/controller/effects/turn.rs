@@ -16,6 +16,8 @@ pub(super) enum Error {
     Runtime(RuntimeError),
     Execution(ExecutionError),
     Command(Arc<crate::raft::cell_groups::CellCommandError>),
+    BindingRetirement(anyhow::Error),
+    BindingAllocator(Box<crate::raft::cell_groups::CellDispatchError>),
     Effect(CommandFailure),
     Invalid(&'static str),
 }
@@ -26,6 +28,8 @@ impl std::fmt::Display for Error {
             Self::Runtime(e) => std::fmt::Display::fmt(e, f),
             Self::Execution(e) => std::fmt::Display::fmt(e, f),
             Self::Command(e) => std::fmt::Display::fmt(e, f),
+            Self::BindingRetirement(e) => write!(f, "binding retirement: {e:#}"),
+            Self::BindingAllocator(e) => write!(f, "binding settlement allocator: {e}"),
             Self::Effect(e) => std::fmt::Display::fmt(e, f),
             Self::Invalid(e) => f.write_str(e),
         }
@@ -205,7 +209,7 @@ pub(super) async fn run(
                     Duration::from_millis(registration.options.operation_timeout_ms),
                 )
                 .await
-                .map_err(effect)?;
+                .map_err(Error::BindingRetirement)?;
             authority.check().map_err(Error::Runtime)?;
             // Self-calls and concurrent target maintenance may have consumed the
             // same system client's next sequence. Read its allocator anew.
@@ -221,7 +225,7 @@ pub(super) async fn run(
                 deadline,
             )
             .await
-            .map_err(|_| Error::Invalid("binding settlement allocator"))?;
+            .map_err(|error| Error::BindingAllocator(Box::new(error)))?;
             let input = serde_json::to_vec(&crate::storage::raft_binding_recovery::Settlement {
                 key: pending.key,
                 digest: pending.digest,

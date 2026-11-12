@@ -137,7 +137,15 @@ loopback work needs the same SQL/archive slot.
 A final source command settles only the claimed metadata digest and exact lane
 serial at the original source minimum. It removes the obligation and preserves
 the parent outcome as unknown. A self-call rereads the private system allocator
-before settlement. Orphaned resolved intents are removed without releasing a
+before settlement. The allocator reads only its fixed-size counter through the
+existing SQL query owner, under a linearizable barrier and exact route/history.
+It takes no command-byte reservation and decodes no pending effect payloads.
+Transient read contention retries within the original maintenance deadline;
+it does not publish another source claim or retry business input. SQL response
+admission releases before the maintenance command. Retirement and allocator
+errors retain their typed causes in the reconciliation log.
+
+Orphaned resolved intents are removed without releasing a
 lane that a newer call has reused. Every failed turn rediscovers committed state;
 it never resumes an arbitrary Rust callback. The connected runtime qualification fails its combined gate; see the
 [current checkpoint](progress.md#cg-17-connected-binding-recovery-qualification).
