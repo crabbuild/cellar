@@ -397,6 +397,24 @@ impl RaftClass {
         if crate::deploy::is_reserved_class(&name) {
             return Err(RegistrationError::Invalid("reserved class"));
         }
+        Self::definition(name, schema_version, schema_digest)
+    }
+
+    // Only the runtime can define the reserved SQL service. Public factories
+    // cannot substitute an application handler for a shared database identity.
+    pub(super) fn sql_service() -> Result<Self, RegistrationError> {
+        Self::definition(
+            crate::deploy::SQL_CLASS.into(),
+            1,
+            Sha256::digest(b"cellar-raft-sql-service-1").into(),
+        )
+    }
+
+    fn definition(
+        name: String,
+        schema_version: u32,
+        schema_digest: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
         if schema_version == 0 || schema_digest == [0; 32] {
             return Err(RegistrationError::Invalid("schema version/digest"));
         }
@@ -789,6 +807,12 @@ impl RaftClass {
         self.cell_factory
             .as_ref()
             .map(|factory| factory.binding_classes())
+    }
+
+    pub(crate) fn allows_cell_binding(&self, scope: &str) -> bool {
+        self.cell_factory
+            .as_ref()
+            .is_some_and(|factory| factory.allows_binding(scope))
     }
 
     pub(in crate::application) fn configured_cell(
@@ -1418,7 +1442,7 @@ impl RaftClass {
         }
         for (name, command) in &self.commands {
             if let CommandHandler::NativeCellRpc { method, json_only } = &command.handler {
-                hash.update(b"native-cell-rpc-1");
+                hash.update(b"native-cell-rpc-error-replies-1");
                 hash.update((name.len() as u16).to_be_bytes());
                 hash.update(name.as_bytes());
                 hash.update((method.len() as u16).to_be_bytes());

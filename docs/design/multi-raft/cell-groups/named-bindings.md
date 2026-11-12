@@ -1,6 +1,6 @@
 <!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
 
-# Ordinary named-cell binding delivery
+# Named-cell and SQL binding delivery
 
 Purpose: Specify the ordinary binding adapter and its remaining qualification boundary.
 
@@ -18,11 +18,71 @@ bindings are declared. `RaftClass::cell_rpc` registers owned JSON or structured
 values. Cycles and UTF-16 values remain structured values. Leased capabilities
 require their session adapter.
 
+Owned RPC replies retain well-formed remote error envelopes as durable results,
+including their original graph and causes. Requests still accept clone values
+only; malformed or capability-bearing replies refuse admission. The owned RPC
+schema digest binds these reply semantics. Use compatible fresh namespaces and
+matching voters for this prototype cutover; format markers remain at 1.
+
 The host validates every declared target before ingress. A binding selects a
 class namespace in the same cluster and immutable application configuration.
 A cross-class target must have exactly one matching namespace; missing and
 ambiguous targets refuse startup. The current class uses its source namespace.
 Binding dispatch has no Fleet or weaker-durability fallback.
+
+## SQL database bindings
+
+Shared native cells may declare `sql_bindings`, obtain a database with
+`Context::sql`, and use the ordinary prepared statement, batch, exec, session and
+migration APIs. Provision and load a separate `__SQLDatabase` namespace alongside
+the source namespaces, using the existing managed namespace provisioning API or
+`--provision-sql-namespace`. Include the source deployment's configuration in the
+provisioning plan, for example:
+
+```json
+{
+  "do_classes": ["Orders", "__SQLDatabase"],
+  "sql_bindings": [["DB", "shared/orders"]]
+}
+```
+
+The runtime supplies the reserved class factory and operation contracts; an
+application cannot register its own replacement. The service's canonical schema
+is independent of caller script, variables and binding aliases. Database names
+retain the existing global SQL identity, so two applications declaring the same
+database reach the same cell. A source may call only its declared SQL identities;
+exporting the reserved class does not grant access to arbitrary databases. The
+host refuses missing or ambiguous SQL namespaces before ingress.
+
+Remote calls also require the existing explicit `NamespaceCommandOrigin` and
+`NamespaceQueryOrigin` host grants. Voter membership does not confer write
+permission. Trusted startup must install the configured grants after verifying
+current peer boots and endpoints, and restore them after restart. The SQL drill
+forces different caller and database leaders to cover this requirement.
+
+The ordinary runtime refuses activation of Raft-declared classes. Native callers
+also refuse legacy SQL HTTP/RPC egress at the source, so another co-hosted script
+cannot supply a weaker SQL service through the global identity. Direct stateless
+SQL ingress still requires its shared-group adapter; these refusals are not a
+completed stateless SQL implementation.
+
+SQL requests use the ordinary durable binding protocol below, including the
+target namespace's independent minimum durability, original caller deadline,
+interrupted-call recovery and private sequence retirement. Queries use durable
+commands too; a SQL binding query does not use the stale-query default. Sessions
+retain the existing primary bookmark behavior.
+
+The service runs each request in an owned savepoint inside its Raft command.
+Batch, exec and migration failures roll back their partial changes before the
+SQL error response is encoded. User SQL retains the command authorizer; only
+fixed migration bookkeeping receives framework authority. No service request may
+commit the framework's outer command transaction. Existing SQL limits and the
+unsupported `Database::dump` behavior remain unchanged. KV binding admission
+still refuses until its expiry, alarm and payload adapters are delivered.
+
+This implementation checkpoint does not accept the full SQL/KV primitive family.
+See [remaining work](remaining-work.md#primitive-delivery-priority) for the public
+recovery and release gates, including the independent S3-source deadline blocker.
 
 ## Source intent and target proof
 
@@ -233,3 +293,14 @@ Interrupted recovery remains 8/8; ordinary bindings pass 5/8, with three S3-sour
 deadline failures still open. All Quorum-source controls pass. These results do
 not accept a full primitive family or establish a workload speedup. See the
 [current checkpoint](progress.md#cg-17-live-archive-proof-handoff).
+
+
+## Grouped SQL qualification checkpoint
+
+At `b82970a5`, the public SQL drill passes in both image forms on native storage
+and real RustFS, including different caller/database leaders, explicit process
+grants, intended SQL errors, atomic rollback, retained restart, duplicate replay
+and quorum refusal. Native conformance and the source/target Fleet refusal test
+pass. This does not complete the SQL/KV family: direct stateless ingress and the
+combined SQL recovery/scenario matrix remain required. See the
+[current results](progress.md#cg-17-grouped-sql-bindings-and-durable-rpc-errors).

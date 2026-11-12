@@ -47,6 +47,7 @@ pub(super) struct CellRpcFactory {
     identity: Arc<()>,
     configuration: Option<[u8; 32]>,
     binding_classes: std::collections::BTreeSet<String>,
+    sql_scopes: std::collections::BTreeSet<String>,
     configure: Arc<ConfigureCellFactory>,
 }
 
@@ -61,6 +62,17 @@ impl CellRpcFactory {
 
     pub(super) fn binding_classes(&self) -> &std::collections::BTreeSet<String> {
         &self.binding_classes
+    }
+
+    pub(super) fn allows_binding(&self, scope: &str) -> bool {
+        let Some((class, _)) = scope.split_once(':') else {
+            return false;
+        };
+        if class == crate::deploy::SQL_CLASS {
+            self.sql_scopes.contains(scope)
+        } else {
+            self.binding_classes.contains(class)
+        }
     }
 
     pub(super) fn accepts(&self, activation: &CellRpcActivation) -> bool {
@@ -185,11 +197,19 @@ impl NativeCellFactory {
             AdmittedCellConfiguration::options,
         );
         let vars = Arc::new(options.vars.iter().cloned().collect());
-        let binding_classes = options
+        let mut binding_classes: std::collections::BTreeSet<_> = options
             .do_classes
             .iter()
             .cloned()
             .chain(options.bindings.iter().map(|(_, class)| class.clone()))
+            .collect();
+        if !options.sql_bindings.is_empty() {
+            binding_classes.insert(crate::deploy::SQL_CLASS.into());
+        }
+        let sql_scopes = options
+            .sql_bindings
+            .iter()
+            .map(|(_, identity)| crate::engine_api::sql_cell_scope(identity))
             .collect();
         let config = WorkerConfig::new(options).with_egress(EgressPolicy::Deny);
         let compiled_factory = factory.clone();
@@ -206,6 +226,7 @@ impl NativeCellFactory {
             identity,
             configuration: declared.map(AdmittedCellConfiguration::digest),
             binding_classes,
+            sql_scopes,
             configure: Arc::new(move |config| {
                 Self::bind_configuration(&compiled_class, compiled_factory.clone(), Some(config))
             }),
@@ -254,7 +275,10 @@ impl NativeCellFactory {
             &*transaction.framework()?,
             incoming_name.as_deref(),
         )?;
-        if !self.config.bindings.is_empty() || !self.config.do_classes.is_empty() {
+        if !self.config.bindings.is_empty()
+            || !self.config.do_classes.is_empty()
+            || !self.config.sql_bindings.is_empty()
+        {
             crate::storage::raft_bindings::install(&*transaction.framework()?)?;
         }
         if name.is_some() {
@@ -334,7 +358,7 @@ impl NativeCellFactory {
             facet: None,
             trace: None,
             vars: self.vars.clone(),
-            sql_bindings: Arc::default(),
+            sql_bindings: Arc::new(self.config.sql_bindings.iter().cloned().collect()),
             kv_bindings: Arc::default(),
             queue_bindings: Arc::default(),
             workflow_bindings: Arc::default(),

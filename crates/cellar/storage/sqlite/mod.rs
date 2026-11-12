@@ -2747,10 +2747,12 @@ unsafe fn sql_rows_read(statement: *mut rusqlite::ffi::sqlite3_stmt, emitted: u6
 /// `sqlite3_stmt_readonly` alone, which reported `changed_db: true` for
 /// `UPDATE ... WHERE 0` where upstream reports the false its name promises.
 fn sql_schema_version(connection: &Connection) -> i64 {
-    connection
-        .prepare_cached("PRAGMA schema_version")
-        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
-        .unwrap_or(0)
+    as_framework_sql(|| {
+        connection
+            .prepare_cached("PRAGMA schema_version")
+            .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+            .unwrap_or(0)
+    })
 }
 
 /// SQLite's own message for a failed SQL operation, with the poison
@@ -3136,7 +3138,29 @@ pub fn set_sql_rollback_fault_for_test(result_code: i32) {
 /// into the engine. Everything a statement's `meta` needs is read here,
 /// inside the same execution, on the same connection.
 pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFailure> {
+    sql_run_request(scope, request, false)
+}
+
+/// The caller owns a savepoint inside a Raft command. Never commit or roll
+/// back that command's outer transaction from the database service adapter.
+pub(crate) fn sql_run_in_transaction(
+    scope: &str,
+    request: &SqlRequest,
+) -> Result<SqlResponse, SqlFailure> {
+    sql_run_request(scope, request, true)
+}
+
+fn sql_run_request(
+    scope: &str,
+    request: &SqlRequest,
+    existing_transaction: bool,
+) -> Result<SqlResponse, SqlFailure> {
     require_sql_healthy(scope).map_err(sql_error)?;
+    if existing_transaction
+        && !with(scope, |connection| !connection.is_autocommit()).unwrap_or(false)
+    {
+        return Err(sql_error("SQL request requires its owned transaction"));
+    }
     let started = std::time::Instant::now();
     match request {
         SqlRequest::Prepared { sql, params, first } => {
@@ -3155,53 +3179,29 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
             .unwrap_or_else(|| Err(sql_error(format!("no db for {scope}"))))
         }
         SqlRequest::Batch { statements } => with(scope, |connection| {
-            if !connection.is_autocommit() {
-                return Err(sql_error("batch cannot start inside an open transaction"));
-            }
-            sql_transaction_control(scope, connection, SqlTransactionOperation::Begin, sql_error)?;
-            let ran = as_user_sql(|| {
-                let mut results = Vec::with_capacity(statements.len());
-                let mut budget = crate::application::limits::current().sql.max_result_bytes;
-                for statement in statements {
-                    let statement_started = std::time::Instant::now();
-                    // SAFETY: as for the prepared mode above. Every statement
-                    // uses this connection inside the same transaction.
-                    results.push(unsafe {
-                        sql_run_prepared(
-                            scope,
-                            connection,
-                            &statement.sql,
-                            &statement.params,
-                            None,
-                            &mut budget,
-                            statement_started,
-                        )
-                    }?);
-                }
-                Ok(results)
-            });
-            match ran {
-                Ok(results) => {
-                    sql_transaction_control(
-                        scope,
-                        connection,
-                        SqlTransactionOperation::Commit,
-                        sql_error,
-                    )?;
-                    Ok(SqlResponse::Batch(results))
-                }
-                Err(failure) => {
-                    if !connection.is_autocommit() {
-                        let _ = sql_transaction_control(
-                            scope,
-                            connection,
-                            SqlTransactionOperation::Rollback,
-                            sql_error,
-                        );
+            sql_request_transaction(scope, connection, existing_transaction, sql_error, || {
+                as_user_sql(|| {
+                    let mut results = Vec::with_capacity(statements.len());
+                    let mut budget = crate::application::limits::current().sql.max_result_bytes;
+                    for statement in statements {
+                        let statement_started = std::time::Instant::now();
+                        // SAFETY: as for the prepared mode above. Every statement
+                        // uses this connection inside the same transaction.
+                        results.push(unsafe {
+                            sql_run_prepared(
+                                scope,
+                                connection,
+                                &statement.sql,
+                                &statement.params,
+                                None,
+                                &mut budget,
+                                statement_started,
+                            )
+                        }?);
                     }
-                    Err(failure)
-                }
-            }
+                    Ok(SqlResponse::Batch(results))
+                })
+            })
         })
         .unwrap_or_else(|| Err(sql_error(format!("no db for {scope}")))),
         SqlRequest::Exec { sql, rows } => {
@@ -3214,50 +3214,33 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
                 // before a failure land, so "the exec failed" and "half the
                 // exec happened" were both true at once — the worst reading
                 // for an operator importing a dump.
-                if !connection.is_autocommit() {
-                    return Err(sql_exec_error(
-                        "exec cannot start inside an open transaction",
-                    ));
-                }
-                sql_transaction_control(
+                sql_request_transaction(
                     scope,
                     connection,
-                    SqlTransactionOperation::Begin,
+                    existing_transaction,
                     sql_exec_error,
-                )?;
-                let ran = as_user_sql(|| {
-                    // SAFETY: the connection lives in DBS until close();
-                    // every prepared statement is finalized on all paths.
-                    unsafe {
-                        sql_run_statements(scope, connection, &source, sql, *rows, sql_exec_error)
-                    }
-                });
-                match ran {
-                    Ok((count, results)) => {
-                        sql_transaction_control(
-                            scope,
-                            connection,
-                            SqlTransactionOperation::Commit,
-                            sql_exec_error,
-                        )?;
+                    || {
+                        let (count, results) = as_user_sql(|| {
+                            // SAFETY: the connection is live and every prepared
+                            // statement is finalized on success and failure.
+                            unsafe {
+                                sql_run_statements(
+                                    scope,
+                                    connection,
+                                    &source,
+                                    sql,
+                                    *rows,
+                                    sql_exec_error,
+                                )
+                            }
+                        })?;
                         Ok(SqlResponse::Exec {
                             count,
                             duration: started.elapsed().as_secs_f64() * 1000.0,
                             results,
                         })
-                    }
-                    Err(failure) => {
-                        if !connection.is_autocommit() {
-                            let _ = sql_transaction_control(
-                                scope,
-                                connection,
-                                SqlTransactionOperation::Rollback,
-                                sql_exec_error,
-                            );
-                        }
-                        Err(failure)
-                    }
-                }
+                    },
+                )
             })
             .unwrap_or_else(|| Err(sql_exec_error(format!("no db for {scope}"))))
         }
@@ -3266,39 +3249,48 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
                 return Err(sql_error("migrations_table must be __sys_sql_migrations or start with __sys_sql_migrations_"));
             }
             with_application_storage_write(scope, |connection| {
-                without_sql_authorizer(connection, || {
-                    anyhow::ensure!(
-                        connection.is_autocommit(),
-                        "migration history cannot start inside an open transaction"
-                    );
-                    let transaction = rusqlite::Transaction::new_unchecked(
-                        connection,
-                        rusqlite::TransactionBehavior::Immediate,
-                    )?;
-                    init_sql_migrations(&transaction, table)?;
-                    let names = {
-                        let mut statement = transaction
-                            .prepare(&format!("SELECT name FROM \"{table}\" ORDER BY id"))?;
-                        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-                        let mut names = Vec::new();
-                        let mut bytes = 2usize;
-                        for row in rows {
-                            let name = row?;
-                            bytes = bytes.saturating_add(serde_json::to_vec(&name)?.len() + 1);
+                as_storage_transaction(|| {
+                    as_framework_sql(|| {
+                        let transaction = if existing_transaction {
+                            None
+                        } else {
                             anyhow::ensure!(
-                                names.len() < crate::application::limits::current().sql.max_rows
-                                    && bytes
-                                        <= crate::application::limits::current()
-                                            .sql
-                                            .max_result_bytes,
-                                "migration history exceeds SQL result limits"
+                                connection.is_autocommit(),
+                                "migration history cannot start inside an open transaction"
                             );
-                            names.push(name);
+                            Some(rusqlite::Transaction::new_unchecked(
+                                connection,
+                                rusqlite::TransactionBehavior::Immediate,
+                            )?)
+                        };
+                        init_sql_migrations(connection, table)?;
+                        let names = {
+                            let mut statement = connection
+                                .prepare(&format!("SELECT name FROM \"{table}\" ORDER BY id"))?;
+                            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+                            let mut names = Vec::new();
+                            let mut bytes = 2usize;
+                            for row in rows {
+                                let name = row?;
+                                bytes = bytes.saturating_add(serde_json::to_vec(&name)?.len() + 1);
+                                anyhow::ensure!(
+                                    names.len()
+                                        < crate::application::limits::current().sql.max_rows
+                                        && bytes
+                                            <= crate::application::limits::current()
+                                                .sql
+                                                .max_result_bytes,
+                                    "migration history exceeds SQL result limits"
+                                );
+                                names.push(name);
+                            }
+                            names
+                        };
+                        if let Some(transaction) = transaction {
+                            transaction.commit()?;
                         }
-                        names
-                    };
-                    transaction.commit()?;
-                    Ok(SqlResponse::Migrations { names })
+                        Ok(SqlResponse::Migrations { names })
+                    })
                 })
             })
             .map_err(|error| sql_error(error.to_string()))
@@ -3316,64 +3308,63 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
                 // statements that DID land are exactly the ones a re-run
                 // trips over. BEGIN/COMMIT run outside `as_user_sql` -- they
                 // are the engine's own bracket, not application SQL.
-                if !connection.is_autocommit() {
-                    return Err(sql_error(
-                        "a migration cannot start inside an open transaction",
-                    ));
-                }
-                // Only the framework's bracket may authorize transaction
-                // control; the migration SQL retains application restrictions.
-                sql_transaction_control(
-                    scope,
-                    connection,
-                    SqlTransactionOperation::Begin,
-                    sql_error,
-                )?;
-                let applied = (|| {
-                    init_sql_migrations(connection, table)
+                sql_request_transaction(scope, connection, existing_transaction, sql_error, || {
+                    as_framework_sql(|| init_sql_migrations(connection, table))
                         .map_err(|error| sql_error(error.to_string()))?;
                     // Only the file's SQL runs with application restrictions.
+                    // SAFETY: this live connection owns every finalized statement.
                     let (count, _) = as_user_sql(|| unsafe {
                         sql_run_statements(scope, connection, &source, sql, false, sql_error)
                     })?;
-                    connection
-                        .execute(
+                    as_framework_sql(|| {
+                        connection.execute(
                             &format!("INSERT INTO \"{table}\" (name) VALUES (?)"),
                             [name],
                         )
-                        .map_err(|error| sql_error(error.to_string()))?;
-                    Ok(count)
-                })();
-                match applied {
-                    Ok(count) => {
-                        sql_transaction_control(
-                            scope,
-                            connection,
-                            SqlTransactionOperation::Commit,
-                            sql_error,
-                        )?;
-                        Ok(SqlResponse::Migrate {
-                            count,
-                            duration: started.elapsed().as_secs_f64() * 1000.0,
-                        })
-                    }
-                    Err(failure) => {
-                        // Keep the statement error. SQLite can already have
-                        // rolled the transaction back, and a real rollback
-                        // failure goes through the critical-error classifier.
-                        if !connection.is_autocommit() {
-                            let _ = sql_transaction_control(
-                                scope,
-                                connection,
-                                SqlTransactionOperation::Rollback,
-                                sql_error,
-                            );
-                        }
-                        Err(failure)
-                    }
-                }
+                    })
+                    .map_err(|error| sql_error(error.to_string()))?;
+                    Ok(SqlResponse::Migrate {
+                        count,
+                        duration: started.elapsed().as_secs_f64() * 1000.0,
+                    })
+                })
             })
             .unwrap_or_else(|| Err(sql_error(format!("no db for {scope}"))))
+        }
+    }
+}
+
+fn sql_request_transaction<T>(
+    scope: &str,
+    connection: &Connection,
+    existing_transaction: bool,
+    failure: fn(String) -> SqlFailure,
+    request: impl FnOnce() -> Result<T, SqlFailure>,
+) -> Result<T, SqlFailure> {
+    if existing_transaction {
+        return request();
+    }
+    if !connection.is_autocommit() {
+        return Err(failure(
+            "SQL request cannot start inside an open transaction".into(),
+        ));
+    }
+    sql_transaction_control(scope, connection, SqlTransactionOperation::Begin, failure)?;
+    match request() {
+        Ok(result) => {
+            sql_transaction_control(scope, connection, SqlTransactionOperation::Commit, failure)?;
+            Ok(result)
+        }
+        Err(error) => {
+            if !connection.is_autocommit() {
+                let _ = sql_transaction_control(
+                    scope,
+                    connection,
+                    SqlTransactionOperation::Rollback,
+                    failure,
+                );
+            }
+            Err(error)
         }
     }
 }

@@ -47,6 +47,8 @@ pub mod managed_fixture;
 mod names;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
+#[path = "support/cell_group_sql_bindings.rs"]
+mod sql_bindings;
 #[path = "support/cell_group_sql_cursors.rs"]
 mod sql_cursors;
 #[path = "support/sql_exec_batches.rs"]
@@ -1743,4 +1745,15 @@ async fn interrupted_named_bindings_recover_after_retained_restart() -> Result<(
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_interrupted_named_bindings_recover_after_retained_restart() -> Result<()> {
     Box::pin(bindings::qualify_recovery(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_sql_bindings_use_managed_shared_groups() -> Result<()> {
+    Box::pin(sql_bindings::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ordinary_sql_bindings_use_managed_shared_groups() -> Result<()> {
+    Box::pin(sql_bindings::qualify(true)).await
 }

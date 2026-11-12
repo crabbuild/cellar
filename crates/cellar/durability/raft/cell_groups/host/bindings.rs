@@ -43,11 +43,7 @@ impl CellGroupHost {
         let (class, _) = scope
             .split_once(':')
             .ok_or(CellDispatchError::Invalid("cell binding scope"))?;
-        if !owner
-            .class
-            .cell_binding_classes()
-            .is_some_and(|classes| classes.contains(class))
-        {
+        if !owner.class.allows_cell_binding(scope) {
             return Err(CellDispatchError::Execution(
                 crate::raft::execution::ExecutionError::Refused(
                     cellar_logic::consensus::CommandFailure::UnsupportedCapability,
@@ -115,7 +111,8 @@ fn select<'a>(
     let mut matches = namespaces.iter().filter(|(key, binding)| {
         key.0 == source.0
             && binding.class.name() == class
-            && binding.class.cell_configuration_digest() == Some(configuration)
+            && (class == crate::deploy::SQL_CLASS
+                || binding.class.cell_configuration_digest() == Some(configuration))
     });
     let (key, binding) = matches.next().ok_or(CellDispatchError::Invalid(
         "declared cell binding namespace is missing",

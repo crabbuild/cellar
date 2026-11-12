@@ -440,7 +440,13 @@ impl NativeWorker {
                 root: storage::embedded_root_gate(&identity.scope),
             });
         }
-        let state = Arc::new(EventState::default());
+        let state = Arc::new(EventState {
+            raft_sql: self
+                .application
+                .resolve_raft_class(crate::deploy::SQL_CLASS)
+                .is_ok(),
+            ..Default::default()
+        });
         io.native_event
             .set(Arc::downgrade(&state))
             .map_err(|_| anyhow!("native invocation already owns an event state"))?;
@@ -913,6 +919,18 @@ impl NativeWorker {
                 let mut entered = crate::application::rpc::Entered::new(&invocation);
                 match &context.identity {
                     Some(identity) => {
+                        // Reserved services otherwise bypass Application's
+                        // ordinary factory lookup. A declared Raft service
+                        // must never execute against Fleet-owned storage.
+                        anyhow::ensure!(
+                            self.application
+                                .resolve_raft_class(&identity.class)
+                                .is_err(),
+                            crate::application::consensus::RegistrationError::WrongMode {
+                                class: identity.class.clone(),
+                                mode: cellar_logic::NamespaceMode::Fleet,
+                            }
+                        );
                         if let Invocation::CellRpc { method, args } = &invocation {
                             if let Some(catalog) = self.rpc_catalog.as_deref() {
                                 if let Some(refusal) =
@@ -1933,6 +1951,23 @@ pub(crate) fn storage_sync(scope: &str) -> HandlerFuture<()> {
     })
 }
 
+fn check_fleet_sql(context: &Context, scope: &str) -> Result<()> {
+    // Shared reserved classes retain the first co-hosted script's ordinary
+    // config. Refuse at the source too: its SQL declaration cannot be weakened
+    // by another script owning that global Fleet identity.
+    anyhow::ensure!(
+        !((context.state.raft_sql || context.raft_storage.is_some())
+            && scope
+                .split_once(':')
+                .is_some_and(|(class, _)| class == crate::deploy::SQL_CLASS)),
+        crate::application::consensus::RegistrationError::WrongMode {
+            class: crate::deploy::SQL_CLASS.into(),
+            mode: cellar_logic::NamespaceMode::Fleet,
+        }
+    );
+    Ok(())
+}
+
 pub(crate) fn fetch_cell(
     context: &Context,
     scope: String,
@@ -1942,6 +1977,7 @@ pub(crate) fn fetch_cell(
 ) -> HandlerFuture<HttpResponse> {
     if let Err(error) = context
         .check_turn()
+        .and_then(|()| check_fleet_sql(context, &scope))
         .and_then(|()| context.io.charge_subrequest().map_err(anyhow::Error::msg))
     {
         return Box::pin(async move { Err(error) });
@@ -2029,6 +2065,9 @@ pub(crate) fn rpc_cell(
         return crate::application::cell_bindings::rpc(
             context, scope, name, method, args, call_scope,
         );
+    }
+    if let Err(error) = check_fleet_sql(context, &scope) {
+        return Box::pin(async move { Err(error) });
     }
     if crate::application::event_stream::is_event_scope(&scope) {
         return Box::pin(async { Err(anyhow!("event stream calls require a bound capability")) });

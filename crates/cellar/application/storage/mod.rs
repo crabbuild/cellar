@@ -367,7 +367,14 @@ impl Storage {
         &self,
         request: &cellar_native::sql::SqlRequest,
     ) -> Result<cellar_native::sql::SqlResponse> {
-        crate::storage::sql_run(self.scope()?, request).map_err(Into::into)
+        if matches!(&self.0, Owner::RaftCommand(_)) {
+            self.transaction_sync(|transaction| {
+                crate::storage::sql_run_in_transaction(transaction.data_scope()?, request)
+                    .map_err(Into::into)
+            })
+        } else {
+            crate::storage::sql_run(self.scope()?, request).map_err(Into::into)
+        }
     }
 
     pub(crate) fn sql_console(

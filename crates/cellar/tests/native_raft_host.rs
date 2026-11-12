@@ -343,6 +343,55 @@ fn raft_cell_configuration_is_immutable_and_binds_voter_compatibility() -> Resul
 }
 
 #[test]
+fn raft_sql_binding_configuration_preserves_shared_database_contract() -> Result<()> {
+    let registry = || {
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
+            RaftClass::new("Counter", 1, [71; 32])?.json_cell_rpc("Tick", [72; 32])?,
+            |_, _| bail!("configuration must not construct a cell"),
+        )
+    };
+    let app = registry()?;
+    let mut options = configuration::options("orders");
+    options.do_classes = vec!["Counter".into(), cellar::deploy::SQL_CLASS.into()];
+    options.sql_bindings = vec![("DB".into(), "shared/orders".into())];
+    app.validate_configuration(&options)?;
+    let source = app.resolve_raft_class("Counter")?;
+    let database = app.resolve_raft_class(cellar::deploy::SQL_CLASS)?;
+    assert!(database.contract("__sqlQuery").is_some());
+    assert!(RaftClass::new(cellar::deploy::SQL_CLASS, 1, [1; 32]).is_err());
+    for changed in 0..3 {
+        let mut other = options.clone();
+        match changed {
+            0 => other.sql_bindings[0].1 = "shared/another".into(),
+            1 => other.script_name = "different-application".into(),
+            _ => other
+                .vars
+                .push(("A".into(), "different-configuration".into())),
+        }
+        assert_eq!(
+            app.validate_configuration(&other)
+                .unwrap_err()
+                .downcast_ref::<RegistrationError>(),
+            Some(&RegistrationError::ContractMismatch)
+        );
+        assert!(Arc::ptr_eq(&source, &app.resolve_raft_class("Counter")?));
+        let other_app = registry()?;
+        other_app.validate_configuration(&other)?;
+        assert_ne!(
+            source.schema_digest(),
+            other_app.resolve_raft_class("Counter")?.schema_digest()
+        );
+        assert_eq!(
+            database.schema_digest(),
+            other_app
+                .resolve_raft_class(cellar::deploy::SQL_CLASS)?
+                .schema_digest()
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn raft_cell_configuration_refuses_missing_adapters_before_activation() -> Result<()> {
     for invalid in 0..17 {
         let app = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
@@ -361,7 +410,7 @@ fn raft_cell_configuration_refuses_missing_adapters_before_activation() -> Resul
             1 => options.vars = vec![(String::new(), "secret-one".into())],
             2 => options.vars = vec![("A".into(), "x".repeat(64 * 1024))],
             3 => options.vars = (0..257).map(|n| (n.to_string(), String::new())).collect(),
-            4 => options.sql_bindings.push(("DB".into(), "Database".into())),
+            4 => options.sql_bindings.push(("DB".into(), String::new())),
             5 => options.kv_bindings.push(("KV".into(), "Namespace".into())),
             6 => options
                 .blob_bindings

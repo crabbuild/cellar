@@ -4,7 +4,29 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current binding recovery checkpoint
+## Current SQL feature checkpoint
+
+Source `b82970a5` implements normal SQL bindings from Raft cells through a
+runtime-owned reserved service in a separate shared group. The public drill passes
+4/4 native/RustFS image configurations with different caller/database leaders,
+explicit namespace grants, SQL error/rollback checks, retained restart, replay and
+quorum refusal. The same source passes two codec tests, 15 registration checks,
+two native SQL tests, all eight interrupted-binding recovery configurations,
+strict all-target Clippy and repository checks.
+
+A reply codec fix preserves durable remote error envelopes without admitting them
+as request arguments or allowing capability replies. The owned RPC schema digest
+changes; retain format markers at 1 and use compatible fresh namespaces/voters.
+The SQL service and native callers refuse Fleet fallback. Stateless SQL ingress
+still needs its group adapter. Read/write process grants remain explicit trusted
+host configuration and must follow verified boot discovery on startup/restart.
+
+Evidence is `.cellar/cell-groups-evidence/CG-17-sql-bindings-b82970a5-01`, with a
+workspace backup, frozen binaries and failed controls. The owned RustFS backend
+and VM are stopped. No complete primitive family is accepted: 13/17 tasks and
+147/195 cases. See the [SQL checkpoint](progress.md#cg-17-grouped-sql-bindings-and-durable-rpc-errors).
+
+## Previous binding recovery checkpoint
 
 Source `2aca4c6b` adds a bounded handoff of live archive coverage to proof requests
 that arrived during background publication. It reuses the actual independently
@@ -35,13 +57,12 @@ See the [checkpoint](progress.md#cg-17-live-archive-proof-handoff).
 
 ## Immediate feature priorities
 
-1. Deliver ordinary SQL/KV bindings on the passing Quorum foundation. Admission
-   must bind declared identities and operation contracts, provision reserved
-   service namespaces, populate Context binding maps and adapt the built-in
-   Storage/transaction paths. Removing configuration refusals alone is insufficient.
-   Preserve independent target durability, original deadlines, sequence recovery
-   and source/target fencing. Qualify the public adapters through restart and
-   quorum refusal on real RustFS; complete family acceptance remains required.
+1. Finish full SQL compatibility: direct stateless/public ingress and SQL-specific
+   interruption/recovery, movement, wake and archive-outage coverage. The normal
+   binding path inside Raft cells now passes its four native/RustFS configurations.
+   Then deliver KV bindings with expiry, durable alarm and external-payload
+   semantics; keep incomplete adapters refused. Preserve exact database grants,
+   independent target durability, original deadlines and sequence recovery.
 2. Keep the ordinary S3 deadline gate open alongside feature delivery. Native
    extents S3 returns Echo after 4,205 ms; RustFS materialized/extents S3 return it
    after 3,852/4,415 ms. The final source completion misses the unchanged parent budget.

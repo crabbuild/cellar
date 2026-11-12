@@ -1,0 +1,408 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Public SQL bindings across separately managed RF3 source/database groups.
+
+use super::*;
+
+const SCRIPT: &str = "sql-binding-service";
+const DATABASE: &str = "shared/orders";
+const MIGRATIONS: &str = "__sys_sql_migrations";
+
+struct Caller(cellar::sdk::sql::Database);
+
+fn sql_failure<T>(
+    result: std::result::Result<T, cellar::sdk::sql::Error>,
+    messages: &[&str],
+) -> Result<serde_json::Value> {
+    let error = result.err().context("expected the SQL statement failure")?;
+    let message = error.to_string();
+    ensure!(
+        messages.iter().any(|expected| message.contains(expected)),
+        "unexpected SQL failure: {message}"
+    );
+    Ok(json!(true))
+}
+
+impl Cell for Caller {
+    fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
+        Box::pin(async move {
+            let Invocation::CellRpc { method, args } = invocation else {
+                anyhow::bail!("RPC required")
+            };
+            let RpcData::Json(input) = args else {
+                anyhow::bail!("JSON required")
+            };
+            let input: serde_json::Value = serde_json::from_str(&input)?;
+            let database = &self.0;
+            let result = match method.as_str() {
+                "Setup" => {
+                    database.migrate(&context, "initial", "CREATE TABLE data(id INTEGER PRIMARY KEY, v TEXT UNIQUE); INSERT INTO data VALUES(1,'one');", MIGRATIONS).await?;
+                    json!(true)
+                }
+                "Batch" => {
+                    let results = database.batch(&context, &[
+                        database.prepare("CREATE INDEX data_v ON data(v)"),
+                        database.prepare("INSERT INTO data VALUES(?,?)").bind_json([json!(2), json!("two")])?,
+                        database.prepare("INSERT INTO data VALUES(?,?)").bind_json([json!(3), json!("three")])?,
+                    ]).await?;
+                    ensure!(results.len() == 3);
+                    ensure!(results[0].meta.changed_db, "SQL DDL metadata: {:?}", results[0].meta);
+                    ensure!(results.iter().all(|result| result.success)
+                        && results[1..].iter().all(|result| result.meta.changes == 1));
+                    json!(true)
+                }
+                "Read" => {
+                    let session = database.with_session(Some("first-primary"))?;
+                    let result = session.prepare("SELECT id,v FROM data ORDER BY id").raw(&context, true).await?;
+                    ensure!(session.get_bookmark().as_deref() == Some("cellar:primary"));
+                    json!(result)
+                }
+                "FailedExec" => sql_failure(database.exec(&context, "INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM missing_table;").await, &["no such table: missing_table"] )?,
+                "FailedBatch" => sql_failure(database.batch(&context, &[
+                    database.prepare("INSERT INTO data VALUES(99,'must-roll-back')"),
+                    database.prepare("INSERT INTO data VALUES(1,'duplicate')"),
+                ]).await, &["UNIQUE constraint failed: data.id"] )?,
+                "FailedMigration" => sql_failure(database.migrate(&context, "failed", "CREATE TABLE transient(value); INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM missing_table;", MIGRATIONS).await, &["no such table: missing_table"] )?,
+                "History" => json!(database.migrations(&context, MIGRATIONS).await?),
+                "Transient" => json!(database.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='transient'").first(&context, Some("n")).await?),
+                "Reject" => sql_failure(database.exec(&context, input.as_str().context("SQL")?).await, &["not authorized", "prohibited"] )?,
+                "Undeclared" => {
+                    ensure!(context.sql("MISSING").is_err());
+                    json!(context.rpc_cell(
+                        cellar::engine_api::sql_cell_scope("undeclared/database"),
+                        Some("undeclared/database".into()),
+                        "__sqlExec".into(),
+                        RpcData::Json("[\"CREATE TABLE forbidden(value)\"]".into()),
+                    ).await.is_err())
+                }
+                _ => anyhow::bail!("unknown SQL test operation"),
+            };
+            Ok(Output::Rpc(RpcData::Json(result.to_string())))
+        })
+    }
+}
+
+fn application() -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
+    let mut class =
+        RaftClass::new("Counter", 1, [191; 32])?.initializer([203; 32], |_, _| Ok(()))?;
+    for (index, method) in [
+        "Setup",
+        "Batch",
+        "Read",
+        "FailedExec",
+        "FailedBatch",
+        "FailedMigration",
+        "History",
+        "Transient",
+        "Reject",
+        "Undeclared",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        class = class.json_cell_rpc(method, [u8::try_from(index + 192)?; 32])?;
+    }
+    let application = Arc::new(
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+            .raft_cell(class, |context, _| Ok(Arc::new(Caller(context.sql("DB")?))))?,
+    );
+    let mut declared = configuration::options(SCRIPT);
+    declared.do_classes = vec!["Counter".into(), cellar::deploy::SQL_CLASS.into()];
+    declared.sql_bindings = vec![("DB".into(), DATABASE.into())];
+    application.validate_deployment(&configuration::deployment(declared.clone()))?;
+    Ok((application, declared))
+}
+
+async fn database_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
+    let fixture = &cluster.fixtures[0];
+    let declaration = &fixture.additional_namespaces[0];
+    let adapter = Catalog::new(
+        fixture.store.clone(),
+        CatalogOptions {
+            prefix: "managed/".into(),
+            ..Default::default()
+        },
+    )?;
+    let standby = fixture
+        .catalog
+        .observe_managed_standby(&adapter, declaration, DirectoryLimits::default(), TIMEOUT)
+        .await?;
+    let history = GroupHistory {
+        cluster: declaration.namespace.cluster,
+        namespace: declaration.namespace.namespace,
+        group: GroupId::new([181; 16])?,
+        incarnation: IncarnationId::new([182; 16])?,
+    };
+    let cut = fixture.catalog.read(TIMEOUT).await?;
+    let reserved = fixture
+        .catalog
+        .reserve_managed_first_group(
+            &adapter,
+            declaration,
+            RaftManagedFirstGroupRequest {
+                reservation: managed_fixture::request(210, cut.revision()),
+                standby,
+                publication: ProposalId::new([183; 16])?,
+                group: CellGroupBirthSpec {
+                    history,
+                    range: CellRange::all(),
+                    epoch: RouteEpoch::new(1)?,
+                    creation: ProposalId::new([184; 16])?,
+                    voters: cluster
+                        .fixtures
+                        .iter()
+                        .enumerate()
+                        .map(|(index, fixture)| {
+                            Ok(InitialMember {
+                                member: MemberId::new(index as u64 + 1)?,
+                                node: fixture.spec.node,
+                            })
+                        })
+                        .collect::<Result<_>>()?,
+                    learners: vec![],
+                },
+            },
+            DirectoryLimits::default(),
+            TIMEOUT,
+        )
+        .await?;
+    let cut = fixture.catalog.read(TIMEOUT).await?;
+    let authorization = fixture
+        .catalog
+        .publish_managed_first_group(
+            &reserved,
+            &managed_fixture::request(211, cut.revision()),
+            TIMEOUT,
+        )
+        .await?;
+    let mut database_fixture = fixture.clone();
+    database_fixture.declaration = declaration.clone();
+    let intent_root = cluster.roots[0].path().join("sql-archive");
+    let filesystem = fixture.filesystem.clone();
+    let directory = intent_root.clone();
+    fixture
+        .domain
+        .blocking(move || {
+            cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &directory)
+        })?
+        .await??;
+    managed_fixture::archives::initialize(&database_fixture, &adapter, history, &intent_root)
+        .await?;
+    for host in &cluster.hosts {
+        host.activate_managed_initial_group(authorization.clone(), TIMEOUT)
+            .await?;
+    }
+    grant_bindings(cluster).await?;
+    managed_fixture::leader(&cluster.hosts, history).await?;
+    Ok(history)
+}
+
+async fn grant_bindings(cluster: &ManagedCluster) -> Result<()> {
+    let fixture = &cluster.fixtures[0];
+    let cut = fixture.catalog.read(TIMEOUT).await?;
+    for (index, host) in cluster.hosts.iter().enumerate() {
+        for (peer_index, peer) in cluster.peers.iter().enumerate() {
+            managed_fixture::inspect_current(host, peer.node, cut.revision()).await?;
+            if index == peer_index {
+                continue;
+            }
+            // Explicit trusted namespace permissions, separate from RF3
+            // membership. Refresh only after verifying this boot's endpoints.
+            for declaration in
+                std::iter::once(&fixture.declaration).chain(&fixture.additional_namespaces)
+            {
+                host.grant_query_origin(NamespaceQueryOrigin {
+                    cluster: declaration.namespace.cluster,
+                    namespace: declaration.namespace.namespace,
+                    revision: 1,
+                    peer: peer.clone(),
+                })?;
+                host.grant_command_origin(NamespaceCommandOrigin {
+                    cluster: declaration.namespace.cluster,
+                    namespace: declaration.namespace.namespace,
+                    revision: 1,
+                    peer: peer.clone(),
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
+    let old_hosts = std::mem::take(&mut cluster.hosts);
+    managed_fixture::close_group_nodes_with_groups(
+        std::mem::take(&mut cluster.nodes),
+        &old_hosts,
+        2,
+    )
+    .await?;
+    cluster.peers.clear();
+    for (index, fixture) in cluster.fixtures.iter().enumerate() {
+        let node = fixture.start_node(cluster.roots[index].path()).await?;
+        let started = async {
+            let (mut config, services) = fixture
+                .config(&node, LogOpenMode::Resume, 104 + index as u8)
+                .await?;
+            managed_fixture::archives::configure(&mut config);
+            let peer = config.peers[0].clone();
+            Ok::<_, anyhow::Error>((node.start_raft_cells(config, services).await?, peer))
+        }
+        .await;
+        let (host, peer) = match started {
+            Ok(started) => started,
+            Err(error) => {
+                node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+                return Err(error);
+            }
+        };
+        cluster.nodes.push(node);
+        cluster.hosts.push(host);
+        cluster.peers.push(peer);
+    }
+    grant_bindings(cluster).await?;
+    Ok(())
+}
+
+pub async fn qualify(real_rustfs: bool) -> Result<()> {
+    let mut failures = Vec::new();
+    for rooted in [false, true] {
+        let result = async {
+            let store = if real_rustfs {
+                Arc::new(catalog_fault::Store::around(rustfs::store(
+                    "sql-bindings",
+                    rooted,
+                )?))
+            } else {
+                Arc::new(catalog_fault::Store::default())
+            };
+            Box::pin(run(rooted, store)).await
+        }
+        .await;
+        match result {
+            Ok(()) => eprintln!("SQL binding RustFS={real_rustfs} extents={rooted}: PASS"),
+            Err(error) => {
+                eprintln!("SQL binding RustFS={real_rustfs} extents={rooted}: FAILED: {error:#}");
+                failures.push(format!("extents={rooted}: {error:#}"));
+            }
+        }
+    }
+    ensure!(
+        failures.is_empty(),
+        "SQL binding qualification: {}",
+        failures.join("; ")
+    );
+    Ok(())
+}
+
+async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::query_connection=debug")
+        .with_test_writer()
+        .try_init();
+    let (application, declared) = application()?;
+    let mut fixture = Fixture::with_namespaces(
+        rooted,
+        &["Counter", cellar::deploy::SQL_CLASS],
+        application,
+        store,
+    )
+    .await?;
+    fixture.configuration = Some(declared);
+    fixture.sql_workers = 1;
+    fixture.max_input_bytes = 16 * 1024;
+    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+        fixture,
+        &[],
+        ArchiveSetup::Initialized,
+        false,
+        None,
+        FirstGroupSetup::Normal,
+    ))
+    .await?;
+    let domain = cluster.fixtures[0].domain.clone();
+    let work = domain.run(async {
+        let sql_group = database_group(&cluster).await?;
+        let group = cluster.history;
+        let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+        let sql_leader = managed_fixture::leader(&cluster.hosts, sql_group).await?;
+        let target = (leader + 1) % 3;
+        if sql_leader != target {
+            let handle = cluster.hosts[sql_leader].group(sql_group)?;
+            let status = handle.replication_status(TIMEOUT).await?;
+            handle.transfer_leadership(LeadershipTransfer {
+                target: MemberId::new(target as u64 + 1)?,
+                expected_term: status.term,
+                expected_revision: status.membership_revision,
+            }, TIMEOUT).await?;
+        }
+        cellar::asyncrt::timeout(TIMEOUT, async {
+            while managed_fixture::leader(&cluster.hosts, sql_group).await? != target {
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        }).await??;
+        let namespace = cellar_native::cell_id::Namespace::new("Counter", format!("cells:v1:{}:{SCRIPT}:Counter", SCRIPT.len()));
+        let source = cluster.hosts[leader].cell(CellHistory { cluster: group.cluster, namespace: group.namespace, cell: CellId::new(namespace.id_from_name("source").scope())?, incarnation: IncarnationId::new([185; 16])? })?;
+        source.enroll(CellEnrollmentRequest { creation: ProposalId::new([186; 16])?, durability: Durability::Quorum }, TIMEOUT).await?;
+        let expected = json!([["id","v"],[1,"one"],[2,"two"],[3,"three"]]);
+        let cases = [
+            ("Setup", json!(null), json!(true)), ("Batch", json!(null), json!(true)),
+            ("Read", json!(null), expected.clone()), ("FailedExec", json!(null), json!(true)),
+            ("FailedBatch", json!(null), json!(true)), ("FailedMigration", json!(null), json!(true)),
+            ("Read", json!(null), expected.clone()), ("History", json!(null), json!(["initial"])),
+            ("Transient", json!(null), json!(0)),
+            ("Reject", json!("INSERT INTO data VALUES(99,'must-roll-back'); COMMIT;"), json!(true)),
+            ("Reject", json!("INSERT INTO data VALUES(99,'must-roll-back'); SELECT * FROM __sys_raft_binding_intents;"), json!(true)),
+            ("Undeclared", json!(null), json!(true)), ("Read", json!(null), expected.clone()),
+        ];
+        for (index, (method, input, expected)) in cases.iter().enumerate() {
+            let result = source.command(&source.contract(method)?, serde_json::to_vec(input)?, bindings::options(index as u64 + 1, Durability::Quorum)?).await.with_context(|| format!("SQL binding {method}"))?;
+            ensure!(serde_json::from_slice::<serde_json::Value>(&result.result)? == *expected, "SQL binding {method}: {:?}", result.result);
+        }
+        ensure!(cluster.hosts[leader].resolve_cell_history(
+            sql_group.cluster, sql_group.namespace,
+            CellId::new(cellar::engine_api::sql_cell_scope("undeclared/database"))?,
+            QueryOptions::default(),
+        ).await?.is_none(), "undeclared SQL call must not enroll a database");
+        let history = source.history().clone();
+        let batch_options = bindings::options(14, Durability::Quorum)?;
+        let duplicate = source.command(&source.contract("FailedBatch")?, b"null".to_vec(), batch_options.clone()).await?;
+        restart(&mut cluster).await?;
+        managed_fixture::leader(&cluster.hosts, sql_group).await?;
+        let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+        let source = cluster.hosts[leader].cell(history)?;
+        let replay = source.command(&source.contract("FailedBatch")?, b"null".to_vec(), batch_options).await?;
+        ensure!(replay.result == duplicate.result);
+        let result = source.command(&source.contract("Read")?, b"null".to_vec(), bindings::options(15, Durability::Quorum)?).await?;
+        ensure!(serde_json::from_slice::<serde_json::Value>(&result.result)? == expected);
+        let result = source.command(&source.contract("History")?, b"null".to_vec(), bindings::options(16, Durability::Quorum)?).await?;
+        ensure!(result.result == b"[\"initial\"]");
+        // A public SQL read still requires the source quorum after two voter
+        // owners stop; it cannot fall back to a local or bucket result.
+        let stopped = cluster.nodes.split_off(1);
+        managed_fixture::close_group_nodes_with_groups(stopped, &cluster.hosts[1..], 2).await?;
+        cluster.hosts.truncate(1);
+        let source = cluster.hosts[0].cell(source.history().clone())?;
+        let options = bindings::options(17, Durability::Quorum)?;
+        let command = options.id;
+        let failure = source.command(&source.contract("Read")?, b"null".to_vec(), options).await
+            .err().context("SQL binding must refuse without a quorum")?;
+        ensure!(failure.command == command);
+        Ok::<_, anyhow::Error>(())
+    }).await.map_err(anyhow::Error::from).and_then(std::convert::identity);
+    let joined = managed_fixture::close_group_nodes_with_groups(
+        std::mem::take(&mut cluster.nodes),
+        &cluster.hosts,
+        2,
+    )
+    .await;
+    if work.is_err() || joined.is_err() {
+        for root in std::mem::take(&mut cluster.roots) {
+            eprintln!("retained SQL binding disk: {}", root.keep().display());
+        }
+    }
+    domain.shutdown().await;
+    work?;
+    joined
+}
