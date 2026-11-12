@@ -48,18 +48,28 @@ fn retained(
 }
 
 pub(crate) async fn archived_groups_reclaim_independently(
+    rooted: bool,
     store: Arc<dyn ObjectStore>,
 ) -> Result<()> {
-    let (mut fixture, primary) = Box::pin(setup_store(false, store.clone())).await?;
-    let (base, remote) = registration(&fixture, &primary, false).await?;
+    let (mut fixture, primary) = Box::pin(setup_store(rooted, store.clone())).await?;
+    let (base, remote) = registration(&fixture, &primary, rooted).await?;
     let mut archives = vec![(base.clone(), remote)];
     for number in [31, 41] {
         let (directory, birth) = fixture
-            .add_group_in_store(number, store.clone(), |_| Arc::new(DirectFileSystem))
+            .add_group_in_store_with_storage(
+                number,
+                store.clone(),
+                |_| Arc::new(DirectFileSystem),
+                if rooted {
+                    RaftImageStorage::Extents
+                } else {
+                    RaftImageStorage::Materialized
+                },
+            )
             .await?;
         controller::attach_group_appliers(&mut fixture, primary.history, birth.route().history)
             .await?;
-        let (mut config, remote) = registration_for(&fixture, &directory, &birth, false).await?;
+        let (mut config, remote) = registration_for(&fixture, &directory, &birth, rooted).await?;
         config.io = base.io.clone();
         config.owners = base.owners.clone();
         config.tails = base.tails.clone();
@@ -101,12 +111,12 @@ pub(crate) async fn archived_groups_reclaim_independently(
         .1
         .lose_immutable_put_response
         .store(true, Ordering::Release);
-    let mut first = vec![add(&fixture, &primary, false, 1).await?];
+    let mut first = vec![add(&fixture, &primary, rooted, 1).await?];
     tokio::time::timeout(Duration::from_secs(10), held.entered.notified())
         .await
         .context("first group entered the held archive publication")?;
     for (config, _) in &archives[1..] {
-        first.push(add(&fixture, config.birth.route(), false, 1).await?);
+        first.push(add(&fixture, config.birth.route(), rooted, 1).await?);
     }
     for ((config, _), &cut) in archives.iter().zip(&first) {
         retained(&fixture, owner, config.birth.route().history, cut)?;
@@ -119,7 +129,7 @@ pub(crate) async fn archived_groups_reclaim_independently(
             .with_context(|| format!("first archive cut {cut:?} for {:?}", route.history))?;
         // Checkpoint scheduling retains the successor apply ticket while it
         // checkpoints the already archived base.
-        add(&fixture, route, false, 2).await?;
+        add(&fixture, route, rooted, 2).await?;
         reclaimed(&fixture, owner, route.history, cut).await?;
     }
     assert!(!archives[0]
@@ -133,7 +143,7 @@ pub(crate) async fn archived_groups_reclaim_independently(
     blocked.outage.store(true, Ordering::Release);
     let mut third = Vec::new();
     for (config, _) in &archives {
-        third.push(add(&fixture, config.birth.route(), false, 3).await?);
+        third.push(add(&fixture, config.birth.route(), rooted, 3).await?);
     }
     let mut latest = Vec::new();
     for index in [0, 2, 1] {
@@ -151,7 +161,7 @@ pub(crate) async fn archived_groups_reclaim_independently(
         published(owner, route.history, cut)
             .await
             .with_context(|| format!("archive catch-up to {cut:?} for {:?}", route.history))?;
-        let successor = add(&fixture, route, false, 4).await?;
+        let successor = add(&fixture, route, rooted, 4).await?;
         reclaimed(&fixture, owner, route.history, cut).await?;
         latest.push((index, successor));
     }
@@ -162,6 +172,25 @@ pub(crate) async fn archived_groups_reclaim_independently(
             .await
             .with_context(|| format!("final archive cut {cut:?} for {history:?}"))?;
     }
+    let shared_extent_roots_min = if rooted {
+        let mut minimum = usize::MAX;
+        for voter in &fixture.cluster.voters {
+            let usage = voter
+                .extents
+                .as_ref()
+                .context("shared node extent inventory")?
+                .usage()?;
+            assert!(!usage.quarantined);
+            assert!(
+                usage.roots >= 14,
+                "three histories must occupy the same node inventory"
+            );
+            minimum = minimum.min(usage.roots);
+        }
+        Some(minimum)
+    } else {
+        None
+    };
     for controller in controllers {
         assert_eq!(controller.usage().quarantined_groups, 0);
         controller.close().await?;
@@ -169,13 +198,14 @@ pub(crate) async fn archived_groups_reclaim_independently(
     assert_eq!(base.tails.usage().operations, 0);
 
     let mut selected = BTreeMap::new();
+    let mut restored_images = 0;
     for (index, cut) in latest {
         let config = &archives[index].0;
         let history = config.birth.route().history;
         let coverage = verified_current(
             &fixture,
             config,
-            false,
+            rooted,
             &format!("archive-audit-{}", hex::encode(history.group.bytes())),
         )
         .await
@@ -194,30 +224,54 @@ pub(crate) async fn archived_groups_reclaim_independently(
             root.pinned_images(),
             if history == primary.history { 6 } else { 4 }
         );
-        for ordinal in 1..=4 {
+        let initial = if history == primary.history {
+            vec!["registered-a".to_owned(), "registered-b".to_owned()]
+        } else {
+            Vec::new()
+        };
+        for name in initial
+            .into_iter()
+            .chain((1..=4).map(|n| format!("later-{n}")))
+        {
             let (_, pin) = root
-                .pin_cell(&CellId::new(format!("later-{ordinal}"))?)
+                .pin_cell(&CellId::new(&name)?)
                 .context("restored cell")?;
-            let CellImagePin::Materialized(pin) = pin else {
-                anyhow::bail!("expected restored SQLite generation");
-            };
             let bytes = fixture
                 .cluster
                 .domain
-                .blocking(move || {
-                    pin.open_reader()?
-                        .read_exact_at(0, pin.state().length as usize)
+                .blocking(move || -> Result<Vec<u8>> {
+                    Ok(match pin {
+                        CellImagePin::Materialized(pin) if !rooted => pin
+                            .open_reader()?
+                            .read_exact_at(0, pin.state().length as usize)?,
+                        CellImagePin::Extents(pin) if rooted => {
+                            let mut bytes = Vec::new();
+                            for n in 0..pin.manifest().geometry().extent_count() {
+                                bytes.extend(pin.view().read_extent(
+                                    pin.manifest().extent(n).context("restored extent")?,
+                                )?);
+                            }
+                            bytes
+                        }
+                        _ => anyhow::bail!("archive replay changed the requested image storage"),
+                    })
                 })?
                 .await??;
-            let expected = images::image(
-                None,
-                &format!("CREATE TABLE value(n); INSERT INTO value VALUES({ordinal})"),
-            )?;
+            let expected = if let Some(ordinal) = name.strip_prefix("later-") {
+                images::image(
+                    None,
+                    &format!("CREATE TABLE value(n); INSERT INTO value VALUES({ordinal})"),
+                )?
+            } else {
+                images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(0);")?
+            };
             assert_eq!(bytes, expected);
+            restored_images += 1;
         }
     }
     let (primary_hold, tail) = &selected[&0];
     verify_archive_isolation(
+        rooted,
         &fixture,
         &archives[0].0,
         primary_hold,
@@ -226,10 +280,33 @@ pub(crate) async fn archived_groups_reclaim_independently(
         &selected[&1].0,
     )
     .await?;
-    fixture.close().await
+    drop(selected);
+    assert_eq!(restored_images, 14);
+    fixture.close().await?;
+    assert_eq!(base.tails.usage().operations, 0);
+    eprintln!(
+        "ARCHIVE_FAIRNESS_EVIDENCE {}",
+        serde_json::json!({
+            "schema": 1,
+            "case": "short_archived_groups_checkpoint_and_recover_independently",
+            "extents": rooted,
+            "groups": 3,
+            "restored_images": restored_images,
+            "shared_extent_roots_min": shared_extent_roots_min,
+            "checkpoint_limit": 1,
+            "tail_operations_after_close": 0,
+            "runtime_joined": true,
+            "foreign_hold_refused": true,
+            "corrupt_tail_refused": true,
+            "healthy_sibling_unchanged": true,
+            "repaired_tail_same": true,
+        })
+    );
+    Ok(())
 }
 
 async fn verify_archive_isolation(
+    rooted: bool,
     fixture: &RuntimeCluster,
     primary: &CellGroupArchiveRegistration,
     primary_hold: &CellGroupArchiveHold,
@@ -242,7 +319,7 @@ async fn verify_archive_isolation(
         .directory
         .open_group_archive(domain, &sibling.io, &sibling.birth)
         .await?;
-    let destination = verifier(fixture, sibling.birth.route(), false, "foreign-hold").await?;
+    let destination = verifier(fixture, sibling.birth.route(), rooted, "foreign-hold").await?;
     let foreign = registry
         .verify_hold(
             domain,
@@ -277,7 +354,7 @@ async fn verify_archive_isolation(
     store.put(path, corrupted.into()).await?;
 
     let checked = async {
-        let failure = verified_current(fixture, primary, false, "corrupt-tail").await;
+        let failure = verified_current(fixture, primary, rooted, "corrupt-tail").await;
         anyhow::ensure!(
             matches!(
                 failure
@@ -289,7 +366,7 @@ async fn verify_archive_isolation(
             "corrupt tail did not fail digest validation: {:?}",
             failure.err()
         );
-        let restored = verified_current(fixture, sibling, false, "healthy-sibling").await?;
+        let restored = verified_current(fixture, sibling, rooted, "healthy-sibling").await?;
         anyhow::ensure!(
             restored.hold() == sibling_hold,
             "sibling selected cut changed"
@@ -299,7 +376,7 @@ async fn verify_archive_isolation(
     .await;
     store.put(path, original.into()).await?;
     checked?;
-    let repaired = verified_current(fixture, primary, false, "repaired-tail").await?;
+    let repaired = verified_current(fixture, primary, rooted, "repaired-tail").await?;
     assert!(repaired.hold() == primary_hold);
     Ok(())
 }

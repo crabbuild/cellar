@@ -45,19 +45,27 @@ async fn raft_control_reconnects_after_peer_idle_close() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn short_archived_groups_checkpoint_and_recover_independently() -> Result<()> {
-    Box::pin(runtime_fixture::archived_groups_reclaim_independently(
-        Arc::new(object_store::memory::InMemory::new()),
-    ))
-    .await
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archived_groups_reclaim_independently(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_short_archived_groups_checkpoint_and_recover_independently() -> Result<()> {
-    Box::pin(runtime_fixture::archived_groups_reclaim_independently(
-        rustfs::store("concurrent-archive-reclamation", false)?,
-    ))
-    .await
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archived_groups_reclaim_independently(
+            rooted,
+            rustfs::store("concurrent-archive-reclamation", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]

@@ -557,6 +557,27 @@ impl RuntimeCluster {
         store: Arc<dyn object_store::ObjectStore>,
         filesystem: impl Fn(&Voter) -> Arc<dyn cellar_ltx::FileSystem>,
     ) -> Result<(RangeDirectory, CellGroupBirth)> {
+        self.add_group_in_store_with_storage(
+            number,
+            store,
+            filesystem,
+            RaftImageStorage::Materialized,
+        )
+        .await
+    }
+
+    async fn add_group_in_store_with_storage(
+        &mut self,
+        number: u8,
+        store: Arc<dyn object_store::ObjectStore>,
+        filesystem: impl Fn(&Voter) -> Arc<dyn cellar_ltx::FileSystem>,
+        image_storage: RaftImageStorage,
+    ) -> Result<(RangeDirectory, CellGroupBirth)> {
+        let rooted = image_storage == RaftImageStorage::Extents;
+        anyhow::ensure!(
+            !rooted || self.cluster.voters.iter().all(|v| v.extents.is_some()),
+            "extent groups require the existing node inventory"
+        );
         let scope = GroupHistory {
             cluster: self.cluster.birth.route().history.cluster,
             namespace: NamespaceId::new([number; 16])?,
@@ -565,14 +586,14 @@ impl RuntimeCluster {
         };
         let domain = &self.cluster.domain;
         let catalog = Catalog::new(store, CatalogOptions::default())?;
-        let namespace = domain
-            .run(catalog.open_namespace(NamespaceConfig::new(
-                scope.cluster,
-                scope.namespace,
-                cellar_logic::NamespaceMode::Raft,
-                [6; 32],
-            )))
-            .await??;
+        let mut namespace = NamespaceConfig::new(
+            scope.cluster,
+            scope.namespace,
+            cellar_logic::NamespaceMode::Raft,
+            [6; 32],
+        );
+        namespace.image_storage = image_storage;
+        let namespace = domain.run(catalog.open_namespace(namespace)).await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
         let request = directory.prepare_group_birth(CellGroupBirthSpec {
             history: scope,
@@ -637,7 +658,18 @@ impl RuntimeCluster {
                 owner: None,
                 pages: Some(pages),
                 images,
-                extents: None,
+                // Extent groups share this node's existing physical inventory
+                // and its quota; another group cannot create another bank.
+                extents: if rooted {
+                    Some(
+                        self.cluster.voters[n]
+                            .extents
+                            .clone()
+                            .context("node extent inventory")?,
+                    )
+                } else {
+                    None
+                },
                 tree,
                 gate: self.cluster.voters[n].gate.clone(),
                 paused: false,

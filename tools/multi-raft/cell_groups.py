@@ -26,12 +26,13 @@ from routing_endpoint_evidence import endpoint_observations
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
+ARCHIVE_FAIRNESS_CASE = "rustfs_short_archived_groups_checkpoint_and_recover_independently"
 CASES = (
     "rustfs_quorum_continues_bounded_s3_outage",
     "rustfs_group_archive_requires_all_dependencies",
     "rustfs_group_reclaim_restart_keeps_history",
     "rustfs_archive_coverage_gates_local_compaction",
-    "rustfs_short_archived_groups_checkpoint_and_recover_independently",
+    ARCHIVE_FAIRNESS_CASE,
     "rustfs_s3_remote_outputs_preserve_durability_and_creation",
     "rustfs_s3_remote_deadlines_preserve_ambiguity_and_callbacks",
     "rustfs_s3_remote_slow_delivery_retains_proofs_and_bounds",
@@ -566,6 +567,37 @@ SUITES = {
 }
 
 
+def archive_fairness_observations(output, case):
+    """Require the joined, independently verified profile for both image forms."""
+    if case != ARCHIVE_FAIRNESS_CASE:
+        raise ValueError("unknown archive fairness evidence case")
+    prefix = "ARCHIVE_FAIRNESS_EVIDENCE "
+    rows = []
+    for line in output.splitlines():
+        if prefix in line:
+            payload = line.split(prefix, 1)[1]
+            if len(payload) > 8192:
+                raise ValueError("oversized archive fairness evidence")
+            rows.append(json.loads(payload))
+    counters = {"schema": 1, "groups": 3, "restored_images": 14,
+                "checkpoint_limit": 1, "tail_operations_after_close": 0}
+    proofs = ("runtime_joined", "foreign_hold_refused", "corrupt_tail_refused",
+              "healthy_sibling_unchanged", "repaired_tail_same")
+    if (len(rows) != 2
+            or any(not isinstance(row, dict)
+                   or row.get("case") != case.removeprefix("rustfs_")
+                   or type(row.get("extents")) is not bool
+                   or (row["extents"] and (type(row.get("shared_extent_roots_min")) is not int
+                                           or row["shared_extent_roots_min"] < 14))
+                   or (not row["extents"] and row.get("shared_extent_roots_min") is not None)
+                   or any(type(row.get(key)) is not int or row[key] != expected
+                          for key, expected in counters.items())
+                   or any(row.get(key) is not True for key in proofs) for row in rows)
+            or {row["extents"] for row in rows} != {False, True}):
+        raise ValueError("incomplete archive fairness image/owner evidence")
+    return rows
+
+
 def routing_observations(output, case):
     """Require complete caller/mode output; native cases enforce receipt oracles."""
     if case in ("rustfs_read_first_refreshes_endpoint", "rustfs_unrelated_endpoint_keeps_inflight_reply"):
@@ -804,7 +836,8 @@ def main():
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
-            if args.suite in ("routing-range-repairs", "routing-authority", "routing-endpoint") and number:
+            if number and (args.suite in ("routing-range-repairs", "routing-authority", "routing-endpoint")
+                           or selection == ARCHIVE_FAIRNESS_CASE):
                 argv.append("--show-output")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
@@ -886,6 +919,13 @@ def main():
                     "case": selection, "path": ledger.name, "sha256": sha(ledger),
                     "records": len(rows), "scenarios": scenarios,
                 })
+            if number and selection == ARCHIVE_FAIRNESS_CASE:
+                rows = archive_fairness_observations(output, selection)
+                ledger = out / f"{number:02}-fairness-evidence.json"
+                ledger.write_text(json.dumps(rows, indent=2) + "\n")
+                record.setdefault("archive_fairness_evidence", []).append({
+                    "case": selection, "path": ledger.name, "sha256": sha(ledger), "records": len(rows),
+                })
             if number:
                 record["passed_cases"].append(selection)
             print(f"PASS {selection}", flush=True)
@@ -902,7 +942,7 @@ def main():
     finally:
         save()
     print(json.dumps({"record": str(out / "record.json"), "status": record["status"],
-                      "rustfs_cases": len(cases), "image_modes_per_case": 2}), flush=True)
+                      "rustfs_cases": len(cases)}), flush=True)
 
 
 if __name__ == "__main__":

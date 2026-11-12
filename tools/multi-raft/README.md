@@ -486,6 +486,15 @@ objects, conditional registry updates and independent recovery use the actual
 S3 client. Fault injection surrounds that client; lost publication responses are
 injected after the real conditional write commits. No memory fallback exists.
 
+The three-group archive fairness case checks both physical image forms against
+one checkpoint slot. Extent groups share each node's existing extent inventory.
+Its completed profile evidence follows joined runtime close and exact image
+replay, foreign-hold refusal, corrupt-tail refusal and sibling isolation checks.
+The runner requires one valid record for each image form before accepting that
+case and retains them in `*-fairness-evidence.json`. The summary reports the
+number of executed cases; it does not assign an unchecked mode count to every
+suite entry.
+
 `--suite archive-reservation` selects the durable-reservation recovery case.
 An accepted immutable PUT loses its response and subsequent reads fail. After
 the original controllers, SQL workers and Raft runtimes join, a fresh archive

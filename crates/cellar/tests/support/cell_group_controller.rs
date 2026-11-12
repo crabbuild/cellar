@@ -98,17 +98,44 @@ pub(super) async fn attach_group_appliers(
 ) -> Result<()> {
     for node in 0..3 {
         let pool = fixture.appliers[&(node, primary)].0.clone();
+        let cache_directory = fixture.cluster._root.path().join(format!(
+            "apply-cache-{}-{}-{}-{node}",
+            hex::encode(second.namespace.bytes()),
+            hex::encode(second.group.bytes()),
+            hex::encode(second.incarnation.bytes()),
+        ));
         let voter = &mut fixture.extra.get_mut(&second).context("extra")?[node];
+        let services = cellar_ltx::generation::ReadServices {
+            now_unix_millis: Arc::new(|| 10),
+            fill_random: Arc::new(|bytes| bytes.fill(17)),
+        };
+        let images = if let Some(images) = &voter.extents {
+            CellGroupApplyImages::Extents {
+                images: images.clone(),
+                services,
+                limits: Default::default(),
+                cache_directory,
+                cache_pool: cellar_ltx::stream_snapshot::ScratchPool::new(
+                    cellar_ltx::stream_snapshot::ScratchLimits {
+                        max_bytes: 2 * cellar_ltx::internal::EXTENT_BYTES,
+                        max_files: 2,
+                    },
+                )?,
+                cache: cellar_ltx::internal::CacheLimits {
+                    max_cached_bytes: cellar_ltx::internal::EXTENT_BYTES,
+                    max_cached_extents: 1,
+                },
+            }
+        } else {
+            CellGroupApplyImages::Materialized {
+                images: voter.images.clone(),
+                services,
+            }
+        };
         let applier = CellGroupApplier::new(
             voter.log.cell_group(&second)?,
             voter.pages.take().context("pages")?,
-            CellGroupApplyImages::Materialized {
-                images: voter.images.clone(),
-                services: cellar_ltx::generation::ReadServices {
-                    now_unix_millis: Arc::new(|| 10),
-                    fill_random: Arc::new(|bytes| bytes.fill(17)),
-                },
-            },
+            images,
             ManifestLimits::default(),
             GroupEntryLimits::default(),
             100,
