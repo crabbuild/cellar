@@ -924,6 +924,7 @@ async fn qualify() -> Result<()> {
         if let Err(error) = diagnostics::record_failure(
             &client,
             &addresses,
+            &cluster,
             &mut ledger,
             "archive_failure_snapshot",
         )
@@ -955,6 +956,7 @@ async fn qualify() -> Result<()> {
         if let Err(error) = diagnostics::record_failure(
             &client,
             &addresses,
+            &cluster,
             &mut ledger,
             "maintenance_failure_snapshot",
         )

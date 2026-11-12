@@ -76,12 +76,32 @@ pub(super) fn with_diagnostics(
 pub(super) async fn record_failure(
     client: &reqwest::Client,
     addresses: &[ManagedIngress],
+    processes: &[Process],
     ledger: &mut recovery::Ledger,
     phase: &str,
 ) -> Result<()> {
-    for (index, address) in addresses.iter().enumerate() {
+    ensure!(
+        addresses.len() == processes.len(),
+        "failure observation population"
+    );
+    for (index, (address, process)) in addresses.iter().zip(processes).enumerate() {
+        // Resume can open a new listener before the operator confirms its reply.
+        // Sample the current process log once, without waiting for startup or
+        // changing the original mutation's last confirmed ingress/identity.
+        let observed = process
+            .logs()
+            .map(|logs| listener_address(&logs, "cellar axum listening on "));
+        let (endpoint, address_source, log_error) = match observed {
+            Ok(Some(endpoint)) => (endpoint, "current_process_log", None),
+            Ok(None) => (address.axum.clone(), "last_confirmed_ingress", None),
+            Err(error) => (
+                address.axum.clone(),
+                "last_confirmed_ingress",
+                Some(error.to_string()),
+            ),
+        };
         let response = client
-            .get(format!("{}{DIAGNOSTICS}", address.axum))
+            .get(format!("{endpoint}{DIAGNOSTICS}"))
             .bearer_auth(SECRET)
             .timeout(Duration::from_secs(2))
             .send()
@@ -99,6 +119,10 @@ pub(super) async fn record_failure(
         ledger.record(serde_json::json!({
             "phase": phase,
             "member": index + 1,
+            "endpoint": endpoint,
+            "last_confirmed_endpoint": address.axum,
+            "address_source": address_source,
+            "process_log_error": log_error,
             "snapshot": snapshot,
         }))?;
     }
