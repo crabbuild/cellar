@@ -19,6 +19,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
 
+#[path = "support/sql_cursor_limits.rs"]
+mod cursor_limits;
 #[path = "support/sql_cursor_rollback.rs"]
 mod cursor_rollback;
 #[path = "support/sql_exec_batches.rs"]
@@ -245,6 +247,7 @@ fn check_transactions(storage: &Storage) -> Result<()> {
 }
 
 fn check_sql(storage: &Storage) -> Result<()> {
+    cursor_limits::check(storage, true)?;
     sql_exec_batches::check(storage)?;
     cursor_rollback::check(storage)?;
     let mut cursor=storage.sql_cursor("CREATE TABLE items(n INTEGER PRIMARY KEY,b BLOB); INSERT INTO items VALUES(1,x'ff'),(2,x'00'); SELECT n,b,9e999 AS inf FROM items ORDER BY n",&[])?;

@@ -30,6 +30,8 @@ mod binding_recovery;
 mod bindings;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
+#[path = "support/sql_cursor_limits.rs"]
+mod cursor_limits;
 #[path = "support/sql_cursor_rollback.rs"]
 mod cursor_rollback;
 #[path = "support/cell_group_dispatch.rs"]

@@ -13,7 +13,7 @@ mod outbox;
 mod outbox_inspection;
 pub(crate) mod transaction;
 pub use cellar_native::sql::Value as SqlValue;
-pub use cursor::{KvCursor, SqlCursor, SqlRow};
+pub use cursor::{KvCursor, SqlCursor, SqlCursorRefusal, SqlRow};
 pub use inbox::Inbox;
 pub use outbox_inspection::{
     OutboxBlocked, OutboxLane, OutboxObservation, OutboxOptions, OutboxPage, OutboxRevision,

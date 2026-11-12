@@ -2111,7 +2111,7 @@ pub fn sql_cursor_start(
     binds: &[serde_json::Value],
 ) -> Result<SqlCursorStart, String> {
     let binds: Vec<rusqlite::types::Value> = binds.iter().map(json_to_sql).collect();
-    sql_cursor_start_values(scope, query, &binds)
+    sql_cursor_start_values(scope, query, &binds).map_err(|error| error.to_string())
 }
 
 /// Typed cursor entry point retaining BLOB values without a JSON round trip.
@@ -2119,12 +2119,12 @@ pub(crate) fn sql_cursor_start_values(
     scope: &str,
     query: &str,
     binds: &[rusqlite::types::Value],
-) -> Result<SqlCursorStart, String> {
-    check_sql_rename(query)?;
-    require_sql_healthy(scope)?;
+) -> anyhow::Result<SqlCursorStart> {
+    check_sql_rename(query).map_err(anyhow::Error::msg)?;
+    require_sql_healthy(scope).map_err(anyhow::Error::msg)?;
     let limits = crate::application::limits::current().sql;
     if query.len() > limits.max_cursor_bytes {
-        return Err("SQL cursor statement byte limit exceeded".into());
+        return Err(crate::application::storage::SqlCursorRefusal::StatementByteLimit.into());
     }
     if sql_cursors(|cursors| {
         cursors
@@ -2134,7 +2134,7 @@ pub(crate) fn sql_cursor_start_values(
             .count()
     }) >= limits.max_open_cursors
     {
-        return Err("SQL cursor count limit exceeded".into());
+        return Err(crate::application::storage::SqlCursorRefusal::CountLimit.into());
     }
     let (cached_statement, cached_query, cache_busy, reused_cached_query) =
         match take_cached_sql_statement(scope, query) {
@@ -2146,7 +2146,7 @@ pub(crate) fn sql_cursor_start_values(
                 query,
             } => (statement, Some(query), false, reused),
         };
-    let sql = CString::new(query).map_err(|error| error.to_string())?;
+    let sql = CString::new(query)?;
     let result = with(scope, |connection| -> anyhow::Result<_> {
         // `storage.sql.exec` reaches SQLite here, so this is where the `__sys_`
         // reservation has to hold -- the statement is prepared inside, and
@@ -2330,8 +2330,7 @@ pub(crate) fn sql_cursor_start_values(
             }
         })
     })
-    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
-    .map_err(|error| error.to_string())?;
+    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))?;
 
     let (database, statement, changes_before, columns, row, rows_written, cache_query) = result;
     if row.is_none() {

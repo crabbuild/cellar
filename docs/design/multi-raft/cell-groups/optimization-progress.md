@@ -2413,3 +2413,35 @@ Hosted predecessor CI logs confirm both JavaScript worker adapters fail at
 Typed RPC 3.14 full job reports incomplete host shutdown in the Rust/Rust ABA
 peer-cycle case. These failures need their own reproductions; current-source
 native Raft tests alone cannot qualify them.
+
+## Typed SQL cursor admission follow-up
+
+On clean `ee8e23e3`, the unchanged Node Workers storage/recovery case reproduces
+hosted CI's `alice/bounds` ambiguous failure with Node 24.22.2 and Rust 1.98.1.
+Its retained executable uses the CI test opt-level 0, zero debug info, assertions
+and overflow checks enabled. The build completes in 753.507 seconds and the selected
+case exits 101 in 5.109 seconds. The same binary also fails a stronger fixture-only
+negative control at native cursor admission provenance in 3.605 seconds.
+Records are `baseline-workers-cursor` and `fixture-negative-control` under the
+isolated checkout's `cellar-tikv-cursor-refusal-6aff/qualification` target.
+
+The fixture assumed 128 retained cursors while the native policy permits 64 live
+statements. The guest checks its own 128-item allowance; the native SDK's string
+conversion discarded the distinction between refusing before SQL execution and
+failing after a statement or prefix ran. The candidate preserves a typed native
+`SqlCursorRefusal` for the initial count and SQL-text byte checks only. The guest
+attaches pre-effect validation only at that direct operation boundary. Failures
+inside preparation, binding, prefix execution, row/result copying or buffer
+accounting remain unproved outcomes. The public low-level string-returning cursor
+entry point retains its signature. No cursor count, byte cap or request budget
+is increased, and a refusal says nothing about earlier enclosing operations.
+
+The fixture saturates the effective policy and reports its actual capacity,
+checked against the configured native limit by the Rust host. A separate smaller
+adapter capacity checks the other owner and repeated release. Shared native/Raft
+SDK assertions retain quota text checks, require exact typed initial refusals,
+prove rejected prefixes did not execute and require an executed prefix to survive
+a later quota failure without acquiring the refusal type. The guest buffer oracle
+also checks a real written prefix before cleanup. Candidate runtime and Clippy
+checks remain pending; the two failed controls remain failed. This compatibility
+fix grants no full CG/OPT acceptance or performance claim.
