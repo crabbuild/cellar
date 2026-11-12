@@ -1752,3 +1752,73 @@ The source-`191b46fc` endpoint case completed all three materialized interaction
 then failed fresh extents voter-one readiness before the endpoint scenario.
 That startup failure remains open. The full current-source RustFS endpoint
 campaign, constrained Linux and broader optimization gates remain unproved.
+
+
+## Current-source RustFS and constrained Linux checkpoint
+
+Runtime artifacts below were built from clean revision `b9ff44ba` with source
+manifest `46eca779`. Documentation and workflow follow-ups do not change that
+runtime manifest. Temporary HTTP diagnostic probes are excluded from the
+published source.
+
+The current native campaign passed formatting (2,214 files), strict library and
+routing Clippy, the CI-profile build, all eight directory tests, layout,
+dependency, documentation and patch checks. The directory group includes the
+corrected nine-worker baseline and lifetime/configuration fences. Multi-raft
+tooling passed 105 tests and performance tooling passed 317 tests, each with
+one opt-in skip. The first incremental compiler fingerprint panic is retained;
+identical-source fresh-state compilation passed. No compiler fix is claimed.
+
+The named four-case RustFS endpoint campaign remains **failed**. After one SDK
+interaction, materialized native HTTP command E9/sequence 3 returned ambiguous
+`Unavailable`. Its original identity and disks remain retained; a later local
+SQLite result is not proof of the required S3 receipt. The three remaining
+cases passed independently on the exact same retained executable and CLI:
+unrelated follower (six observations), Strong/AtLeast read-first repair
+(twelve), and held in-flight S3 replies (six). These 24 observations do not
+convert the failed named campaign into a pass.
+
+An isolated error-category probe completed the selected endpoint case's six
+observations without reproducing that HTTP failure. It was removed before
+returning to the published source; this passing diagnostic is no causal fix.
+A subsequent independent repeat of the exact published binaries completed all
+three materialized interactions, then failed fresh extents initial attachment
+with `Transport(Timeout)`. All three groups were absent, with one retained
+preparation per voter and approximately five seconds spent in attachment.
+This pre-attachment failure differs from the earlier post-attachment quorum
+wait and the original native HTTP command failure. None is declared fixed.
+
+The current constrained Linux image `ef0024789e9f` passed the full existing
+`daemon.py` campaign in both image modes. Materialized took 98.726 seconds
+(143 ledger events); extents took 88.250 seconds (131 events). Existing
+archive-outage/refusal/exact-replay, leader-loss/hard-kill/retained-restart,
+maintenance-stop/return/resume, park/wake, no-quorum-refusal and joined-close
+verifiers passed. Ten actual live lifecycle observations recorded one CPU,
+3 GiB and zero swap per voter. These were three voters observed across their
+lifecycles. The pinned RustFS container retained one CPU, 2 GiB and no extra
+swap inside the six-CPU/14-GiB Colima VM. The image used dev opt-level zero,
+debug zero and one build job; it is not the CI opt-level-one test artifact.
+Standby/replacement, independent failure domains, performance and the full
+CG-13/CG-17/OPT acceptance remain unqualified.
+
+Retained qualification directories under the checkout's private target are
+`endpoint-current-backend-fresh-46eca779`,
+`endpoint-current-independent-46eca779`,
+`endpoint-http-diagnostic-eb6e2eb1` and
+`endpoint-selected46-baseline-repeat`. The separate Linux checkout retains
+`linux-current-build-b9ff44ba0582-46eca779` and
+`linux-daemon-b9ff44ba0582-46eca779`. Each record binds source, executable or
+image hashes, outcomes and the limits of its evidence.
+
+Current GitHub native CI subsequently failed five measurement-runner tests at
+`checkout target directory`, before voter setup. Its native job did not export
+`CARGO_TARGET_DIR`, which these evidence-retaining fixtures require. The job
+now explicitly selects `${{ github.workspace }}/target`, matching Cargo's
+existing output location. A fresh CI-profile executable reproduced the exact
+error immediately with the variable absent. The same executable then passed
+the warm-verifier-cache test with the variable exported; its full serial
+21-test campaign remains in progress. Evidence is retained in
+`ci-perf-target-b9ff44ba`. This workflow change establishes the cause of the
+setup failure, not a startup or protocol fix. A separate attempt selected an
+older CLI executable instead of the test harness; it is retained as a harness
+selector error and contributes no valid qualification evidence.

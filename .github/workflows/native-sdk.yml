@@ -416,6 +416,8 @@ jobs:
     name: Native framework tests (${{ matrix.python }})
     runs-on: ubuntu-22.04
     env:
+      # Native measurement fixtures retain evidence beside this job's build.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
       # Exercise native protocol deadlines with optimized code, retaining all
       # debug assertions and integer overflow checks in the test artifact.
       CARGO_PROFILE_TEST_OPT_LEVEL: "1"
