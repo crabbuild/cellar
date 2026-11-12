@@ -2079,3 +2079,55 @@ standby/replacement, authority and held-owner reclamation cuts, placement/fairne
 and the full primitive/backend/performance matrix remain open. The latest Linux
 daemon evidence is still source `46eca779` / image `ef0024789e9f`. This checkpoint
 accepts no complete CG-13, CG-17 or OPT-01 through OPT-08 package.
+
+## Idle Raft connections after archive recovery
+
+The retained Quorum recovery failure now has a reproduced transport cause.
+The receiver closes idle TLS streams at the existing five-second I/O bound,
+while the sender previously cached them without an expiry between exchanges.
+An exact failed delivery reported peer EOF on the data lane to both followers.
+The leader had local entry 11 while both followers and committed/applied progress
+remained at 10. SQL had executed its callback, but no archive settlement owner
+was blocking the command. This explains the reproduced failure; the original
+failed invocation remains ambiguous and its campaign remains failed.
+
+Runtime change `cbabde1d` retires cached data and control connections between
+exchanges using the preceding batch/frame's original I/O deadline. Completion
+of a late reply cannot renew that reuse window. A fresh connection uses the next
+exchange's existing bound. Failed or uncertain frames are never replayed, and
+active deadlines, route fences, physical reservations and application identities
+remain unchanged. The rare delivery-feedback future has an opaque borrowed
+boundary to avoid a compiler Send-proof depth overflow without changing compiler
+limits or the healthy packet path.
+
+Two new native RF3 TLS regressions wait for actual receiver-task exit before
+the next Quorum command or control frame. Both fail against the previous runtime:
+the command exhausts its original 15-second window, and the control frame reports
+the same peer EOF. The candidate passes both tests in materialized and extent
+modes (24.49 seconds in libtest). Failure paths retain fixture disks and join
+network/runtime owners before returning; failed commands receive no fresh window.
+The tests use in-memory object storage and disabled automatic Raft ticks, so
+this selected pass does not qualify the complete RustFS outage campaign.
+
+The controlled candidate source is `753b2a3e`; retained executable SHA-256 is
+`98ed6a5ae58a539ebd76e7efbcb7782bb453d7f87f1ca51d09aa8c22a3d71951`.
+Rust 1.98.1 is explicitly selected and its embedded compiler hash is verified,
+with test opt-level 1, debug info 0, assertions and overflow checks enabled.
+An ordinary Send-proof compilation failure and a subsequent unstable incremental
+fingerprint compiler panic are retained separately. The fresh-state build passes
+with the same compiler/profile; no compiler fix is claimed. Diagnostic traces
+are removed from the committed source.
+
+Base `74591226` is integrated without conflicts in `ba1c350e`. Combined source
+`f1500526` is undergoing the full ordinary archive targets, actual transport unit
+inventory, exact parked-cursor SDK case, original occupancy-128 diagnostic,
+strict affected Clippy and repository checks. The complete default RustFS
+campaign must then be rerun. These combined checks are pending at this checkpoint;
+the selected pre-integration pass cannot substitute for them.
+
+Evidence is retained under `quorum-recovery-exchange-series`, `peer-idle-before`,
+`peer-idle-candidate`, `peer-idle-candidate-v2`,
+`peer-idle-candidate-v2-fresh` and `peer-idle-native-combined`. Earlier failed
+campaigns remain unchanged. Occupancy, distinct endpoint/startup failures,
+current-source constrained Colima voters, standby/replacement and the remaining
+authority, reclamation, fairness and full qualification matrix remain open.
