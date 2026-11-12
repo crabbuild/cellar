@@ -13195,3 +13195,57 @@ accepted cases**; no full primitive family is accepted. Next deliver ordinary
 SQL/KV bindings on the passing Quorum foundation, alongside the still-required
 S3 deadline gate. Ordinary alarms/cron, Queue, EventStream, Workflow, remaining
 providers and the full combined recovery/release matrix remain required.
+
+## CG-17 grouped SQL bindings and durable RPC errors
+
+At `b82970a5`, ordinary `Context::sql` calls from Raft cells execute against a
+separate managed RF3 SQL group. The runtime supplies the reserved database
+factory, an enrollment initializer and a canonical schema independent of caller
+variables or aliases. Source configuration binds exact database identities;
+missing or ambiguous SQL namespaces refuse admission.
+
+Each SQL request owns a savepoint within its command transaction. Batch, exec
+and migration errors roll back partial business changes while the target retains
+the exact error response. Fixed schema-version and migration metadata receive
+framework authority; application SQL keeps its authorizer. Native/Fleet SQL
+activation and source HTTP/RPC egress refuse when the application declares Raft
+SQL, including when another co-hosted script owns the global ordinary identity.
+Direct stateless SQL ingress still requires its shared-group adapter.
+
+The strict failure checks exposed an owned RPC codec bug: valid remote-error
+responses were parsed as argument graphs and became `Unavailable`. Reply
+validation now accepts well-formed RPC errors, preserving the graph and causes.
+Argument validation remains clone-only; malformed and capability-bearing replies
+still refuse. The owned RPC schema digest binds this compatibility cutover;
+format markers remain at 1 and matching fresh prototype namespaces are required.
+
+The public SQL drill passes **4/4 configurations**: native and real RustFS, each
+with materialized and extents images. It forces different caller/database leaders,
+installs explicit namespace read/write grants after boot verification, and restores
+those grants after retained restart. Membership does not create write permission.
+It checks prepared statements, sessions, DDL metadata, batch/exec/migration rollback,
+protected tables and transaction control, undeclared database refusal, duplicate
+receipt replay, retained state and refusal after two voter owners stop. SQL errors
+must match the intended statement failure; availability errors cannot pass those
+assertions. Every request retains its original five-second budget.
+
+The same committed source passes the locked library/integration build, two codec
+tests, 15 registration/configuration checks, native SQL conformance and the native
+mode-fence test, all eight interrupted-binding recovery configurations, strict
+all-target Clippy, formatting, layout, dependency and documentation checks.
+The owned RustFS backend and source VM are stopped. RustFS runs with two CPUs and
+2 GiB; the RF3 hosts share a native macOS process. Independent constrained Linux
+voters and the release load/crash matrix remain open.
+
+Evidence is `.cellar/cell-groups-evidence/CG-17-sql-bindings-b82970a5-01`, backed up
+under the checkout-owned workspace target. It retains frozen executables, source
+and command records, failed controls and their remaining voter disks. Earlier
+broad `is_err` controls do not qualify SQL error semantics; superseded build-only
+cohorts are not runtime results. Private backend state is excluded.
+
+This is a feature checkpoint, not full SQL/KV or primitive-family acceptance.
+Complete stateless/public SQL integration and SQL-specific interruption, movement,
+wake, outage and disaster-recovery coverage, then deliver KV expiry/alarm/payload
+support and ordinary due-work adapters. The ordinary S3-source deadline failures
+retained at `2aca4c6b` remain a separate release gate and were not rerun here.
+CG-17/15/16 remain open; acceptance stays 13/17 tasks and 147/195 cases.

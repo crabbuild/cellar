@@ -1,6 +1,6 @@
 <!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
 
-# Ordinary named-cell binding delivery
+# Named-cell and SQL binding delivery
 
 Purpose: Specify the ordinary binding adapter and its remaining qualification boundary.
 
@@ -293,3 +293,14 @@ Interrupted recovery remains 8/8; ordinary bindings pass 5/8, with three S3-sour
 deadline failures still open. All Quorum-source controls pass. These results do
 not accept a full primitive family or establish a workload speedup. See the
 [current checkpoint](progress.md#cg-17-live-archive-proof-handoff).
+
+
+## Grouped SQL qualification checkpoint
+
+At `b82970a5`, the public SQL drill passes in both image forms on native storage
+and real RustFS, including different caller/database leaders, explicit process
+grants, intended SQL errors, atomic rollback, retained restart, duplicate replay
+and quorum refusal. Native conformance and the source/target Fleet refusal test
+pass. This does not complete the SQL/KV family: direct stateless ingress and the
+combined SQL recovery/scenario matrix remain required. See the
+[current results](progress.md#cg-17-grouped-sql-bindings-and-durable-rpc-errors).

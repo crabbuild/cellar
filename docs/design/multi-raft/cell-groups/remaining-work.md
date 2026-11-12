@@ -41,16 +41,19 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Deliver ordinary SQL/KV bindings and remaining Storage compatibility through
-   the passing Quorum binding foundation. At `2aca4c6b`, a bounded live archive
-   proof handoff passes its native and real RustFS regression in both image forms.
-   Six native archive/S3 checks, four managed checks and all eight interrupted
-   binding configurations pass. Ordinary bindings pass 5/8: every Quorum-source
-   configuration passes, while native extents S3 and both RustFS S3 forms still
-   miss the first Relay deadline. Keep that S3 gate open alongside feature
-   delivery; preserve complete archive verification, original five-second budgets,
-   quotas and failed controls. No full primitive family is accepted. See the
-   [current checkpoint](progress.md#cg-17-live-archive-proof-handoff).
+1. Complete SQL's stateless/public ingress and full recovery matrix, then KV
+   binding expiry/alarm/payload support and remaining Storage compatibility.
+   At `b82970a5`, normal SQL calls from Raft cells pass all four native/RustFS
+   materialized/extents configurations, with separate RF3 groups and remote
+   leaders. Exact SQL failures, rollback, sessions, migration history, restart,
+   replay and quorum refusal pass. Source and target native/Fleet paths refuse
+   downgrade. Two codec tests, 15 registration checks, two native SQL checks,
+   interrupted binding recovery 8/8, strict all-target Clippy and repository
+   checks pass. No complete primitive family is accepted. See the
+   [SQL checkpoint](progress.md#cg-17-grouped-sql-bindings-and-durable-rpc-errors).
+   Keep the independent ordinary S3-source deadline gate open: the retained
+   `2aca4c6b` cohort passed 5/8 ordinary binding configurations. That matrix was
+   not rerun in this SQL feature cohort. Preserve budgets, quotas and failures.
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.
