@@ -6,51 +6,54 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current binding recovery checkpoint
 
-Source `90e19b34` closes the retained-restart recovery drill in all eight native
-and real RustFS configurations. It replaces full command-bank allocation and
-effect scanning with a bounded allocator query on the existing SQL owner,
-preserves typed recovery failures and observes closure after physical joins.
-Source claim, exact target-sequence retirement and source settlement retain their
-authority checks. Recovery preserves unknown parent outcomes and never replays
-business callbacks. All classes retain the existing due-summary schema hard
-cutover: fresh compatible namespaces and matching voters, with format markers 1.
+Source `2aca4c6b` adds a bounded handoff of live archive coverage to proof requests
+that arrived during background publication. It reuses the actual independently
+verified image and its existing pool admission, with fresh birth/journal and exact
+receipt checks. A different group, uncovered successor, idle queue, retirement or
+shutdown releases the handoff. There is no idle group cache or budget increase.
 
-The locked build, 36 component tests, four managed shutdown/restart regressions,
-strict all-target Clippy, formatting, layout, dependency and documentation checks
-pass. Ordinary bindings pass 3/4 natively and 3/4 with RustFS. Native extents S3
-and RustFS materialized S3 still miss the first Relay deadline; every Quorum-source
-configuration passes. The combined cohort remains FAILED. No complete primitive
-family or task is accepted; counts remain 13/17 tasks and 147/195 cases.
+The owning regression passes in both image forms on native storage and real
+RustFS. Its corrected baseline at `af49a4bb` independently verifies cut 5, then
+fails the original five-second proof deadline with 667 refused chunk reads.
+Earlier controls used a gate that also stopped reservations before verification;
+retain those artifacts but exclude them as redundant-replay evidence. The new gate
+asserts that the publication covers the requested receipt position.
 
-Evidence is `.cellar/cell-groups-evidence/CG-17-binding-liveness-90e19b34-01`,
-including frozen binaries, exact commands, all outcomes and six failed voter
-disks. The previous `bb02bae5` failed cohort and its 42 disks remain retained.
+The locked build, six native archive/S3 checks, four managed shutdown/restart
+checks, final strict all-target Clippy and repository checks pass. Interrupted
+binding recovery remains 8/8 across native/RustFS, both image forms and Quorum/S3
+sources. Ordinary bindings pass 3/4 natively and 2/4 with RustFS. Every
+Quorum-source configuration passes; native extents S3 and both RustFS S3 forms
+still miss the first Relay deadline. The combined cohort remains FAILED, with no
+complete primitive family accepted: 13/17 tasks and 147/195 accepted cases.
+
+Evidence is `.cellar/cell-groups-evidence/CG-17-binding-handoff-2aca4c6b-02`,
+including the corrected control, frozen executables, all failed setup controls,
+exact commands and nine failed voter disks. Prior cohorts remain retained.
 The owned RustFS backend and source VM are stopped; the default VM is unchanged.
+See the [checkpoint](progress.md#cg-17-live-archive-proof-handoff).
 
 ## Immediate feature priorities
 
-1. Diagnose and fix the two remaining ordinary S3-source binding deadlines.
-   The native extents failure returns Add after 2,378 ms; RustFS materialized
-   returns it after 2,910 ms. Neither returns Echo before the original parent
-   deadline. Read-only saved RustFS images contain a source step-2 receipt with a
-   prepared Echo intent and no target Echo receipt. These are separate saved cuts,
-   not a timing proof or an asserted latest manifest. Enable the existing
-   `cellar::raft::group_archive` stage tracing in the owning fixture to distinguish
-   checkpoint submission, archive verification/publication and target dispatch.
-   Keep the frozen failed control; do not repeat unchanged campaigns until green.
-2. Preserve the now-passing recovery and closure contracts: exact history/route
-   and linearizable reads; no payload scan or command-bank reservation for the
-   allocator; bounded retries within the maintenance deadline; held-response and
-   poisoned-admission accounting; failed groups withhold the closure proof.
-   Quiescence after joins proves neither caller delivery nor archive coverage.
-3. Implement ordinary SQL/KV bindings through the same durable intent owner.
-   Admission must bind declared identities and operation contracts, provision the
-   reserved service namespaces, populate Context binding maps and adapt the
-   built-in Storage/transaction paths. Removing the configuration refusal alone
-   is insufficient. Preserve independent target durability and original deadlines.
-4. Deliver durable alarms/cron, Queue,
-   EventStream and Workflow, followed by filesystem/payload/WebSocket/provider
-   adapters and the full lifecycle matrix. Complete CG-17/15/16 gates still apply.
+1. Deliver ordinary SQL/KV bindings on the passing Quorum foundation. Admission
+   must bind declared identities and operation contracts, provision reserved
+   service namespaces, populate Context binding maps and adapt the built-in
+   Storage/transaction paths. Removing configuration refusals alone is insufficient.
+   Preserve independent target durability, original deadlines, sequence recovery
+   and source/target fencing. Qualify the public adapters through restart and
+   quorum refusal on real RustFS; complete family acceptance remains required.
+2. Keep the ordinary S3 deadline gate open alongside feature delivery. Native
+   extents S3 returns Echo after 4,205 ms; RustFS materialized/extents S3 return it
+   after 3,852/4,415 ms. The final source completion misses the unchanged parent budget.
+   The valid handoff regression removes one redundant verification but does not
+   establish the sole cause or a measured workload speedup. Use current archive
+   stage traces to separate capture, verification and final output proof; preserve
+   complete dependency verification, original quotas/deadlines and failed controls.
+3. Connect ordinary alarms/cron, Queue, EventStream and Workflow to committed
+   due-work discovery and fenced settlement, resuming without client traffic.
+4. Complete filesystem/payload/WebSocket/provider adapters and the combined
+   recovery/release matrix. All CG-17/15/16 gates remain required; no narrower
+   supported scope or weaker durability fallback replaces them.
 
 The fixture now stops after the target's durable checkpoint and concurrently
 polls the original response during retained restart. Final closure still uses the

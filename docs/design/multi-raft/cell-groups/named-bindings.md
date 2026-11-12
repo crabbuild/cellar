@@ -222,3 +222,14 @@ first Relay deadline. The five-second budgets, quotas and strict closure
 assertions are unchanged. Full family and lifecycle acceptance remains open.
 See the [current checkpoint](progress.md#cg-17-binding-liveness-and-joined-closure)
 and [next priorities](handoff.md#immediate-feature-priorities).
+
+At `2aca4c6b`, the archive owner hands one live verification to unexamined proof
+requests from the preceding background turn. The existing node-wide admission
+remains charged; exact birth/journal and receipt checks still run. The handoff
+releases before another group, uncovered successor, idle queue, retirement or
+shutdown can need that workspace. It introduces no per-group idle cache.
+The regression passes in both image forms on native storage and real RustFS.
+Interrupted recovery remains 8/8; ordinary bindings pass 5/8, with three S3-source
+deadline failures still open. All Quorum-source controls pass. These results do
+not accept a full primitive family or establish a workload speedup. See the
+[current checkpoint](progress.md#cg-17-live-archive-proof-handoff).
