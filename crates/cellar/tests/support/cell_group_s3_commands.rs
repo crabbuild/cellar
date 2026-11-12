@@ -29,6 +29,10 @@ pub(crate) use receipts::{
 pub(crate) use remote::{s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[path = "cell_group_connection_idle.rs"]
+mod connection_idle;
+pub(crate) use connection_idle::peer_connection_idle;
+
 struct Harness {
     fixture: RuntimeCluster,
     route: GroupRoute,

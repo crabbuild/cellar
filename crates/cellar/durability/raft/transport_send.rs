@@ -21,6 +21,7 @@ impl State {
         let mut stop = self.stop.subscribe();
         let mut peer_stop = pool.stop.subscribe();
         let mut connection = None;
+        let mut reuse_until = 0;
         let mut deferred = None;
         loop {
             if *stop.borrow() || *peer_stop.borrow() {
@@ -67,10 +68,24 @@ impl State {
                 Lane::Data => Operation::DataExchange,
             });
             let mut outcomes = vec![None; window.len()];
+            // Reply timing cannot extend the idle reuse bound beyond this
+            // batch's original I/O window.
+            let batch_deadline = self
+                .domain
+                .mono_ms()
+                .map_or(0, |now| now.saturating_add(self.options.io_timeout_ms));
             let result = self
                 .bounded(Some(&pool), async {
                     if !window.iter().all(|request| self.current(request)) {
                         return Err(TransportError::StalePeer);
+                    }
+                    // A peer may have closed an idle stream at the same I/O
+                    // bound. Retire it before writing a new frame, without
+                    // replaying any earlier failed or uncertain frame.
+                    if connection.is_some()
+                        && self.domain.mono_ms().map_or(true, |now| now >= reuse_until)
+                    {
+                        connection = None;
                     }
                     if connection.is_none() {
                         let owner = self.outgoing_connections.acquire(lane);
@@ -102,6 +117,8 @@ impl State {
                 // A partially written request or unread reply cannot be reused
                 // as the next frame. No frame is blindly replayed on reconnect.
                 connection = None;
+            } else {
+                reuse_until = batch_deadline;
             }
             for (request, outcome) in window.into_iter().zip(outcomes) {
                 let mut outcome = outcome.unwrap_or_else(|| {

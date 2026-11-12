@@ -27,6 +27,22 @@ use archive_intents::persist_archive_intent;
 
 include!("support/cell_group_engine_fixture.rs");
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn quorum_command_reconnects_after_peer_idle_close() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::peer_connection_idle(rooted, false)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn raft_control_reconnects_after_peer_idle_close() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::peer_connection_idle(rooted, true)).await?;
+    }
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn short_archived_groups_checkpoint_and_recover_independently() -> Result<()> {
     Box::pin(runtime_fixture::archived_groups_reclaim_independently(

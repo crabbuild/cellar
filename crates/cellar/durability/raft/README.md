@@ -1038,6 +1038,12 @@ local member identity and durable configuration. Unknown groups never create
 storage or fetch a bucket object. Each physical peer has separate incoming and
 outgoing banks, so full outbound queues cannot consume inbound response capacity.
 
+Between exchanges, a sender retires a cached connection when the preceding
+exchange's original I/O window has elapsed. A late reply cannot extend that
+reuse window. The next frame opens a fresh connection within its existing I/O
+bound, avoiding reuse after the peer's idle timeout. This never retransmits a
+failed or uncertain frame; its original delivery result remains unchanged.
+
 Control transmission holds at most sixteen selected frames and refills a slot as
 soon as its FIFO authenticated reply and physical write finish. A later held
 reply cannot delay that refill. Each selected frame keeps its original I/O
