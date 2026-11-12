@@ -71,10 +71,16 @@ impl Cell for BoundCounter {
                     json!(clear)
                 }
                 "Relay" => {
+                    let started = cellar::asyncrt::mono_ms();
+                    eprintln!("named Relay: entered callback");
                     update(&self.0, 1)?;
                     let namespace = context.namespace("COUNTERS")?;
                     let stub = namespace.get_by_name(input["name"].as_str().context("name")?);
                     let reply = stub.rpc(&context, "Add", RpcData::Json("2".into())).await?;
+                    eprintln!(
+                        "named Relay: Add returned after {} ms",
+                        cellar::asyncrt::mono_ms() - started
+                    );
                     let RpcData::Json(reply) = reply else {
                         anyhow::bail!("JSON reply")
                     };
@@ -83,6 +89,10 @@ impl Cell for BoundCounter {
                     // A cyclic argument array and an unpaired UTF-16 surrogate
                     // cannot pass through JSON without losing their meaning.
                     ensure!(stub.call(&context, "Echo", &graph()).await? == graph());
+                    eprintln!(
+                        "named Relay: Echo returned after {} ms",
+                        cellar::asyncrt::mono_ms() - started
+                    );
                     json!({"source": self.0.get_json("value")?, "target": reply})
                 }
                 "Recursive" => {
@@ -184,6 +194,10 @@ pub async fn qualify_recovery(real_rustfs: bool) -> Result<()> {
 }
 
 async fn qualify_case(real_rustfs: bool, recovery: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::cell_groups::controller::effects=debug")
+        .with_test_writer()
+        .try_init();
     let mut failures = Vec::new();
     for rooted in [false, true] {
         for durability in [Durability::Quorum, Durability::S3] {
