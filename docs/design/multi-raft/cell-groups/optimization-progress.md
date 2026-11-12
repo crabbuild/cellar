@@ -2862,3 +2862,25 @@ file SHA-256 is
 This uses in-memory object storage and the original request/resource bounds.
 It does not qualify current-base integration, strict Clippy, RustFS/Linux,
 full RO-03, CG-13, CG-17 or OPT-01–08.
+
+## Physical archive reader cancellation candidate
+
+The next RL-02 component regression holds an actual immutable image/extent read
+inside checkpoint upload, then drops its asynchronous caller. It advances every
+populated cell through the existing Raft/apply fixture and attempts bounded
+physical collection. Source and archive reservations must remain charged, and
+the old manifest page and physical image bytes must remain exactly unchanged,
+until the physical file reader exits. Only then may collection remove the old
+closure. A fresh upload and independent receiver must verify the current cut.
+
+The ordinary `archive_cancelled_waiter_keeps_physical_checkpoint` case and its
+ignored RustFS counterpart cover both image modes. The new fixed
+`archive-owners` suite requires both hash/owner ledgers and retains their actual
+runtime provenance. The existing checkpoint fixture accepts an explicit image
+filesystem for this cut; its ordinary callers preserve their existing adapter.
+No request or parent resource ceiling changes.
+
+This candidate still requires compilation and runtime validation. Synthetic
+verifier controls prove only evidence refusal. Other reader/snapshot/transfer
+cuts, Fleet settlement, allocated-block accounting, constrained voters and full
+RL-02/CG/OPT acceptance remain open.

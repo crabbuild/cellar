@@ -24,6 +24,8 @@ mod fault;
 mod images;
 #[path = "support/cell_group_archive_isolation.rs"]
 mod isolation_fixture;
+#[path = "support/cell_group_archive_owners.rs"]
+mod owner_fixture;
 #[path = "support/cell_group_archive_publication.rs"]
 mod publication_fixture;
 #[path = "support/cell_group_rustfs.rs"]
@@ -38,6 +40,31 @@ mod runtime_fixture;
 use runtime_fixture::persist_archive_intent;
 
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_cancelled_waiter_keeps_physical_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        owner_fixture::cancelled_checkpoint_read(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_cancelled_waiter_keeps_physical_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        owner_fixture::cancelled_checkpoint_read(
+            rooted,
+            rustfs::store("archive-physical-owner", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn group_archive_publication_survives_competing_registry_cas() -> Result<()> {

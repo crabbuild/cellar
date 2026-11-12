@@ -68,12 +68,31 @@ pub(super) async fn enroll_images(
     additional: usize,
     padding: usize,
 ) -> Result<BTreeMap<String, Vec<u8>>> {
+    enroll_images_with_filesystem(
+        cluster,
+        rooted,
+        partition,
+        additional,
+        padding,
+        Arc::new(DirectFileSystem),
+    )
+    .await
+}
+
+pub(super) async fn enroll_images_with_filesystem(
+    cluster: &mut Cluster,
+    rooted: bool,
+    partition: bool,
+    additional: usize,
+    padding: usize,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<BTreeMap<String, Vec<u8>>> {
     let route = cluster.birth.route().clone();
     if rooted {
         for n in 0..3 {
             cluster.voters[n].extents = Some(NodeExtentStore::open(
                 cluster._root.path().join(format!("extents-{n}")),
-                Arc::new(DirectFileSystem),
+                filesystem.clone(),
                 Default::default(),
             )?);
         }

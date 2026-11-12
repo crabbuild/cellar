@@ -24,6 +24,7 @@ from store_probe import probe
 from backend_control import BackendControl
 from routing_endpoint_evidence import endpoint_observations
 from routing_advice_evidence import advice_observations
+from archive_owner_evidence import CASE as ARCHIVE_OWNER_CASE, observations as archive_owner_observations
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
@@ -61,6 +62,17 @@ CASES = (
 )
 
 SUITES = {
+    "archive-owners": (
+        "native_cell_groups_archive",
+        (ARCHIVE_OWNER_CASE,),
+        "cancelled archive waiters retain actual physical checkpoint readers",
+        "Both image modes hold a real filesystem image/extent read, drop the archive caller, "
+        "advance all populated cells through Raft/apply and collect obsolete payloads. The physical "
+        "reader retains source/archive admission and the old page/image bytes until it exits. "
+        "After release, collection removes the old closure and a fresh upload independently verifies "
+        "the live checkpoint. This is a host-native component boundary with real RustFS, not full "
+        "RL-02/Fleet capacity settlement, constrained-voter or CG/OPT acceptance.",
+    ),
     "routing-removed": (
         "native_cell_groups_routing_optimization",
         ("rustfs_removed_member_advice_cannot_grant_authority",),
@@ -924,7 +936,7 @@ def main():
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if number and (args.suite in ROUTING_SUITES
-                           or selection == ARCHIVE_FAIRNESS_CASE
+                           or selection in (ARCHIVE_FAIRNESS_CASE, ARCHIVE_OWNER_CASE)
                            or selection in NAMED_BINDING_CASES):
                 argv.append("--show-output")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
@@ -1006,6 +1018,13 @@ def main():
                 record.setdefault("routing_evidence", []).append({
                     "case": selection, "path": ledger.name, "sha256": sha(ledger),
                     "records": len(rows), "scenarios": scenarios,
+                })
+            if number and selection == ARCHIVE_OWNER_CASE:
+                rows = archive_owner_observations(output, selection)
+                ledger = out / f"{number:02}-physical-owner-evidence.json"
+                ledger.write_text(json.dumps(rows, indent=2) + "\n")
+                record.setdefault("archive_owner_evidence", []).append({
+                    "case": selection, "path": ledger.name, "sha256": sha(ledger), "records": len(rows),
                 })
             if number and selection == ARCHIVE_FAIRNESS_CASE:
                 rows = archive_fairness_observations(output, selection)

@@ -56,6 +56,25 @@ preparations retain their environment record for diagnosis. A separate cleanup
 step can remove the exact recorded resources after their data is no longer
 needed; never use a global Docker prune or delete a Colima profile as cleanup.
 
+## Archive physical readers after caller cancellation
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite archive-owners \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-archive-owners-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+This component case holds a real immutable image/extent filesystem read during
+checkpoint upload, then drops its caller. Both image modes advance the populated
+cells through Raft/apply and attempt physical collection. Source and archive
+admission, the old root and the exact image bytes must remain while the file read
+is held. Once the physical reader exits, admission releases, the obsolete files
+become collectible and a fresh upload independently verifies the live checkpoint.
+The runner requires both complete hash/owner ledgers. This candidate needs its own
+native and RustFS runtime evidence; Fleet credit settlement, other RL-02 owners,
+constrained voter processes and full CG/OPT qualification remain open.
+
 ## Primitive compatibility evidence
 
 CG17-01's [coverage contract](../../docs/design/multi-raft/cell-groups/qualification.md#machine-readable-inventory-and-acceptance-evidence)
