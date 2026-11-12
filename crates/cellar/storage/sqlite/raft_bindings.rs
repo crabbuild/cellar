@@ -19,7 +19,11 @@ pub(crate) fn install(connection: &Connection) -> Result<()> {
          CREATE TABLE IF NOT EXISTS __sys_raft_binding_lanes(
           epoch BLOB NOT NULL,lane INTEGER NOT NULL CHECK(lane BETWEEN 0 AND 63),
           sequence BLOB NOT NULL,busy INTEGER NOT NULL CHECK(busy IN(0,1)),
-          PRIMARY KEY(epoch,lane)) WITHOUT ROWID;",
+          PRIMARY KEY(epoch,lane)) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS __sys_raft_binding_sequences(
+          epoch BLOB NOT NULL,lane INTEGER NOT NULL,cluster BLOB NOT NULL,namespace BLOB NOT NULL,
+          cell TEXT NOT NULL,incarnation BLOB NOT NULL,sequence BLOB NOT NULL,
+          PRIMARY KEY(epoch,lane,cluster,namespace,cell,incarnation)) WITHOUT ROWID;",
     )
     })?;
     Ok(())
@@ -29,6 +33,9 @@ pub(crate) fn install(connection: &Connection) -> Result<()> {
 struct IntentWire<'a> {
     epoch: [u8; 16],
     lane: u64,
+    serial: u64,
+    source_durability: u8,
+    deadline_unix_ms: u64,
     cluster: [u8; 16],
     namespace: [u8; 16],
     cell: &'a str,
@@ -76,19 +83,14 @@ pub(crate) fn prepare<T>(
             break;
         }
         let (lane, sequence) = available.ok_or(crate::application::consensus::CommandFailure::Overloaded)?;
-        let intent = Intent::prepare(source, route, input, ordinal, lane, sequence)?;
+        let mut intent = Intent::prepare(source, route, input, ordinal, lane, sequence)?;
+        let target_sequence = reserve_sequence(connection, &intent, &intent.candidate)?;
+        intent.child = CommandId::new(intent.child.client, target_sequence)?;
         connection.execute(
             "INSERT INTO __sys_raft_binding_lanes VALUES(?1,?2,?3,1) ON CONFLICT(epoch,lane) DO UPDATE SET sequence=excluded.sequence,busy=1 WHERE busy=0",
             rusqlite::params![epoch.as_slice(), lane, sequence.to_be_bytes().as_slice()],
         )?;
-        let body = serde_json::to_vec(&IntentWire {
-            epoch, lane,
-            cluster: intent.route.cluster.bytes(), namespace: intent.route.namespace.bytes(), cell: intent.route.cell.as_str(),
-            schema: intent.route.schema, operation: &intent.route.contract.operation, contract: intent.route.contract.digest,
-            durability: match intent.route.durability { crate::application::consensus::Durability::Quorum => 1, crate::application::consensus::Durability::S3 => 2 },
-            enroll: intent.enroll, candidate: intent.candidate.incarnation.bytes(), creation: intent.creation.bytes(), child_client: intent.child.client.bytes(),
-            child_sequence: intent.child.sequence(), retry_until_ms: intent.retry_until_ms,
-        })?;
+        let body = wire(&intent)?;
             connection.execute(
                 "INSERT INTO __sys_raft_binding_intents VALUES(?1,?2,?3,1,?4,?5,?6,0,NULL,NULL)",
                 rusqlite::params![intent.parent.client.bytes().as_slice(), intent.parent.sequence().to_be_bytes().as_slice(),
@@ -109,20 +111,64 @@ pub(crate) fn prepare<T>(
     })).ok_or_else(|| anyhow::anyhow!("cell binding has no active command"))?
 }
 
-pub(crate) fn select(intent: &Intent, history: &CellHistory, enrolling: bool) -> Result<()> {
+pub(crate) fn select(intent: &mut Intent, history: &CellHistory) -> Result<()> {
     ensure!(
         history.cluster == intent.route.cluster
             && history.namespace == intent.route.namespace
             && history.cell == intent.route.cell,
         "cell binding resolution scope differs"
     );
+    let prior = intent.child;
+    let result = command::with(|connection| as_framework_sql(|| {
+        control(connection, "SAVEPOINT __sys_raft_binding_select")?;
+        let result = (|| {
+            let sequence = reserve_sequence(connection, intent, history)?;
+            intent.child = CommandId::new(intent.child.client, sequence)?;
+            let changed = connection.execute(
+                "UPDATE __sys_raft_binding_intents SET selected=?5,phase=2,body=?6 WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3 AND fingerprint=?4 AND format=1 AND phase=0",
+                rusqlite::params![intent.parent.client.bytes().as_slice(), intent.parent.sequence().to_be_bytes().as_slice(),
+                    intent.ordinal.to_be_bytes().as_slice(), intent.fingerprint.as_slice(), history.incarnation.bytes().as_slice(), wire(intent)?],
+            )?;
+            ensure!(changed == 1, "cell binding selection is stale");
+            // The original candidate never received a business command. Its
+            // provisional counter must not accumulate one row per failed creator.
+            if intent.enroll && intent.candidate != *history && prior.sequence() == 1 {
+                connection.execute(
+                    "DELETE FROM __sys_raft_binding_sequences WHERE epoch=?1 AND lane=?2 AND cluster=?3 AND namespace=?4 AND cell=?5 AND incarnation=?6 AND sequence=?7",
+                    rusqlite::params![intent.epoch.as_slice(), intent.lane, intent.route.cluster.bytes().as_slice(), intent.route.namespace.bytes().as_slice(),
+                        intent.route.cell.as_str(), intent.candidate.incarnation.bytes().as_slice(), prior.sequence().to_be_bytes().as_slice()],
+                )?;
+            }
+            Ok(())
+        })();
+        if result.is_ok() {
+            if let Err(error) = control(connection, "RELEASE __sys_raft_binding_select") {
+                command::poison(format!("binding selection release failed: {error}"));
+                return Err(error.into());
+            }
+        } else if let Err(error) = control(connection, "ROLLBACK TO __sys_raft_binding_select; RELEASE __sys_raft_binding_select") {
+            command::poison(format!("binding selection rollback failed: {error}"));
+            return Err(error.into());
+        }
+        result
+    })).ok_or_else(|| anyhow::anyhow!("cell binding has no active command"))?;
+    if result.is_err() {
+        intent.child = prior;
+    }
+    result
+}
+
+/// The target did not admit the sequence. It cannot be reused for different
+/// input or skipped by the next request, so retain both intent and busy lane.
+/// Reconciliation must seal that target sequence before physical retirement.
+pub(crate) fn refuse(intent: &Intent, history: &CellHistory) -> Result<()> {
     command::with(|connection| as_framework_sql(|| {
         let changed = connection.execute(
-            "UPDATE __sys_raft_binding_intents SET selected=?5,phase=?6 WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3 AND fingerprint=?4 AND format=1 AND phase IN(0,1)",
+            "UPDATE __sys_raft_binding_intents SET phase=1,selected=?5 WHERE parent_client=?1 AND parent_sequence=?2 AND ordinal=?3 AND fingerprint=?4 AND format=1 AND ((phase=2 AND selected=?5) OR (phase=0 AND selected IS NULL AND ?6))",
             rusqlite::params![intent.parent.client.bytes().as_slice(), intent.parent.sequence().to_be_bytes().as_slice(),
-                intent.ordinal.to_be_bytes().as_slice(), intent.fingerprint.as_slice(), history.incarnation.bytes().as_slice(), if enrolling { 1 } else { 2 }],
+                intent.ordinal.to_be_bytes().as_slice(), intent.fingerprint.as_slice(), history.incarnation.bytes().as_slice(), history == &intent.candidate],
         )?;
-        ensure!(changed == 1, "cell binding selection is stale");
+        ensure!(changed == 1, "cell binding refusal is stale");
         Ok(())
     })).ok_or_else(|| anyhow::anyhow!("cell binding has no active command"))?
 }
@@ -141,7 +187,7 @@ pub(crate) fn complete(intent: &Intent, history: &CellHistory, result: &[u8]) ->
         ensure!(changed == 1, "cell binding completion is stale");
         let released = connection.execute(
             "UPDATE __sys_raft_binding_lanes SET busy=0 WHERE epoch=?1 AND lane=?2 AND sequence=?3 AND busy=1",
-            rusqlite::params![intent.epoch.as_slice(), intent.lane, intent.child.sequence().to_be_bytes().as_slice()],
+            rusqlite::params![intent.epoch.as_slice(), intent.lane, intent.serial.to_be_bytes().as_slice()],
         )?;
         ensure!(released == 1, "cell binding lane is stale");
         Ok(())
@@ -235,4 +281,68 @@ pub(crate) fn cell_name(connection: &Connection, incoming: Option<&str>) -> Resu
 // framework tables. Only these fixed savepoint statements receive that grant.
 fn control(connection: &Connection, statement: &'static str) -> rusqlite::Result<()> {
     as_storage_transaction(|| connection.execute_batch(statement))
+}
+
+const MAX_DESTINATION_LANES: u64 = 65_536;
+
+fn reserve_sequence(
+    connection: &Connection,
+    intent: &Intent,
+    history: &CellHistory,
+) -> Result<u64> {
+    let prior: Option<Vec<u8>> = connection.query_row(
+        "SELECT sequence FROM __sys_raft_binding_sequences WHERE epoch=?1 AND lane=?2 AND cluster=?3 AND namespace=?4 AND cell=?5 AND incarnation=?6",
+        rusqlite::params![intent.epoch.as_slice(), intent.lane, history.cluster.bytes().as_slice(), history.namespace.bytes().as_slice(), history.cell.as_str(), history.incarnation.bytes().as_slice()],
+        |row| row.get(0),
+    ).optional()?;
+    let sequence = match prior {
+        Some(bytes) => u64::from_be_bytes(bytes.as_slice().try_into()?)
+            .checked_add(1)
+            .ok_or(crate::application::consensus::CommandFailure::Overloaded)?,
+        None => {
+            let count: u64 = connection.query_row(
+                "SELECT COUNT(*) FROM __sys_raft_binding_sequences",
+                [],
+                |row| row.get(0),
+            )?;
+            ensure!(
+                count < MAX_DESTINATION_LANES,
+                crate::application::consensus::CommandFailure::Overloaded
+            );
+            1
+        }
+    };
+    connection.execute(
+        "INSERT INTO __sys_raft_binding_sequences VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(epoch,lane,cluster,namespace,cell,incarnation) DO UPDATE SET sequence=excluded.sequence",
+        rusqlite::params![intent.epoch.as_slice(), intent.lane, history.cluster.bytes().as_slice(), history.namespace.bytes().as_slice(), history.cell.as_str(), history.incarnation.bytes().as_slice(), sequence.to_be_bytes().as_slice()],
+    )?;
+    Ok(sequence)
+}
+
+fn wire(intent: &Intent) -> Result<Vec<u8>> {
+    use crate::application::consensus::Durability;
+    let durability = |value| match value {
+        Durability::Quorum => 1,
+        Durability::S3 => 2,
+    };
+    Ok(serde_json::to_vec(&IntentWire {
+        epoch: intent.epoch,
+        lane: intent.lane,
+        serial: intent.serial,
+        source_durability: durability(intent.source_durability),
+        deadline_unix_ms: intent.deadline_unix_ms,
+        cluster: intent.route.cluster.bytes(),
+        namespace: intent.route.namespace.bytes(),
+        cell: intent.route.cell.as_str(),
+        schema: intent.route.schema,
+        operation: &intent.route.contract.operation,
+        contract: intent.route.contract.digest,
+        durability: durability(intent.route.durability),
+        enroll: intent.enroll,
+        candidate: intent.candidate.incarnation.bytes(),
+        creation: intent.creation.bytes(),
+        child_client: intent.child.client.bytes(),
+        child_sequence: intent.child.sequence(),
+        retry_until_ms: intent.retry_until_ms,
+    })?)
 }

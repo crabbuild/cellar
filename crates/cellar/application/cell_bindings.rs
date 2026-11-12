@@ -72,6 +72,8 @@ pub(crate) struct Source {
     pub configuration: [u8; 32],
     pub retry_until_ms: u64,
     pub now_unix_millis: u64,
+    pub durability: Durability,
+    pub deadline_unix_ms: Option<u64>,
     pub hint: Arc<Mutex<Option<Hint>>>,
 }
 
@@ -86,6 +88,9 @@ pub(crate) struct Intent {
     pub ordinal: u64,
     pub epoch: [u8; 16],
     pub lane: u64,
+    pub serial: u64,
+    pub source_durability: Durability,
+    pub deadline_unix_ms: u64,
     pub fingerprint: [u8; 32],
     pub route: Route,
     pub candidate: CellHistory,
@@ -103,7 +108,7 @@ impl Intent {
         input: Vec<u8>,
         ordinal: u64,
         lane: u64,
-        sequence: u64,
+        serial: u64,
     ) -> Result<Self> {
         anyhow::ensure!(
             input.len() <= route.max_input_bytes,
@@ -124,11 +129,11 @@ impl Intent {
         hash.update(lane.to_be_bytes());
         let mut client: [u8; 32] = hash.finalize().into();
         client[..4].copy_from_slice(b"RCB1");
-        let child = CommandId::new(ClientId::new(client[..16].try_into()?)?, sequence)?;
+        let child = CommandId::new(ClientId::new(client[..16].try_into()?)?, 1)?;
         let mut hash = Sha256::new();
         hash.update(b"cellar-native-binding-enrollment-1");
         hash.update(client);
-        hash.update(child.sequence().to_be_bytes());
+        hash.update(serial.to_be_bytes());
         let mut creation: [u8; 32] = hash.finalize().into();
         creation[0] |= 1;
         creation[16] |= 1;
@@ -160,7 +165,13 @@ impl Intent {
         hash.update(source.configuration);
         hash.update(client);
         hash.update(creation);
-        hash.update(child.sequence().to_be_bytes());
+        hash.update(serial.to_be_bytes());
+        let deadline_unix_ms = source.deadline_unix_ms.ok_or(CommandFailure::Unavailable)?;
+        hash.update(deadline_unix_ms.to_be_bytes());
+        hash.update([match source.durability {
+            Durability::Quorum => 1,
+            Durability::S3 => 2,
+        }]);
         hash.update(source.retry_until_ms.to_be_bytes());
         hash.update(candidate.incarnation.bytes());
         hash.update([u8::from(enroll)]);
@@ -181,6 +192,9 @@ impl Intent {
             ordinal,
             epoch: source.history.incarnation.bytes(),
             lane,
+            serial,
+            source_durability: source.durability,
+            deadline_unix_ms,
             fingerprint: hash.finalize().into(),
             route,
             candidate,
@@ -292,6 +306,8 @@ pub(crate) fn rpc(
         let ordinal = crate::storage::next_raft_binding_ordinal()?;
         let selected = Arc::new(Mutex::new(None));
         let observed = selected.clone();
+        let command = Arc::new(Mutex::new(None));
+        let observed_command = command.clone();
         let storage = context.storage()?;
         let action = dispatch.clone();
         let action_source = source.clone();
@@ -302,16 +318,25 @@ pub(crate) fn rpc(
             ordinal,
             move |intent| {
                 let identity = intent.child;
+                *observed_command.lock().unwrap() = Some(identity);
                 let call = dispatch.try_schedule(move |_| {
-                    run(action_source, storage, intent, action, observed, lease)
+                    run(
+                        action_source,
+                        storage,
+                        intent,
+                        action,
+                        observed,
+                        observed_command,
+                        lease,
+                    )
                 })?;
                 Ok((identity, call))
             },
         )?;
-        Ok((identity, selected, call))
+        Ok((identity, selected, command, call))
     })();
     Box::pin(async move {
-        let (command, selected, call) = prepared?;
+        let (initial_command, selected, command, call) = prepared?;
         let reply = async move {
             call.future
                 .await
@@ -330,7 +355,7 @@ pub(crate) fn rpc(
                 cause
             } else {
                 CallError {
-                    command,
+                    command: command.lock().unwrap().unwrap_or(initial_command),
                     target: selected.lock().unwrap().clone(),
                     ambiguous: true,
                     cause,
@@ -344,9 +369,10 @@ pub(crate) fn rpc(
 async fn run(
     source: Source,
     storage: Storage,
-    intent: Intent,
+    mut intent: Intent,
     dispatch: RaftDispatch,
     selected: Arc<Mutex<Option<CellHistory>>>,
+    command: Arc<Mutex<Option<CommandId>>>,
     lease: BufferLease,
 ) -> Result<(RpcData, BufferLease)> {
     // The Prepared source proof already authorizes this exact candidate and
@@ -379,22 +405,43 @@ async fn run(
     if history != intent.candidate {
         // A different existing creator needs its own durable selection before
         // any business callback. Never retarget an unknown dispatched command.
-        crate::storage::raft_bindings::select(&intent, &history, false)?;
+        crate::storage::raft_bindings::select(&mut intent, &history)?;
+        *command.lock().unwrap() = Some(intent.child);
         storage.sync().await?;
     }
     *selected.lock().unwrap() = Some(history.clone());
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
     options.durability = intent.route.durability;
-    let result = source
-        .host
-        .command(
-            history.clone(),
-            intent.route.contract.clone(),
-            intent.input.clone(),
-            options,
-        )
-        .await;
+    let result = loop {
+        options.timeout = dispatch.remaining_timeout()?;
+        let result = source
+            .host
+            .command(
+                history.clone(),
+                intent.route.contract.clone(),
+                intent.input.clone(),
+                options.clone(),
+            )
+            .await;
+        let overloaded = result
+            .as_ref()
+            .err()
+            .and_then(|cause| cause.downcast_ref::<Arc<CellCommandError>>())
+            .is_some_and(|error| {
+                !error.ambiguous
+                    && matches!(
+                        error.cause.as_ref(),
+                        CellDispatchError::Runtime(RuntimeError::Overloaded)
+                    )
+            });
+        if !overloaded {
+            break result;
+        }
+        // Only a refusal before admission may retry. Preserve the complete
+        // child identity and input and consume the original deadline.
+        dispatch.wait_admission().await?;
+    };
     match result {
         Ok(receipt) => {
             anyhow::ensure!(
@@ -424,11 +471,9 @@ async fn run(
                 .downcast_ref::<Arc<CellCommandError>>()
                 .is_some_and(|error| !error.ambiguous);
             if known {
-                crate::storage::raft_bindings::complete(
-                    &intent,
-                    &history,
-                    b"known-target-refusal-1",
-                )?;
+                // Non-admission did not consume the target sequence. Preserve
+                // that reservation until target reconciliation can seal it.
+                crate::storage::raft_bindings::refuse(&intent, &history)?;
                 storage.sync().await?;
             }
             Err(CallError {

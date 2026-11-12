@@ -46,10 +46,18 @@ impl RaftDispatch {
                 && resources.open_transaction.lock().unwrap().is_none(),
             consensus::CommandFailure::UnsupportedCapability
         );
-        self.context
+        let mut source = self
+            .context
             .binding_source
             .clone()
-            .ok_or_else(|| anyhow!(consensus::CommandFailure::UnsupportedCapability))
+            .ok_or_else(|| anyhow!(consensus::CommandFailure::UnsupportedCapability))?;
+        let now = u64::try_from(crate::asyncrt::wall_ms())?;
+        let remaining = u64::try_from(self.remaining()?.as_millis())?;
+        source.deadline_unix_ms = Some(
+            now.checked_add(remaining)
+                .ok_or(consensus::CommandFailure::Overloaded)?,
+        );
+        Ok(source)
     }
 
     pub(crate) fn binding_hint(
@@ -73,6 +81,24 @@ impl RaftDispatch {
     }
 
     pub(crate) fn check_current(&self) -> Result<()> {
+        self.remaining().map(|_| ())
+    }
+
+    pub(crate) async fn wait_admission(&self) -> Result<()> {
+        let delay = self.remaining()?.min(Duration::from_millis(10));
+        let now = self
+            .context
+            .domain
+            .mono_ms()
+            .map_err(|_| consensus::RuntimeError::Closed)?;
+        let until = now
+            .checked_add(u64::try_from(delay.as_millis())?)
+            .ok_or(consensus::CommandFailure::Overloaded)?;
+        self.context
+            .domain
+            .sleep_until(until)
+            .map_err(|_| consensus::RuntimeError::Closed)?
+            .await;
         self.remaining().map(|_| ())
     }
 
