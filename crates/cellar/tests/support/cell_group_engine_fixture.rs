@@ -1,6 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 // Shared at each integration target root to preserve the support modules' paths.
+#[path = "manifest_pack_fixture.rs"]
+#[allow(dead_code)]
+mod manifest_pages;
+
 use anyhow::{Context, Result};
 use cellar::application::consensus::verification::cell_groups::GroupRoute;
 use cellar::application::consensus::{

@@ -204,7 +204,7 @@ pub(super) fn reclaim_physical(
         .reclaim(256)
         .map_err(crate::raft::execution::storage)?;
     collect_images(&storage.images)?;
-    Ok(storage.pages.usage().pages == 0)
+    Ok(storage.pages.usage().files == 0)
 }
 
 pub(super) fn collect_images(

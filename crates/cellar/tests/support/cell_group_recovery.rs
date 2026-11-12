@@ -594,11 +594,16 @@ pub async fn missing_images() -> Result<()> {
         for kind in kinds {
             let temp = tempfile::tempdir()?;
             let marker = seed(temp.path(), mode, true).await?;
-            let victim = if kind.starts_with("page-") {
-                temp.path().join("pages").join(format!(
-                    "{}.page",
-                    hex::encode(marker.root().digest().unwrap())
-                ))
+            let frame = if kind.starts_with("page-") {
+                Some(manifest_pages::locate(
+                    &temp.path().join("pages"),
+                    marker.root().digest().unwrap(),
+                )?)
+            } else {
+                None
+            };
+            let victim = if let Some(frame) = &frame {
+                frame.path.clone()
             } else {
                 let fs = Arc::new(DirectFileSystem);
                 let pages = ManifestPageStore::open(
@@ -646,7 +651,9 @@ pub async fn missing_images() -> Result<()> {
                 std::fs::remove_file(&victim)?;
             } else {
                 let mut bytes = std::fs::read(&victim)?;
-                let last = bytes.len() - 1;
+                let last = frame
+                    .as_ref()
+                    .map_or(bytes.len() - 1, |f| f.offset + f.length - 1);
                 bytes[last] ^= 0x80;
                 std::fs::write(&victim, bytes)?;
             }

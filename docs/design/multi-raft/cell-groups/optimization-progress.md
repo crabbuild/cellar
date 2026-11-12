@@ -2462,3 +2462,27 @@ The next integration includes base `d290719c` and its bounded completed archive
 verification handoff. Both test-helper exports retain the idle-peer regression
 and the late-receipt regression. Qualification of the combined source remains
 separate from the completed cursor-fix checks above.
+
+## Immutable manifest pack candidate
+
+The native profile-1 negative control at `3a8ed804`, source `0c4e8c34`, builds
+in 576.019 seconds and fails the changed-path test's new one-file-barrier oracle
+in 0.336 seconds. The original independently sealed 64-image and authenticated
+old/new-root assertions remain intact. The observed second insertion completes
+two file barriers instead of one; this is evidence of persistence amplification,
+not a measured explanation of the entire occupancy-128 failure.
+
+The [manifest pack candidate](manifest-page-packs.md) streams each immutable AVL
+update into one bounded file, retains logical page hashes and leases, accounts
+for resident encoded containers and compacts within existing page/byte quotas.
+Actual source unlink and directory barriers precede credit. Node maintenance
+counts physical file deletions and shares a 96-record relocation budget. The
+local marker-1 layout is a hard cutover; old page directories are refused.
+
+The core compile check passes. A fixture check initially rejects the new test's
+`GroupLog` generic scope; correcting it to the existing native engine fixture's
+scope makes the storage, snapshot and execution fixture checks pass. New owning
+tests and the full native profile-1 storage/runtime/backend/container gates still
+need execution. Earlier occupancy-128 and original CI/compiler failures retain
+their recorded outcomes. No performance or full CG/OPT acceptance follows from
+these compile checks.

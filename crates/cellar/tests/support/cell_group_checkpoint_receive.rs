@@ -226,20 +226,20 @@ pub(crate) async fn install_checkpoint(rooted: bool) -> Result<()> {
     fixture.close().await?;
     // Every original engine, runtime, image/page pin and receiver is now gone.
     // Remove the old checkpoint root page, while the later root stays on disk.
-    let checkpoint_path = disk.path().join("node-3/pages").join(format!(
-        "{}.page",
-        hex::encode(cut.root().digest().unwrap())
-    ));
+    let page_directory = disk.path().join("node-3/pages");
+    let checkpoint_path =
+        manifest_pages::locate(&page_directory, cut.root().digest().unwrap())?.path;
     // Independently traverse the page references to prove this fault removes
     // only the old checkpoint, not any dependency of the current applied tree.
     let mut pending_pages = vec![current.root().digest().unwrap()];
     while let Some(digest) = pending_pages.pop() {
         assert_ne!(digest, cut.root().digest().unwrap());
-        let bytes = std::fs::read(
-            disk.path()
-                .join("node-3/pages")
-                .join(format!("{}.page", hex::encode(digest))),
-        )?;
+        assert_ne!(
+            manifest_pages::locate(&page_directory, digest)?.path,
+            checkpoint_path,
+            "physical fault must leave every current-root dependency intact"
+        );
+        let bytes = manifest_pages::read(&page_directory, digest)?;
         let page: serde_json::Value = serde_json::from_slice(&bytes[8..])?;
         for child in ["left", "right"] {
             if !page[child].is_null() {

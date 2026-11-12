@@ -18,6 +18,7 @@ use std::{
 pub struct CellGroupReclaimLimits {
     pub max_selected_cells: u32,
     pub max_files: usize,
+    /// Physical manifest containers (at most 96 records each) inspected.
     pub max_page_scan: usize,
 }
 
@@ -241,18 +242,20 @@ impl ReclaimCells {
         }
         let mut files = self.limits.max_files;
         let mut scan = self.limits.max_page_scan;
+        let mut compact = super::page_store::MAX_BATCH_PAGES;
         for owner in &mut owners {
             if scan == 0 || files == 0 {
                 break;
             }
             let pages = owner
                 .pages
-                .reclaim(scan.min(files))
+                .reclaim_with_compaction(scan.min(files), compact)
                 .map_err(CellGroupReclaimError::Manifest)?;
             scan -= pages.scanned;
-            files -= pages.pages;
+            files -= pages.files;
+            compact -= pages.relocated_pages;
             report.pages_scanned += pages.scanned;
-            report.page_files += pages.pages;
+            report.page_files += pages.files;
         }
         for store in &stores {
             if files == 0 {

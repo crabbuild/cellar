@@ -315,10 +315,9 @@ pub(super) async fn coherent() -> Result<()> {
             .log
             .cell_group(&cluster.birth.route().history)?;
         let root = cluster.voters[0].owner.as_ref().unwrap().manifest().clone();
-        let old_page = cluster._root.path().join("node-1/pages").join(format!(
-            "{}.page",
-            hex::encode(root.marker().root().digest().unwrap())
-        ));
+        let page_directory = cluster._root.path().join("node-1/pages");
+        let old_page = root.marker().root().digest().unwrap();
+        let old_page_bytes = manifest_pages::read(&page_directory, old_page)?;
         let pool = CellGroupCheckpointPool::new(limits())?;
         let mut source = pool.capture(&group, &root)?;
         let marker = root.marker().clone();
@@ -374,7 +373,11 @@ pub(super) async fn coherent() -> Result<()> {
                 store.reclaim(1024)?;
             }
         }
-        assert!(old_page.exists(), "live source must pin its manifest page");
+        assert_eq!(
+            manifest_pages::read(&page_directory, old_page)?,
+            old_page_bytes,
+            "live source must retain its authenticated page across physical relocation"
+        );
         release.send(())?;
         let (source, received) = worker.await??;
         received.verify(&marker, &leaves, &expected, rooted)?;
@@ -385,7 +388,7 @@ pub(super) async fn coherent() -> Result<()> {
         cluster.voters[0].pages.as_mut().unwrap().reclaim(1024)?;
         cluster.voters[0].pages.as_mut().unwrap().reclaim(1024)?;
         assert!(
-            !old_page.exists(),
+            manifest_pages::find(&page_directory, old_page)?.is_none(),
             "released obsolete source page can be reclaimed"
         );
         cluster.close().await?;
