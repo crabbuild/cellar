@@ -140,6 +140,51 @@ fn options(sequence: u64, durability: Durability) -> Result<CommandOptions> {
     })
 }
 
+/// Exercise every configuration even when an earlier one fails. Any failure
+/// still fails the combined case with its original error and deadline.
+pub async fn qualify(real_rustfs: bool) -> Result<()> {
+    let mut failures = Vec::new();
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            let result = async {
+                let store = if real_rustfs {
+                    Arc::new(catalog_fault::Store::around(rustfs::store(
+                        if durability == Durability::S3 {
+                            "named-bindings-s3"
+                        } else {
+                            "named-bindings-quorum"
+                        },
+                        rooted,
+                    )?))
+                } else {
+                    Arc::new(catalog_fault::Store::default())
+                };
+                Box::pin(run(rooted, durability, store)).await
+            }
+            .await;
+            match result {
+                Ok(()) => eprintln!(
+                    "named binding configuration extents={rooted} source={durability:?}: PASS"
+                ),
+                Err(error) => {
+                    let error = error.context(format!(
+                        "named binding configuration RustFS={real_rustfs} extents={rooted} source={durability:?}"
+                    ));
+                    eprintln!("named binding configuration extents={rooted} source={durability:?}: FAILED: {error:?}");
+                    failures.push(error);
+                }
+            }
+        }
+    }
+    let count = failures.len();
+    match failures.into_iter().next() {
+        Some(error) => Err(error.context(format!(
+            "{count} of 4 named binding configurations failed; all outcomes reported"
+        ))),
+        None => Ok(()),
+    }
+}
+
 pub async fn run(
     rooted: bool,
     durability: Durability,

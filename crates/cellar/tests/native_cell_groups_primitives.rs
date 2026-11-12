@@ -1696,41 +1696,11 @@ async fn rustfs_storage_reads_and_writes_exact_cell_versions() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
-    for rooted in [false, true] {
-        for durability in [Durability::Quorum, Durability::S3] {
-            Box::pin(bindings::run(
-                rooted,
-                durability,
-                Arc::new(catalog_fault::Store::default()),
-            ))
-            .await
-            .with_context(|| {
-                format!("named bindings extents={rooted} durability={durability:?}")
-            })?;
-        }
-    }
-    Ok(())
+    Box::pin(bindings::qualify(false)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_ordinary_named_cell_bindings_use_shared_group_quorum() -> Result<()> {
-    for rooted in [false, true] {
-        for durability in [Durability::Quorum, Durability::S3] {
-            let store = Arc::new(catalog_fault::Store::around(rustfs::store(
-                if durability == Durability::S3 {
-                    "named-bindings-s3"
-                } else {
-                    "named-bindings-quorum"
-                },
-                rooted,
-            )?));
-            Box::pin(bindings::run(rooted, durability, store))
-                .await
-                .with_context(|| {
-                    format!("RustFS named bindings extents={rooted} durability={durability:?}")
-                })?;
-        }
-    }
-    Ok(())
+    Box::pin(bindings::qualify(true)).await
 }
