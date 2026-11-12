@@ -74,7 +74,9 @@ pub(super) async fn exercise(
 
     // Reuse the real replacement's original eight turns, settlement and physical
     // inventory proof. A made-up non-member ID cannot satisfy this setup.
-    ranges::replace_member_for_advice(cluster, source, obsolete).await?;
+    ranges::replace_member_for_advice(cluster, source, obsolete)
+        .await
+        .context("removed-member replacement and handoff")?;
     let membership = cluster.hosts[4]
         .group(group)?
         .quorum_membership(TIMEOUT)
@@ -109,6 +111,9 @@ pub(super) async fn exercise(
         .context("still-current non-leader issuer")?;
     ensure!(voters.contains(&(issuer as u64 + 1)));
     let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
+    inspect_current(ingress, cluster.peers[leader_index].node, cut.revision())
+        .await
+        .context("current ingress trust before membership inspection")?;
     let authorization = cluster.fixtures[0]
         .catalog
         .authorize_group(&cut, &group, TIMEOUT)
@@ -120,7 +125,8 @@ pub(super) async fn exercise(
             cut.revision(),
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("current membership after replacement")?;
     ensure!(observed.membership().membership_revision() == revision);
     let configuration = observed.membership().configuration_digest();
     drop(observed);
@@ -132,7 +138,8 @@ pub(super) async fn exercise(
     .await?;
     let physical = cluster.hosts[leader_index]
         .inspect_peer_physical_inventory(cluster.peers[obsolete].node, cut.revision(), TIMEOUT)
-        .await?;
+        .await
+        .context("retired replica physical inventory")?;
     let inventory = physical
         .inventory
         .context("removed member physical inventory")?;
@@ -241,10 +248,16 @@ pub(super) async fn exercise(
         let recovered = submit(cell.clone(), command.clone(), command_request_for_web(web, caller, &command)?, Some(2)).await?;
         let receipt = cell.command(&increment, 1_i64.to_be_bytes().to_vec(), command.clone()).await?;
         let replay = cell.command(&increment, 1_i64.to_be_bytes().to_vec(), command.clone()).await?;
+        let now = u64::try_from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis())?;
+        let keys = Fixture::version_keys()?;
+        let authenticated = keys.verify_cell(&receipt.version_token, cell.history(), cluster.fixtures[0].declaration.namespace.schema_digest, now)?;
+        let replay_authenticated = keys.verify_cell(&replay.version_token, cell.history(), cluster.fixtures[0].declaration.namespace.schema_digest, now)?;
         ensure!(receipt.id == command.id && receipt.result == 2_i64.to_be_bytes() && receipt.durability == Durability::S3
             && replay.id == receipt.id && replay.result == receipt.result && replay.version == receipt.version
             && replay.witness == receipt.witness && replay.durability == receipt.durability
-            && replay.version_token == receipt.version_token && matches!(receipt.version.covers(&original.version), Ok(true))
+            && authenticated.version == receipt.version && authenticated.witness == receipt.witness
+            && replay_authenticated.version == receipt.version && replay_authenticated.witness == receipt.witness
+            && matches!(receipt.version.covers(&original.version), Ok(true))
             && callbacks.load(Ordering::Acquire) == 2);
         let current = cluster.hosts[leader_index].group(group)?.quorum_membership(TIMEOUT).await?;
         ensure!(current.status().term == term && current.status().leader == Some(current_leader)
@@ -280,6 +293,9 @@ pub(super) async fn exercise(
             "original_version":format!("{:?}",original.version),
             "replacement_token":replacement.version_token.as_str(),
             "version":format!("{:?}",receipt.version), "witness":format!("{:?}",receipt.witness), "token":receipt.version_token.as_str(),
+            "token_observation_version":format!("{:?}",authenticated.version), "token_observation_witness":format!("{:?}",authenticated.witness),
+            "replay_token":replay.version_token.as_str(), "replay_token_observation_version":format!("{:?}",replay_authenticated.version),
+            "replay_token_observation_witness":format!("{:?}",replay_authenticated.witness),
             "recovered":recovered, "term_after":current.status().term.get(), "membership_revision_after":current.membership().revision().get(),
         })] {
             let serde_json::Value::Object(fields) = chunk else { anyhow::bail!("fixed removed-member evidence object"); };

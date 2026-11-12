@@ -147,6 +147,8 @@ def removed_rows():
                        previous_membership_revision=1,membership_revision=2,membership_revision_after=2,
                        removed_replica_in_configuration=False,removed_replica_member=2,
                        term=896,term_after=896,version="exact",witness="exact",token="exact",
+                       replay_token="refreshed",token_observation_version="exact",token_observation_witness="exact",
+                       replay_token_observation_version="exact",replay_token_observation_witness="exact",
                        replacement_leader=5,replacement_served_by=5,replacement_result_be=(1).to_bytes(8,"big").hex(),
                        replacement_version="original",original_version="original",replacement_token="original-proof",
                        directory_before="ab"*32,directory_after="ab"*32,
@@ -390,5 +392,16 @@ class RemovedEvidenceTests(unittest.TestCase):
                             ("replacement_result_be","00"*8),("replacement_version","different"),
                             ("original_version","different"),("replacement_token","")):
             values=removed_rows();values[0][field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                advice_observations(removed_output(values),REMOVED)
+
+
+    def test_refreshed_tokens_keep_exact_authenticated_progress(self):
+        values=removed_rows()
+        self.assertNotEqual(values[0]["token"],values[0]["replay_token"])
+        self.assertEqual(advice_observations(removed_output(values),REMOVED),(values,6))
+        for field in ("token_observation_version","token_observation_witness",
+                      "replay_token_observation_version","replay_token_observation_witness","replay_token"):
+            values=removed_rows();values[0][field]=""
             with self.subTest(field=field),self.assertRaises(ValueError):
                 advice_observations(removed_output(values),REMOVED)

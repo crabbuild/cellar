@@ -273,8 +273,12 @@ def _removed_observations(output):
         body = bytes.fromhex(frames[0]["response"])
         if body[122:130] != body[131:139]:
             raise ValueError("removed-member reply has an unrelated status fault")
-        if any(not isinstance(row.get(key),str) or not row[key] for key in ("version","witness","token")):
-            raise ValueError("missing exact S3 receipt replay")
+        if (any(not isinstance(row.get(key),str) or not row[key] for key in ("version","witness","token","replay_token"))
+                or row.get("token_observation_version") != row["version"]
+                or row.get("token_observation_witness") != row["witness"]
+                or row.get("replay_token_observation_version") != row["version"]
+                or row.get("replay_token_observation_witness") != row["witness"]):
+            raise ValueError("missing authenticated exact S3 receipt replay")
     return rows,6
 
 def _observations(output, case):

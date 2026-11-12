@@ -288,6 +288,8 @@ member under the current committed configuration. Revoked write permission must
 prevent SQL and callback entry. One membership refresh preserves the range and
 the authenticated pre-admission non-commit proof. Restored permission reuses the
 original command identity with exact S3 receipts and one callback.
+Both replay tokens must authenticate the exact version and witness; their
+per-reply issue and expiry timestamps may differ.
 
 The ledger requires both voter sets, an advanced configuration revision, the
 removed replica's role, complete wire framing, refusal and routing counters,
