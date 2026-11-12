@@ -41,12 +41,14 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Connect autonomous named-binding intent recovery to the private target sequence
-   seal, persisted physical source origin and bounded committed-work owner. Finish
+1. Add a durable source recovery claim before target sealing, then connect
+   autonomous named-binding recovery to the private target sequence seal, physical
+   source origin and bounded committed-work owner. Finish
    authenticated remote maintenance routing and durable source lane settlement,
    then remaining shared Storage compatibility and ordinary SQL/KV bindings.
-   Quorum binding requests now pass both image forms on native storage and real
-   RustFS. Preserve exact identities, original ownership/input/policy/expiry and
+   The latest native checkpoint passes extents Quorum but fails materialized
+   Quorum and both S3 configurations. Earlier real RustFS passes retain their old
+   source. Preserve exact identities, original ownership/input/policy/expiry and
    live-continuation fences; never replay an ambiguous parent callback. S3-source
    binding requests still miss their original deadlines in both forms. Profile
    those failures without increasing budgets or repeating campaigns until green.

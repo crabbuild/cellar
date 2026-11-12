@@ -27,6 +27,58 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 private target sequence-retirement checkpoint
+
+Source `5323c59e` persists each binding intent's physical source group history
+and term and adds the private `__sys_raft_binding_seal` system operation. It
+consumes an unused contiguous child sequence without business execution,
+preserves retained complete/partial receipts and reports an expired-through
+floor separately. Ordinary lookup of a sealed/partial outcome stays unknown.
+Admission reserves both maintenance and child receipt/client slots when needed.
+The owning SQL worker refuses seals while any same-cell RPC continuation remains
+live or parked. The private operation alone adds no per-cell task or timer.
+See the [target contract](named-bindings.md#private-target-sequence-retirement).
+
+The restored checkout's locked unit/native build passes in 1,515.462 seconds.
+All five focused unit tests execute and pass: private contract/schema admission,
+policy and outer rollback, sequence consumption without business output,
+complete/partial/floor preservation, and dual receipt/client capacity. Their
+scope is the private SQLite/registration boundary; the parked-frame guard and
+Raft maintenance dispatch still need an owning runtime race case.
+The frozen unit executable SHA-256 is
+`bf2e2c0dbe1cfccab4ae9ead60174e851a213d0ad456dddc3bdc1fed1299dc25`.
+
+The existing native binding command fails in 81.753 seconds. It retains every
+configuration's original workload and five-second command deadlines:
+
+| Source request | Materialized | Extents |
+| --- | --- | --- |
+| Quorum | Failed: first parent command deadline | Pass |
+| S3 | Failed: first parent command deadline | Failed: first parent command deadline |
+
+The frozen native executable SHA-256 is
+`d32355be052ed7d8be6e190576b89476dccb464cd42701a18b0a73c01a10be45`.
+This supersedes the earlier both-image native Quorum result as the latest native
+checkpoint; the older real RustFS result retains its old source. No real RustFS
+run or complete primitive-family acceptance is claimed for this new source.
+Failed native disks, exact binaries and logs are retained in the new checkout's
+`CG-17-binding-seal-5323c59e-01` cohort.
+
+At `2f168bb4`, strict all-target Clippy passes after replacing the system
+handler's parallel identity/policy arguments with its existing validated
+`CommandRequest`. Only the two handler/caller files change after the runtime
+source; the new seal unit assertions are unchanged. These latest checks compile
+all test targets but do not execute the refactored source. Formatting, layout,
+native dependency, docs and partial catalog checks pass at the preceding
+restored checkpoint; final documentation checks retain their own records.
+The catalog stays partial at 18 entries, 202 symbols and 4,872 required coverage
+cells. Task acceptance stays 13/17 and 147/195 cases.
+
+Next implement a durable source recovery claim before target retirement, then
+bounded autonomous discovery, authenticated remote maintenance and durable source
+lane settlement. A target seal alone cannot exclude a surviving parent callback
+or release its lane. Preserve the current native deadline failures as gates.
+
 ## Local artifact availability after workspace removal
 
 On 2026-11-12, the source/build/evidence root

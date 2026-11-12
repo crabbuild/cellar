@@ -149,3 +149,10 @@ in both image forms on native storage and real RustFS. S3 source requests fail
 in both forms under the original five-second deadlines. The target namespace
 minimum in these cases is Quorum. The combined binding case remains failed;
 these results do not establish complete HTTP/RPC-family support.
+
+The later native checkpoint at `5323c59e` passes the extents Quorum configuration
+but fails materialized Quorum and both S3 configurations at the first parent
+command deadline. Five private sequence-retirement unit tests pass. Strict
+all-target Clippy passes at the subsequent handler-only refactor `2f168bb4`.
+No new real RustFS run or complete family case is accepted. See the
+[current checkpoint](progress.md#cg-17-private-target-sequence-retirement-checkpoint).

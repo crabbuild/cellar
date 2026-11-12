@@ -18,7 +18,16 @@ child and maintenance receipt/client slots. Outer failure rolls everything back.
 The SQL worker refuses seals while any same-cell RPC frame remains live/parked.
 This target maintenance operation alone does not schedule per-cell work.
 
-Next connect the bounded committed-work owner to authenticated remote target
+All five private seal unit tests pass at `5323c59e`. The native named-binding
+matrix passes only extents Quorum; materialized Quorum and both S3 forms fail the
+first parent command deadline. Keep all budgets unchanged. Strict all-target
+Clippy passes at handler-only refactor `2f168bb4`. Frozen binaries, failed native
+disks and logs are retained in the new cohort. No real RustFS run or runtime
+seal/parked-frame race is qualified at this source. See the
+[current checkpoint](progress.md#cg-17-private-target-sequence-retirement-checkpoint).
+
+Next implement a durable source recovery claim before target sealing, then
+connect the bounded committed-work owner to authenticated remote target
 maintenance and durable source settlement. The source owner must exclude the
 original live/parked continuation using the exact originating physical history
 and term; never treat expiry, receipt absence or cancellation as non-commit.
@@ -39,6 +48,48 @@ workspace target. Raw artifacts under the removed root are unavailable. Earlier
 source-pinned summaries/hashes survive in Git but do not establish current raw
 artifact retention or a fresh combined qualification. Rebuild and rerun the
 focused checks before claiming this new target boundary qualified.
+
+## Next autonomous binding-recovery delivery
+
+Deliver one complete recovery flow, rather than enabling a scheduling hint
+before its owner can settle work:
+
+1. Persist the original child input digest in the intent body so discovery reads
+   bounded metadata rather than copying business arguments. Add a private source
+   claim operation on the existing system client. It must take current physical
+   group/term authority from the executor, reject live/parked source frames, fix
+   the immutable intent and prove the original source durability before any
+   target retirement. Preserve original selection and known-refusal information.
+2. Connect committed manifest discovery and `controller/effects` to one bounded
+   claim/retire/settle turn. Include orphaned resolved intents in cleanup. Keep
+   group/cell fairness, node metadata admission and one shared timer; empty cells
+   must not gain tasks, timers or SQLite scans. Release claim response admission
+   before loopback target work needs the same SQL/archive slot.
+3. Add a bounded authenticated target maintenance request on the existing command
+   transport. Preserve explicit namespace/process command grants and revocation,
+   target birth/route/incarnation, immutable child identity/input/policy and a
+   separate maintenance timeout. Normal SDK/public ingress still refuses private
+   operations. Target-local allocation of the existing system client's sequence
+   must reconcile concurrent or uncertain maintenance, never skip a sequence or
+   retry business input. Verify and consume target proof metadata before releasing
+   its response admission and starting source settlement.
+4. Handle a never-enrolled candidate explicitly. Do not run an initializer or
+   business callback after the original expiry, retarget an unknown history, or
+   treat receipt absence as non-commit. A proposed candidate-absence shortcut
+   requires a proven durable source fence, enrollment-before-business causality
+   and a subsequent linearizable name observation; qualify that proof before
+   using it. Other missing/retired histories require their own lineage proof.
+5. Commit source settlement only for the exact claimed intent and lane serial,
+   with the original source durability. Preserve unknown parent/partial outcomes;
+   an arbitrary Rust callback never replays. Then qualify process loss before
+   target admission, after target commit and before source settlement, concurrent
+   parked frames, known refusals, candidate creation, lane exhaustion, retained
+   restart, movement and recovery with real RustFS in both image/durability modes.
+
+The latest materialized-Quorum and S3 deadline failures remain independent release
+gates. Complete SQL/KV bindings and committed alarms/cron, Queue, EventStream and
+Workflow after this recovery flow; keep the remaining provider and full lifecycle
+matrix in CG-17/15/16.
 
 ## Current archive publisher and named-binding checkpoint
 
