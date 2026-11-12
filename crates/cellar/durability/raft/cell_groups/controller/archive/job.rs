@@ -129,10 +129,7 @@ pub(super) struct Driven {
 
 /// Reuse only a still-live admitted verification. The weak index does not keep
 /// a workspace alive, and no archive-status sample can create this proof.
-pub(super) async fn retained(
-    context: &Context,
-    execution: &ControllerExecution,
-) -> Result<Option<Driven>> {
+pub(super) fn live(context: &Context) -> Result<Option<CellGroupArchiveCoverage>> {
     let candidate = {
         let mut uses = context
             .uses
@@ -143,9 +140,26 @@ pub(super) async fn retained(
             .max_by_key(|usage| usage.marker().position().index)
             .cloned()
     };
-    let Some(coverage) = candidate.and_then(|usage| usage.retain_coverage()) else {
+    Ok(candidate.and_then(|usage| usage.retain_coverage()))
+}
+
+pub(super) async fn retained(
+    context: &Context,
+    execution: &ControllerExecution,
+) -> Result<Option<Driven>> {
+    let Some(coverage) = live(context)? else {
         return Ok(None);
     };
+    verify_retained(context, execution, coverage)
+        .await
+        .map(Some)
+}
+
+pub(super) async fn verify_retained(
+    context: &Context,
+    execution: &ControllerExecution,
+    coverage: CellGroupArchiveCoverage,
+) -> Result<Driven> {
     context.authority.require_current().await?;
     let record = load(context, execution).await?;
     if record.head.as_ref() != Some(coverage.hold())
@@ -159,11 +173,11 @@ pub(super) async fn retained(
         .ok_or(Error::Invalid("retained archive without head"))?
         .marker()
         .clone();
-    Ok(Some(Driven {
+    Ok(Driven {
         coverage,
         published,
         maintenance_pending: record.retire.is_some() || !matches!(record.pending, Pending::None),
-    }))
+    })
 }
 
 async fn select(
@@ -223,6 +237,7 @@ pub(super) async fn drive(
     runtime: &CellGroupRuntime,
     execution: &ControllerExecution,
     prove_outputs: bool,
+    retained_head: Option<CellGroupArchiveCoverage>,
 ) -> Result<Driven> {
     let node = runtime.log().limits().node;
     let group = registration.birth.route().history.group;
@@ -234,6 +249,10 @@ pub(super) async fn drive(
         .map_err(CellGroupArchiveBindingError::from)?;
     let mut record = load(context, execution).await?;
     let allocation_ready = retire(context, execution, &mut record).await?;
+    // Late covered requests can retain this exact admitted verification while
+    // predecessor cleanup waits on remote I/O. Release our temporary owner
+    // before any successor needs the original physical replay admission.
+    drop(retained_head);
     if !allocation_ready && (!prove_outputs || !matches!(record.pending, Pending::None)) {
         return Err(CellGroupArchiveError::Busy.into());
     }

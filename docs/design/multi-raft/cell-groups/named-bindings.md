@@ -294,6 +294,16 @@ and previous-hold retirement debt before settling output proofs. Remote release
 of the previous hold runs as maintenance; it cannot delay an already covered
 response. Another allocation still requires that retirement, preserving the
 current-plus-retiring bound across cancellation, shutdown and retained restart.
+One node-wide proof batch can reuse an actually live admitted verification while
+publication waits on remote cleanup. The existing weak verification index retains
+no idle image; receipt identity, the journal hold and current birth still verify.
+Each batch holds at most 32 requests under their original S3 admission and
+deadlines, without allocating another physical verification. An uncovered output
+requires a newer cut; transient busy reads use the existing shared retry timer.
+Group retirement closes proof admission on the controller before joining async
+attempts and escaped physical work.
+The one temporary completed verification drops after cleanup before a new cut
+needs physical verification, preserving the original pool bounds.
 The held-retirement regression and current-source binding campaigns must pass
 before accepting this scheduling checkpoint; the existing S3 deadline gate is open.
 

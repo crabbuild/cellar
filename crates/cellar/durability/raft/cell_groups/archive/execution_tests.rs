@@ -4,6 +4,27 @@ use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[allow(clippy::disallowed_methods)]
+async fn admitted_async_proof_requires_join_before_physical_submission() {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let execution = ControllerExecution::new(domain.services().domain_token().unwrap());
+    let work = execution.retain();
+    let join = execution.join();
+    tokio::pin!(join);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(25), join.as_mut())
+            .await
+            .is_err()
+    );
+    drop(work);
+    tokio::time::timeout(std::time::Duration::from_secs(5), join)
+        .await
+        .unwrap();
+    assert!(execution.is_idle());
+    domain.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods)]
 async fn dropped_async_waiter_still_requires_physical_join() {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let execution = ControllerExecution::new(domain.services().domain_token().unwrap());

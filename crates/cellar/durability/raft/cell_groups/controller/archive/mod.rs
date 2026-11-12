@@ -265,9 +265,10 @@ struct Entry {
     stopping: bool,
     retry_at: u64,
     waiters: Vec<settlement::Request>,
+    proof_queued: bool,
 }
 
-pub(super) struct Completed {
+pub(super) struct PublicationCompleted {
     group: GroupHistory,
     context: Option<job::Context>,
     result: Result<GroupManifest>,
@@ -277,16 +278,29 @@ pub(super) struct Completed {
     coverage: Option<CellGroupArchiveCoverage>,
 }
 
+pub(super) struct ProofCompleted {
+    group: GroupHistory,
+    waiters: Vec<settlement::Request>,
+}
+
+pub(super) enum Completed {
+    Publication(PublicationCompleted),
+    Proof(ProofCompleted),
+}
+
 #[derive(Default)]
 pub(super) struct Manager {
     entries: BTreeMap<GroupHistory, Entry>,
     queue: VecDeque<GroupHistory>,
-    job: Option<BoxFuture<'static, Completed>>,
+    job: Option<BoxFuture<'static, PublicationCompleted>>,
     active_group: Option<GroupHistory>,
-    // At most one just-completed verification can cross the controller turn
-    // for requests that arrived while it was running. Never cache idle groups:
-    // the next launch drops this pin before another group's verification or an
-    // uncovered successor needs the same bounded physical replay admission.
+    proof_job: Option<BoxFuture<'static, ProofCompleted>>,
+    proof_group: Option<GroupHistory>,
+    proof_queue: VecDeque<GroupHistory>,
+    proof_retry_at: u64,
+    // Keep one completed verification through pending predecessor cleanup so
+    // covered late requests can share it. Drop it before new verification;
+    // no physical pin is cached for idle groups.
     handoff: Option<(GroupHistory, CellGroupArchiveCoverage)>,
 }
 
@@ -332,6 +346,7 @@ impl Manager {
                 stopping: false,
                 retry_at: 0,
                 waiters: Vec::new(),
+                proof_queued: false,
             },
         );
         self.queue.push_back(group);
@@ -379,6 +394,7 @@ impl Manager {
                 stopping: false,
                 retry_at: 0,
                 waiters: Vec::new(),
+                proof_queued: false,
             },
         );
         self.queue.push_back(group);
@@ -408,7 +424,7 @@ impl Manager {
             request.fail(Arc::new(Error::Runtime(RuntimeError::NotReady)));
             return;
         };
-        if entry.fatal || entry.registration.birth.route() != &request.route {
+        if entry.fatal || entry.stopping || entry.registration.birth.route() != &request.route {
             request.fail(Arc::new(Error::Invalid(
                 "S3 archive registration unavailable/changed",
             )));
@@ -420,6 +436,10 @@ impl Manager {
             entry.retry_at = 0;
         }
         entry.waiters.push(request);
+        if !entry.proof_queued {
+            entry.proof_queued = true;
+            self.proof_queue.push_back(group);
+        }
         entry.dirty = true;
         if !entry.queued {
             entry.queued = true;
@@ -428,18 +448,155 @@ impl Manager {
     }
 
     pub fn running(&self) -> bool {
-        self.job.is_some()
+        self.job.is_some() || self.proof_job.is_some()
     }
 
     pub async fn next(&mut self) -> Completed {
-        self.job.as_mut().expect("active archive job").await
+        match (self.job.as_mut(), self.proof_job.as_mut()) {
+            (Some(publication), Some(proof)) => crate::asyncrt::select! {
+                completed = publication => Completed::Publication(completed),
+                completed = proof => Completed::Proof(completed),
+            },
+            (Some(publication), None) => Completed::Publication(publication.await),
+            (None, Some(proof)) => Completed::Proof(proof.await),
+            (None, None) => unreachable!("active archive work"),
+        }
+    }
+
+    fn launch_proof(&mut self, now: u64) {
+        if self.proof_job.is_some() || now < self.proof_retry_at {
+            return;
+        }
+        for _ in 0..self.proof_queue.len() {
+            let group = self.proof_queue.pop_front().expect("archive proof queue");
+            let entry = self.entries.get_mut(&group).expect("archive proof owner");
+            entry.proof_queued = false;
+            settlement::prune(&mut entry.waiters, now);
+            if entry.waiters.is_empty() || entry.fatal || entry.stopping {
+                continue;
+            }
+            let coverage = entry.context.as_ref().map(job::live).transpose();
+            let coverage = match coverage {
+                Ok(Some(Some(coverage))) => coverage,
+                Ok(_) => {
+                    entry.proof_queued = true;
+                    self.proof_queue.push_back(group);
+                    continue;
+                }
+                Err(error) => {
+                    let error = Arc::new(error);
+                    for request in entry.waiters.drain(..) {
+                        request.fail(error.clone());
+                    }
+                    continue;
+                }
+            };
+            let mut selected = Vec::new();
+            let mut waiting = Vec::new();
+            for request in entry.waiters.drain(..) {
+                if selected.len() < 32 && request.may_reuse(coverage.marker().position().index) {
+                    selected.push(request);
+                } else {
+                    waiting.push(request);
+                }
+            }
+            entry.waiters = waiting;
+            if !entry.waiters.is_empty() {
+                entry.proof_queued = true;
+                self.proof_queue.push_back(group);
+            }
+            if selected.is_empty() {
+                continue;
+            }
+            let context = entry.context.clone().expect("live archive context");
+            let registration = entry.registration.clone();
+            let execution = entry.execution.clone();
+            // One node-wide batch reuses an already admitted physical cut. It
+            // does not allocate verification capacity or wait behind remote
+            // predecessor cleanup on the publication lane. Retain its joined
+            // ownership before the controller can observe group retirement.
+            let work = execution.retain();
+            self.proof_group = Some(group);
+            self.proof_job = Some(Box::pin(async move {
+                let _work = work;
+                let mut waiters = selected;
+                let result = std::panic::AssertUnwindSafe(async {
+                    let retained = job::verify_retained(&context, &execution, coverage).await?;
+                    waiters = settlement::prove(
+                        std::mem::take(&mut waiters),
+                        &context,
+                        &registration,
+                        &retained.coverage,
+                        &execution,
+                    )
+                    .await;
+                    Ok::<_, Error>(())
+                })
+                .catch_unwind()
+                .await
+                .unwrap_or(Err(Error::Invalid("archive proof job panicked")));
+                if let Err(error) = result {
+                    if !retryable(&error) {
+                        let error = Arc::new(error);
+                        for request in waiters.drain(..) {
+                            request.fail(error.clone());
+                        }
+                    }
+                }
+                ProofCompleted { group, waiters }
+            }));
+            break;
+        }
+    }
+
+    fn complete_proof(
+        &mut self,
+        completed: ProofCompleted,
+        shared: &Shared,
+        now: u64,
+        closing: bool,
+    ) {
+        self.proof_job = None;
+        self.proof_group = None;
+        let entry = self
+            .entries
+            .get_mut(&completed.group)
+            .expect("completed archive proof owner");
+        if closing || entry.stopping || entry.fatal {
+            for request in completed.waiters {
+                request.fail(Arc::new(Error::Stopped));
+            }
+            return;
+        }
+        let uncovered = !completed.waiters.is_empty();
+        entry.waiters.extend(completed.waiters);
+        settlement::prune(&mut entry.waiters, now);
+        if !entry.waiters.is_empty() {
+            entry.dirty = true;
+            if !entry.queued {
+                entry.queued = true;
+                self.queue.push_back(completed.group);
+            }
+            if !entry.proof_queued {
+                entry.proof_queued = true;
+                self.proof_queue.push_back(completed.group);
+            }
+        }
+        // Busy reads may retry the same cut, but never spin independently of
+        // the existing shared controller timer. Uncovered outputs remember the
+        // cut they inspected and require a newer one for another proof batch.
+        self.proof_retry_at = if uncovered {
+            now.saturating_add(shared.limits.retry_interval_ms)
+        } else {
+            now
+        };
     }
 
     pub fn launch(&mut self, runtime: &CellGroupRuntime, shared: &Shared, now: u64) {
-        if self.running() {
+        self.launch_proof(now);
+        if self.job.is_some() {
             return;
         }
-        let handoff = self.handoff.take();
         for _ in 0..self.queue.len() {
             let group = self.queue.pop_front().expect("archive roster queue");
             let entry = self.entries.get_mut(&group).expect("archive roster entry");
@@ -470,7 +627,9 @@ impl Manager {
             // node's potentially larger total command admission.
             let count = entry.waiters.len().min(32);
             let mut waiters = entry.waiters.drain(..count).collect();
-            let handoff = handoff
+            let handoff = self
+                .handoff
+                .take()
                 .filter(|(selected, _)| *selected == group)
                 .map(|(_, coverage)| coverage);
             tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
@@ -504,7 +663,6 @@ impl Manager {
                     } else {
                         None
                     };
-                    drop(handoff);
                     if let Some(retained) = retained {
                         confirm_coverage(&runtime, group, &retained.coverage)?;
                         tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
@@ -532,6 +690,7 @@ impl Manager {
                         &runtime,
                         &execution,
                         !waiters.is_empty(),
+                        handoff,
                     )
                     .await?;
                     maintenance_pending = driven.maintenance_pending;
@@ -563,7 +722,7 @@ impl Manager {
                     .status(group)
                     .await
                     .map(|status| status.applied.index);
-                Completed {
+                PublicationCompleted {
                     group,
                     context,
                     result,
@@ -578,6 +737,21 @@ impl Manager {
     }
 
     pub fn complete(&mut self, completed: Completed, shared: &Shared, now: u64, closing: bool) {
+        match completed {
+            Completed::Publication(completed) => {
+                self.complete_publication(completed, shared, now, closing)
+            }
+            Completed::Proof(completed) => self.complete_proof(completed, shared, now, closing),
+        }
+    }
+
+    fn complete_publication(
+        &mut self,
+        completed: PublicationCompleted,
+        shared: &Shared,
+        now: u64,
+        closing: bool,
+    ) {
         self.job = None;
         self.active_group = None;
         self.handoff = None;
@@ -647,11 +821,15 @@ impl Manager {
             }
         } else if !entry.waiters.is_empty() {
             entry.dirty = true;
-            if !closing && unexamined_waiters {
-                self.handoff = completed
-                    .coverage
-                    .map(|coverage| (completed.group, coverage));
-            }
+        }
+        if !closing && !entry.fatal && (unexamined_waiters || completed.maintenance_pending) {
+            self.handoff = completed
+                .coverage
+                .map(|coverage| (completed.group, coverage));
+        }
+        if !entry.waiters.is_empty() && !entry.proof_queued {
+            entry.proof_queued = true;
+            self.proof_queue.push_back(completed.group);
         }
         if entry.dirty
             && !entry.fatal
@@ -695,6 +873,7 @@ impl Manager {
             entry.stopping = true;
         }
         if self.active_group == Some(group)
+            || self.proof_group == Some(group)
             || self
                 .entries
                 .get(&group)
@@ -703,6 +882,7 @@ impl Manager {
             return false;
         }
         self.queue.retain(|queued| *queued != group);
+        self.proof_queue.retain(|queued| *queued != group);
         if let Some(mut entry) = self.entries.remove(&group) {
             for request in entry.waiters.drain(..) {
                 request.fail(Arc::new(Error::Stopped));
@@ -725,9 +905,28 @@ impl Manager {
 
     pub async fn finish(&mut self, shared: &Shared) {
         self.handoff = None;
-        if let Some(job) = self.job.take() {
-            let completed = job.await;
-            self.complete(completed, shared, 0, true);
+        let publication = self.job.take();
+        let proof = self.proof_job.take();
+        let (publication, proof) = futures_util::future::join(
+            async {
+                match publication {
+                    Some(job) => Some(job.await),
+                    None => None,
+                }
+            },
+            async {
+                match proof {
+                    Some(job) => Some(job.await),
+                    None => None,
+                }
+            },
+        )
+        .await;
+        if let Some(completed) = publication {
+            self.complete_publication(completed, shared, 0, true);
+        }
+        if let Some(completed) = proof {
+            self.complete_proof(completed, shared, 0, true);
         }
         for entry in self.entries.values_mut() {
             entry.execution.join().await;

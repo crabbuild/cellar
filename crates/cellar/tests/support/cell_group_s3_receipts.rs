@@ -178,7 +178,30 @@ pub(crate) async fn s3_response_precedes_hold_retirement(
             .context("archive allocations")?
             .is_empty());
         let published = gate.publication_index.load(Ordering::Acquire);
+        let version = response.observation().version;
         drop(response);
+        // This request arrives after cleanup has entered the remote CAS. It
+        // must share the live cut even with the publication lane still blocked.
+        let mut lookup = h
+            .lookup(
+                h.receipt_request(1, b"published-before-cleanup", Durability::S3)?,
+                Duration::from_secs(5),
+            )
+            .await?;
+        let retained = lookup
+            .execute(
+                &h.fixture.runtimes[0],
+                &h.fixture.appliers[&(0, h.route.history)].0,
+                h.fixture.cell_options(&h.cell).await?,
+            )
+            .await?;
+        assert_eq!(retained.durability(), Durability::S3);
+        assert_eq!(retained.observation().version, version);
+        assert_eq!(
+            retained.receipt().context("covered late receipt")?.result(),
+            b"published-before-cleanup"
+        );
+        drop((retained, lookup));
         let newer = h
             .command(
                 2,
