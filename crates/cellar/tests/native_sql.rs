@@ -394,7 +394,14 @@ async fn operator(runtime: &RuntimeManager, bytes: Vec<u8>) -> Result<HttpRespon
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn raft_sql_service_refuses_fleet_activation() -> Result<()> {
-    cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
+    let domain = cellar::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(run_raft_sql_fence()).await;
+    domain.shutdown().await;
+    result??;
+    Ok(())
+}
+
+async fn run_raft_sql_fence() -> Result<()> {
     let application = Registry::new(|context, _| {
         Box::pin(async move {
             let error = context

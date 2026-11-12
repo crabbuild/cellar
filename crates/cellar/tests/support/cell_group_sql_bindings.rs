@@ -172,14 +172,41 @@ async fn database_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
         host.activate_managed_initial_group(authorization.clone(), TIMEOUT)
             .await?;
     }
-    let cut = fixture.catalog.read(TIMEOUT).await?;
-    for host in &cluster.hosts {
-        for voter in &cluster.fixtures {
-            managed_fixture::inspect_current(host, voter.spec.node, cut.revision()).await?;
-        }
-    }
+    grant_bindings(cluster).await?;
     managed_fixture::leader(&cluster.hosts, history).await?;
     Ok(history)
+}
+
+async fn grant_bindings(cluster: &ManagedCluster) -> Result<()> {
+    let fixture = &cluster.fixtures[0];
+    let cut = fixture.catalog.read(TIMEOUT).await?;
+    for (index, host) in cluster.hosts.iter().enumerate() {
+        for (peer_index, peer) in cluster.peers.iter().enumerate() {
+            managed_fixture::inspect_current(host, peer.node, cut.revision()).await?;
+            if index == peer_index {
+                continue;
+            }
+            // Explicit trusted namespace permissions, separate from RF3
+            // membership. Refresh only after verifying this boot's endpoints.
+            for declaration in
+                std::iter::once(&fixture.declaration).chain(&fixture.additional_namespaces)
+            {
+                host.grant_query_origin(NamespaceQueryOrigin {
+                    cluster: declaration.namespace.cluster,
+                    namespace: declaration.namespace.namespace,
+                    revision: 1,
+                    peer: peer.clone(),
+                })?;
+                host.grant_command_origin(NamespaceCommandOrigin {
+                    cluster: declaration.namespace.cluster,
+                    namespace: declaration.namespace.namespace,
+                    revision: 1,
+                    peer: peer.clone(),
+                })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
@@ -213,6 +240,7 @@ async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
         cluster.hosts.push(host);
         cluster.peers.push(peer);
     }
+    grant_bindings(cluster).await?;
     Ok(())
 }
 
@@ -246,6 +274,23 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         let sql_group = database_group(&cluster).await?;
         let group = cluster.history;
         let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+        let sql_leader = managed_fixture::leader(&cluster.hosts, sql_group).await?;
+        let target = (leader + 1) % 3;
+        if sql_leader != target {
+            let handle = cluster.hosts[sql_leader].group(sql_group)?;
+            let status = handle.replication_status(TIMEOUT).await?;
+            handle.transfer_leadership(LeadershipTransfer {
+                target: MemberId::new(target as u64 + 1)?,
+                expected_term: status.term,
+                expected_revision: status.membership_revision,
+            }, TIMEOUT).await?;
+        }
+        cellar::asyncrt::timeout(TIMEOUT, async {
+            while managed_fixture::leader(&cluster.hosts, sql_group).await? != target {
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        }).await??;
         let namespace = cellar_native::cell_id::Namespace::new("Counter", format!("cells:v1:{}:{SCRIPT}:Counter", SCRIPT.len()));
         let source = cluster.hosts[leader].cell(CellHistory { cluster: group.cluster, namespace: group.namespace, cell: CellId::new(namespace.id_from_name("source").scope())?, incarnation: IncarnationId::new([185; 16])? })?;
         source.enroll(CellEnrollmentRequest { creation: ProposalId::new([186; 16])?, durability: Durability::Quorum }, TIMEOUT).await?;
