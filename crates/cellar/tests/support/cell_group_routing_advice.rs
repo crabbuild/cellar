@@ -514,14 +514,15 @@ async fn exercise(
                 ensure!(after[0] > before[0] && after[4] > before[4]);
                 let callbacks_refused = callbacks.load(Ordering::Acquire);
                 let stages_refused = authority::sql_stages(cluster)?;
+                let rejected_refused = counter(ingress, "cell_command_pre_admission_refusals")?;
                 ensure!(callbacks_refused == entered && stages_refused == stages);
                 let authenticated = !matches!(fault, Fault::ForeignCluster | Fault::ForeignNamespace | Fault::ForeignGroup | Fault::ForeignIncarnation | Fault::WrongProcess | Fault::WrongExporter);
                 if authenticated {
-                    ensure!(counter(ingress, "cell_command_pre_admission_refusals")? > rejected);
+                    ensure!(rejected_refused > rejected);
                     if matches!(fault, Fault::Configuration | Fault::NonMember) { ensure!(after[3] > before[3]); }
                     if matches!(fault, Fault::LowerTerm | Fault::ConflictingTerm) { ensure!(after[1] > before[1]); }
                 } else {
-                    ensure!(counter(ingress, "cell_command_pre_admission_refusals")? == rejected && failure["ambiguous"] == true);
+                    ensure!(rejected_refused == rejected && failure["ambiguous"] == true);
                 }
                 for (index, host) in cluster.managed.hosts[..INGRESS].iter().enumerate() {
                     if index != issuer {
@@ -548,10 +549,10 @@ async fn exercise(
                     "routing_before": before, "routing_after_refusal": after,
                     "callbacks_before": entered, "callbacks_after_refusal": callbacks_refused, "callbacks_after_replay": callbacks.load(Ordering::Acquire),
                     "sql_stages_before": stages, "sql_stages_after_refusal": stages_refused, "sql_stages_after_replay": authority::sql_stages(cluster)?,
-                    "proven_rejections_before": rejected, "proven_rejections_after_refusal": counter(ingress, "cell_command_pre_admission_refusals")?,
+                    "proven_rejections_before": rejected, "proven_rejections_after_refusal": rejected_refused,
                     "required_durability": "S3", "achieved_durability": format!("{:?}", replay.durability),
                     "result_be": hex::encode(&replay.result), "membership_revision": current.membership_revision.get(),
-                    "configuration_digest": hex::encode(membership.membership().configuration_digest()), "term_unchanged": true,
+                    "configuration_digest": hex::encode(membership.membership().configuration_digest()), "term_unchanged": current.status.term == stable.status.term,
                     "receipt": {"version": format!("{:?}", replay.version), "witness": format!("{:?}", replay.witness), "token": replay.version_token.as_str()},
                     "recovered": recovered,
                 }));
