@@ -427,7 +427,9 @@ pub(crate) async fn follower_acquires_published_prefix(
             .deny_generation_writes
             .store(true, Ordering::Release);
         let peer = CellGroupArchiveRegistration {
-            publisher: CellGroupArchivePublisher::GroupLeader,
+            publisher: CellGroupArchivePublisher::GroupLeader {
+                retry_interval_ms: 100,
+            },
             store: archive_controller::verifier(&h.fixture, &h.route, rooted, "follower-prefix")
                 .await?,
             ..h.archive.clone()

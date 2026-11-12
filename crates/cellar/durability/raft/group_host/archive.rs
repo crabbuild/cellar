@@ -104,7 +104,9 @@ impl Pools {
                 .await??;
             controller
                 .archive(CellGroupArchiveRegistration {
-                    publisher: CellGroupArchivePublisher::GroupLeader,
+                    publisher: CellGroupArchivePublisher::GroupLeader {
+                        retry_interval_ms: 100,
+                    },
                     directory: namespace.directory.clone(),
                     birth: assignment.birth.clone(),
                     io: self.io.clone(),
