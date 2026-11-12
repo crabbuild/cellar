@@ -1989,3 +1989,93 @@ endpoint/startup failures, followed by latest-source constrained Linux,
 standby/replacement, authority and reclamation cuts, placement/fairness and the
 complete primitive/backend/performance matrix. Full CG-13, CG-17 and OPT-01
 through OPT-08 remain open.
+
+## S3 output contracts after routing and verification reuse
+
+Qualification source `8eca02f3`, committed as `2010c5c5`, strengthens three
+existing S3 scenarios. Production behavior is unchanged; the production Rust
+diff corrects the public remote-command documentation. The previous failures
+exposed test assumptions that predated admitted verification reuse, authenticated
+rejection before admission and local destination-manifest routing.
+
+The enrollment probe observed a successful duplicate with the same creation
+record, S3 durability, two retained outputs and one physical verifier. The
+scenario now denies new immutable writes while the duplicate shares that proof.
+Dropping the first response must leave its final consumer's verifier charged.
+An uncovered successor executes its callback but cannot receive S3 output until
+that final consumer drops. Original initialization, creation-conflict, namespace
+minimum, callback-count and joined-close checks remain in place.
+
+The unbound remote probe observed authenticated `UnsupportedCapability`, no
+callback or initializer, zero retained owners and `ambiguous=false`. The scenario
+now checks this precise non-commit result and its opposite boundary. One original
+invocation is rejected, retried through a bound gateway, then loses its response
+waiter after SQL retires while S3 output is pending. After physical completion,
+the same invocation receives another authenticated pre-admission rejection.
+It must preserve its earlier uncertainty, original command identity, captured
+inputs, 15-second deadline and four-attempt bank. Only one callback runs. The
+fixture rebinds the gateway while retaining its existing TLS router; this is
+client waiter cancellation, not process restart or a claimed network-loss cut.
+
+The outage probe observed selected-destination Quorum success with zero receiver
+catalog reads while the direct backend probe failed. The scenario now checks a
+separate cold ingress: its actual catalog read must fail before transmission or
+callback execution. The selected receiver still uses its active local manifest
+and current execution authority. Its successful remote command counts within
+the original six-callback load at the unchanged nine-entry ceiling. The local
+client's next sequence is consequently six. S3 wait/refusal, stored minimum,
+checkpoint and admission assertions remain, and replay retains the original
+remote invocation instead of running another callback.
+
+The full ordinary native campaign **passed**: controller **20 passed, zero
+failed, 23 ignored**; archive protocol **32 passed, zero failed, seven ignored**.
+Strict library/affected-test Clippy, formatting (2,215 files), layout, dependency,
+documentation and patch checks passed. Source inputs stayed frozen. Rust 1.98.1
+was explicitly selected and its embedded compiler hash checked in both retained
+executables. The first build failed with an unstable incremental fingerprint
+compiler panic before any runtime checks. Its record and twelve affected
+checkout-private incremental directories remain retained. A fresh-state repeat
+passed with the same compiler/profile settings; no compiler fix is claimed.
+Earlier fixture attempts also remain retained: recreating an existing router
+refused storage creation, and a new command at sequence two correctly refused
+its sequence gap. The final counterexample uses the original invocation.
+
+The default **23-case RustFS campaign failed** in its first selected case,
+`rustfs_quorum_continues_bounded_s3_outage`. Seven signed capability probes and
+inventory validation passed. Materialized mode reached an actual container stop,
+restart and archive recovery, then command client `[188; 16]`, sequence **6**,
+requested Quorum durability and returned ambiguous `Runtime(DeadlineExceeded)`.
+This is the post-ceiling command after recovery, with its original 15-second
+request window. The selected test process took 26.8 seconds. The runner restored
+the same backend container; its pinned image and one-CPU/2-GiB/no-extra-swap
+limits remained unchanged. Extents and the remaining default cases were not
+reached. The original command outcome remains unknown; later observations or a
+new fixture cannot turn this failed campaign into a pass.
+
+Two independent exact RustFS cases then **passed** on the same retained native
+executable and source, in a separate fresh bucket/prefix with seven signed probes:
+`rustfs_s3_enrollment_requires_the_original_archived_creation` (7.003 seconds)
+and `rustfs_s3_remote_outputs_preserve_durability_and_creation` (10.908 seconds).
+Both exercise materialized and extent modes. These scoped passes verify the
+stronger ownership and uncertainty checks through the actual S3 client; they do
+not accept the failed default campaign. Voters remain host-native RF3 TLS tasks,
+with RustFS inside the owned Colima VM. Earlier intermittent deadline and
+slow-delivery failures did not recur in the passing native campaign, but their
+causes are not established.
+
+Records, executable/source hashes, logs and remote object scopes are retained in
+`s3-output-contract-native`,
+`s3-output-contract-native-fresh-incremental`,
+`rustfs-s3-output-contract-8eca02f` and
+`rustfs-s3-independent-ownership-8eca02f`. The targeted enrollment, unbound and
+outage probes also remain under their `s3-*-probe` qualification directories.
+
+The base branch advanced independently to `74591226` with parked read-cursor
+image lifetime fixes. It has been fetched but is not integrated into this
+checkpoint, which still builds on `447c35e7`. Integration and combined-source
+qualification remain required. The new Quorum recovery timeout, occupancy-128
+cost, distinct endpoint/startup failures, latest-source constrained voters,
+standby/replacement, authority and held-owner reclamation cuts, placement/fairness
+and the full primitive/backend/performance matrix remain open. The latest Linux
+daemon evidence is still source `46eca779` / image `ef0024789e9f`. This checkpoint
+accepts no complete CG-13, CG-17 or OPT-01 through OPT-08 package.
