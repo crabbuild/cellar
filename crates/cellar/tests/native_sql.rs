@@ -395,10 +395,40 @@ async fn operator(runtime: &RuntimeManager, bytes: Vec<u8>) -> Result<HttpRespon
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn raft_sql_service_refuses_fleet_activation() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
-    let application = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
+    let application = Registry::new(|context, _| {
+        Box::pin(async move {
+            let error = context
+                .sql("DB")?
+                .prepare("SELECT 1")
+                .all(&context)
+                .await
+                .err()
+                .ok_or_else(|| anyhow!("stateless SQL used Fleet egress"))?;
+            assert!(error.to_string().contains("WrongMode"), "{error}");
+            let error = context
+                .fetch_cell(
+                    cellar::engine_api::sql_cell_scope(IDENTITY),
+                    Some(IDENTITY.into()),
+                    cellar::application::Request {
+                        url: "http://cell/".into(),
+                        method: "GET".into(),
+                        headers: vec![],
+                        body: Vec::new().into(),
+                        entrypoint: None,
+                    },
+                )
+                .await
+                .err()
+                .ok_or_else(|| anyhow!("Raft SQL used Fleet HTTP egress"))?;
+            assert!(error.to_string().contains("WrongMode"), "{error:#}");
+            Ok(response("fenced"))
+        })
+    })
+    .raft_cell(
         cellar::sdk::RaftClass::new("Caller", 1, [81; 32])?.json_cell_rpc("Tick", [82; 32])?,
         |_, _| Err(anyhow!("Fleet must not construct a Raft cell")),
     )?;
+    cellar::application::Application::validate_deployment(&application, &graph().primary)?;
     let generation = Generation::build_native(
         1,
         graph(),
@@ -424,6 +454,13 @@ async fn raft_sql_service_refuses_fleet_activation() -> Result<()> {
             bucket: None,
         },
     )?;
+    assert_eq!(
+        runtime
+            .fetch_worker("http://worker/".into(), "GET".into(), vec![], vec![])
+            .await?
+            .body,
+        b"fenced"
+    );
     let scope = cellar::engine_api::sql_cell_scope(IDENTITY);
     open(&runtime, &scope).await?;
     let result = runtime

@@ -624,6 +624,9 @@ impl Application for Registry {
 
 #[derive(Default)]
 pub(crate) struct EventState {
+    /// Immutable source declaration, including stateless native invocations.
+    /// Global SQL identities can resolve to another co-hosted script.
+    pub(crate) raft_sql: bool,
     pub background: Mutex<Vec<HandlerFuture<()>>>,
     pub(crate) blocks: concurrency::Blocks,
     // Keep framework cleanup behind the requesting event and its reply proof.
