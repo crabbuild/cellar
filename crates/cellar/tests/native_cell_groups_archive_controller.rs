@@ -21,10 +21,6 @@ mod runtime_fixture;
 #[path = "support/cell_group_rustfs.rs"]
 mod rustfs;
 
-#[path = "support/cell_group_archive_intents.rs"]
-mod archive_intents;
-use archive_intents::persist_archive_intent;
-
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
