@@ -775,7 +775,7 @@ impl RaftClass {
         Ok(self)
     }
 
-    pub(in crate::application) fn has_cell_factory(&self) -> bool {
+    pub(crate) fn has_cell_factory(&self) -> bool {
         self.cell_factory.is_some()
     }
 
