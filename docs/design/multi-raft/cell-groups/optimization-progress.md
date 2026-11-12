@@ -2728,18 +2728,35 @@ reqwest client construction, native certificate loading and file open. This
 establishes an unnecessary certificate-store I/O dependency for HTTP. It does
 not establish why the original, uninstrumented standby calls timed out.
 
-The next candidate disables built-in certificate acquisition for HTTP management
+The follow-up disables built-in certificate acquisition for HTTP management
 URLs and retains it for HTTPS. Redirect refusal remains in force. Three actual
 CLI regressions cover the blocked certificate source, explicit HTTPS native-root
-trust and rejection of an untrusted HTTPS server. This candidate still requires
-compilation and execution. The separate test-only source `35cc0f95`, digest
+trust and rejection of an untrusted HTTPS server. The separate test-only source
+`35cc0f95`, digest
 `76ec66fe`, passes its native faulty-wire advice case in 87.586 seconds. Its
 independently checked 60 rows cover ten advice/authentication faults across SDK,
 native HTTP and Axum in both image forms, with no SQL entry during refusal and
 once-only S3 replay under the original command identity. Its strict all-target
 Clippy check fails because the new responder uses the forbidden Tokio select
 macro. The follow-up switches both new fixtures to Cellar's fair polling macro;
-the failed lint record remains failed and that source needs another runtime and
-strict-check pass. Removed-member, untrusted-certificate and superseded-boot
+the failed lint record remains failed.
+
+The combined checkpoint `89ad604c`, source digest `ec6f482f`, passes its complete
+selected native campaign with frozen inputs. All six CLI cases pass in 17.576
+seconds, including the three certificate controls. Faulty-wire advice passes in
+80.740 seconds, with 60 independently checked observations covering all ten
+faults, three ingress paths and both image forms. Entered-source expiry passes in
+14.331 seconds with all six profiles independently checked; preferences and the
+fresh-barrier cohort pass in 27.787 and 28.276 seconds. These are ten test cases,
+not 60 separate test functions. Strict core/logic all-target Clippy and all seven
+other static/source checks pass. Retained executable hashes, compiler identity,
+native profile-1 settings, source inputs and evidence ledgers are recorded under
+`qualification/cli-http-roots-fair-advice` in this checkout's target directory.
+The original five-second deadlines, assertions and resource limits are retained.
+This scoped pass does not explain or replace the earlier startup failures and
+does not qualify a later base integration, current-source RustFS/Linux or
+controlled performance.
+
+Removed-member, untrusted-certificate and superseded-boot
 coverage remains open. The preceding RustFS/Linux results remain tied to
 their exact revisions; no full RO-03, CG-13, CG-17 or OPT package is accepted.
