@@ -73,12 +73,16 @@ before its owner can settle work:
    must reconcile concurrent or uncertain maintenance, never skip a sequence or
    retry business input. Verify and consume target proof metadata before releasing
    its response admission and starting source settlement.
-4. Handle a never-enrolled candidate explicitly. Do not run an initializer or
-   business callback after the original expiry, retarget an unknown history, or
-   treat receipt absence as non-commit. A proposed candidate-absence shortcut
-   requires a proven durable source fence, enrollment-before-business causality
-   and a subsequent linearizable name observation; qualify that proof before
-   using it. Other missing/retired histories require their own lineage proof.
+4. Handle a never-enrolled candidate through an explicit recovery-enrollment
+   contract. Define whether the durable source intent authorizes completion of
+   its exact original creation/initialization before sealing, with independent
+   maintenance admission; qualify that authorization before enabling it. The
+   expired business RPC input never dispatches. A conflicting creator needs a
+   proof that the original candidate cannot admit the old child, not retargeting
+   of unknown business work. Receipt/name absence and a source term change alone
+   do not exclude a delayed isolated sender. An absence shortcut needs a stronger
+   permanent dispatch fence and enrollment-before-business causality. Other
+   missing/retired histories require their own lineage proof.
 5. Commit source settlement only for the exact claimed intent and lane serial,
    with the original source durability. Preserve unknown parent/partial outcomes;
    an arbitrary Rust callback never replays. Then qualify process loss before
