@@ -175,7 +175,6 @@ fn manifest_updates_only_changed_path() -> Result<()> {
         assert_eq!(images::read(&pin)?, bytes);
         let value = leaf(id, &pin, 1, u64::from(id));
         faults.events.lock().unwrap().clear();
-        let written = pages.usage().written_pages;
         root = tree.update(&mut pages, root, value.clone(), None)?;
         let events = faults.events.lock().unwrap();
         assert_eq!(events.last(), Some(&"directory-sync"));
@@ -190,9 +189,9 @@ fn manifest_updates_only_changed_path() -> Result<()> {
             events
                 .iter()
                 .filter(|event| **event == "image-sync")
-                .count() as u64,
-            pages.usage().written_pages - written,
-            "each new AVL page needs its own file barrier before the directory barrier"
+                .count(),
+            1,
+            "one immutable manifest update must share one file barrier"
         );
         drop(events);
         cells.insert(value.version.history.cell.clone(), (value, pin));
