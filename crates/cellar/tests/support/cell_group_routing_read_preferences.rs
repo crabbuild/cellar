@@ -8,6 +8,13 @@ use std::sync::atomic::AtomicU64;
 #[path = "cell_group_routing_read_preference_faults.rs"]
 mod faults;
 
+#[path = "cell_group_routing_read_expiry.rs"]
+mod expiry;
+
+pub(super) async fn recent_source_expiry_keeps_physical_image() -> Result<()> {
+    Box::pin(expiry::run()).await
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Ingress {
     Sdk,

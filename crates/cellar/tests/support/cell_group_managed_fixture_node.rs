@@ -37,6 +37,8 @@ pub struct Fixture {
     pub sql_workers: usize,
     pub max_pending_transactions: usize,
     pub max_input_bytes: usize,
+    /// An explicit, shorter source-observation lifetime for expiry drills.
+    pub stale_source_timeout_ms: Option<u64>,
     pub small_segments: bool,
     pub settle_periodic_purges: bool,
     pub image_bytes: u64,
@@ -163,6 +165,7 @@ impl Fixture {
             sql_workers: 2,
             max_pending_transactions: 32,
             max_input_bytes: 1024,
+            stale_source_timeout_ms: None,
             small_segments: false,
             settle_periodic_purges: false,
             image_bytes: 256 * 1024 * 1024,
@@ -243,6 +246,9 @@ impl Fixture {
             effects: self.effects,
             ..Default::default()
         };
+        if let Some(timeout) = self.stale_source_timeout_ms {
+            host.stale_source_timeout_ms = timeout;
+        }
         // Keep two group reservations plus the attested existing usage inside
         // the fixture's unchanged 1-GiB platform budget. Tests can explicitly
         // restore the oversized image profile to qualify its capacity refusal.

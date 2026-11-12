@@ -181,6 +181,10 @@ pub(super) async fn read_preferences_preserve_proof() -> Result<()> {
     Box::pin(read_preferences::run()).await
 }
 
+pub(super) async fn recent_source_expiry_keeps_physical_image() -> Result<()> {
+    Box::pin(read_preferences::recent_source_expiry_keeps_physical_image()).await
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Scenario {
     Direct,

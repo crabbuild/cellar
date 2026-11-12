@@ -70,6 +70,11 @@ async fn read_preferences_preserve_proof() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn recent_source_expiry_keeps_physical_image() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::recent_source_expiry_keeps_physical_image()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn split_repairs_only_overlap() -> anyhow::Result<()> {
     Box::pin(managed_fixture::requests::split_repairs_only_overlap()).await
 }

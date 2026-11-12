@@ -85,6 +85,10 @@ pub async fn leader_probe_storm_is_bounded() -> Result<()> {
     optimization::leader_probe_storm_is_bounded().await
 }
 
+pub async fn recent_source_expiry_keeps_physical_image() -> Result<()> {
+    optimization::recent_source_expiry_keeps_physical_image().await
+}
+
 pub async fn split_repairs_only_overlap() -> Result<()> {
     optimization::split_repairs_only_overlap().await
 }

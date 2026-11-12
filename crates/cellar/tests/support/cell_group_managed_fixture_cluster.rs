@@ -60,6 +60,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         sql_workers: f.sql_workers,
         max_pending_transactions: f.max_pending_transactions,
         max_input_bytes: f.max_input_bytes,
+        stale_source_timeout_ms: f.stale_source_timeout_ms,
         small_segments: f.small_segments,
         settle_periodic_purges: false,
         image_bytes: f.image_bytes,

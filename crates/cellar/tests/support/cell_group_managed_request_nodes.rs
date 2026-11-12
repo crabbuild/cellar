@@ -38,7 +38,7 @@ fn read_definition(
 impl Cluster {
     pub async fn start(rooted: bool, store: Arc<fault::Store>) -> Result<Self> {
         Box::pin(Self::start_configured(
-            rooted, store, None, true, None, None,
+            rooted, store, None, true, None, None, None,
         ))
         .await
     }
@@ -57,6 +57,27 @@ impl Cluster {
             true,
             Some(filesystem),
             Some(on_query),
+            None,
+        ))
+        .await
+    }
+
+    pub async fn start_with_source_age(
+        rooted: bool,
+        store: Arc<fault::Store>,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        on_command: Arc<dyn Fn() + Send + Sync>,
+        on_query: QueryObserver,
+        source_age: Duration,
+    ) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            rooted,
+            store,
+            Some(on_command),
+            true,
+            Some(filesystem),
+            Some(on_query),
+            Some(u64::try_from(source_age.as_millis())?),
         ))
         .await
     }
@@ -71,6 +92,7 @@ impl Cluster {
             store,
             Some(on_command),
             true,
+            None,
             None,
             None,
         ))
@@ -89,6 +111,7 @@ impl Cluster {
             false,
             None,
             None,
+            None,
         ))
         .await
     }
@@ -100,9 +123,11 @@ impl Cluster {
         install_router: bool,
         first_filesystem: Option<Arc<dyn cellar_ltx::FileSystem>>,
         on_query: Option<QueryObserver>,
+        stale_source_timeout_ms: Option<u64>,
     ) -> Result<Self> {
         let class = read_definition(on_command.clone(), on_query.clone())?;
         let mut first = Fixture::with_store(rooted, class, store).await?;
+        first.stale_source_timeout_ms = stale_source_timeout_ms;
         if let Some(filesystem) = first_filesystem {
             first.filesystem = filesystem;
             first.host_store = Some(Arc::new(fault::Store::around(first.store.clone())));

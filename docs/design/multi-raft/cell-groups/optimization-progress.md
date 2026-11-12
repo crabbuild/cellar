@@ -2559,3 +2559,86 @@ pass. The follow-up uses the existing `cellar::note!` output helper. This failed
 Clippy record remains failed, and the queued broader native campaign records
 `NOT_RUN_PARENT_FAILED`; it performs no runtime tests. The corrected output needs
 its own full storage/52-row and all-target checks before that broader campaign.
+
+## Packed manifest native qualification and backend follow-up
+
+At `6b883dd0`, frozen source `3c86d6fa`, the complete owning storage suite
+passes all 22 cases and its retained driver verifies all 52 distinct process-kill
+boundaries, 26 per image mode. The two directly ignored harness children are
+launched by their parent cases. Runtime is 20.839 seconds after a 10.029-second
+build. Strict core/logic all-target Clippy, format, layout, native dependency
+boundaries, documentation, 44 design tests, 120 tooling tests (one optional skip)
+and patch checks pass on the same frozen inputs. No lint or assertion is weakened.
+
+The broader native profile-1 campaign builds and retains seven executables in
+954.663 seconds, independently verifying executable hashes, the pinned Rust
+1.98.1 compiler, original assertion/overflow settings and unchanged source.
+All 389 selected cases pass: 126 component cases, five ordinary snapshot cases,
+193 ordinary execution cases, 24 ordinary archive-controller cases, 32 ordinary
+archive-protocol cases, eight ordinary primitive cases and the original
+occupancy-128 diagnostic. Both named-binding cases retain all four required
+image/source-durability profiles; archive fairness retains both image profiles.
+Ignored real-backend entries do not become native coverage.
+
+The original occupancy-128 case completes in 92.055 seconds, including its
+commands, follower reads, exact receipts, archives and joined close. Enrollment
+of the 129-cell population completes in 27.445 seconds within its unchanged
+60-second budget. Its observations and post-close encoded pack inventory are
+retained with the actual live process, source and executable binding. Earlier
+failed occupancy-128 runs remain failed. Another checkout's compiler is active
+at the start of this run; neither this single functional pass nor its difference
+from an earlier failure establishes a controlled speedup. Repeated equivalent
+workload measurements at occupancies 1/8/32/64/128 remain required.
+
+The first current-source real RustFS campaign fails after six passing archive
+cases. Its remote-deadline case returns before the required enrollment S3-wait
+state is observed, with the original 800 ms invocation deadline. The remaining
+18 archive cases are not run. The separate two-case binding campaign passes
+interrupted recovery with all four profiles, but ordinary bindings fail in the
+materialized/S3-source profile at command sequence three with an ambiguous
+`Runtime(DeadlineExceeded)`; its other three profiles pass. These are failures,
+not a complete 25-plus-two backend pass.
+
+Three independent fresh-namespace reproductions of the remote-deadline case
+then pass on the exact same retained executable and original limits, in 31.318,
+34.122 and 37.092 seconds, while the actual matching Linux builder remains live.
+They do not reproduce the failure or establish its cause. The full standard
+25-case archive and two-case binding suites are queued to repeat after the
+owned Linux build and focused reproductions actually finish, with original
+failures preserved and external host compiler activity observed separately.
+Matching constrained Linux execution requires those complete backend suites to
+pass. A successful image build alone supplies no runtime evidence.
+
+The repeat after the owned build finishes passes the previously failing remote
+deadline case, then fails in `rustfs_s3_remote_slow_delivery_retains_proofs_and_bounds`
+with an unlocalized elapsed deadline after 41.21 seconds. Seven archive cases
+pass; 17 are not run. That full archive campaign remains failed. Both named-binding
+cases pass on this repeat in 160.546 seconds, each with all four required profiles
+and the exact retained native executable. This does not erase the first ordinary
+binding failure. Matching Linux image
+`sha256:8ce943291bdcdc8e21bd8b3ec8c99f5b440dedcc324c516ed2713a314d8f6bcb`
+builds under the original parent limits; both queued runtime pipelines record
+`NOT_RUN_PREREQUISITE_FAILED` because their full archive prerequisite fails.
+
+Three fresh-namespace slow-delivery reproductions, with Rust/anyhow backtraces
+enabled and the owned build finished, pass in 68.859, 61.793 and 57.878 seconds.
+They use the unchanged source and executable, original wire deadlines and S3
+envelope, and the standard runner's signed backend checks. The failure remains
+unlocalized; these focused passes do not replace the failed full archive suite.
+
+A subsequent public test candidate adds
+`recent_source_expiry_keeps_physical_image` through SDK, native HTTP and Axum in
+both image modes. It configures a 500 ms source-observation lifetime within the
+original five-second invocation and callback bounds. One selected follower's
+actual SQL callback holds its immutable image; the invocation must refuse with
+`VersionUnavailable` before its outer deadline, retain its read pin and ordinary
+admission after refusal, and release them only after physical SQL exits. A new
+S3 command and fresh source read verify the subsequent image under the same term,
+without a ReadIndex barrier or historical fallback. This candidate still needs
+compilation and execution; no new runtime acceptance is claimed for it.
+
+Public wire-authority and ambiguous-response cuts, physical-owner and repeated
+movement/settlement qualification, broader fairness and placement measurements,
+failed-voter replacement/all-disk-loss, full SDK/provider compatibility and the
+single-source release matrix remain open. These checkpoints accept no complete
+CG-13, CG-17 or OPT-01 through OPT-08 package.
