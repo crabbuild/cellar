@@ -182,7 +182,9 @@ async fn database_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
     let directory = intent_root.clone();
     fixture
         .domain
-        .blocking(move || cellar_ltx::create_dir_all_durable(filesystem.as_ref(), &directory))?
+        .blocking(move || {
+            cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &directory)
+        })?
         .await??;
     managed_fixture::archives::initialize(&database_fixture, &adapter, history, &intent_root)
         .await?;
