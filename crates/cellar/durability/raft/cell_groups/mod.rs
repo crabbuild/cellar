@@ -46,12 +46,12 @@ pub(crate) use controller::PartitionGroupPage;
 pub(crate) use controller::{ArchiveSeedClient, ArchiveSeedDescriptor};
 pub use controller::{
     CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,
-    CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
-    CellGroupArchiveStatus, CellGroupCheckpointPolicy, CellGroupController,
-    CellGroupControllerError, CellGroupControllerLimits, CellGroupControllerUsage,
-    CellGroupEffectRegistration, CellGroupProvisionCall, CellGroupProvisionLimits,
-    CellGroupProvisionNamespace, CellGroupProvisioning, CellGroupRegistration,
-    CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
+    CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchivePublisher,
+    CellGroupArchiveRegistration, CellGroupArchiveStatus, CellGroupCheckpointPolicy,
+    CellGroupController, CellGroupControllerError, CellGroupControllerLimits,
+    CellGroupControllerUsage, CellGroupEffectRegistration, CellGroupProvisionCall,
+    CellGroupProvisionLimits, CellGroupProvisionNamespace, CellGroupProvisioning,
+    CellGroupRegistration, CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
 };
 pub(crate) use controller::{RetiredSource, S3Client, S3OutputProof};
 mod disaster;

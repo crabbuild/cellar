@@ -307,13 +307,40 @@ pub(super) async fn drive(
         if !allocation_ready {
             return Err(CellGroupArchiveError::Busy.into());
         }
-        // Another voter may have published this exact applied manifest while
-        // our publication was in flight. Pin and independently verify its cut
-        // before settling any receipts or granting local reclamation.
+        // One group leader produces new cuts. Followers independently acquire
+        // published prefixes instead of recapturing every applied update. This
+        // role sample only schedules work: birth fencing, journal reconciliation
+        // and physical verification remain the archive authority. In particular,
+        // an already journaled upload still reconciles after role loss.
+        let publishing = registration.publisher == CellGroupArchivePublisher::LocalReplica
+            || runtime
+                .observe(registration.birth.route().history)
+                .await
+                .map_err(Error::Runtime)?
+                .role
+                == crate::application::consensus::RaftReplicaRole::Leader;
         record.pending = match context.registry.prepare_acquire(execution).await {
-            Ok(intent) if intent.acquire_marker()? == &current => Pending::Acquire(intent),
-            Ok(_) | Err(CellGroupArchiveError::Unconfirmed) => {
+            Ok(intent) => {
+                let selected = intent.acquire_marker()?;
+                let newer_prefix = !publishing
+                    && selected.route() == current.route()
+                    && selected.position().index < current.position().index
+                    && record.head.as_ref().is_none_or(|head| {
+                        selected.position().index > head.marker().position().index
+                    });
+                if selected == &current || newer_prefix {
+                    Pending::Acquire(intent)
+                } else if publishing {
+                    Pending::Reserve(context.registry.prepare_upload(execution).await?)
+                } else {
+                    return Err(CellGroupArchiveError::Busy.into());
+                }
+            }
+            Err(CellGroupArchiveError::Unconfirmed) if publishing => {
                 Pending::Reserve(context.registry.prepare_upload(execution).await?)
+            }
+            Err(CellGroupArchiveError::Unconfirmed) => {
+                return Err(CellGroupArchiveError::Busy.into());
             }
             Err(error) => return Err(error.into()),
         };

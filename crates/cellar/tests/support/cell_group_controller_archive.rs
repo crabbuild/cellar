@@ -171,6 +171,7 @@ async fn registration_for(
     .await?;
     Ok((
         CellGroupArchiveRegistration {
+            publisher: CellGroupArchivePublisher::LocalReplica,
             directory,
             birth,
             io,

@@ -77,12 +77,25 @@ impl From<crate::asyncrt::DomainClosed> for CellGroupArchiveControlError {
 type Error = CellGroupArchiveControlError;
 type Result<T> = std::result::Result<T, Error>;
 
+/// Selects who produces new cuts; existing journal intents always reconcile.
+/// This scheduling choice grants no serving or archive authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellGroupArchivePublisher {
+    /// Managed groups configure archiving on every leader-eligible voter.
+    /// Followers independently acquire and verify published prefixes.
+    GroupLeader,
+    /// An explicitly registered archiver publishes regardless of Raft role.
+    /// Use when only a selected replica owns archive publication.
+    LocalReplica,
+}
+
 /// Share all admission pools across this node's registrations. The binding must
 /// already be initialized in the namespace catalog. The controller owns and
 /// closes the private verifier store after joining archive work. Use fresh stores
 /// on restart. No application callback is needed for background publication.
 #[derive(Clone)]
 pub struct CellGroupArchiveRegistration {
+    pub publisher: CellGroupArchivePublisher,
     pub directory: RangeDirectory,
     pub birth: CellGroupBirth,
     pub io: CellGroupArchivePool,

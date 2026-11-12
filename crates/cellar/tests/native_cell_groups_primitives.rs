@@ -1734,3 +1734,21 @@ async fn rustfs_ordinary_named_cell_bindings_use_shared_group_quorum() -> Result
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "temporary focused archive stage timing"]
+async fn diagnose_named_binding_s3_archive_stages() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::group_archive=debug")
+        .with_timer(tracing_subscriber::fmt::time::Uptime::default())
+        .with_ansi(false)
+        .with_test_writer()
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("diagnostic subscriber: {error}"))?;
+    Box::pin(bindings::run(
+        false,
+        Durability::S3,
+        Arc::new(catalog_fault::Store::default()),
+    ))
+    .await
+}

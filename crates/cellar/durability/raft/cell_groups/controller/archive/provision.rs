@@ -102,6 +102,7 @@ impl Provisioning {
             .map_err(|_| CellGroupControllerError::Closed)?
             .map_err(|e| CellGroupControllerError::Apply(Arc::new(e)))?;
         Ok(CellGroupArchiveRegistration {
+            publisher: CellGroupArchivePublisher::GroupLeader,
             directory: directory.clone(),
             birth: birth.clone(),
             io: self.io.clone(),

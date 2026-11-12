@@ -12,8 +12,8 @@ pub(crate) use archive::Provisioning as CellGroupArchiveProvisioning;
 pub(crate) use archive::{ArchiveSeedClient, ArchiveSeedDescriptor};
 mod calls;
 pub use archive::{
-    CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
-    CellGroupArchiveStatus,
+    CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchivePublisher,
+    CellGroupArchiveRegistration, CellGroupArchiveStatus,
 };
 mod checkpoints;
 pub use checkpoints::CellGroupCheckpointPolicy;
