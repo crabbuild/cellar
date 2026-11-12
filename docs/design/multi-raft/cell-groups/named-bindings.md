@@ -126,11 +126,13 @@ command into the controller-owned invocation, including unresolved producers.
 Dropping its response waiter does not release that ticket. Reply limits and the
 original cancellation/deadline remain enforced.
 
-Qualification of this ownership change is pending, including the optimized first-access path. The owning receipt tests use
-a one-client ceiling; the public SQL drill lowers its ceiling to four and races
-identical first-access SQL requests. SQL-specific recovery, sustained-load and
-full SQL-family acceptance remain open, alongside the previous current-source
-binding recovery failures.
+At `b233dfbb`, the owning receipt test reuses one client floor across 32 commands
+under a one-client ceiling. The public native/RustFS SQL drill passes all four
+image/backend configurations with its ceiling lowered to four. Identical racing
+inserts remain distinct, and retained restart preserves sequence continuity.
+Original deadlines and production quotas remain unchanged. This is a component
+checkpoint; SQL-specific recovery, sustained load and full SQL-family acceptance
+remain open. See the [qualification record](progress.md#cg-17-bounded-stateless-sql-ownership).
 
 ## Source intent and target proof
 

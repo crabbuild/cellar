@@ -81,10 +81,14 @@
         "crates/cellar/application/sql/ingress.rs",
         "crates/cellar/application/consensus/native_services.rs",
         "crates/cellar/application/consensus/group_client/sql_ingress.rs",
-        "crates/cellar/durability/raft/cell_groups/host/bindings.rs"
+        "crates/cellar/durability/raft/cell_groups/host/bindings.rs",
+        "crates/cellar/application/consensus/sql_ingress_identity.rs",
+        "crates/cellar/application/consensus/native_rpc.rs",
+        "crates/cellar/application/consensus/class.rs"
       ],
       "schemas": [
-        "Target SQLite and migration history"
+        "Target SQLite and migration history",
+        "Bounded ingress client floor and nonce-bearing request fingerprints"
       ],
       "bindings": [
         "Named SQL database"
@@ -96,7 +100,7 @@
         "native",
         "axum"
       ],
-      "permission": "Declared canonical database identity and explicit target namespace command origin",
+      "permission": "Declared canonical database identity; explicit remote target query/command origins",
       "proof": "Target namespace minimum durability; SQL reads also execute as commands",
       "ordering": "Session bookmarks and atomic target batches",
       "recovery": "Restore target database and session/history bounds",

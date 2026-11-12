@@ -41,25 +41,21 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Fix current-source interrupted-binding recovery: it passes 5/8, with two
-   RustFS S3 deadline failures and one RustFS Quorum extents retained-restart
-   clean-stop failure. Preserve original deadlines, stop assertions and failed
-   disks. Then complete bounded stateless SQL ingress identity ownership, ordinary
-   outbound RPC admission/accounting, direct operator/CLI HTTP and the full SQL
-   recovery matrix, then KV expiry/alarm/payload support.
-   At `5a36ca8d`, normal SQL calls from stateless native HTTP and Raft cells pass
-   all four native/RustFS materialized/extents configurations, including competing
-   first creators, rollback, retained restart, remote leaders and quorum refusal.
-   Each stateless call still allocates a fresh client identity; permanent floors
-   will exhaust the configured limit. Resolve that blocker while preserving
-   original quotas, retry identities and sequence fences before sustained load.
-   The generic interrupted-binding failures remain release blockers alongside
-   SQL-specific interruption, movement, wake, archive outage and disaster coverage.
-   No full primitive family is accepted. See the
-   [current SQL checkpoint](progress.md#cg-17-stateless-native-sql-ingress).
-   Keep the separate ordinary S3-source deadline gate open: the retained
-   `2aca4c6b` cohort passed 5/8 ordinary binding configurations and was not rerun
-   in this feature cohort. Preserve budgets, quotas and all failed controls.
+1. Fix the RustFS materialized S3 recovery deadline: `Again` at parent sequence 4
+   still returns ambiguous `DeadlineExceeded` after the original obligation clears.
+   Preserve the failed disks and original budgets. Then finish SQL operator/CLI
+   and Axum integration and the SQL-specific recovery matrix, followed by KV
+   revision conditions, expiry, durable alarms and payloads.
+   At `b233dfbb`, bounded stateless SQL identities pass all four native/RustFS image
+   configurations under a four-client ceiling, including identical concurrent
+   first access, retained restart, exact errors and quorum refusal. One durable
+   stream replaces per-call permanent client floors; ordinary outbound admission
+   transfers with admitted SQL business commands. No production quota or deadline
+   increases. See the [ownership checkpoint](progress.md#cg-17-bounded-stateless-sql-ownership).
+   Interrupted binding recovery passes 7/8 at this source. Keep all earlier
+   deadline/clean-stop failures and the separate ordinary S3-source deadline gate
+   open: its retained `2aca4c6b` cohort passed 5/8 and was not rerun here.
+   Complete primitive-family and combined release qualification remain required.
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.
