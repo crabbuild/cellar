@@ -3600,3 +3600,73 @@ waiting; it does not establish the complete cause or repair of the four-call
 failure. The failed native campaign and hosted recovery jobs remain failed.
 RustFS/Colima/Linux, 128-cell enrollment, shutdown, historical evidence and all
 remaining CG/OPT acceptance gates remain open. No merge is performed.
+
+## Bounded stateless SQL ingress FIFO follow-up
+
+At compiler input `e716fb93`, active stateless SQL callers to the same logical
+cluster, namespace and cell share a node-local FIFO before reading the next
+command sequence. Candidate incarnation hints share that FIFO but grant no
+authority. Each waiter retains its existing metadata admission; the weak
+registry removes the entry when its final caller leaves. There is no idle
+per-cell owner or task. The original absolute deadline and cancellation cover
+the wait, and fresh-quorum sequence queries, exact consumed-other conflict
+proofs and ambiguous mutation outcomes remain unchanged.
+
+The locked Rust 1.98.1 build, formatting, layout and focused strict Clippy pass.
+All three ingress-lane unit tests and all six existing SQL progress admission
+tests pass. Ten exact existing frontend contract cases pass: native/Axum SQL
+and KV, interrupted SQL recovery, extent progress after SQL errors, source-proof
+refusal, cross-deployment Queue faults, the original twenty-second chained KV
+deadline and the original 65-second Queue callback. Frozen executables and
+unchanged compiler-input guards bind these results to `e716fb93`.
+
+The original two-call Queue load passes both images in 77.796 seconds. The
+first full four-call run fails in 75.761 seconds: the materialized image delivers
+all 528 unique messages, then the extent image returns an ambiguous ingress
+deadline at sequence 22. Failure counters record peak four, two failed producers
+and zero active calls after joining. An uninstrumented repeat of the same full
+two-image four-call case passes in 78.888 seconds, with 528 unique messages and
+measured peak four in each image. These are mixed same-source results; the
+repeat does not erase the failure or establish stable four-call progress.
+Both workloads retain their original deadlines, message counts and resource
+bounds. These native runs use the in-memory object store, not real RustFS.
+
+Two extent-only diagnostic runs pass, including one with the leader moved to a
+different node before load. They retain separate diagnostic scope and do not
+replace the original two-image selection. Bounded snapshots observe SQL
+preparation, persistence and publication work; they establish neither a single
+remaining bottleneck nor a performance improvement. All temporary probes and
+fixture changes are removed before publication.
+
+Final pre-publication review also corrects concurrent lane destruction: each
+caller releases its strong gate reference while still holding the registry
+lock. Otherwise two destructors can both count the other's remaining field
+and leave an idle weak entry. A concurrent-drop regression checks complete
+registry and admission release. The `e716fb93` results above predate this cleanup
+correction and retain their original compiler-input identity.
+
+At final compiler input `73c80371`, the locked build, formatting, layout,
+focused strict Clippy, all four ingress-lane tests and all six existing SQL
+progress admission tests pass. This includes paired concurrent final drops
+across 4,096 distinct targets. The final Queue rerun stops at its activity
+precheck after observing a compiler in a different checkout; no Queue case
+executes. Its harness record remains failed, with no new runtime result. The
+earlier frontend contracts and mixed load results remain bound to `e716fb93`;
+the final cleanup correction does not acquire broader qualification from them.
+
+Hosted [workflow 43489533616](https://github.com/crabbuild/cellar/actions/runs/43489533616)
+tests published parent `7f900435`, which excludes this ingress FIFO. Native
+3.14 fails three of eight ordinary disaster cases at extent seal authorization.
+Native 3.14t fails the original multi-occupancy enrollment control at 87 of 128
+cells and a separate rooted 32-cell control at 30 cells. Their leaders close
+while SQL workers remain live with one prepared enrollment retained. A dedicated
+128-cell diagnostic passes separately; that result does not qualify the failed
+matrix. A stale enrollment observation is a hypothesis requiring a controlled
+regression, not an implemented fix. Python 3.14t separately fails owner recovery
+at its original 250-ms handler budget. Python 3.14 and all three filesystem
+release application jobs pass; both aggregate framework gates fail.
+
+The prior broad native failures, Linux recovery and shutdown failures, current
+RustFS/Colima qualification, full occupancy/performance matrix and remaining
+CG/OPT gates stay open. The owned backend remains stopped. This follow-up is a
+bounded local fairness change, not full Queue or multi-Raft acceptance.

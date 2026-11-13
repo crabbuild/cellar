@@ -192,3 +192,37 @@ runtime deadline. Its failure counters confirm peak four, two failed producers
 and zero active calls after joining their results. The extent image has no
 result. FIFO admission therefore does not close the four-call progress gap;
 the regression remains failed and real RustFS qualification remains pending.
+
+The next bounded candidate, compiler input `e716fb93`, also serializes active
+stateless SQL callers per logical target on each node before sequence lookup.
+Each waiter retains existing metadata credit, and the original deadline covers
+its FIFO wait. The registry retains no idle cell owner. Remote contenders still
+require the exact consumed-other proof before selecting another sequence; lost
+responses retain ambiguous mutation outcomes. Three new FIFO/cancellation
+tests, six existing progress-admission tests and ten existing frontend contract
+cases pass, including the original chained KV and long Queue callback controls.
+
+The original two-call Queue case passes both images in 77.796 seconds. The
+first full four-call case fails in 75.761 seconds after its materialized image
+delivers all 528 unique messages: the extent image returns an ambiguous ingress
+deadline at sequence 22. Its measured peak is four, with two failed producers
+and zero active calls after joining. An uninstrumented same-source repeat
+passes both images in 78.888 seconds, delivering 528 unique messages per image
+with measured peak four. Both attempts keep the original limits and deadlines.
+The failed attempt remains failed; these mixed results do not qualify stable
+four-call progress. Separate extent-only diagnostic passes have narrower scope.
+
+These new runs use the native in-memory object store with archive-adapter fault
+injection. Current-source real RustFS, Colima/Linux voters, cold first-use S3
+and the full CG-17 matrix remain unqualified. See the
+[ingress FIFO checkpoint](optimization-progress.md#bounded-stateless-sql-ingress-fifo-follow-up)
+for source guards, component validation and the separate hosted CI failures.
+
+Final input `73c80371` corrects concurrent registry cleanup by releasing each
+strong gate owner under the registry lock. All four ingress-lane tests,
+including concurrent final drops across 4,096 targets, and six existing SQL
+progress admission tests pass, along with the locked build and focused strict
+Clippy. The final Queue rerun refuses at its activity precheck because another
+checkout is compiling. No Queue case executes and the harness record stays
+failed. The `e716fb93` runtime results retain their original source identity;
+the cleanup correction remains without a new full Queue runtime result.

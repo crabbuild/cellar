@@ -209,8 +209,17 @@ impl RaftCells {
                 retry_until_ms,
                 input,
                 deadline,
-                _memory,
+                memory,
             ) = prepared?;
+            // Local contenders must not repeatedly overtake a caller after
+            // consuming its observed sequence. The retained metadata admission
+            // bounds this waiter; the original deadline includes its FIFO wait.
+            // Other nodes still require the exact consumed-other proof below.
+            let lane = owner
+                .handle
+                .core
+                .sql_ingress_lanes
+                .enter(&candidate, memory)?;
             let selected = Mutex::new(None);
             let command = Mutex::new(None);
             let submitted = std::sync::atomic::AtomicBool::new(false);
@@ -225,6 +234,9 @@ impl RaftCells {
                 ))
             };
             let operation = async {
+                let _turn = lane.lock().await;
+                owner.check_open()?;
+                remaining()?;
                 // A local applied history is only a locator. The sequence query
                 // and command still require the exact target's fresh quorum.
                 let (history, newly_enrolled) = if let Some(history) = history_hint {
