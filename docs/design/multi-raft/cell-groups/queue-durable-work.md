@@ -112,23 +112,28 @@ timeouts preserve an unknown mutation outcome rather than replaying the command.
 
 ## Qualification and remaining scope
 
-The owning RF3 drill is `ordinary_queue_callbacks_use_shared_quorum`; the real
-backend selection is `rustfs_ordinary_queue_callbacks_use_shared_quorum` in
-`native_cell_groups_primitives`. Both materialized and extent images are selected.
-The scenario exercises public native/Axum ingress, the actual Queue CLI, declared producer bindings,
-acknowledgement, retry, dead letters, authenticated controls, an injected archive
-write outage, retained restart without a new producer request, leader transfer,
-exact original request replay and quorum-loss refusal. Kernel unit tests cover
-generation replacement, expired attempts and rollback. At `efd9c4c9`, the native
-and Axum RustFS cases pass in both image modes (**4/4**), including the actual
-captured CLI and direct stateless public refusal after quorum loss. The existing
-Fleet Queue regression and focused strict Clippy pass. See the
-[source-pinned results](progress.md#cg-17-durable-callbacks-and-queue-mvp).
+At `a5f65e79`, the canonical `queue-primitives` suite passes all six exact
+real-RustFS selections in both image modes (**12/12 configurations**). It covers
+native/Axum public producers and the captured CLI, separate deployment schemas,
+ack/retry/DLQ delivery, retained restart, lost inter-group S3-DLQ completion,
+late consumers, active purge, retention replay, leader transfer, quorum refusal,
+a 65-second handler and bounded concurrent load. Eleven focused unit/ownership
+checks, the Fleet Queue regression and strict library/all-test Clippy pass.
+See the [source-pinned results](progress.md#cg-17-queue-cross-deployment-and-bounded-load-qualification).
 
-These selections do not complete CG-17 or its independent coverage matrix.
-EventStream, Workflow, cron and the other framework work reasons still require
-their own callback adapters. Cross-deployment Queue consumer catalogs, longer consumer execution, deployment
-removal, lost DLQ replies across groups, active-delivery purge, retention and
-clock-discontinuity faults, all-voter-disk-loss recovery and independent
-Linux voter resource/load qualification remain separate gates. A real RustFS
-backend with host-native RF3 voters is not an independent-host resilience result.
+The load profile has four producers but at most two requests in flight, with
+one per Queue and one SQL worker per node. Each image delivers 16 messages during
+archive PUT refusal and 512 under steady load. Batch enqueue p99 is 1198/1330 ms
+for materialized/extents. This is the qualified envelope, with original request
+budgets. Earlier four-in-flight and cold first-use S3 controls remain failed;
+those envelopes were not rerun on the passing source. Expanded fault scenarios
+observe archive readiness before S3-DLQ preparation. The backend is real RustFS;
+archive refusal is injected at its PUT adapter, and voters share a native process.
+
+Full CG-17 and its independent API/scenario/configuration matrix remain open.
+Queue `max_concurrency` remains a ceiling; this shared owner runs one retained
+callback per broker at a time on each node. Clock/deployment changes, movement,
+wake, all-voter disk loss, full-size payloads and independent Linux voters/load
+need qualification. EventStream, Workflow, cron and other work reasons still
+need their own adapters. Delivery remains at least once, with application inbox
+or external-provider idempotency at the documented business boundary.

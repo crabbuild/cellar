@@ -84,12 +84,15 @@ existing recovery and release dependencies rather than removing those gates.
    See the [binding checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
    Preserve all failed controls. These basic passes do not complete a primitive
    family or its independent recovery and release matrix.
-2. Build on the [qualified callback and Queue MVP](queue-durable-work.md):
-   native/Axum real RustFS and captured CLI pass **4/4** at `efd9c4c9`. Complete
-   Queue cross-deployment, longer-callback and fault/retention/movement gates;
-   connect alarms/cron, EventStream/outbox/inbox and Workflow adapters to the same
-   shared owner. Pending work must
-   resume after retained restart, movement and wake without client traffic.
+2. Build on the [qualified callback and Queue implementation](queue-durable-work.md):
+   at `a5f65e79`, real RustFS passes **12/12** configurations across separate
+   deployments, native/Axum SDK/CLI, lost DLQ replies, stale handlers, purge,
+   retention replay, 65-second callbacks and bounded load. The load envelope is
+   four producers/two in-flight requests; cold S3 first use and higher concurrency
+   remain open alongside full-size payload, clock, deployment-change,
+   movement/wake, disk-loss and independent Linux gates. Connect alarms/cron,
+   EventStream/outbox/inbox and Workflow to the same shared owner. Pending work
+   must resume after retained restart, movement and wake without client traffic.
 3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
    container/provider adapters with their documented publication, execution and
    recovery boundaries. Include stateless/ephemeral and optional-adapter regressions.
