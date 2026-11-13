@@ -594,7 +594,12 @@ impl CellCommandInvocation {
                 .as_ref()
                 .ok_or(CellDispatchError::Invalid("missing origin"))?,
         );
-        let outcome = if self.system {
+        let outcome = if self.system
+            && !self
+                .dispatcher
+                .class
+                .is_cell_rpc(&self.request.contract.operation)
+        {
             sql.stage_system_owned(
                 options,
                 authority,
@@ -720,7 +725,12 @@ impl CellCommandInvocation {
         if authority.route() != &origin.route {
             return Err(CellDispatchError::Invalid("origin route binding"));
         }
-        let outcome = if self.system {
+        let outcome = if self.system
+            && !self
+                .dispatcher
+                .class
+                .is_cell_rpc(&self.request.contract.operation)
+        {
             origin
                 .sql
                 .stage_system_owned(

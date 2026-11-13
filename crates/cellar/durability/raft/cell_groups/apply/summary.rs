@@ -34,7 +34,9 @@ pub(super) fn read(
         }
         Ok((count, earliest))
     };
-    let (_, next_alarm_unix_millis) = scan("__sys_raft_alarms", "due")?;
+    let (_, alarm) = scan("__sys_raft_alarms", "due")?;
+    let (_, callback) = scan("__sys_raft_native_work", "due")?;
+    let next_alarm_unix_millis = alarm.into_iter().chain(callback).min();
     let (pending_outbox, _) = scan("__sys_raft_outbox", "next_at")?;
     let (calls, next_call_unix_millis) = scan("__sys_raft_binding_intents", "next_at")?;
     let pending_calls = if calls == 0 {

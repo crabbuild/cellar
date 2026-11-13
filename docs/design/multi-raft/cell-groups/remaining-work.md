@@ -52,8 +52,9 @@ existing recovery and release dependencies rather than removing those gates.
    See the [current checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
    Preserve all failed controls. These basic passes do not complete a primitive
    family or its independent recovery and release matrix.
-2. Connect committed due-work discovery and fenced settlement to ordinary
-   alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
+2. Qualify the [durable callback and Queue candidate](queue-durable-work.md),
+   then connect the remaining alarms/cron, EventStream/outbox/inbox and Workflow
+   adapters to the shared owner. Pending work must
    resume after retained restart, movement and wake without client traffic.
 3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
    container/provider adapters with their documented publication, execution and

@@ -51,6 +51,16 @@ CASES = (
 )
 
 SUITES = {
+    "queue-primitives": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_queue_callbacks_use_shared_quorum",),
+        "ordinary Queue producer/callback/settlement through shared RF3 with real RustFS",
+        "Both image modes, one SQL worker per node, native public ingress, declared bindings, "
+        "ack/retry/dead-letter delivery, authenticated Queue operator controls, exact producer replay, "
+        "archive-write refusal, joined retained restart and autonomous interrupted-consumer recovery, "
+        "leader transfer and quorum-loss refusal. Voters share the host process; complete CG-17 "
+        "conformance, cross-deployment catalogs, Linux voter limits, load and disk-loss recovery remain separate gates.",
+    ),
     "ordinary-primitives": (
         "native_cell_groups_primitives",
         (
@@ -666,7 +676,7 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle") and result.returncode == 0:
+            if args.suite in ("managed-ingress", "managed-lifecycle", "queue-primitives") and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")

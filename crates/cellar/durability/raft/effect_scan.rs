@@ -15,6 +15,7 @@ mod tests;
 
 pub(crate) enum DueEffect {
     Alarm(alarm::DueAlarm),
+    Work(crate::application::consensus::native_work::Work),
     Binding(Box<crate::storage::raft_binding_recovery::Pending>),
     Delivery {
         selected: outbox::Selected,
@@ -27,6 +28,7 @@ impl DueEffect {
     pub fn minimum(&self) -> Result<Durability> {
         match self {
             Self::Alarm(due) => Ok(due.minimum),
+            Self::Work(_) => Ok(Durability::Quorum),
             Self::Binding(pending) => pending.minimum(),
             Self::Delivery { minimum, .. } => Ok(*minimum),
         }
@@ -35,6 +37,10 @@ impl DueEffect {
     pub fn command(&self) -> Result<(String, Vec<u8>)> {
         Ok(match self {
             Self::Alarm(due) => (due.operation.clone(), due.input.clone()),
+            Self::Work(work) => (
+                crate::application::consensus::native_work::OPERATION.into(),
+                serde_json::to_vec(work)?,
+            ),
             Self::Binding(pending) => (
                 crate::storage::raft_binding_recovery::CLAIM.into(),
                 serde_json::to_vec(&pending.key)?,
@@ -57,7 +63,7 @@ fn scan_connection(
     scope: &cellar_logic::cell_group::CellHistory,
     class: &RaftClass,
     now: u64,
-    prefer_delivery: bool,
+    previous: Option<&str>,
     reservation: Permit,
 ) -> Result<EffectScan> {
     let next = next_command(connection, scope)?;
@@ -77,7 +83,22 @@ fn scan_connection(
         )
     };
     let alarm = || -> Result<Option<DueEffect>> {
-        Ok(alarm::due(connection, class, now)?.map(DueEffect::Alarm))
+        let native = if class
+            .system_contract(crate::application::consensus::native_work::OPERATION)
+            .is_some()
+        {
+            crate::application::consensus::native_work::due(connection, now)?.map(DueEffect::Work)
+        } else {
+            None
+        };
+        let compiled = alarm::due(connection, class, now)?.map(DueEffect::Alarm);
+        Ok(
+            if previous == Some(crate::application::consensus::native_work::OPERATION) {
+                compiled.or(native)
+            } else {
+                native.or(compiled)
+            },
+        )
     };
     let binding = || -> Result<Option<DueEffect>> {
         if !class.has_binding_maintenance() {
@@ -92,7 +113,10 @@ fn scan_connection(
     // Alternate existing work with binding recovery. A hot binding lane cannot
     // indefinitely starve alarms/outbox work in the same cell.
     let previous_binding:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_raft_receipts r JOIN __sys_raft_clients c ON r.client_id=c.client_id AND r.sequence=c.last_sequence WHERE c.client_id=?1 AND r.operation IN('__sys_raft_binding_claim','__sys_raft_binding_settle'))",[client.bytes().as_slice()],|row|row.get(0))?;
-    let other = if prefer_delivery {
+    let other = if previous.is_some_and(|operation| {
+        operation.starts_with("__sys_raft_alarm_")
+            || operation == crate::application::consensus::native_work::OPERATION
+    }) {
         delivery()?.or(alarm()?)
     } else {
         alarm()?.or(delivery()?)
@@ -150,7 +174,12 @@ pub(crate) fn scan_connection_fair(
         "SELECT CASE WHEN typeof(r.operation)='text' AND length(CAST(r.operation AS BLOB)) BETWEEN 1 AND 128 THEN r.operation ELSE NULL END FROM __sys_raft_clients c JOIN __sys_raft_receipts r ON r.client_id=c.client_id AND r.sequence=c.last_sequence WHERE c.client_id=?1",
         [client.bytes().as_slice()], |row| row.get(0),
     ).optional()?;
-    let prefer_delivery =
-        previous.is_some_and(|operation| operation.starts_with("__sys_raft_alarm_"));
-    scan_connection(connection, scope, class, now, prefer_delivery, reservation)
+    scan_connection(
+        connection,
+        scope,
+        class,
+        now,
+        previous.as_deref(),
+        reservation,
+    )
 }

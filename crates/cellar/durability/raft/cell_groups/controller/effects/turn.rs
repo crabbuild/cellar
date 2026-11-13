@@ -249,7 +249,7 @@ pub(super) async fn run(
             .await?;
             check_result(receipt.result())
         }
-        DueEffect::Alarm(_) => check_result(receipt.result()),
+        DueEffect::Alarm(_) | DueEffect::Work(_) => check_result(receipt.result()),
         DueEffect::Delivery {
             selected,
             definition,

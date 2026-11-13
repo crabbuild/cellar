@@ -27,6 +27,22 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 durable callback and Queue candidate
+
+CG17-04/06 now have a [shared callback and Queue implementation](queue-durable-work.md)
+on the isolated Queue branch. It adds generation-specific committed discovery,
+private checkpointable callback commands, ordinary Queue producer/consumer
+bindings, stateless native ingress and authenticated operator routing. Consumer
+Context remains stateless and cannot access broker Storage. Interrupted work
+retains its retry/lease deadlines across retained startup.
+
+The owning native/RustFS RF3 drill and the `queue-primitives` evidence runner are
+implemented. Qualification is pending; this candidate does not mark a CG-17
+case or primitive family accepted. Earlier candidate builds exposed a private
+helper reference and a fetch-result type inference error; the new harness also
+had to propagate both execution-domain result layers. Those failures supply no
+passing runtime evidence.
+
 ## CG-17 S3 proof scheduling and joined retirement
 
 Source `d1f8535f` closes the reproduced basic binding deadline gate. A selected,

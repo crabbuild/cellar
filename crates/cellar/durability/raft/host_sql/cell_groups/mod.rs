@@ -725,6 +725,7 @@ impl CellGroupSqlPool {
         input: Vec<u8>,
         commits: RpcCommitContext,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        let system = class.system_contract(&attempt.request.operation).is_some();
         self.stage_compiled_owned(
             options,
             authority,
@@ -733,7 +734,7 @@ impl CellGroupSqlPool {
             worker::Callback::Registered {
                 class,
                 input: input.into_boxed_slice(),
-                system: false,
+                system,
                 commits: Some(Box::new(commits)),
             },
         )

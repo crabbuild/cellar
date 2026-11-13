@@ -745,6 +745,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/queue-durable-work.md",
+      "title": "Durable native callbacks and Queue",
+      "summary": "Generation-fenced callback discovery and ordinary Queue delivery through shared-group quorum.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/remaining-work.md",
       "title": "Remaining cell-group work and priorities",
       "summary": "Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.",

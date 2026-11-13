@@ -30,9 +30,24 @@ struct Broker {
     config: Arc<Config>,
     ready: AtomicBool,
     producer: Mutex<Option<Arc<Group>>>,
+    callback: Option<crate::application::Handler>,
 }
 
 pub(crate) fn create_cell(context: &Context) -> Result<Arc<dyn Cell>> {
+    create(context, None)
+}
+
+pub(crate) fn create_raft_cell(
+    context: &Context,
+    callback: crate::application::Handler,
+) -> Result<Arc<dyn Cell>> {
+    create(context, Some(callback))
+}
+
+fn create(
+    context: &Context,
+    callback: Option<crate::application::Handler>,
+) -> Result<Arc<dyn Cell>> {
     let queue = context
         .identity()
         .and_then(|identity| identity.name.clone())
@@ -46,6 +61,7 @@ pub(crate) fn create_cell(context: &Context) -> Result<Arc<dyn Cell>> {
             .ok_or_else(|| error("Queue broker is not configured for this activation"))?,
         ready: AtomicBool::new(false),
         producer: Mutex::new(None),
+        callback,
     }))
 }
 
@@ -138,7 +154,7 @@ impl Broker {
     }
 
     fn open(&self) -> Result<()> {
-        if !self.ready.load(Ordering::Acquire) {
+        if self.storage.is_raft() || !self.ready.load(Ordering::Acquire) {
             self.storage.system_sql_schema(include_str!("schema.sql"))?;
             self.ready.store(true, Ordering::Release);
         }
@@ -270,6 +286,10 @@ impl Broker {
         }
         let sweep = [sweep, receipts].into_iter().flatten().min();
         match policy::rearm(at, batch, visible, lease, sweep) {
+            None if self.storage.is_raft() => self.storage.cancel_raft_work("queue"),
+            Some(deadline) if self.storage.is_raft() => {
+                self.storage.arm_raft_work("queue", deadline)
+            }
             None => self.storage.delete_alarm(),
             Some(deadline) if wait => {
                 crate::native_worker::queue_alarm_wait(context, deadline).await
@@ -306,9 +326,21 @@ impl Broker {
             total <= self.config.limits.max_batch_bytes,
             "QUEUE_ERROR: producer batch exceeds the host byte limit"
         );
-        context.check_turn()?;
+        context.check_binding_turn()?;
         let bytes = entries.iter().map(|entry| entry.body.len()).sum::<usize>();
         let (reply, receive) = tokio::sync::oneshot::channel();
+        if self.storage.is_raft() {
+            // One admitted Raft invocation owns this transaction. Cross-call
+            // timer batching would retain another invocation's Storage authority.
+            let at = now();
+            self.open()?;
+            self.storage.transaction_sync(|_| {
+                for entry in &entries { self.exec("INSERT INTO __sys_queue_messages(id,body,content_type,size,enqueued_at,visible_at) VALUES (?,?,?,?,?,?)",&[message_id(at)?.into(),SqlValue::Blob(entry.body.clone()),entry.content_type.clone().into(),(entry.body.len() as i64).into(),at.into(),at.saturating_add(i64::from(entry.delay)*1000).into()])?; }
+                Ok(())
+            })?;
+            let _ = reply.send(Ok(self.metrics(at, false)?));
+            return Ok(receive);
+        }
         let mut pending = self.producer.lock().unwrap();
         if pending.as_ref().is_some_and(|group| {
             let data = group.data.lock().unwrap();
@@ -599,10 +631,43 @@ impl Broker {
         }
         self.rearm(context, at, false).await?;
         if swept >= self.config.limits.sweep_batch_rows && batches.is_empty() {
-            return self.storage.set_alarm(at.saturating_add(1));
+            return if self.storage.is_raft() {
+                self.storage.arm_raft_work("queue", at.saturating_add(1))
+            } else {
+                self.storage.set_alarm(at.saturating_add(1))
+            };
         }
         if let Some(consumer) = self.consumer() {
             for batch in batches {
+                if let Some(callback) = &self.callback {
+                    ensure!(
+                        consumer.script == context.worker_config.script_name,
+                        "Queue consumer script differs from the admitted deployment"
+                    );
+                    // Persist every lease and its next wake before entering user
+                    // code. On cancellation the lease expiry owns redelivery.
+                    self.storage.sync().await?;
+                    let request = crate::queue_policy::dispatch_request(
+                        context.generation,
+                        context.identity().expect("Queue identity").scope.clone(),
+                        consumer.script.clone(),
+                        self.queue.clone(),
+                        &batch.to_string(),
+                    )?;
+                    let mut callback_context = context.clone();
+                    callback_context.identity = None;
+                    let result =
+                        callback(callback_context, Invocation::Queue(request.batch)).await?;
+                    let Output::Queue(result) = result else {
+                        return Err(error("Queue consumer returned an invalid output"));
+                    };
+                    let body = json!({"leaseId":request.lease_id,"leases":request.leases,
+                        "outcome":if matches!(result.outcome,QueueOutcome::Ok){"ok"}else{"exception"},"error":result.error,
+                        "ackAll":result.ack_all,"retryBatch":{"retry":result.retry_batch.retry,"delaySeconds":result.retry_batch.delay_seconds},
+                        "explicitAcks":result.explicit_acks,"retryMessages":result.retry_messages.into_iter().map(|r|json!({"msgId":r.msg_id,"delaySeconds":r.delay_seconds})).collect::<Vec<_>>()});
+                    self.settle(context, &body).await?;
+                    continue;
+                }
                 crate::native_worker::queue_dispatch(
                     context,
                     consumer.script.clone(),
@@ -783,12 +848,25 @@ impl Broker {
                         })
                     })
                     .collect::<Result<_>>()?;
-                self.enqueue(context, entries)?
+                let result = self
+                    .enqueue(context, entries)?
                     .await
                     .map_err(|_| error("Queue producer group was retired"))?
-                    .map_err(anyhow::Error::msg)?
+                    .map_err(anyhow::Error::msg)?;
+                if self.storage.is_raft() {
+                    self.rearm(context, now(), false).await?;
+                }
+                result
             }
             "__queueDlqAcceptBatch" => self.accept(context, &graph, body).await?,
+            super::OPERATOR => {
+                let input = graph.to_json()?;
+                self.control(
+                    context,
+                    input.get(0).ok_or_else(|| error("Queue operator input"))?,
+                )
+                .await?
+            }
             _ => return Err(error(format!("Queue cell has no RPC method {method}"))),
         };
         match args {
@@ -798,6 +876,63 @@ impl Broker {
             RpcData::Json(_) => Ok(RpcData::Json(result.to_string())),
             RpcData::Structured(_) => encode_rpc(&StructuredValue::from_json(result)?),
         }
+    }
+
+    async fn control(&self, context: &Context, body: &Value) -> Result<Value> {
+        Ok(match body["op"].as_str() {
+            Some("info") => {
+                let mut metrics = self.metrics(now(), false)?;
+                metrics["stored"] = json!(number(
+                    &self
+                        .exec("SELECT stored_count FROM __sys_queue_stats WHERE id=1", &[])?
+                        .remove(0),
+                    "stored_count"
+                )?);
+                metrics["paused"] = json!(self.paused()?);
+                metrics
+            }
+            Some("purge") => self.purge(context).await?,
+            Some(op @ ("pause" | "resume")) => {
+                let paused = op == "pause";
+                self.set_meta("paused", paused.then(|| "1".into()))?;
+                self.rearm(context, now(), false).await?;
+                let mut metrics = self.metrics(now(), false)?;
+                metrics["paused"] = json!(paused);
+                metrics
+            }
+            Some(op @ ("peek" | "redrive")) => {
+                let limit = match body.get("limit").filter(|value| !value.is_null()) {
+                    None => {
+                        if op == "peek" {
+                            10
+                        } else {
+                            100
+                        }
+                    }
+                    Some(value) => value
+                        .as_i64()
+                        .ok_or_else(|| error("limit must be a positive integer"))?,
+                };
+                ensure!(
+                    limit > 0 && limit as u64 <= self.config.limits.max_admin_batch_size as u64,
+                    "QUEUE_ERROR: limit must be from 1 through {}",
+                    self.config.limits.max_admin_batch_size
+                );
+                if op == "peek" {
+                    self.peek(limit, body["console"].as_bool().unwrap_or(false))?
+                } else {
+                    self.redrive(context, limit).await?
+                }
+            }
+            _ => {
+                return Err(error(format!(
+                    "unknown operation {}",
+                    body.get("op")
+                        .map(Value::to_string)
+                        .unwrap_or_else(|| "undefined".into())
+                )))
+            }
+        })
     }
 
     async fn fetch(&self, context: &Context, request: crate::application::Request) -> HttpResponse {
@@ -816,7 +951,7 @@ impl Broker {
         let Ok(body) = body else {
             return http(400, b"invalid Queue request".to_vec(), false);
         };
-        let result = async {
+        let result: Result<HttpResponse> = async {
             if url::Url::parse(&request.url)?.path() == "/__qSettle" {
                 return Ok(if self.settle(context, &body).await? {
                     http(204, Vec::new(), false)
@@ -824,60 +959,7 @@ impl Broker {
                     http(409, b"stale Queue settlement".to_vec(), false)
                 });
             }
-            let result = match body["op"].as_str() {
-                Some("info") => {
-                    let mut metrics = self.metrics(now(), false)?;
-                    metrics["stored"] = json!(number(
-                        &self
-                            .exec("SELECT stored_count FROM __sys_queue_stats WHERE id=1", &[])?
-                            .remove(0),
-                        "stored_count"
-                    )?);
-                    metrics["paused"] = json!(self.paused()?);
-                    metrics
-                }
-                Some("purge") => self.purge(context).await?,
-                Some(op @ ("pause" | "resume")) => {
-                    let paused = op == "pause";
-                    self.set_meta("paused", paused.then(|| "1".into()))?;
-                    self.rearm(context, now(), false).await?;
-                    let mut metrics = self.metrics(now(), false)?;
-                    metrics["paused"] = json!(paused);
-                    metrics
-                }
-                Some(op @ ("peek" | "redrive")) => {
-                    let limit = match body.get("limit").filter(|value| !value.is_null()) {
-                        None => {
-                            if op == "peek" {
-                                10
-                            } else {
-                                100
-                            }
-                        }
-                        Some(value) => value
-                            .as_i64()
-                            .ok_or_else(|| error("limit must be a positive integer"))?,
-                    };
-                    ensure!(
-                        limit > 0 && limit as u64 <= self.config.limits.max_admin_batch_size as u64,
-                        "QUEUE_ERROR: limit must be from 1 through {}",
-                        self.config.limits.max_admin_batch_size
-                    );
-                    if op == "peek" {
-                        self.peek(limit, body["console"].as_bool().unwrap_or(false))?
-                    } else {
-                        self.redrive(context, limit).await?
-                    }
-                }
-                _ => {
-                    return Err(error(format!(
-                        "unknown operation {}",
-                        body.get("op")
-                            .map(Value::to_string)
-                            .unwrap_or_else(|| "undefined".into())
-                    )))
-                }
-            };
+            let result = self.control(context, &body).await?;
             Ok(http(
                 200,
                 serde_json::to_vec(&json!({"result":result}))?,
@@ -926,7 +1008,9 @@ impl Cell for Broker {
                     .await
                 {
                     Ok(reply) => Ok(Output::Rpc(reply)),
-                    Err(error) if matches!(args, RpcData::Structured(_)) => {
+                    Err(error)
+                        if !self.storage.is_raft() && matches!(args, RpcData::Structured(_)) =>
+                    {
                         Ok(Output::Rpc(RpcData::Structured(
                             cellar_native::rpc::encode_error(&error.to_string(), "Error", None)?
                                 .into(),

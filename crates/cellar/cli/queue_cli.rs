@@ -44,22 +44,30 @@ pub async fn run(arguments: Vec<String>) -> anyhow::Result<()> {
         return Ok(());
     };
     let storage = command.fleet.resolve("cellar queue")?;
-    let queue = Reachable::open(
-        Fleet {
-            bucket: &storage.bucket,
-            endpoint: storage.endpoint.as_deref(),
-            region: &storage.region,
-            unsafe_public_advertise: command.unsafe_public_advertise,
-        },
-        Subject {
-            noun: "queue",
-            source: "queue",
-            timeout: Duration::from_secs(60),
-        },
-        crate::engine_api::queue_cell_scope(&command.queue),
-        Some(&command.queue),
-    )
-    .await?;
+    let fleet = Fleet {
+        bucket: &storage.bucket,
+        endpoint: storage.endpoint.as_deref(),
+        region: &storage.region,
+        unsafe_public_advertise: command.unsafe_public_advertise,
+    };
+    let subject = Subject {
+        noun: "queue",
+        source: "queue",
+        timeout: Duration::from_secs(60),
+    };
+    let scope = crate::engine_api::queue_cell_scope(&command.queue);
+    let queue = if command.entrances.is_empty() {
+        Reachable::open(fleet, subject, scope, Some(&command.queue)).await?
+    } else {
+        Reachable::open_at(
+            fleet,
+            subject,
+            scope,
+            Some(&command.queue),
+            command.entrances,
+        )
+        .await?
+    };
 
     let result = match command.action {
         Action::Info => queue.call(json!({ "op": "info" })).await?,
@@ -97,6 +105,7 @@ struct Command {
     fleet: FleetFlags,
     json: bool,
     unsafe_public_advertise: bool,
+    entrances: Vec<(String, String)>,
 }
 
 impl Command {
@@ -125,6 +134,7 @@ impl Command {
         let mut unsafe_public_advertise = false;
         let mut force = false;
         let mut limit = None;
+        let mut entrances = Vec::new();
         while let Some(argument) = arguments.next() {
             let mut value = |flag: &str| {
                 arguments
@@ -133,6 +143,7 @@ impl Command {
             };
             match argument.as_str() {
                 "--json" => json = true,
+                "--entrance" => entrances.push(value("--entrance")?),
                 "--unsafe-public-advertise" => unsafe_public_advertise = true,
                 "--force" => force = true,
                 "--limit" => {
@@ -171,6 +182,28 @@ impl Command {
         if !matches!(verb, "peek" | "redrive") && limit.is_some() {
             bail!("`cellar queue {verb}` takes no --limit");
         }
+        anyhow::ensure!(entrances.len() <= 256, "too many Queue entrances");
+        let mut nodes = std::collections::BTreeSet::new();
+        let entrances = entrances
+            .into_iter()
+            .map(|value| -> anyhow::Result<_> {
+                let (node, address) = value
+                    .split_once('=')
+                    .context("--entrance requires NODE=HOST:PORT")?;
+                let address = address.trim();
+                crate::machine::validate_node_name(node)?;
+                anyhow::ensure!(
+                    nodes.insert(node.to_owned()),
+                    "duplicate Queue entrance node"
+                );
+                let advertise = crate::startup::parse_advertise(address)?;
+                anyhow::ensure!(
+                    !advertise.is_public_ip() || unsafe_public_advertise,
+                    "public Queue entrance requires --unsafe-public-advertise"
+                );
+                Ok((node.to_owned(), address.to_owned()))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
         let action = match verb {
             "info" => Action::Info,
             "purge" => Action::Purge,
@@ -186,6 +219,7 @@ impl Command {
             fleet: fleet.with_environment(),
             json,
             unsafe_public_advertise,
+            entrances,
         }))
     }
 }
@@ -203,6 +237,8 @@ USAGE
   cellar queue redrive QUEUE [--limit N]      [fleet options]
 
 QUEUE OPERATIONS
+  --entrance NODE=HOST:PORT   use an authenticated managed entrance (repeatable)
+
   info       report the backlog, stored rows, and delivery state
   peek       read up to 10 head messages without consuming them
   purge      delete visible and delayed messages, and mark live leases

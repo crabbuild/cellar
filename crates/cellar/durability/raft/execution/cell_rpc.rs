@@ -20,6 +20,7 @@ pub(crate) struct CellRpcDispatch {
 }
 
 pub(crate) struct CellRpcEnvironment<'a> {
+    pub system: bool,
     pub activation: &'a mut Option<crate::application::consensus::CellRpcActivation>,
     pub reserve: &'a mut dyn FnMut() -> Result<(), ExecutionError>,
     pub dispatch: Option<CellRpcDispatch>,
@@ -115,7 +116,7 @@ impl CellPrivateExecutor {
             &attempt.request,
             class,
             input,
-            false,
+            environment.system,
         )?;
         let mut preparation = match self.prepare_stage(&attempt, allow_new)? {
             StageAdmission::Duplicate(receipt) => return Ok(CellRpcStart::Duplicate(receipt)),

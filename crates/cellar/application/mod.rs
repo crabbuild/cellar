@@ -461,7 +461,11 @@ impl Application for Registry {
             )
         {
             if shared {
-                if class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty() {
+                if (class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty())
+                    || (class == crate::deploy::QUEUE_CLASS
+                        && (!options.queue_bindings.is_empty()
+                            || !options.queue_consumers.is_empty()))
+                {
                     continue;
                 }
                 anyhow::ensure!(
@@ -501,6 +505,12 @@ impl Application for Registry {
                 classes.insert(
                     crate::deploy::SQL_CLASS.into(),
                     Arc::new(consensus::sql_service()?),
+                );
+            }
+            if !options.queue_bindings.is_empty() || !options.queue_consumers.is_empty() {
+                classes.insert(
+                    crate::deploy::QUEUE_CLASS.into(),
+                    Arc::new(consensus::queue_service(&config, self.handler.clone())?),
                 );
             }
             let installed = self
@@ -627,6 +637,7 @@ pub(crate) struct EventState {
     /// Immutable source declaration, including stateless native invocations.
     /// Global SQL identities can resolve to another co-hosted script.
     pub(crate) raft_sql: bool,
+    pub(crate) raft_queue: bool,
     pub background: Mutex<Vec<HandlerFuture<()>>>,
     pub(crate) blocks: concurrency::Blocks,
     // Keep framework cleanup behind the requesting event and its reply proof.
@@ -816,8 +827,8 @@ impl Context {
     }
 
     pub(crate) fn check_binding_turn(&self) -> Result<()> {
-        if self.raft_storage.is_some() {
-            self.storage()?.check_raft_turn()
+        if let Some(resources) = &self.raft_storage {
+            Storage::raft_command(resources.clone()).check_raft_turn()
         } else {
             self.check_turn()
         }
@@ -836,6 +847,10 @@ impl Context {
 
     pub fn storage(&self) -> Result<Storage> {
         if let Some(resources) = &self.raft_storage {
+            anyhow::ensure!(
+                self.identity.is_some(),
+                "stateless handlers have no cell storage"
+            );
             let storage = Storage::raft_command(resources.clone());
             storage.check_raft_turn()?;
             return Ok(storage);

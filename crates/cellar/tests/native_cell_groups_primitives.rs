@@ -43,6 +43,8 @@ mod interleaving;
 pub mod managed_fixture;
 #[path = "support/cell_group_names.rs"]
 mod names;
+#[path = "support/cell_group_queue.rs"]
+mod queues;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
 #[path = "support/cell_group_sql_bindings.rs"]
@@ -1740,4 +1742,15 @@ async fn axum_sql_bindings_and_operators_use_managed_shared_groups() -> Result<(
 #[ignore = "requires isolated local RustFS and the compiled SQL CLI"]
 async fn rustfs_axum_sql_bindings_and_operators_use_managed_shared_groups() -> Result<()> {
     Box::pin(sql_bindings::qualify_axum(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_queue_callbacks_use_shared_quorum() -> Result<()> {
+    Box::pin(queues::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit isolated real RustFS configuration"]
+async fn rustfs_ordinary_queue_callbacks_use_shared_quorum() -> Result<()> {
+    Box::pin(queues::qualify(true)).await
 }

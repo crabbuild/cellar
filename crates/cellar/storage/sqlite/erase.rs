@@ -83,6 +83,12 @@ fn erase(connection: &Connection, scope: &str, delete_alarm: bool) -> anyhow::Re
             if delete_alarm && tables.iter().any(|table| table == "__sys_cell_alarm") {
                 connection.execute("DELETE FROM __sys_cell_alarm WHERE scope=?1", [scope])?;
             }
+            if delete_alarm && tables.iter().any(|table| table == "__sys_raft_native_work") {
+                connection.execute(
+                    "DELETE FROM __sys_raft_native_work WHERE reason='alarm'",
+                    [],
+                )?;
+            }
             connection.execute_batch(KV_SCHEMA)?;
             connection.execute_batch("RELEASE __sys_raft_delete_all")?;
             Ok(())
