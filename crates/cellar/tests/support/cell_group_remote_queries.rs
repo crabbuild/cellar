@@ -173,10 +173,22 @@ pub(crate) async fn remote_execution_deadlines() -> Result<()> {
             )
             .await?;
         command.begin().await?;
-        assert_eq!(
-            command.execute_remote(source, leader).await?.result(),
-            b"slow command"
-        );
+        // This fixture disables automatic Raft ticks. Keep normal heartbeat
+        // and retry progress while deliberately expiring idle peer sockets.
+        let response = {
+            let response = command.execute_remote(source, leader);
+            tokio::pin!(response);
+            loop {
+                tokio::select! {
+                    result = &mut response => break result?,
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                        for runtime in &fixture.runtimes { runtime.tick().await?; }
+                    }
+                }
+            }
+        };
+        assert_eq!(response.result(), b"slow command");
+        drop(response);
         drop(command);
 
         // The separation must not extend a caller whose own budget is short.
