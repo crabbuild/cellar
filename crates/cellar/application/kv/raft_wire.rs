@@ -1,0 +1,518 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Large KV arguments and replies remain immutable external bytes. Raft logs
+//! retain compact descriptors rather than exceeding command/receipt envelopes.
+//! Prepared locators are pending upload intents, not published dependencies.
+
+use super::*;
+use crate::application::consensus::{native_rpc, CellHistory, CommandFailure, IncarnationId};
+use crate::raft::cell_groups::{
+    CellGroupPayloadBytes, CellGroupPayloadReference, CellGroupPayloadStore,
+};
+use anyhow::Context as _;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::{future::Future, task::Poll, time::Duration};
+
+pub(crate) const PREPARE: &str = "__kvPrepareWire";
+pub(crate) const EXTERNAL: &str = "__kvExternalInput";
+pub(crate) const MAX_BYTES: usize = crate::raft::cell_groups::MAX_CELL_GROUP_PAYLOAD_BYTES;
+pub(crate) const DECODE_COPIES: usize = 6;
+pub(crate) const MIN_RETAINED_BYTES: usize = MAX_BYTES * (DECODE_COPIES + 3) + 128 * 1024;
+const INPUT: &str = "__cellarKvInput";
+const REPLY: &str = "__cellarKvReply";
+
+pub(super) struct Reply {
+    value: StructuredValue,
+    _retained: Option<CellGroupPayloadBytes>,
+}
+
+impl Reply {
+    pub(super) fn inline(value: StructuredValue) -> Self {
+        Self {
+            value,
+            _retained: None,
+        }
+    }
+}
+
+impl std::ops::Deref for Reply {
+    type Target = StructuredValue;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Reference {
+    format: u8,
+    published: bool,
+    cluster: [u8; 16],
+    namespace: [u8; 16],
+    cell: String,
+    incarnation: [u8; 16],
+    object: CellGroupPayloadReference,
+}
+
+impl Reference {
+    fn parse(encoded: &str) -> Result<Self> {
+        ensure!(
+            encoded.len() <= 4096,
+            "KV_ERROR: external descriptor exceeds bounds"
+        );
+        let reference: Self = serde_json::from_str(encoded)?;
+        ensure!(
+            reference.format == 1,
+            "KV_ERROR: external descriptor format"
+        );
+        reference.history()?;
+        Ok(reference)
+    }
+
+    fn history(&self) -> Result<CellHistory> {
+        Ok(CellHistory {
+            cluster: super::super::consensus::ClusterId::new(self.cluster)?,
+            namespace: super::super::consensus::NamespaceId::new(self.namespace)?,
+            cell: super::super::consensus::CellId::new(&self.cell)?,
+            incarnation: IncarnationId::new(self.incarnation)?,
+        })
+    }
+
+    fn matches(&self, history: &CellHistory) -> Result<()> {
+        // Immutable objects survive movement and a separately fenced recovery.
+        // This checks the logical owner, never treats a locator as authority.
+        ensure!(
+            self.cluster == history.cluster.bytes()
+                && self.namespace == history.namespace.bytes()
+                && self.cell == history.cell.as_str(),
+            "KV_ERROR: external logical owner differs"
+        );
+        Ok(())
+    }
+}
+
+pub(super) fn prepared(history: &CellHistory, object: CellGroupPayloadReference) -> Result<String> {
+    Ok(serde_json::to_string(&Reference {
+        format: 1,
+        published: false,
+        cluster: history.cluster.bytes(),
+        namespace: history.namespace.bytes(),
+        cell: history.cell.as_str().into(),
+        incarnation: history.incarnation.bytes(),
+        object,
+    })?)
+}
+
+pub(super) fn enabled(context: &Context) -> bool {
+    context.raft_storage.is_some() || context.state.raft_kv
+}
+
+fn deadline(context: &Context) -> Result<u64> {
+    context.check_binding_turn()?;
+    let timeout = if context.raft_storage.is_some() {
+        crate::storage::capture_raft_dispatch()?
+            .ok_or(CommandFailure::UnsupportedCapability)?
+            .remaining_timeout()?
+    } else {
+        Duration::from_millis(crate::asyncrt::services().operation_deadline_ms()?)
+    };
+    let deadline = crate::asyncrt::mono_ms()
+        .checked_add(u64::try_from(timeout.as_millis())?)
+        .ok_or(super::super::consensus::RuntimeError::DeadlineExceeded)?;
+    Ok(context
+        .io
+        .rpc_deadline_ms
+        .get()
+        .map_or(deadline, |parent| deadline.min(*parent)))
+}
+
+fn remaining(deadline: u64) -> Result<Duration> {
+    Ok(Duration::from_millis(
+        deadline
+            .checked_sub(crate::asyncrt::mono_ms())
+            .filter(|ms| *ms != 0)
+            .ok_or(super::super::consensus::RuntimeError::DeadlineExceeded)?,
+    ))
+}
+
+fn raw(
+    context: &Context,
+    identity: &str,
+    method: &str,
+    args: RpcData,
+    deadline: u64,
+) -> HandlerFuture<RpcData> {
+    crate::native_worker::rpc_cell(
+        context,
+        policy_scope(identity),
+        Some(policy::cell_name(identity, 0)),
+        method.into(),
+        args,
+        crate::host_rpc::CallScope::in_context(context, Some(deadline), None),
+    )
+}
+
+fn public_method(method: &str) -> bool {
+    matches!(
+        method,
+        "__kvGet" | "__kvPut" | "__kvDelete" | "__kvList" | "__kvMetrics" | "__kvSweep"
+    )
+}
+
+pub(super) async fn call(
+    context: &Context,
+    identity: &str,
+    method: &str,
+    args: RpcData,
+) -> Result<Reply> {
+    ensure!(public_method(method), CommandFailure::UnsupportedCapability);
+    let deadline = deadline(context)?;
+    let scope = policy_scope(identity);
+    let name = policy::cell_name(identity, 0);
+    let limit = if context.raft_storage.is_some() {
+        let dispatch = crate::storage::capture_raft_dispatch()?
+            .ok_or(CommandFailure::UnsupportedCapability)?;
+        let source = dispatch.binding_source()?;
+        source
+            .host
+            .route(&source.history, source.configuration, &scope, method)?
+            .max_input_bytes
+    } else {
+        crate::asyncrt::services()
+            .raft_lifecycle()
+            .application_service()?
+            .kv_wire_input_limit(&scope, method)?
+    };
+    let request = native_rpc::encode_request(Some(&name), &args, MAX_BYTES)?;
+    let (method, args) = if request.len() > limit {
+        drop(args);
+        let digest = hex::encode(Sha256::digest(&request));
+        let prepared = raw(
+            context,
+            identity,
+            PREPARE,
+            encode_rpc(&StructuredValue::from_json(
+                json!([{"digest":digest,"length":request.len()}]),
+            )?)?,
+            deadline,
+        )
+        .await?;
+        let prepared = decode_rpc_result(&prepared)?.to_json()?;
+        let reference = Reference::parse(prepared.as_str().context("KV prepared wire locator")?)?;
+        let reference =
+            transfer(context, identity, reference, Some(request.into()), deadline).await?;
+        let Transfer::Published(reference) = reference else {
+            bail!(CommandFailure::CorruptState)
+        };
+        (
+            EXTERNAL,
+            encode_rpc(&StructuredValue::from_json(
+                json!([{ "method":method,"input":reference }]),
+            )?)?,
+        )
+    } else {
+        drop(request);
+        (method, args)
+    };
+    let result = raw(context, identity, method, args, deadline).await?;
+    let value = decode_rpc_result(&result)?;
+    if let Some(encoded) = external_reply(&value)? {
+        let reference = Reference::parse(&encoded)?;
+        let Transfer::Bytes(held) = transfer(context, identity, reference, None, deadline).await?
+        else {
+            bail!(CommandFailure::CorruptState)
+        };
+        let value = decode_rpc_result(&native_rpc::decode_response(held.as_ref())?)?;
+        remaining(deadline)?;
+        context.check_binding_turn()?;
+        Ok(Reply {
+            value,
+            _retained: Some(held),
+        })
+    } else {
+        remaining(deadline)?;
+        context.check_binding_turn()?;
+        Ok(Reply::inline(value))
+    }
+}
+
+enum Transfer {
+    Published(String),
+    Bytes(CellGroupPayloadBytes),
+}
+
+async fn transfer(
+    context: &Context,
+    identity: &str,
+    reference: Reference,
+    bytes: Option<bytes::Bytes>,
+    deadline: u64,
+) -> Result<Transfer> {
+    context.check_binding_turn()?;
+    context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
+    ensure!(
+        context
+            .kv_bindings
+            .values()
+            .any(|declared| declared == identity),
+        CommandFailure::UnsupportedCapability
+    );
+    ensure!(
+        reference.cell == policy_scope(identity),
+        "KV_ERROR: external namespace differs"
+    );
+    let history = reference.history()?;
+    if context.raft_storage.is_some() {
+        let dispatch = crate::storage::capture_raft_dispatch()?
+            .ok_or(CommandFailure::UnsupportedCapability)?
+            .limit_source(remaining(deadline)?)?;
+        let source = dispatch.binding_source()?;
+        let store = source.host.kv_binding_payload_store(
+            &source.history,
+            source.configuration,
+            &history,
+        )?;
+        dispatch
+            .schedule(move |timeout| execute(store, reference, bytes, timeout))
+            .future
+            .await?
+    } else {
+        ensure!(
+            context.identity().is_none(),
+            CommandFailure::UnsupportedCapability
+        );
+        let owner = crate::asyncrt::services()
+            .raft_lifecycle()
+            .application_service()?;
+        let store = owner.kv_wire_store(&history)?;
+        let mut work = Box::pin(execute(store, reference, bytes, remaining(deadline)?));
+        crate::asyncrt::timeout_at(
+            deadline,
+            futures_util::future::poll_fn(|cx| {
+                if let Err(error) = context.check_turn().and_then(|()| {
+                    ensure!(
+                        !owner.is_closed(),
+                        super::super::consensus::RuntimeError::Closed
+                    );
+                    remaining(deadline).map(|_| ())
+                }) {
+                    return Poll::Ready(Err(error));
+                }
+                work.as_mut().poll(cx)
+            }),
+        )
+        .await
+        .map_err(|_| super::super::consensus::RuntimeError::DeadlineExceeded)?
+    }
+}
+
+async fn execute(
+    store: CellGroupPayloadStore,
+    mut reference: Reference,
+    bytes: Option<bytes::Bytes>,
+    timeout: Duration,
+) -> Result<Transfer> {
+    let history = reference.history()?;
+    match bytes {
+        Some(bytes) => {
+            ensure!(!reference.published, "KV_ERROR: expected a prepared upload");
+            store
+                .publish_prepared(&history, reference.object.clone(), bytes, timeout)
+                .await?;
+            reference.published = true;
+            Ok(Transfer::Published(serde_json::to_string(&reference)?))
+        }
+        None => {
+            ensure!(reference.published, "KV_ERROR: unconfirmed wire dependency");
+            Ok(Transfer::Bytes(
+                store
+                    .get_with_retained_copies(&history, &reference.object, timeout, DECODE_COPIES)
+                    .await?,
+            ))
+        }
+    }
+}
+
+fn external_reply(value: &StructuredValue) -> Result<Option<String>> {
+    match wire::field(value, &value.root, REPLY) {
+        CloneValue::Undefined => Ok(None),
+        value => Ok(Some(wire::string(value)?)),
+    }
+}
+
+/// Keep a decoded input's body lease through the operation and final result
+/// encoding. The private/public operation remains part of the authenticated
+/// command contract; a public wrapper cannot tunnel the private operator.
+pub(super) async fn unwrap_input(
+    context: &Context,
+    method: &str,
+    args: &RpcData,
+) -> Result<(String, RpcData, Option<CellGroupPayloadBytes>)> {
+    let value = decode_rpc(args)?;
+    let input = if method == EXTERNAL {
+        let arguments = wire::array(&value, &value.root)?;
+        let body = arguments.first().context("KV external input")?;
+        let operation = wire::string(wire::field(&value, body, "method"))?;
+        ensure!(
+            public_method(&operation),
+            CommandFailure::UnsupportedCapability
+        );
+        Some((operation, wire::string(wire::field(&value, body, "input"))?))
+    } else if method == OPERATOR
+        && !matches!(
+            wire::field(&value, &value.root, INPUT),
+            CloneValue::Undefined
+        )
+    {
+        Some((
+            method.into(),
+            wire::string(wire::field(&value, &value.root, INPUT))?,
+        ))
+    } else {
+        None
+    };
+    if let Some((method, encoded)) = input {
+        let held = read_current(context, &encoded).await?;
+        let request = native_rpc::decode_request(held.as_ref())?;
+        let identity = context.identity().context("KV executing identity")?;
+        native_rpc::validate_identity(
+            "cellar-kv-service",
+            crate::deploy::KV_CLASS,
+            &identity.scope,
+            request.name.as_deref(),
+        )?;
+        Ok((method, request.args, Some(held)))
+    } else {
+        Ok((method.into(), args.clone(), None))
+    }
+}
+
+async fn read_current(context: &Context, encoded: &str) -> Result<CellGroupPayloadBytes> {
+    let reference = Reference::parse(encoded)?;
+    ensure!(reference.published, "KV_ERROR: unconfirmed wire dependency");
+    let dispatch =
+        crate::storage::capture_raft_dispatch()?.ok_or(CommandFailure::UnsupportedCapability)?;
+    let source = dispatch.binding_source()?;
+    reference.matches(&source.history)?;
+    let result = crate::native_worker::kv_blob(
+        context,
+        json!({"mode":"get","reference":serde_json::to_string(&reference.object)?}),
+        None,
+    )
+    .await?;
+    let crate::kv_blob::BlobReply::GroupBytes(bytes) = result else {
+        bail!(CommandFailure::CorruptState)
+    };
+    Ok(bytes)
+}
+
+pub(super) async fn prepare_input(context: &Context, args: &RpcData) -> Result<RpcData> {
+    let value = decode_rpc(args)?.to_json()?;
+    let body = value
+        .as_array()
+        .and_then(|args| args.first())
+        .context("KV wire preparation")?;
+    let reply = crate::native_worker::kv_blob(
+        context,
+        json!({"mode":"prepare","digest":body["digest"],"length":body["length"]}),
+        None,
+    )
+    .await?;
+    let crate::kv_blob::BlobReply::Json(reply) = reply else {
+        bail!(CommandFailure::CorruptState)
+    };
+    encode_rpc(&StructuredValue::from_json(reply["wire"].clone())?)
+}
+
+pub(super) async fn wrap_reply(context: &Context, result: RpcData) -> Result<RpcData> {
+    let dispatch =
+        crate::storage::capture_raft_dispatch()?.ok_or(CommandFailure::UnsupportedCapability)?;
+    let bytes = native_rpc::encode_response(&result)?;
+    if bytes.len() <= dispatch.result_limit()? {
+        return Ok(result);
+    }
+    drop(result);
+    let reply = crate::native_worker::kv_blob(
+        context,
+        json!({"mode":"prepare","digest":hex::encode(Sha256::digest(&bytes)),"length":bytes.len()}),
+        None,
+    )
+    .await?;
+    let crate::kv_blob::BlobReply::Json(reply) = reply else {
+        bail!(CommandFailure::CorruptState)
+    };
+    let mut reference = Reference::parse(reply["wire"].as_str().context("KV prepared reply")?)?;
+    crate::native_worker::kv_blob(
+        context,
+        json!({"mode":"put","reference":reply["reference"]}),
+        Some(bytes),
+    )
+    .await?;
+    reference.published = true;
+    encode_rpc(&StructuredValue::from_json(
+        json!({(REPLY):serde_json::to_string(&reference)?}),
+    )?)
+}
+
+pub(crate) async fn stage_admin(
+    owner: &super::super::consensus::RaftCells,
+    scope: &str,
+    name: Option<&str>,
+    args: RpcData,
+    deadline: u64,
+) -> Result<RpcData> {
+    let request = native_rpc::encode_request(name, &args, MAX_BYTES)?;
+    if request.len() <= owner.kv_wire_input_limit(scope, PREPARE)? {
+        return Ok(args);
+    }
+    drop(args);
+    let services = crate::asyncrt::services();
+    let preparation = encode_rpc(&StructuredValue::from_json(
+        json!([{"digest":hex::encode(Sha256::digest(&request)),"length":request.len()}]),
+    )?)?;
+    let admitted = services
+        .admit_outbound_rpc(scope, name, PREPARE, &preparation)
+        .ok_or(CommandFailure::Overloaded)?;
+    let mut call_scope = crate::host_rpc::CallScope::default();
+    call_scope.deadline_ms = Some(deadline);
+    let result = owner.sql_ingress(admitted, call_scope, deadline).await?;
+    let prepared = decode_rpc_result(&result)?.to_json()?;
+    let reference = Reference::parse(prepared.as_str().context("KV prepared operator input")?)?;
+    ensure!(
+        reference.cell == scope,
+        "KV_ERROR: external operator scope differs"
+    );
+    let store = owner.kv_wire_store(&reference.history()?)?;
+    let Transfer::Published(reference) =
+        execute(store, reference, Some(request.into()), remaining(deadline)?).await?
+    else {
+        bail!(CommandFailure::CorruptState)
+    };
+    encode_rpc(&StructuredValue::from_json(json!({(INPUT):reference}))?)
+}
+
+pub(crate) async fn expand_admin(
+    owner: &super::super::consensus::RaftCells,
+    scope: &str,
+    result: RpcData,
+    deadline: u64,
+) -> Result<Value> {
+    let value = decode_rpc_result(&result)?;
+    if let Some(encoded) = external_reply(&value)? {
+        let reference = Reference::parse(&encoded)?;
+        ensure!(
+            reference.cell == scope,
+            "KV_ERROR: external operator scope differs"
+        );
+        let store = owner.kv_wire_store(&reference.history()?)?;
+        let Transfer::Bytes(held) = execute(store, reference, None, remaining(deadline)?).await?
+        else {
+            bail!(CommandFailure::CorruptState)
+        };
+        decode_rpc_result(&native_rpc::decode_response(held.as_ref())?)?.to_json()
+    } else {
+        value.to_json()
+    }
+}

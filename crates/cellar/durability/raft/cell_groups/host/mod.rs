@@ -51,6 +51,7 @@ struct Inner {
     domain: crate::asyncrt::DomainToken,
     namespaces: Arc<BTreeMap<(ClusterId, NamespaceId), Arc<Binding>>>,
     budget: Arc<Budget>,
+    payloads: Option<CellGroupPayloadPool>,
     closed: AtomicBool,
 }
 
@@ -67,6 +68,8 @@ pub struct CellGroupHostUsage {
     pub namespaces: usize,
     pub namespace_bytes: usize,
     pub namespace_byte_limit: usize,
+    pub payloads: Option<CellGroupPayloadUsage>,
+    pub payload_byte_limit: usize,
     pub controller: CellGroupControllerUsage,
 }
 
@@ -78,6 +81,26 @@ impl CellGroupHost {
         controller: CellGroupController,
         registrations: Vec<CellGroupHostRegistration>,
         limits: CellGroupHostLimits,
+    ) -> Result<Self, CellDispatchError> {
+        Self::bind_with_payloads(
+            runtime,
+            sql,
+            transport,
+            controller,
+            registrations,
+            limits,
+            None,
+        )
+    }
+
+    pub(crate) fn bind_with_payloads(
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        transport: &RaftTransport,
+        controller: CellGroupController,
+        registrations: Vec<CellGroupHostRegistration>,
+        limits: CellGroupHostLimits,
+        payloads: Option<CellGroupPayloadPool>,
     ) -> Result<Self, CellDispatchError> {
         let domain = runtime.log().domain();
         if !controller.belongs_to(runtime)
@@ -102,6 +125,11 @@ impl CellGroupHost {
                 return Err(CellDispatchError::Invalid("shared host namespace domain"));
             }
             let (config, class, bytes) = dispatcher.host_binding()?;
+            if class.name() == crate::deploy::KV_CLASS && payloads.is_none() {
+                return Err(CellDispatchError::Invalid(
+                    "KV requires node-owned payload admission",
+                ));
+            }
             controller.require_host_effects(&dispatcher)?;
             registration.storage.validate_namespace(&config)?;
             let bytes = bytes
@@ -137,6 +165,7 @@ impl CellGroupHost {
                 domain,
                 namespaces,
                 budget,
+                payloads,
                 closed: AtomicBool::new(false),
             }),
         })
@@ -228,6 +257,16 @@ impl CellGroupHost {
             namespaces: self.inner.namespaces.len(),
             namespace_bytes: self.inner.budget.usage().0,
             namespace_byte_limit: self.inner.budget.capacity().0,
+            payloads: self
+                .inner
+                .payloads
+                .as_ref()
+                .map(CellGroupPayloadPool::usage),
+            payload_byte_limit: self
+                .inner
+                .payloads
+                .as_ref()
+                .map_or(0, |pool| pool.limits().max_retained_bytes),
             controller: self.inner.controller.usage(),
         }
     }

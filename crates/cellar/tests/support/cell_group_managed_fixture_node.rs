@@ -38,6 +38,7 @@ pub struct Fixture {
     pub max_pending_transactions: usize,
     pub max_client_identities: usize,
     pub max_input_bytes: usize,
+    pub payloads: Option<CellGroupPayloadLimits>,
     pub image_bytes: u64,
     /// Logical admission only; physical attestations and engine/image limits stay unchanged.
     pub logical_byte_capacity: Option<u64>,
@@ -179,6 +180,7 @@ impl Fixture {
             max_pending_transactions: 32,
             max_client_identities: 1024,
             max_input_bytes: 1024,
+            payloads: None,
             image_bytes: 256 * 1024 * 1024,
             logical_byte_capacity: None,
             placement_domains: None,
@@ -303,6 +305,7 @@ impl Fixture {
         );
         log.max_groups = 2;
         let mut shared = limits();
+        shared.payloads = self.payloads;
         shared.namespaces.max_namespaces = 1 + self.additional_namespaces.len();
         shared.sql.workers = self.sql_workers;
         shared.dispatch.max_input_bytes = self.max_input_bytes;
@@ -369,6 +372,7 @@ pub fn request(id: u8, revision: u64) -> FleetRequestIdentity {
 
 pub fn limits() -> CellGroupNodeLimits {
     CellGroupNodeLimits {
+        payloads: None,
         namespaces: CellGroupHostLimits {
             max_namespaces: 1,
             namespace_bytes: 16 * 1024 * 1024,

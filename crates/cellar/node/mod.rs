@@ -67,6 +67,7 @@ mod event_reply;
 mod event_resources;
 mod event_wait;
 mod ingress;
+mod kv_operator;
 mod maintenance;
 pub(crate) mod operations;
 mod queue_operator;
@@ -3697,6 +3698,23 @@ async fn handle_internal(
                 .is_some_and(|(class, _)| class == crate::deploy::QUEUE_CLASS)
             {
                 if let Some(reply) = queue_operator::dispatch_authenticated(
+                    &app,
+                    &method,
+                    &scope,
+                    name.as_deref(),
+                    &body,
+                    deadline,
+                )
+                .await
+                {
+                    return Ok(peer_response(reply));
+                }
+            }
+            if scope
+                .split_once(':')
+                .is_some_and(|(class, _)| class == crate::deploy::KV_CLASS)
+            {
+                if let Some(reply) = kv_operator::dispatch_authenticated(
                     &app,
                     &method,
                     &scope,

@@ -45,7 +45,9 @@ pub struct ListResult {
     pub cache_status: Option<String>,
 }
 
-/// A revision observed while reading a key. `None` requires an absent/live-expired key.
+/// Copy the exact observed token. Raft tokens include the cell incarnation, so
+/// a restored counter cannot reuse a pre-disaster conditional edit. Fleet tokens
+/// remain canonical decimal integers. `None` requires an absent/live-expired key.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RevisionCondition {
@@ -55,11 +57,27 @@ pub struct RevisionCondition {
 impl RevisionCondition {
     pub fn validate(&self) -> Result<()> {
         if let Some(revision) = &self.revision {
-            let number = revision
+            let sequence = if let Some(qualified) = revision.strip_prefix("cg1:") {
+                let (incarnation, sequence) = qualified
+                    .split_once(':')
+                    .ok_or_else(|| error("invalid revision"))?;
+                ensure!(
+                    incarnation.len() == 32
+                        && incarnation
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                        && incarnation.bytes().any(|byte| byte != b'0'),
+                    "KV_ERROR: invalid revision incarnation"
+                );
+                sequence
+            } else {
+                revision.as_str()
+            };
+            let number = sequence
                 .parse::<i64>()
                 .map_err(|_| error("revision must be a nonnegative decimal integer"))?;
             ensure!(
-                number >= 0 && number.to_string() == *revision,
+                number >= 0 && number.to_string() == sequence,
                 "KV_ERROR: invalid revision"
             );
         }

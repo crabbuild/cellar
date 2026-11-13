@@ -430,6 +430,14 @@ impl RaftClass {
         )
     }
 
+    pub(super) fn kv_service() -> Result<Self, RegistrationError> {
+        Self::definition(
+            crate::deploy::KV_CLASS.into(),
+            1,
+            Sha256::digest(b"cellar-raft-kv-payload-callback-service-1").into(),
+        )
+    }
+
     fn definition(
         name: String,
         schema_version: u32,
@@ -797,6 +805,8 @@ impl RaftClass {
             && operation == crate::application::sql::operator::METHOD)
             || (self.name == crate::deploy::QUEUE_CLASS
                 && operation == crate::application::queue::OPERATOR)
+            || (self.name == crate::deploy::KV_CLASS
+                && operation == crate::application::kv::OPERATOR)
         {
             return None;
         }
@@ -819,6 +829,12 @@ impl RaftClass {
     pub(crate) fn queue_operator_contract(&self) -> Option<OperationContract> {
         (self.name == crate::deploy::QUEUE_CLASS)
             .then(|| self.contract(crate::application::queue::OPERATOR))
+            .flatten()
+    }
+
+    pub(crate) fn kv_operator_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::KV_CLASS)
+            .then(|| self.contract(crate::application::kv::OPERATOR))
             .flatten()
     }
 

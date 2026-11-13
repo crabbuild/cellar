@@ -193,6 +193,21 @@ impl CellGroupResourceUsage {
             }
         }
         let c = self.host.controller;
+        if let Some(payloads) = self.host.payloads {
+            sample(&mut out, "payload_operations", "", payloads.operations);
+            sample(
+                &mut out,
+                "payload_retained_bytes",
+                "",
+                payloads.retained_bytes,
+            );
+            sample(
+                &mut out,
+                "payload_capacity_bytes",
+                "",
+                self.host.payload_byte_limit,
+            );
+        }
         for (name, value) in [
             ("namespaces", self.host.namespaces),
             ("namespace_bytes", self.host.namespace_bytes),

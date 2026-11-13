@@ -35,7 +35,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite in ("ordinary-sql-bindings", "immutable-payloads"):
+                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "immutable-payloads"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -44,8 +44,8 @@ class SqlCampaignTests(unittest.TestCase):
                     return subprocess.CompletedProcess(
                         argv, 0, prefix + "\n".join(f"{case}: test" for case in cases)
                     )
-                if suite in ("ordinary-sql-bindings", "queue-primitives"):
-                    retained = Path(env["CELLAR_CELL_GROUPS_SQL_CLI" if suite == "ordinary-sql-bindings" else "CELLAR_CELL_GROUPS_QUEUE_CLI"])
+                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
+                    retained = Path(env[{"ordinary-sql-bindings": "CELLAR_CELL_GROUPS_SQL_CLI", "ordinary-kv-bindings": "CELLAR_CELL_GROUPS_KV_CLI", "queue-primitives": "CELLAR_CELL_GROUPS_QUEUE_CLI"}[suite]])
                     self.assertEqual(retained, output / "cellar")
                     self.assertNotEqual(retained, cli)
                     self.assertEqual(retained.read_bytes(), b"SQL CLI fixture")
@@ -88,7 +88,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(executed, list(cases))
                 summary = json.loads(report.getvalue().splitlines()[-1])
                 self.assertEqual(summary["image_modes_per_case"], 0 if suite == "immutable-payloads" else 2)
-                if suite in ("ordinary-sql-bindings", "queue-primitives"):
+                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
                     self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
                 else:
                     self.assertNotIn("operator_cli", record)
@@ -119,6 +119,19 @@ class QueueCampaignTests(unittest.TestCase):
 
     def test_queue_refuses_success_with_no_selected_test(self):
         self.campaign("zero", "queue-primitives")
+
+
+class KvCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_kv_uses_the_frozen_cli_for_every_case(self):
+        self.campaign(suite="ordinary-kv-bindings")
+
+    def test_kv_refuses_a_changed_frozen_cli(self):
+        self.campaign("tamper", "ordinary-kv-bindings")
+
+    def test_kv_refuses_success_with_no_selected_test(self):
+        self.campaign("zero", "ordinary-kv-bindings")
 
 
 if __name__ == "__main__":

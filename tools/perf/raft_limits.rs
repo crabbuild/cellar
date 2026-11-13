@@ -17,6 +17,7 @@ pub fn shared(
         .min(capacity);
     ensure!(sources > 0, "empty checkpoint producer bank");
     Ok(CellGroupNodeLimits {
+        payloads: None,
         namespaces: CellGroupHostLimits {
             max_namespaces: 1,
             namespace_bytes: 256 * 1024 * 1024,

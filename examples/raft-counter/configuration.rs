@@ -171,6 +171,7 @@ pub async fn enroll(
 
 pub fn limits() -> CellGroupNodeLimits {
     CellGroupNodeLimits {
+        payloads: None,
         namespaces: CellGroupHostLimits {
             max_namespaces: 1,
             namespace_bytes: 32 * 1024 * 1024,

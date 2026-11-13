@@ -33,6 +33,19 @@ pub(crate) struct Route {
 pub(crate) type BufferLease = Arc<dyn Send + Sync>;
 
 pub(crate) trait Host: Send + Sync {
+    fn kv_payload_store(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+    ) -> Result<crate::raft::cell_groups::CellGroupPayloadStore>;
+
+    fn kv_binding_payload_store(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        target: &CellHistory,
+    ) -> Result<crate::raft::cell_groups::CellGroupPayloadStore>;
+
     fn admit(&self, group: GroupHistory, bytes: usize) -> Result<BufferLease>;
 
     fn route(

@@ -62,6 +62,20 @@ SUITES = {
         "Objects are retained without deletion. Root-aware reclamation, fenced KV row "
         "publication and combined lifecycle/disaster recovery remain separate gates.",
     ),
+    "ordinary-kv-bindings": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_kv_bindings_use_managed_shared_groups",
+         "rustfs_axum_kv_bindings_use_managed_shared_groups"),
+        "ordinary KV SDK and authenticated operator/CLI on shared RF3 with real RustFS",
+        "Both image modes, separate source/KV groups, one SQL worker per node, "
+        "16-KiB command inputs and unchanged result limits. Native and Axum ingress, "
+        "the shared Fleet/Quorum API contract, 1-MiB and 25-MiB values, immutable "
+        "wire transport, conditional revisions, autonomous expiration, retained restart, "
+        "receipt replay, archive-write outage and quorum refusal are checked. "
+        "Large values require the payload provider. Voters share one host process; "
+        "interrupted large calls, external-object recovery closure, root-aware reclamation, "
+        "independent voter limits, load and disk-loss recovery remain separate gates.",
+    ),
     "ordinary-sql-bindings": (
         "native_cell_groups_primitives",
         (
@@ -621,7 +635,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings"):
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings"):
         parser.error("--keep-going requires a process-isolated ordinary primitive or SQL suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
@@ -672,7 +686,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("ordinary-sql-bindings", "immutable-payloads"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "immutable-payloads"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -713,7 +727,7 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle", "ordinary-sql-bindings", "queue-primitives") and result.returncode == 0:
+            if args.suite in ("managed-ingress", "managed-lifecycle", "ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives") and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")
@@ -728,6 +742,8 @@ def main():
                     env["CELLAR_CELL_GROUPS_SQL_CLI"] = str(operator_cli)
                 if args.suite == "queue-primitives":
                     env["CELLAR_CELL_GROUPS_QUEUE_CLI"] = str(operator_cli)
+                if args.suite == "ordinary-kv-bindings":
+                    env["CELLAR_CELL_GROUPS_KV_CLI"] = str(operator_cli)
             if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry"):
                 current_operator = executable.parent.parent / "cellar-perf-cell-group" if match else None
                 if current_operator is None or not current_operator.is_file():

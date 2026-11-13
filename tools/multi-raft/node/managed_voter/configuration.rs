@@ -134,6 +134,7 @@ pub(super) fn recovery_pool() -> Result<CellGroupRecoveryPool> {
 
 pub(super) fn limits() -> CellGroupNodeLimits {
     CellGroupNodeLimits {
+        payloads: None,
         namespaces: CellGroupHostLimits {
             max_namespaces: 1,
             namespace_bytes: 16 * 1024 * 1024,

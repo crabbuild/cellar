@@ -11,6 +11,7 @@ use std::{future::Future, task::Poll, time::Duration};
 pub(crate) struct RaftDispatchContext {
     pub domain: DomainToken,
     pub deadline: u64,
+    pub result_limit: usize,
     pub fence: CellActivationFence,
     pub binding_source: Option<crate::application::cell_bindings::Source>,
 }
@@ -38,6 +39,24 @@ impl RaftDispatchPermit {
 }
 
 impl RaftDispatch {
+    /// Metadata from this exact executing history; no dispatch or publication
+    /// authority is granted and no transaction is suspended by reading it.
+    pub(crate) fn source_history(&self) -> Result<consensus::CellHistory> {
+        self.remaining()?;
+        Ok(self
+            .context
+            .binding_source
+            .as_ref()
+            .ok_or(consensus::CommandFailure::UnsupportedCapability)?
+            .history
+            .clone())
+    }
+
+    pub(crate) fn result_limit(&self) -> Result<usize> {
+        self.remaining()?;
+        Ok(self.context.result_limit)
+    }
+
     pub(crate) fn binding_source(&self) -> Result<crate::application::cell_bindings::Source> {
         self.remaining()?;
         let resources = &self.authority.resources;

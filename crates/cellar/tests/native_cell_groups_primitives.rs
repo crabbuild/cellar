@@ -38,9 +38,15 @@ mod dispatch;
 mod erase;
 #[path = "support/cell_group_interleaving.rs"]
 mod interleaving;
+#[path = "support/cell_group_kv.rs"]
+mod kv_bindings;
+#[path = "support/kv_contract.rs"]
+mod kv_contract;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
+#[path = "support/cell_group_named_service.rs"]
+mod named_service;
 #[path = "support/cell_group_names.rs"]
 mod names;
 #[path = "support/cell_group_queue.rs"]
@@ -1720,6 +1726,28 @@ async fn interrupted_named_bindings_recover_after_retained_restart() -> Result<(
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_interrupted_named_bindings_recover_after_retained_restart() -> Result<()> {
     Box::pin(bindings::qualify_recovery(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_kv_bindings_use_managed_shared_groups() -> Result<()> {
+    Box::pin(kv_bindings::qualify(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_kv_bindings_use_managed_shared_groups() -> Result<()> {
+    Box::pin(kv_bindings::qualify(false, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ordinary_kv_bindings_use_managed_shared_groups() -> Result<()> {
+    Box::pin(kv_bindings::qualify(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_axum_kv_bindings_use_managed_shared_groups() -> Result<()> {
+    Box::pin(kv_bindings::qualify(true, true)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

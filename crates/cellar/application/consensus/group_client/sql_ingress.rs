@@ -14,9 +14,38 @@ enum Origin {
     Binding,
     Operator,
     QueueOperator,
+    KvOperator,
 }
 
 impl RaftCells {
+    pub(crate) fn kv_wire_input_limit(&self, scope: &str, method: &str) -> anyhow::Result<usize> {
+        self.check_open()?;
+        anyhow::ensure!(
+            scope
+                .split_once(':')
+                .is_some_and(|(class, _)| class == crate::deploy::KV_CLASS),
+            super::super::CommandFailure::UnsupportedCapability
+        );
+        Ok(self
+            .handle
+            .core
+            .host
+            .sql_ingress_route(scope, method, &self.handle.core.log)?
+            .max_input_bytes)
+    }
+
+    pub(crate) fn kv_wire_store(
+        &self,
+        history: &CellHistory,
+    ) -> anyhow::Result<crate::raft::cell_groups::CellGroupPayloadStore> {
+        self.check_open()?;
+        Ok(self
+            .handle
+            .core
+            .host
+            .kv_ingress_payload_store(history, &self.handle.core.log)?)
+    }
+
     pub(crate) fn sql_ingress(
         &self,
         admitted: crate::outbound_rpc::Admitted,
@@ -43,6 +72,15 @@ impl RaftCells {
         deadline: u64,
     ) -> HandlerFuture<RpcData> {
         self.submit_sql(admitted, call_scope, deadline, Origin::QueueOperator)
+    }
+
+    pub(crate) fn kv_operator(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+    ) -> HandlerFuture<RpcData> {
+        self.submit_sql(admitted, call_scope, deadline, Origin::KvOperator)
     }
 
     fn submit_sql(
@@ -76,6 +114,16 @@ impl RaftCells {
                         .core
                         .host
                         .queue_operator_route(&scope, &self.handle.core.log)?
+                }
+                Origin::KvOperator => {
+                    anyhow::ensure!(
+                        method == crate::application::kv::OPERATOR,
+                        super::super::CommandFailure::UnsupportedCapability
+                    );
+                    self.handle
+                        .core
+                        .host
+                        .kv_operator_route(&scope, &self.handle.core.log)?
                 }
                 Origin::Operator => {
                     anyhow::ensure!(

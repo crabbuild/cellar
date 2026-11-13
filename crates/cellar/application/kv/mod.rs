@@ -6,6 +6,8 @@
 
 mod inspection;
 mod options;
+pub(crate) mod raft_blob;
+pub(crate) mod raft_wire;
 mod validation;
 mod wire;
 pub use options::{
@@ -30,6 +32,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+
+pub(crate) const OPERATOR: &str = "__kvOperator";
 
 #[derive(Clone, Debug)]
 pub struct Namespace {
@@ -161,16 +165,21 @@ impl Namespace {
         context: &Context,
         method: &str,
         args: StructuredValue,
-    ) -> Result<StructuredValue> {
+    ) -> Result<raft_wire::Reply> {
+        let encoded = encode_rpc(&args)?;
+        drop(args);
+        if raft_wire::enabled(context) {
+            return raft_wire::call(context, &self.identity, method, encoded).await;
+        }
         let reply = context
             .rpc_cell(
                 policy_scope(&self.identity),
                 Some(policy::cell_name(&self.identity, 0)),
                 method.into(),
-                encode_rpc(&args)?,
+                encoded,
             )
             .await?;
-        decode_rpc_result(&reply)
+        Ok(raft_wire::Reply::inline(decode_rpc_result(&reply)?))
     }
 
     async fn read(
@@ -301,9 +310,13 @@ impl Namespace {
         if let Some(metadata) = &metadata {
             check_metadata(metadata)?;
         }
-        let expires = expiry(now(), options.expiration, options.expiration_ttl)?;
+        let at = now();
+        let expires = expiry(at, options.expiration, options.expiration_ttl)?;
+        let ttl = options
+            .expiration_ttl
+            .and_then(|_| expires.and_then(|expires| expires.checked_sub(at)));
         let mut args = StructuredValue::from_json(
-            json!([{ "entries":[{ "key":key, "value":null, "tag":tag, "metadata":metadata, "expiresAt":expires }] }]),
+            json!([{ "entries":[{ "key":key, "value":null, "tag":tag, "metadata":metadata, "expiresAt":expires,"expirationTtlMs":ttl }] }]),
         )?;
         let body = wire::array(&args, &args.root)?[0].clone();
         let entry = wire::array(&args, wire::field(&args, &body, "entries"))?[0].clone();
@@ -509,7 +522,7 @@ impl NamespaceCell {
     }
 
     fn open(&self) -> Result<()> {
-        if self.ready.load(Ordering::Acquire) {
+        if !self.storage.is_raft() && self.ready.load(Ordering::Acquire) {
             return Ok(());
         }
         self.storage.system_sql_schema(
@@ -522,6 +535,10 @@ impl NamespaceCell {
             .iter()
             .any(|row| matches!(row.get("name"), Some(SqlValue::Text(name)) if name == "revision"))
         {
+            ensure!(
+                !self.storage.is_raft(),
+                super::consensus::CommandFailure::CorruptState
+            );
             self.storage.system_sql_schema(
                 "ALTER TABLE __sys_kv ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;",
             )?;
@@ -540,6 +557,11 @@ impl NamespaceCell {
     }
 
     fn arm_blob(&self) -> Result<()> {
+        // Immutable Raft payloads remain retained until a collector proves the
+        // complete row/image/archive/reader closure. Never run Fleet's sweep.
+        if self.storage.is_raft() {
+            return Ok(());
+        }
         self.open()?;
         self.exec("INSERT INTO __sys_kv_meta(name,value) VALUES ('blob-sweep-due',1) ON CONFLICT(name) DO UPDATE SET value=excluded.value", &[])?;
         self.arm_before(
@@ -597,6 +619,7 @@ impl NamespaceCell {
         metadata: bool,
         expiration: bool,
         at: i64,
+        payloads: &mut Vec<crate::raft::cell_groups::CellGroupPayloadBytes>,
     ) -> Result<StructuredValue> {
         check_bulk(keys)?;
         self.open()?;
@@ -620,6 +643,11 @@ impl NamespaceCell {
                 .await?
                 {
                     crate::kv_blob::BlobReply::Bytes(bytes) => bytes,
+                    crate::kv_blob::BlobReply::GroupBytes(held) => {
+                        let bytes = held.as_ref().to_vec();
+                        payloads.push(held);
+                        bytes
+                    }
                     crate::kv_blob::BlobReply::Json(_) => {
                         return Err(error(format!(
                             "the value for {} is missing from the fleet bucket (blob {reference})",
@@ -633,7 +661,7 @@ impl NamespaceCell {
                     _ => return Err(error("stored inline value is not bytes")),
                 }
             };
-            let mut entry = json!({"key":key,"found":true,"tag":text(&row,"tag")?,"value":null,"revision":integer(&row,"revision")?.to_string()});
+            let mut entry = json!({"key":key,"found":true,"tag":text(&row,"tag")?,"value":null,"revision":self.revision(integer(&row,"revision")?)?});
             if metadata {
                 entry["metadata"] = json!(optional_text(&row, "metadata")?);
             }
@@ -740,7 +768,7 @@ impl NamespaceCell {
                 self.arm_blob()?;
                 let crate::kv_blob::BlobReply::Json(reply) = crate::native_worker::kv_blob(
                     context,
-                    json!({"mode":"prepare","digest":digest}),
+                    json!({"mode":"prepare","digest":digest,"length":entry.value.len()}),
                     None,
                 )
                 .await?
@@ -941,20 +969,65 @@ impl NamespaceCell {
     }
 
     async fn rpc(&self, context: &Context, method: &str, args: &RpcData) -> Result<RpcData> {
+        let mut retained = Vec::new();
+        if !self.storage.is_raft() {
+            return self.rpc_inner(context, method, args, &mut retained).await;
+        }
+        if method == raft_wire::PREPARE {
+            return raft_wire::prepare_input(context, args).await;
+        }
+        let (method, args, held_input) = raft_wire::unwrap_input(context, method, args).await?;
+        let result = self
+            .rpc_inner(context, &method, &args, &mut retained)
+            .await?;
+        let result = raft_wire::wrap_reply(context, result).await;
+        drop(held_input);
+        drop(retained);
+        result
+    }
+
+    async fn rpc_inner(
+        &self,
+        context: &Context,
+        method: &str,
+        args: &RpcData,
+        retained: &mut Vec<crate::raft::cell_groups::CellGroupPayloadBytes>,
+    ) -> Result<RpcData> {
         let graph = decode_rpc(args)?;
         let arguments = wire::array(&graph, &graph.root)?;
         let body = arguments
             .first()
             .ok_or_else(|| error("RPC has no arguments"))?;
         let field = |name| wire::field(&graph, body, name);
+        let observed_at = || {
+            if self.storage.is_raft() {
+                Ok(now())
+            } else {
+                wire::number(field("now"))
+            }
+        };
         let result = match method {
+            OPERATOR => StructuredValue::from_json(
+                self.operator(
+                    context,
+                    graph
+                        .to_json()?
+                        .as_array()
+                        .and_then(|args| args.first())
+                        .cloned()
+                        .ok_or_else(|| error("operator body"))?,
+                    retained,
+                )
+                .await?,
+            )?,
             "__kvGet" => {
                 self.get(
                     context,
                     &names(&graph, field("keys"))?,
                     matches!(field("withMetadata"), CloneValue::Boolean(true)),
                     matches!(field("withExpiration"), CloneValue::Boolean(true)),
-                    wire::number(field("now"))?,
+                    observed_at()?,
+                    retained,
                 )
                 .await?
             }
@@ -963,12 +1036,26 @@ impl NamespaceCell {
                     .iter()
                     .map(|entry| {
                         let field = |name| wire::field(&graph, entry, name);
+                        let ttl = wire::optional_number(field("expirationTtlMs"))?;
+                        let expires = if let Some(ttl) = ttl.filter(|_| self.storage.is_raft()) {
+                            let floor = crate::kv_blob::limits()["minExpirationTtlMs"]
+                                .as_i64()
+                                .expect("KV limits");
+                            ensure!(ttl >= floor, "KV_ERROR: expiration TTL is below its floor");
+                            Some(
+                                now()
+                                    .checked_add(ttl)
+                                    .ok_or_else(|| error("expiration overflow"))?,
+                            )
+                        } else {
+                            wire::optional_number(field("expiresAt"))?
+                        };
                         Ok(Entry {
                             key: wire::string(field("key"))?,
                             value: wire::bytes(&graph, field("value"))?,
                             tag: wire::string(field("tag"))?,
                             metadata: wire::optional_string(field("metadata"))?,
-                            expires: wire::optional_number(field("expiresAt"))?,
+                            expires,
                         })
                     })
                     .collect::<Result<_>>()?;
@@ -989,13 +1076,11 @@ impl NamespaceCell {
                 wire::string(field("prefix"))?,
                 wire::number(field("limit"))?,
                 wire::string(field("after"))?,
-                wire::number(field("now"))?,
+                observed_at()?,
             )?)?,
-            "__kvMetrics" => {
-                StructuredValue::from_json(self.metrics(wire::number(field("now"))?)?)?
-            }
+            "__kvMetrics" => StructuredValue::from_json(self.metrics(observed_at()?)?)?,
             "__kvSweep" => StructuredValue::from_json(
-                json!({"removed":self.sweep(wire::number(field("now"))?,wire::number(field("limit"))?)?}),
+                json!({"removed":self.sweep(observed_at()?,wire::number(field("limit"))?)?}),
             )?,
             _ => return Err(error(format!("namespace has no RPC method {method}"))),
         };
@@ -1012,7 +1097,12 @@ impl NamespaceCell {
         }
     }
 
-    async fn operator(&self, context: &Context, body: Value) -> Result<Value> {
+    async fn operator(
+        &self,
+        context: &Context,
+        body: Value,
+        retained: &mut Vec<crate::raft::cell_groups::CellGroupPayloadBytes>,
+    ) -> Result<Value> {
         let at = now();
         match body["op"].as_str() {
             Some("get") => {
@@ -1030,12 +1120,12 @@ impl NamespaceCell {
                         let size = integer(&row, "size")?;
                         if size > i64::try_from(limit).unwrap_or(i64::MAX) {
                             return Ok(
-                                json!({"found":true,"valueOmitted":true,"size":size,"tag":text(&row,"tag")?,"revision":integer(&row,"revision")?.to_string(),"metadata":optional_text(&row,"metadata")?,"expiration":optional_integer(&row,"expires_at")?}),
+                                json!({"found":true,"valueOmitted":true,"size":size,"tag":text(&row,"tag")?,"revision":self.revision(integer(&row,"revision")?)?,"metadata":optional_text(&row,"metadata")?,"expiration":optional_integer(&row,"expires_at")?}),
                             );
                         }
                     }
                 }
-                let graph = self.get(context, &[key], true, true, at).await?;
+                let graph = self.get(context, &[key], true, true, at, retained).await?;
                 let row = &wire::array(&graph, &graph.root)?[0];
                 if !matches!(wire::field(&graph, row, "found"), CloneValue::Boolean(true)) {
                     return Ok(json!({"found":false,"revision":null}));
@@ -1168,8 +1258,9 @@ impl NamespaceCell {
             serde_json::from_slice::<Value>(&bytes).map_err(anyhow::Error::from)
         }
         .await;
+        let mut retained = Vec::new();
         let result = match body {
-            Ok(body) => self.operator(context, body).await,
+            Ok(body) => self.operator(context, body, &mut retained).await,
             Err(_) => Err(error("invalid request body")),
         };
         let (status, body) = match result {

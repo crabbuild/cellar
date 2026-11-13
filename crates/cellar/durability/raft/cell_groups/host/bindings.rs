@@ -10,9 +10,108 @@ enum Access {
     Binding,
     SqlOperator,
     QueueOperator,
+    KvOperator,
 }
 
 impl CellGroupHost {
+    pub(crate) fn kv_binding_payload_store(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        target: &CellHistory,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<CellGroupPayloadStore, CellDispatchError> {
+        let route = self.binding_route(
+            source,
+            configuration,
+            target.cell.as_str(),
+            crate::application::kv::raft_wire::PREPARE,
+            log,
+        )?;
+        self.kv_store_for_route(target, &route)
+    }
+
+    pub(crate) fn kv_ingress_payload_store(
+        &self,
+        target: &CellHistory,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<CellGroupPayloadStore, CellDispatchError> {
+        let route = self.kv_route(
+            target.cell.as_str(),
+            crate::application::kv::raft_wire::PREPARE,
+            log,
+            Access::Binding,
+        )?;
+        self.kv_store_for_route(target, &route)
+    }
+
+    fn kv_store_for_route(
+        &self,
+        target: &CellHistory,
+        route: &Route,
+    ) -> Result<CellGroupPayloadStore, CellDispatchError> {
+        if route.cluster != target.cluster
+            || route.namespace != target.namespace
+            || route.cell != target.cell
+        {
+            return Err(CellDispatchError::Invalid("KV payload route differs"));
+        }
+        let binding = self
+            .inner
+            .namespaces
+            .get(&(target.cluster, target.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        if binding.class.name() != crate::deploy::KV_CLASS {
+            return Err(CellDispatchError::Invalid("KV payload class"));
+        }
+        let pool = self
+            .inner
+            .payloads
+            .as_ref()
+            .ok_or(CellDispatchError::Invalid(
+                "KV payload owner is unavailable",
+            ))?;
+        binding
+            .dispatcher
+            .directory()
+            .namespace()
+            .cell_payloads(pool)
+            .map_err(|_| CellDispatchError::Invalid("KV payload namespace"))
+    }
+
+    pub(crate) fn kv_payload_store(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+    ) -> Result<CellGroupPayloadStore, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let binding = self
+            .inner
+            .namespaces
+            .get(&(source.cluster, source.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        if binding.class.name() != crate::deploy::KV_CLASS
+            || binding.class.cell_configuration_digest() != Some(configuration)
+        {
+            return Err(CellDispatchError::Registration(
+                RegistrationError::ContractMismatch,
+            ));
+        }
+        let pool = self
+            .inner
+            .payloads
+            .as_ref()
+            .ok_or(CellDispatchError::Invalid(
+                "KV payload owner is unavailable",
+            ))?;
+        binding
+            .dispatcher
+            .directory()
+            .namespace()
+            .cell_payloads(pool)
+            .map_err(|_| CellDispatchError::Invalid("KV payload namespace"))
+    }
+
     pub(crate) fn install_binding_host(
         &self,
         host: Arc<dyn Host>,
@@ -79,6 +178,9 @@ impl CellGroupHost {
         if class == crate::deploy::SQL_CLASS {
             return self.sql_route(scope, method, log, Access::Binding);
         }
+        if class == crate::deploy::KV_CLASS {
+            return self.kv_route(scope, method, log, Access::Binding);
+        }
         if class != crate::deploy::QUEUE_CLASS {
             return Err(CellDispatchError::Invalid("builtin binding class"));
         }
@@ -96,6 +198,45 @@ impl CellGroupHost {
             log,
             Access::QueueOperator,
         )
+    }
+
+    pub(crate) fn kv_operator_route(
+        &self,
+        scope: &str,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.kv_route(
+            scope,
+            crate::application::kv::OPERATOR,
+            log,
+            Access::KvOperator,
+        )
+    }
+
+    fn kv_route(
+        &self,
+        scope: &str,
+        method: &str,
+        log: &crate::raft::storage::ReplicaLog,
+        access: Access,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let mut services = self
+            .inner
+            .namespaces
+            .iter()
+            .filter(|(_, binding)| binding.class.name() == crate::deploy::KV_CLASS);
+        let (key, target) = services.next().ok_or(CellDispatchError::Invalid(
+            "declared KV namespace is missing",
+        ))?;
+        if services.next().is_some() {
+            return Err(CellDispatchError::Invalid(
+                "declared KV namespace is ambiguous",
+            ));
+        }
+        let mut route = route(*key, target, scope, method, access)?;
+        route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
+        Ok(route)
     }
 
     fn queue_route(
@@ -183,6 +324,7 @@ fn route(
         Access::Binding => target.class.binding_contract(method),
         Access::SqlOperator => target.class.sql_operator_contract(),
         Access::QueueOperator => target.class.queue_operator_contract(),
+        Access::KvOperator => target.class.kv_operator_contract(),
     }
     .ok_or_else(|| {
         CellDispatchError::Registration(RegistrationError::UnknownOperation(method.into()))
@@ -236,6 +378,7 @@ fn select<'a>(
         key.0 == source.0
             && binding.class.name() == class
             && (class == crate::deploy::SQL_CLASS
+                || class == crate::deploy::KV_CLASS
                 || binding.class.cell_configuration_digest() == Some(configuration))
     });
     let (key, binding) = matches.next().ok_or(CellDispatchError::Invalid(

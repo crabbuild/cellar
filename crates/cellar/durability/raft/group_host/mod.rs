@@ -58,6 +58,9 @@ pub struct RaftGroupAssignment {
 #[derive(Clone, Copy)]
 pub struct CellGroupNodeLimits {
     pub namespaces: CellGroupHostLimits,
+    /// One pool across all KV namespaces. Required before exposing the runtime
+    /// KV service; absence never falls back to Fleet's epoch-based blob store.
+    pub payloads: Option<CellGroupPayloadLimits>,
     pub controller: CellGroupControllerLimits,
     pub sql: CellSqlLimits,
     pub provisioning: CellGroupProvisionLimits,
@@ -588,13 +591,14 @@ pub(crate) async fn start(
         if !effects.is_empty() {
             controller.configure_effects(effects)?;
         }
-        let host = CellGroupHost::bind(
+        let host = CellGroupHost::bind_with_payloads(
             &runtime,
             &sql,
             &transport,
             controller.clone(),
             registrations,
             limits.namespaces,
+            limits.payloads.map(CellGroupPayloadPool::new).transpose()?,
         )?;
         let collection = collection::Collection::new(collectible)?;
         let resources = crate::application::consensus::group_client::resources::Resources::new(
