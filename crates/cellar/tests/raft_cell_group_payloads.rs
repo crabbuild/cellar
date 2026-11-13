@@ -143,11 +143,23 @@ async fn qualify(store: Arc<dyn ObjectStore>) -> Result<()> {
     let catalog = Catalog::new(faults.clone(), CatalogOptions::default())?;
     let config = NamespaceConfig::new(cluster, namespace, NamespaceMode::Raft, [3; 32]);
     let ns = catalog.open_namespace(config.clone()).await?;
+    let fleet = catalog
+        .open_namespace(NamespaceConfig::new(
+            cluster,
+            NamespaceId::new([6; 16])?,
+            NamespaceMode::Fleet,
+            [3; 32],
+        ))
+        .await?;
     let pool = CellGroupPayloadPool::new(CellGroupPayloadLimits {
         max_operations: 1,
         max_retained_bytes: 80 * 1024 * 1024,
         ..Default::default()
     })?;
+    ensure!(matches!(
+        fleet.cell_payloads(&pool),
+        Err(CatalogError::Invalid(_))
+    ));
     let payloads = ns.cell_payloads(&pool)?;
     let history = CellHistory {
         cluster,

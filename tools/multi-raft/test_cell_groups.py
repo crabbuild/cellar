@@ -65,13 +65,14 @@ class SqlCampaignTests(unittest.TestCase):
             argv = ["cell_groups.py", "--suite", suite,
                     "--backend", str(root / "backend"), "--output", str(output),
                     "--target-directory", str(root / "target")]
+            report = io.StringIO()
             with (patch.object(sys, "argv", argv),
                   patch.object(cell_groups, "backend", return_value=(remote, credentials)),
                   patch.object(cell_groups, "sources", return_value=[]),
                   patch.object(cell_groups, "probe", return_value={"fixture": True}),
                   patch.object(cell_groups.subprocess, "check_output", side_effect=git),
                   patch.object(cell_groups.subprocess, "run", side_effect=run),
-                  contextlib.redirect_stdout(io.StringIO())):
+                  contextlib.redirect_stdout(report)):
                 if fault:
                     with self.assertRaises(RuntimeError):
                         cell_groups.main()
@@ -84,6 +85,8 @@ class SqlCampaignTests(unittest.TestCase):
             else:
                 self.assertEqual(record["status"], "PASSED")
                 self.assertEqual(executed, list(cases))
+                summary = json.loads(report.getvalue().splitlines()[-1])
+                self.assertEqual(summary["image_modes_per_case"], 0 if suite == "immutable-payloads" else 2)
                 if suite == "ordinary-sql-bindings":
                     self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
                 else:

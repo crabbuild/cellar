@@ -762,7 +762,8 @@ def main():
     finally:
         save()
     print(json.dumps({"record": str(out / "record.json"), "status": record["status"],
-                      "rustfs_cases": len(cases), "image_modes_per_case": 2}), flush=True)
+                      "rustfs_cases": len(cases),
+                      "image_modes_per_case": 0 if args.suite == "immutable-payloads" else 2}), flush=True)
 
 
 if __name__ == "__main__":

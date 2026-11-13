@@ -326,6 +326,16 @@ impl CellGroupPayloadStore {
         if bytes.is_empty() || bytes.len() > self.pool.limits.max_payload_bytes {
             return Err(CellGroupPayloadError::Invalid("payload length"));
         }
+        if history.cluster != self.cluster || history.namespace != self.namespace {
+            return Err(CellGroupPayloadError::Invalid("namespace"));
+        }
+        // Reject saturation before spending CPU hashing another maximum-size
+        // value. The same reservation survives the full publication protocol.
+        let _permit = self
+            .pool
+            .budget
+            .acquire(CellGroupPayloadPool::workspace(bytes.len())?)
+            .ok_or(CellGroupPayloadError::Overloaded)?;
         let reference = CellGroupPayloadReference::prepare(
             history,
             Sha256::digest(&bytes).into(),
@@ -333,11 +343,6 @@ impl CellGroupPayloadStore {
         );
         self.check(history, &reference)?;
         Self::check_deadline(deadline)?;
-        let _permit = self
-            .pool
-            .budget
-            .acquire(CellGroupPayloadPool::workspace(bytes.len())?)
-            .ok_or(CellGroupPayloadError::Overloaded)?;
         crate::asyncrt::timeout_at(deadline, async {
             if self.read(&reference, deadline).await?.is_some() {
                 return Ok(PublishedCellGroupPayload(reference));
