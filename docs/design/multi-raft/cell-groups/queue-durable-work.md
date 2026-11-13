@@ -15,6 +15,11 @@ Its host installs bounded `RaftEffectOptions` defaults and validates checkpoint/
 The runtime-owned Queue service enables the same capability automatically.
 Unsupported work reasons and unavailable scheduler capacity refuse admission.
 
+Callbacks use `RaftEffectOptions::operation_timeout_ms` (5 seconds by default,
+at most 60 seconds), including their checkpoints and settlement. Configure this
+budget for the consumer; Fleet's handler budget does not extend it. Longer
+consumer execution and the full timing/clock compatibility matrix remain open.
+
 Each installed reason has an independent generation, due time and attempt.
 The committed manifest projects the earliest due time into its existing alarm
 index; scheduling hints do not authorize execution. The owner rereads a fresh
