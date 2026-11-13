@@ -49,6 +49,12 @@ existing recovery and release dependencies rather than removing those gates.
    RustFS configurations. Preserve the earlier cold-race timeout controls; the
    passing cohort does not establish their causal performance resolution.
    Then deliver KV revision conditions, expiry, durable alarms and payloads.
+   The immutable payload storage layer at `41a19a24` passes its native and
+   canonical one-CPU RustFS protocol selections (**2/2**). This is a prerequisite:
+   ordinary KV service/ingress and invocation authority are not connected yet.
+   Full-size binding input/source-intent budgets, expiry, lifecycle/disaster
+   payload restoration and root-aware collection remain required. See the
+   [payload checkpoint](progress.md#cg-17-immutable-external-payload-publication).
    See the [SQL checkpoint](progress.md#cg-17-authenticated-sql-operator-cli-and-axum).
    The new after-child-reply interruption drill initially passes **13/16** at
    `bf19176f`; failed controls remain required. It adds commit/error/rollback and
