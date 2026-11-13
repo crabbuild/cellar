@@ -180,7 +180,8 @@ struct Capture {
 
 /// A local checkpoint seals the complete source cut, including membership.
 /// Copy its suffix before object I/O; later apply cannot relabel this cut.
-/// Only an actually compacted prefix may select a fresh checkpoint instead.
+/// An actually compacted prefix cannot supply a successor; the caller may also
+/// select a fresh checkpoint to bound replay work.
 fn capture_successor(
     source: (
         GroupLog<GroupHistory>,
@@ -427,6 +428,18 @@ impl CellGroupArchiveUpload {
                     .await?;
                 if tail.cut.marker != root.marker {
                     return Err(CellGroupArchiveError::Invalid("successor root/tail cut"));
+                }
+                let entries = tail
+                    .entries
+                    .len()
+                    .checked_add(captured.entries.len())
+                    .ok_or(CellGroupArchiveError::Limit)?;
+                // Verification replays the complete tail on every publication.
+                // Bound that work by the current group size so repeated writes
+                // to a small hot group cannot accumulate a long replay chain.
+                // This chooses an encoding, never supplies durability authority.
+                if entries > captured.cut.marker.root().cells().max(1) {
+                    return Ok(None);
                 }
                 self.registry().referenced(previous).await?;
                 self.append_tail(domain, pool, io, retention, tail, captured)
