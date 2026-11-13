@@ -3158,3 +3158,40 @@ on the opened descriptor and preserves canonical-envelope and ownership checks.
 New full journal tests cover atomic replacement, allocation bounds, malformed or
 noncanonical state, foreign identity and lost state. Full journal and public
 binding tests, archive regressions and fresh source checks remain pending.
+
+## Verified journal checkpoint and Queue regression
+
+Published review head `45709b74` contains the journal correction and the combined
+Queue/payload base. All eleven source checks pass at canonical input `e0183245`,
+including strict core/logic all-target Clippy and all 24 source anchors. The 44
+design, 159 runner and both 317-test Python performance suites pass with their
+recorded optional skips. All 3,297 committed source-input paths match that
+canonical snapshot. Managed input `6fdf4c99` includes the same sixty ignored
+generated JavaScript assets and remains separately scoped.
+
+The matching native component campaign passes all five journal regressions,
+four archive-reuse policy tests, both physical-join tests, 25 controller cases
+and 33 ordinary archive cases. Three complete ordinary named-binding repetitions
+pass in 59.827/65.035/68.432 seconds with all four configurations verified each
+time. Wakeup repetitions pass in 3.086/2.494/2.410 seconds under the original
+20-second deadline; all three logged dependency/late-receipt pairs pass. Source
+guards remain unchanged. Earlier failed campaigns retain their original results.
+
+The broader 64-function native campaign uses the identical retained library
+executable and includes Queue and immutable-payload coverage. It finds an
+ordinary Queue failure in Extents: source command sequence 2, the first DLQ
+metrics call, receives an ambiguous nested enrollment
+`Execution(Refused(Unavailable))`. Independent cases continue, and this campaign
+cannot receive a passing result. An unchanged-binary repetition is diagnostic
+only. Current RustFS/Colima/Linux remains unstarted pending native correctness;
+hosted CI and the complete CG/OPT gates remain open.
+
+The 64-function campaign finishes failed: 63 functions pass and the ordinary
+Queue case fails as described above. All 21 routing functions pass, including
+all twelve fixed routing ledgers and the source-expiry observations. Source
+guards remain unchanged. The first unchanged-binary Queue repetition passes in
+153.805 seconds, without establishing the original cause or repairing the
+failed campaign. The queued backend/Linux pipeline records
+`NOT_RUN_NATIVE_PREREQUISITE_FAILED`; it starts neither Colima nor RustFS.
+A diagnostic of the actual first DLQ metrics prefix is pending. No current
+combined-source backend, hosted CI or full CG/OPT acceptance is granted.
