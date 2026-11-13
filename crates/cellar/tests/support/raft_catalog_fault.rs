@@ -1090,7 +1090,7 @@ impl ObjectStore for Store {
                 match item {
                     Ok(bytes) => futures_util::stream::unfold((bytes, 0), move |(bytes, at)| async move {
                         if at == bytes.len() { return None; }
-                        tokio::task::yield_now().await;
+                        cellar::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
                         let end = (at + chunk_bytes).min(bytes.len());
                         Some((Ok(bytes.slice(at..end)), (bytes, end)))
                     }).boxed(),
