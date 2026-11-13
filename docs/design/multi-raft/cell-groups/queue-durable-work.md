@@ -139,3 +139,33 @@ wake, all-voter disk loss, full-size payloads and independent Linux voters/load
 need qualification. EventStream, Workflow, cron and other work reasons still
 need their own adapters. Delivery remains at least once, with application inbox
 or external-provider idempotency at the documented business boundary.
+
+The pending `queue_four_in_flight_preserves_acknowledged_messages` control
+offers four producer calls concurrently, with at most two per Queue, alongside
+the existing two-in-flight case. It retains the same 512 steady messages,
+16 archive-outage messages, one SQL worker, eight ordinary slots, 128-KiB
+ordinary byte ceiling and two callback slots. The fixture measures active
+producer calls around each send and requires a peak of four. This measures
+offered calls, not simultaneous physical socket transmissions. The RustFS
+runner requires both image observations, the measured peak and the original
+resource envelope before accepting its separate selection. Runner unit tests
+pass; the new native and RustFS controls remain unqualified. Initial archive
+warmup remains in place, so this control does not close cold first-use S3.
+
+At optimized candidate input `4e9139b4`, the original two-call case passes both
+images in 84.456 seconds. The four-call case fails in its materialized image in
+26.398 seconds: an ingress command reports an ambiguous runtime deadline.
+The fixture retains all three voter disks and joins cleanup. Its failure snapshot
+shows one retained callback and SQL operation on the Queue leader, with a
+committed entry waiting to apply and 286 apply retries. This observation does
+not establish the blocking owner or a repair. The case remains failed, and the
+extent image has no result. Failure-only call counters are added for the next
+diagnostic run; successful-load observations remain separate.
+
+At diagnostic input `5b61b5ad`, the four-call case fails again in 25.076
+seconds. Failure counters record an actual peak of four offered calls, two
+failed producers and zero calls still running when their results are collected.
+No compiler or other native-test activity is sampled at the attempt's start.
+The original admission, byte and callback limits are unchanged. This supplies
+a repeatable current-source failure boundary; it does not yet prove which
+checkpoint/apply owner prevents completion or qualify the extent image.

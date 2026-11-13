@@ -3537,3 +3537,43 @@ JavaScript inputs remain separately recorded. These checks close the
 demonstrated sender-floor and receiver-view component defects; full native
 families, RustFS/Colima/Linux, 128-cell enrollment, sandbox shutdown, historical
 evidence and the remaining CG/OPT gates stay open.
+
+## Current combined-source routing and load failures
+
+Published `752f2312`, input `b8dbfbf5`, completes the 66-row optimized native
+campaign with 154 selected Rust functions passing and three failing. All
+19 ordinary primitive cases, the original chained twenty-second KV control,
+33 ordinary archive cases and 26 ordinary controller cases pass. The campaign
+remains failed at delayed lookup, read preferences and removed-member advice.
+The delayed-lookup SDK scenarios pass in both images before a later native
+write to an unaffected range returns an ambiguous unavailable outcome. Read
+preferences fail initial group startup, and removed-member advice fails its
+final counter oracle in the Axum/extent profile. These failures are retained;
+they authorize neither a weaker oracle nor backend qualification.
+
+The matching hosted native jobs also fail in the disaster target. Python 3.14
+records four passes/four failures/eight skips in 356.02 seconds; 3.14t records
+five passes/three failures/eight skips in 380.05 seconds. Failures include
+source capture and seal authorization. The 3.14 job additionally refuses a
+retained recovery voter with invalid group provisioning configuration. The
+inspection component corrections therefore do not establish complete Linux
+recovery. All three filesystem release application jobs pass separately.
+
+The original multi-occupancy control at this committed input again fails at
+occupancy 128. Its original sixty-second enrollment window ends with 73 of
+128 cells observed on every voter; total test time is 195.639 seconds and node
+cleanup joins. Two unrelated compiler processes are observed on the host, so
+this is no controlled performance comparison. Earlier 128-cell failures retain
+their exact scope and results. The owned Colima profile remains stopped, and
+the prepared 62-case RustFS campaign has not run because its native prerequisite
+failed.
+
+An independent test/runner candidate adds a four-call Queue load selection,
+retaining the existing two-call workload and all resource/request bounds.
+All 174 multi-Raft tool tests pass with one optional skip, along with formatting
+and documentation checks. At input `4e9139b4`, the original two-call native
+case passes both images, while the four-call case reproduces an ambiguous
+ingress deadline before its extent image. See the
+[Queue load checkpoint](queue-durable-work.md#qualification-and-remaining-scope)
+for observed owner state and the remaining diagnostic boundary. No production
+budget is raised, and no complete primitive family, CG or OPT package is accepted.

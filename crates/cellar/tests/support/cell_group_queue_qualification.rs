@@ -3,6 +3,7 @@
 //! Cross-deployment ownership, callback lifetimes and bounded public load.
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::AtomicUsize;
 
 const FAST: &str = "quorum-fast";
 
@@ -783,7 +784,8 @@ pub async fn qualify_long(real: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn qualify_load(real: bool) -> Result<()> {
+pub async fn qualify_load(real: bool, per_queue_in_flight: usize) -> Result<()> {
+    ensure!((1..=2).contains(&per_queue_in_flight));
     for rooted in [false, true] {
         let backend = real
             .then(|| rustfs::StoreConfig::load("queue-load", rooted))
@@ -814,25 +816,37 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             outage?;
             s.empty(QUEUE).await?;s.empty(FAST).await?;
             let start=cellar::asyncrt::mono_ms();
-            let credits=[tokio::sync::Semaphore::new(1),tokio::sync::Semaphore::new(1)];
-            let producers=(0..4).map(|client| { let cluster=&s.cluster; let credits=&credits; async move {
+            let credits=[tokio::sync::Semaphore::new(per_queue_in_flight),tokio::sync::Semaphore::new(per_queue_in_flight)];
+            let active=AtomicUsize::new(0);
+            let peak=AtomicUsize::new(0);
+            let producers=(0..4).map(|client| { let cluster=&s.cluster; let credits=&credits; let active=&active; let peak=&peak; async move {
                 let mut latency=Vec::new();
                 for batch in 0..16 {
                     let bodies=(0..8).map(|item|format!("load-{client}-{batch}-{item}")).collect::<Vec<_>>();
                     let _credit=credits[client%2].acquire().await?;
-                    latency.push(send(cluster,if client%2==0 {QUEUE}else{FAST},&bodies).await?);
+                    let entered=active.fetch_add(1,Ordering::AcqRel)+1;
+                    peak.fetch_max(entered,Ordering::AcqRel);
+                    let sent=send(cluster,if client%2==0 {QUEUE}else{FAST},&bodies).await;
+                    active.fetch_sub(1,Ordering::AcqRel);
+                    latency.push(sent?);
                 }Ok::<_,anyhow::Error>(latency)
             }});
             let results=futures_util::future::join_all(producers).await;
-            if results.iter().any(Result::is_err) { snapshot(&s.cluster,&[s.queue,s.dead]).await; }
+            if results.iter().any(Result::is_err) {
+                eprintln!("QUEUE_LOAD_FAILURE {}",json!({"realRustFS":real,"extents":rooted,"inFlightRequests":2*per_queue_in_flight,"perQueueInFlight":per_queue_in_flight,"peakInFlightRequests":peak.load(Ordering::Acquire),"activeCalls":active.load(Ordering::Acquire),"failedProducers":results.iter().filter(|r|r.is_err()).count(),"ordinarySlots":8,"ordinaryBytes":131072,"callbackSlots":2}));
+                snapshot(&s.cluster,&[s.queue,s.dead]).await;
+            }
             let mut latencies=Vec::new();for result in results {latencies.extend(result?);}
+            ensure!(active.load(Ordering::Acquire)==0);
+            let peak=peak.load(Ordering::Acquire);
+            ensure!(peak==2*per_queue_in_flight,"offered Queue concurrency did not reach the selected envelope: {peak}");
             s.empty(QUEUE).await?;s.empty(FAST).await?;
 
             let completed=s.signals.completed.lock().unwrap();ensure!(completed.len()==528,"acknowledged load lost messages: {}",completed.len());
             let delivered=s.signals.deliveries.lock().unwrap();
             let unique=delivered.iter().map(|(_,_,id)|id).collect::<BTreeSet<_>>();ensure!(unique.len()==528);
             latencies.sort_unstable();
-            eprintln!("QUEUE_LOAD {}",json!({"realRustFS":real,"extents":rooted,"producers":4,"inFlightRequests":2,"perQueueInFlight":1,"ordinarySlots":8,"ordinaryBytes":131072,"callbackSlots":2,"queues":2,"batchMessages":8,"steadyMessages":512,"archiveOutageMessages":16,"delivered":delivered.len(),"uniqueMessageIds":unique.len(),"elapsedMs":cellar::asyncrt::mono_ms()-start,"enqueueBatchP50Ms":latencies[latencies.len()/2],"enqueueBatchP99Ms":latencies[(latencies.len()*99/100).min(latencies.len()-1)]}));
+            eprintln!("QUEUE_LOAD {}",json!({"realRustFS":real,"extents":rooted,"producers":4,"inFlightRequests":2*per_queue_in_flight,"perQueueInFlight":per_queue_in_flight,"peakInFlightRequests":peak,"ordinarySlots":8,"ordinaryBytes":131072,"callbackSlots":2,"queues":2,"batchMessages":8,"steadyMessages":512,"archiveOutageMessages":16,"delivered":delivered.len(),"uniqueMessageIds":unique.len(),"elapsedMs":cellar::asyncrt::mono_ms()-start,"enqueueBatchP50Ms":latencies[latencies.len()/2],"enqueueBatchP99Ms":latencies[(latencies.len()*99/100).min(latencies.len()-1)]}));
             Ok::<_,anyhow::Error>(())
         }).await;
         let retain = !matches!(&outcome, Ok(Ok(())));

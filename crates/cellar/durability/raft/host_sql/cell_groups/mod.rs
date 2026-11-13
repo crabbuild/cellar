@@ -3,6 +3,7 @@
 //! Cell-history admission and commands on the existing fixed node SQL workers.
 
 mod admission;
+mod progress;
 mod rpc_cache;
 mod rpc_commit;
 pub(super) use rpc_cache::RpcCache;
@@ -600,36 +601,80 @@ impl CellGroupSqlPool {
     }
 
     async fn call(&self, cell: CellHistory, action: worker::Action) -> SqlReply {
-        self.send(cell, action)?.await.map_err(|_| unavailable())?
+        let wait = if action.progress_priority() {
+            self.admit()?;
+            let worker = self.cell_worker(&cell)?;
+            worker.domain.mono_ms().map_err(|_| unavailable())?;
+            let queued = worker
+                .performance
+                .timer(crate::raft::performance::Operation::SqlQueue);
+            let slot = match progress::reserve(&worker.completion_slots, || {
+                worker
+                    .slots
+                    .clone()
+                    .try_acquire_owned()
+                    .map_err(|error| match error {
+                        tokio::sync::TryAcquireError::Closed => unavailable(),
+                        tokio::sync::TryAcquireError::NoPermits => overloaded(),
+                    })
+            })
+            .await
+            {
+                Ok(slot) => slot,
+                Err(error) => {
+                    queued.finish(false);
+                    return Err(error);
+                }
+            };
+            self.enqueue(worker, cell, action, slot, queued)?
+        } else {
+            self.send_ordinary(cell, action)?
+        };
+        wait.await.map_err(|_| unavailable())?
     }
 
-    fn send(
-        &self,
-        cell: CellHistory,
-        action: worker::Action,
-    ) -> Result<oneshot::Receiver<SqlReply>, ExecutionError> {
-        self.admit()?;
-        let hash = cell_image_history_digest(&cell);
+    fn cell_worker(&self, cell: &CellHistory) -> Result<&Worker, ExecutionError> {
+        let hash = cell_image_history_digest(cell);
         let index = u64::from_le_bytes(
             hash[..8]
                 .try_into()
                 .map_err(|_| ExecutionError::Invalid("cell worker key"))?,
         ) % self.inner.workers.len() as u64;
-        let worker = &self.inner.workers[index as usize];
+        Ok(&self.inner.workers[index as usize])
+    }
+
+    fn send_ordinary(
+        &self,
+        cell: CellHistory,
+        action: worker::Action,
+    ) -> Result<oneshot::Receiver<SqlReply>, ExecutionError> {
+        self.admit()?;
+        let worker = self.cell_worker(&cell)?;
         worker.domain.mono_ms().map_err(|_| unavailable())?;
-        let slots = if action.progress_priority() {
-            &worker.completion_slots
-        } else {
-            &worker.slots
-        };
-        let slot = slots
+        let slot = worker
+            .slots
             .clone()
             .try_acquire_owned()
             .map_err(|error| match error {
                 tokio::sync::TryAcquireError::Closed => unavailable(),
                 tokio::sync::TryAcquireError::NoPermits => overloaded(),
             })?;
+        let queued = worker
+            .performance
+            .timer(crate::raft::performance::Operation::SqlQueue);
+        self.enqueue(worker, cell, action, slot, queued)
+    }
+
+    fn enqueue(
+        &self,
+        worker: &Worker,
+        cell: CellHistory,
+        action: worker::Action,
+        slot: tokio::sync::OwnedSemaphorePermit,
+        queued: crate::raft::performance::Timer,
+    ) -> Result<oneshot::Receiver<SqlReply>, ExecutionError> {
         self.admit()?;
+        worker.domain.mono_ms().map_err(|_| unavailable())?;
         let (reply, wait) = oneshot::channel();
         worker
             .sender
@@ -638,9 +683,7 @@ impl CellGroupSqlPool {
                 action,
                 reply,
                 _slot: slot,
-                queued: worker
-                    .performance
-                    .timer(crate::raft::performance::Operation::SqlQueue),
+                queued,
             }))
             .map_err(|_| unavailable())?;
         Ok(wait)
@@ -816,7 +859,7 @@ impl CellGroupSqlPool {
             .stage_request(options, authority, attempt, mode, callback)
             .map_err(CellSqlStageFailure::admission)?;
         let wait = self
-            .send(cell, action)
+            .send_ordinary(cell, action)
             .map_err(CellSqlStageFailure::known)?;
         wait.await
             .map_err(|_| CellSqlStageFailure {
@@ -904,7 +947,7 @@ impl CellGroupSqlPool {
             .initialize_request(options, authority, attempt, initialize)
             .map_err(CellSqlStageFailure::known)?;
         let wait = self
-            .send(cell, action)
+            .send_ordinary(cell, action)
             .map_err(CellSqlStageFailure::known)?;
         wait.await
             .map_err(|_| CellSqlStageFailure {

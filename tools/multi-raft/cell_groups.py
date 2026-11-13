@@ -231,6 +231,7 @@ SUITES = {
         "native_cell_groups_primitives",
         (
             "rustfs_queue_load_preserves_acknowledged_messages",
+            "rustfs_queue_four_in_flight_preserves_acknowledged_messages",
             "rustfs_queue_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_axum_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_long_callbacks_preserve_progress",
@@ -244,7 +245,7 @@ SUITES = {
         "archive-write refusal, joined retained restart and autonomous interrupted-consumer recovery, "
         "leader transfer and quorum-loss refusal. Separate producer, consumer and DLQ deployments, "
         "partial retry, stale handlers, active purge, expired enqueue replay, cross-group S3 DLQ "
-        "reply loss, 65-second callbacks and concurrent two-queue load are checked. "
+        "reply loss, 65-second callbacks and two Queues with two or four requests in flight are checked. "
         "Voters share the host process; complete CG-17 conformance, deployment removal, "
         "clock discontinuities, independent Linux voter limits and disk-loss recovery remain separate gates.",
     ),
@@ -881,18 +882,31 @@ def exact_case_passed(output, case):
         output = re.sub(pattern, "", output)
     pattern = r"QUEUE_LOAD (\{[^\n]+\})\n"
     observations = [json.loads(value) for value in re.findall(pattern, output)]
-    if case == "rustfs_queue_load_preserves_acknowledged_messages" and not observations:
+    queue_load_limits = {
+        "rustfs_queue_load_preserves_acknowledged_messages": (2, 1),
+        "rustfs_queue_four_in_flight_preserves_acknowledged_messages": (4, 2),
+    }
+    load_limits = queue_load_limits.get(case)
+    if load_limits and not observations:
         raise ValueError("missing Queue load observations")
     if observations:
-        if (case != "rustfs_queue_load_preserves_acknowledged_messages"
+        if (not load_limits
                 or [value.get("extents") for value in observations] != [False, True]
                 or any(not value.get("realRustFS")
                        or value.get("steadyMessages") != 512
                        or value.get("archiveOutageMessages") != 16
                        or value.get("uniqueMessageIds") != 528
                        or value.get("delivered", 0) < 528
-                       or value.get("inFlightRequests") != 2
-                       or value.get("perQueueInFlight") != 1
+                       or value.get("inFlightRequests") != load_limits[0]
+                       or value.get("perQueueInFlight") != load_limits[1]
+                       or (load_limits[0] == 4 and (
+                           value.get("peakInFlightRequests") != 4
+                           or value.get("producers") != 4
+                           or value.get("queues") != 2
+                           or value.get("batchMessages") != 8
+                           or value.get("ordinarySlots") != 8
+                           or value.get("ordinaryBytes") != 131072
+                           or value.get("callbackSlots") != 2))
                        or value.get("elapsedMs", 0) <= 0
                        for value in observations)):
             raise ValueError("incomplete or invalid Queue load observations")
@@ -1046,7 +1060,8 @@ def main():
                            or selection in (ARCHIVE_FAIRNESS_CASE, ARCHIVE_OWNER_CASE)
                            or selection in NAMED_BINDING_CASES):
                 argv.append("--show-output")
-            if (selection == "rustfs_queue_load_preserves_acknowledged_messages"
+            if (selection in ("rustfs_queue_load_preserves_acknowledged_messages",
+                              "rustfs_queue_four_in_flight_preserves_acknowledged_messages")
                     or (args.suite == "ordinary-kv-bindings" and number != 0)):
                 argv.append("--nocapture")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)

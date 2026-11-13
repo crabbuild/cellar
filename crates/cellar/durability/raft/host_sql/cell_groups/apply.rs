@@ -54,12 +54,13 @@ impl CellGroupSqlPool {
             return Err(ExecutionError::Invalid("apply pool engine"));
         }
         let bytes = applier.reservation_bytes(&work)?;
-        let reservation = self
-            .inner
-            .apply_admission
-            .acquire(bytes)
-            .ok_or_else(overloaded)?;
-        work.ticket.preparation = Some(Arc::new(reservation));
+        let reservation = Arc::new(
+            self.inner
+                .apply_admission
+                .acquire(bytes)
+                .ok_or_else(overloaded)?,
+        );
+        work.ticket.preparation = Some(reservation.clone());
         let group = applier.history();
         let mut hash = Sha256::new();
         for id in [
@@ -78,11 +79,10 @@ impl CellGroupSqlPool {
         ) % self.inner.workers.len() as u64;
         let worker = &self.inner.workers[index as usize];
         worker.domain.mono_ms().map_err(|_| unavailable())?;
-        let slot = worker
-            .completion_slots
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| overloaded())?;
+        let queued = worker
+            .performance
+            .timer(crate::raft::performance::Operation::SqlQueue);
+        let slot = progress::reserve(&worker.completion_slots, || Ok(reservation)).await?;
         self.admit()?;
         let (reply, wait) = oneshot::channel();
         worker
@@ -93,9 +93,7 @@ impl CellGroupSqlPool {
                 work,
                 reply,
                 _slot: slot,
-                queued: worker
-                    .performance
-                    .timer(crate::raft::performance::Operation::SqlQueue),
+                queued,
             })))
             .map_err(|_| unavailable())?;
         wait.await.map_err(|_| unavailable())?
