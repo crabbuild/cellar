@@ -213,7 +213,8 @@ Executable SHA-256 is
 `d3322a84ee2c8ad7679ab92f2a0a7ea2ad33ba8badc7525d60ca1da7cc1ee149`;
 CLI SHA-256 is
 `330bf8ddf0910879572b58c55e2071142d0b67c20bd0809eb14b9b8f54e4f89b`.
-The preceding `1a185e00` cohort also passes **4/4**; the cancelled pre-case
+The owned backend and VM are stopped; objects, logs and frozen executables remain
+retained. The preceding `1a185e00` cohort also passes **4/4**; the cancelled pre-case
 campaign and failed native controls remain retained. A zero-selected test or
 changed frozen CLI is rejected by the runner's tests. Focused strict Clippy,
 format/layout, dependency/docs checks, 44 plan and 13 coverage-verifier tests pass.

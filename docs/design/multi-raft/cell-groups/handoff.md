@@ -22,7 +22,7 @@ Callback operation budgets default to five seconds and are configurable to sixty
 
 Finish Queue cross-deployment catalogs, longer-consumer timing, inter-group lost
 DLQ replies, late settlement/purge/retention, movement/wake/disk-loss and load
-qualification before counting the whole Queue family accepted. The artifact root
+qualification before counting the whole Queue family accepted. The owned backend and VM are stopped with data retained. The artifact root
 is `/Volumes/Workspace/crabbuild-target/cellar-queue-rustfs-qualification-03-combined`.
 
 ## Current immutable payload checkpoint
