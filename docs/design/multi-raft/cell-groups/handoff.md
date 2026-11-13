@@ -4,7 +4,34 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current bounded SQL ownership checkpoint
+## Current binding deadline and recovery checkpoint
+
+At `d1f8535f`, the basic binding runtime gate passes: public SQL **4/4**, ordinary
+bindings **8/8** and interrupted-binding recovery **8/8** across native storage and
+real RustFS, both image forms and Quorum/S3 sources. The formerly failing RustFS
+materialized S3 post-recovery `Again` and ordinary S3 Relay configurations pass
+their original deadlines. See the
+[current checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
+
+One bounded node-wide proof batch shares a live admitted verification while
+publication waits for predecessor cleanup. Exact receipt, birth and journal
+checks remain. Shutdown joins proof/publication work and attempts unretained
+retirement debt before closing its store. The held-cleanup regression passes on
+both backends/images; all seven existing native archive safety commands and real
+RustFS unproved-output refusals pass. No quota or request budget increases.
+Locked builds, strict all-target Clippy, 32 distinct owning/registration/native-SQL
+checks, 57 verifier tests and repository checks pass at this source.
+
+Evidence is `CG-17-binding-retirement-d1f8535f-06`, with frozen binaries, a workspace
+backup and the complete preceding control chain. The backend and VM are stopped.
+Voters shared one native process; independent Linux/load and combined lifecycle
+qualification remain required. No full family is accepted: **13/17 tasks,
+147/195 cases**. Full CLI plan preflight still lacks historical CG-01 evidence.
+Next deliver SQL operator/CLI/Axum and SQL recovery, then full KV semantics and
+the remaining primitive adapters. The generated implementation index remains
+consistent with `tasks.json`.
+
+## Previous bounded SQL ownership checkpoint
 
 At `b233dfbb`, stateless native SQL reuses one durable client stream per database
 history. Each call carries a fresh nonce. A colliding sequence advances only
@@ -113,28 +140,21 @@ See the [checkpoint](progress.md#cg-17-live-archive-proof-handoff).
 
 ## Immediate feature priorities
 
-1. Resolve the current RustFS materialized S3 recovery deadline. At `b233dfbb`,
-   recovery passes 7/8; `Again` at parent sequence 4 still returns ambiguous
-   `DeadlineExceeded` after the original obligation clears. Keep the failed disks
-   and original budgets. Then finish public SQL integration: operator/CLI and
-   Axum paths, SQL-specific interruption, movement, wake, archive outage and
-   disaster recovery. Bounded
-   stateless identities and SQL business-command admission are implemented and
-   pass the four-configuration drill. Then deliver KV revision conditions,
-   expiry, durable alarms and external-payload publication; retain refusals for
-   unfinished adapters and their independent recovery gates.
-2. Keep the ordinary S3 deadline gate open alongside feature delivery. Native
-   extents S3 returns Echo after 4,205 ms; RustFS materialized/extents S3 return it
-   after 3,852/4,415 ms. The final source completion misses the unchanged parent budget.
-   The valid handoff regression removes one redundant verification but does not
-   establish the sole cause or a measured workload speedup. Use current archive
-   stage traces to separate capture, verification and final output proof; preserve
-   complete dependency verification, original quotas/deadlines and failed controls.
+1. Finish SQL operator/CLI and Axum integration and SQL-specific interruption,
+   movement, wake, archive outage and disaster qualification. The authenticated
+   `/runtime/` operator route still uses ordinary cell fetch; SDK SQL passes do
+   not qualify that adapter. Preserve bounded identities, normal outbound
+   admission, exact error/replay behavior and refusal of weaker fallback.
+2. Deliver the grouped KV service with revision conditions, expiry, durable
+   alarms and external-payload publication/collection. Its existing Fleet
+   activation epochs cannot authorize group-owned payload work. Complete the
+   family before advertising its full Quorum contract.
 3. Connect ordinary alarms/cron, Queue, EventStream and Workflow to committed
    due-work discovery and fenced settlement, resuming without client traffic.
 4. Complete filesystem/payload/WebSocket/provider adapters and the combined
    recovery/release matrix. All CG-17/15/16 gates remain required; no narrower
-   supported scope or weaker durability fallback replaces them.
+   supported scope or weaker durability fallback replaces them. Rerun the now
+   passing basic binding matrix in that complete fault and capacity profile.
 
 The fixture now stops after the target's durable checkpoint and concurrently
 polls the original response during retained restart. Final closure still uses the

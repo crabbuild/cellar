@@ -307,8 +307,11 @@ needs physical verification, preserving the original pool bounds.
 Shutdown also attempts the joined publication's unretained predecessor cleanup
 before closing the verifier. A live output keeps its hold journaled; a failed
 cleanup remains durable and visible in archive status for retained restart.
-The held-retirement regression and current-source binding campaigns must pass
-before accepting this scheduling checkpoint; the existing S3 deadline gate is open.
+At `d1f8535f`, the held-retirement regression passes in both native and real
+RustFS image forms. Ordinary bindings and interrupted recovery each pass 8/8
+backend/image/durability configurations under the original request budgets.
+Full primitive-family and combined lifecycle qualification remain open; see the
+[checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
 
 ## Remaining qualification and delivery
 

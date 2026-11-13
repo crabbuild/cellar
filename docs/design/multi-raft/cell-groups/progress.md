@@ -27,6 +27,66 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 S3 proof scheduling and joined retirement
+
+Source `d1f8535f` closes the reproduced basic binding deadline gate. A selected,
+physically verified archive head can serve exact S3 output proofs while its
+predecessor's remote release is blocked. One node-wide batch handles at most 32
+already admitted requests through the existing weak verification index. It
+allocates no new replay workspace, worker pool or per-cell timer. Receipt identity, journal
+ownership, current birth and the original request deadline still verify.
+An uncovered request waits for a newer cut; transient admission retries use the
+existing controller timer. Another publication still requires predecessor cleanup,
+preserving the current-plus-retiring hold bound.
+
+Shutdown joins publication and proof work, then attempts unretained predecessor
+cleanup before closing the verifier. Live outputs preserve their journaled holds;
+cleanup errors stay visible and recoverable. The private audit waits for settled
+journal state and retries only typed replay-admission `Busy` under its existing
+15-second lifecycle bound. Its final ownership, integrity and compaction assertions
+remain unchanged. SQL and binding request budgets remain three/five seconds;
+production quotas are unchanged.
+
+| Current-source runtime gate | Result |
+| --- | --- |
+| Public SQL: native/RustFS, both image formats | **4/4 pass** |
+| Ordinary named bindings: Quorum/S3 sources, both backends/images | **8/8 pass** |
+| Interrupted binding recovery and subsequent requests | **8/8 pass** |
+| S3 responses and late receipt lookups during held predecessor cleanup | Both native and RustFS image formats pass |
+| Existing archive safety checks | Seven native commands pass |
+| Unproved S3 output refusal | Both real RustFS image formats pass |
+
+The recovery matrix includes the formerly failing RustFS materialized S3 `Again`
+request after autonomous obligation recovery and sequence retirement. The ordinary
+matrix includes the formerly failing S3-source Relay configurations. These results
+establish the current basic request/restart boundary, not a complete primitive
+family or a measured workload speedup.
+
+Locked builds, strict all-target Clippy, formatting, layout, dependency and
+documentation checks pass. Fifteen owning unit tests cover async/physical joins,
+archive journals/registry state and all five private sequence-sealing cases.
+Fifteen registration tests, two native SQL tests and 44 plan plus 13 primitive
+verifier tests pass. Source anchors and the generated implementation index match;
+these checks do not replace the missing historical full-preflight evidence.
+
+The diagnostic control at `55fff63a` found a covered response delayed by remote
+predecessor release. Deferring release alone at `1f4dfb99` still failed the new
+held-cleanup regression; the bounded proof batch at `6fb89638` passed it but exposed
+unfinished shutdown debt. The joined cleanup fix passes without weakening the
+shutdown oracle. Earlier failing journal/admission audit controls, the interrupted
+`6cad90e3` build and the corrected local driver setup failure remain separately
+recorded; none is reported as a runtime pass.
+
+Evidence is `.cellar/cell-groups-evidence/CG-17-binding-retirement-d1f8535f-06`,
+with a checkout-owned workspace backup, frozen binaries and linked immutable
+control records. Private credentials are excluded. RustFS used two CPUs and
+2 GiB; RF3 voters shared one native macOS process. The owned backend and VM are
+stopped. Independent Linux voters, load, movement/wake/archive/disaster scenarios
+and the full primitive evidence matrix remain open. Recorded task acceptance
+remains **13/17 tasks, 147/195 cases**. Full CLI plan preflight still lacks the
+historical CG-01 evidence record. Next deliver SQL operator/CLI/Axum paths and
+SQL-specific recovery, then KV revisions, expiry, durable alarms and payloads.
+
 ## CG-17 private target sequence-retirement checkpoint
 
 Source `5323c59e` persists each binding intent's physical source group history
