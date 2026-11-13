@@ -143,18 +143,6 @@ pub(super) fn live(context: &Context) -> Result<Option<CellGroupArchiveCoverage>
     Ok(candidate.and_then(|usage| usage.retain_coverage()))
 }
 
-pub(super) async fn retained(
-    context: &Context,
-    execution: &ControllerExecution,
-) -> Result<Option<Driven>> {
-    let Some(coverage) = live(context)? else {
-        return Ok(None);
-    };
-    verify_retained(context, execution, coverage)
-        .await
-        .map(Some)
-}
-
 pub(super) async fn verify_retained(
     context: &Context,
     execution: &ControllerExecution,
@@ -249,6 +237,7 @@ pub(super) async fn drive(
     runtime: &CellGroupRuntime,
     execution: &ControllerExecution,
     prove_outputs: bool,
+    required_prefix: Option<LogIndex>,
     retained_head: Option<CellGroupArchiveCoverage>,
 ) -> Result<Driven> {
     let node = runtime.log().limits().node;
@@ -316,7 +305,11 @@ pub(super) async fn drive(
             // entries exist. The receipt verifier still checks its exact
             // position, cell version, witness and stored result against this
             // prefix; an uncovered output keeps waiting for allocation.
-            if !allocation_ready || head.marker().position().index >= current.position().index {
+            let may_cover =
+                required_prefix.is_none_or(|minimum| head.marker().position().index >= minimum);
+            if may_cover
+                && (!allocation_ready || head.marker().position().index >= current.position().index)
+            {
                 let coverage = context
                     .registry
                     .verify_hold(

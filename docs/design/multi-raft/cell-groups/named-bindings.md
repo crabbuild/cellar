@@ -204,6 +204,15 @@ checkpoint. Only an explicit overload refusal before target admission retries
 automatically, with identical input/history/identity and the original deadline.
 Application failures and ambiguous outcomes are not automatically retried.
 
+The archive owner rejects a cut below a waiting command's committed log position
+before retained-cut validation or receipt worker admission. When an older held
+proof prevents a new allocation, that bound also avoids replaying an ineligible
+head. This only defers impossible proof work: current birth/journal ownership,
+complete physical coverage and the exact archived receipt still authorize every
+S3 response. Lookup and enrollment requests retain their full verification path.
+Pending publication intents still reconcile, and held proofs retain the existing
+current-plus-retiring allocation bound.
+
 ## Sequences and retained obligations
 
 The source has 64 persistent exclusive outgoing lanes. A global lane serial

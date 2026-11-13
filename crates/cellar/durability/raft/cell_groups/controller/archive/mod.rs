@@ -652,18 +652,27 @@ impl Manager {
                         );
                     }
                     // `prove` indexed this live verification before completion.
-                    // Retain it only through the exact reuse check, which still
-                    // validates current birth/journal ownership and each receipt.
+                    // Reject known-old prefixes before remote birth/journal
+                    // validation. Eligibility cannot settle a response; retained
+                    // cuts still need that validation and the exact receipt.
                     let retained = if !waiters.is_empty() {
-                        job::retained(
-                            context.as_ref().expect("opened archive context"),
-                            &execution,
+                        job::live(context.as_ref().expect("opened archive context"))?.filter(
+                            |coverage| {
+                                waiters.iter().any(|request| {
+                                    request.may_reuse(coverage.marker().position().index)
+                                })
+                            },
                         )
-                        .await?
                     } else {
                         None
                     };
-                    if let Some(retained) = retained {
+                    if let Some(coverage) = retained {
+                        let retained = job::verify_retained(
+                            context.as_ref().expect("opened archive context"),
+                            &execution,
+                            coverage,
+                        )
+                        .await?;
                         confirm_coverage(&runtime, group, &retained.coverage)?;
                         tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                             group = ?group.group, stage = "reuse", index = retained.coverage.marker().position().index.get(), waiters = waiters.len());
@@ -690,6 +699,7 @@ impl Manager {
                         &runtime,
                         &execution,
                         !waiters.is_empty(),
+                        settlement::required_prefix(&waiters),
                         handoff,
                     )
                     .await?;
