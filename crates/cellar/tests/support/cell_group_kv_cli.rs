@@ -138,13 +138,13 @@ async fn command(
                 .zip(&after.operations)
                 .filter(|(a, b)| a.started != b.started || a.sum_us != b.sum_us)
                 .map(|(a, b)| {
-                        json!({
-                            "name":b.name,"started":b.started.checked_sub(a.started),
-                            "succeeded":b.succeeded.checked_sub(a.succeeded),
-                            "failed":b.failed.checked_sub(a.failed),
-                            "abandoned":b.abandoned.checked_sub(a.abandoned),
-                            "sumUs":b.sum_us.checked_sub(a.sum_us)
-                        })
+                    json!({
+                        "name":b.name,"started":b.started.checked_sub(a.started),
+                        "succeeded":b.succeeded.checked_sub(a.succeeded),
+                        "failed":b.failed.checked_sub(a.failed),
+                        "abandoned":b.abandoned.checked_sub(a.abandoned),
+                        "sumUs":b.sum_us.checked_sub(a.sum_us)
+                    })
                 })
                 .collect::<Vec<_>>();
             let counters = before
@@ -152,9 +152,7 @@ async fn command(
                 .iter()
                 .zip(&after.counters)
                 .filter(|(a, b)| a.value != b.value)
-                .map(|(a, b)| {
-                    json!({"name":b.name,"delta":b.value.checked_sub(a.value)})
-                })
+                .map(|(a, b)| json!({"name":b.name,"delta":b.value.checked_sub(a.value)}))
                 .collect::<Vec<_>>();
             eprintln!(
                 "KV CLI performance: {}",

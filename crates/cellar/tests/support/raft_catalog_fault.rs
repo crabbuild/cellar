@@ -1086,17 +1086,25 @@ impl ObjectStore for Store {
         let chunk_bytes = self.cell_payload_chunk_bytes.load(Ordering::Acquire);
         if path.as_ref().contains("/cell-payloads-1/") && chunk_bytes != 0 {
             let GetResultPayload::Stream(stream) = result.payload;
-            result.payload = GetResultPayload::Stream(stream.flat_map(move |item| {
-                match item {
-                    Ok(bytes) => futures_util::stream::unfold((bytes, 0), move |(bytes, at)| async move {
-                        if at == bytes.len() { return None; }
-                        cellar::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
-                        let end = (at + chunk_bytes).min(bytes.len());
-                        Some((Ok(bytes.slice(at..end)), (bytes, end)))
-                    }).boxed(),
-                    Err(error) => futures_util::stream::once(async move { Err(error) }).boxed(),
-                }
-            }).boxed());
+            result.payload = GetResultPayload::Stream(
+                stream
+                    .flat_map(move |item| match item {
+                        Ok(bytes) => futures_util::stream::unfold(
+                            (bytes, 0),
+                            move |(bytes, at)| async move {
+                                if at == bytes.len() {
+                                    return None;
+                                }
+                                cellar::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
+                                let end = (at + chunk_bytes).min(bytes.len());
+                                Some((Ok(bytes.slice(at..end)), (bytes, end)))
+                            },
+                        )
+                        .boxed(),
+                        Err(error) => futures_util::stream::once(async move { Err(error) }).boxed(),
+                    })
+                    .boxed(),
+            );
         }
         if root_extent {
             self.root_extent_hits.fetch_add(1, Ordering::AcqRel);

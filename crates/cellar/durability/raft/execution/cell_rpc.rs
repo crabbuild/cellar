@@ -63,6 +63,14 @@ impl CellRpcTurn {
             && self.transaction.can_park().map_err(private_failure)?)
     }
 
+    pub(crate) fn can_poll_parked_io(&self) -> bool {
+        self.step != 0 && self.transaction.can_poll_parked_io()
+    }
+
+    pub(crate) fn poll_parked_io(&self, cx: &mut Context<'_>) -> Result<bool, ExecutionError> {
+        self.transaction.poll_parked_io(cx).map_err(private_failure)
+    }
+
     pub(crate) fn close_parked(self) -> Result<(), ExecutionError> {
         let dropped = drop_handler(self.future);
         self.transaction

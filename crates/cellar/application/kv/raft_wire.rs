@@ -441,7 +441,7 @@ async fn transfer(
             &history,
         )?;
         dispatch
-            .schedule(move |timeout| execute(store, reference, bytes, timeout))
+            .schedule_io(move |timeout| execute(store, reference, bytes, timeout))
             .future
             .await?
     } else {

@@ -451,7 +451,9 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
                 Arc::new(catalog_fault::Store::default())
             };
             if coverage == Coverage::Streaming {
-                store.cell_payload_chunk_bytes.store(16 * 1024, Ordering::Release);
+                store
+                    .cell_payload_chunk_bytes
+                    .store(16 * 1024, Ordering::Release);
             }
             Box::pin(run(rooted, store, backend.as_ref(), external, coverage)).await
         }

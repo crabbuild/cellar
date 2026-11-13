@@ -97,6 +97,7 @@ struct CommandFrame {
     work: RefCell<Work>,
     dispatch: OnceCell<RaftDispatchContext>,
     binding_serial: Cell<u64>,
+    parked_io: Cell<bool>,
 }
 
 struct Work {
@@ -110,10 +111,19 @@ struct Work {
 struct WorkTask {
     future: HandlerFuture<()>,
     external: Option<Arc<std::sync::atomic::AtomicBool>>,
+    parked_io: bool,
 }
 
 thread_local! {
     static CURRENT_COMMAND: RefCell<Option<Rc<CommandFrame>>> = const { RefCell::new(None) };
+}
+
+struct InstalledCommand;
+
+impl Drop for InstalledCommand {
+    fn drop(&mut self) {
+        CURRENT_COMMAND.with(|current| current.borrow_mut().take());
+    }
 }
 
 impl CommandFrame {
@@ -144,6 +154,15 @@ pub(crate) struct ActiveCommand {
 }
 
 impl ActiveCommand {
+    fn install(&self) -> Result<InstalledCommand> {
+        CURRENT_COMMAND.with(|current| {
+            let mut current = current.borrow_mut();
+            ensure!(current.is_none(), "nested Raft command");
+            *current = Some(self.frame.clone());
+            Ok(InstalledCommand)
+        })
+    }
+
     pub(crate) fn bind_dispatch(&self, context: RaftDispatchContext) -> Result<()> {
         self.frame
             .dispatch
@@ -155,20 +174,7 @@ impl ActiveCommand {
         &self,
         callback: impl FnOnce(&CommandTransaction<'_>) -> Result<T>,
     ) -> Result<T> {
-        struct Installed;
-
-        impl Drop for Installed {
-            fn drop(&mut self) {
-                CURRENT_COMMAND.with(|current| current.borrow_mut().take());
-            }
-        }
-
-        let _installed = CURRENT_COMMAND.with(|current| {
-            let mut current = current.borrow_mut();
-            ensure!(current.is_none(), "nested Raft command");
-            *current = Some(self.frame.clone());
-            Ok::<_, anyhow::Error>(Installed)
-        })?;
+        let _installed = self.install()?;
         let _cursors = self.frame.cursors.install();
         self.frame.cursors.prune()?;
         drop(self.frame.connection()?);
@@ -184,6 +190,52 @@ impl ActiveCommand {
     }
 
     pub(crate) fn poll_work(&self, cx: &mut TaskContext<'_>) -> Result<bool> {
+        self.poll_owned_work(cx, false)
+    }
+
+    pub(crate) fn can_poll_parked_io(&self) -> bool {
+        let work = self.frame.work.borrow();
+        work.active != 0
+            && work.active == work.tasks.len()
+            && work.checkpoint.is_none()
+            && work.tasks.iter().all(|task| {
+                task.parked_io
+                    && task
+                        .external
+                        .as_ref()
+                        .is_some_and(|proven| proven.load(std::sync::atomic::Ordering::Acquire))
+            })
+    }
+
+    pub(crate) fn poll_parked_io(&self, cx: &mut TaskContext<'_>) -> Result<bool> {
+        ensure!(
+            self.can_poll_parked_io(),
+            "parked work is not proven payload I/O"
+        );
+        ensure!(
+            self.frame.connection.borrow().is_none(),
+            "parked I/O retains SQLite"
+        );
+        self.poll_owned_work(cx, true)
+    }
+
+    fn turn_parked_io<T>(&self, callback: impl FnOnce() -> Result<T>) -> Result<T> {
+        let _installed = self.install()?;
+
+        struct PollingIo<'a>(&'a Cell<bool>);
+
+        impl Drop for PollingIo<'_> {
+            fn drop(&mut self) {
+                self.0.set(false);
+            }
+        }
+        self.frame.parked_io.set(true);
+        let _polling = PollingIo(&self.frame.parked_io);
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback))
+            .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
+    }
+
+    fn poll_owned_work(&self, cx: &mut TaskContext<'_>, parked_io: bool) -> Result<bool> {
         let (count, serial) = {
             let work = self.frame.work.borrow();
             (work.tasks.len(), work.serial)
@@ -192,12 +244,17 @@ impl ActiveCommand {
             let Some(mut task) = self.frame.work.borrow_mut().tasks.pop_front() else {
                 break;
             };
-            let polled = self.turn(|_| {
+            let mut poll = || {
                 Ok(crate::application::consensus::RaftClass::poll_cell_work(
                     &mut task.future,
                     cx,
                 ))
-            })?;
+            };
+            let polled = if parked_io {
+                self.turn_parked_io(poll)
+            } else {
+                self.turn(|_| poll())
+            }?;
             let mut work = self.frame.work.borrow_mut();
             match polled {
                 Poll::Pending => work.tasks.push_back(task),
@@ -414,6 +471,38 @@ pub(crate) fn require_storage(authority: &RaftStorageAuthority, healthy: bool) -
     })
 }
 
+/// A proven payload task may poll without SQLite. This grants no Storage
+/// access: ordinary handles still require an installed healthy connection.
+pub(crate) fn require_dispatch_storage(authority: &RaftStorageAuthority) -> Result<()> {
+    let parked_io = CURRENT_COMMAND.with(|current| {
+        current
+            .borrow()
+            .as_ref()
+            .is_some_and(|frame| frame.parked_io.get())
+    });
+    require_storage(authority, !parked_io)?;
+    if parked_io {
+        ensure!(
+            !authority
+                .resources
+                .retired
+                .load(std::sync::atomic::Ordering::Acquire),
+            "Raft cell activation is retired"
+        );
+        CURRENT_COMMAND.with(|current| {
+            if let Some(error) = current
+                .borrow()
+                .as_ref()
+                .and_then(|frame| frame.failure.borrow().clone())
+            {
+                anyhow::bail!("{error}");
+            }
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
 /// Cached constructor Storage may enter subsequent invocations; cursors may not.
 pub(crate) fn bind_storage(authority: &RaftStorageAuthority) -> Result<RaftStorageAuthority> {
     require_storage(authority, true)?;
@@ -433,7 +522,7 @@ pub(crate) fn schedule_work(
     resources: &RaftStorageAuthority,
     task: HandlerFuture<()>,
 ) -> Result<()> {
-    schedule(resources, task, None)
+    schedule(resources, task, None, false)
 }
 
 /// The flag becomes true only after exact source proof and release of the
@@ -442,14 +531,16 @@ pub(crate) fn schedule_dispatch_work(
     resources: &RaftStorageAuthority,
     task: HandlerFuture<()>,
     external: Arc<std::sync::atomic::AtomicBool>,
+    parked_io: bool,
 ) -> Result<()> {
-    schedule(resources, task, Some(external))
+    schedule(resources, task, Some(external), parked_io)
 }
 
 fn schedule(
     resources: &RaftStorageAuthority,
     task: HandlerFuture<()>,
     external: Option<Arc<std::sync::atomic::AtomicBool>>,
+    parked_io: bool,
 ) -> Result<()> {
     require_storage(resources, true)?;
     CURRENT_COMMAND.with(|current| {
@@ -474,6 +565,7 @@ fn schedule(
         work.tasks.push_back(WorkTask {
             future: task,
             external,
+            parked_io,
         });
         Ok(())
     })
@@ -659,6 +751,7 @@ impl CommandDatabase {
                 }),
                 dispatch: OnceCell::new(),
                 binding_serial: Cell::new(0),
+                parked_io: Cell::new(false),
             }),
             inputs,
         })

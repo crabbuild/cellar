@@ -11,7 +11,7 @@ use std::task::{Context, Poll, Wake, Waker};
 #[path = "rpc_resume.rs"]
 mod resume;
 
-struct Ready(AtomicBool);
+struct Ready(AtomicBool, Arc<crate::raft::host_sql::WorkerWake>);
 
 impl Wake for Ready {
     fn wake(self: Arc<Self>) {
@@ -20,6 +20,7 @@ impl Wake for Ready {
 
     fn wake_by_ref(self: &Arc<Self>) {
         self.0.store(true, Ordering::Release);
+        self.1.wake();
     }
 }
 
@@ -374,7 +375,7 @@ impl Cells {
                             class,
                             resuming: None,
                             mode,
-                            ready: Arc::new(Ready(AtomicBool::new(true))),
+                            ready: Arc::new(Ready(AtomicBool::new(true), self.wake.clone())),
                             reply,
                             retention,
                             commits,
@@ -491,6 +492,20 @@ impl Cells {
                     }
                 }
                 return true;
+            }
+            if rpc.executor.is_none() && rpc.turn.can_poll_parked_io() {
+                match rpc.turn.poll_parked_io(&mut cx) {
+                    Ok(true) => {
+                        self.suspended.push_back(rpc);
+                        timer.finish(true);
+                        return true;
+                    }
+                    Ok(false) => (),
+                    Err(error) => {
+                        timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
+                        return true;
+                    }
+                }
             }
             if rpc.executor.is_none() {
                 match rpc.poll_resume(&self.activations, &mut cx, domain, now) {

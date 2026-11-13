@@ -149,7 +149,7 @@ impl RaftDispatch {
     }
 
     fn remaining(&self) -> Result<Duration> {
-        crate::storage::require_raft_command_storage(&self.authority, true)?;
+        crate::storage::require_raft_dispatch_storage(&self.authority)?;
         anyhow::ensure!(
             self.context.fence.continuation_current(),
             consensus::CommandFailure::Unavailable
@@ -195,6 +195,33 @@ impl RaftDispatch {
     }
 
     pub(crate) fn try_schedule<T, F, Fut>(self, action: F) -> Result<DispatchCall<T>>
+    where
+        T: Send + 'static,
+        F: FnOnce(Duration) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        self.try_schedule_inner(action, false)
+    }
+
+    /// Payload adapters execute only owned byte I/O after source proof. They
+    /// can progress while their writer is parked; they cannot access SQLite or
+    /// poll the application continuation until that writer resumes.
+    pub(crate) fn schedule_io<T, F, Fut>(self, action: F) -> DispatchCall<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(Duration) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        match self.try_schedule_inner(action, true) {
+            Ok(call) => call,
+            Err(error) => DispatchCall {
+                started: Arc::new(AtomicBool::new(false)),
+                future: Box::pin(async move { Err(error) }),
+            },
+        }
+    }
+
+    fn try_schedule_inner<T, F, Fut>(self, action: F, parked_io: bool) -> Result<DispatchCall<T>>
     where
         T: Send + 'static,
         F: FnOnce(Duration) -> Fut + Send + 'static,
@@ -254,7 +281,7 @@ impl RaftDispatch {
                 let _ = send.send(result);
                 Ok(())
             });
-            crate::storage::schedule_raft_dispatch_work(&authority, task, external)?;
+            crate::storage::schedule_raft_dispatch_work(&authority, task, external, parked_io)?;
             Ok(receive)
         })();
         let receive = prepared?;

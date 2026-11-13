@@ -71,6 +71,16 @@ Small ordinary Quorum calls remain independent of asynchronous archive PUTs;
 large transfers additionally require the payload provider. Caller-supplied
 publication flags and well-formed locators alone never authorize a row.
 
+Payload transfers use an internal I/O-only work kind. It becomes eligible for
+polling without SQLite only after the ordered source checkpoint has its required
+proof and the writer has parked. Stream readiness then polls that owned transfer
+without reopening the image for each body chunk. Ordinary Storage access and
+application continuations still require a resumed writer; general binding work
+keeps its existing resume path. Every transfer poll retains invocation,
+activation, route, term and original-deadline checks. Callback and queue readiness
+unpark the existing SQL worker directly, with no additional queue slots or tasks.
+Cancellation continues dropping the same owned futures and byte reservations.
+
 Managed KV registration requires an explicit node-wide pool admitting the full
 64-MiB native wire ceiling plus framing, decoder workspace and a concurrent
 publication. The default standalone payload limits remain 25 MiB. Returned
