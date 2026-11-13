@@ -113,7 +113,9 @@ and [current priorities](remaining-work.md#primitive-delivery-priority).
 
 This implementation checkpoint does not accept the full SQL/KV primitive family.
 See [remaining work](remaining-work.md#primitive-delivery-priority) for the public
-recovery and release gates, including the independent S3-source deadline blocker.
+recovery and release gates. The current scoped S3-source and public SQL/KV
+qualification is recorded in the
+[latest checkpoint](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
 
 ## Stateless SQL ownership boundary
 
@@ -371,6 +373,15 @@ Full primitive-family and combined lifecycle qualification remain open; see the
 
 ## Remaining qualification and delivery
 
+At runtime `9f6a5d08`, named bindings and interrupted recovery/sequence sealing
+each pass all eight native/RustFS image/source-durability configurations under
+the original budgets. The canonical real-RustFS SQL SDK/operator/CLI paths pass
+four image/ingress configurations and eight interrupted success/error recovery
+configurations. Canonical RustFS KV passes four image/ingress configurations
+with the same frozen runtime/CLI; qualification-only `1bda606a` captures diagnostics
+without weakening the strict exact-case verifier. See the
+[current results](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
+
 The focused public regression exercises ordinary named calls, repeated calls,
 multiple destinations, owned structured values, recursive self-calls with live
 SQL cursors, transaction refusal, cancellation, exact receipt replay and retained
@@ -378,13 +389,15 @@ RF3 restart. It uses both image forms and source Quorum/S3 requests against a ta
 whose minimum is Quorum. It does not qualify a target namespace with an S3 minimum,
 cross-class namespace selection or concurrent creation.
 
-Autonomous reconciliation and sequence sealing now have a connected implementation;
-process-loss qualification, deadline/refusal exhaustion, capacity, leader-loss
-and movement/wake/disaster qualification remain required. SQL/KV bindings, committed due work and the remaining public/provider
-primitive adapters are separate unfinished deliveries. Do not claim the full
+Autonomous reconciliation and sequence sealing have scoped retained-restart
+qualification; independent process-loss, deadline/refusal exhaustion, capacity,
+leader-loss and movement/wake/disaster qualification remain required. SQL/KV
+adapters pass the scoped public paths above, with remaining lifecycle gates.
+Committed due work and the remaining public/provider primitive adapters are
+unfinished deliveries. Do not claim the full
 HTTP/RPC primitive-family case from a focused binding pass.
 
-The current per-configuration report at `9e02f3f6` passes Quorum source requests
+The earlier per-configuration report at `9e02f3f6` passes Quorum source requests
 in both image forms on native storage and real RustFS. S3 source requests fail
 in both forms under the original five-second deadlines. The target namespace
 minimum in these cases is Quorum. The combined binding case remains failed;

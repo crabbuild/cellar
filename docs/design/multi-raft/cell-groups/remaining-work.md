@@ -41,49 +41,42 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Close the original-deadline binding and SQL/KV recovery gates. At `8bc8a3f3`,
-   ordinary bindings poll proven remote I/O with SQLite parked and explicitly
-   resume their writer before source mutations. Named bindings pass **4/4
-   native** configurations; real RustFS remains **3/4; FAILED**, with materialized
-   S3 expiring during final source archival after both children return. Native
-   and RustFS interrupted binding recovery/sequence sealing pass **8/8** at
-   this source. The public native SQL drill passes **1/2** image modes, with a
-   materialized setup timeout before operator/SDK execution. First reject
-   archive prefixes below a waiting command's required position before proof
-   work, preserving the full physical/receipt proof for every success. Then
-   resolve SQL setup and run the current-source full KV/SQL recovery gates.
-   See the [current checkpoint](progress.md#cg-17-parked-binding-io-and-source-recovery).
-   The earlier `bc7284b1` cohort retains its separate KV scope:
-   proven payload I/O progresses with SQLite parked, and readiness directly
-   wakes its existing SQL worker. The formerly failing fragmented-body
-   regression, source-proof/cold-enrollment regression and complete native KV
-   drill each pass **2/2** images. Canonical one-CPU RustFS KV remains
-   **1/4; FAILED**: Axum/extents passes the complete SDK/CLI and lifecycle drill;
-   the other modes miss expiry, public-contract or large-GET deadlines.
-   A sequential same-source native RustFS control passes **2/2**, including
-   25-MiB CLI put/get and all faults, after the old frozen build fails both large
-   puts. Preserve the canonical failures and establish stable cold/expiry and
-   full native/Axum qualification under the original budgets. See the
-   [current checkpoint](progress.md#cg-17-proven-payload-io-and-sql-worker-readiness).
-   Native named bindings pass **3/4** configurations at that older pin, and
-   interrupted recovery passes **4/4 native** there. The newer eight-configuration
-   recovery result above does not close the remaining source S3 proof latency.
-   SQL SDK/operator/CLI has older scoped **8/8** coverage at `979addd0`, while
-   after-child parent recovery remains **14/16; FAILED** at `b3aacf7a`.
-   The canonical one-CPU SQL suite is unrun. Finish cold startup, interruption,
-   movement/wake, archive outage and disaster recovery; verify external-value and
-   source-intent/receipt dependencies before admitting a recovered incarnation.
-   Preserve failed controls and the chained twenty-second KV load failure.
-2. Build on the [qualified callback and Queue implementation](queue-durable-work.md):
+The basic public binding/SQL/KV foundation now passes at runtime `9f6a5d08`:
+named bindings and interrupted binding recovery each **8/8 native/RustFS**,
+canonical RustFS SQL SDK/operator/CLI **4/4**, interrupted SQL recovery **8/8**,
+and canonical RustFS KV SDK/operator/CLI **4/4** configurations. All 25 selected
+archive/primitive tests pass. Qualification-only `1bda606a` fixes KV output
+capture with the same runtime/CLI hashes and unchanged strict verifier. Preserve
+the failed capture cohort and earlier deadline controls. This one-CPU/2-GiB
+RustFS, host-native RF3 cohort does not establish complete family, load or
+independent Linux voter support. See the
+[current checkpoint](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
+
+1. Deliver durable alarms/cron, EventStream and Workflow on the
+   [qualified callback and Queue implementation](queue-durable-work.md).
+   Ordinary alarms already use `RaftClass::durable_callbacks`; qualify their
+   normal SDK path, replacement/cancellation, retry and autonomous retained
+   restart before claiming full support. Cron, EventStream/outbox/inbox and
+   Workflow need their public adapters and generation-fenced committed work.
+   Reuse the bounded shared owner rather than adding per-idle-cell tasks.
+   Pending work must resume after retained restart, movement and wake without
+   client traffic. Keep broadening Queue's lifecycle gates:
    at `a5f65e79` and combined KV/RPC source `9498029b`, real RustFS passes
    **12/12** configurations across separate
    deployments, native/Axum SDK/CLI, lost DLQ replies, stale handlers, purge,
    retention replay, 65-second callbacks and bounded load. The load envelope is
    four producers/two in-flight requests; cold S3 first use and higher concurrency
    remain open alongside full-size payload, clock, deployment-change,
-   movement/wake, disk-loss and independent Linux gates. Connect alarms/cron,
-   EventStream/outbox/inbox and Workflow to the same shared owner. Pending work
-   must resume after retained restart, movement and wake without client traffic.
+   movement/wake, disk-loss and independent Linux gates. Queue's qualified
+   source is separate and was not rerun at `9f6a5d08`.
+2. Complete the remaining binding and SQL/KV recovery boundaries. The current
+   cases use a Quorum destination minimum; add target-S3, before-child-completion,
+   concurrent creation/cross-class and interrupted large-call cases. Finish
+   movement/wake, cold-start contention and combined disaster qualification
+   under the original budgets. Before recovery admission, verify actual external
+   values and wire bytes referenced by rows, source intents and receipts;
+   prepared/pending uploads cannot stand in for confirmed dependencies. Preserve
+   the earlier failed controls and chained twenty-second KV load failure.
 3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
    container/provider adapters. Include stateless/ephemeral and optional-adapter
    regressions. Root-aware payload collection must protect every retained image,

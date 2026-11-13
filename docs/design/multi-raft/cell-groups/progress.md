@@ -27,6 +27,65 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 archive proofs and public SQL and KV
+
+Runtime source `9f6a5d08` closes the reproduced materialized S3 named-binding
+deadline in the unchanged five-second workload. Commands skip archive prefixes
+below their committed position before spending proof work. After this owner has
+verified its head, quiet retirement maintenance can finish with advisory metadata
+instead of replaying the unchanged head. That result cannot settle an output or
+advance compaction. Initial/restart verification, exact receipts, current birth
+and journal ownership, original deadlines and physical admission remain required.
+
+| Gate at runtime `9f6a5d08` | Result |
+| --- | --- |
+| Selected archive and primitive runtime tests | **25/25 tests pass** |
+| Ordinary named bindings, native/RustFS and Quorum/S3 sources | **8/8 configurations pass** |
+| Interrupted binding recovery and safe sequence sealing, native/RustFS | **8/8 configurations pass** |
+| Enrollment sharing, native/RustFS, both images and namespace minima | **8/8 configurations pass** |
+| Public native SQL SDK/operator drill on native storage | **2/2 image configurations pass** |
+| Canonical RustFS SQL SDK/operator/actual CLI, native/Axum | **4/4 image/ingress configurations pass** |
+| Canonical RustFS interrupted SQL recovery, successful/rolled-back children | **8/8 configurations pass** |
+| Canonical RustFS KV SDK/operator/actual CLI, native/Axum | **4/4 image/ingress configurations pass** |
+| Strict affected-target Clippy, formatting/layout, dependency/docs checks | **Pass** |
+| Plan and qualification-runner unit tests | **44 and 13 tests pass** |
+
+The SQL suite preserves rollback, grants, unknown committed outcomes, retained
+restart, receipt replay and quorum refusal. Its recovery cases use Quorum/S3
+sources and a Quorum destination. KV covers the existing public API contract,
+conditional revisions, autonomous expiry, 25-MiB SDK/CLI values, retained restart,
+provider/archive failure and quorum refusal. Both suites use the same frozen
+native and CLI executables as the archive cohort. RustFS has one CPU/2 GiB;
+RF3 voters share a host-native process with separate disks and one SQL worker per
+node. This is a scoped cohort, not independent Linux voters, sustained load,
+a latency guarantee or complete primitive-family acceptance. The earlier SQL
+setup failure did not recur; no separate causal startup fix is claimed.
+
+Evidence is `CG-17-archive-maintenance-9f6a5d08-17`,
+`CG-17-foundation-9f6a5d08-18` and `CG-17-kv-capture-1bda606a-19`.
+Cohort 18's SQL suite passes. Its KV tests return success in all four
+configurations, but interleaved `--nocapture` diagnostics break the strict exact
+result line, so that campaign remains **FAILED**. Qualification-only source
+`1bda606a` selects `--show-output`; cohort 19 passes the canonical KV suite with
+identical runtime/CLI hashes. The exact-case parser, runtime assertions, deadlines
+and quotas are unchanged; its new regression still refuses interleaved and
+zero-test success.
+
+The prefix-only control `c59e4a53` remains **20/22 tests; FAILED**, including the
+materialized S3 third-parent deadline. Its enrollment test also fails on frozen
+pre-change `d1f8535f` with the identical fixture. The replacement enrollment
+assertions require exact creation identity, one shared physical replay slot,
+separate response admission and no new uploads while the first response is held.
+These controls remain in cohorts 15 and 16. Frozen binaries, logs and source
+inputs have verified workspace backups; the three prefix-control failure disks
+remain at their recorded paths. The owned backend and VM are stopped with
+objects retained. Full plan acceptance stays **13/17 tasks and 147/195 cases**.
+
+Next deliver ordinary alarm qualification and cron/EventStream/Workflow adapters
+on the shared callback owner. SQL/KV still require target-S3 and earlier
+interruption cases, external-object recovery closure, movement/wake and combined
+disaster qualification. Queue remains qualified separately at `9498029b`.
+
 ## CG-17 parked binding I/O and source recovery
 
 Source `8bc8a3f3` extends proven, invocation-owned parked I/O to ordinary named

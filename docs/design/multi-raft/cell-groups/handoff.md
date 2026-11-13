@@ -6,36 +6,43 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current KV and binding checkpoint
 
-Source `8bc8a3f3` adds explicit I/O/writer phases to ordinary bindings. Proven
-enrollment, lookup and child command I/O can progress while SQLite stays parked;
-selection, completion and refusal wait for its writer. Original proofs, fencing,
-identities, deadlines, byte admission and cancellation ownership remain intact.
-The new owning writer-transition test and ordinary library test build pass.
+Runtime source `9f6a5d08` skips ineligible archive prefixes and finishes quiet
+maintenance without replaying an unchanged head. Advisory maintenance cannot
+settle outputs or advance compaction; actual physical/receipt proofs, initial and
+restart verification, original deadlines, ownership and quotas remain intact.
+The earlier parked binding I/O/writer phases remain in use.
 
-Named bindings now pass **4/4 native** configurations; the unchanged old frozen
-control still fails materialized S3. Real RustFS passes **3/4**, with materialized
-S3 expiring after child return during final source archival. Interrupted binding
-recovery and sequence sealing pass **8/8 native/RustFS** configurations. Public
-SQL passes **1/2 native** image modes: materialized setup times out before its
-first SQL operator/SDK execution. SDK source-proof refusal, KV proof/cold
-enrollment and fragmented bodies each pass both native image modes. Strict
-affected-target Clippy, format/layout, dependencies/docs and 44 Python plan tests
-pass. Full KV and interrupted SQL matrices below retain their older sources.
+All **25 selected runtime tests pass**. Named bindings and interrupted recovery/
+safe sequence sealing each pass **8/8 native/RustFS configurations**, including
+the original five-second materialized S3 source. Enrollment sharing passes eight
+image/backend/minimum configurations with one physical slot and separately
+admitted responses while uploads are forbidden. Native SQL passes both images.
+The canonical real-RustFS SQL suite passes four native/Axum SDK/operator/CLI
+configurations and eight interrupted success/error recovery configurations.
+Canonical RustFS KV passes all four native/Axum configurations, including expiry,
+25-MiB SDK/CLI values, retained restart, outages and quorum refusal.
 
-Evidence: `CG-17-binding-io-8bc8a3f3-13` and
-`CG-17-binding-recovery-8bc8a3f3-14`. Cohort 13 retains its failed SQL/RustFS
-cases and the strict parser's rejection of interleaved recovery debug output.
-Cohort 14 reruns the unchanged recovery case with captured output and passes
-the same exact-case verifier. Frozen binaries, complete logs and nine failure
-disks are retained with verified workspace evidence/binary backups. The owned
-backend and VM are stopped. See the [current results](progress.md#cg-17-parked-binding-io-and-source-recovery).
+Evidence: `CG-17-archive-maintenance-9f6a5d08-17`,
+`CG-17-foundation-9f6a5d08-18` and `CG-17-kv-capture-1bda606a-19`.
+Keep cohort 18 **FAILED**: SQL passes, but the strict verifier rejects KV's
+interleaved successful test output. Qualification-only `1bda606a` uses captured
+diagnostics, preserves the exact parser and all runtime assertions, and passes
+the canonical rerun with identical runtime/CLI hashes. Its 13 runner tests and
+44 plan tests pass, alongside the runtime's strict affected-target Clippy,
+format/layout, dependency and docs checks. Prefix-only cohort 15 and the frozen
+old enrollment control 16 also remain failed. Workspace evidence/binary backups
+are verified; three prefix-control failure disks remain. The owned backend and
+VM are stopped with objects retained. See the
+[current results](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
 
-Next skip archive prefixes below the waiting command's required position before
-proof work, while preserving complete physical/receipt verification. Close the
-materialized SQL setup and original-budget full KV/SQL recovery gates. Then
-verify trusted external-object dependencies before disaster admission, qualify
-ordinary alarms, and deliver cron/EventStream/Workflow adapters on the shared
-callback owner. Full family and release acceptance remain open.
+Next qualify ordinary alarms and implement cron on the shared callback owner,
+then EventStream and Workflow; retain Queue's separate `9498029b` qualification.
+In parallel delivery scope, SQL/KV need target-S3, before-child-completion and
+interrupted large-call cases, movement/wake and verified external-object
+dependencies before disaster admission. Root-aware reclamation, independent
+Linux voters and combined release gates remain required. No complete primitive
+family or new task is accepted by this scoped cohort; plan acceptance stays
+**13/17 tasks and 147/195 cases**.
 
 ## Previous KV streaming checkpoint
 
