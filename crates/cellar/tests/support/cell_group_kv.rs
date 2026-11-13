@@ -290,8 +290,8 @@ fn application(
                 }))
             })
         })
-        .raft_cell(class, move |storage, _| {
-            Ok(Arc::new(Caller(calls.clone(), storage)))
+        .raft_cell(class, move |context, _| {
+            Ok(Arc::new(Caller(calls.clone(), context.storage()?)))
         })?,
     );
     let mut declared = configuration::options(SCRIPT);
