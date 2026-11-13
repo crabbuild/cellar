@@ -212,7 +212,19 @@ p99 1547/1275 ms. These are measured limits of this fixed profile, not an SLA or
 unbounded admission claim. The profile preserves debug assertions, overflow
 checks, original three/five-second request budgets and unknown-outcome refusals.
 The pending campaign was interrupted before any runtime selection to record that
-load boundary. The final full-source RustFS campaign is pending; these native passes do not
+load boundary. A frozen `b03a6dc5` real-RustFS fault control fails before fault injection:
+its first S3-minimum DLQ operator call returns an unknown deadline outcome. This
+cold first-use result is retained in `cellar-queue-frozen-controls-b03`; it does
+not establish a Queue data-loss failure or a causal performance fix. The expanded
+harness now observes setup archive cuts before S3-DLQ setup, and after retained
+restart/leader change. This defines a ready-service workload; every API call
+keeps its original budget. Long-handler/load and retention profiles use a
+Quorum DLQ; the cross-group lost-reply fault retains the stronger S3 minimum.
+New failed scenarios retain all voter disks and bounded status/resource samples.
+Strict library/all-test Clippy passes after placing the unchanged durable-work
+SQLite helper before its test module; seven focused callback/catalogue checks
+pass. Formatting, layout and focused Queue/Fleet compilation checks also pass.
+The final full-source RustFS campaign is pending; these native passes do not
 complete a Queue family or release gate.
 
 ## CG-17 durable callbacks and Queue MVP

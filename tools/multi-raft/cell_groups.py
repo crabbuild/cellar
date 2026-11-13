@@ -82,15 +82,16 @@ SUITES = {
     "queue-primitives": (
         "native_cell_groups_primitives",
         (
-            "rustfs_ordinary_queue_callbacks_use_shared_quorum",
-            "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum",
             "rustfs_queue_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_axum_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_long_callbacks_preserve_progress",
             "rustfs_queue_load_preserves_acknowledged_messages",
+            "rustfs_ordinary_queue_callbacks_use_shared_quorum",
+            "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum",
         ),
         "ordinary Queue producer/callback/settlement through shared RF3 with real RustFS",
-        "Both image modes, one SQL worker per node, native public ingress, declared bindings, "
+        "Both image modes, one SQL worker per node. Expanded workloads observe an initial archived "
+        "group cut before setup; this does not qualify cold first-use S3 latency. Native public ingress, declared bindings, "
         "ack/retry/dead-letter delivery, authenticated Queue operator controls, exact producer replay, "
         "archive-write refusal, joined retained restart and autonomous interrupted-consumer recovery, "
         "leader transfer and quorum-loss refusal. Separate producer, consumer and DLQ deployments, "
@@ -649,7 +650,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings"):
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "queue-primitives"):
         parser.error("--keep-going requires a process-isolated ordinary primitive or SQL suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():

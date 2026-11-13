@@ -24,7 +24,7 @@ def queue_observations():
 
 
 class SqlCampaignTests(unittest.TestCase):
-    def campaign(self, fault=None, suite="ordinary-sql-bindings"):
+    def campaign(self, fault=None, suite="ordinary-sql-bindings", keep_going=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             target, cases, _, _ = cell_groups.SUITES[suite]
@@ -80,6 +80,8 @@ class SqlCampaignTests(unittest.TestCase):
             argv = ["cell_groups.py", "--suite", suite,
                     "--backend", str(root / "backend"), "--output", str(output),
                     "--target-directory", str(root / "target")]
+            if keep_going:
+                argv.append("--keep-going")
             report = io.StringIO()
             with (patch.object(sys, "argv", argv),
                   patch.object(cell_groups, "backend", return_value=(remote, credentials)),
@@ -96,7 +98,9 @@ class SqlCampaignTests(unittest.TestCase):
             record = json.loads((output / "record.json").read_text())
             if fault:
                 self.assertEqual(record["status"], "FAILED")
-                self.assertEqual(len(executed), 1)
+                self.assertEqual(len(executed), len(cases) if keep_going else 1)
+                if keep_going:
+                    self.assertEqual(record["failed_cases"], list(cases))
             else:
                 self.assertEqual(record["status"], "PASSED")
                 self.assertEqual(executed, list(cases))
@@ -133,6 +137,9 @@ class QueueCampaignTests(unittest.TestCase):
 
     def test_queue_refuses_success_with_no_selected_test(self):
         self.campaign("zero", "queue-primitives")
+
+    def test_queue_collects_independent_cases_without_waiving_failures(self):
+        self.campaign("zero", "queue-primitives", keep_going=True)
 
     def test_queue_load_proof_validates_interleaved_observations(self):
         case = "rustfs_queue_load_preserves_acknowledged_messages"

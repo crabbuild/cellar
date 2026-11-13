@@ -69,7 +69,7 @@ struct Deployments {
     )>,
 }
 
-fn applications(signals: Arc<Signals>) -> Result<Deployments> {
+fn applications(signals: Arc<Signals>, dead_minimum: Durability) -> Result<Deployments> {
     let producer = Arc::new(
         Registry::new(|context, invocation| {
             Box::pin(async move {
@@ -216,7 +216,7 @@ fn applications(signals: Arc<Signals>) -> Result<Deployments> {
         ),
         (
             storage.resolve_raft_class(cellar::deploy::QUEUE_CLASS)?,
-            Durability::S3,
+            dead_minimum,
         ),
     ];
     let application = Arc::new(RaftApplications::new(
@@ -250,6 +250,7 @@ impl Scenario {
         callback_ms: u64,
         retention_ms: Option<i64>,
         ordinary_slots: usize,
+        dead_minimum: Durability,
     ) -> Result<Self> {
         let signals = Arc::new(Signals::default());
         let Deployments {
@@ -257,7 +258,7 @@ impl Scenario {
             options,
             definitions,
             cohosted,
-        } = applications(signals.clone())?;
+        } = applications(signals.clone(), dead_minimum)?;
         let mut fixture =
             Fixture::with_definition_policies(rooted, definitions, application, store).await?;
         fixture.configuration = Some(options);
@@ -305,9 +306,12 @@ impl Scenario {
                 admin(&cluster, FAST, json!({"op":"info"}))
                     .await
                     .context("warm fast Queue")?;
-                admin(&cluster, DEAD, json!({"op":"info"}))
-                    .await
-                    .context("warm S3 DLQ")?;
+                archive_ready(&cluster, &[cluster.history, queue, dead]).await?;
+                let warmed = admin(&cluster, DEAD, json!({"op":"info"})).await;
+                if warmed.is_err() {
+                    snapshot(&cluster, &[queue, dead]).await;
+                }
+                warmed.context("warm DLQ at its declared minimum")?;
                 Ok::<_, anyhow::Error>((queue, dead))
             })
             .await;
@@ -320,14 +324,30 @@ impl Scenario {
                 dead,
             }),
             result => {
+                for root in cluster.roots {
+                    eprintln!(
+                        "retained failed Queue setup disk: {}",
+                        root.keep().display()
+                    );
+                }
+                let mut errors = Vec::new();
                 for node in cluster.nodes {
-                    node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+                    if let Err(error) = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {
+                        errors.push(error.to_string());
+                    }
                 }
                 for host in cluster.hosts {
-                    host.close().await?;
+                    if let Err(error) = host.close().await {
+                        errors.push(error.to_string());
+                    }
                 }
                 if let Some(http) = http {
-                    http.close().await?;
+                    if let Err(error) = http.close().await {
+                        errors.push(error.to_string());
+                    }
+                }
+                if !errors.is_empty() {
+                    eprintln!("Queue failed-setup cleanup: {errors:?}");
                 }
                 result??;
                 unreachable!()
@@ -335,7 +355,7 @@ impl Scenario {
         }
     }
 
-    async fn close(self) -> Result<()> {
+    async fn close(self, retain: bool) -> Result<()> {
         let mut errors = Vec::new();
         for node in self.cluster.nodes {
             if let Err(e) = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {
@@ -350,6 +370,14 @@ impl Scenario {
         if let Some(http) = self.http {
             if let Err(e) = http.close().await {
                 errors.push(e.to_string());
+            }
+        }
+        if retain || !errors.is_empty() {
+            for root in self.cluster.roots {
+                eprintln!(
+                    "retained failed Queue qualification disk: {}",
+                    root.keep().display()
+                );
             }
         }
         ensure!(
@@ -424,6 +452,57 @@ async fn ready(cluster: &ManagedCluster, groups: &[GroupHistory]) -> Result<()> 
     Ok(())
 }
 
+// Observe the pre-workload archive cut; this is not a command/response proof.
+// S3-minimum enrollment and every operator call still use their original budget.
+async fn archive_ready(cluster: &ManagedCluster, groups: &[GroupHistory]) -> Result<()> {
+    let mut cuts = Vec::new();
+    for group in groups {
+        let leader = managed_fixture::leader(&cluster.hosts, *group).await?;
+        let handle = cluster.hosts[leader].group(*group)?;
+        let cut = handle.status().await?.applied.index;
+        cuts.push((handle, cut));
+    }
+    let result = cellar::asyncrt::timeout(TIMEOUT, async {
+        loop {
+            let mut ready = true;
+            for (handle, cut) in &cuts {
+                ready &= handle
+                    .archive_status()?
+                    .and_then(|s| s.published)
+                    .is_some_and(|m| m.position().index >= *cut);
+            }
+            if ready {
+                return Ok::<_, anyhow::Error>(());
+            }
+            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    if !matches!(result, Ok(Ok(()))) {
+        snapshot(cluster, groups).await;
+    }
+    result.context("initial Queue group archive readiness")??;
+    Ok(())
+}
+
+async fn snapshot(cluster: &ManagedCluster, groups: &[GroupHistory]) {
+    for (node, host) in cluster.hosts.iter().enumerate() {
+        eprintln!(
+            "QUEUE_FAILURE {}",
+            json!({"node":node,"resources":host.resource_usage()})
+        );
+        for group in groups {
+            if let Ok(handle) = host.group(*group) {
+                let status = cellar::asyncrt::timeout(TIMEOUT, handle.status()).await;
+                eprintln!("QUEUE_FAILURE node={node} history={group:?} status={status:?}");
+                if let Ok(Some(archive)) = handle.archive_status() {
+                    eprintln!("QUEUE_FAILURE node={node} archive attempts={} published={:?} stopped={} error={:?}",archive.attempts,archive.published.as_ref().map(|m|m.position()),archive.stopped,archive.error);
+                }
+            }
+        }
+    }
+}
+
 async fn move_leader(cluster: &ManagedCluster, group: GroupHistory, target: usize) -> Result<()> {
     cellar::asyncrt::timeout(TIMEOUT, async {
         loop {
@@ -472,7 +551,7 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
             Some(b) => Arc::new(catalog_fault::Store::around(b.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let mut s = Scenario::start(rooted, store, external, 5000, None, 2).await?;
+        let mut s = Scenario::start(rooted, store, external, 5000, None, 2, Durability::S3).await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome = domain
             .run(async {
@@ -523,7 +602,14 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
                 eprintln!("QUEUE_FAULT DLQ reply loss");
                 let source = managed_fixture::leader(&s.cluster.hosts, s.queue).await?;
                 move_leader(&s.cluster, s.dead, (source + 1) % 3).await?;
+                ready(&s.cluster, &[s.queue, s.dead]).await?;
+                archive_ready(&s.cluster, &[s.dead]).await?;
                 let destination = managed_fixture::leader(&s.cluster.hosts, s.dead).await?;
+                ensure!(
+                    destination != source
+                        && managed_fixture::leader(&s.cluster.hosts, s.queue).await? == source,
+                    "DLQ fault requires stable, different source and destination leaders"
+                );
                 let before = s.cluster.hosts[destination]
                     .group(s.dead)?
                     .status()
@@ -568,6 +654,7 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
                 closed?;
                 restart(&mut s.cluster).await?;
                 ready(&s.cluster, &[s.cluster.history, s.queue, s.dead]).await?;
+                archive_ready(&s.cluster, &[s.cluster.history, s.queue, s.dead]).await?;
                 s.empty(QUEUE).await?;
                 let dead = admin(&s.cluster, DEAD, json!({"op":"peek","limit":100})).await?;
                 let messages = dead["messages"].as_array().context("DLQ rows")?;
@@ -579,7 +666,8 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
                 Ok::<_, anyhow::Error>(())
             })
             .await;
-        let cleanup = s.close().await;
+        let retain = !matches!(&outcome, Ok(Ok(())));
+        let cleanup = s.close(retain).await;
         outcome??;
         cleanup?;
         // Retention has its own explicit host policy; source command receipts
@@ -598,7 +686,16 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
             )),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let s = Scenario::start(rooted, store, external, 5000, Some(500), 2).await?;
+        let s = Scenario::start(
+            rooted,
+            store,
+            external,
+            5000,
+            Some(500),
+            2,
+            Durability::Quorum,
+        )
+        .await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome = domain
             .run(async {
@@ -639,7 +736,8 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
                 Ok::<_, anyhow::Error>(())
             })
             .await;
-        let cleanup = s.close().await;
+        let retain = !matches!(&outcome, Ok(Ok(())));
+        let cleanup = s.close(retain).await;
         outcome??;
         cleanup?;
     }
@@ -655,7 +753,7 @@ pub async fn qualify_long(real: bool) -> Result<()> {
             Some(b) => Arc::new(catalog_fault::Store::around(b.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let s = Scenario::start(rooted, store, false, 90_000, None, 2).await?;
+        let s = Scenario::start(rooted, store, false, 90_000, None, 2, Durability::Quorum).await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome = domain
             .run(async {
@@ -677,7 +775,8 @@ pub async fn qualify_long(real: bool) -> Result<()> {
                 Ok::<_, anyhow::Error>(())
             })
             .await;
-        let cleanup = s.close().await;
+        let retain = !matches!(&outcome, Ok(Ok(())));
+        let cleanup = s.close(retain).await;
         outcome??;
         cleanup?;
     }
@@ -693,7 +792,7 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             Some(b) => Arc::new(catalog_fault::Store::around(b.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let s = Scenario::start(rooted, store, false, 5000, None, 8).await?;
+        let s = Scenario::start(rooted, store, false, 5000, None, 8, Durability::Quorum).await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome=domain.run(async {
             let store=s.cluster.fixtures[0].store.clone();
@@ -725,14 +824,7 @@ pub async fn qualify_load(real: bool) -> Result<()> {
                 }Ok::<_,anyhow::Error>(latency)
             }});
             let results=futures_util::future::join_all(producers).await;
-            if results.iter().any(Result::is_err) {
-                for (node,host) in s.cluster.hosts.iter().enumerate() {
-                    eprintln!("QUEUE_LOAD_FAILURE {}",json!({"node":node,"resources":host.resource_usage()}));
-                    for group in [s.queue,s.dead] {
-                        eprintln!("QUEUE_LOAD_GROUP node={node} history={group:?} status={:?}",host.group(group)?.status().await);
-                    }
-                }
-            }
+            if results.iter().any(Result::is_err) { snapshot(&s.cluster,&[s.queue,s.dead]).await; }
             let mut latencies=Vec::new();for result in results {latencies.extend(result?);}
             s.empty(QUEUE).await?;s.empty(FAST).await?;
 
@@ -743,7 +835,8 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             eprintln!("QUEUE_LOAD {}",json!({"realRustFS":real,"extents":rooted,"producers":4,"inFlightRequests":2,"perQueueInFlight":1,"ordinarySlots":8,"ordinaryBytes":131072,"callbackSlots":2,"queues":2,"batchMessages":8,"steadyMessages":512,"archiveOutageMessages":16,"delivered":delivered.len(),"uniqueMessageIds":unique.len(),"elapsedMs":cellar::asyncrt::mono_ms()-start,"enqueueBatchP50Ms":latencies[latencies.len()/2],"enqueueBatchP99Ms":latencies[(latencies.len()*99/100).min(latencies.len()-1)]}));
             Ok::<_,anyhow::Error>(())
         }).await;
-        let cleanup = s.close().await;
+        let retain = !matches!(&outcome, Ok(Ok(())));
+        let cleanup = s.close(retain).await;
         outcome??;
         cleanup?;
     }
