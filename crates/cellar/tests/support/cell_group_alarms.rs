@@ -405,6 +405,9 @@ async fn case(real_rustfs: bool, external: bool, rooted: bool, minimum: Durabili
     };
     let work = domain
         .run(async {
+            // Voting membership grants no application RPC permission. Install
+            // this deployment's explicit peer grants before public forwarding.
+            named_service::grant(&cluster).await?;
             let first = request(&cluster, "Read", json!(null)).await?;
             ensure!(first == json!({"alarm":null,"calls":[]}));
             for method in ["__sqlIngressSequence", "__sys_raft_native_work"] {
