@@ -2973,3 +2973,48 @@ preserves its runtime/tool inputs; the canonical checkout remains frozen while
 those checks run. Fresh affected-boundary results are pending;
 current-source RustFS/Linux, the open lifecycle failures and full CG/OPT
 acceptance remain open.
+
+## Archive integration failures and detached-member classification
+
+Integration `a3ee932d`, source `a26d602b`, completes all ten source checks and
+both joined archive-owner library regressions. All 33 ordinary archive cases
+pass, with eight RustFS cases ignored. The archive-controller target fails:
+22 cases pass, three fail and 26 remain ignored. The failed cases are
+`archived_progress_wakes_commands_without_maintenance_poll`,
+`s3_command_requires_the_sibling_archive_dependencies` and
+`s3_enrollment_deadlines_preserve_resolved_ownership`. The aggregate runtime
+campaign remains failed with 57 passing functions and three failures; its
+source guards remain unchanged.
+
+Two exact unchanged-binary repetitions reproduce the wakeup deadline. The
+dependency and enrollment cases pass those isolated repetitions without
+establishing their original causes. Running the existing late-receipt control
+before the dependency case enables the full cohort's logging configuration and
+reproduces `incomplete group must refuse S3` in 2.929 seconds. This is a fast
+diagnostic at the original assertions and limits, not a repaired campaign.
+
+The earlier `2c8be2ff` retiring-voter failure also reproduces on the sixth
+unchanged-binary repetition: SDK/materialized completes, then SDK/extents
+stops at Joint with retiring Node6 closing and replacement Node8 still active.
+The preceding five repetitions pass all six profiles. The actual `GroupRoster`
+transition regression independently fails for `ParkedRemoved` while its
+`ParkedRetired` control passes. The event guard had recognized only the latter.
+
+The candidate now recognizes both physically detached states. After volatile
+reclamation, it also accepts a completed typed member-fence receipt, whose
+engine lookup validates history, node, disk, storage instance and old-key
+absence. Unknown histories and retained apply tickets remain refused. No
+serving route, membership authorization or durability proof is created by this
+metadata handling.
+
+Managed-checkout source `787fc27c` passes both lifecycle tests and strict library
+Clippy with Rust 1.98.1, optimization level 1 and assertions/overflow checks
+enabled. Formatting and layout pass. The initial fixed-source build instead
+hits Rust's incremental `evaluate_obligation` fingerprint ICE before tests run;
+that failed record and the pre-fix executable are retained. Disabling only
+incremental compilation produces the passing component result. The managed
+input manifest still includes sixty ignored generated JavaScript assets and
+is distinct from the canonical manifest. Fixed-source RF3 replacement, member
+reclamation/return, all-target integration and RustFS/Colima qualification are
+pending. The failed native and archive campaigns above remain failed; no full
+CG/OPT gate is accepted.

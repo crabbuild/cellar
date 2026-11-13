@@ -450,10 +450,13 @@ impl Worker {
                 event = self.events.recv() => {
                     let event = event.ok_or(CellGroupControllerError::Closed)?;
                     let group = event.group();
-                    if !self.roster.contains_key(&group) && (self.shared.groups.retired(&group)
-                        || self.runtime.log().source_reclamation(group).await.map_err(RuntimeError::from)?.is_some()) {
+                    if !self.roster.contains_key(&group) && (self.shared.groups.detached(&group)
+                        || self.runtime.log().source_reclamation(group).await.map_err(RuntimeError::from)?.is_some()
+                        || self.runtime.log().member_reclamation(group).await.map_err(RuntimeError::from)?.is_some_and(|ack| ack.record().complete)) {
                         // Metadata/messages can have been delivered before the
                         // runtime detached. Apply tickets prevent physical join.
+                        // After volatile reclamation, the typed engine receipt
+                        // verifies the exact history, node, disk and old key.
                         if event.retain_apply().is_some() { return Err(CellGroupControllerError::Invalid("retired source apply event")); }
                         continue;
                     }
