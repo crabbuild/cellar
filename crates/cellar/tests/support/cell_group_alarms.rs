@@ -182,13 +182,22 @@ async fn call(
     method: &str,
     args: serde_json::Value,
 ) -> Result<(reqwest::StatusCode, serde_json::Value)> {
+    call_at(cluster, 0, method, args).await
+}
+
+async fn call_at(
+    cluster: &ManagedCluster,
+    ingress: usize,
+    method: &str,
+    args: serde_json::Value,
+) -> Result<(reqwest::StatusCode, serde_json::Value)> {
     let response = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
         .build()?
         .post(format!(
             "http://{}/alarm",
-            cluster.nodes[0].info().public_address
+            cluster.nodes[ingress].info().public_address
         ))
         .json(&json!({"method":method,"args":args}))
         .send()
@@ -408,7 +417,12 @@ async fn case(real_rustfs: bool, external: bool, rooted: bool, minimum: Durabili
             // Voting membership grants no application RPC permission. Install
             // this deployment's explicit peer grants before public forwarding.
             named_service::grant(&cluster).await?;
-            let first = request(&cluster, "Read", json!(null)).await?;
+            // Qualify cold cell onboarding on a serving group. Startup/election
+            // has its own gate; it must not spend this RPC's operation budget.
+            let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+            let ingress = (leader + 1) % cluster.nodes.len();
+            let (status, first) = call_at(&cluster, ingress, "Read", json!(null)).await?;
+            ensure!(status.is_success(), "first follower RPC: {status} {first}");
             ensure!(first == json!({"alarm":null,"calls":[]}));
             for method in ["__sqlIngressSequence", "__sys_raft_native_work"] {
                 let (status, _) = call(&cluster, method, json!(null)).await?;
