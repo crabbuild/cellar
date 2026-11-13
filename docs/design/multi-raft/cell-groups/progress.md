@@ -27,6 +27,54 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 KV preparation and original-budget qualification
+
+Source `478842a0` removes redundant preparation work from large KV calls.
+Applied, bounded route metadata supplies a pending locator without a preparation
+command. Cold stateless ingress retains admitted discovery and durable enrollment,
+then returns a locator before allocating a command sequence. Stateful cold calls
+retain their source-journaled preparation path. The authenticated operator stages
+its JSON body before native RPC encoding and releases the base64 field before
+publication. Source-proof admission, full receiver byte verification, actual-write
+fencing, byte limits and original deadlines remain required.
+
+| Gate at `478842a0` | Result |
+| --- | --- |
+| Preparation/source-proof/cold-enrollment regression | **2/2 native image configurations pass** |
+| Complete native KV API, restart, provider/archive failure and quorum refusal | **2/2 image configurations pass** |
+| Canonical real RustFS KV, native/Axum, both images | **0/4 complete configurations; FAILED** |
+| Focused strict Clippy, formatting/layout, dependencies/docs, Python verifier checks | **Pass; 69 Python tests** |
+
+The focused regression checks one pending preparation, one actual 25-MiB PUT,
+cold enrollment, denial of a new S3 source root at the actual archive adapter,
+and no late source upload after its deadline and provider restoration. The full
+native drill also covers conditional revisions, expiry, public ingress, retained
+restart and refusal without quorum. Its full conformance path may reuse the
+SIDE keyspace enrolled by `Isolation`; only the focused regression requires that
+keyspace to be cold.
+
+All four RustFS configurations pass ordinary CLI put/get/info/delete and the
+25-MiB SDK round trip, each asserting one 26,214,400-byte publication. The SDK
+compound calls take 15.632/14.696 seconds with native ingress and 12.801/14.894
+seconds with Axum, within their original twenty-second parent budgets. All four
+then fail the large CLI put under the original three-second server budget.
+Three traces reach target execution with 2.497/2.296/2.381 seconds remaining and
+still expire with ambiguous outcomes. These samples narrow the next investigation
+to target execution, including full-body verification and checkpoint phases;
+they do not establish a speedup or a causal fix. Later RustFS proof-guard,
+restart, archive-outage and quorum-refusal checks are unrun in this cohort.
+
+Evidence is `CG-17-kv-preparation-478842a0-04`: source inputs, frozen actual CLI
+and test executables, complete logs and twelve retained failure disks. Earlier
+controls remain retained: `5830817f` passes warm/proof checks but misses the cold
+stateless call's deadline in one native mode; `028f3a0a` passes the focused regression
+but its full drill incorrectly expects a cold preparation after `Isolation`.
+The test-only `912d181c` correction preserves the cold focused assertion and its
+separate RustFS control still fails all four large CLI puts. This is feature
+progress, not complete primitive acceptance. Ordinary S3 binding deadlines,
+SQL recovery, external-object recovery closure, movement/wake and release gates
+remain open. Queue's qualified source remains `9498029b` below.
+
 ## CG-17 request execution deadlines and combined-source qualification
 
 Source `84af2661`, qualified with the Queue admission changes at `b99f12c4`,

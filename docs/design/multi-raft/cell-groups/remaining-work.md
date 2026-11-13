@@ -41,17 +41,20 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Close the original-deadline binding and SQL/KV recovery gates. At `b99f12c4`,
-   native ordinary bindings pass **2/4** configurations: both Quorum modes pass,
-   both S3-source modes time out. Interrupted-binding recovery passes **4/4**
-   native configurations. KV services, native/Axum ingress, operator/CLI, revision
-   conditions, durable expiry and verified immutable-value references are
-   implemented. Native KV passes **2/2** images. Canonical one-CPU RustFS KV is
-   still **0/4** complete configurations: three pass the 25-MiB source round trip
-   before a large CLI deadline failure; Axum/materialized fails its earlier
-   public boundary call. The separate RPC I/O cap is fixed and qualified, but
-   these original-budget failures remain open. See the
-   [combined-source checkpoint](progress.md#cg-17-request-execution-deadlines-and-combined-source-qualification).
+1. Close the original-deadline binding and SQL/KV recovery gates. At `478842a0`,
+   the complete native KV drill and focused preparation/source-proof regression
+   each pass **2/2** images. Applied-metadata preparation, admitted cold stateless
+   enrollment and operator JSON staging remove redundant work. Canonical one-CPU
+   RustFS KV remains **0/4** complete configurations: all four pass the 25-MiB
+   SDK round trip and ordinary CLI, then fail the large CLI put. Three traces
+   enter target execution with 2.296–2.497 seconds left; isolate verification and
+   checkpoint time inside that target without changing the original budget.
+   See the [current KV checkpoint](progress.md#cg-17-kv-preparation-and-original-budget-qualification).
+   Ordinary bindings remain **2/4; FAILED** at `b99f12c4`, with both S3-source
+   modes timing out; interrupted-binding recovery passes **4/4** native modes
+   at that source. The separate RPC I/O cap is fixed, but source-proof latency
+   remains unresolved. Preserve the old-binary deadline control and complete
+   autonomous recovery/sequence sealing qualification on the combined source.
    SQL SDK/operator/CLI has older scoped **8/8** coverage at `979addd0`, while
    after-child parent recovery remains **14/16; FAILED** at `b3aacf7a`.
    The canonical one-CPU SQL suite is unrun. Finish cold startup, interruption,
