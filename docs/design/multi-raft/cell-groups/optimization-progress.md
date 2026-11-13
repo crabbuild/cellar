@@ -3577,3 +3577,26 @@ ingress deadline before its extent image. See the
 [Queue load checkpoint](queue-durable-work.md#qualification-and-remaining-scope)
 for observed owner state and the remaining diagnostic boundary. No production
 budget is raised, and no complete primitive family, CG or OPT package is accepted.
+
+## Bounded SQL progress FIFO follow-up
+
+PR [#167](https://github.com/crabbuild/cellar/pull/167) publishes the Queue
+regression and bounded FIFO candidate at `2e1852db`. All 3,314 tracked compiler
+inputs match the published Git blobs; 60 unchanged ignored JavaScript inputs
+remain separately recorded. Runtime and source checks use input `7c0585ac`
+with locked Rust 1.98.1, optimized tests, debug assertions and overflow checks.
+
+The build, formatting, layout, focused strict Clippy, six admission unit tests,
+174 multi-Raft tool tests (one optional skip), native dependency and documentation
+checks pass. The original two-call Queue load passes both images in 78.729
+seconds. The four-call load still fails in its first image in 26.205 seconds
+with an ambiguous ingress deadline, measured peak four and unchanged resource
+bounds. Its second image is unqualified. The
+[Queue checkpoint](queue-durable-work.md#qualification-and-remaining-scope)
+retains the earlier failures, targeted admission probes and exact result scope.
+
+This candidate replaces opportunistic progress-slot retries with bounded FIFO
+waiting; it does not establish the complete cause or repair of the four-call
+failure. The failed native campaign and hosted recovery jobs remain failed.
+RustFS/Colima/Linux, 128-cell enrollment, shutdown, historical evidence and all
+remaining CG/OPT acceptance gates remain open. No merge is performed.

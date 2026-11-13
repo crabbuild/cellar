@@ -169,3 +169,26 @@ No compiler or other native-test activity is sampled at the attempt's start.
 The original admission, byte and callback limits are unchanged. This supplies
 a repeatable current-source failure boundary; it does not yet prove which
 checkpoint/apply owner prevents completion or qualify the extent image.
+
+Targeted probes at input `34079f45` reproduce the failure and observe 198
+apply refusals at the single reserved SQL progress slot. The byte-admission
+and worker-result probes do not report those refusals; no checkpoint-wait probe
+fires. These observations identify a contended admission boundary, not the
+complete cause of the public request failure. All temporary probes are removed.
+
+The bounded FIFO candidate published at `2e1852db`, input `7c0585ac`, makes
+apply and SQL completions wait fairly for that existing progress slot. Apply
+waiters retain their existing apply admission; completion waiters borrow an
+ordinary slot while waiting. An idle progress slot remains available with a
+full ordinary queue. Cancellation and shutdown release waiter admission. No
+worker, slot, byte ceiling or request deadline is enlarged.
+
+All six admission unit tests pass, as do formatting, layout and focused strict
+Clippy for the core library and primitive integration target. The original
+two-call load passes both image modes in 78.729 seconds, with 528 unique messages
+per image and measured peak two. The four-call case still fails in its
+materialized image in 26.205 seconds: ingress sequence nine returns an ambiguous
+runtime deadline. Its failure counters confirm peak four, two failed producers
+and zero active calls after joining their results. The extent image has no
+result. FIFO admission therefore does not close the four-call progress gap;
+the regression remains failed and real RustFS qualification remains pending.
