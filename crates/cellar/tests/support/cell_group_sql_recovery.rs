@@ -67,9 +67,15 @@ impl Cell for InterruptedSql {
                     Ok(Output::Rpc(RpcData::Json(json!(clear).to_string())))
                 }
                 "Continue" => {
+                    let started = cellar::asyncrt::mono_ms();
+                    eprintln!("SQL recovery fresh parent entered");
                     self.database
                         .exec(&context, "INSERT INTO recovered VALUES(2)")
                         .await?;
+                    eprintln!(
+                        "SQL recovery fresh child returned after {} ms",
+                        cellar::asyncrt::mono_ms().saturating_sub(started)
+                    );
                     Ok(Output::Rpc(RpcData::Json("true".into())))
                 }
                 _ => anyhow::bail!("unknown SQL recovery operation"),
@@ -116,26 +122,12 @@ fn application(
 }
 
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::cell_groups::controller::effects=debug,cellar::raft::query_connection=debug")
-        .with_test_writer()
-        .try_init();
+    logging();
     let mut failures = Vec::new();
     for rooted in [false, true] {
         for durability in [Durability::Quorum, Durability::S3] {
             for failed in [false, true] {
-                let result = async {
-                    let store = if real_rustfs {
-                        Arc::new(catalog_fault::Store::around(rustfs::store(
-                            &format!("sql-recovery-{durability:?}-error-{failed}"),
-                            rooted,
-                        )?))
-                    } else {
-                        Arc::new(catalog_fault::Store::default())
-                    };
-                    Box::pin(run(rooted, durability, failed, store)).await
-                }
-                .await;
+                let result = case(real_rustfs, rooted, durability, failed).await;
                 let status = if result.is_ok() { "PASS" } else { "FAILED" };
                 eprintln!("SQL recovery RustFS={real_rustfs} extents={rooted} source={durability:?} error={failed}: {status}");
                 if let Err(error) = result {
@@ -149,6 +141,31 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
     }
     ensure!(failures.is_empty(), "SQL recovery: {}", failures.join("; "));
     Ok(())
+}
+
+/// The exact post-recovery configuration that failed the initial matrix.
+pub async fn extent_error_progress() -> Result<()> {
+    logging();
+    case(false, true, Durability::S3, true).await
+}
+
+fn logging() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::cell_groups::controller::effects=debug,cellar::raft::query_connection=debug")
+        .with_test_writer()
+        .try_init();
+}
+
+async fn case(real_rustfs: bool, rooted: bool, durability: Durability, failed: bool) -> Result<()> {
+    let store = if real_rustfs {
+        Arc::new(catalog_fault::Store::around(rustfs::store(
+            &format!("sql-recovery-{durability:?}-error-{failed}"),
+            rooted,
+        )?))
+    } else {
+        Arc::new(catalog_fault::Store::default())
+    };
+    Box::pin(run(rooted, durability, failed, store)).await
 }
 
 async fn rows(cluster: &ManagedCluster) -> Result<serde_json::Value> {
@@ -195,7 +212,8 @@ async fn run(
     fixture.sql_workers = 1;
     fixture.max_input_bytes = 16 * 1024;
     fixture.max_client_identities = 4;
-    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+    let domain = fixture.domain.clone();
+    let started = Box::pin(ManagedCluster::start_with_applications(
         fixture,
         &[],
         ArchiveSetup::Initialized,
@@ -203,8 +221,14 @@ async fn run(
         None,
         FirstGroupSetup::Normal,
     ))
-    .await?;
-    let domain = cluster.fixtures[0].domain.clone();
+    .await;
+    let mut cluster = match started {
+        Ok(cluster) => cluster,
+        Err(error) => {
+            domain.shutdown().await;
+            return Err(error);
+        }
+    };
     let work = domain
         .run(async {
             let sql_group = database_group(&cluster).await?;
@@ -376,7 +400,25 @@ async fn run(
                     b"null".to_vec(),
                     bindings::options(sequence, durability)?,
                 )
-                .await?;
+                .await;
+            if let Err(error) = &next {
+                eprintln!("SQL recovery fresh parent failed: {error}");
+                eprintln!(
+                    "SQL recovery after failure source: {:?}",
+                    source_state(&source, 215).await
+                );
+                eprintln!(
+                    "SQL recovery after failure rows: {:?}",
+                    rows(&cluster).await
+                );
+                for (node, host) in cluster.hosts.iter().enumerate() {
+                    eprintln!(
+                        "SQL recovery performance node={node}: {}",
+                        serde_json::to_string(&host.performance())?
+                    );
+                }
+            }
+            let next = next?;
             ensure!(next.result == b"true");
             let expected = if failed {
                 json!([[2]])

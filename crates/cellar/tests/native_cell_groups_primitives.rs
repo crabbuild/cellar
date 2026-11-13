@@ -1752,3 +1752,8 @@ async fn interrupted_sql_bindings_recover_without_replaying_business_calls() -> 
 async fn rustfs_interrupted_sql_bindings_recover_without_replaying_business_calls() -> Result<()> {
     Box::pin(sql_bindings::qualify_recovery(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sql_error_recovery_preserves_s3_extent_progress() -> Result<()> {
+    Box::pin(sql_bindings::extent_error_progress()).await
+}
