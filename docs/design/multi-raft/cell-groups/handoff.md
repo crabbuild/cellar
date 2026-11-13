@@ -31,12 +31,13 @@ primitive acceptance remains open; keep the chained twenty-second load control.
 
 ## Current Queue checkpoint
 
-Source `a5f65e79` passes canonical real-RustFS `queue-primitives` qualification:
+Source `9498029b`, including KV and RPC deadline separation, repeats the
+`a5f65e79` canonical real-RustFS `queue-primitives` pass:
 **6/6 exact tests, 12/12 image configurations**. It covers native/Axum public
 SDK/CLI, cohosted producer/consumer/storage-only DLQ schemas, stale consumers,
 partial retry, active purge, lost cross-group S3-DLQ completion, retained
 restart, retention replay, quorum refusal, 65-second callbacks and bounded load.
-See [results](progress.md#cg-17-queue-cross-deployment-and-bounded-load-qualification)
+See [results](progress.md#cg-17-queue-qualification-with-kv-and-rpc-integration)
 and the [contract](queue-durable-work.md).
 
 The kernel holds one physical callback per cell within two node-wide slots and
@@ -49,15 +50,17 @@ requires fresh compatible namespaces/matching voters; markers remain 1.
 
 Load is four producers, two requests in flight, one SQL worker per node and
 small eight-message batches: 528 distinct deliveries per image, including a
-16-message archive-refusal burst. Batch enqueue p99 is 1198/1330 ms. Scope is
+16-message archive-refusal burst. Batch enqueue p99 is 1487/1107 ms. Scope is
 host-native RF3 and one-CPU/2-GiB RustFS. Setup observes initial archive coverage;
 cold S3 first use and four-in-flight controls were not rerun after their failures.
 Clock/configuration/deployment removal, full-size payloads, movement/wake,
 all-voter disk loss and independent Linux voters remain gates. Full CG-17
-acceptance is unchanged at **13/17 tasks and 147/195 cases**.
+remains open; recorded plan acceptance is **13/17 tasks and 147/195 cases**.
 
-Canonical artifacts: `/Volumes/Workspace/crabbuild-target/cellar-queue-expanded-rustfs-06`.
-Hash-verified ignored copy: `.cellar/cell-groups-evidence/CG-17-queue-expanded-a5f65e79-01`.
+Canonical artifacts: `/Volumes/Workspace/crabbuild-target/cellar-queue-merged-rustfs-9498029b-01`.
+Hash-verified ignored copy: `.cellar/cell-groups-evidence/CG-17-queue-merged-9498029b-01`.
+The `da66d967` follow-up changes only docs and the separate RPC regression;
+production and Queue fixture inputs match the qualified pin.
 The `fe4cd801` failed load control, frozen binaries and three voter disks remain
 in the preceding `cellar-queue-expanded-rustfs-05` cohort. Use the shared owner
 for subsequent expiry/cron/EventStream/Workflow work; add no per-idle-cell tasks.
