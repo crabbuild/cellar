@@ -3115,3 +3115,46 @@ earlier 50-function selection to 61 functions. No result is claimed for that
 campaign yet. Current RustFS/Colima/Linux, startup/Python delivery and full
 CG/OPT qualification remain open. Earlier failed campaigns and the aborted
 pre-compact build retain their original outcomes.
+
+## Queue and payload base integration
+
+The base advances to `7e75c1ad`, adding durable native callbacks, Queue and
+namespace-bound immutable payload protocols. Source checkpoint `47dbc26f`
+integrates it with the archive corrections. The qualification runner preserves
+the existing routing, archive-owner and named-binding suites and both new
+Queue/payload suites. Frozen CLI selection covers every relevant suite, and
+payload-only reports claim neither voters nor image modes. All 159 runner tests
+pass, with one optional skip; all 44 design tests and documentation checks pass.
+
+The reviewed baseline combines the optimization host/CI anchors with the new
+catalog/birth anchors. Its complete 24-anchor preflight passes against
+`47dbc26f`. The runtime baseline and case acceptance remain unchanged. This
+review neither recreates nor waives the missing historical CG-01 evidence.
+
+Fresh combined-source Rust and repository checks are pending. The 61-function
+native campaign remains on its unchanged pre-Queue archive checkpoint
+(`5ffcf68b`, matching the published `45763d34` code); it cannot qualify this newer
+combined source. Current combined runtime, Queue/payload recovery matrices,
+RustFS/Colima/Linux and the full CG/OPT gates remain open.
+
+## Combined-source corrections under verification
+
+The first Queue/payload integration, source `9d65f134`, passes ten source checks
+and fails strict Clippy because the automatically merged native-work SQL helper
+appears after the retained test module. Its body is moved unchanged beside the
+framework SQL functions. The failed source campaign retains its original result.
+
+The pre-Queue native campaign finishes with 60 functions passed and one failed:
+ordinary named bindings in Extents/S3 at client sequence 3 report
+`archive journal changed during read`. All 21 routing cases pass with their
+fixed ledgers verified. This campaign remains failed. A narrow probe of the
+unchanged production read helper reproduces the error when a real atomic rename
+occurs between pathname metadata and opening the file; four bounds/type controls
+pass. Selecting size and bytes from the opened descriptor makes all six probe
+cases pass. This does not qualify a complete journal, caller or combined host.
+
+The combined candidate retains pathname type/size checks, adds explicit bounds
+on the opened descriptor and preserves canonical-envelope and ownership checks.
+New full journal tests cover atomic replacement, allocation bounds, malformed or
+noncanonical state, foreign identity and lost state. Full journal and public
+binding tests, archive regressions and fresh source checks remain pending.

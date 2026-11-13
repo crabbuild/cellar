@@ -3797,6 +3797,15 @@ pub(crate) fn system_sql_schema(scope: &str, ddl: &str) -> anyhow::Result<()> {
     })
 }
 
+/// Fixed framework work metadata under the currently installed private command.
+pub(crate) fn raft_native_work<T>(
+    callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    with_application_storage_write(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| callback(connection))
+    })
+}
+
 pub fn put_serialized(scope: &str, key: &str, value: &[u8]) -> anyhow::Result<()> {
     with_application_storage_write(scope, |c| {
         c.prepare_cached(KV_PUT_SQL)?
@@ -4901,13 +4910,4 @@ mod system_schema_tests {
         close(scope);
         Ok(())
     }
-}
-
-/// Fixed framework work metadata under the currently installed private command.
-pub(crate) fn raft_native_work<T>(
-    callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    with_application_storage_write(RAFT_STORAGE_SCOPE, |connection| {
-        as_framework_sql(|| callback(connection))
-    })
 }

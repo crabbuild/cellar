@@ -230,9 +230,11 @@ fn read(
         return Err(Error::Invalid("archive journal file bounds/type"));
     }
     let mut file = filesystem.open(&path)?;
+    // Publication atomically replaces the path. Metadata may describe an older
+    // valid record, so bound and read the single version held by this handle.
     let length = file.file_len()?;
-    if length != metadata.len {
-        return Err(Error::Invalid("archive journal changed during read"));
+    if length == 0 || length > LIMIT as u64 {
+        return Err(Error::Invalid("archive journal opened file bounds"));
     }
     Ok(Some(file.read_exact_at(0, length as usize)?))
 }
