@@ -3251,3 +3251,89 @@ handoff. Its two-callback profile does not repair the earlier one-callback Queue
 failure. The automatic name-discovery correction is being verified separately
 against that original profile before combined-source qualification. Neither
 integration nor a passing diagnostic grants CG/OPT acceptance.
+
+## Public read-cohort RustFS candidate
+
+The read-cohort fixture gains an explicit RustFS entry point and separate full
+and configuration prefixes for each image mode. It retains SDK/native HTTP/Axum
+admission, the original persistence/apply cuts, five-second windows and
+two-request bound. Fresh post-configuration reads now use the same ingress as
+their refused predecessors. Joined fixture completion is emitted only after
+the work, node close and execution-domain shutdown succeed.
+
+The `routing-read-cohorts` runner requires all four completed profiles, exact
+request/disposition coverage, S3 receipt replay, per-caller cancellation and
+recovery, fresh barrier counters, and retained/drained physical image owners.
+Memory-backed completion cannot satisfy its RustFS ledger. Synthetic/refusal
+tests verify the evidence boundary only. All 168 runner tests pass with one
+optional skip; new Rust/native/RustFS qualification remains pending. This
+candidate grants no RO/CG/OPT acceptance and does not replace constrained
+node-container or independent failure-domain qualification.
+
+## Automatic name discovery and physical membership
+
+The original complete Queue failure reproduces on the retained instrumented
+`1afb8949` artifact. Its nested enrollment fallback reports `Runtime(NotReady)`
+while resolving the logical target name. Automatic discovery reads only the
+ingress route registry, even when the caller owns the physical group. A local
+refusal can therefore exhaust the one available candidate without trying its
+ready authenticated physical peers.
+
+The correction uses the existing bounded physical candidate selector for an
+actively claimed local consensus group. Retained removed-member logs instead
+use ingress discovery. Explicit routing, namespace grants, receiver-side fresh
+quorum/route/schema checks, original attempt limits and the absolute lookup
+deadline remain unchanged. No business mutation is retried by this change.
+
+A public before-fix regression commits a real control write on two voters,
+holds another voter's log sync, independently proves its apply index is behind
+that committed write, and reproduces `Runtime(NotReady)`. The retained corrected
+`c78e3778` artifact passes all four image/Quorum/S3 configurations in 24.040
+seconds. Its original Queue case also passes independently on the retained
+`1f37e43b` corrective artifact in 150.157 seconds. These component results do not
+repair the earlier failed campaigns or qualify the newer combined base.
+
+The initial corrective campaign retains a fault-setup failure: peer fixtures
+deliberately use independent direct I/O, so an arbitrary follower need not carry
+the first node's fault adapter. The fixture now holds that first node and uses
+one bounded setup window to place leadership elsewhere. Its write, apply-lag,
+incarnation, no-command and joined-close assertions remain unchanged.
+
+The real removed-member regression also checks that former membership supplies
+no implicit read grant, then installs an explicit namespace read grant before
+requiring exact-name discovery through current voters. Its first added lookup
+correctly refused without that grant; the failed campaign remains recorded.
+The evidence verifier requires both refusal and successful authorized lookup.
+
+All eleven combined-source checks pass at `ffd25905`, including strict all-target
+Clippy, 24 source anchors, 44 design tests, 173 runner tests and both 317-test
+performance suites. The corrected fault-owner/read-grant fixture needs its own
+fresh source/runtime qualification. Current RustFS/Colima/Linux, hosted CI and
+complete CG/OPT gates remain open.
+
+The corrected original-profile campaign subsequently passes at `bb67c204` with
+all source guards unchanged. All four held-follower image/durability profiles
+pass in 23.857 seconds; all six removed-member SDK/native HTTP/Axum profiles pass
+in 54.055 seconds. Their independent ledger requires actual removed physical
+state, refusal without namespace read permission and successful authorized
+exact-history discovery. The original history and named-binding cases pass in
+25.013/53.470 seconds; all four named-binding profiles independently verify.
+Three complete original Queue repetitions pass in 150.745/155.104/149.620
+seconds under the original one-callback/two-ordinary admission and request
+limits. Native read cohorts pass in 33.347 seconds with all 410 events and four
+completed profiles verified. These results close the demonstrated name-selector
+defect at its owning boundary; earlier failed campaigns retain their results.
+
+The latest combined-source qualification passes all eleven checks at `4e0b5795`,
+including strict all-target Clippy in 110.868 seconds. All 3,311 compiler-source
+paths independently match actual Git blobs at `28a95e69`, containing the
+name-discovery correction `38af885a` and read-cohort tooling. This combined base
+uses two callback slots and has not yet passed its matching broad runtime or
+backend campaign. The prepared native selection retains the chained
+twenty-second KV control, the original Queue cases, archive/journal/physical
+owners and the incoming callback/RPC tests. Hosted CI and all remaining
+full-family, constrained-node, disaster, performance and CG/OPT gates stay open.
+
+The upstream base advances to `5ff087c4` during these frozen campaigns. This
+checkpoint remains pinned to integrated `da66d967`; qualification is not
+transferred to that newer base. `origin/main` is still `d0c2873f`.
