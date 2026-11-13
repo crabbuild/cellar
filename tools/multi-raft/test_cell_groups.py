@@ -18,7 +18,7 @@ import cell_groups
 class SqlCampaignTests(unittest.TestCase):
     def campaign(self, fault=None, suite="ordinary-sql-bindings"):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             executable = root / "target/debug/deps/native_cell_groups_primitives-abcdef"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"test executable fixture")
