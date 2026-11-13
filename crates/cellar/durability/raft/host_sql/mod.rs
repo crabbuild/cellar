@@ -46,8 +46,10 @@ struct Port {
 }
 
 impl Port {
-    fn try_send(&self, request: Envelope) -> Result<(), mpsc::TrySendError<Envelope>> {
-        self.sender.try_send(request)?;
+    fn try_send(&self, request: Envelope) -> Result<(), ExecutionError> {
+        self.sender
+            .try_send(request)
+            .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
         self.wake.wake();
         Ok(())
     }
