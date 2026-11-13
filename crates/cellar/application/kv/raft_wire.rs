@@ -120,7 +120,7 @@ impl Reference {
     }
 }
 
-pub(super) fn prepared(history: &CellHistory, object: CellGroupPayloadReference) -> Result<String> {
+pub(crate) fn prepared(history: &CellHistory, object: CellGroupPayloadReference) -> Result<String> {
     Ok(serde_json::to_string(&Reference::pending(history, object))?)
 }
 
@@ -266,6 +266,13 @@ pub(super) async fn publish_bytes(
 ) -> Result<String> {
     context.check_binding_turn()?;
     remaining(deadline)?;
+    ensure!(
+        context
+            .kv_bindings
+            .values()
+            .any(|declared| declared == identity),
+        CommandFailure::UnsupportedCapability
+    );
     let digest: [u8; 32] = Sha256::digest(&bytes).into();
     let scope = policy_scope(identity);
     let observed = if context.raft_storage.is_some() {
@@ -295,16 +302,30 @@ pub(super) async fn publish_bytes(
         // Cold/remote-only targets retain ordinary durable discovery and
         // enrollment. Only the redundant pure preparation command is elided
         // for a target already present in the bounded applied route metadata.
-        let prepared = raw(
-            context,
-            identity,
-            PREPARE,
-            encode_rpc(&StructuredValue::from_json(
-                json!([{"digest":hex::encode(digest),"length":bytes.len()}]),
-            )?)?,
-            deadline,
-        )
-        .await?;
+        let args = encode_rpc(&StructuredValue::from_json(
+            json!([{"digest":hex::encode(digest),"length":bytes.len()}]),
+        )?)?;
+        let prepared = if context.raft_storage.is_some() {
+            raw(context, identity, PREPARE, args, deadline).await?
+        } else {
+            context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
+            let owner = crate::asyncrt::services()
+                .raft_lifecycle()
+                .application_service()?;
+            let name = policy::cell_name(identity, 0);
+            let admitted = crate::asyncrt::services()
+                .admit_outbound_rpc(&scope, Some(&name), PREPARE, &args)
+                .ok_or(CommandFailure::Overloaded)?;
+            owner
+                .prepare_kv_ingress(
+                    admitted,
+                    crate::host_rpc::CallScope::in_context(context, Some(deadline), None),
+                    deadline,
+                    digest,
+                    bytes.len() as u64,
+                )
+                .await?
+        };
         let prepared = decode_rpc_result(&prepared)?.to_json()?;
         Reference::parse(prepared.as_str().context("KV prepared locator")?)?
     };
@@ -626,7 +647,9 @@ pub(super) async fn publish_admin_bytes(
             .ok_or(CommandFailure::Overloaded)?;
         let mut call_scope = crate::host_rpc::CallScope::default();
         call_scope.deadline_ms = Some(deadline);
-        let result = owner.sql_ingress(admitted, call_scope, deadline).await?;
+        let result = owner
+            .prepare_kv_ingress(admitted, call_scope, deadline, digest, bytes.len() as u64)
+            .await?;
         let prepared = decode_rpc_result(&result)?.to_json()?;
         Reference::parse(prepared.as_str().context("KV prepared operator bytes")?)?
     };

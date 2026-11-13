@@ -10,14 +10,44 @@ use crate::raft::completion::RuntimeError;
 use cellar_logic::consensus::{IncarnationId, ProposalId};
 use rand::RngCore as _;
 
+#[derive(Clone, Copy)]
 enum Origin {
     Binding,
     Operator,
     QueueOperator,
     KvOperator,
+    KvPreparation { digest: [u8; 32], length: u64 },
 }
 
 impl RaftCells {
+    /// Stateless ingress may durably enroll an unknown target, then construct
+    /// its pending data locator without consuming a command-stream sequence.
+    /// Stateful callers retain their source-journaled enrollment path.
+    pub(crate) fn prepare_kv_ingress(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        digest: [u8; 32],
+        length: u64,
+    ) -> HandlerFuture<RpcData> {
+        match crate::storage::capture_raft_dispatch() {
+            Ok(None) => (),
+            Ok(Some(_)) => {
+                return Box::pin(async {
+                    Err(super::super::CommandFailure::UnsupportedCapability.into())
+                })
+            }
+            Err(error) => return Box::pin(async move { Err(error) }),
+        }
+        self.submit_sql(
+            admitted,
+            call_scope,
+            deadline,
+            Origin::KvPreparation { digest, length },
+        )
+    }
+
     pub(crate) fn prepare_kv_payload(
         &self,
         scope: &str,
@@ -120,6 +150,24 @@ impl RaftCells {
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
             let route = match origin {
+                Origin::KvPreparation { .. } => {
+                    anyhow::ensure!(
+                        method == crate::application::kv::raft_wire::PREPARE,
+                        super::super::CommandFailure::UnsupportedCapability
+                    );
+                    self.kv_wire_input_limit(&scope, &method)?;
+                    native_rpc::validate_identity(
+                        "cellar-kv-service",
+                        crate::deploy::KV_CLASS,
+                        &scope,
+                        name.as_deref(),
+                    )?;
+                    self.handle.core.host.sql_ingress_route(
+                        &scope,
+                        &method,
+                        &self.handle.core.log,
+                    )?
+                }
                 Origin::Binding => self.handle.core.host.sql_ingress_route(
                     &scope,
                     &method,
@@ -318,6 +366,30 @@ impl RaftCells {
                 *selected.lock().unwrap() = Some(history.clone());
                 tracing::debug!(target: "cellar::raft::sql_ingress", %method,
                     phase="history", newly_enrolled, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
+                if let Origin::KvPreparation { digest, length } = origin {
+                    let store = owner.kv_wire_store(&history)?;
+                    let reference = store.prepare_reference(&history, digest, length)?;
+                    let encoded = crate::application::kv::raft_wire::prepared(&history, reference)?;
+                    let response = crate::application::encode_rpc(
+                        &cellar_native::clone::StructuredValue::from_json(serde_json::json!(
+                            encoded
+                        ))?,
+                    )?;
+                    if let Some(limit) = reservation.reply_limit() {
+                        anyhow::ensure!(
+                            matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
+                            crate::application::rpc::Failure::new(
+                                crate::application::rpc::Code::InvalidResponse
+                            )
+                        );
+                    }
+                    remaining()?;
+                    owner.handle.core.log.performance().increment(
+                        crate::raft::performance::Counter::CellKvResolvedPayloadPreparations,
+                        1,
+                    );
+                    return Ok(response);
+                }
                 let cell = owner.cell(history.clone())?;
                 // The runtime-owned initializer creates an empty stream. This
                 // is a hint at the enrollment cut, never an exclusive sequence

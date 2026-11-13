@@ -17,19 +17,23 @@ enum Coverage {
     Preparation,
 }
 
-fn local_preparations(cluster: &ManagedCluster) -> Result<u64> {
+fn preparations(cluster: &ManagedCluster, name: &str) -> Result<u64> {
     cluster.hosts.iter().try_fold(0_u64, |sum, host| {
         let snapshot = host.performance();
         ensure!(snapshot.available && !snapshot.saturated);
         let value = snapshot
             .counters
             .iter()
-            .find(|counter| counter.name == "cell_kv_local_payload_preparations")
+            .find(|counter| counter.name == name)
             .context("KV preparation performance counter")?
             .value;
         sum.checked_add(value)
             .context("KV preparation counter overflow")
     })
+}
+
+fn local_preparations(cluster: &ManagedCluster) -> Result<u64> {
+    preparations(cluster, "cell_kv_local_payload_preparations")
 }
 
 struct Caller(Arc<AtomicUsize>, Storage);
@@ -670,7 +674,10 @@ async fn run(
             ensure!(preparations? == preparation_before + 1, "S3 guard did not reach warm preparation");
             ensure!(denied > denied_before, "S3 guard did not reach the actual archive adapter");
             ensure!(published == puts_before, "warm locator bypassed source publication proof");
+            let cold_before = preparations(&cluster, "cell_kv_resolved_payload_preparations")?;
             public_ok(&cluster, 0, "PublicLarge").await?;
+            ensure!(preparations(&cluster, "cell_kv_resolved_payload_preparations")? == cold_before + 1,
+                "cold ingress did not retain durable enrollment without a preparation command");
             for host in &cluster.hosts {
                 let usage = host
                     .resource_usage()

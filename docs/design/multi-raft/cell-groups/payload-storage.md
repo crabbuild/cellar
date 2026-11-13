@@ -45,10 +45,14 @@ bounded namespace route cache supplies a pending locator locally, avoiding an
 otherwise redundant preparation command, receipt and source binding intent.
 This observation supplies data keys only: source-proof admission still precedes
 publication, and the actual write resolves/fences its history independently.
-Cold, remote-only or unavailable applied metadata keeps the ordinary durable
-discovery/enrollment and preparation-command path; errors do not become cache
-misses. The fixed node counter `cell_kv_local_payload_preparations` observes this
-reuse without per-cell labels. Publication checks the prepared writer, logical
+For stateless ingress without applied metadata, the same bounded, cancellable
+routing owner resolves or durably enrolls the target and then constructs the
+pending locator before consuming any command-stream sequence. This preserves
+enrollment durability, competing-creator reconciliation, identity checks and the
+original deadline. Stateful cold callers keep their source-journaled enrollment
+and preparation-command path. Errors do not become cache misses. Fixed counters
+`cell_kv_local_payload_preparations` and `cell_kv_resolved_payload_preparations`
+observe these paths without per-cell labels. Publication checks the prepared writer, logical
 owner, digest and length and confirms the exact bytes before marking the
 descriptor published. Target execution verifies
 the uploaded input and commits an external-value row only after publication.
