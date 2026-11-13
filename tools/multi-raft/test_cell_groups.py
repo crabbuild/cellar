@@ -1,6 +1,6 @@
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-"""The SQL campaign uses its captured CLI and refuses invalid provenance."""
+"""Qualification campaigns preserve provenance and report their actual scope."""
 
 import contextlib
 import io
@@ -19,13 +19,13 @@ class SqlCampaignTests(unittest.TestCase):
     def campaign(self, fault=None, suite="ordinary-sql-bindings"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
-            executable = root / "target/debug/deps/native_cell_groups_primitives-abcdef"
+            target, cases, _, _ = cell_groups.SUITES[suite]
+            executable = root / f"target/debug/deps/{target}-abcdef"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"test executable fixture")
             cli = executable.parent.parent / "cellar"
             cli.write_bytes(b"SQL CLI fixture")
             output = root / "evidence"
-            target, cases, _, _ = cell_groups.SUITES[suite]
             executed = []
 
             def run(argv, **kwargs):
@@ -35,7 +35,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite == "ordinary-sql-bindings":
+                if suite in ("ordinary-sql-bindings", "immutable-payloads"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -44,10 +44,11 @@ class SqlCampaignTests(unittest.TestCase):
                     return subprocess.CompletedProcess(
                         argv, 0, prefix + "\n".join(f"{case}: test" for case in cases)
                     )
-                retained = Path(env["CELLAR_CELL_GROUPS_SQL_CLI" if suite == "ordinary-sql-bindings" else "CELLAR_CELL_GROUPS_QUEUE_CLI"])
-                self.assertEqual(retained, output / "cellar")
-                self.assertNotEqual(retained, cli)
-                self.assertEqual(retained.read_bytes(), b"SQL CLI fixture")
+                if suite in ("ordinary-sql-bindings", "queue-primitives"):
+                    retained = Path(env["CELLAR_CELL_GROUPS_SQL_CLI" if suite == "ordinary-sql-bindings" else "CELLAR_CELL_GROUPS_QUEUE_CLI"])
+                    self.assertEqual(retained, output / "cellar")
+                    self.assertNotEqual(retained, cli)
+                    self.assertEqual(retained.read_bytes(), b"SQL CLI fixture")
                 executed.append(selection)
                 if fault == "tamper":
                     retained.write_bytes(b"changed after capture")
@@ -65,13 +66,14 @@ class SqlCampaignTests(unittest.TestCase):
             argv = ["cell_groups.py", "--suite", suite,
                     "--backend", str(root / "backend"), "--output", str(output),
                     "--target-directory", str(root / "target")]
+            report = io.StringIO()
             with (patch.object(sys, "argv", argv),
                   patch.object(cell_groups, "backend", return_value=(remote, credentials)),
                   patch.object(cell_groups, "sources", return_value=[]),
                   patch.object(cell_groups, "probe", return_value={"fixture": True}),
                   patch.object(cell_groups.subprocess, "check_output", side_effect=git),
                   patch.object(cell_groups.subprocess, "run", side_effect=run),
-                  contextlib.redirect_stdout(io.StringIO())):
+                  contextlib.redirect_stdout(report)):
                 if fault:
                     with self.assertRaises(RuntimeError):
                         cell_groups.main()
@@ -84,7 +86,14 @@ class SqlCampaignTests(unittest.TestCase):
             else:
                 self.assertEqual(record["status"], "PASSED")
                 self.assertEqual(executed, list(cases))
-                self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
+                summary = json.loads(report.getvalue().splitlines()[-1])
+                self.assertEqual(summary["image_modes_per_case"], 0 if suite == "immutable-payloads" else 2)
+                if suite in ("ordinary-sql-bindings", "queue-primitives"):
+                    self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
+                else:
+                    self.assertNotIn("operator_cli", record)
+                    self.assertNotIn("three-voter", record["limitations"])
+                    self.assertIn("no Raft voters", record["limitations"])
 
     def test_sql_uses_the_frozen_cli_for_every_case(self):
         self.campaign()
@@ -95,10 +104,21 @@ class SqlCampaignTests(unittest.TestCase):
     def test_sql_refuses_success_with_no_selected_test(self):
         self.campaign("zero")
 
+    def test_payload_campaign_does_not_claim_voter_or_cli_qualification(self):
+        self.campaign(suite="immutable-payloads")
 
-class QueueCampaignTests(SqlCampaignTests):
-    def campaign(self, fault=None):
-        return super().campaign(fault, "queue-primitives")
+
+class QueueCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_queue_uses_the_frozen_cli_for_every_case(self):
+        self.campaign(suite="queue-primitives")
+
+    def test_queue_refuses_a_changed_frozen_cli(self):
+        self.campaign("tamper", "queue-primitives")
+
+    def test_queue_refuses_success_with_no_selected_test(self):
+        self.campaign("zero", "queue-primitives")
 
 
 if __name__ == "__main__":

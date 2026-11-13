@@ -4,7 +4,44 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current SQL operator, CLI and Axum checkpoint
+## Current interrupted SQL recovery checkpoint
+
+The SQL recovery drill now covers a parent lost after an independently durable
+SQL success or rolled-back error but before source completion. It verifies exact
+source checkpoint counts, private-write rollback, preserved parent uncertainty,
+one callback execution, autonomous obligation settlement and a subsequent fresh
+SQL call across both images and Quorum/S3 sources. It uses ordinary SDK, managed
+RF3, source queries and authenticated SQL operator paths.
+
+The first cohort at `bf19176f` passes **13/16**: native **7/8**, RustFS **6/8**.
+Native extents/S3/error reaches settlement then times out on its fresh call;
+two RustFS materialized/Quorum cases fail startup before interruption. Logs and
+the three native failure disks are retained in `CG-17-sql-recovery-bf19176f-01`;
+the former fixture dropped the two startup cases' disks.
+
+At `b3aacf7a`, failed managed activation cancels/joins all started node owners,
+closes their Raft handles and retains disks, while preserving the original error.
+The focused failed configuration passes once; the full native matrix is **7/8**
+with a cold SQL setup deadline failure. The full matrix is **14/16**: RustFS is
+also **7/8**, with a materialized/S3/write inspection deadline after restart.
+These passes do not establish a causal fix for earlier timeouts. Evidence is
+`CG-17-sql-recovery-b3aacf7a-02`, with a workspace backup and linked failed control;
+the owned backend and VM are stopped. The independent SQL
+minimum remains Quorum; source requests vary Quorum/S3. Budgets and quotas stay
+unchanged. No complete family or release gate is accepted.
+
+The new canonical `ordinary-sql-bindings` RustFS suite selects native/Axum SQL
+and interrupted recovery, freezes the actual CLI, records the CI test profile
+and retains failed cases under `--keep-going`. Its inventory is verified, but
+the canonical one-CPU-backend suite has not yet executed end to end. These scoped
+campaigns used two CPUs and 2 GiB for RustFS and native in-process RF3 voters.
+
+Next resolve the deadline/startup gates and complete SQL target-S3, before-child-
+completion and movement/wake/archive/disaster scenarios. Continue grouped KV
+feature delivery and the remaining execution/payload adapters; do not replace
+full compatibility with a narrower SQL-only contract.
+
+## Previous SQL operator, CLI and Axum checkpoint
 
 At `979addd0`, the scoped SQL SDK/operator drill passes **8/8** native/RustFS,
 native/Axum-owned-listener and image configurations. All four RustFS configurations

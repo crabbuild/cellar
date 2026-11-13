@@ -51,6 +51,17 @@ CASES = (
 )
 
 SUITES = {
+    "immutable-payloads": (
+        "raft_cell_group_payloads",
+        ("rustfs_immutable_payloads_confirm_bytes_and_preserve_old_recovery_cuts",),
+        "namespace-bound immutable external payload publication and verified reads",
+        "Data protocol only; no Raft voters or ordinary KV bindings are launched. "
+        "Real conditional creation, lost PUT replies, concurrent publishers, cold reopen, "
+        "old/new cell incarnations, corruption, body deadlines, cancellation and "
+        "shared operation/retained-byte admission are checked. "
+        "Objects are retained without deletion. Root-aware reclamation, fenced KV row "
+        "publication and combined lifecycle/disaster recovery remain separate gates.",
+    ),
     "ordinary-sql-bindings": (
         "native_cell_groups_primitives",
         (
@@ -631,7 +642,9 @@ def main():
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(args.suite), "backend": remote, "prefix": prefix, "commands": [],
         "keep_going": args.keep_going, "passed_cases": [], "failed_cases": [],
-        "limitations": ("Host-native three-voter TLS fixture, both image forms, with RustFS in one local VM. "
+        "limitations": (("Payload data protocol with RustFS in one local VM; no Raft voters or image fixtures. "
+                         if args.suite == "immutable-payloads" else
+                         "Host-native three-voter TLS fixture, both image forms, with RustFS in one local VM. ")
                         + limitations + " Independent hosts remain a separate gate."),
     }
 
@@ -659,7 +672,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite == "ordinary-sql-bindings":
+        if args.suite in ("ordinary-sql-bindings", "immutable-payloads"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -761,7 +774,8 @@ def main():
     finally:
         save()
     print(json.dumps({"record": str(out / "record.json"), "status": record["status"],
-                      "rustfs_cases": len(cases), "image_modes_per_case": 2}), flush=True)
+                      "rustfs_cases": len(cases),
+                      "image_modes_per_case": 0 if args.suite == "immutable-payloads" else 2}), flush=True)
 
 
 if __name__ == "__main__":

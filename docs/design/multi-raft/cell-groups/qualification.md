@@ -635,6 +635,11 @@ is durable. Workflow output chunks and EventStream records are durable state;
 ordinary network byte pipes are not. Fully qualified API identities prevent the
 word "stream" or "bucket" from collapsing these different contracts.
 
+The [immutable payload storage contract](payload-storage.md) specifies the
+namespace-bound publication/read-back layer and its deliberate retention of
+older references. Its protocol gates do not replace ordinary KV integration,
+complete payload recovery closure or root-aware collection qualification.
+
 Derive a feasible capability profile from the intersection of public application
 limits and actual envelope, result/receipt, private image, staging, worker,
 scheduler, archive and provider limits. Bounded profiles must accept valid
