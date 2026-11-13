@@ -18,6 +18,26 @@ enum Origin {
 }
 
 impl RaftCells {
+    pub(crate) fn prepare_kv_payload(
+        &self,
+        scope: &str,
+        digest: [u8; 32],
+        length: u64,
+    ) -> anyhow::Result<
+        Option<(
+            CellHistory,
+            crate::raft::cell_groups::CellGroupPayloadReference,
+        )>,
+    > {
+        self.check_open()?;
+        Ok(self.handle.core.host.prepare_ingress_kv_payload(
+            scope,
+            digest,
+            length,
+            &self.handle.core.log,
+        )?)
+    }
+
     pub(crate) fn kv_wire_input_limit(&self, scope: &str, method: &str) -> anyhow::Result<usize> {
         self.check_open()?;
         anyhow::ensure!(

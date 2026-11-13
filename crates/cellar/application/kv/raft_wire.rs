@@ -72,6 +72,18 @@ struct Reference {
 }
 
 impl Reference {
+    fn pending(history: &CellHistory, object: CellGroupPayloadReference) -> Self {
+        Self {
+            format: 1,
+            published: false,
+            cluster: history.cluster.bytes(),
+            namespace: history.namespace.bytes(),
+            cell: history.cell.as_str().into(),
+            incarnation: history.incarnation.bytes(),
+            object,
+        }
+    }
+
     fn parse(encoded: &str) -> Result<Self> {
         ensure!(
             encoded.len() <= 4096,
@@ -109,15 +121,7 @@ impl Reference {
 }
 
 pub(super) fn prepared(history: &CellHistory, object: CellGroupPayloadReference) -> Result<String> {
-    Ok(serde_json::to_string(&Reference {
-        format: 1,
-        published: false,
-        cluster: history.cluster.bytes(),
-        namespace: history.namespace.bytes(),
-        cell: history.cell.as_str().into(),
-        incarnation: history.incarnation.bytes(),
-        object,
-    })?)
+    Ok(serde_json::to_string(&Reference::pending(history, object))?)
 }
 
 pub(super) fn enabled(context: &Context) -> bool {
@@ -260,19 +264,50 @@ pub(super) async fn publish_bytes(
     bytes: bytes::Bytes,
     deadline: u64,
 ) -> Result<String> {
-    let digest = hex::encode(Sha256::digest(&bytes));
-    let prepared = raw(
-        context,
-        identity,
-        PREPARE,
-        encode_rpc(&StructuredValue::from_json(
-            json!([{"digest":digest,"length":bytes.len()}]),
-        )?)?,
-        deadline,
-    )
-    .await?;
-    let prepared = decode_rpc_result(&prepared)?.to_json()?;
-    let reference = Reference::parse(prepared.as_str().context("KV prepared locator")?)?;
+    context.check_binding_turn()?;
+    remaining(deadline)?;
+    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    let scope = policy_scope(identity);
+    let observed = if context.raft_storage.is_some() {
+        let dispatch = crate::storage::capture_raft_dispatch()?
+            .ok_or(CommandFailure::UnsupportedCapability)?;
+        let source = dispatch.binding_source()?;
+        source.host.prepare_kv_payload(
+            &source.history,
+            source.configuration,
+            &scope,
+            digest,
+            bytes.len() as u64,
+        )?
+    } else {
+        ensure!(
+            context.identity().is_none(),
+            CommandFailure::UnsupportedCapability
+        );
+        crate::asyncrt::services()
+            .raft_lifecycle()
+            .application_service()?
+            .prepare_kv_payload(&scope, digest, bytes.len() as u64)?
+    };
+    let reference = if let Some((history, object)) = observed {
+        Reference::pending(&history, object)
+    } else {
+        // Cold/remote-only targets retain ordinary durable discovery and
+        // enrollment. Only the redundant pure preparation command is elided
+        // for a target already present in the bounded applied route metadata.
+        let prepared = raw(
+            context,
+            identity,
+            PREPARE,
+            encode_rpc(&StructuredValue::from_json(
+                json!([{"digest":hex::encode(digest),"length":bytes.len()}]),
+            )?)?,
+            deadline,
+        )
+        .await?;
+        let prepared = decode_rpc_result(&prepared)?.to_json()?;
+        Reference::parse(prepared.as_str().context("KV prepared locator")?)?
+    };
     let Transfer::Published(reference) =
         transfer(context, identity, reference, Some(bytes), deadline).await?
     else {
@@ -577,17 +612,24 @@ pub(super) async fn publish_admin_bytes(
 ) -> Result<String> {
     owner.kv_wire_input_limit(scope, PREPARE)?;
     remaining(deadline)?;
-    let preparation = encode_rpc(&StructuredValue::from_json(
-        json!([{"digest":hex::encode(Sha256::digest(&bytes)),"length":bytes.len()}]),
-    )?)?;
-    let admitted = crate::asyncrt::services()
-        .admit_outbound_rpc(scope, name, PREPARE, &preparation)
-        .ok_or(CommandFailure::Overloaded)?;
-    let mut call_scope = crate::host_rpc::CallScope::default();
-    call_scope.deadline_ms = Some(deadline);
-    let result = owner.sql_ingress(admitted, call_scope, deadline).await?;
-    let prepared = decode_rpc_result(&result)?.to_json()?;
-    let reference = Reference::parse(prepared.as_str().context("KV prepared operator bytes")?)?;
+    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    let reference = if let Some((history, object)) =
+        owner.prepare_kv_payload(scope, digest, bytes.len() as u64)?
+    {
+        Reference::pending(&history, object)
+    } else {
+        let preparation = encode_rpc(&StructuredValue::from_json(
+            json!([{"digest":hex::encode(digest),"length":bytes.len()}]),
+        )?)?;
+        let admitted = crate::asyncrt::services()
+            .admit_outbound_rpc(scope, name, PREPARE, &preparation)
+            .ok_or(CommandFailure::Overloaded)?;
+        let mut call_scope = crate::host_rpc::CallScope::default();
+        call_scope.deadline_ms = Some(deadline);
+        let result = owner.sql_ingress(admitted, call_scope, deadline).await?;
+        let prepared = decode_rpc_result(&result)?.to_json()?;
+        Reference::parse(prepared.as_str().context("KV prepared operator bytes")?)?
+    };
     ensure!(
         reference.cell == scope,
         "KV_ERROR: external operator scope differs"

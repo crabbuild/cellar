@@ -14,6 +14,70 @@ enum Access {
 }
 
 impl CellGroupHost {
+    pub(crate) fn prepare_binding_kv_payload(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        digest: [u8; 32],
+        length: u64,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Option<(CellHistory, CellGroupPayloadReference)>, CellDispatchError> {
+        let route = self.binding_route(
+            source,
+            configuration,
+            scope,
+            crate::application::kv::raft_wire::PREPARE,
+            log,
+        )?;
+        self.prepare_kv_payload(&route, digest, length, log)
+    }
+
+    pub(crate) fn prepare_ingress_kv_payload(
+        &self,
+        scope: &str,
+        digest: [u8; 32],
+        length: u64,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Option<(CellHistory, CellGroupPayloadReference)>, CellDispatchError> {
+        let route = self.kv_route(
+            scope,
+            crate::application::kv::raft_wire::PREPARE,
+            log,
+            Access::Binding,
+        )?;
+        self.prepare_kv_payload(&route, digest, length, log)
+    }
+
+    fn prepare_kv_payload(
+        &self,
+        route: &Route,
+        digest: [u8; 32],
+        length: u64,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Option<(CellHistory, CellGroupPayloadReference)>, CellDispatchError> {
+        let Some(history) = &route.history_hint else {
+            return Ok(None);
+        };
+        // This observation may select only immutable data keys. Publication
+        // still follows source-proof admission; the actual write independently
+        // resolves/fences its current history and verifies complete bytes.
+        let store = self.kv_store_for_route(history, route)?;
+        let reference = store
+            .prepare_reference(history, digest, length)
+            .map_err(|error| {
+                CellDispatchError::Invalid(match error {
+                    crate::raft::cell_groups::CellGroupPayloadError::Invalid(reason) => reason,
+                    _ => "KV payload preparation",
+                })
+            })?;
+        log.performance().increment(
+            crate::raft::performance::Counter::CellKvLocalPayloadPreparations,
+            1,
+        );
+        Ok(Some((history.clone(), reference)))
+    }
+
     pub(crate) fn kv_binding_payload_store(
         &self,
         source: &CellHistory,

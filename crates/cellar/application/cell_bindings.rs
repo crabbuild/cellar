@@ -33,6 +33,22 @@ pub(crate) struct Route {
 pub(crate) type BufferLease = Arc<dyn Send + Sync>;
 
 pub(crate) trait Host: Send + Sync {
+    /// A pending data locator from an already applied target. This performs no
+    /// I/O or enrollment and grants no execution or publication authority.
+    fn prepare_kv_payload(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        digest: [u8; 32],
+        length: u64,
+    ) -> Result<
+        Option<(
+            CellHistory,
+            crate::raft::cell_groups::CellGroupPayloadReference,
+        )>,
+    >;
+
     fn kv_payload_store(
         &self,
         source: &CellHistory,
