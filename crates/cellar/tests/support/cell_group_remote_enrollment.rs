@@ -303,7 +303,7 @@ pub(crate) async fn remote_enrollment_writer_contention() -> Result<()> {
                 let mut reply = Box::pin(second.execute_remote(
                     &router.transport, MemberId::new(1)?,
                 ));
-                let observed = tokio::select! {
+                let observed = cellar::asyncrt::select! {
                     result = &mut reply => Ok(Some(result)),
                     result = wait_for(async || Ok(controllers[0].usage().retained_commands == 2)) => result.map(|()| None),
                 }?;
