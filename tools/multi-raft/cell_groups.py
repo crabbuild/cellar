@@ -25,6 +25,7 @@ from backend_control import BackendControl
 from routing_endpoint_evidence import endpoint_observations
 from routing_advice_evidence import advice_observations
 from archive_owner_evidence import CASE as ARCHIVE_OWNER_CASE, observations as archive_owner_observations
+from read_cohort_evidence import CASE as READ_COHORT_CASE, observations as read_cohort_observations
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
@@ -62,6 +63,18 @@ CASES = (
 )
 
 SUITES = {
+    "routing-read-cohorts": (
+        "native_cell_groups_routing_optimization",
+        (READ_COHORT_CASE,),
+        "public fresh ReadIndex cohorts, late arrivals and physical image ownership",
+        "Both image modes use separate complete and configuration fixtures with real RustFS. "
+        "SDK/native HTTP/Axum reads retain original identities, five-second deadlines and "
+        "the two-request bound. Actual persistence/apply holds distinguish prequeued, late "
+        "and pending follower barriers; higher term and same-term membership cuts refuse "
+        "without query callbacks. Cancellation retains physical image owners until joined. "
+        "All four fixtures and their exact request, receipt and owner histories must complete. "
+        "Constrained node-container cuts and complete RO/CG/OPT acceptance remain separate gates.",
+    ),
     "archive-owners": (
         "native_cell_groups_archive",
         (ARCHIVE_OWNER_CASE,),
@@ -700,7 +713,7 @@ SUITES = {
     ),
 }
 
-ROUTING_SUITES = ("routing-range-repairs", "routing-authority", "routing-endpoint", "routing-advice", "routing-boot", "routing-removed")
+ROUTING_SUITES = ("routing-range-repairs", "routing-authority", "routing-endpoint", "routing-advice", "routing-boot", "routing-removed", "routing-read-cohorts")
 
 
 def named_binding_observations(output, case):
@@ -761,6 +774,8 @@ def archive_fairness_observations(output, case):
 
 def routing_observations(output, case):
     """Require complete caller/mode output; native cases enforce receipt oracles."""
+    if case == READ_COHORT_CASE:
+        return read_cohort_observations(output, case)
     if case in SUITES["routing-advice"][1] + SUITES["routing-boot"][1] + SUITES["routing-removed"][1]:
         return advice_observations(output, case)
     if case in ("rustfs_read_first_refreshes_endpoint", "rustfs_unrelated_endpoint_keeps_inflight_reply"):

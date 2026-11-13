@@ -137,8 +137,8 @@ pub async fn membership_refresh_keeps_range_with_store(make: RoutingStoreFactory
     optimization::membership_refresh_keeps_range_with_store(make).await
 }
 
-pub async fn read_cohort_has_fresh_barrier() -> Result<()> {
-    optimization::read_cohort_has_fresh_barrier().await
+pub async fn read_cohort_has_fresh_barrier(make: Option<RoutingStoreFactory>) -> Result<()> {
+    optimization::read_cohort_has_fresh_barrier(make).await
 }
 
 pub async fn read_preferences_preserve_proof() -> Result<()> {

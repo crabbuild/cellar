@@ -200,8 +200,8 @@ pub(super) async fn membership_refresh_keeps_range_with_store(
     Box::pin(ranges::membership_refresh_keeps_range(Some(make))).await
 }
 
-pub(super) async fn read_cohort_has_fresh_barrier() -> Result<()> {
-    Box::pin(reads::run()).await
+pub(super) async fn read_cohort_has_fresh_barrier(make: Option<RoutingStoreFactory>) -> Result<()> {
+    Box::pin(reads::run(make)).await
 }
 
 pub(super) async fn read_preferences_preserve_proof() -> Result<()> {

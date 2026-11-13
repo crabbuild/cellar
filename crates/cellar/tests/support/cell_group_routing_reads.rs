@@ -564,22 +564,32 @@ impl Drill<'_> {
     }
 }
 
-pub(super) async fn run() -> Result<()> {
+pub(super) async fn run(make: Option<RoutingStoreFactory>) -> Result<()> {
     for rooted in [false, true] {
-        Box::pin(run_cluster(rooted, true)).await?;
-        Box::pin(run_cluster(rooted, false)).await?;
+        Box::pin(run_cluster(rooted, true, make)).await?;
+        Box::pin(run_cluster(rooted, false, make)).await?;
     }
     Ok(())
 }
 
-async fn run_cluster(rooted: bool, full: bool) -> Result<()> {
+async fn run_cluster(rooted: bool, full: bool, make: Option<RoutingStoreFactory>) -> Result<()> {
     let callbacks = Arc::new(gate::Callbacks::default());
     let query_callback = callbacks.clone();
     let command_callback = callbacks.clone();
     let filesystem = storage_fault::Gate::new(None);
     let mut cluster = Box::pin(nodes::Cluster::start_with_read_control(
         rooted,
-        Arc::new(fault::Store::default()),
+        Arc::new(match make {
+            Some(make) => fault::Store::around(make(
+                if full {
+                    "routing-read-cohorts-full"
+                } else {
+                    "routing-read-cohorts-configuration"
+                },
+                rooted,
+            )?),
+            None => fault::Store::default(),
+        }),
         Arc::new(storage_fault::FaultFileSystem {
             gate: filesystem.clone(),
         }),
@@ -671,5 +681,11 @@ async fn run_cluster(rooted: bool, full: bool) -> Result<()> {
     cluster.managed.fixtures[0].domain.shutdown().await;
     work.with_context(|| format!("public read cohorts extents={rooted}"))?;
     joined?;
+    evidence::emit(serde_json::json!({
+        "event": "completed", "run": format!("extents={rooted},full={full}"),
+        "external_store": make.is_some(), "joined": true,
+        "commands": callbacks.commands.load(Ordering::Acquire),
+        "queries": callbacks.queries.load(Ordering::Acquire),
+    }));
     Ok(())
 }

@@ -317,6 +317,29 @@ membership/inventory authentication and receipt verification. These entry points
 need their own runtime evidence; constrained Linux and full RO-03/CG/OPT
 acceptance remain open.
 
+## Public read cohorts
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-read-cohorts \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-read-cohorts-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+The RO-11 fixture uses SDK, native HTTP and Axum queries with real RustFS and
+separate full/configuration prefixes in both image modes. Persistence and apply
+holds distinguish prequeued reads, late arrivals and an already pending follower
+barrier. Higher terms and same-term membership changes refuse old-generation
+queries without callbacks. Fresh queries retain each caller's ingress after the
+configuration cut. Cancelled callers retain physical image owners until work
+joins. Original five-second windows and the two-request admission remain.
+
+The ledger requires all four joined fixtures and their complete request,
+disposition, exact S3 receipt, barrier and physical-owner histories. Native
+in-memory evidence must be explicitly scoped and cannot satisfy the RustFS
+entry point. Running this suite does not qualify constrained node-container
+cuts or the complete RO/CG/OPT release gates.
+
 ## Endpoint repair and held replies
 
 ```sh

@@ -122,7 +122,19 @@ async fn leader_probe_storm_is_bounded() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_cohort_has_fresh_barrier() -> anyhow::Result<()> {
-    Box::pin(managed_fixture::requests::read_cohort_has_fresh_barrier()).await
+    Box::pin(managed_fixture::requests::read_cohort_has_fresh_barrier(
+        None,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_read_cohort_has_fresh_barrier() -> anyhow::Result<()> {
+    Box::pin(managed_fixture::requests::read_cohort_has_fresh_barrier(
+        Some(rustfs::store),
+    ))
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

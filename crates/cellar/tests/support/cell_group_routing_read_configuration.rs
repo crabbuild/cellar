@@ -149,9 +149,9 @@ impl Drill<'_> {
         ensure!(current.max_items == ordinary.max_items && current.max_bytes == ordinary.max_bytes);
         // These reads were refused under their original generation. A fresh
         // invocation can obtain a fresh proof under the applied configuration.
-        self.verify(self.read(Ingress::Sdk, "one").1.await?, &first_receipt)?;
+        self.verify(self.read(ingress[0], "one").1.await?, &first_receipt)?;
         self.drained().await?;
-        self.verify(self.read(Ingress::Sdk, "two").1.await?, &second_receipt)?;
+        self.verify(self.read(ingress[1], "two").1.await?, &second_receipt)?;
         self.drained().await?;
         ensure!(self.callbacks.queries.load(Ordering::Acquire) == before_callbacks + 2);
         let cut = catalog.read(TIMEOUT).await?;
