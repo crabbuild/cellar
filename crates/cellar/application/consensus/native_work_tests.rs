@@ -65,3 +65,50 @@ fn callback_claim_uses_its_bounded_execution_lease() -> Result<()> {
     assert_eq!(get(&db, "queue")?, None);
     Ok(())
 }
+
+#[test]
+fn queue_wakes_coalesce_only_before_claim_and_preserve_new_obligations() -> Result<()> {
+    let db = Connection::open_in_memory()?;
+    arm_queue(&db, 10)?;
+    let original = due(&db, 10)?.unwrap();
+    arm_queue(&db, 20)?;
+    assert_eq!(due(&db, 10)?.unwrap().generation, original.generation);
+    assert!(claim(&db, &original, 10)?);
+    let later = 10 + LEASE_MS as i64 + 100;
+    arm_queue(&db, later)?;
+    complete(&db, &original)?;
+    let replacement = due(&db, later as u64)?.unwrap();
+    assert_ne!(replacement.generation, original.generation);
+    assert_eq!(replacement.attempts, 0);
+    assert_eq!(replacement.due, later as u64);
+    Ok(())
+}
+
+#[test]
+fn queue_wakes_keep_earlier_installs_and_transaction_rollback() -> Result<()> {
+    let db = Connection::open_in_memory()?;
+    arm_queue(&db, 20)?;
+    let original = due(&db, 20)?.unwrap();
+    db.execute_batch("BEGIN")?;
+    arm_queue(&db, 10)?;
+    assert_ne!(due(&db, 10)?.unwrap().generation, original.generation);
+    db.execute_batch("ROLLBACK")?;
+    assert_eq!(due(&db, 20)?.unwrap().generation, original.generation);
+    assert!(arm_queue(&db, -1).is_err());
+    arm(&db, "alarm", 30)?;
+    let alarm = db.query_row(
+        "SELECT generation FROM __sys_raft_native_work WHERE reason='alarm'",
+        [],
+        |row| row.get::<_, Vec<u8>>(0),
+    )?;
+    arm(&db, "alarm", 30)?;
+    assert_ne!(
+        db.query_row(
+            "SELECT generation FROM __sys_raft_native_work WHERE reason='alarm'",
+            [],
+            |row| row.get::<_, Vec<u8>>(0)
+        )?,
+        alarm
+    );
+    Ok(())
+}

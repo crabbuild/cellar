@@ -237,6 +237,28 @@ Next close those SQL gates, then deliver grouped KV revisions, expiry, alarms an
 payload ownership. The earlier generic binding **8/8** and interrupted-binding
 **8/8** results retain source `d1f8535f`; they were not rerun for this SQL cohort.
 
+## CG-17 Queue load admission follow-up
+
+The frozen `fe4cd801` real-RustFS campaign finishes **FAILED**: native/Axum
+cross-deployment fault cases pass **4/4** image configurations, the 65-second
+callback/independent-Queue case passes **2/2**, and public MVP/CLI/restart/quorum
+refusal passes **4/4**. Materialized two-in-flight load misses the original
+three-second ingress deadline at sequence 13; extent load is unrun. Evidence,
+frozen executable/CLI, bounded resource samples and all three failed voter disks
+are retained under `cellar-queue-expanded-rustfs-05`. No acknowledged-loss or
+complete-family result is inferred from that timeout.
+
+Advisory read-only inspection of immutable generations finds fourteen no-op
+native-work receipts beside eighteen claimed receipts in one broker image.
+The inspection does not select an authoritative manifest or run recovery. It
+motivates the next implementation: one physically retained native callback per
+cell within the same two node slots, plus coalesced earlier unclaimed Queue wake
+hints. Claimed/rearmed work keeps generation-specific settlement, and ordinary
+alarms keep replacement semantics. The same 528-message, two-in-flight workload
+and original deadlines/quotas remain the qualification target. Strict library
+and all-test Clippy and canonical formatting pass for this code; runtime
+qualification of the follow-up is pending.
+
 ## CG-17 cross-deployment Queue and long callbacks
 
 The next Queue increment resolves producer, consumer and storage-only DLQ

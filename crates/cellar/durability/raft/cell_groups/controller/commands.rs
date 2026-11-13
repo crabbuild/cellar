@@ -150,6 +150,7 @@ impl CellGroupController {
                 permit: Arc::new(Retention {
                     _permit: permit,
                     _work: registration.work.take(),
+                    _callback: None,
                 }),
             })))
             .map_err(|e| {
@@ -187,11 +188,21 @@ pub(super) fn admit(
         if shared.closing.load(Ordering::Acquire) {
             return Err(error(command, false, RuntimeError::Closed));
         }
-        let bytes = bytes
+        let mut bytes = bytes
             .checked_add(option_bytes(&mut options).map_err(|e| error(command, false, e))?)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
-        // The sole internal callback may await a normal child operation. Its
-        // own admission must not occupy that child's progress capacity.
+        // Native callbacks have independent child-call progress capacity and
+        // one retained invocation per cell. Rediscovery must not fill both
+        // node slots with overlapping claims for the same installation.
+        if let Some(cell) = invocation.native_callback_cell() {
+            bytes = bytes
+                .checked_add(
+                    2 * (cell.cell.as_str().len()
+                        + std::mem::size_of::<cellar_logic::cell_group::CellHistory>())
+                        + 512,
+                )
+                .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
+        }
         let budget = if invocation.is_native_callback() {
             &shared.callbacks
         } else {
@@ -200,9 +211,14 @@ pub(super) fn admit(
         let permit = budget
             .acquire(bytes)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
-        Ok((command, deadline, permit, registration))
+        let callback = invocation
+            .native_callback_cell()
+            .map(|cell| shared.callback_cells.acquire(cell))
+            .transpose()
+            .map_err(|reason| error(command, false, reason))?;
+        Ok((command, deadline, permit, callback, registration))
     })();
-    let (command, deadline, permit, mut registration) = match admitted {
+    let (command, deadline, permit, callback, mut registration) = match admitted {
         Ok(admitted) => admitted,
         Err(error) => {
             return Err(CellCommandAdmissionError {
@@ -221,6 +237,7 @@ pub(super) fn admit(
             permit: Arc::new(Retention {
                 _permit: permit,
                 _work: registration.work.take(),
+                _callback: callback,
             }),
         })))
         .map_err(|e| {
