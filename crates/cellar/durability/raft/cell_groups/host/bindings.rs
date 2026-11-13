@@ -231,6 +231,40 @@ impl CellGroupHost {
         Ok(route)
     }
 
+    /// A stateless native caller can select only its immutable deployment's
+    /// declared factory. Multiple loaded namespaces remain ambiguous.
+    pub(crate) fn native_ingress_route(
+        &self,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let class = scope
+            .split_once(':')
+            .map(|(class, _)| class)
+            .ok_or(CellDispatchError::Invalid("native ingress scope"))?;
+        let mut candidates = self.inner.namespaces.iter().filter(|(_, binding)| {
+            binding.class.name() == class
+                && binding.class.cell_configuration_digest() == Some(configuration)
+                && binding.class.has_native_ingress()
+        });
+        let (key, target) = candidates.next().ok_or(CellDispatchError::Invalid(
+            "declared native namespace is missing",
+        ))?;
+        if candidates.next().is_some() {
+            return Err(CellDispatchError::Invalid(
+                "declared native namespace is ambiguous",
+            ));
+        }
+        let mut selected = route(*key, target, scope, method, Access::Binding)?;
+        selected.history_hint = target
+            .dispatcher
+            .applied_history_hint(log, &selected.cell)?;
+        Ok(selected)
+    }
+
     /// Stateless SQL has no source namespace. A global database identity must
     /// select exactly one loaded SQL service; multiple clusters are ambiguous.
     pub(crate) fn sql_ingress_route(

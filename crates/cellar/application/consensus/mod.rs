@@ -20,6 +20,7 @@ mod native_applications;
 pub use native_applications::RaftApplications;
 mod native_cell;
 mod native_configuration;
+pub(crate) mod native_ingress;
 mod native_services;
 pub(crate) mod native_work;
 pub(crate) mod sql_ingress_identity;

@@ -4761,6 +4761,21 @@ fn sqlite_limit_categories(limits: crate::application::limits::SqliteLimits) -> 
     ]
 }
 
+/// Read fixed framework metadata in the admitted command or immutable query.
+pub(crate) fn raft_visible_alarm() -> anyhow::Result<Option<i64>> {
+    let active = if immutable::active() {
+        None
+    } else {
+        command::native_alarm_generation()
+    };
+    with(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| {
+            crate::application::consensus::native_work::visible_alarm(connection, active)
+        })
+    })
+    .ok_or_else(|| anyhow::anyhow!("no Raft alarm storage"))?
+}
+
 /// Fixed framework work metadata under the currently installed private command.
 pub(crate) fn raft_native_work<T>(
     callback: impl FnOnce(&Connection) -> anyhow::Result<T>,

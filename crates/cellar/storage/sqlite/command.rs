@@ -35,6 +35,15 @@ pub struct CommandTransaction<'a> {
 }
 
 impl CommandTransaction<'_> {
+    pub(crate) fn begin_native_alarm(&self, generation: [u8; 16]) -> Result<()> {
+        ensure!(
+            self.frame.native_alarm.get().is_none(),
+            "nested native alarm"
+        );
+        self.frame.native_alarm.set(Some(generation));
+        Ok(())
+    }
+
     pub(crate) fn framework(&self) -> Result<Ref<'_, Connection>> {
         self.frame.connection()
     }
@@ -98,6 +107,9 @@ struct CommandFrame {
     dispatch: OnceCell<RaftDispatchContext>,
     binding_serial: Cell<u64>,
     parked_io: Cell<bool>,
+    // Invocation-local, so cached constructor Storage follows the current
+    // callback without hiding another command's or immutable reader's alarm.
+    native_alarm: Cell<Option<[u8; 16]>>,
 }
 
 struct Work {
@@ -368,6 +380,10 @@ pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
         let connection = current.as_ref()?.connection.try_borrow().ok()?;
         Some(read(connection.as_ref()?))
     })
+}
+
+pub(super) fn native_alarm_generation() -> Option<[u8; 16]> {
+    CURRENT_COMMAND.with(|current| current.borrow().as_ref()?.native_alarm.get())
 }
 
 /// Capture only a real ordinary RPC frame. Synchronous commands and immutable
@@ -769,6 +785,7 @@ impl CommandDatabase {
                 dispatch: OnceCell::new(),
                 binding_serial: Cell::new(0),
                 parked_io: Cell::new(false),
+                native_alarm: Cell::new(None),
             }),
             inputs,
         })

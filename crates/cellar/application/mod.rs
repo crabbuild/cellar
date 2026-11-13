@@ -660,6 +660,8 @@ pub(crate) struct EventState {
     pub(crate) raft_sql: bool,
     pub(crate) raft_queue: bool,
     pub(crate) raft_kv: bool,
+    /// Declared native classes and their immutable deployment configurations.
+    pub(crate) raft_cell_classes: Option<Arc<std::collections::BTreeMap<String, [u8; 32]>>>,
     pub background: Mutex<Vec<HandlerFuture<()>>>,
     pub(crate) blocks: concurrency::Blocks,
     // Keep framework cleanup behind the requesting event and its reply proof.

@@ -346,6 +346,9 @@ impl NativeCellFactory {
             )? {
                 return Ok(Box::pin(async { Ok(vec![0]) }));
             }
+            if work.reason == "alarm" {
+                transaction.begin_native_alarm(work.generation)?;
+            }
             Some(work)
         } else {
             None

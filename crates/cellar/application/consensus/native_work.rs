@@ -92,6 +92,24 @@ pub(crate) fn get(db: &Connection, reason: &str) -> Result<Option<i64>> {
         .optional()?)
 }
 
+/// Hide only this invocation's claimed installation. A replacement, including
+/// one with the same deadline, remains visible and survives old completion.
+pub(crate) fn visible_alarm(db: &Connection, active: Option<[u8; 16]>) -> Result<Option<i64>> {
+    let Some(active) = active else {
+        return get(db, "alarm");
+    };
+    if !exists(db)? {
+        return Ok(None);
+    }
+    Ok(db
+        .query_row(
+            "SELECT due FROM __sys_raft_native_work WHERE reason='alarm' AND generation!=?1",
+            [active.as_slice()],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
 pub(crate) fn cancel(db: &Connection, reason: &str) -> Result<()> {
     validate(reason)?;
     if exists(db)? {

@@ -13,6 +13,7 @@ use rand::RngCore as _;
 #[derive(Clone, Copy)]
 enum Origin {
     Binding,
+    Native { configuration: [u8; 32] },
     Operator,
     QueueOperator,
     KvOperator,
@@ -20,6 +21,21 @@ enum Origin {
 }
 
 impl RaftCells {
+    pub(crate) fn native_ingress(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        configuration: [u8; 32],
+    ) -> HandlerFuture<RpcData> {
+        self.submit_sql(
+            admitted,
+            call_scope,
+            deadline,
+            Origin::Native { configuration },
+        )
+    }
+
     /// Stateless ingress may durably enroll an unknown target, then construct
     /// its pending data locator without consuming a command-stream sequence.
     /// Stateful callers retain their source-journaled enrollment path.
@@ -169,6 +185,12 @@ impl RaftCells {
                     )?
                 }
                 Origin::Binding => self.handle.core.host.sql_ingress_route(
+                    &scope,
+                    &method,
+                    &self.handle.core.log,
+                )?,
+                Origin::Native { configuration } => self.handle.core.host.native_ingress_route(
+                    configuration,
                     &scope,
                     &method,
                     &self.handle.core.log,
@@ -444,7 +466,7 @@ impl RaftCells {
                                 Ok(observed) => observed,
                                 Err(proof_error) => {
                                     return Err(anyhow::Error::from(error).context(format!(
-                                        "SQL sequence conflict proof failed: {proof_error}"
+                                        "ingress sequence conflict proof failed: {proof_error}"
                                     )))
                                 }
                             };
@@ -548,7 +570,7 @@ fn dispatch_failure(error: Arc<CellCommandError>, attempt: u64, budget_ms: u128)
     // Preserve the typed original cause and ambiguity while exposing whether
     // discovery consumed the budget or the target itself missed its deadline.
     let message =
-        format!("SQL target attempt {attempt} started with {budget_ms}ms remaining: {error}");
+        format!("Raft target attempt {attempt} started with {budget_ms}ms remaining: {error}");
     anyhow::Error::from(error).context(message)
 }
 

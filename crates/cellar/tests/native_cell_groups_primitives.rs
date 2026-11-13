@@ -70,6 +70,11 @@ async fn ordinary_alarms_recover_through_shared_quorum() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_stateless_cell_ingress_refuses_missing_or_ambiguous_namespaces() -> Result<()> {
+    alarms::qualify_admission().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires the owned RustFS qualification backend"]
 async fn rustfs_ordinary_alarms_recover_through_shared_quorum() -> Result<()> {
     alarms::qualify(true, false).await

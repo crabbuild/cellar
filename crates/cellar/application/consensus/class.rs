@@ -874,6 +874,14 @@ impl RaftClass {
         if operations.len() > 256 {
             return Err(RegistrationError::Limit);
         }
+        if self.has_cell_factory() && !crate::deploy::is_reserved_class(&self.name) {
+            if !operations.insert(super::sql_ingress_identity::OPERATION.into()) {
+                return Err(RegistrationError::Invalid("reserved ingress query"));
+            }
+            if operations.len() > 256 {
+                return Err(RegistrationError::Limit);
+            }
+        }
         Ok(())
     }
 
@@ -965,6 +973,15 @@ impl RaftClass {
                 }
             }
             class.cell_factory = Some(factory.configured(configuration));
+            if configuration.has_cell_bindings() && !crate::deploy::is_reserved_class(&class.name) {
+                class.queries.insert(
+                    super::sql_ingress_identity::OPERATION.into(),
+                    Query {
+                        digest: super::sql_ingress_identity::native_digest(),
+                        callback: Arc::new(|query, input| query.sql_ingress_sequence(input)),
+                    },
+                );
+            }
             class.bind_command_manifest();
         }
         class
@@ -1122,21 +1139,17 @@ impl RaftClass {
         input: &[u8],
     ) -> anyhow::Result<()> {
         let ingress = id.client == super::sql_ingress_identity::client();
-        if (matches!(
+        let ingress_class = matches!(
             self.name.as_str(),
             crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS | crate::deploy::KV_CLASS
-        ) && ingress)
+        ) || self.has_native_ingress();
+        if (ingress_class && ingress)
             || (self.is_cell_rpc(&contract.operation)
                 && super::native_rpc::has_ingress_nonce(input))
         {
             anyhow::ensure!(
                 ingress
-                    && matches!(
-                        self.name.as_str(),
-                        crate::deploy::SQL_CLASS
-                            | crate::deploy::QUEUE_CLASS
-                            | crate::deploy::KV_CLASS
-                    )
+                    && ingress_class
                     && self.is_cell_rpc(&contract.operation)
                     && super::native_rpc::has_ingress_nonce(input),
                 super::CommandFailure::UnsupportedCapability
@@ -1536,10 +1549,22 @@ impl RaftClass {
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
     }
 
+    pub(crate) fn has_native_ingress(&self) -> bool {
+        self.cell_configuration_digest().is_some()
+            && self
+                .queries
+                .get(super::sql_ingress_identity::OPERATION)
+                .is_some_and(|query| query.digest == super::sql_ingress_identity::native_digest())
+    }
+
     fn bind_command_manifest(&mut self) {
         let mut hash = Sha256::new();
         hash.update(b"cellar-cell-class-call-schedule-1");
         hash.update(self.base_schema_digest);
+        if self.has_native_ingress() {
+            hash.update(b"native-cell-ingress-1");
+            hash.update(super::sql_ingress_identity::native_digest());
+        }
         if let Some(initializer) = &self.initializer {
             hash.update(b"initializer-1");
             hash.update(initializer.digest);
@@ -1627,6 +1652,11 @@ impl RaftClass {
         validate_name(operation)?;
         if operation.starts_with("__sys_raft_") {
             return Err(RegistrationError::Invalid("reserved system command"));
+        }
+        if operation == super::sql_ingress_identity::OPERATION
+            && !crate::deploy::is_reserved_class(&self.name)
+        {
+            return Err(RegistrationError::Invalid("reserved ingress query"));
         }
         if digest == [0; 32] {
             return Err(RegistrationError::Invalid("operation digest"));

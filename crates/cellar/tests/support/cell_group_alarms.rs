@@ -10,6 +10,7 @@ const SCRIPT: &str = "quorum-alarm-service";
 
 #[derive(Default)]
 struct Observed {
+    factories: AtomicUsize,
     entries: Mutex<Vec<String>>,
     changed: Notify,
     interrupt: AtomicBool,
@@ -109,6 +110,9 @@ impl Cell for AlarmCell {
 fn application(
     observed: Arc<Observed>,
 ) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
+    ensure!(RaftClass::new("ReservedCheck", 1, [70; 32])?
+        .query("__sqlIngressSequence", [71; 32], |_, _| Ok(vec![]))
+        .is_err());
     let mut class = RaftClass::new("Counter", 1, [61; 32])?
         .initializer([62; 32], |_, _| Ok(()))?
         .durable_callbacks()?
@@ -159,11 +163,13 @@ fn application(
             })
         })
         .raft_cell(class, move |context, _| {
+            observed.factories.fetch_add(1, Ordering::AcqRel);
             Ok(Arc::new(AlarmCell {
                 storage: context.storage()?,
                 observed: observed.clone(),
             }))
-        })?,
+        })?
+        .raft_class(RaftClass::new("Other", 1, [72; 32])?.initializer([73; 32], |_, _| Ok(()))?)?,
     );
     let mut options = configuration::options(SCRIPT);
     options.do_classes.push("Counter".into());
@@ -245,6 +251,87 @@ async fn wait_calls(
     .context("autonomous alarm completion deadline")?
 }
 
+pub async fn qualify_admission() -> Result<()> {
+    for ambiguous in [false, true] {
+        let observed = Arc::new(Observed::default());
+        let (application, declared) = application(observed.clone())?;
+        let definitions = if ambiguous {
+            let class = application.resolve_raft_class("Counter")?;
+            vec![
+                (class.clone(), Durability::Quorum),
+                (class, Durability::Quorum),
+            ]
+        } else {
+            vec![(application.resolve_raft_class("Other")?, Durability::Quorum)]
+        };
+        let mut fixture = Fixture::with_definition_policies(
+            false,
+            definitions,
+            application,
+            Arc::new(catalog_fault::Store::default()),
+        )
+        .await?;
+        fixture.configuration = Some(declared);
+        fixture.sql_workers = 1;
+        fixture.effects = Some(RaftEffectOptions {
+            callback_timeout_ms: 5000,
+            ..Default::default()
+        });
+        let domain = fixture.domain.clone();
+        let started = Box::pin(ManagedCluster::start_with_applications(
+            fixture,
+            &[],
+            ArchiveSetup::Initialized,
+            false,
+            None,
+            FirstGroupSetup::Normal,
+        ))
+        .await;
+        let mut cluster = match started {
+            Ok(cluster) => cluster,
+            Err(error) => {
+                domain.shutdown().await;
+                return Err(error);
+            }
+        };
+        let work = domain
+            .run(async {
+                let (status, body) = call(&cluster, "Read", json!(null)).await?;
+                let reason = if ambiguous {
+                    "declared native namespace is ambiguous"
+                } else {
+                    "declared native namespace is missing"
+                };
+                ensure!(
+                    status.is_server_error()
+                        && body.as_str().is_some_and(|body| body.contains(reason)),
+                    "native admission: {status} {body}"
+                );
+                ensure!(
+                    observed.factories.load(Ordering::Acquire) == 0,
+                    "refused native request constructed a cell"
+                );
+                ensure!(observed.entries.lock().unwrap().is_empty());
+                Ok::<_, anyhow::Error>(())
+            })
+            .await
+            .map_err(anyhow::Error::from)
+            .and_then(std::convert::identity);
+        let closed =
+            managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
+                .await;
+        if work.is_err() || closed.is_err() {
+            for root in std::mem::take(&mut cluster.roots) {
+                eprintln!("retained native admission disk: {}", root.keep().display());
+            }
+        }
+        domain.shutdown().await;
+        work?;
+        closed?;
+    }
+    Ok(())
+}
+
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
     let mut failures = vec![];
     for rooted in [false, true] {
@@ -265,8 +352,14 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
 }
 
 async fn case(real_rustfs: bool, external: bool, rooted: bool, minimum: Durability) -> Result<()> {
+    let backend_case = match (external, minimum == Durability::S3) {
+        (false, false) => "alarms-quorum",
+        (false, true) => "alarms-s3",
+        (true, false) => "alarms-axum-quorum",
+        (true, true) => "alarms-axum-s3",
+    };
     let backend = real_rustfs
-        .then(|| rustfs::StoreConfig::load(if external { "alarms-axum" } else { "alarms" }, rooted))
+        .then(|| rustfs::StoreConfig::load(backend_case, rooted))
         .transpose()?;
     let store = Arc::new(match &backend {
         Some(config) => catalog_fault::Store::around(config.open(None)?),
@@ -310,6 +403,13 @@ async fn case(real_rustfs: bool, external: bool, rooted: bool, minimum: Durabili
         .run(async {
             let first = request(&cluster, "Read", json!(null)).await?;
             ensure!(first == json!({"alarm":null,"calls":[]}));
+            for method in ["__sqlIngressSequence", "__sys_raft_native_work"] {
+                let (status, _) = call(&cluster, method, json!(null)).await?;
+                ensure!(
+                    status.is_server_error(),
+                    "public caller entered a private operation"
+                );
+            }
             let namespace = cellar_native::cell_id::Namespace::new(
                 "Counter",
                 format!("cells:v1:{}:{SCRIPT}:Counter", SCRIPT.len()),

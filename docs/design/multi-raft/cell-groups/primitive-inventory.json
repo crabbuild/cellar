@@ -78,7 +78,7 @@
       ],
       "owners": [
         "crates/cellar/application/sql/mod.rs",
-        "crates/cellar/application/sql/ingress.rs",
+        "crates/cellar/application/consensus/native_ingress.rs",
         "crates/cellar/application/consensus/native_services.rs",
         "crates/cellar/application/consensus/group_client/sql_ingress.rs",
         "crates/cellar/durability/raft/cell_groups/host/bindings.rs",
