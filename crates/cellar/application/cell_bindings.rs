@@ -378,7 +378,7 @@ pub(crate) fn rpc(
             move |intent| {
                 let identity = intent.child;
                 *observed_command.lock().unwrap() = Some(identity);
-                let call = dispatch.try_schedule_binding(move |io| {
+                let call = dispatch.try_schedule_binding(move |io| async move {
                     run(
                         action_source,
                         storage,
@@ -387,8 +387,9 @@ pub(crate) fn rpc(
                         io,
                         observed,
                         observed_command,
-                        lease,
                     )
+                    .await
+                    .map(|value| (value, lease))
                 })?;
                 Ok((identity, call))
             },
@@ -434,8 +435,7 @@ async fn run(
     io: RaftDispatchIo,
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
-    lease: BufferLease,
-) -> Result<(RpcData, BufferLease)> {
+) -> Result<RpcData> {
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
@@ -524,10 +524,7 @@ async fn run(
                     _lease: memory,
                 });
             }
-            Ok((
-                super::consensus::native_rpc::decode_response(&receipt.result)?,
-                lease,
-            ))
+            super::consensus::native_rpc::decode_response(&receipt.result)
         }
         Err(cause) => {
             *source.hint.lock().unwrap() = None;
