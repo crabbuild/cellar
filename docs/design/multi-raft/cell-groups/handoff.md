@@ -4,26 +4,39 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current Queue MVP checkpoint
+## Current Queue checkpoint
 
-At `efd9c4c9`, the shared durable callback kernel and ordinary Queue adapter pass
-native/Axum real-RustFS qualification in both image modes (**4/4**), including
-the captured CLI. The source includes the immutable payload implementation below.
-The existing Fleet Queue conformance regression and focused strict Clippy pass.
-See [results](progress.md#cg-17-durable-callbacks-and-queue-mvp) and
-[callback/Queue contract](queue-durable-work.md). Full CG-17 acceptance stays open.
+Source `a5f65e79` passes canonical real-RustFS `queue-primitives` qualification:
+**6/6 exact tests, 12/12 image configurations**. It covers native/Axum public
+SDK/CLI, cohosted producer/consumer/storage-only DLQ schemas, stale consumers,
+partial retry, active purge, lost cross-group S3-DLQ completion, retained
+restart, retention replay, quorum refusal, 65-second callbacks and bounded load.
+See [results](progress.md#cg-17-queue-cross-deployment-and-bounded-load-qualification)
+and the [contract](queue-durable-work.md).
 
-The kernel persists independent reason/generation/attempt deadlines and commits
-claims before callbacks. Retained startup resumes pending Queue work without a
-producer request. Use this owner for future expiry/cron/Stream/Workflow adapters;
-do not add per-cell timer tasks or expose broker Storage to stateless consumers.
-One bounded callback admission slot preserves ordinary child-call capacity.
-Callback operation budgets default to five seconds and are configurable to sixty.
+The kernel holds one physical callback per cell within two node-wide slots and
+one byte ceiling. Pending earlier Queue wakes coalesce; claimed/rearmed work
+always gets a new generation so late completion cannot erase obligations.
+Ordinary alarms keep replacement semantics. Callback budgets are separate from
+five-second control RPCs, default to 300 seconds and stay bounded to 300 seconds.
+Public routing keeps its sixty-second maximum. The earlier private digest change
+requires fresh compatible namespaces/matching voters; markers remain 1.
 
-Finish Queue cross-deployment catalogs, longer-consumer timing, inter-group lost
-DLQ replies, late settlement/purge/retention, movement/wake/disk-loss and load
-qualification before counting the whole Queue family accepted. The owned backend and VM are stopped with data retained. The artifact root
-is `/Volumes/Workspace/crabbuild-target/cellar-queue-rustfs-qualification-03-combined`.
+Load is four producers, two requests in flight, one SQL worker per node and
+small eight-message batches: 528 distinct deliveries per image, including a
+16-message archive-refusal burst. Batch enqueue p99 is 1198/1330 ms. Scope is
+host-native RF3 and one-CPU/2-GiB RustFS. Setup observes initial archive coverage;
+cold S3 first use and four-in-flight controls were not rerun after their failures.
+Clock/configuration/deployment removal, full-size payloads, movement/wake,
+all-voter disk loss and independent Linux voters remain gates. Full CG-17
+acceptance is unchanged at **13/17 tasks and 147/195 cases**.
+
+Canonical artifacts: `/Volumes/Workspace/crabbuild-target/cellar-queue-expanded-rustfs-06`.
+Hash-verified ignored copy: `.cellar/cell-groups-evidence/CG-17-queue-expanded-a5f65e79-01`.
+The `fe4cd801` failed load control, frozen binaries and three voter disks remain
+in the preceding `cellar-queue-expanded-rustfs-05` cohort. Use the shared owner
+for subsequent expiry/cron/EventStream/Workflow work; add no per-idle-cell tasks.
+Backend shutdown is recorded separately and retains all objects.
 
 ## Current immutable payload checkpoint
 

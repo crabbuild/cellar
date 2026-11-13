@@ -293,29 +293,87 @@ Next close those SQL gates, then deliver grouped KV revisions, expiry, alarms an
 payload ownership. The earlier generic binding **8/8** and interrupted-binding
 **8/8** results retain source `d1f8535f`; they were not rerun for this SQL cohort.
 
-## CG-17 Queue load admission follow-up
+## CG-17 Queue cross-deployment and bounded load qualification
 
-The frozen `fe4cd801` real-RustFS campaign finishes **FAILED**: native/Axum
-cross-deployment fault cases pass **4/4** image configurations, the 65-second
-callback/independent-Queue case passes **2/2**, and public MVP/CLI/restart/quorum
-refusal passes **4/4**. Materialized two-in-flight load misses the original
-three-second ingress deadline at sequence 13; extent load is unrun. Evidence,
-frozen executable/CLI, bounded resource samples and all three failed voter disks
-are retained under `cellar-queue-expanded-rustfs-05`. No acknowledged-loss or
-complete-family result is inferred from that timeout.
+At `a5f65e79`, the complete `queue-primitives` real-RustFS campaign passes
+**6/6 exact tests, 12/12 image configurations** on one-CPU/2-GiB RustFS with
+host-native RF3 and one SQL worker per node. Materialized and extent images
+both pass. This is a scoped Queue result; full CG-17 acceptance is unchanged.
 
-Advisory read-only inspection of immutable generations finds fourteen no-op
-native-work receipts beside eighteen claimed receipts in one broker image.
-The inspection does not select an authoritative manifest or run recovery. It
-motivates the next implementation: one physically retained native callback per
-cell within the same two node slots, plus coalesced earlier unclaimed Queue wake
-hints. Claimed/rearmed work keeps generation-specific settlement, and ordinary
-alarms keep replacement semantics. The same 528-message, two-in-flight workload
-and original deadlines/quotas remain the qualification target. Strict library
-and all-test Clippy and canonical formatting pass for this code; runtime
-qualification of the follow-up is pending.
+| Scenario | Result |
+| --- | --- |
+| Separate producer/consumer/DLQ deployments, native and Axum ingress | **4/4 pass** |
+| 65-second handler and independent Queue progress | **2/2 pass** |
+| Four producers, two in-flight requests, archive-refusal burst and steady load | **2/2 pass** |
+| Public SDK/CLI, retained restart, leader transfer and quorum refusal | **4/4 pass** |
+
+Cross-deployment faults cover partial retry, stale event handles after leader
+transfer, purge during active delivery, loss of a different group's S3-minimum
+DLQ completion after target quorum apply, retained RF3 restart, autonomous
+original-ID transfer recovery and retention-boundary enqueue replay. These
+workloads observe setup archive cuts before S3-DLQ preparation and after
+restart/leader change. Every request keeps its original budget; this does not
+qualify cold first-use S3 latency or physical host crashes.
+
+The load profile has four producers with one in-flight request per Queue
+(two total), eight-message batches, eight ordinary slots/128 KiB, the same two
+callback slots/byte ceiling, and a five-second callback budget. Fault/MVP profiles
+keep two ordinary slots. Each image delivers all **528 distinct messages**:
+16 enqueues during observed archive PUT refusal, followed by 512 steady-state
+enqueues. Delivery is at least once; this is not a transactional business inbox
+or an exactly-once claim.
+
+| Image mode | Steady phase, including drain | Messages/s | Batch enqueue p50 | Batch enqueue p99 |
+| --- | --- | --- | --- | --- |
+| Materialized | 23.714 s | 21.59 | 650 ms | 1198 ms |
+| Extents | 21.355 s | 23.98 | 565 ms | 1330 ms |
+
+The passing source retains one native callback per cell through physical
+settlement, within two fixed node-wide slots. It coalesces earlier unclaimed
+Queue wakes across producer commits. Claimed installations always get a new
+generation when rearmed, including later deadlines, so old completion cannot
+erase new retry/delivery work. Ordinary alarm replacement semantics remain.
+No request deadline, production quota, message count or load credit was relaxed
+from the failed two-in-flight control.
+
+Eleven focused Rust unit/ownership checks and the existing Fleet Queue
+regression pass. Strict library/all-test Clippy, canonical formatting/layout,
+native dependency/docs checks and **66 Python checks** pass. The inventory stays
+partial and recorded acceptance stays **13/17 tasks, 147/195 cases**.
+
+The canonical record, protocol probe, frozen executable/CLI, benchmark JSON and
+logs are under
+`/Volumes/Workspace/crabbuild-target/cellar-queue-expanded-rustfs-06`.
+Its record SHA-256 is
+`21397d1dbdfcb25393738945e279c88c489bbabb4264b2e1669b9d36c856e7c1`;
+executable SHA-256 is
+`0265db33cdd48262e48b4d8bcc8706fa532232090cc364ff1a0d0087a4d90c0c`;
+CLI SHA-256 is
+`d480211ce3490af116ee44ec161be1998b3308c837e7093b49bff59ab187d02f`.
+A hash-verified copy, focused check logs and controls are retained in this
+checkout's ignored `.cellar/cell-groups-evidence/CG-17-queue-expanded-a5f65e79-01`.
+
+Earlier results remain controls: `fe4cd801` passes ten configurations but fails
+materialized load at ingress sequence 13 (extent load unrun). Its record, frozen
+binaries, bounded status/resource samples and all three failed voter disks
+remain under `cellar-queue-expanded-rustfs-05`. Advisory immutable-generation
+inspection finds fourteen no-op work receipts beside eighteen claimed receipts
+in one broker image; it neither selects an authoritative manifest nor runs
+recovery. Four-in-flight controls and cold S3-DLQ first use also miss deadlines.
+Those envelopes were not rerun on the passing source; no causal resolution or
+higher-concurrency SLA is claimed. Interrupted inventory/collector runs remain
+separate from runtime passes.
+
+Next Queue gates are cold S3 startup, higher concurrency and full-size payload
+budgets, clock discontinuities, deployment changes/removal, movement/wake,
+all-voter disk-loss recovery and independent Linux process/resource qualification.
+EventStream, Workflow and cron adapters still need their own shared-work
+integration and conformance. Backend/VM shutdown is recorded after qualification;
+S3 objects and local failure evidence are retained.
 
 ## CG-17 cross-deployment Queue and long callbacks
+
+Historical preparation and controls, superseded by the qualified checkpoint above.
 
 The next Queue increment resolves producer, consumer and storage-only DLQ
 namespaces by their admitted schemas across cohosted deployments. Ambiguous

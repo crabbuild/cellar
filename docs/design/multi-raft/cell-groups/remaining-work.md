@@ -58,14 +58,15 @@ existing recovery and release dependencies rather than removing those gates.
    movement/wake, archive outage and disaster recovery; verify external-value and
    source-intent/receipt dependencies before admitting a recovered incarnation.
    Preserve failed controls and the chained twenty-second KV load failure.
-2. Complete ordinary alarms/cron and Queue lifecycle coverage, then EventStream
-   and Workflow execution through the shared durable callback owner. Queue's
-   cross-deployment fault drill passes **4/4** real RustFS configurations and its
-   bounded load passes **2/2** at `a5f65e79`; these are scoped MVP gates. Cold
-   first-use S3, deployment removal, remaining callback/retention/movement faults
-   and the complete family matrix remain open. Pending work must resume after
-   retained restart, movement and wake without client traffic. See the
-   [Queue delivery record](queue-durable-work.md).
+2. Build on the [qualified callback and Queue implementation](queue-durable-work.md):
+   at `a5f65e79`, real RustFS passes **12/12** configurations across separate
+   deployments, native/Axum SDK/CLI, lost DLQ replies, stale handlers, purge,
+   retention replay, 65-second callbacks and bounded load. The load envelope is
+   four producers/two in-flight requests; cold S3 first use and higher concurrency
+   remain open alongside full-size payload, clock, deployment-change,
+   movement/wake, disk-loss and independent Linux gates. Connect alarms/cron,
+   EventStream/outbox/inbox and Workflow to the same shared owner. Pending work
+   must resume after retained restart, movement and wake without client traffic.
 3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
    container/provider adapters. Include stateless/ephemeral and optional-adapter
    regressions. Root-aware payload collection must protect every retained image,
