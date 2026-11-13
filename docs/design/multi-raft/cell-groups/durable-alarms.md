@@ -22,8 +22,10 @@ binding protocol and proof requirements.
 
 Native and built-in SQL/KV/Queue ingress share the node-owned admission and
 command pipeline. Calls retain bounded request/reply storage, one original
-deadline, nonce-bearing input and a persistent client stream per cell. A fresh
-quorum observation of a different retained fingerprint is required before a
+deadline, nonce-bearing input and a persistent client stream per cell.
+Name lookup may wait for transient readiness within that same deadline before
+enrollment or business submission. This wait never retries a submitted mutation.
+A fresh quorum observation of a different retained fingerprint is required before a
 competing sequence can be retried. An unknown submitted mutation retains its
 history and identity; a timeout does not establish non-commit. Missing quorum
 or S3 proof never selects Fleet or weaker durability.

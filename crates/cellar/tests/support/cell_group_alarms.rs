@@ -333,6 +333,10 @@ pub async fn qualify_admission() -> Result<()> {
 }
 
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_ingress=debug")
+        .with_test_writer()
+        .try_init();
     let mut failures = vec![];
     for rooted in [false, true] {
         for minimum in [Durability::Quorum, Durability::S3] {
@@ -513,6 +517,16 @@ async fn case(real_rustfs: bool, external: bool, rooted: bool, minimum: Durabili
         .await
         .map_err(anyhow::Error::from)
         .and_then(std::convert::identity);
+    if work.is_err() {
+        for (index, host) in cluster.hosts.iter().enumerate() {
+            if let Ok(group) = host.group(cluster.history) {
+                eprintln!(
+                    "alarm failure node={index} status={:?}",
+                    group.replication_status(TIMEOUT).await
+                );
+            }
+        }
+    }
     let mut cleanup = vec![];
     for node in std::mem::take(&mut cluster.nodes) {
         if let Err(error) = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {

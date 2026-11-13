@@ -288,6 +288,7 @@ impl RaftCells {
                 memory,
             ))
         })();
+        tracing::debug!(target: "cellar::raft::sql_ingress", phase = "prepared", success = prepared.is_ok());
         let owner = self.internal_observer();
         Box::pin(async move {
             let (
@@ -320,18 +321,7 @@ impl RaftCells {
                 let (history, newly_enrolled) = if let Some(history) = history_hint {
                     (history, false)
                 } else {
-                    match owner
-                        .resolve_cell_history(
-                            candidate.cluster,
-                            candidate.namespace,
-                            candidate.cell.clone(),
-                            QueryOptions {
-                                timeout: remaining()?,
-                                ..QueryOptions::default()
-                            },
-                        )
-                        .await?
-                    {
+                    match ready_name(&owner, &candidate, deadline).await? {
                         Some(history) => (history, false),
                         None => {
                             match owner
@@ -347,18 +337,7 @@ impl RaftCells {
                             {
                                 Ok(_) => (candidate.clone(), true),
                                 Err(error) => loop {
-                                    match owner
-                                        .resolve_cell_history(
-                                            candidate.cluster,
-                                            candidate.namespace,
-                                            candidate.cell.clone(),
-                                            QueryOptions {
-                                                timeout: remaining()?,
-                                                ..QueryOptions::default()
-                                            },
-                                        )
-                                        .await
-                                    {
+                                    match ready_name(&owner, &candidate, deadline).await {
                                         Ok(Some(history)) => break (history, false),
                                         Ok(None) => {
                                             let delay = (remaining()?.as_millis() as u64).min(
@@ -536,6 +515,53 @@ impl RaftCells {
                 .into()
             })
         })
+    }
+}
+
+/// Read-only readiness precedes enrollment/business dispatch. Reuse the same
+/// logical candidate and absolute deadline; no submitted mutation is retried.
+async fn ready_name(
+    owner: &RaftCells,
+    candidate: &CellHistory,
+    deadline: u64,
+) -> anyhow::Result<Option<CellHistory>> {
+    let mut noted = false;
+    loop {
+        let now = owner.handle.domain.mono_ms()?;
+        let remaining = deadline
+            .checked_sub(now)
+            .filter(|remaining| *remaining != 0)
+            .ok_or(RuntimeError::DeadlineExceeded)?;
+        let result = owner
+            .resolve_cell_history(
+                candidate.cluster,
+                candidate.namespace,
+                candidate.cell.clone(),
+                QueryOptions {
+                    timeout: Duration::from_millis(remaining),
+                    ..QueryOptions::default()
+                },
+            )
+            .await;
+        match result {
+            Err(error)
+                if matches!(
+                    error.as_ref(),
+                    CellDispatchError::Runtime(RuntimeError::NotReady)
+                ) =>
+            {
+                if !noted {
+                    tracing::debug!(target: "cellar::raft::sql_ingress", phase = "discovery-pending");
+                    noted = true;
+                }
+                let now = owner.handle.domain.mono_ms()?;
+                let next = now
+                    .saturating_add(owner.handle.core.controller.limits().retry_interval_ms)
+                    .min(deadline);
+                owner.handle.domain.sleep_until(next)?.await;
+            }
+            result => return result.map_err(anyhow::Error::from),
+        }
     }
 }
 
