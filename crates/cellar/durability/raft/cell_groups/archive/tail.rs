@@ -72,7 +72,7 @@ impl std::ops::Deref for CellGroupArchiveUploadedTail {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Cut {
     pub marker: GroupManifest,
@@ -178,6 +178,94 @@ struct Capture {
     authority: Arc<super::publication::SourceCut>,
 }
 
+/// A local checkpoint seals the complete source cut, including membership.
+/// Copy its suffix before object I/O; later apply cannot relabel this cut.
+/// Only an actually compacted prefix may select a fresh checkpoint instead.
+fn capture_successor(
+    source: (
+        GroupLog<GroupHistory>,
+        PreparedGroupManifest,
+        ConfState,
+        GroupMembership,
+    ),
+    base: &GroupManifest,
+    limits: CellGroupArchiveTailLimits,
+    source_budget: Arc<Budget>,
+) -> Result<Option<Capture>> {
+    let (group, root, configuration, membership) = source;
+    if !Arc::ptr_eq(&group.owner, &root.engine_owner)
+        || base.route() != root.marker().route()
+        || base.position().index >= root.marker().position().index
+    {
+        return Err(CellGroupArchiveError::Invalid(
+            "successor source owner/cuts",
+        ));
+    }
+    let cache = group.read().map_err(CellGroupCheckpointError::from)?;
+    let target = root.marker().position();
+    if base.position().index.get().saturating_add(1) < cache.first_index() {
+        return Ok(None);
+    }
+    if cache
+        .group_manifest
+        .as_ref()
+        .is_none_or(|current| current.route() != root.marker().route())
+        || cache.applied.position.index < target.index
+        || cache.applied.image.is_some()
+        || cache.hard_state.commit < target.index.get()
+        || cache.term(target.index.get()) != Some(target.term.get())
+        || cache.term(base.position().index.get()) != Some(base.position().term.get())
+    {
+        return Err(CellGroupArchiveError::Invalid("successor committed source"));
+    }
+    let count = target.index.get() - base.position().index.get();
+    if count > limits.max_entries as u64 {
+        return Err(CellGroupArchiveError::Limit);
+    }
+    let mut entries = Vec::with_capacity(count as usize);
+    let mut bytes = 0usize;
+    for index in base.position().index.get() + 1..=target.index.get() {
+        let entry = cache
+            .entries
+            .get(&index)
+            .ok_or(CellGroupArchiveError::Invalid("successor source log hole"))?;
+        bytes = bytes
+            .checked_add(tail_codec::length(entry)?)
+            .filter(|n| *n <= limits.max_tail_bytes)
+            .ok_or(CellGroupArchiveError::Limit)?;
+        entries.push(entry.clone());
+    }
+    drop(cache);
+    let cut = Cut {
+        marker: root.marker().clone(),
+        conf: crate::raft::manifest::encode_conf(&configuration)
+            .map_err(|_| CellGroupArchiveError::Invalid("successor configuration"))?,
+        membership: membership.clone(),
+    };
+    cut.validate(group.identity().scope, limits)?;
+    let entries = entries
+        .iter()
+        .map(|entry| {
+            Ok((
+                entry.index,
+                entry.term,
+                tail_codec::encode(entry, limits.max_tail_bytes)?,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(Capture {
+        cut,
+        entries,
+        authority: Arc::new(super::publication::SourceCut::from_capture(
+            group,
+            root,
+            configuration,
+            membership,
+            source_budget,
+        )?),
+    }))
+}
+
 fn capture(
     group: GroupLog<GroupHistory>,
     base: &GroupManifest,
@@ -272,6 +360,83 @@ impl Drop for Stop {
 }
 
 impl CellGroupArchiveUpload {
+    /// Extend only the journal-owned head protected by this upload's parent.
+    /// Another publisher's parent, a compacted source or a tail representation
+    /// limit rolls a complete checkpoint under the same upload ticket.
+    /// Integrity, ownership and I/O errors never select that fallback.
+    pub(crate) async fn upload_next_cut(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchiveTailPool,
+        previous: Option<&CellGroupArchiveHold>,
+        checkpoint: CellGroupCheckpoint,
+    ) -> Result<CellGroupArchiveUploadedTail> {
+        if let Some(previous) = previous {
+            match self
+                .try_successor(domain, pool, previous, &checkpoint)
+                .await
+            {
+                Ok(Some(uploaded)) => return Ok(uploaded),
+                Ok(None) | Err(CellGroupArchiveError::Limit) => (),
+                Err(error) => return Err(error),
+            }
+        }
+        self.upload_cut(domain, pool, checkpoint).await
+    }
+
+    async fn try_successor(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchiveTailPool,
+        previous: &CellGroupArchiveHold,
+        checkpoint: &CellGroupCheckpoint,
+    ) -> Result<Option<CellGroupArchiveUploadedTail>> {
+        domain
+            .run(async {
+                let retention = pool.admit()?;
+                let captured_source = checkpoint.archive_source()?;
+                let base = previous.marker().clone();
+                let limits = pool.limits;
+                let retained = retention.clone();
+                let source_budget = self.source_budget();
+                let captured = domain
+                    .blocking(move || {
+                        let _retained = retained;
+                        capture_successor(captured_source, &base, limits, source_budget)
+                    })
+                    .map_err(|_| CellGroupArchiveError::Stopped)?
+                    .await
+                    .map_err(CellGroupArchiveError::Worker)??;
+                let Some(captured) = captured else {
+                    return Ok(None);
+                };
+                let io = self.admit()?;
+                self.registry().pending(&self.ticket()).await?;
+                let descriptor = self.registry().referenced(previous).await?;
+                if !self.inherits_root(&descriptor) {
+                    return Ok(None);
+                }
+                let bytes = self.get("roots", &descriptor.object, 8192).await?;
+                let root: super::graph::Root = serde_json::from_slice(&bytes)
+                    .map_err(|_| CellGroupArchiveError::Invalid("successor root encoding"))?;
+                if root.domain != super::graph::ROOT_DOMAIN || root.marker != descriptor.marker {
+                    return Err(CellGroupArchiveError::Invalid("successor held root"));
+                }
+                let tail = self
+                    .read_tail_index(domain, &root.tail, limits, io.clone(), retention.clone())
+                    .await?;
+                if tail.cut.marker != root.marker {
+                    return Err(CellGroupArchiveError::Invalid("successor root/tail cut"));
+                }
+                self.registry().referenced(previous).await?;
+                self.append_tail(domain, pool, io, retention, tail, captured)
+                    .await
+                    .map(Some)
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
     /// Upload one complete captured cut without recapturing the live engine
     /// after object-store I/O. Quorum may continue applying throughout upload.
     /// The checkpoint pool must admit the source before this call; its slot is
@@ -421,75 +586,89 @@ impl CellGroupArchiveUpload {
                     .map_err(|_| CellGroupArchiveError::Stopped)?
                     .await
                     .map_err(CellGroupArchiveError::Worker)??;
-                let mut tail = Tail {
+                let tail = Tail {
                     domain: TAIL_DOMAIN.into(),
                     checkpoint,
                     base,
-                    cut: captured.cut,
+                    cut: captured.cut.clone(),
                     bytes: prefix_bytes,
                     entries: prefix,
                 };
-                let total_entries = tail
-                    .entries
-                    .len()
-                    .checked_add(captured.entries.len())
-                    .ok_or(CellGroupArchiveError::Limit)?;
-                let total_bytes = captured
-                    .entries
-                    .iter()
-                    .try_fold(tail.bytes, |sum, (_, _, bytes)| {
-                        sum.checked_add(bytes.len() as u64)
-                    })
-                    .ok_or(CellGroupArchiveError::Limit)?;
-                if total_entries > limits.max_entries || total_bytes > limits.max_tail_bytes as u64
-                {
-                    return Err(CellGroupArchiveError::Limit);
-                }
-                for (index, term, entry) in captured.entries {
-                    let object = self.put("entries", entry, limits.max_tail_bytes).await?;
-                    tail.bytes = tail
-                        .bytes
-                        .checked_add(object.length)
-                        .ok_or(CellGroupArchiveError::Limit)?;
-                    tail.entries.push(EntryObject {
-                        index,
-                        term,
-                        object,
-                    });
-                }
-                tail.validate(self, limits)?;
-                let archive = self.clone();
-                let retained = retention.clone();
-                let retained_io = io.clone();
-                let encoded = domain
-                    .blocking(move || {
-                        let (_retained, _io) = (retained, retained_io);
-                        let mut output = checkpoint::Bounded {
-                            bytes: Vec::new(),
-                            limit: archive.limits.max_index_bytes,
-                        };
-                        serde_json::to_writer(&mut output, &tail)
-                            .map_err(|_| CellGroupArchiveError::Limit)?;
-                        Ok::<_, CellGroupArchiveError>(output.bytes)
-                    })
-                    .map_err(|_| CellGroupArchiveError::Stopped)?
+                self.append_tail(domain, pool, io, retention, tail, captured)
                     .await
-                    .map_err(CellGroupArchiveError::Worker)??;
-                let object = self
-                    .put("tails", encoded, self.limits.max_index_bytes)
-                    .await?;
-                Ok(CellGroupArchiveUploadedTail {
-                    reference: CellGroupArchiveTailReference {
-                        registry: object.registry,
-                        generation: object.generation,
-                        digest: object.digest,
-                        length: object.length,
-                    },
-                    source: captured.authority,
-                })
             })
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
+    async fn append_tail(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchiveTailPool,
+        io: Arc<Permit>,
+        retention: Arc<Permit>,
+        mut tail: Tail,
+        captured: Capture,
+    ) -> Result<CellGroupArchiveUploadedTail> {
+        let limits = pool.limits;
+        tail.cut = captured.cut;
+        let total_entries = tail
+            .entries
+            .len()
+            .checked_add(captured.entries.len())
+            .ok_or(CellGroupArchiveError::Limit)?;
+        let total_bytes = captured
+            .entries
+            .iter()
+            .try_fold(tail.bytes, |sum, (_, _, bytes)| {
+                sum.checked_add(bytes.len() as u64)
+            })
+            .ok_or(CellGroupArchiveError::Limit)?;
+        if total_entries > limits.max_entries || total_bytes > limits.max_tail_bytes as u64 {
+            return Err(CellGroupArchiveError::Limit);
+        }
+        for (index, term, entry) in captured.entries {
+            let object = self.put("entries", entry, limits.max_tail_bytes).await?;
+            tail.bytes = tail
+                .bytes
+                .checked_add(object.length)
+                .ok_or(CellGroupArchiveError::Limit)?;
+            tail.entries.push(EntryObject {
+                index,
+                term,
+                object,
+            });
+        }
+        tail.validate(self, limits)?;
+        let archive = self.clone();
+        let retained = retention.clone();
+        let retained_io = io.clone();
+        let encoded = domain
+            .blocking(move || {
+                let (_retained, _io) = (retained, retained_io);
+                let mut output = checkpoint::Bounded {
+                    bytes: Vec::new(),
+                    limit: archive.limits.max_index_bytes,
+                };
+                serde_json::to_writer(&mut output, &tail)
+                    .map_err(|_| CellGroupArchiveError::Limit)?;
+                Ok::<_, CellGroupArchiveError>(output.bytes)
+            })
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+            .await
+            .map_err(CellGroupArchiveError::Worker)??;
+        let object = self
+            .put("tails", encoded, self.limits.max_index_bytes)
+            .await?;
+        Ok(CellGroupArchiveUploadedTail {
+            reference: CellGroupArchiveTailReference {
+                registry: object.registry,
+                generation: object.generation,
+                digest: object.digest,
+                length: object.length,
+            },
+            source: captured.authority,
+        })
     }
 }
 

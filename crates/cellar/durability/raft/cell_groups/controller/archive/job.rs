@@ -467,7 +467,7 @@ pub(super) async fn drive(
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "captured",
         index = source.marker().position().index.get());
     let uploaded = upload
-        .upload_cut(execution, &registration.tails, source)
+        .upload_next_cut(execution, &registration.tails, record.head.as_ref(), source)
         .await?;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "uploaded");
     let publication = upload
