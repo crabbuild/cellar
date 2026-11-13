@@ -146,6 +146,8 @@ def removed_rows():
                        current_voters_outgoing=[],current_learners=[],current_learners_next=[],current_auto_leave=False,
                        previous_membership_revision=1,membership_revision=2,membership_revision_after=2,
                        removed_replica_in_configuration=False,removed_replica_member=2,
+                       removed_name_resolved=True,
+                       removed_name_without_grant_refused=True,
                        term=896,term_after=896,version="exact",witness="exact",token="exact",
                        replay_token="refreshed",token_observation_version="exact",token_observation_witness="exact",
                        replay_token_observation_version="exact",replay_token_observation_witness="exact",
@@ -348,6 +350,8 @@ class RemovedEvidenceTests(unittest.TestCase):
     def test_a_removed_label_cannot_replace_membership_and_physical_proof(self):
         for field,value in (("current_voters",[1,2,3]),("previous_voters",[1,3,5]),
                             ("removed_replica_in_configuration",True),("removed_replica_member",3),
+                            ("removed_name_resolved",False),
+                            ("removed_name_without_grant_refused",False),
                             ("previous_membership_revision",2),("current_voters_outgoing",[2]),
                             ("current_learners_next",[2]),("current_auto_leave",True),
                             ("removed_member",99),("seed_member",2)):

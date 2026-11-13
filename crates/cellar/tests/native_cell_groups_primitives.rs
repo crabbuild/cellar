@@ -47,6 +47,8 @@ mod kv_contract;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
+#[path = "support/cell_group_name_fallback.rs"]
+mod name_fallback;
 #[path = "support/cell_group_named_service.rs"]
 mod named_service;
 #[path = "support/cell_group_names.rs"]
@@ -1672,6 +1674,36 @@ async fn rustfs_ordinary_cell_sdk_dispatch_requires_source_proof() -> Result<()>
                 .with_context(|| {
                     format!("RustFS SDK dispatch extents={rooted} durability={durability:?}")
                 })?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_name_discovery_uses_ready_physical_peers() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            Box::pin(name_fallback::run(
+                rooted,
+                durability,
+                Arc::new(catalog_fault::Store::default()),
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_name_discovery_uses_ready_physical_peers() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+                &format!("name-fallback-{durability:?}"),
+                rooted,
+            )?));
+            Box::pin(name_fallback::run(rooted, durability, store)).await?;
         }
     }
     Ok(())

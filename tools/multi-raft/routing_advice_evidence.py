@@ -246,6 +246,8 @@ def _removed_observations(output):
                 or row["membership_revision"] <= row["previous_membership_revision"]
                 or row.get("removed_replica_in_configuration") is not False
                 or type(row.get("removed_replica_member")) is not int or row["removed_replica_member"] != removed
+                or row.get("removed_name_resolved") is not True
+                or row.get("removed_name_without_grant_refused") is not True
                 or row["callbacks_before"] != 1 or row["command"]["sequence"] != 2
                 or type(row.get("replacement_leader")) is not int or row["replacement_leader"] != 5
                 or type(row.get("replacement_served_by")) is not int or row["replacement_served_by"] != 5

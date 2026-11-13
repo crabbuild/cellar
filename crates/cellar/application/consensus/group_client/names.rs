@@ -204,8 +204,11 @@ impl Resolution {
                 next = 0;
             }
             let local = match self.owner.handle.core.log.cell_group(&route.history) {
-                Ok(group) => Some(group.identity().member),
-                Err(LogError::NotFound) => None,
+                // A retained removed-member log is not a local serving owner.
+                Ok(group) if group.consensus_claimed.load(Ordering::Acquire) => {
+                    Some(group.identity().member)
+                }
+                Ok(_) | Err(LogError::NotFound) => None,
                 Err(error) => return Err(CellDispatchError::Runtime(error.into())),
             };
             let mut members = self.members(&route, local).await?;
@@ -311,7 +314,7 @@ impl Resolution {
             QueryRouting::Replicas { members, .. } => Ok(members.clone()),
             QueryRouting::Automatic => {
                 let transport = &self.owner.handle.core.transport;
-                let remote = match transport.cell_query_router_members(route, 8) {
+                match transport.cell_query_candidates(route, 8, local, None, false) {
                     Err(crate::raft::transport::TransportError::UnknownGroup)
                         if local.is_none() =>
                     {
@@ -320,19 +323,14 @@ impl Resolution {
                             .await
                             .map_err(CellDispatchError::Runtime)?;
                         transport
-                            .cell_query_router_members(route, 8)
-                            .map_err(CellDispatchError::Transport)?
+                            .cell_query_candidates(route, 8, local, None, false)
+                            .map_err(CellDispatchError::Transport)
                     }
-                    Err(crate::raft::transport::TransportError::UnknownGroup) => Vec::new(),
-                    result => result.map_err(CellDispatchError::Transport)?,
-                };
-                let mut members: Vec<_> = local.into_iter().collect();
-                for member in remote {
-                    if !members.contains(&member) {
-                        members.push(member);
+                    Err(crate::raft::transport::TransportError::UnknownGroup) => {
+                        Ok(local.into_iter().collect())
                     }
+                    result => result.map_err(CellDispatchError::Transport),
                 }
-                Ok(members)
             }
         }
     }

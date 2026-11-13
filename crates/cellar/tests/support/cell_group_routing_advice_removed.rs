@@ -2,6 +2,7 @@
 
 //! Current authenticated advice cannot reinstall an actually removed voter.
 use super::*;
+use cellar::application::consensus::NamespaceQueryOrigin;
 
 fn stages(cluster: &ManagedCluster) -> Result<u64> {
     let mut started = 0;
@@ -150,6 +151,36 @@ pub(super) async fn exercise(
     let retained_member = retained.member();
     ensure!(!in_configuration && retained_member == removed_member);
 
+    let before_lookup = callbacks.load(Ordering::Acquire);
+    let discover_removed_name = || {
+        cluster.hosts[obsolete].resolve_cell_history(
+            logical.cluster,
+            logical.namespace,
+            logical.cell.clone(),
+            QueryOptions::default(),
+        )
+    };
+    let denied_name = discover_removed_name().await;
+    ensure!(
+        denied_name.is_err(),
+        "former membership granted namespace read access"
+    );
+    ensure!(callbacks.load(Ordering::Acquire) == before_lookup);
+    for member in &voters {
+        let index = usize::try_from(*member - 1)?;
+        cluster.hosts[index].grant_query_origin(NamespaceQueryOrigin {
+            cluster: group.cluster,
+            namespace: group.namespace,
+            revision: 1,
+            peer: cluster.peers[obsolete].clone(),
+        })?;
+    }
+    let removed_name = discover_removed_name()
+        .await
+        .context("removed member must discover names through its current ingress route")?;
+    ensure!(removed_name.as_ref() == Some(&logical));
+    ensure!(callbacks.load(Ordering::Acquire) == before_lookup);
+
     // Leadership moved to member 5, absent from the original configuration.
     // Public receipt replay and a query explicitly served by that new voter
     // establish current client membership before injecting a role-only fault.
@@ -276,6 +307,8 @@ pub(super) async fn exercise(
             "current_learners_next":configuration_state.learners_next, "current_auto_leave":configuration_state.auto_leave,
             "previous_membership_revision":previous_revision.get(), "membership_revision":revision.get(),
             "removed_replica_in_configuration":in_configuration, "removed_replica_member":retained_member.get(),
+            "removed_name_resolved":removed_name.as_ref() == Some(&logical),
+            "removed_name_without_grant_refused":denied_name.is_err(),
             "configuration_digest":hex::encode(configuration), "term":term.get(),
             "seed_term":seed_term, "seed_member":issuer as u64+1, "fault":"RemovedMember",
         }), json!({
