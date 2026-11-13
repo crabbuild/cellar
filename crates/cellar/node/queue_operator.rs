@@ -76,7 +76,10 @@ pub(super) async fn dispatch_authenticated(
     };
     Some(match result {
         Ok(result) => match decode_rpc_result(&result).and_then(|value| value.to_json()) {
-            Ok(value) => response(StatusCode::OK, value.to_string()),
+            Ok(value) => response(
+                StatusCode::OK,
+                serde_json::json!({"result":value}).to_string(),
+            ),
             Err(error) => response(
                 StatusCode::BAD_REQUEST,
                 serde_json::json!({"error":error.to_string()}).to_string(),

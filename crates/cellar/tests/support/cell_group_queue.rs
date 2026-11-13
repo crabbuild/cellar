@@ -860,7 +860,10 @@ async fn admin(
     let status = response.status();
     let body = response.text().await?;
     ensure!(status == 200, "Queue operator {queue}: {status} {body}");
-    Ok(serde_json::from_str(&body)?)
+    let body: serde_json::Value = serde_json::from_str(&body)?;
+    body.get("result")
+        .cloned()
+        .context("Queue operator result envelope")
 }
 
 #[allow(clippy::disallowed_methods)]
