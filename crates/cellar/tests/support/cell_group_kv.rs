@@ -675,9 +675,18 @@ async fn run(
             ensure!(denied > denied_before, "S3 guard did not reach the actual archive adapter");
             ensure!(published == puts_before, "warm locator bypassed source publication proof");
             let cold_before = preparations(&cluster, "cell_kv_resolved_payload_preparations")?;
+            let local_before = local_preparations(&cluster)?;
             public_ok(&cluster, 0, "PublicLarge").await?;
-            ensure!(preparations(&cluster, "cell_kv_resolved_payload_preparations")? == cold_before + 1,
-                "cold ingress did not retain durable enrollment without a preparation command");
+            let cold = preparations(&cluster, "cell_kv_resolved_payload_preparations")? - cold_before;
+            let local = local_preparations(&cluster)? - local_before;
+            ensure!(cold + local == 1, "public large value did not use one pending preparation");
+            // Full conformance enrolled SIDE during Isolation; the focused
+            // window deliberately leaves it cold and requires enrollment.
+            if coverage == Coverage::Preparation {
+                ensure!(cold == 1, "cold ingress bypassed its enrollment path");
+            }
+            ensure!(cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire) == puts_before + 1,
+                "expired source upload started after restoring its archive provider");
             for host in &cluster.hosts {
                 let usage = host
                     .resource_usage()
