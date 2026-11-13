@@ -391,6 +391,51 @@ pub(crate) async fn archive_controller_publish(rooted: bool) -> Result<()> {
     fixture.close().await
 }
 
+pub(crate) async fn archive_controller_tail_rollover(rooted: bool) -> Result<()> {
+    let (mut fixture, route) = setup(rooted).await?;
+    let (mut config, _) = registration(&fixture, &route, rooted).await?;
+    config.tails = CellGroupArchiveTailPool::new(CellGroupArchiveTailLimits {
+        max_entries: 2,
+        ..Default::default()
+    })?;
+    let initial = fixture.runtimes[0]
+        .status(route.history)
+        .await?
+        .applied
+        .index;
+    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    let work = async {
+        controllers[0].archive(config.clone())?.response().await?;
+        published(&controllers[0], route.history, initial).await?;
+        for ordinal in 1..=3 {
+            let cut = add(&fixture, &route, rooted, ordinal).await?;
+            published(&controllers[0], route.history, cut).await?;
+            let coverage = verified_current(
+                &fixture, &config, rooted, &format!("tail-audit-{ordinal}"),
+            ).await?;
+            anyhow::ensure!(coverage.marker().position().index == cut);
+            let base = coverage.recovery().checkpoint().checkpoint().marker().position().index;
+            anyhow::ensure!(
+                base == if ordinal <= 2 { initial } else { cut },
+                "archive must extend its protected prefix, then roll its bounded checkpoint: ordinal={ordinal} base={base:?} cut={cut:?}",
+            );
+        }
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    for controller in controllers {
+        controller.close().await?;
+    }
+    let checked = if work.is_ok() {
+        audit(&fixture, &config, rooted, 3).await
+    } else {
+        Ok(())
+    };
+    drop(config);
+    fixture.close().await?;
+    work?;
+    checked
+}
+
 pub(crate) async fn archive_controller_publish_store(
     rooted: bool,
     store: Arc<dyn ObjectStore>,
