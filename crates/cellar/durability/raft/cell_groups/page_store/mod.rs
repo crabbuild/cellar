@@ -504,6 +504,51 @@ impl ManifestPageStore {
         Ok(())
     }
 
+    /// Import a bounded set of already admitted pages behind one pack barrier.
+    /// Capacity refusal must precede physical changes, so a full destination
+    /// does not quarantine an otherwise usable store halfway through a batch.
+    pub(super) fn put_batch(&mut self, pages: &[([u8; 32], Vec<u8>)]) -> Result<(), ManifestError> {
+        self.require_live()?;
+        if pages.len() > MAX_BATCH_PAGES {
+            return Err(ManifestError::Limit);
+        }
+        let mut count = 0usize;
+        let mut bytes = 0u64;
+        for (index, (key, page)) in pages.iter().enumerate() {
+            if page.is_empty() || page.len() > MAX_PAGE_BYTES || digest(page) != *key {
+                return Err(ManifestError::Invalid("page bytes"));
+            }
+            if let Some((_, prior)) = pages[..index].iter().find(|(prior, _)| prior == key) {
+                if prior != page {
+                    return Err(ManifestError::Invalid("page collision"));
+                }
+                continue;
+            }
+            if self.inventory.contains_key(key) {
+                if self.read(*key)? != *page {
+                    return Err(ManifestError::Invalid("page collision"));
+                }
+            } else {
+                count += 1;
+                bytes = bytes
+                    .checked_add(FRAME_BYTES + page.len() as u64)
+                    .ok_or(ManifestError::Limit)?;
+            }
+        }
+        if count != 0 {
+            bytes = bytes
+                .checked_add(HEADER_BYTES + FOOTER_BYTES)
+                .ok_or(ManifestError::Limit)?;
+        }
+        self.capacity(count, bytes)?;
+        self.with_directory_batch(|store| {
+            for (key, page) in pages {
+                store.put(*key, page)?;
+            }
+            Ok(())
+        })
+    }
+
     pub(super) fn put(&mut self, key: [u8; 32], bytes: &[u8]) -> Result<(), ManifestError> {
         self.require_live()?;
         if bytes.is_empty() || bytes.len() > MAX_PAGE_BYTES || digest(bytes) != key {

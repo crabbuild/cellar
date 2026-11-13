@@ -44,6 +44,22 @@ root digests and checkpoint/archive page streams do not change. An exclusively
 locked opener may discard an incomplete `.pending` file because no selected
 root can name one; it completes a directory barrier before returning.
 
+Checkpoint and archive receivers buffer at most 64 KiB of encoded pages and
+96 descriptors before importing them together. The existing receiver bank
+charges that window, its descriptors and the pack writer's sealing overlap;
+its configured byte and source limits stay unchanged. Header page counts include
+buffered pages, and digest, order, route, cut and image checks still run for
+every received leaf. Small four-page checkpoints share one physical pack.
+
+Each import preflights the complete bounded batch against the destination's
+existing page and byte quotas before writing. A capacity refusal therefore
+leaves the page store usable. The batch's file and directory barriers complete
+before its page pins are retained, and the final batch completes before a
+prepared root escapes. The receiver rechecks its target binding after that
+flush. Cancellation discards unflushed bytes; already flushed packs retain
+ordinary pin and reclamation rules. No directory batch or mutex spans a network
+await, and an append alone supplies no prepared-root or installation authority.
+
 ## Physical reclamation
 
 Usage counts all resident encoded record copies, full encoded file lengths and

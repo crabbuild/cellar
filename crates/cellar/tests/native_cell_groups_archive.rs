@@ -734,6 +734,23 @@ async fn checkpoint_archive_roundtrip_and_reuse() -> Result<()> {
         assert_eq!(archive.usage().operations, 0);
         assert_eq!(sources.usage().sources, 0);
         assert_eq!(receive_pool.usage().sources, 1);
+        let page_directory = cluster._root.path().join("archive-data/pages");
+        let packs = cluster
+            .domain
+            .blocking(move || -> Result<usize> {
+                let mut packs = 0;
+                for entry in std::fs::read_dir(page_directory)? {
+                    if entry?.path().extension().is_some_and(|ext| ext == "pack") {
+                        packs += 1;
+                    }
+                }
+                Ok(packs)
+            })?
+            .await??;
+        assert_eq!(
+            packs, 1,
+            "a small received checkpoint should share one durable manifest pack"
+        );
         for (cell, wanted) in expected {
             let (_, pin) = verified
                 .checkpoint()
@@ -916,6 +933,63 @@ async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
         assert_eq!(pool.usage().sources, 0);
         store.clear();
         gate.release.notify_one();
+        // One receiver batch cannot fit this page inventory. Refuse before
+        // touching a pack, while retaining a usable destination and refunding
+        // the receiver's existing admission after the failed physical job joins.
+        let limited_directory = cluster._root.path().join("limited-receive-pages");
+        let route = cluster.birth.route().clone();
+        let images = applier.apply_images.clone();
+        let page_directory = limited_directory.clone();
+        let limited_store = cluster
+            .domain
+            .blocking(move || -> Result<CellGroupArchiveStore> {
+                Ok(CellGroupArchiveStore::new(
+                    route,
+                    ManifestPageStore::open(
+                        &page_directory,
+                        Arc::new(DirectFileSystem),
+                        2,
+                        16 * 1024 * 1024,
+                        16,
+                    )?,
+                    images,
+                    ManifestLimits::default(),
+                    GroupEntryLimits::default(),
+                    100,
+                )?)
+            })?
+            .await??;
+        let limited = ArchiveDestination {
+            store: limited_store,
+            images: applier.images.clone(),
+            apply_images: applier.apply_images.clone(),
+        };
+        assert!(matches!(
+            archive
+                .verify_checkpoint(
+                    &cluster.domain,
+                    &reference,
+                    receiver(&pool, &limited, &cluster)?,
+                )
+                .await,
+            Err(CellGroupArchiveError::Checkpoint(
+                CellGroupCheckpointError::Manifest(ManifestError::Limit)
+            ))
+        ));
+        assert_eq!(pool.usage().sources, 0);
+        let retry = receiver(&pool, &limited, &cluster)?;
+        drop(retry);
+        assert_eq!(pool.usage().sources, 0);
+        assert_eq!(pool.usage().retained_bytes, 0);
+        cluster
+            .domain
+            .blocking(move || -> Result<()> {
+                for entry in std::fs::read_dir(limited_directory)? {
+                    assert_eq!(entry?.file_name(), "LOCK", "quota refusal wrote a pack");
+                }
+                Ok(())
+            })?
+            .await??;
         cluster.close().await?;
     }
     Ok(())

@@ -3718,3 +3718,65 @@ optimization. This closes the demonstrated stale-observation component defect,
 not the 128-cell latency gap, hosted Linux enrollment matrix, broader native
 failures, current RustFS/Colima qualification or any full CG/OPT gate. No speedup
 is claimed and no request budget, resource limit or durability barrier changes.
+
+## Bounded checkpoint receive page packs
+
+A diagnostic run at published `327742fe`, compiler input `8f0ec3be`, retains
+the original full 1/32/128 workload and captures three bounded stack samples
+during its actual 128-cell phase. Initial competing compiler activity is
+recorded; later observations show that compiler activity has cleared. This is
+stack-path evidence under observed host load, not an uncontended performance
+comparison. The run fails its original test in 189.170 seconds. The prior
+uninstrumented 21-test campaign remains failed independently.
+
+The samples repeatedly observe manifest-pack and archive-journal syncs, alongside
+Raft engine and image-root publication. Workspace creation and cleanup appear
+less frequently in these thread-stack observations; their weights do not measure
+nonoverlapping wall time. Inspection finds that checkpoint receipt calls the
+page store once per leaf, creating one durable pack per received page.
+
+At test-only input `5c5ab417`, the existing public archive roundtrip fails its new
+four-page, one-pack assertion in 0.434 seconds: four physical packs are observed.
+Production is unchanged at this red checkpoint. The failure occurs in the first
+materialized-image loop, before the extent loop runs; no broader result follows.
+
+The candidate buffers a bounded 64-KiB/96-page window under explicitly charged
+existing receiver admission, while leaving the parent limits unchanged. It
+preflights destination capacity before a batch writes, preserves all leaf/image
+checks and completes each batch's file/directory barriers before page pins or a
+prepared root escape. Page counts include buffered leaves and target validation
+repeats after the final flush. The existing quota/cancellation control additionally
+requires that a refused batch leaves the destination live and writes no pack.
+The first component campaign at input `d702ba17` passes all 33 ordinary archive
+tests, with eight explicit RustFS cases ignored. Checkpoint execution passes 31
+tests and fails two recovery fixtures: they assume a checkpoint-only root page
+occupies a different physical file from every current-root dependency. Receipt
+batching now correctly co-locates some of these distinct logical pages.
+
+The fixture correction independently repacks that closed store only after every
+engine, runtime and pin has gone. It verifies every original page byte and digest
+is unchanged, then retains the original assertions that the missing-file fault
+damages only the old checkpoint and leaves every current-root dependency intact.
+Missing-checkpoint refusal and successful recovery after restoring the file
+remain required.
+
+At corrected fixture input `c3accf6b`, all 88 selected ordinary tests pass:
+33 archive, 33 checkpoint execution and 22 storage tests, including the existing
+crash-cut parents. The eight RustFS cases and two child-only process fixtures
+retain their explicit ignores; storage parents launch their owned crash children.
+The locked Rust 1.98.1 build, formatting/layout, focused strict Clippy, native
+dependency and documentation checks pass. The test profile retains optimization
+level one, debug assertions and overflow checks. Binaries are frozen and input
+guards remain unchanged throughout each campaign.
+
+The complete original 21-test performance target still fails: 20 pass, one fails,
+zero skip, in 425.397 seconds. Its original 1/32/128 matrix reaches the unchanged
+sixty-second enrollment deadline at 121/128 group-zero cells on each voter; each
+second group has one cell. The failed fixture retains its disks and joins cleanup.
+The separate 128-cell diagnostic and rooted 32-cell control pass; neither replaces
+the failed matrix. No competing compiler or native fixture is observed at target
+start or at the recorded activity samples. These observations do not establish
+uncontended execution or a repeatable speedup. The receiver packing component is
+verified; the original 128-cell latency gap, stable Queue progress, broader native
+failures, matching RustFS/Colima/Linux qualification and full CG/OPT gates remain
+open. No earlier failed campaign is relabeled.

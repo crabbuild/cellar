@@ -19,6 +19,14 @@ use std::{collections::BTreeMap, path::PathBuf};
 // decoding, header/page encoding, scratch verification and traversal stacks.
 const RECEIVE_WORKSPACE: usize = 2 * EXTENT_BYTES as usize + 2 * 1024 * 1024;
 
+// Retain one bounded encoded-page window in the existing receiver bank. The
+// pack writer's index/sealing overlap is charged before any input is accepted.
+const PAGE_BATCH_BYTES: usize = 64 * 1024;
+const PAGE_BATCH_PAGES: usize = super::super::page_store::MAX_BATCH_PAGES;
+const PAGE_BATCH_ADMISSION: usize = PAGE_BATCH_BYTES
+    + PAGE_BATCH_PAGES * std::mem::size_of::<([u8; 32], Vec<u8>)>()
+    + super::super::page_store::DIRECTORY_BATCH_BYTES;
+
 pub(super) trait Target {
     fn storage(&self) -> &Arc<std::sync::Mutex<super::super::apply::Storage>>;
 
@@ -187,6 +195,8 @@ pub(super) struct State<T> {
     cell: Option<ReceivingCell>,
     images: BTreeMap<CellKey, (CellManifestLeaf, CellImagePin)>,
     pages: Vec<super::super::page_store::ManifestPagePin>,
+    pending_pages: Vec<([u8; 32], Vec<u8>)>,
+    pending_page_bytes: usize,
     last_key: Option<CellKey>,
     transferred: u64,
     failed: bool,
@@ -213,6 +223,7 @@ impl<T: Target> State<T> {
             .and_then(|n| n.checked_add(cells.checked_mul(4096)?))
             .and_then(|n| n.checked_add(extents.checked_mul(2048)?))
             .and_then(|n| n.checked_add(RECEIVE_WORKSPACE))
+            .and_then(|n| n.checked_add(PAGE_BATCH_ADMISSION))
             .and_then(|n| n.checked_add(extra_bytes))
             .ok_or(CellGroupCheckpointError::Limit)?;
         pool.budget
@@ -249,6 +260,8 @@ impl<T: Target> State<T> {
             cell: None,
             images: BTreeMap::new(),
             pages: Vec::new(),
+            pending_pages: Vec::with_capacity(PAGE_BATCH_PAGES),
+            pending_page_bytes: 0,
             last_key: None,
             transferred: 0,
             failed: false,
@@ -382,9 +395,21 @@ impl<T: Target> State<T> {
             return Err(CellGroupCheckpointError::Limit);
         }
         let limit = match &kind {
-            Kind::Header if self.header.is_none() && self.pages.is_empty() => HEADER_LIMIT as u64,
+            Kind::Header
+                if self.header.is_none()
+                    && self.pages.is_empty()
+                    && self.pending_pages.is_empty() =>
+            {
+                HEADER_LIMIT as u64
+            }
             Kind::Page(_) if self.header.is_some() && self.cell.is_none() => {
-                if self.pages.len() >= self.header.as_ref().unwrap().root.root().cells() as usize {
+                if self
+                    .pages
+                    .len()
+                    .checked_add(self.pending_pages.len())
+                    .ok_or(CellGroupCheckpointError::Limit)?
+                    >= self.header.as_ref().unwrap().root.root().cells() as usize
+                {
                     return Err(invalid("extra checkpoint page"));
                 }
                 page_wire::MAX_PAGE_BYTES as u64
@@ -522,16 +547,11 @@ impl<T: Target> State<T> {
                 {
                     return Err(invalid("checkpoint leaf order/cut"));
                 }
-                let mut storage = self
-                    .target
-                    .storage()
-                    .lock()
-                    .map_err(|_| invalid("receiver storage"))?;
-                storage.pages.put(digest, &bytes)?;
-                self.pages.push(storage.pages.pin(digest)?);
+                let schema_digest = header.root.route().schema_digest;
+                self.queue_page(digest, bytes)?;
                 self.last_key = Some(key.clone());
                 if page.leaf.version.image.txid == 0 {
-                    CellImagePin::Empty.check(&page.leaf, header.root.route().schema_digest)?;
+                    CellImagePin::Empty.check(&page.leaf, schema_digest)?;
                     self.images.insert(key, (page.leaf, CellImagePin::Empty));
                 } else {
                     self.cell = Some(ReceivingCell {
@@ -630,17 +650,62 @@ impl<T: Target> State<T> {
         Ok(())
     }
 
-    pub(super) fn finish(self) -> Result<Received<T>> {
+    fn queue_page(&mut self, digest: [u8; 32], bytes: Vec<u8>) -> Result<()> {
+        if bytes.len() > PAGE_BATCH_BYTES {
+            return Err(CellGroupCheckpointError::Limit);
+        }
+        let next = self
+            .pending_page_bytes
+            .checked_add(bytes.len())
+            .ok_or(CellGroupCheckpointError::Limit)?;
+        if next > PAGE_BATCH_BYTES || self.pending_pages.len() == PAGE_BATCH_PAGES {
+            self.flush_pages()?;
+        }
+        self.pending_page_bytes += bytes.len();
+        self.pending_pages.push((digest, bytes));
+        Ok(())
+    }
+
+    fn flush_pages(&mut self) -> Result<()> {
+        if self.pending_pages.is_empty() {
+            return Ok(());
+        }
+        let mut storage = self
+            .target
+            .storage()
+            .lock()
+            .map_err(|_| invalid("receiver storage"))?;
+        storage.pages.put_batch(&self.pending_pages)?;
+        // The batch's file and directory barriers precede every retained pin.
+        // No mutex or unfinished directory batch survives this blocking call.
+        for (digest, _) in self.pending_pages.drain(..) {
+            self.pages.push(storage.pages.pin(digest)?);
+        }
+        self.pending_page_bytes = 0;
+        Ok(())
+    }
+
+    pub(super) fn finish(mut self) -> Result<Received<T>> {
         if self.failed || self.part.is_some() || self.cell.is_some() {
             return Err(invalid("incomplete checkpoint"));
         }
-        let header = self.header.ok_or(invalid("missing checkpoint header"))?;
+        let header = self
+            .header
+            .take()
+            .ok_or(invalid("missing checkpoint header"))?;
         if self.images.len() != header.root.root().cells() as usize
-            || self.pages.len() != self.images.len()
+            || self
+                .pages
+                .len()
+                .checked_add(self.pending_pages.len())
+                .ok_or(CellGroupCheckpointError::Limit)?
+                != self.images.len()
         {
             return Err(invalid("incomplete closure or changed receiver base"));
         }
         self.target.require_live()?;
+        self.target.check_finish(&header)?;
+        self.flush_pages()?;
         self.target.check_finish(&header)?;
         let root = {
             let mut storage = self
