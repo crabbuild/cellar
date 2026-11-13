@@ -319,7 +319,10 @@ async fn run(
     backend: Option<&rustfs::StoreConfig>,
     external: bool,
 ) -> Result<()> {
-    let _=tracing_subscriber::fmt().with_env_filter("cellar::raft::cell_groups::controller::effects=debug,cellar::raft::cell_groups::dispatch=debug").with_test_writer().try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::enrollment=debug")
+        .with_test_writer()
+        .try_init();
     let observed = Arc::new(Observed::default());
     let (application, declared) = application(observed.clone())?;
     let mut fixture = Fixture::with_namespaces(
@@ -698,6 +701,11 @@ async fn run(
     if let Some(http) = http {
         if let Err(error) = http.close().await {
             failures.push(error.to_string());
+        }
+    }
+    if !matches!(&work, Ok(Ok(()))) || !failures.is_empty() {
+        for root in std::mem::take(&mut cluster.roots) {
+            eprintln!("retained Queue disk: {}", root.keep().display());
         }
     }
     work??;
