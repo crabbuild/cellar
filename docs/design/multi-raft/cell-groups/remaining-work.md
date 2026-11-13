@@ -41,20 +41,22 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Close the original-deadline binding and SQL/KV recovery gates. At `478842a0`,
-   the complete native KV drill and focused preparation/source-proof regression
-   each pass **2/2** images. Applied-metadata preparation, admitted cold stateless
-   enrollment and operator JSON staging remove redundant work. Canonical one-CPU
-   RustFS KV remains **0/4** complete configurations: all four pass the 25-MiB
-   SDK round trip and ordinary CLI, then fail the large CLI put. Three traces
-   enter target execution with 2.296–2.497 seconds left; isolate verification and
-   checkpoint time inside that target without changing the original budget.
-   See the [current KV checkpoint](progress.md#cg-17-kv-preparation-and-original-budget-qualification).
-   Ordinary bindings remain **2/4; FAILED** at `b99f12c4`, with both S3-source
-   modes timing out; interrupted-binding recovery passes **4/4** native modes
-   at that source. The separate RPC I/O cap is fixed, but source-proof latency
-   remains unresolved. Preserve the old-binary deadline control and complete
-   autonomous recovery/sequence sealing qualification on the combined source.
+1. Close the original-deadline binding and SQL/KV recovery gates. At `bc7284b1`,
+   proven payload I/O progresses with SQLite parked, and readiness directly
+   wakes its existing SQL worker. The formerly failing fragmented-body
+   regression, source-proof/cold-enrollment regression and complete native KV
+   drill each pass **2/2** images. Canonical one-CPU RustFS KV remains
+   **1/4; FAILED**: Axum/extents passes the complete SDK/CLI and lifecycle drill;
+   the other modes miss expiry, public-contract or large-GET deadlines.
+   A sequential same-source native RustFS control passes **2/2**, including
+   25-MiB CLI put/get and all faults, after the old frozen build fails both large
+   puts. Preserve the canonical failures and establish stable cold/expiry and
+   full native/Axum qualification under the original budgets. See the
+   [current checkpoint](progress.md#cg-17-proven-payload-io-and-sql-worker-readiness).
+   Native named bindings pass **3/4** configurations; the materialized S3 source
+   still misses its five-second parent. Interrupted binding recovery and sequence
+   sealing pass **4/4** native configurations at this same source. Reduce the
+   remaining S3 proof work, then complete combined-source real-RustFS recovery.
    SQL SDK/operator/CLI has older scoped **8/8** coverage at `979addd0`, while
    after-child parent recovery remains **14/16; FAILED** at `b3aacf7a`.
    The canonical one-CPU SQL suite is unrun. Finish cold startup, interruption,

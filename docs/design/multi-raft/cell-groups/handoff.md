@@ -8,37 +8,40 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 KV configuration/grants, SDK and native/Axum ingress, authenticated operator/CLI,
 revision conditions, expiry and immutable full-size value transport are implemented.
-At `478842a0`, the complete native KV drill passes **2/2** images. A separate
-focused preparation regression passes **2/2**, including denied S3 source proof,
-no late upload after provider restoration, and cold stateless enrollment.
-Applied metadata supplies pending locators without a preparation command;
-cold stateless preparation keeps admitted discovery/durable enrollment but
-does not allocate a command sequence. Stateful cold preparation retains durable
-source intents. Operator JSON staging releases base64 before publication and
-passes only compact references through the native codec. Receiver full-byte
-verification, source proof, actual-write fences and original budgets remain.
+Source `bc7284b1` polls only proven payload I/O while SQLite stays parked, avoiding
+image reopening on stream readiness. Storage and application continuations still
+require a resumed writer. Callback/queue readiness directly unparks the existing
+SQL owner. No worker, queue capacity or per-cell task is added; proof, fencing,
+original deadlines and synchronous cancellation ownership remain intact.
 
-Canonical one-CPU RustFS KV remains **0/4** complete configurations. All four
-pass the 25-MiB SDK round trip with one publication and ordinary CLI operations,
-then fail the original-three-second large CLI put. Three failures reach target
-execution with 2.296–2.497 seconds remaining; isolate full-byte verification and
-checkpoint phases next. Later RustFS proof-guard/restart/archive/quorum phases
-are unrun. Ordinary native bindings pass **2/4** at `b99f12c4`, failing both
-S3-source modes; interrupted recovery passes **4/4** there. The unchanged workload also
-fails **2/4** in a sequential old-`d1f8535f` binary control, so the cause is not
-isolated. Preserve these failures and original budgets. See the
-[current KV results](progress.md#cg-17-kv-preparation-and-original-budget-qualification)
-and [binding controls](progress.md#cg-17-request-execution-deadlines-and-combined-source-qualification).
+The asynchronous-fragment regression, source-proof/cold-enrollment regression
+and complete native KV drill each pass **2/2** images. The old asynchronous
+control fails both payload deadlines under the same limits. Native named
+bindings pass **3/4** Quorum/S3 configurations; materialized S3 still expires
+after child return. Interrupted recovery/sequence sealing passes **4/4**.
 
-Evidence is `CG-17-kv-preparation-478842a0-04`: frozen binaries/CLI, source
-inputs, complete logs, twelve retained failure disks and a verified workspace
-backup. Strict affected-target Clippy, format/layout, dependencies/docs and 69
-Python checks pass. Preserve the `5830817f`, `028f3a0a`, `912d181c` and earlier
-`b99f12c4` controls. The owned backend and VM are stopped. Next isolate
-source-proof and target-execution latency, finish
-external-object dependency verification before disaster admission, then close
-SQL/KV lifecycle coverage and advance the shared callback adapters below. Full
-primitive acceptance remains open; keep the chained twenty-second load control.
+The canonical one-CPU/2-GiB RustFS KV suite remains **1/4; FAILED**.
+Axum/extents passes the complete SDK/actual-CLI drill, including 25-MiB values,
+restart, provider/archive failure and quorum refusal. Native/materialized misses
+autonomous expiry, native/extents a public contract deadline, and Axum/materialized
+the CLI large-GET body deadline. A sequential old/current frozen native control
+then fails both large puts on old `83150c51` and passes the full drill **2/2** on
+current `bc7284b1`. The failed canonical cohort is retained; that diagnostic
+control does not establish stable cold-start/deadline qualification. See the
+[current results](progress.md#cg-17-proven-payload-io-and-sql-worker-readiness).
+
+Evidence: `CG-17-kv-parked-io-bc7284b1-08`, old/current controls
+`CG-17-kv-old-control-83150c51-09` and `CG-17-kv-current-control-bc7284b1-10`,
+and the preceding `05`–`07` diagnostic/fragment controls. Source inputs, frozen
+executables/CLI, complete logs and failure disks have verified workspace backups.
+Strict affected-target Clippy, format/layout, dependencies/docs and 69 Python
+checks pass. The owned backend and VM are stopped with objects retained.
+
+Next reduce materialized S3 source-proof latency, stabilize cold/expiry and the
+complete original-budget RustFS suite, then verify trusted external-object
+dependencies before disaster admission. Finish SQL/KV lifecycle coverage and
+the shared callback adapters below. Full family acceptance stays open; retain
+the earlier deadline failures and chained twenty-second load control.
 
 ## Current Queue checkpoint
 

@@ -27,6 +27,66 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 proven payload I/O and SQL worker readiness
+
+Source `bc7284b1` lets source-proven payload transfers progress while SQLite
+stays parked. Previously, network readiness could reopen the private image just
+to poll another body chunk. The SQL owner now polls only the tagged, proven
+transfer in that state. Ordinary Storage and application continuations still
+require a resumed writer. Invocation, retirement, route, term and original
+deadline checks remain on every transfer poll. General binding tasks retain
+their existing SQL resume path.
+
+Callback readiness also unparks the existing physical SQL worker directly.
+Previously it only set a flag, leaving an idle worker to discover readiness on
+its ten-millisecond tick. Queue producers use the same wake token. Worker count,
+channel capacity, semaphores, payload byte limits and cancellation ownership are
+unchanged; there are no added per-cell tasks or queue entries.
+
+The new owning regression streams a 25-MiB SDK put/get in 16-KiB chunks with
+asynchronous one-millisecond readiness. It keeps the ten-second payload I/O and
+twenty-second parent budgets. The frozen old `ca938a10` control fails both image
+modes on payload deadlines; `bc7284b1` passes both, with one actual publication.
+The earlier self-yielding `bba7a665` control passes because it marks the callback
+ready immediately and does not reproduce a network wait; it is retained as a
+negative diagnostic control.
+
+| Gate at `bc7284b1` | Result |
+| --- | --- |
+| Asynchronously fragmented payload regression | **2/2 native image configurations pass** |
+| Source-proof refusal, no late upload and cold enrollment | **2/2 native image configurations pass** |
+| Complete native KV API, restart, provider/archive failure and quorum refusal | **2/2 image configurations pass** |
+| Canonical RustFS KV, native/Axum and both images | **1/4 complete configurations; FAILED** |
+| Native named bindings, Quorum/S3 sources | **3/4 configurations; FAILED** |
+| Native interrupted binding recovery and sequence sealing | **4/4 configurations pass** |
+| Strict affected-target Clippy, format/layout, dependencies/docs and Python checks | **Pass; 69 Python tests** |
+
+The canonical RustFS cohort passes the full Axum/extent drill, including actual
+25-MiB CLI put/get, source-proof refusal, retained restart, archive/provider
+failure and quorum refusal. Native/materialized fails autonomous expiry;
+native/extents misses a public contract deadline. Axum/materialized passes the
+25-MiB SDK round trip, then its CLI large GET expires while fetching the external
+body. Those three do not complete the drill. The expiry wait and request budgets
+are unchanged.
+
+A sequential old/current frozen control uses the unchanged complete native
+RustFS case. The old `83150c51` executable, with production/CLI at `478842a0`,
+passes the earlier checks but fails both large CLI puts. The following current
+`bc7284b1` control passes **2/2** native image configurations, including the large
+CLI and all lifecycle/fault phases. This does not replace the failed canonical
+cohort or prove deadline stability; the earlier native failures did not repeat
+in that control. The remaining named-binding failure is the materialized S3
+source: its child calls return, but the original five-second parent expires.
+
+Evidence is `CG-17-kv-parked-io-bc7284b1-08`, with the old/current controls in
+`CG-17-kv-old-control-83150c51-09` and
+`CG-17-kv-current-control-bc7284b1-10`. Frozen executables/CLI, source inputs,
+complete logs and failure disks are retained with verified workspace backups.
+The owned backend and VM are stopped with objects retained. Full primitive
+acceptance remains open. Next close materialized S3 proof latency and stable
+cold/expiry/full RustFS qualification, then external-object recovery closure and
+the remaining committed-work adapters. Queue's qualified pin remains `9498029b`.
+
 ## CG-17 KV preparation and original-budget qualification
 
 Source `478842a0` removes redundant preparation work from large KV calls.
