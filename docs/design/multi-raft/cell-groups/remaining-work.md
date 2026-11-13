@@ -62,8 +62,24 @@ but passes the archive guard. Keep both current failures and their evidence
 limits open. See the [latest checkpoint](progress.md#cg-17-ordinary-native-ingress-and-durable-alarms)
 and [alarm contract](durable-alarms.md).
 
-1. Resolve the reproduced Queue enrollment refusal and current archive-deadline
-   guard, then finish durable alarms/cron, EventStream and Workflow on the
+At `4d6f7d2f`, competing enrollment has bounded waits before initializer enqueue;
+all six real TLS race scenarios, eight enrollment safety tests and six native
+primitive/archive guards pass. Live bindings pass **7/8 native/RustFS
+configurations**: materialized S3 still misses its original five-second parent
+deadline after both child calls return. Interrupted recovery and safe sequence
+sealing pass **8/8**. Real RustFS enrollment proof/deadline guards pass all six
+scenarios. Queue still fails its native parent deadline during local admission
+contention, so the canonical RustFS Queue campaign is unrun. Preserve both
+failed cohorts and their six voter disks. The current archive guard passes, but
+the older intermittent failure remains unexplained. See the
+[latest results](progress.md#cg-17-bounded-competing-enrollment).
+
+1. Close the live materialized S3 binding deadline and Queue overlap/ownership
+   path under the existing budgets and quotas. Identify the retained command
+   and SQL checkpoint owners before changing admission policy; the current
+   resource snapshot alone does not establish a deadlock. Retain the earlier
+   archive-deadline failure until its cause and regression are established.
+   Then finish durable alarms/cron, EventStream and Workflow on the
    [qualified callback and Queue implementation](queue-durable-work.md).
    Ordinary alarms now pass their normal SDK, replacement/cancellation and
    autonomous retained-restart cases. Implement durable failure/backoff
@@ -81,8 +97,8 @@ and [alarm contract](durable-alarms.md).
    four producers/two in-flight requests; cold S3 first use and higher concurrency
    remain open alongside full-size payload, clock, deployment-change,
    movement/wake, disk-loss and independent Linux gates. Queue's qualified
-   source is separate; the `d22ef830` native Queue guard is failed, and its
-   frozen predecessor reproduces that failure.
+   source is separate; the current native Queue guard remains failed after
+   bounded enrollment waiting. Its older frozen predecessor also fails.
 2. Complete the remaining binding and SQL/KV recovery boundaries. The current
    cases use a Quorum destination minimum; add target-S3, before-child-completion,
    concurrent creation/cross-class and interrupted large-call cases. Finish

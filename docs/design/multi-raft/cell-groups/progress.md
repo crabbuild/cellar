@@ -27,6 +27,63 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 bounded competing enrollment
+
+Source `4d6f7d2f` adds bounded waiting for competing first creators. A binding
+may wait on a typed local overload only when it proves no admission occurred.
+Once admitted, SQL must explicitly prove refusal before enqueue before the
+controller can wait for a logical writer or reservation. The same captured
+initializer inputs, preview, creation, route attempt and original deadline remain
+owned; every attempt reacquires current applied authority. Entered initializer
+errors and lost replies retain their existing reconciliation and shutdown paths.
+No admission limit, request deadline, format marker or idle-cell task changes.
+See the [binding contract](named-bindings.md#source-intent-and-target-proof).
+
+| Gate at `4d6f7d2f` | Result |
+| --- | --- |
+| Real TLS competing creators: same creation, conflicting incarnation, original deadline; both images | **All six scenarios pass in one exact test** |
+| Existing initializer error, lost reply, disconnect, revocation, deadline, late preparation and shutdown guards | **8/8 exact tests pass** |
+| Native SDK source proof, named bindings, interrupted recovery, alarms and two archive guards | **6/6 exact tests pass** |
+| Named bindings, both images and Quorum/S3 sources | **Native 4/4; real RustFS 3/4 configurations pass** |
+| Autonomous interrupted binding recovery and sequence sealing | **8/8 native/RustFS configurations pass** |
+| Real RustFS original enrollment proof and deadline/cancellation guards | **Two exact tests pass: two proof and four deadline/cancellation scenarios** |
+| Existing native ordinary Queue regression | **FAILED: parent sequence 2 reaches its original deadline** |
+| Strict affected-target Clippy, format/layout, dependency/docs checks | **Pass** |
+| Runner and plan unit tests | **16 and 44 tests pass** |
+
+The materialized S3 named-binding configuration fails on parent sequence 2 after
+both child calls return; the second returns 3,551 ms after callback entry. The
+original five-second parent budget remains unchanged. The earlier `9f6a5d08`
+8/8 checkpoint does not establish reliable current-source deadline qualification.
+Keep `CG-17-enrollment-rustfs-4d6f7d2f-35` **FAILED**, with its three voter disks.
+Target-S3 and combined lifecycle recovery remain separate open gates.
+
+The Queue failure is retained in `CG-17-enrollment-wait-4d6f7d2f-33`, also with
+three voter disks. Its snapshot observes both ordinary command slots occupied,
+one active callback and no quarantine while a local enrollment admission wait
+is recorded. This observation does not prove a deadlock cause. The canonical
+RustFS Queue campaign is unrun after this failed native gate. The existing
+archive-deadline guard passes in `CG-17-enrollment-foundation-4d6f7d2f-34`, but
+that pass does not resolve the earlier intermittent cohort-24 failure.
+
+Failed controls preserve the diagnostic progression: local overload in cohort
+27, operator redrive timeout in 28 and remote `Execution(Busy)` in 29. The frozen
+pre-fix TLS control `CG-17-enrollment-control-7bc4cc9c-30` returns uncertain
+`Unavailable` before the first creator resolves. Cohort 32 initially timed out
+because its test held the sole SQL response reservation. The corrected fixture
+copies its first receipt and releases that response before waiting for another;
+it preserves the one-slot quota and all assertions. Controls 30/32 close their
+temporary disks; their frozen executables and original logs remain. The other
+failed Queue diagnostic disks remain retained.
+
+The runtime and fixtures have verified evidence/binary backups. The real RustFS
+backend has one CPU/2 GiB; RF3 voters share a native process, separate disks and
+one SQL worker per node. The owned backend and VM are stopped with objects
+retained. This is component qualification, not independent Linux voter, full
+primitive-family or release acceptance. Full-plan totals remain **13/17 tasks
+and 147/195 cases**. Prioritize the live S3 binding deadline and Queue ownership
+path before alarm failure/backoff exhaustion, cron and subsequent families.
+
 ## CG-17 ordinary native ingress and durable alarms
 
 Source `d22ef830` delivers stateless ordinary named-cell RPC ingress and fixes

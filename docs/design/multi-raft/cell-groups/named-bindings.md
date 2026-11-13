@@ -384,6 +384,16 @@ Full primitive-family and combined lifecycle qualification remain open; see the
 
 ## Remaining qualification and delivery
 
+At `4d6f7d2f`, the real TLS competing-creator test passes matching creation,
+conflicting incarnation and original-deadline scenarios in both image modes.
+Eight existing enrollment safety tests and the six selected native primitive/
+archive guards pass. Live named bindings pass **7/8 native/RustFS
+configurations**; materialized S3 still misses its five-second parent deadline
+after both child calls return. Interrupted recovery and sequence sealing pass
+**8/8**. Real RustFS enrollment proof and deadline/cancellation guards pass six
+scenarios. The current Queue deadline remains failed. Preserve these limits;
+see the [current results](progress.md#cg-17-bounded-competing-enrollment).
+
 At runtime `9f6a5d08`, named bindings and interrupted recovery/sequence sealing
 each pass all eight native/RustFS image/source-durability configurations under
 the original budgets. The canonical real-RustFS SQL SDK/operator/CLI paths pass
@@ -391,7 +401,7 @@ four image/ingress configurations and eight interrupted success/error recovery
 configurations. Canonical RustFS KV passes four image/ingress configurations
 with the same frozen runtime/CLI; qualification-only `1bda606a` captures diagnostics
 without weakening the strict exact-case verifier. See the
-[current results](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
+[earlier results](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
 
 The focused public regression exercises ordinary named calls, repeated calls,
 multiple destinations, owned structured values, recursive self-calls with live

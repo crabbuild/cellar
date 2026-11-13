@@ -4,7 +4,45 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current native ingress and alarm checkpoint
+## Current competing enrollment checkpoint
+
+Source `4d6f7d2f` waits for enrollment capacity only on proven local non-admission
+or explicit SQL refusal before enqueue. Admitted waits retain initializer inputs,
+preview, creation, route attempt and original deadline, and reacquire current
+applied authority. Entered initializer errors and lost replies never re-enter
+initialization. Quotas, markers and the shared ownership model remain unchanged.
+
+The real TLS regression passes all six image/scenario combinations: matching
+creation, conflicting incarnation and deadline expiry while the first initializer
+is held. Eight existing enrollment safety tests and all six native SDK/binding/
+recovery/alarm/archive guards pass, as do strict affected-target Clippy, static
+checks and all 60 Python tests.
+
+Live named bindings pass **7/8 native/RustFS configurations**. Materialized S3
+still misses the original five-second parent deadline on sequence 2 after both
+children return. Autonomous interrupted recovery and safe sequence sealing pass
+**8/8**. Real RustFS enrollment proof and deadline/cancellation guards pass all
+six scenarios. This supersedes any inference of reliable current-source live
+binding deadlines from the older successful `9f6a5d08` run.
+
+Keep cohorts `CG-17-enrollment-wait-4d6f7d2f-33` and
+`CG-17-enrollment-rustfs-4d6f7d2f-35` **FAILED**. Queue still reaches its parent
+deadline with ordinary admission full during a local enrollment wait. Three
+Queue and three S3 binding voter disks are retained. Cohort 34 passes the
+remaining native guards; its archive-deadline pass does not explain the older
+intermittent failure. The RustFS Queue campaign remains unrun behind its native
+gate. Earlier failed controls, logs and frozen executables remain backed up;
+see [exact results](progress.md#cg-17-bounded-competing-enrollment).
+
+Next close the live S3 binding deadline and Queue overlap/ownership path, then
+finish SQL/KV target-S3 and interruption/lifecycle boundaries. Continue ordinary
+alarm failure/backoff exhaustion and cron, broader Queue, EventStream and
+Workflow, then the remaining adapters and combined recovery/release matrix.
+Do not expand timeouts or admission banks to mask these failures. The owned
+RustFS backend and VM are stopped with objects retained. Full-plan acceptance
+remains **13/17 tasks and 147/195 cases**; no complete family is accepted.
+
+## Previous native ingress and alarm checkpoint
 
 Source `d22ef830` implements ordinary stateless named-cell RPCs through the
 admitted shared-group pipeline and fixes alarm visibility in callbacks and
