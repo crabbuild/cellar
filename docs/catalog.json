@@ -709,6 +709,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/payload-storage.md",
+      "title": "Immutable cell payload storage",
+      "summary": "Namespace-bound external payload publication, verified reads and retention before ordinary KV integration.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/progress.md",
       "title": "Cell-group implementation progress",
       "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",

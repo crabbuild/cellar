@@ -1,6 +1,6 @@
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-"""The SQL campaign uses its captured CLI and refuses invalid provenance."""
+"""Qualification campaigns preserve provenance and report their actual scope."""
 
 import contextlib
 import io
@@ -16,16 +16,16 @@ import cell_groups
 
 
 class SqlCampaignTests(unittest.TestCase):
-    def campaign(self, fault=None):
+    def campaign(self, fault=None, suite="ordinary-sql-bindings"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            executable = root / "target/debug/deps/native_cell_groups_primitives-abcdef"
+            target, cases, _, _ = cell_groups.SUITES[suite]
+            executable = root / f"target/debug/deps/{target}-abcdef"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"test executable fixture")
             cli = executable.parent.parent / "cellar"
             cli.write_bytes(b"SQL CLI fixture")
             output = root / "evidence"
-            target, cases, _, _ = cell_groups.SUITES["ordinary-sql-bindings"]
             executed = []
 
             def run(argv, **kwargs):
@@ -43,10 +43,11 @@ class SqlCampaignTests(unittest.TestCase):
                     return subprocess.CompletedProcess(
                         argv, 0, prefix + "\n".join(f"{case}: test" for case in cases)
                     )
-                retained = Path(env["CELLAR_CELL_GROUPS_SQL_CLI"])
-                self.assertEqual(retained, output / "cellar")
-                self.assertNotEqual(retained, cli)
-                self.assertEqual(retained.read_bytes(), b"SQL CLI fixture")
+                if suite == "ordinary-sql-bindings":
+                    retained = Path(env["CELLAR_CELL_GROUPS_SQL_CLI"])
+                    self.assertEqual(retained, output / "cellar")
+                    self.assertNotEqual(retained, cli)
+                    self.assertEqual(retained.read_bytes(), b"SQL CLI fixture")
                 executed.append(selection)
                 if fault == "tamper":
                     retained.write_bytes(b"changed after capture")
@@ -61,7 +62,7 @@ class SqlCampaignTests(unittest.TestCase):
                       "endpoint": "http://127.0.0.1:1234"}
             credentials = {"RUSTFS_ACCESS_KEY": "access-fixture",
                            "RUSTFS_SECRET_KEY": "secret-fixture"}
-            argv = ["cell_groups.py", "--suite", "ordinary-sql-bindings",
+            argv = ["cell_groups.py", "--suite", suite,
                     "--backend", str(root / "backend"), "--output", str(output),
                     "--target-directory", str(root / "target")]
             with (patch.object(sys, "argv", argv),
@@ -83,7 +84,12 @@ class SqlCampaignTests(unittest.TestCase):
             else:
                 self.assertEqual(record["status"], "PASSED")
                 self.assertEqual(executed, list(cases))
-                self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
+                if suite == "ordinary-sql-bindings":
+                    self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
+                else:
+                    self.assertNotIn("operator_cli", record)
+                    self.assertNotIn("three-voter", record["limitations"])
+                    self.assertIn("no Raft voters", record["limitations"])
 
     def test_sql_uses_the_frozen_cli_for_every_case(self):
         self.campaign()
@@ -93,6 +99,9 @@ class SqlCampaignTests(unittest.TestCase):
 
     def test_sql_refuses_success_with_no_selected_test(self):
         self.campaign("zero")
+
+    def test_payload_campaign_does_not_claim_voter_or_cli_qualification(self):
+        self.campaign(suite="immutable-payloads")
 
 
 if __name__ == "__main__":

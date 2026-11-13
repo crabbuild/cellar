@@ -402,6 +402,23 @@ impl Catalog {
 }
 
 impl NamespaceCatalog {
+    /// Bind immutable cell payloads to this namespace's actual backend and data
+    /// prefix. The shared pool supplies capacity, not cell execution authority.
+    pub fn cell_payloads(
+        &self,
+        pool: &crate::raft::cell_groups::CellGroupPayloadPool,
+    ) -> Result<crate::raft::cell_groups::CellGroupPayloadStore, CatalogError> {
+        if self.mode() != NamespaceMode::Raft {
+            return Err(CatalogError::Invalid("cell-group payload namespace mode"));
+        }
+        Ok(pool.bind(
+            self.inner.store.clone(),
+            Path::from(self.data_prefix()),
+            self.config.cluster,
+            self.config.namespace,
+        ))
+    }
+
     pub fn mode(&self) -> NamespaceMode {
         self.config.mode
     }
