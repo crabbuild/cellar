@@ -32,6 +32,37 @@ pub(crate) struct DispatchCall<T> {
     pub started: Arc<AtomicBool>,
 }
 
+/// Only framework-owned work can switch between pure external I/O and source
+/// SQLite mutations. Requesting the writer disables parked polling before any
+/// mutation, and wakes the same SQL owner to resume it.
+pub(crate) struct RaftDispatchIo {
+    authority: RaftStorageAuthority,
+    parked_io: Arc<AtomicBool>,
+}
+
+impl RaftDispatchIo {
+    pub(crate) fn begin_io(&self) -> Result<()> {
+        crate::storage::require_raft_dispatch_storage(&self.authority)?;
+        self.parked_io.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub(crate) async fn resume_writer(&self) -> Result<()> {
+        self.parked_io.store(false, Ordering::Release);
+        futures_util::future::poll_fn(|cx| {
+            match crate::storage::raft_dispatch_has_writer(&self.authority) {
+                Ok(true) => Poll::Ready(Ok(())),
+                Ok(false) => {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Err(error) => Poll::Ready(Err(error)),
+            }
+        })
+        .await
+    }
+}
+
 impl RaftDispatchPermit {
     pub(crate) fn check(&self) -> Result<()> {
         self.0.remaining().map(|_| ())
@@ -200,7 +231,24 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        self.try_schedule_inner(action, false)
+        self.try_schedule_inner(action, Arc::new(AtomicBool::new(false)))
+    }
+
+    /// The binding adapter alone owns both its remote I/O and private intent
+    /// updates. Every source mutation explicitly resumes SQLite; the source
+    /// checkpoint proof still precedes the first external poll.
+    pub(crate) fn try_schedule_binding<T, F, Fut>(self, action: F) -> Result<DispatchCall<T>>
+    where
+        T: Send + 'static,
+        F: FnOnce(RaftDispatchIo) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        let parked_io = Arc::new(AtomicBool::new(true));
+        let io = RaftDispatchIo {
+            authority: self.authority.clone(),
+            parked_io: parked_io.clone(),
+        };
+        self.try_schedule_inner(move |_| action(io), parked_io)
     }
 
     /// Payload adapters execute only owned byte I/O after source proof. They
@@ -212,7 +260,7 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        match self.try_schedule_inner(action, true) {
+        match self.try_schedule_inner(action, Arc::new(AtomicBool::new(true))) {
             Ok(call) => call,
             Err(error) => DispatchCall {
                 started: Arc::new(AtomicBool::new(false)),
@@ -221,7 +269,11 @@ impl RaftDispatch {
         }
     }
 
-    fn try_schedule_inner<T, F, Fut>(self, action: F, parked_io: bool) -> Result<DispatchCall<T>>
+    fn try_schedule_inner<T, F, Fut>(
+        self,
+        action: F,
+        parked_io: Arc<AtomicBool>,
+    ) -> Result<DispatchCall<T>>
     where
         T: Send + 'static,
         F: FnOnce(Duration) -> Fut + Send + 'static,
@@ -295,3 +347,7 @@ impl RaftDispatch {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "dispatch_tests.rs"]
+mod tests;

@@ -22,6 +22,7 @@ pub(crate) use command::bind_storage as bind_raft_command_storage;
 pub(crate) use command::binding_ordinal as next_raft_binding_ordinal;
 pub(crate) use command::capture_dispatch as capture_raft_dispatch;
 pub(crate) use command::commit_work as commit_raft_work;
+pub(crate) use command::dispatch_has_writer as raft_dispatch_has_writer;
 pub(crate) use command::require_dispatch_storage as require_raft_dispatch_storage;
 pub(crate) use command::require_storage as require_raft_command_storage;
 pub(crate) use command::schedule_dispatch_work as schedule_raft_dispatch_work;

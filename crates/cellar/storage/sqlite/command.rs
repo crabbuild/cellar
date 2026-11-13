@@ -111,7 +111,7 @@ struct Work {
 struct WorkTask {
     future: HandlerFuture<()>,
     external: Option<Arc<std::sync::atomic::AtomicBool>>,
-    parked_io: bool,
+    parked_io: Arc<std::sync::atomic::AtomicBool>,
 }
 
 thread_local! {
@@ -199,7 +199,7 @@ impl ActiveCommand {
             && work.active == work.tasks.len()
             && work.checkpoint.is_none()
             && work.tasks.iter().all(|task| {
-                task.parked_io
+                task.parked_io.load(std::sync::atomic::Ordering::Acquire)
                     && task
                         .external
                         .as_ref()
@@ -210,7 +210,7 @@ impl ActiveCommand {
     pub(crate) fn poll_parked_io(&self, cx: &mut TaskContext<'_>) -> Result<bool> {
         ensure!(
             self.can_poll_parked_io(),
-            "parked work is not proven payload I/O"
+            "parked work is not proven external I/O"
         );
         ensure!(
             self.frame.connection.borrow().is_none(),
@@ -471,7 +471,7 @@ pub(crate) fn require_storage(authority: &RaftStorageAuthority, healthy: bool) -
     })
 }
 
-/// A proven payload task may poll without SQLite. This grants no Storage
+/// A proven external task may poll without SQLite. This grants no Storage
 /// access: ordinary handles still require an installed healthy connection.
 pub(crate) fn require_dispatch_storage(authority: &RaftStorageAuthority) -> Result<()> {
     let parked_io = CURRENT_COMMAND.with(|current| {
@@ -503,6 +503,18 @@ pub(crate) fn require_dispatch_storage(authority: &RaftStorageAuthority) -> Resu
     Ok(())
 }
 
+/// A framework task may request its writer while it is polling in the parked
+/// I/O scope. Validate its original invocation even before the writer exists.
+pub(crate) fn dispatch_has_writer(authority: &RaftStorageAuthority) -> Result<bool> {
+    require_dispatch_storage(authority)?;
+    CURRENT_COMMAND.with(|current| {
+        Ok(current
+            .borrow()
+            .as_ref()
+            .is_some_and(|frame| frame.connection.borrow().is_some()))
+    })
+}
+
 /// Cached constructor Storage may enter subsequent invocations; cursors may not.
 pub(crate) fn bind_storage(authority: &RaftStorageAuthority) -> Result<RaftStorageAuthority> {
     require_storage(authority, true)?;
@@ -522,7 +534,12 @@ pub(crate) fn schedule_work(
     resources: &RaftStorageAuthority,
     task: HandlerFuture<()>,
 ) -> Result<()> {
-    schedule(resources, task, None, false)
+    schedule(
+        resources,
+        task,
+        None,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
 }
 
 /// The flag becomes true only after exact source proof and release of the
@@ -531,7 +548,7 @@ pub(crate) fn schedule_dispatch_work(
     resources: &RaftStorageAuthority,
     task: HandlerFuture<()>,
     external: Arc<std::sync::atomic::AtomicBool>,
-    parked_io: bool,
+    parked_io: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
     schedule(resources, task, Some(external), parked_io)
 }
@@ -540,7 +557,7 @@ fn schedule(
     resources: &RaftStorageAuthority,
     task: HandlerFuture<()>,
     external: Option<Arc<std::sync::atomic::AtomicBool>>,
-    parked_io: bool,
+    parked_io: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
     require_storage(resources, true)?;
     CURRENT_COMMAND.with(|current| {

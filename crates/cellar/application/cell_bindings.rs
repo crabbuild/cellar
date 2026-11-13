@@ -3,7 +3,7 @@
 //! Ordinary cell bindings retain their host, incarnation and child identity
 //! contracts separately from the source invocation's own durability proof.
 
-use super::storage::RaftDispatch;
+use super::storage::{RaftDispatch, RaftDispatchIo};
 use super::{consensus::*, HandlerFuture};
 use super::{Context, Storage};
 use crate::engine_api::RpcData;
@@ -378,12 +378,13 @@ pub(crate) fn rpc(
             move |intent| {
                 let identity = intent.child;
                 *observed_command.lock().unwrap() = Some(identity);
-                let call = dispatch.try_schedule(move |_| {
+                let call = dispatch.try_schedule_binding(move |io| {
                     run(
                         action_source,
                         storage,
                         intent,
                         action,
+                        io,
                         observed,
                         observed_command,
                         lease,
@@ -430,6 +431,7 @@ async fn run(
     storage: Storage,
     mut intent: Intent,
     dispatch: RaftDispatch,
+    io: RaftDispatchIo,
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
     lease: BufferLease,
@@ -464,10 +466,12 @@ async fn run(
     if history != intent.candidate {
         // A different existing creator needs its own durable selection before
         // any business callback. Never retarget an unknown dispatched command.
+        io.resume_writer().await?;
         crate::storage::raft_bindings::select(&mut intent, &history)?;
         *command.lock().unwrap() = Some(intent.child);
         storage.sync().await?;
     }
+    io.begin_io()?;
     *selected.lock().unwrap() = Some(history.clone());
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
@@ -509,6 +513,7 @@ async fn run(
                     && receipt.durability >= intent.route.durability,
                 CommandFailure::CorruptState
             );
+            io.resume_writer().await?;
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
@@ -532,6 +537,7 @@ async fn run(
             if known {
                 // Non-admission did not consume the target sequence. Preserve
                 // that reservation until target reconciliation can seal it.
+                io.resume_writer().await?;
                 crate::storage::raft_bindings::refuse(&intent, &history)?;
                 storage.sync().await?;
             }

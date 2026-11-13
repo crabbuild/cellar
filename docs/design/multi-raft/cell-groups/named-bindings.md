@@ -107,8 +107,9 @@ Batch, exec and migration failures roll back their partial changes before the
 SQL error response is encoded. User SQL retains the command authorizer; only
 fixed migration bookkeeping receives framework authority. No service request may
 commit the framework's outer command transaction. Existing SQL limits and the
-unsupported `Database::dump` behavior remain unchanged. KV binding admission
-still refuses until its expiry, alarm and payload adapters are delivered.
+unsupported `Database::dump` behavior remain unchanged. KV binding delivery and
+its separate qualification limits are described in the [payload contract](payload-storage.md)
+and [current priorities](remaining-work.md#primitive-delivery-priority).
 
 This implementation checkpoint does not accept the full SQL/KV primitive family.
 See [remaining work](remaining-work.md#primitive-delivery-priority) for the public
@@ -185,6 +186,16 @@ and command identity cannot change, including when its outcome becomes unknown.
 The target checks its current incarnation and independent minimum durability.
 Every live lookup, enrollment, proof, retry and dispatch consumes the original
 monotonic request deadline.
+
+After the source proof, framework-owned enrollment, lookup and child command
+I/O may progress while the source SQLite writer stays parked. Before selecting
+a competing creator, recording completion or recording a known refusal, the
+binding task disables parked polling and waits for the existing SQL owner to
+resume its writer. Selection and refusal retain their required source proofs.
+Ordinary Storage and application continuations still require a healthy writer;
+the I/O scope grants neither SQL access nor additional dispatch authority. The
+same owned task, buffer admission, cancellation and original deadlines cover
+both phases, without a detached task or another command admission slot.
 
 A successful call verifies the target receipt's identity, history and durability
 before marking its private source intent resolved. The next source effect or final
