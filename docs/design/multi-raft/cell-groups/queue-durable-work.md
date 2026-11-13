@@ -34,7 +34,15 @@ command. Public bindings cannot obtain this command contract or its client ID.
 A successful claim installs a retry deadline and commits through the ordinary
 quorum/S3 checkpoint before entering the callback. Two node-wide callback slots share one `max_command_bytes` ceiling. Discovery
 transfers admitted work to the joined command controller and resumes scanning,
-allowing another Queue to progress while a handler waits. Idle cells get no tasks.
+allowing another Queue to progress while a handler waits. One retained callback
+per cell keeps duplicate discoveries from consuming both slots. Its cell claim
+survives response expiry through physical settlement; fixed two-entry metadata
+and retained key bytes stay bounded. Idle cells get no tasks.
+
+Queue wake hints preserve an earlier unclaimed installation across producer
+commits. Rearming a claimed installation always replaces its generation, including
+same/later deadlines, so old completion cannot erase a new retry or delayed
+message. Ordinary alarm installations always replace their generation.
 Ordinary request and S3 settlement capacity remain independent; startup resource
 bounds reserve all three ceilings, and metrics expose each lane. Retention and
 quiescence include callbacks after response expiry. Callback code runs on the SQL

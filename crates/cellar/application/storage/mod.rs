@@ -271,7 +271,13 @@ impl Storage {
             self.resources().durable_callbacks.load(Ordering::Acquire),
             consensus::CommandFailure::UnsupportedCapability
         );
-        crate::storage::raft_native_work(|db| consensus::native_work::arm(db, reason, at_ms))
+        crate::storage::raft_native_work(|db| {
+            if reason == "queue" {
+                consensus::native_work::arm_queue(db, at_ms)
+            } else {
+                consensus::native_work::arm(db, reason, at_ms)
+            }
+        })
     }
 
     pub(crate) fn cancel_raft_work(&self, reason: &str) -> Result<()> {

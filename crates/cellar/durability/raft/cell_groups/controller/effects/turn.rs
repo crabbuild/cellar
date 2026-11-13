@@ -167,6 +167,14 @@ pub(super) async fn run(
         return Ok(());
     };
     let native_callback = matches!(due, DueEffect::Work(_));
+    if native_callback
+        && shared
+            .callback_cells
+            .contains(&cell)
+            .map_err(Error::Runtime)?
+    {
+        return Ok(());
+    }
     let callback_window = registration.options.callback_timeout_ms + 1000;
     if let DueEffect::Work(work) = &mut due {
         work.lease_ms = callback_window;

@@ -82,10 +82,10 @@ SUITES = {
     "queue-primitives": (
         "native_cell_groups_primitives",
         (
+            "rustfs_queue_load_preserves_acknowledged_messages",
             "rustfs_queue_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_axum_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_long_callbacks_preserve_progress",
-            "rustfs_queue_load_preserves_acknowledged_messages",
             "rustfs_ordinary_queue_callbacks_use_shared_quorum",
             "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum",
         ),
