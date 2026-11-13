@@ -562,6 +562,24 @@ def exact_case_passed(output, case):
         if [value.get("mode") for value in observations] != ["materialized", "extents"]:
             raise ValueError("incomplete or duplicated reclamation observations")
         output = re.sub(pattern, "", output)
+    pattern = r"QUEUE_LOAD (\{[^\n]+\})\n"
+    observations = [json.loads(value) for value in re.findall(pattern, output)]
+    if case == "rustfs_queue_load_preserves_acknowledged_messages" and not observations:
+        raise ValueError("missing Queue load observations")
+    if observations:
+        if (case != "rustfs_queue_load_preserves_acknowledged_messages"
+                or [value.get("extents") for value in observations] != [False, True]
+                or any(not value.get("realRustFS")
+                       or value.get("steadyMessages") != 512
+                       or value.get("archiveOutageMessages") != 16
+                       or value.get("uniqueMessageIds") != 528
+                       or value.get("delivered", 0) < 528
+                       or value.get("inFlightRequests") != 2
+                       or value.get("perQueueInFlight") != 1
+                       or value.get("elapsedMs", 0) <= 0
+                       for value in observations)):
+            raise ValueError("incomplete or invalid Queue load observations")
+        output = re.sub(pattern, "", output)
     return bool(re.search(rf"^test {re.escape(case)} \.\.\. ok$", output, re.M)
                 and "test result: ok. 1 passed; 0 failed; 0 ignored;" in output)
 
@@ -693,7 +711,7 @@ def main():
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
-            if number and args.suite == "queue-primitives":
+            if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()

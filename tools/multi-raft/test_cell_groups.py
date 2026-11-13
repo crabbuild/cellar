@@ -15,6 +15,14 @@ from unittest.mock import patch
 import cell_groups
 
 
+def queue_observations():
+    return [{"extents": extents, "realRustFS": True,
+             "steadyMessages": 512, "archiveOutageMessages": 16,
+             "uniqueMessageIds": 528, "delivered": 528,
+             "inFlightRequests": 2, "perQueueInFlight": 1,
+             "elapsedMs": 1000} for extents in [False, True]]
+
+
 class SqlCampaignTests(unittest.TestCase):
     def campaign(self, fault=None, suite="ordinary-sql-bindings"):
         with tempfile.TemporaryDirectory() as directory:
@@ -45,7 +53,8 @@ class SqlCampaignTests(unittest.TestCase):
                         argv, 0, prefix + "\n".join(f"{case}: test" for case in cases)
                     )
                 if suite == "queue-primitives":
-                    self.assertIn("--nocapture", argv)
+                    self.assertEqual("--nocapture" in argv,
+                                     selection == "rustfs_queue_load_preserves_acknowledged_messages")
                 if suite in ("ordinary-sql-bindings", "queue-primitives"):
                     retained = Path(env["CELLAR_CELL_GROUPS_SQL_CLI" if suite == "ordinary-sql-bindings" else "CELLAR_CELL_GROUPS_QUEUE_CLI"])
                     self.assertEqual(retained, output / "cellar")
@@ -56,6 +65,9 @@ class SqlCampaignTests(unittest.TestCase):
                     retained.write_bytes(b"changed after capture")
                 body = ("test result: ok. 0 passed; 0 failed; 0 ignored;\n" if fault == "zero"
                         else f"test {selection} ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n")
+                if selection == "rustfs_queue_load_preserves_acknowledged_messages":
+                    body = "".join("QUEUE_LOAD " + json.dumps(value) + "\n"
+                                   for value in queue_observations()) + body
                 return subprocess.CompletedProcess(argv, 0, prefix + body)
 
             def git(argv, **kwargs):
@@ -121,6 +133,23 @@ class QueueCampaignTests(unittest.TestCase):
 
     def test_queue_refuses_success_with_no_selected_test(self):
         self.campaign("zero", "queue-primitives")
+
+    def test_queue_load_proof_validates_interleaved_observations(self):
+        case = "rustfs_queue_load_preserves_acknowledged_messages"
+        observations = queue_observations()
+        def output(values, summary="ok. 1 passed; 0 failed; 0 ignored;"):
+            return (f"test {case} ... "
+                    + "".join("QUEUE_LOAD " + json.dumps(value) + "\n" for value in values)
+                    + "ok\ntest result: " + summary + "\n")
+        self.assertTrue(cell_groups.exact_case_passed(output(observations), case))
+        with self.assertRaises(ValueError):
+            cell_groups.exact_case_passed(output([]), case)
+        self.assertFalse(cell_groups.exact_case_passed(output(observations, "FAILED. 0 passed; 1 failed;"), case))
+        with self.assertRaises(ValueError):
+            cell_groups.exact_case_passed(output(observations[:1]), case)
+        observations[1]["uniqueMessageIds"] = 527
+        with self.assertRaises(ValueError):
+            cell_groups.exact_case_passed(output(observations), case)
 
 
 if __name__ == "__main__":
