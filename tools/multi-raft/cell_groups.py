@@ -610,8 +610,8 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite != "ordinary-primitives":
-        parser.error("--keep-going requires the process-isolated ordinary-primitives suite")
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings"):
+        parser.error("--keep-going requires a process-isolated ordinary primitive or SQL suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -659,6 +659,13 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
+        if args.suite == "ordinary-sql-bindings":
+            env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
+                       CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
+                       CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
+            record["test_profile"] = {key: env[key] for key in (
+                "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
+                "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
@@ -704,6 +711,10 @@ def main():
                     record["operator_cli"] = {"path": operator_cli.name, "sha256": cli_hash}
                 if cli_hash != record["operator_cli"]["sha256"] or sha(operator_cli) != cli_hash:
                     raise RuntimeError("managed operator CLI changed during qualification")
+                if args.suite == "ordinary-sql-bindings":
+                    env["CELLAR_CELL_GROUPS_SQL_CLI"] = str(operator_cli)
+                if args.suite == "queue-primitives":
+                    env["CELLAR_CELL_GROUPS_QUEUE_CLI"] = str(operator_cli)
             if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry"):
                 current_operator = executable.parent.parent / "cellar-perf-cell-group" if match else None
                 if current_operator is None or not current_operator.is_file():

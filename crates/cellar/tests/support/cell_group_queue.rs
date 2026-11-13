@@ -874,7 +874,9 @@ async fn cli(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<
             serde_json::to_vec(&json!({"version":1,"key":"0b".repeat(32)}))?.into(),
         )
         .await?;
-    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_cellar"));
+    let executable = std::env::var_os("CELLAR_CELL_GROUPS_QUEUE_CLI")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_cellar").into());
+    let mut command = tokio::process::Command::new(executable);
     command.args([
         "queue",
         "info",

@@ -16,7 +16,7 @@ import cell_groups
 
 
 class SqlCampaignTests(unittest.TestCase):
-    def campaign(self, fault=None):
+    def campaign(self, fault=None, suite="ordinary-sql-bindings"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             executable = root / "target/debug/deps/native_cell_groups_primitives-abcdef"
@@ -25,7 +25,7 @@ class SqlCampaignTests(unittest.TestCase):
             cli = executable.parent.parent / "cellar"
             cli.write_bytes(b"SQL CLI fixture")
             output = root / "evidence"
-            target, cases, _, _ = cell_groups.SUITES["ordinary-sql-bindings"]
+            target, cases, _, _ = cell_groups.SUITES[suite]
             executed = []
 
             def run(argv, **kwargs):
@@ -35,15 +35,16 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
-                self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
-                self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
+                if suite == "ordinary-sql-bindings":
+                    self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
+                    self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
+                    self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
                 prefix = f"Running test ({executable})\n"
                 if selection == "--list":
                     return subprocess.CompletedProcess(
                         argv, 0, prefix + "\n".join(f"{case}: test" for case in cases)
                     )
-                retained = Path(env["CELLAR_CELL_GROUPS_SQL_CLI"])
+                retained = Path(env["CELLAR_CELL_GROUPS_SQL_CLI" if suite == "ordinary-sql-bindings" else "CELLAR_CELL_GROUPS_QUEUE_CLI"])
                 self.assertEqual(retained, output / "cellar")
                 self.assertNotEqual(retained, cli)
                 self.assertEqual(retained.read_bytes(), b"SQL CLI fixture")
@@ -61,7 +62,7 @@ class SqlCampaignTests(unittest.TestCase):
                       "endpoint": "http://127.0.0.1:1234"}
             credentials = {"RUSTFS_ACCESS_KEY": "access-fixture",
                            "RUSTFS_SECRET_KEY": "secret-fixture"}
-            argv = ["cell_groups.py", "--suite", "ordinary-sql-bindings",
+            argv = ["cell_groups.py", "--suite", suite,
                     "--backend", str(root / "backend"), "--output", str(output),
                     "--target-directory", str(root / "target")]
             with (patch.object(sys, "argv", argv),
@@ -93,6 +94,11 @@ class SqlCampaignTests(unittest.TestCase):
 
     def test_sql_refuses_success_with_no_selected_test(self):
         self.campaign("zero")
+
+
+class QueueCampaignTests(SqlCampaignTests):
+    def campaign(self, fault=None):
+        return super().campaign(fault, "queue-primitives")
 
 
 if __name__ == "__main__":
