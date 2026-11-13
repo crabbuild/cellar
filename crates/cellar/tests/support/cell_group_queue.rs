@@ -658,6 +658,25 @@ async fn run(
                 )
                 .await
                 .is_err());
+            // A stateless public producer has no source-cell write that could
+            // mask a Queue fallback. It must refuse on Queue quorum loss too.
+            let response = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(TIMEOUT + Duration::from_secs(1))
+                .build()?
+                .post(format!(
+                    "http://{}/queue",
+                    cluster.nodes[0].info().public_address
+                ))
+                .body("must-refuse-public")
+                .send()
+                .await?;
+            let status = response.status();
+            let body = response.text().await?;
+            ensure!(
+                status.is_server_error(),
+                "public Queue quorum refusal: {status} {body}"
+            );
             Ok::<_, anyhow::Error>(())
         })
         .await;
