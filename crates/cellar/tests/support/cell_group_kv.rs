@@ -668,10 +668,10 @@ async fn run(
                 b"null".to_vec(), bindings::options(1, Durability::S3)?).await;
             let published = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire);
             let denied = cluster.fixtures[0].store.denied_group_archive_writes.load(Ordering::Acquire);
-            let preparations = local_preparations(&cluster);
+            let preparations_after = local_preparations(&cluster);
             cluster.fixtures[0].store.deny_group_archive_writes.store(false, Ordering::Release);
             ensure!(refused.is_err(), "unproved S3 source published a KV value");
-            ensure!(preparations? == preparation_before + 1, "S3 guard did not reach warm preparation");
+            ensure!(preparations_after? == preparation_before + 1, "S3 guard did not reach warm preparation");
             ensure!(denied > denied_before, "S3 guard did not reach the actual archive adapter");
             ensure!(published == puts_before, "warm locator bypassed source publication proof");
             let cold_before = preparations(&cluster, "cell_kv_resolved_payload_preparations")?;
