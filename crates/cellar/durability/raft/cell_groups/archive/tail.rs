@@ -438,7 +438,7 @@ impl CellGroupArchiveUpload {
                 // Bound that work by the current group size so repeated writes
                 // to a small hot group cannot accumulate a long replay chain.
                 // This chooses an encoding, never supplies durability authority.
-                if entries > captured.cut.marker.root().cells().max(1) {
+                if entries > captured.cut.marker.root().cells().max(1) as usize {
                     return Ok(None);
                 }
                 self.registry().referenced(previous).await?;
