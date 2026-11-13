@@ -83,6 +83,56 @@ primitive/recovery/release gate remains open. External-object verification befor
 disaster admission, interrupted large transfers, movement/wake, root-aware
 collection and independent Linux voter/load qualification remain required.
 
+## CG-17 Queue qualification with KV and RPC integration
+
+The complete Queue campaign passes again at `9498029b`: **6/6 exact tests,
+12/12 materialized/extent configurations** against real one-CPU/2-GiB RustFS.
+This source includes the ordinary KV implementation and RPC execution-deadline
+separation. The subsequent `da66d967` integration changes only documentation
+and a separate RPC regression's tick/select loop; production and Queue fixtures
+are unchanged. The qualified executable retains its exact `9498029b` pin.
+
+All six scenarios from the [first passing campaign](#cg-17-queue-cross-deployment-and-bounded-load-qualification)
+pass with the same request budgets and workload: public native/Axum SDK/CLI,
+cross-deployment producer/consumer/DLQ routing and faults, retained restart,
+quorum refusal, 65-second callbacks with independent Queue progress, and load.
+Each image delivers **528 distinct messages**, including 16 during archive PUT
+refusal and 512 steady-state messages. Delivery remains at least once.
+
+| Image mode | Steady phase including drain | Messages/s | Batch enqueue p50 | Batch enqueue p99 |
+| --- | --- | --- | --- | --- |
+| Materialized | 25.086 s | 20.41 | 694 ms | 1487 ms |
+| Extents | 22.581 s | 22.67 | 669 ms | 1107 ms |
+
+The fixed profile remains four producers/two requests in flight, one per Queue,
+eight-message batches, one SQL worker per native voter, eight ordinary slots/
+128 KiB for load and two callback slots sharing their original byte ceiling.
+Fault/MVP cases retain two ordinary slots. Host load and concurrent compilation
+are recorded; these observations establish neither fleet capacity nor an SLA.
+Formatting/layout, dependency/docs checks and **69 Python checks** pass on the
+integrated source. Strict Clippy also passes at `da66d967` for the library,
+primitive integration target and Fleet Queue target. The earlier eleven
+unit/ownership checks, Fleet regression and strict all-test Clippy retain their
+`a5f65e79` source.
+
+Artifacts, frozen executable/CLI, benchmark JSON and host observation are under
+`/Volumes/Workspace/crabbuild-target/cellar-queue-merged-rustfs-9498029b-01`.
+Record SHA-256:
+`adcd461e5086f7766dbce1bed9e1d6583dbcdeac4cb594ae50c3ba0b8feed133`.
+Executable SHA-256:
+`39e2bed46c4c5b1e9781c6fe6b1d9f203a65490779c0d0ade01848cde6167b56`.
+CLI SHA-256:
+`e9bf2b27d38e2f81b6c571123e9ffbb1ea7ec0e608f2ac3387b82cd45303ea5c`.
+The ignored evidence copy is
+`.cellar/cell-groups-evidence/CG-17-queue-merged-9498029b-01`.
+Only the owned backend and VM are stopped; objects and earlier controls remain.
+
+Full CG-17 remains open; recorded plan acceptance stays **13/17 tasks,
+147/195 cases**. Cold S3 first use,
+higher concurrency, full-size Queue payloads, clock/deployment changes,
+movement/wake, all-voter disk loss and independent Linux voters remain open.
+EventStream, Workflow and cron still need their own adapters and qualification.
+
 ## CG-17 ordinary KV bindings and compact wire transport
 
 Sources `05cd04b4` and `fe8ef583` implement the ordinary KV service on managed

@@ -112,18 +112,20 @@ timeouts preserve an unknown mutation outcome rather than replaying the command.
 
 ## Qualification and remaining scope
 
-At `a5f65e79`, the canonical `queue-primitives` suite passes all six exact
+At `a5f65e79` and the combined KV/RPC source `9498029b`, the canonical
+`queue-primitives` suite passes all six exact
 real-RustFS selections in both image modes (**12/12 configurations**). It covers
 native/Axum public producers and the captured CLI, separate deployment schemas,
 ack/retry/DLQ delivery, retained restart, lost inter-group S3-DLQ completion,
 late consumers, active purge, retention replay, leader transfer, quorum refusal,
 a 65-second handler and bounded concurrent load. Eleven focused unit/ownership
 checks, the Fleet Queue regression and strict library/all-test Clippy pass.
-See the [source-pinned results](progress.md#cg-17-queue-cross-deployment-and-bounded-load-qualification).
+The unit/ownership, Fleet and all-test Clippy results retain `a5f65e79`.
+See the [combined-source results](progress.md#cg-17-queue-qualification-with-kv-and-rpc-integration).
 
 The load profile has four producers but at most two requests in flight, with
 one per Queue and one SQL worker per node. Each image delivers 16 messages during
-archive PUT refusal and 512 under steady load. Batch enqueue p99 is 1198/1330 ms
+archive PUT refusal and 512 under steady load. At `9498029b`, batch enqueue p99 is 1487/1107 ms
 for materialized/extents. This is the qualified envelope, with original request
 budgets. Earlier four-in-flight and cold first-use S3 controls remain failed;
 those envelopes were not rerun on the passing source. Expanded fault scenarios
