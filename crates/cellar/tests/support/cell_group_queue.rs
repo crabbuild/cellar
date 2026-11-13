@@ -320,7 +320,7 @@ async fn run(
     external: bool,
 ) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::enrollment=debug")
+        .with_env_filter("cellar::raft::enrollment=debug,cellar::raft::sql_ingress=debug,cellar::raft::execution_readiness=debug")
         .with_test_writer()
         .try_init();
     let observed = Arc::new(Observed::default());
@@ -687,6 +687,36 @@ async fn run(
             Ok::<_, anyhow::Error>(())
         })
         .await;
+    if !matches!(&work, Ok(Ok(()))) {
+        for (index, host) in cluster.hosts.iter().enumerate() {
+            eprintln!(
+                "Queue failure node={index} usage={:?}",
+                host.resource_usage()
+            );
+            for operation in host.performance().operations {
+                if operation.started > operation.succeeded + operation.failed + operation.abandoned
+                {
+                    eprintln!("Queue pending node={index} operation={operation:?}");
+                }
+            }
+            let queue = GroupHistory {
+                cluster: cluster.history.cluster,
+                namespace: cluster.fixtures[0].additional_namespaces[0]
+                    .namespace
+                    .namespace,
+                group: GroupId::new([181; 16])?,
+                incarnation: IncarnationId::new([182; 16])?,
+            };
+            for history in [cluster.history, queue] {
+                if let Ok(group) = host.group(history) {
+                    eprintln!(
+                        "Queue failure node={index} group={history:?} status={:?}",
+                        group.replication_status(TIMEOUT).await
+                    );
+                }
+            }
+        }
+    }
     let mut failures = Vec::new();
     for node in std::mem::take(&mut cluster.nodes) {
         if let Err(e) = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {
@@ -880,6 +910,9 @@ async fn admin(
     queue: &str,
     body: serde_json::Value,
 ) -> Result<serde_json::Value> {
+    let started = cellar::asyncrt::mono_ms();
+    let operation = body["op"].as_str().unwrap_or("unknown");
+    eprintln!("Queue operator start queue={queue} op={operation}");
     let info = cluster.nodes[1].info();
     let path = format!(
         "/runtime/{}?name={}",
@@ -900,6 +933,10 @@ async fn admin(
         .await?;
     let status = response.status();
     let body = response.text().await?;
+    eprintln!(
+        "Queue operator finish queue={queue} op={operation} status={status} elapsed_ms={}",
+        cellar::asyncrt::mono_ms().saturating_sub(started)
+    );
     ensure!(status == 200, "Queue operator {queue}: {status} {body}");
     let body: serde_json::Value = serde_json::from_str(&body)?;
     body.get("result")
