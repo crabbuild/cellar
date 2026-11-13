@@ -13,6 +13,10 @@ pub(super) async fn run(cluster: &ManagedCluster, backend: &rustfs::StoreConfig)
             serde_json::to_vec(&json!({"version":1,"key":"0b".repeat(32)}))?.into(),
         )
         .await?;
+    ensure!(
+        command(cluster, backend, &["get", NAMESPACE, "warm"]).await? == b"quorum",
+        "CLI selected a different namespace from the SDK"
+    );
     command(cluster, backend, &["put", NAMESPACE, "cli-key", "from-cli"]).await?;
     ensure!(command(cluster, backend, &["get", NAMESPACE, "cli-key"]).await? == b"from-cli");
     let info = command(cluster, backend, &["info", NAMESPACE, "--json"]).await?;

@@ -1104,7 +1104,7 @@ impl RaftClass {
         let ingress = id.client == super::sql_ingress_identity::client();
         if (matches!(
             self.name.as_str(),
-            crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS
+            crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS | crate::deploy::KV_CLASS
         ) && ingress)
             || (self.is_cell_rpc(&contract.operation)
                 && super::native_rpc::has_ingress_nonce(input))
@@ -1113,7 +1113,9 @@ impl RaftClass {
                 ingress
                     && matches!(
                         self.name.as_str(),
-                        crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS
+                        crate::deploy::SQL_CLASS
+                            | crate::deploy::QUEUE_CLASS
+                            | crate::deploy::KV_CLASS
                     )
                     && self.is_cell_rpc(&contract.operation)
                     && super::native_rpc::has_ingress_nonce(input),

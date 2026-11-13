@@ -454,6 +454,17 @@ async fn run(
                 ensure!(reply.result == b"true");
                 sequence += 1;
             }
+            for host in &cluster.hosts {
+                let usage = host
+                    .resource_usage()
+                    .host
+                    .payloads
+                    .context("installed KV pool")?;
+                ensure!(
+                    usage.operations == 0 && usage.retained_bytes == 0,
+                    "KV transport leaked payload admission: {usage:?}"
+                );
+            }
             let duplicate_options = bindings::options(sequence, Durability::Quorum)?;
             let duplicate = source
                 .command(
