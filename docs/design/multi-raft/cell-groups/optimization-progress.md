@@ -3344,3 +3344,9 @@ and the same 24 anchored source files. The upstream Queue RustFS result remains
 bound to its `9498029b` source; it does not qualify these optimization changes.
 Additional documentation/design/anchor checks cover this merge. Recorded task
 acceptance and the remaining combined runtime/backend/CG/OPT gates are unchanged.
+
+The post-merge documentation, 44 design tests, 24 source anchors and patch checks
+pass. Full `plan.py validate` still refuses because the historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json` evidence is absent from this
+checkout. Its failed result is retained; no missing-evidence waiver or task
+acceptance change is applied.
