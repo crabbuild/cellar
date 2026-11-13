@@ -114,7 +114,8 @@ pub(crate) async fn prepare(
                 registration.class.clone()
             )
         );
-        let class = application.resolve_raft_class(&registration.class)?;
+        let class =
+            application.resolve_raft_namespace(&registration.namespace, &registration.class)?;
         class.validate_shared_host(&config.host)?;
         anyhow::ensure!(
             class.schema_digest() == registration.namespace.schema_digest,

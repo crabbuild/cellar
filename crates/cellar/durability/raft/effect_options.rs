@@ -7,6 +7,8 @@ use anyhow::{ensure, Result};
 pub struct RaftEffectOptions {
     pub interval_ms: u64,
     pub operation_timeout_ms: u64,
+    /// Budget for an owned native callback, independent of scan/control RPCs.
+    pub callback_timeout_ms: u64,
     pub retry_window_ms: u64,
     pub metadata_bytes: usize,
 }
@@ -16,6 +18,7 @@ impl Default for RaftEffectOptions {
         Self {
             interval_ms: 100,
             operation_timeout_ms: 5000,
+            callback_timeout_ms: 300_000,
             retry_window_ms: 60_000,
             metadata_bytes: 512 * 1024,
         }
@@ -27,6 +30,7 @@ impl RaftEffectOptions {
         ensure!(
             (10..=60_000).contains(&self.interval_ms)
                 && (1..=60_000).contains(&self.operation_timeout_ms)
+                && (1..=300_000).contains(&self.callback_timeout_ms)
                 && self
                     .operation_timeout_ms
                     .checked_add(100)

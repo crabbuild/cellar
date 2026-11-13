@@ -333,6 +333,10 @@ async fn run(
     let http = external.then(|| Arc::new(managed_fixture::http::Owner::default()));
     fixture.external_http = http.clone();
     fixture.sql_workers = 1;
+    fixture.effects = Some(RaftEffectOptions {
+        callback_timeout_ms: 5000,
+        ..Default::default()
+    });
     let started = Box::pin(ManagedCluster::start_with_applications(
         fixture,
         &[],
@@ -360,7 +364,7 @@ async fn run(
             for host in &cluster.hosts {
                 let usage = host.resource_usage().host.controller;
                 ensure!(
-                    usage.ordinary.max_items == 2 && usage.callbacks.max_items == 1,
+                    usage.ordinary.max_items == 2 && usage.callbacks.max_items == 2,
                     "callback admission must preserve the original ordinary quota"
                 );
             }
@@ -702,8 +706,16 @@ async fn run(
 }
 
 async fn queue_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
+    install_group(cluster, 0, 181).await
+}
+
+async fn install_group(
+    cluster: &ManagedCluster,
+    namespace: usize,
+    marker: u8,
+) -> Result<GroupHistory> {
     let fixture = &cluster.fixtures[0];
-    let declaration = &fixture.additional_namespaces[0];
+    let declaration = &fixture.additional_namespaces[namespace];
     let adapter = Catalog::new(
         fixture.store.clone(),
         CatalogOptions {
@@ -718,8 +730,8 @@ async fn queue_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
     let history = GroupHistory {
         cluster: declaration.namespace.cluster,
         namespace: declaration.namespace.namespace,
-        group: GroupId::new([181; 16])?,
-        incarnation: IncarnationId::new([182; 16])?,
+        group: GroupId::new([marker; 16])?,
+        incarnation: IncarnationId::new([marker + 1; 16])?,
     };
     let cut = fixture.catalog.read(TIMEOUT).await?;
     let reserved = fixture
@@ -728,14 +740,14 @@ async fn queue_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
             &adapter,
             declaration,
             RaftManagedFirstGroupRequest {
-                reservation: managed_fixture::request(210, cut.revision()),
+                reservation: managed_fixture::request(210 + (namespace as u8 * 2), cut.revision()),
                 standby,
-                publication: ProposalId::new([183; 16])?,
+                publication: ProposalId::new([marker + 2; 16])?,
                 group: CellGroupBirthSpec {
                     history,
                     range: CellRange::all(),
                     epoch: RouteEpoch::new(1)?,
-                    creation: ProposalId::new([184; 16])?,
+                    creation: ProposalId::new([marker + 3; 16])?,
                     voters: cluster
                         .fixtures
                         .iter()
@@ -759,13 +771,15 @@ async fn queue_group(cluster: &ManagedCluster) -> Result<GroupHistory> {
         .catalog
         .publish_managed_first_group(
             &reserved,
-            &managed_fixture::request(211, cut.revision()),
+            &managed_fixture::request(211 + (namespace as u8 * 2), cut.revision()),
             TIMEOUT,
         )
         .await?;
     let mut database_fixture = fixture.clone();
     database_fixture.declaration = declaration.clone();
-    let intent_root = cluster.roots[0].path().join("queue-archive");
+    let intent_root = cluster.roots[0]
+        .path()
+        .join(format!("queue-archive-{namespace}"));
     let filesystem = fixture.filesystem.clone();
     let directory = intent_root.clone();
     fixture
@@ -822,7 +836,7 @@ async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
     managed_fixture::close_group_nodes_with_groups(
         std::mem::take(&mut cluster.nodes),
         &old_hosts,
-        2,
+        1 + cluster.fixtures[0].additional_namespaces.len(),
     )
     .await?;
     cluster.peers.clear();
@@ -948,3 +962,7 @@ async fn cli(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<
     ensure!(output["backlogCount"] == 2.0, "Queue CLI reply: {output}");
     Ok(())
 }
+
+#[path = "cell_group_queue_qualification.rs"]
+mod qualification;
+pub use qualification::{qualify_faults, qualify_load, qualify_long};

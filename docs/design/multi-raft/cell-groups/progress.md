@@ -173,6 +173,60 @@ Next close those SQL gates, then deliver grouped KV revisions, expiry, alarms an
 payload ownership. The earlier generic binding **8/8** and interrupted-binding
 **8/8** results retain source `d1f8535f`; they were not rerun for this SQL cohort.
 
+## CG-17 cross-deployment Queue and long callbacks
+
+The next Queue increment resolves producer, consumer and storage-only DLQ
+namespaces by their admitted schemas across cohosted deployments. Ambiguous
+owners and missing code refuse admission. It separates native callback execution
+(default 300 seconds, maximum 300 seconds) from the existing five-second control
+RPC budget. Two bounded callback slots share the original single callback-byte
+ceiling; ordinary production request capacity and public routing limits stay
+unchanged. The private native-work digest changes, requiring fresh compatible
+namespaces and matching voters; format markers remain 1.
+
+Native fault qualification passes both image modes. It covers partial retry,
+stale event handles after leader transfer, purge during active delivery, a lost
+cross-group DLQ completion reply after target quorum apply while target S3
+publication is refused, all-node retained restart and autonomous original-ID
+DLQ recovery. A separate short-retention scenario proves exact original producer
+replay does not recreate an expired message. Separate native 65-second handler
+qualification passes both images and requires another Queue to progress within
+its original five-second bound.
+
+The four-producer load selection offers 512 messages in batches of eight across
+two queues with one SQL worker per node and one in-flight request per Queue
+(two total). Its explicit load profile has eight
+ordinary slots/128 KiB, while fault/MVP scenarios retain two ordinary slots. The
+callback slots and shared byte ceiling remain bounded. Debug controls failed:
+the two-slot flood refused overload, the eight-slot full-archive-outage flood
+missed a deadline at ingress sequence 16, and the eight-slot healthy-archive
+flood missed a deadline at sequence 20. Those results do not isolate archive
+headroom as the cause. Logs remain under
+`/Volumes/Workspace/crabbuild-target/cellar-queue-expanded-controls`.
+The optimized four-in-flight control also missed its original deadline, at
+sequence 8. It does not establish a throughput fix. The bounded two-in-flight
+native profile passes both images: each delivers all 528 distinct message IDs,
+16 during archive-write refusal plus 512 under steady load. Materialized/extents
+steady phases take 33.566/33.292 seconds, with enqueue-batch p50 735/505 ms and
+p99 1547/1275 ms. These are measured limits of this fixed profile, not an SLA or
+unbounded admission claim. The profile preserves debug assertions, overflow
+checks, original three/five-second request budgets and unknown-outcome refusals.
+The pending campaign was interrupted before any runtime selection to record that
+load boundary. A frozen `b03a6dc5` real-RustFS fault control fails before fault injection:
+its first S3-minimum DLQ operator call returns an unknown deadline outcome. This
+cold first-use result is retained in `cellar-queue-frozen-controls-b03`; it does
+not establish a Queue data-loss failure or a causal performance fix. The expanded
+harness now observes setup archive cuts before S3-DLQ setup, and after retained
+restart/leader change. This defines a ready-service workload; every API call
+keeps its original budget. Long-handler/load and retention profiles use a
+Quorum DLQ; the cross-group lost-reply fault retains the stronger S3 minimum.
+New failed scenarios retain all voter disks and bounded status/resource samples.
+Strict library/all-test Clippy passes after placing the unchanged durable-work
+SQLite helper before its test module; seven focused callback/catalogue checks
+pass. Formatting, layout and focused Queue/Fleet compilation checks also pass.
+The final full-source RustFS campaign is pending; these native passes do not
+complete a Queue family or release gate.
+
 ## CG-17 durable callbacks and Queue MVP
 
 Source `efd9c4c9` integrates the shared callback/Queue adapter with the qualified

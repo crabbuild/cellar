@@ -37,8 +37,12 @@ pub struct CellRoutingLimits {
 
 impl CellRoutingLimits {
     pub(crate) fn deadline_at(self, started_at: u64) -> Option<u64> {
+        self.deadline_at_bounded(started_at, 60_000)
+    }
+
+    pub(crate) fn deadline_at_bounded(self, started_at: u64, maximum_ms: u64) -> Option<u64> {
         if self.timeout.as_millis() == 0
-            || self.timeout > Duration::from_secs(60)
+            || self.timeout > Duration::from_millis(maximum_ms)
             || !(1..=16).contains(&self.max_attempts)
         {
             return None;
@@ -193,6 +197,18 @@ impl RangeDirectory {
         cached: Option<ResolvedCellRoute>,
         started_at: u64,
     ) -> Result<CellRoutingSession, CellRoutingError> {
+        self.routing_session_bounded_in(domain, request, limits, cached, started_at, 60_000)
+    }
+
+    pub(crate) fn routing_session_bounded_in(
+        &self,
+        domain: DomainToken,
+        request: CellRouteRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        started_at: u64,
+        maximum_ms: u64,
+    ) -> Result<CellRoutingSession, CellRoutingError> {
         let error = |reason| CellRoutingError {
             reason,
             ambiguous_command: None,
@@ -215,7 +231,7 @@ impl RangeDirectory {
             return Err(error(CellRoutingFailure::InvalidRequest));
         }
         let deadline = limits
-            .deadline_at(started_at)
+            .deadline_at_bounded(started_at, maximum_ms)
             .ok_or_else(|| error(CellRoutingFailure::InvalidRequest))?;
         if now >= deadline {
             return Err(error(CellRoutingFailure::Deadline));
@@ -562,5 +578,34 @@ impl CellRoutingSession {
             ordinal: self.attempts,
             owner: self.owner.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_budget_does_not_extend_public_routing() {
+        let public = CellRoutingLimits {
+            timeout: Duration::from_secs(60),
+            max_attempts: 4,
+        };
+        assert_eq!(public.deadline_at(10), Some(60_010));
+        let callback = CellRoutingLimits {
+            timeout: Duration::from_secs(90),
+            ..public
+        };
+        assert_eq!(callback.deadline_at(10), None);
+        assert_eq!(callback.deadline_at_bounded(10, 300_000), Some(90_010));
+        assert_eq!(callback.deadline_at_bounded(u64::MAX, 300_000), None);
+        assert_eq!(
+            CellRoutingLimits {
+                timeout: Duration::from_secs(301),
+                ..public
+            }
+            .deadline_at_bounded(10, 300_000),
+            None
+        );
     }
 }

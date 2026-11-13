@@ -32,11 +32,17 @@ pub struct Fixture {
     pub application: Arc<dyn Application>,
     /// One deployed application declaration, independent of each voter label.
     pub configuration: Option<cellar::engine_api::WorkerConfigOptions>,
+    pub cohosted: Vec<(
+        cellar::engine_api::WorkerConfigOptions,
+        Arc<dyn Application>,
+    )>,
     pub external_http: Option<Arc<http::Owner>>,
     /// Captured physical I/O provider for the initial node owner.
     pub filesystem: Arc<dyn cellar_ltx::FileSystem>,
     pub effects: Option<RaftEffectOptions>,
+    pub cell_limits: cellar::application::limits::CellLimits,
     pub sql_workers: usize,
+    pub ordinary_admission: Option<(usize, usize)>,
     pub max_pending_transactions: usize,
     pub max_client_identities: usize,
     pub max_input_bytes: usize,
@@ -104,7 +110,38 @@ impl Fixture {
         application: Arc<dyn Application>,
         store: Arc<fault::Store>,
     ) -> Result<Self> {
-        ensure!(!names.is_empty());
+        let definitions = names
+            .iter()
+            .map(|name| application.resolve_raft_class(name))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Self::with_definitions(rooted, definitions, application, store).await
+    }
+
+    pub async fn with_definitions(
+        rooted: bool,
+        definitions: Vec<Arc<RaftClass>>,
+        application: Arc<dyn Application>,
+        store: Arc<fault::Store>,
+    ) -> Result<Self> {
+        Self::with_definition_policies(
+            rooted,
+            definitions
+                .into_iter()
+                .map(|class| (class, Durability::Quorum))
+                .collect(),
+            application,
+            store,
+        )
+        .await
+    }
+
+    pub async fn with_definition_policies(
+        rooted: bool,
+        definitions: Vec<(Arc<RaftClass>, Durability)>,
+        application: Arc<dyn Application>,
+        store: Arc<fault::Store>,
+    ) -> Result<Self> {
+        ensure!(!definitions.is_empty());
         let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
         let catalog = Self::open_catalog(&domain, store.clone(), ClusterId::new([1; 16])?)?;
         catalog.initialize(TIMEOUT).await?;
@@ -116,8 +153,7 @@ impl Fixture {
             },
         )?;
         let mut declarations = Vec::new();
-        for (index, name) in names.iter().enumerate() {
-            let class = application.resolve_raft_class(name)?;
+        for (index, (class, minimum)) in definitions.iter().enumerate() {
             let namespace = NamespaceId::new(
                 [if index == 0 {
                     2
@@ -140,6 +176,7 @@ impl Fixture {
                 NamespaceMode::Raft,
                 class.schema_digest(),
             );
+            config.minimum_durability = *minimum;
             if rooted {
                 config.image_storage = RaftImageStorage::Extents;
             }
@@ -149,7 +186,7 @@ impl Fixture {
                         &identity,
                         &namespace_catalog,
                         config,
-                        &class,
+                        class,
                         DirectoryLimits::default(),
                         TIMEOUT,
                     )
@@ -179,10 +216,13 @@ impl Fixture {
             additional_namespaces: declarations.into_iter().skip(1).collect(),
             application,
             configuration: None,
+            cohosted: Vec::new(),
             external_http: None,
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             effects: None,
+            cell_limits: Default::default(),
             sql_workers: 2,
+            ordinary_admission: None,
             max_pending_transactions: 32,
             max_client_identities: 1024,
             max_input_bytes: 1024,
@@ -202,8 +242,12 @@ impl Fixture {
             self.application.clone(),
             &self.spec.label,
             self.filesystem.clone(),
-            self.configuration.clone(),
-            self.external_http.clone(),
+            Frontend {
+                options: self.configuration.clone(),
+                external_http: self.external_http.clone(),
+                cell_limits: self.cell_limits,
+                cohosted: self.cohosted.clone(),
+            },
         ))
         .await
     }
@@ -262,8 +306,9 @@ impl Fixture {
             data_address: listeners.data.local_addr()?,
             query_address: listeners.query.local_addr()?,
         };
+        let groups = (1 + self.additional_namespaces.len()).max(2);
         let mut host = RaftHostOptions {
-            max_groups: 2,
+            max_groups: groups,
             max_input_bytes: self.max_input_bytes,
             effects: self.effects,
             ..Default::default()
@@ -289,12 +334,12 @@ impl Fixture {
             pool: "test".into(),
             region,
             zone,
-            group_capacity: 2,
+            group_capacity: u32::try_from(groups)?,
             byte_capacity: self
                 .logical_byte_capacity
-                .unwrap_or(host.images.max_bytes * 2),
+                .unwrap_or(host.images.max_bytes * groups as u64),
             bytes_per_group: host.images.max_bytes,
-            leader_capacity: 2,
+            leader_capacity: u32::try_from(groups)?,
             draining: false,
         });
         host.node_directory = Some(RaftNodeDirectoryOptions::default());
@@ -322,7 +367,7 @@ impl Fixture {
             process,
             mode,
         );
-        log.max_groups = 2;
+        log.max_groups = groups;
         if self.small_segments {
             log.target_file_bytes = 4096;
             log.purge_threshold_bytes = 8192;
@@ -333,6 +378,11 @@ impl Fixture {
             log.purge_interval_ms = Some(500);
         }
         let mut shared = limits();
+        shared.controller.max_groups = groups;
+        if let Some((items, bytes)) = self.ordinary_admission {
+            shared.controller.max_commands = items;
+            shared.controller.max_command_bytes = bytes;
+        }
         shared.namespaces.max_namespaces = 1 + self.additional_namespaces.len();
         shared.sql.workers = self.sql_workers;
         shared.dispatch.max_input_bytes = self.max_input_bytes;
@@ -347,7 +397,7 @@ impl Fixture {
                 infrastructure: NodeRaftConfig {
                     log,
                     consensus: RaftRuntimeOptions {
-                        max_groups: 2,
+                        max_groups: groups,
                         ..Default::default()
                     },
                     transport: TransportOptions::default(),
@@ -479,10 +529,20 @@ pub async fn start_node_with_filesystem(
         application,
         label,
         filesystem,
-        None,
-        None,
+        Frontend::default(),
     ))
     .await
+}
+
+#[derive(Default)]
+struct Frontend {
+    options: Option<cellar::engine_api::WorkerConfigOptions>,
+    external_http: Option<Arc<http::Owner>>,
+    cell_limits: cellar::application::limits::CellLimits,
+    cohosted: Vec<(
+        cellar::engine_api::WorkerConfigOptions,
+        Arc<dyn Application>,
+    )>,
 }
 
 async fn start_configured_node(
@@ -490,9 +550,14 @@ async fn start_configured_node(
     application: Arc<dyn Application>,
     label: &str,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
-    options: Option<cellar::engine_api::WorkerConfigOptions>,
-    external_http: Option<Arc<http::Owner>>,
+    frontend: Frontend,
 ) -> Result<Node> {
+    let Frontend {
+        options,
+        external_http,
+        cell_limits,
+        cohosted,
+    } = frontend;
     let classes = vec![];
     let shutdown = ShutdownPolicy::default();
     let bucket: Option<Bucket> = None;
@@ -531,6 +596,7 @@ async fn start_configured_node(
         directory.into(),
     );
     config.shutdown = shutdown;
+    config.cell_limits = cell_limits;
     let peer_http = reqwest::Client::builder().no_proxy().build()?;
     let peer_auth = Arc::new(PeerAuth::new([11; 32], label)?);
     let fleet = bucket
@@ -581,11 +647,18 @@ async fn start_configured_node(
     if let Some(options) = options {
         graph.primary.options = options;
     }
-    let compiled = CompiledApplications::default().register(
+    let mut compiled = CompiledApplications::default().register(
         &graph.primary.script_name,
         "test",
         move || Ok(application.clone()),
     )?;
+    for (options, application) in cohosted {
+        let script = options.script_name.clone();
+        let mut deployment = graph::graph(&script, "", Vec::new()).primary;
+        deployment.options = options;
+        graph.cohosted.push(deployment);
+        compiled = compiled.register(script, "test", move || Ok(application.clone()))?;
+    }
     if let Some(http) = external_http {
         let public_address = services.listener.local_addr()?;
         let (node, ingress) = Node::start_external(

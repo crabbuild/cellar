@@ -219,12 +219,21 @@ impl CellGroupDispatcher {
             cause: Box::new(cause),
         };
         let started = self.domain.mono_ms().map_err(|_| error(closed()))?;
-        let deadline = limits.deadline_at(started).ok_or_else(|| {
-            error(CellDispatchError::Routing(CellRoutingError {
-                reason: CellRoutingFailure::InvalidRequest,
-                ambiguous_command: None,
-            }))
-        })?;
+        let maximum_ms = if system
+            && request.contract.operation == crate::application::consensus::native_work::OPERATION
+        {
+            300_000
+        } else {
+            60_000
+        };
+        let deadline = limits
+            .deadline_at_bounded(started, maximum_ms)
+            .ok_or_else(|| {
+                error(CellDispatchError::Routing(CellRoutingError {
+                    reason: CellRoutingFailure::InvalidRequest,
+                    ambiguous_command: None,
+                }))
+            })?;
         request.durability = request
             .durability
             .max(self.directory.namespace_config().minimum_durability);
@@ -364,7 +373,7 @@ impl PendingCellCommand {
         };
         let session = dispatcher
             .directory
-            .routing_session_in(
+            .routing_session_bounded_in(
                 dispatcher.domain.clone(),
                 CellRouteRequest {
                     cell: cell.clone(),
@@ -374,6 +383,14 @@ impl PendingCellCommand {
                 limits,
                 cached,
                 started,
+                if system
+                    && request.contract.operation
+                        == crate::application::consensus::native_work::OPERATION
+                {
+                    300_000
+                } else {
+                    60_000
+                },
             )
             .map_err(|e| error(CellDispatchError::Routing(e)))?
             .using_cache(dispatcher.routes.clone());
