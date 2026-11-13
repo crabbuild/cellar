@@ -621,7 +621,9 @@ pub(crate) use remote_commands::{remote_command_lifecycle, remote_commands};
 
 #[path = "cell_group_remote_enrollment.rs"]
 mod remote_enrollment;
-pub(crate) use remote_enrollment::{remote_enrollment, remote_enrollment_lifecycle};
+pub(crate) use remote_enrollment::{
+    remote_enrollment, remote_enrollment_lifecycle, remote_enrollment_writer_contention,
+};
 
 #[path = "cell_group_receipt_lookup.rs"]
 mod receipt_lookup;

@@ -4,6 +4,7 @@
 use super::query_origins::Router;
 use super::remote_queries::{dispatcher, keys, wait_for};
 use super::*;
+use anyhow::ensure;
 use cellar::application::consensus::NamespaceCommandOrigin;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -219,6 +220,154 @@ pub(crate) async fn remote_enrollment() -> Result<()> {
             controller.close().await?;
         }
         fixture.close().await?;
+    }
+    Ok(())
+}
+
+// A waiting creator must not enter SQL while the logical writer is held,
+// including a different candidate history or an expiring original deadline.
+pub(crate) async fn remote_enrollment_writer_contention() -> Result<()> {
+    for rooted in [false, true] {
+        for mode in 0..3 {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let count = calls.clone();
+            let (entered, entered_rx) = tokio::sync::oneshot::channel();
+            let entered = Arc::new(Mutex::new(Some(entered)));
+            let (release, held) = std::sync::mpsc::sync_channel(1);
+            let held = Arc::new(Mutex::new(held));
+            let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.initializer(
+                [90; 32],
+                move |_, transaction| {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    if let Some(entered) = entered.lock().unwrap().take() {
+                        let _ = entered.send(());
+                        held.lock().unwrap().recv_timeout(Duration::from_secs(15))?;
+                    }
+                    transaction
+                        .execute_batch("CREATE TABLE value(n); INSERT INTO value VALUES(7);")?;
+                    Ok(())
+                },
+            )?);
+            let (mut fixture, route, _, _) = Box::pin(registered::setup(rooted, &class)).await?;
+            let controllers = controller::start_with_limits(
+                &mut fixture,
+                CellGroupControllerLimits {
+                    max_commands: 2,
+                    ..controller::limits()
+                },
+            )
+            .await?;
+            let dispatch = dispatcher(&fixture, class, keys(190)?)?;
+            let cell = history(&route, "contended-enrollment")?;
+            let gateway = fixture.transports[0].install_cell_command_gateway(
+                dispatch.clone(), controllers[0].clone(),
+                cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(fixture.cell_options(&cell).await?)?,
+            )?;
+            let router = Router::start(&fixture).await?;
+            router
+                .transport
+                .install_cell_query_group(fixture.tcp_route(route.history)?)?;
+            grant(&fixture, &router, 0, 1)?;
+            let work = async {
+                let first = controllers[0].enroll(
+                    dispatch
+                        .enroll(
+                            cell.clone(),
+                            CellEnrollmentRequest {
+                                creation: ProposalId::new([220; 16])?,
+                                durability: Durability::Quorum,
+                            },
+                            CellRoutingLimits {
+                                timeout: Duration::from_secs(15),
+                                max_attempts: 4,
+                            },
+                            None,
+                        )
+                        .await?,
+                    fixture.cell_options(&cell).await?,
+                )?;
+                tokio::time::timeout(Duration::from_secs(5), entered_rx).await??;
+                let mut candidate = cell.clone();
+                if mode == 1 {
+                    candidate.incarnation = IncarnationId::new([222; 16])?;
+                }
+                let timeout = if mode == 2 {
+                    Duration::from_millis(200)
+                } else {
+                    Duration::from_secs(5)
+                };
+                let mut second = invocation(
+                    &dispatch, &candidate, if mode == 1 { 221 } else { 220 }, timeout,
+                ).await?;
+                let began = tokio::time::Instant::now();
+                let mut reply = Box::pin(second.execute_remote(
+                    &router.transport, MemberId::new(1)?,
+                ));
+                let observed = tokio::select! {
+                    result = &mut reply => Ok(Some(result)),
+                    result = wait_for(async || Ok(controllers[0].usage().retained_commands == 2)) => result.map(|()| None),
+                }?;
+                let early = match observed {
+                    Some(result) => Some(result),
+                    None => tokio::time::timeout(
+                        if mode == 2 {
+                            Duration::from_secs(1)
+                        } else {
+                            Duration::from_millis(100)
+                        },
+                        &mut reply,
+                    ).await.ok(),
+                };
+                let returned_while_held = early.is_some();
+                let elapsed_while_held = began.elapsed();
+                ensure!(calls.load(Ordering::SeqCst) == 1, "competing initializer entered");
+                release.send(())?;
+                let original = first.response().await?;
+                let result = match early {
+                    Some(result) => result,
+                    None => reply.await,
+                };
+                if mode == 2 {
+                    ensure!(
+                        returned_while_held && elapsed_while_held >= Duration::from_millis(100),
+                        "deadline escaped its original window: {}",
+                        result.as_ref().err().map(ToString::to_string).unwrap_or_default(),
+                    );
+                    ensure!(result.err().context("held creator deadline")?.ambiguous);
+                } else {
+                    ensure!(
+                        !returned_while_held,
+                        "writer refusal escaped before the first creator resolved: {}",
+                        result.as_ref().err().map(ToString::to_string).unwrap_or_default(),
+                    );
+                    if mode == 0 {
+                        ensure!(result?.record() == original.record(), "creation receipt changed");
+                    } else {
+                        ensure!(
+                            result.err().context("competing creator")?.cause.refusal()
+                                == Some(&CommandFailure::CommandConflict),
+                            "conflicting creator lost its typed refusal",
+                        );
+                    }
+                }
+                drop(original);
+                wait_for(async || Ok(controllers[0].usage().retained_commands == 0)).await?;
+                ensure!(
+                    calls.load(Ordering::SeqCst) == 1,
+                    "waiting enrollment re-entered initialization",
+                );
+                Ok::<_, anyhow::Error>(())
+            }.await;
+            let _ = release.try_send(());
+            drop(gateway);
+            let router_closed = router.close().await;
+            for controller in controllers {
+                controller.close().await?;
+            }
+            fixture.close().await?;
+            router_closed?;
+            work.with_context(|| format!("enrollment contention extents={rooted} mode={mode}"))?;
+        }
     }
     Ok(())
 }

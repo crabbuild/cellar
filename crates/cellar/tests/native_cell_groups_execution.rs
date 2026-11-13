@@ -1400,6 +1400,11 @@ async fn shared_remote_enrollment_requires_write_grants_and_exact_creation() -> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_enrollment_waits_for_logical_writer() -> Result<()> {
+    Box::pin(runtime_fixture::remote_enrollment_writer_contention()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn shared_remote_enrollment_survives_disconnected_initializer() -> Result<()> {
     Box::pin(runtime_fixture::remote_enrollment_lifecycle(0)).await
 }
