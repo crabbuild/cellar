@@ -15,6 +15,13 @@ enum Coverage {
     Api,
     Chained,
     Preparation,
+    Streaming,
+}
+
+impl Coverage {
+    fn focused(self) -> bool {
+        matches!(self, Self::Preparation | Self::Streaming)
+    }
 }
 
 fn preparations(cluster: &ManagedCluster, name: &str) -> Result<u64> {
@@ -418,6 +425,10 @@ pub async fn qualify_preparation() -> Result<()> {
     qualify_case(false, false, Coverage::Preparation).await
 }
 
+pub async fn qualify_streaming() -> Result<()> {
+    qualify_case(false, false, Coverage::Streaming).await
+}
+
 async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> Result<()> {
     let mut failures = Vec::new();
     for rooted in [false, true] {
@@ -439,6 +450,9 @@ async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> 
             } else {
                 Arc::new(catalog_fault::Store::default())
             };
+            if coverage == Coverage::Streaming {
+                store.cell_payload_chunk_bytes.store(16 * 1024, Ordering::Release);
+            }
             Box::pin(run(rooted, store, backend.as_ref(), external, coverage)).await
         }
         .await;
@@ -545,7 +559,7 @@ async fn run(
                 Ok::<_, anyhow::Error>(())
             })
             .await??;
-            if coverage != Coverage::Preparation {
+            if !coverage.focused() {
             public_ok(&cluster, 0, "Contract").await?;
             public_ok(&cluster, 2, "Write").await?;
             public_ok(&cluster, 1, "Refused").await?;
@@ -611,7 +625,7 @@ async fn run(
                 "Delete",
             ] {
                 if (method == "Contract" && coverage != Coverage::Chained)
-                    || (coverage == Coverage::Preparation && method != "Large") {
+                    || (coverage.focused() && method != "Large") {
                     continue;
                 }
                 let mut options = bindings::options(sequence, Durability::Quorum)?;
@@ -649,6 +663,7 @@ async fn run(
                     "warm operator value still required a preparation command");
                 public_ok(&cluster, 2, "ReadCliLarge").await?;
             }
+            if coverage != Coverage::Streaming {
             // A locator from applied metadata cannot authorize external I/O.
             // The warm path must still wait for this source's new S3 proof.
             let proof_source = cluster.hosts[leader].cell(CellHistory {
@@ -687,6 +702,7 @@ async fn run(
             }
             ensure!(cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire) == puts_before + 1,
                 "expired source upload started after restoring its archive provider");
+            }
             for host in &cluster.hosts {
                 let usage = host
                     .resource_usage()
@@ -698,7 +714,7 @@ async fn run(
                     "KV transport leaked payload admission: {usage:?}"
                 );
             }
-            if coverage == Coverage::Preparation {
+            if coverage.focused() {
                 return Ok(());
             }
             let duplicate_options = bindings::options(sequence, Durability::Quorum)?;
