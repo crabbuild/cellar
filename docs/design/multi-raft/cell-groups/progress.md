@@ -27,6 +27,54 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 interrupted SQL parent recovery
+
+Source `bf19176f` adds ordinary SQL binding interruption scenarios for successful
+writes and failed batches. The parent is stopped after its SQL child has replied,
+but before publishing parent completion or private source resolution. A fresh
+linearizable source read checks the exact intent/selection mutation count and
+proves that pre-child writes survived while post-child writes remained private.
+After retained RF3 restart, node-owned maintenance must settle the obligation.
+Rollback-only probes observe settlement; they never retry the business call or
+invoke maintenance. The original parent must remain unknown, its callback must
+run once, SQL commit/rollback must survive and a fresh binding must advance.
+
+The first native/RustFS cohort passes **13/16** scenarios. Native storage passes
+**7/8**; its extent/S3-source/error scenario settles the obligation but times out
+on the first fresh call. RustFS passes **6/8**; two materialized/Quorum-source
+cases fail managed startup with transport timeouts before interruption begins.
+Those failed startup disks were dropped by the former fixture; their logs remain.
+The three native post-recovery failure disks and frozen executable are retained
+in `CG-17-sql-recovery-bf19176f-01` and its workspace backup.
+
+At `b3aacf7a`, failed managed activation joins every started node/Raft owner before
+retaining its disks. Source callback and failure-only state/performance diagnostics
+now distinguish child execution from final parent proof. The focused native
+extent/S3/error regression passes, but that is not a causal fix for the earlier
+timeout. The subsequent full matrix is **14/16**, with native **7/8** and real
+RustFS **7/8**. Native fails a three-second cold SQL setup before interruption;
+RustFS materialized/S3/write fails a SQL inspection after restart. The other
+fourteen scenarios, including native extents/S3/error, pass recovery and fresh
+calls. Evidence is `CG-17-sql-recovery-b3aacf7a-02`, with frozen binaries, retained
+failure disks, workspace backup and the preceding failed control. The owned
+RustFS backend and VM are stopped.
+
+`tools/multi-raft/cell_groups.py --suite ordinary-sql-bindings` now selects the
+native-host, Axum-host and interrupted-binding RustFS commands. It retains/hashes
+the actual CLI and gives the test its frozen path, records the CI test profile
+and supports collecting every process-isolated case without clearing failures.
+The selector inventory is checked against the frozen executable. This new
+canonical suite has not yet run end to end against its required one-CPU backend;
+the recorded recovery campaigns used a two-CPU/2-GiB RustFS container.
+
+Source durability varies Quorum/S3; the independent SQL namespace minimum is
+Quorum. Each configuration uses one SQL worker, 16 KiB inputs, four client slots
+and the original three/five-second budgets. No production recovery algorithm or
+deadline is changed. Full SQL lifecycle acceptance still requires unresolved
+deadline/startup gates, target-S3 coverage, interruption before child completion,
+movement, wake, archive outage and disaster recovery, plus independent Linux/load
+qualification. Full task/case acceptance remains **13/17 and 147/195**.
+
 ## CG-17 authenticated SQL operator, CLI and Axum
 
 Source `979addd0` delivers the peer-authenticated `/runtime/` SQL adapter through
