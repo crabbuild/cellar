@@ -51,35 +51,6 @@ impl CellRoutingLimits {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn callback_budget_does_not_extend_public_routing() {
-        let public = CellRoutingLimits {
-            timeout: Duration::from_secs(60),
-            max_attempts: 4,
-        };
-        assert_eq!(public.deadline_at(10), Some(60_010));
-        let callback = CellRoutingLimits {
-            timeout: Duration::from_secs(90),
-            ..public
-        };
-        assert_eq!(callback.deadline_at(10), None);
-        assert_eq!(callback.deadline_at_bounded(10, 300_000), Some(90_010));
-        assert_eq!(callback.deadline_at_bounded(u64::MAX, 300_000), None);
-        assert_eq!(
-            CellRoutingLimits {
-                timeout: Duration::from_secs(301),
-                ..public
-            }
-            .deadline_at_bounded(10, 300_000),
-            None
-        );
-    }
-}
-
 #[derive(Debug)]
 pub enum CellRoutingFailure {
     InvalidRequest,
@@ -607,5 +578,34 @@ impl CellRoutingSession {
             ordinal: self.attempts,
             owner: self.owner.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_budget_does_not_extend_public_routing() {
+        let public = CellRoutingLimits {
+            timeout: Duration::from_secs(60),
+            max_attempts: 4,
+        };
+        assert_eq!(public.deadline_at(10), Some(60_010));
+        let callback = CellRoutingLimits {
+            timeout: Duration::from_secs(90),
+            ..public
+        };
+        assert_eq!(callback.deadline_at(10), None);
+        assert_eq!(callback.deadline_at_bounded(10, 300_000), Some(90_010));
+        assert_eq!(callback.deadline_at_bounded(u64::MAX, 300_000), None);
+        assert_eq!(
+            CellRoutingLimits {
+                timeout: Duration::from_secs(301),
+                ..public
+            }
+            .deadline_at_bounded(10, 300_000),
+            None
+        );
     }
 }
