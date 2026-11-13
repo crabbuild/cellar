@@ -59,10 +59,15 @@ fn fixed_stream_requires_reserved_sql_contract_and_nonce() -> Result<()> {
         incarnation: IncarnationId::new([3; 16])?,
     };
     let contract = sql.binding_contract("__sqlExec").unwrap();
+    assert!(sql
+        .binding_contract(crate::application::sql::operator::METHOD)
+        .is_none());
+    let operator = sql.sql_operator_contract().unwrap();
     let id = CommandId::new(client(), 1)?;
     let args = RpcData::Json("[\"SELECT 1\"]".into());
     let input = native_rpc::encode_ingress_request(Some("db"), &args, [1; 16], 1024)?;
     sql.validate_command_identity(&scope, &contract, id, Durability::Quorum, &input)?;
+    sql.validate_command_identity(&scope, &operator, id, Durability::Quorum, &input)?;
     assert!(sql
         .validate_command_identity(
             &scope,

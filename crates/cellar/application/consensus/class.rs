@@ -417,7 +417,7 @@ impl RaftClass {
         Self::definition(
             crate::deploy::SQL_CLASS.into(),
             1,
-            Sha256::digest(b"cellar-raft-sql-service-ingress-identity-1").into(),
+            Sha256::digest(b"cellar-raft-sql-service-operator-1").into(),
         )
     }
 
@@ -752,6 +752,11 @@ impl RaftClass {
     }
 
     pub(crate) fn binding_contract(&self, operation: &str) -> Option<OperationContract> {
+        if self.name == crate::deploy::SQL_CLASS
+            && operation == crate::application::sql::operator::METHOD
+        {
+            return None;
+        }
         let command = self.commands.get(operation)?;
         match &command.handler {
             CommandHandler::NativeCellRpc { .. } => self.contract(operation),
@@ -760,6 +765,12 @@ impl RaftClass {
             }
             CommandHandler::Registered(_) => None,
         }
+    }
+
+    pub(crate) fn sql_operator_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::SQL_CLASS)
+            .then(|| self.contract(crate::application::sql::operator::METHOD))
+            .flatten()
     }
 
     pub(crate) fn binding_json_only(&self, operation: &str) -> Option<bool> {

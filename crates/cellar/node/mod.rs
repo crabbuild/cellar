@@ -76,6 +76,7 @@ mod rpc_deadline;
 #[path = "shutdown_acceptor_tests.rs"]
 mod shutdown_acceptor_tests;
 mod source_operator;
+mod sql_operator;
 mod state_sampling;
 mod stream_operator;
 mod wake_discovery;
@@ -3599,6 +3600,7 @@ async fn handle_internal(
             catalog_operator::handle(&app, request).await
         }
         _ if path.starts_with("/runtime/") && app.runtime.is_some() => {
+            let deadline = crate::asyncrt::mono_ms().saturating_add(app.operation_deadline_ms);
             let scope = path
                 .strip_prefix("/runtime/")
                 .expect("matched the prefix")
@@ -3671,6 +3673,23 @@ async fn handle_internal(
                 return Ok(peer_response(
                     management::cron_history(app, scope, body.to_vec()).await,
                 ));
+            }
+            if scope
+                .split_once(':')
+                .is_some_and(|(class, _)| class == crate::deploy::SQL_CLASS)
+            {
+                if let Some(reply) = sql_operator::dispatch_authenticated(
+                    &app,
+                    &method,
+                    &scope,
+                    name.as_deref(),
+                    &body,
+                    deadline,
+                )
+                .await
+                {
+                    return Ok(peer_response(reply));
+                }
             }
             // A Queue needs its name before its constructor chooses a
             // consumer. The runtime also proves that this name hashes to the

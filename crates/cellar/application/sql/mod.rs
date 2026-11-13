@@ -5,6 +5,7 @@
 //! Owner lookup, admission and durability remain host responsibilities.
 
 pub(crate) mod ingress;
+pub(crate) mod operator;
 mod wire;
 
 use super::{
@@ -370,6 +371,7 @@ impl DatabaseCell {
             .as_array()
             .ok_or_else(|| Error::new("SQL_ERROR", "RPC arguments must be an array"))?;
         let result = match method {
+            operator::METHOD => self.operator(input.first().unwrap_or(&Value::Null))?,
             "__sqlQuery" => self.query(input.first().unwrap_or(&Value::Null))?,
             "__sqlBatch" => self.batch(input.first().unwrap_or(&Value::Null))?,
             "__sqlExec" => {
@@ -413,78 +415,10 @@ impl DatabaseCell {
             serde_json::from_slice::<Value>(&bytes).map_err(anyhow::Error::from)
         }
         .await;
-        let result = match body {
-            Err(_) => Err(anyhow::Error::from(Error::new(
-                "SQL_ERROR",
-                "invalid request body",
-            ))),
-            Ok(Value::Null) => Err(anyhow::Error::from(Error::new(
-                "SQL_ERROR",
-                "invalid request body",
-            ))),
-            Ok(body) => {
-                if let Some(console) = body.get("console") {
-                    #[derive(serde::Deserialize)]
-                    #[serde(deny_unknown_fields)]
-                    struct ConsoleQuery {
-                        sql: String,
-                        readonly: bool,
-                    }
-                    serde_json::from_value::<ConsoleQuery>(console.clone())
-                        .map_err(anyhow::Error::from)
-                        .and_then(|query| self.0.sql_console(&query.sql, query.readonly))
-                        .and_then(|response| serde_json::to_value(response).map_err(Into::into))
-                } else if let Some(history) = body.get("console_migrations") {
-                    #[derive(serde::Deserialize)]
-                    #[serde(deny_unknown_fields)]
-                    struct History {
-                        table: String,
-                        after: u64,
-                    }
-                    serde_json::from_value::<History>(history.clone())
-                        .map_err(anyhow::Error::from)
-                        .and_then(|query| self.0.sql_console_migrations(&query.table, query.after))
-                } else if let Some(migration) = body.get("migrate") {
-                    self.migrate(
-                        js_string(migration.get("name")),
-                        js_string(migration.get("sql")),
-                        if truthy(migration.get("table")) {
-                            js_string(migration.get("table"))
-                        } else {
-                            cellar_native::sql::MIGRATIONS_TABLE.into()
-                        },
-                    )
-                } else if let Some(history) = body.get("migrations") {
-                    self.migrations(
-                        history
-                            .get("table")
-                            .map(|table| js_string(Some(table)))
-                            .unwrap_or_else(|| cellar_native::sql::MIGRATIONS_TABLE.into()),
-                    )
-                } else if let Some(exec) = body.get("exec") {
-                    self.exec(js_string(exec.get("sql")), truthy(exec.get("rows")))
-                } else {
-                    self.query(
-                        body.get("statements")
-                            .filter(|value| truthy(Some(value)))
-                            .unwrap_or(&json!([])),
-                    )
-                }
-            }
-        };
-        let (status, body) = match result {
-            Ok(value) => (200, json!({ "result": value })),
-            Err(error) => (400, json!({ "error": error.to_string() })),
-        };
-        HttpResponse {
-            status,
-            body: serde_json::to_vec(&body).expect("SQL result is JSON"),
-            stream: None,
-            headers: vec![("content-type".into(), "application/json".into())],
-            websocket: None,
-            write_position: None,
-            observed_position: None,
-        }
+        operator::response(
+            body.map_err(|_| Error::new("SQL_ERROR", "invalid request body").into())
+                .and_then(|body| self.operator(&body)),
+        )
     }
 }
 

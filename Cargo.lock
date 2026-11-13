@@ -351,6 +351,7 @@ dependencies = [
  "bytes",
  "cc",
  "cellar-admin",
+ "cellar-axum",
  "cellar-egress",
  "cellar-logic",
  "cellar-ltx",

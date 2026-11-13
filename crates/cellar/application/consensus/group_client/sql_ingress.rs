@@ -10,12 +10,37 @@ use crate::raft::completion::RuntimeError;
 use cellar_logic::consensus::{IncarnationId, ProposalId};
 use rand::RngCore as _;
 
+enum Origin {
+    Binding,
+    Operator,
+}
+
 impl RaftCells {
     pub(crate) fn sql_ingress(
         &self,
         admitted: crate::outbound_rpc::Admitted,
         call_scope: crate::host_rpc::CallScope,
         deadline: u64,
+    ) -> HandlerFuture<RpcData> {
+        self.submit_sql(admitted, call_scope, deadline, Origin::Binding)
+    }
+
+    /// Called only by the node's peer-authenticated operator entrance.
+    pub(crate) fn sql_operator(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+    ) -> HandlerFuture<RpcData> {
+        self.submit_sql(admitted, call_scope, deadline, Origin::Operator)
+    }
+
+    fn submit_sql(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        origin: Origin,
     ) -> HandlerFuture<RpcData> {
         let crate::outbound_rpc::Admitted {
             reservation,
@@ -26,11 +51,23 @@ impl RaftCells {
         } = admitted;
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
-            let route =
-                self.handle
-                    .core
-                    .host
-                    .sql_ingress_route(&scope, &method, &self.handle.core.log)?;
+            let route = match origin {
+                Origin::Binding => self.handle.core.host.sql_ingress_route(
+                    &scope,
+                    &method,
+                    &self.handle.core.log,
+                )?,
+                Origin::Operator => {
+                    anyhow::ensure!(
+                        method == crate::application::sql::operator::METHOD,
+                        super::super::CommandFailure::UnsupportedCapability
+                    );
+                    self.handle
+                        .core
+                        .host
+                        .sql_operator_route(&scope, &self.handle.core.log)?
+                }
+            };
             if route.history_hint.is_some() {
                 self.handle.core.log.performance().increment(
                     crate::raft::performance::Counter::CellBindingAppliedHistoryHints,

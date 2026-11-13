@@ -20,6 +20,7 @@ pub(in crate::application) fn sql_service() -> Result<RaftClass, RegistrationErr
         "__sqlExec",
         "__sqlMigrations",
         "__sqlMigrate",
+        crate::application::sql::operator::METHOD,
     ] {
         let mut digest = Sha256::new();
         digest.update(b"cellar-raft-sql-operation-1");

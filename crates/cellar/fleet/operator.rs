@@ -77,6 +77,19 @@ impl Reachable {
         Self::open_route(fleet, subject, scope, name, "runtime").await
     }
 
+    /// Explicit private entrances bootstrap a managed Raft deployment without
+    /// requiring legacy ownership leases. Data execution stays server-owned.
+    pub(crate) async fn open_at(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+        name: Option<&str>,
+        entrances: Vec<(String, String)>,
+    ) -> anyhow::Result<Self> {
+        let bucket = crate::fleet::bucket_client(fleet.bucket, fleet.endpoint, fleet.region)?;
+        Self::from_entrances(&bucket, subject, scope, name, entrances).await
+    }
+
     pub(crate) async fn open_inventory(
         fleet: Fleet<'_>,
         subject: Subject,
@@ -308,25 +321,15 @@ impl Reachable {
                 Some(limit) => bounded_reply(response, limit).await?,
                 None => response.text().await.context("read the reply")?,
             };
-            if status == reqwest::StatusCode::SERVICE_UNAVAILABLE
-                && text.contains("\"draining\"")
-                && !last
-            {
-                refused.push(format!("{url}: the node is draining"));
-                continue;
-            }
             // The dispatcher refusing at the door is the doc comment's
             // criterion exactly: the request provably did not run, so the
             // next entrance is safe to try where a timeout would not be.
-            if status == reqwest::StatusCode::SERVICE_UNAVAILABLE
-                && text.contains("dispatcher unavailable")
-                && !last
-            {
-                refused.push(format!("{url}: the node's dispatcher is unavailable"));
-                continue;
-            }
             let value: Value = serde_json::from_str(&text)
                 .with_context(|| format!("decode the reply ({status}): {text}"))?;
+            if !last && unsubmitted_refusal(status, &value) {
+                refused.push(format!("{url}: the node refused before dispatch"));
+                continue;
+            }
             if let Some(error) = value.get("error") {
                 if let Some(error) = error.as_str() {
                     bail!("{error}{}", report(&refused));
@@ -347,6 +350,16 @@ impl Reachable {
         }
         bail!("no node in the fleet answered{}", report(&refused))
     }
+}
+
+fn unsubmitted_refusal(status: reqwest::StatusCode, body: &Value) -> bool {
+    // An unknown outcome overrides textual errors, including an error message
+    // containing these words after a mutation committed. Only the actual
+    // top-level door refusals can authorize trying another entrance.
+    status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+        && body.get("outcome").is_none()
+        && (body.get("draining").and_then(Value::as_bool) == Some(true)
+            || body.get("error").and_then(Value::as_str) == Some("dispatcher unavailable"))
 }
 
 pub(crate) async fn bounded_reply(
