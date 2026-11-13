@@ -56,7 +56,8 @@ class SqlCampaignTests(unittest.TestCase):
                     self.assertEqual("--nocapture" in argv,
                                      selection == "rustfs_queue_load_preserves_acknowledged_messages")
                 if suite == "ordinary-kv-bindings":
-                    self.assertIn("--nocapture", argv)
+                    self.assertIn("--show-output", argv)
+                    self.assertNotIn("--nocapture", argv)
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
                     retained = Path(env[{"ordinary-sql-bindings": "CELLAR_CELL_GROUPS_SQL_CLI", "ordinary-kv-bindings": "CELLAR_CELL_GROUPS_KV_CLI", "queue-primitives": "CELLAR_CELL_GROUPS_QUEUE_CLI"}[suite]])
                     self.assertEqual(retained, output / "cellar")
@@ -163,6 +164,18 @@ class QueueCampaignTests(unittest.TestCase):
 
 class KvCampaignTests(unittest.TestCase):
     campaign = SqlCampaignTests.campaign
+
+    def test_kv_capture_preserves_diagnostics_and_strict_success(self):
+        case = "rustfs_ordinary_kv_bindings_use_managed_shared_groups"
+        diagnostics = "public KV Contract node=0: status=200\n"
+        summary = "test result: ok. 1 passed; 0 failed; 0 ignored;\n"
+        captured = (f"test {case} ... ok\n\nsuccesses:\n\n"
+                    f"---- {case} stdout ----\n" + diagnostics + summary)
+        self.assertTrue(cell_groups.exact_case_passed(captured, case))
+        interleaved = f"test {case} ... " + diagnostics + "ok\n" + summary
+        self.assertFalse(cell_groups.exact_case_passed(interleaved, case))
+        self.assertFalse(cell_groups.exact_case_passed(
+            captured.replace("1 passed;", "0 passed;"), case))
 
     def test_kv_uses_the_frozen_cli_for_every_case(self):
         self.campaign(suite="ordinary-kv-bindings")
