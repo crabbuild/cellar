@@ -601,7 +601,9 @@ pub(crate) use controller_enrollment::{
 
 #[path = "cell_group_remote_queries.rs"]
 mod remote_queries;
-pub(crate) use remote_queries::{remote_follower_reads, remote_queries, remote_query_lifecycle};
+pub(crate) use remote_queries::{
+    remote_execution_deadlines, remote_follower_reads, remote_queries, remote_query_lifecycle,
+};
 
 #[path = "cell_group_query_origins.rs"]
 mod query_origins;

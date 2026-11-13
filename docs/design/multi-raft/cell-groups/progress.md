@@ -27,6 +27,70 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 ordinary KV bindings and compact wire transport
+
+Sources `05cd04b4` and `fe8ef583` implement the ordinary KV service on managed
+cell groups: declared SDK bindings, stateless native/Axum ingress, authenticated
+operator controls and actual CLI entrances. Large request and reply bodies use
+confirmed immutable objects while Raft retains compact descriptors. The 25-MiB
+KV ceiling remains intact with 16-KiB Raft inputs and unchanged result limits.
+Publication and reply expansion share the original call deadline and node-wide
+operation/decoder-byte admission. The [payload contract](payload-storage.md)
+describes ownership, retention and recovery limits.
+
+At `f935ebd2`, the native RF3 selection passes **2/2** image configurations.
+It reuses the Fleet API assertions for text/JSON/bytes/streams, metadata, bulk
+reads/deletes, Unicode/list cursors and validation. Both modes also pass exact
+1-MiB/25-MiB round trips, namespace isolation, private-wrapper refusal,
+incarnation-qualified conditional edits, physical expiration through durable
+alarm work, joined retained restart, exact parent replay without callback entry,
+actual archive-PUT refusal while Quorum requests progress, provider-read failure,
+and read/write refusal after two voter owners stop. Payload operations and
+retained bytes return to zero.
+
+The new direct-value path publishes large values before the compact child RPC.
+The receiver reads and verifies the actual object before committing its reference;
+SDK/operator reads expand the returned reference after the quorum reply. The
+25-MiB SDK put/get asserts exactly one 26,214,400-byte publication. Pending,
+forged-confirmed and wrong-owner references refuse mutation, and aggregate reads
+refuse their byte ceiling before fetching. Original request deadlines still cover
+publication, child execution and expansion.
+
+The canonical one-CPU real RustFS/native/Axum campaign still fails **0/4** complete
+configurations. All four pass public small-value APIs and the actual small-value
+CLI. Native materialized and Axum materialized fail the 25-MiB source child RPC;
+native extents reaches the original twenty-second source Unicode deadline.
+Axum extents passes the 25-MiB source round trip with exactly one publication,
+then its aggregate-reference child RPC times out. Logs, twelve voter disks,
+actual CLI and executables are retained. Transport execution deadlines are the
+next causal boundary under investigation; no timeout resolution is claimed.
+The older `c6400c66` native **2/2** and RustFS **0/4** wire-copy cohort remains
+retained separately.
+
+Profiles are explicit: each stateless binding call retains its three-second
+budget; normal source read/write/replay calls retain five seconds. Conformance
+uses five separately admitted source phases with twenty-second parents, and the
+large-value/compound operations also use twenty seconds. This does not qualify
+all APIs chained into one twenty-second parent. That original workload fails in
+both modes at `fe8ef583`; its logs, six disks and frozen executable are retained,
+and the original workload remains an opt-in load selection. Splitting the API
+contract is not a causal performance fix or a latency-SLO claim.
+
+The first `05cd04b4` control fails **0/2** at the first stateless request because
+reserved ingress nonce validation omitted KV. `fe8ef583` adds KV to the existing
+SQL/Queue validation; both modes then pass the stateless contract, boundary
+transport, conditional edits and expiry before the chained-source deadline.
+`05cd04b4` separately passes the Fleet KV and immutable-payload native regressions. Both failed
+cohorts remain available. Current evidence is `CG-17-kv-f935ebd2-04`.
+
+No complete primitive family is accepted. S3-source deadline/interruption gates,
+external-value and wire dependency verification before disaster admission,
+movement/wake, root-aware collection, independent voters and sustained load
+remain open. Objects are retained without an unsafe current-row collector.
+The broader test-library typecheck was interrupted after owning integration
+targets compiled; it is not reported as a pass. Historical plan validation still
+stops at the missing CG-01 evidence file. Default cutover remains gated.
+
 ## CG-17 immutable external payload publication
 
 Source `41a19a24` adds the namespace-bound immutable payload store needed before

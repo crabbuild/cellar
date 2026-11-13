@@ -90,6 +90,127 @@ pub(super) async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -
     .await?
 }
 
+pub(crate) async fn remote_execution_deadlines() -> Result<()> {
+    for rooted in [false, true] {
+        let delay = Duration::from_millis(600);
+        let class = Arc::new(
+            RaftClass::new("Counter", 1, [81; 32])?
+                .query("Get", [82; 32], move |_, input| {
+                    // Deliberately hold the physical SQL callback beyond the
+                    // socket framing limit, within the request's own deadline.
+                    std::thread::sleep(delay);
+                    Ok(input.to_vec())
+                })?
+                .command("Add", [83; 32], move |ctx, input| {
+                    std::thread::sleep(delay);
+                    ctx.sql().execute("UPDATE value SET n=n+1", [])?;
+                    Ok(input.to_vec())
+                })?,
+        );
+        let (mut fixture, route, cell, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        fixture
+            .connect_tcp_options(
+                None,
+                TransportOptions {
+                    io_timeout_ms: 200,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+        let query_owners = gateways(&fixture, &controllers, class.clone()).await?;
+        let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
+        let options = fixture.cell_options(&cell).await?;
+        let command_owner = fixture.transports[0].install_cell_command_gateway(
+            dispatch.clone(), controllers[0].clone(),
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(options)?,
+        )?;
+        fixture.transports[0].grant_command_origin(
+            cellar::application::consensus::NamespaceCommandOrigin {
+                cluster: cell.cluster,
+                namespace: cell.namespace,
+                revision: 1,
+                peer: RaftPeerNode::from(&fixture.tcp_route(route.history)?.peers[1]),
+            },
+        )?;
+        let source = &fixture.transports[1];
+        let leader = MemberId::new(1)?;
+        let mut query = invocation(
+            &dispatch,
+            &class,
+            &cell,
+            CellQueryConsistency::Linearizable,
+            Duration::from_secs(2),
+            b"slow query",
+        )
+        .await?;
+        assert_eq!(
+            query.execute_remote(source, leader).await?.result(),
+            b"slow query"
+        );
+        drop(query);
+
+        let retry_until_ms = fixture
+            .cluster
+            .domain
+            .run(async { cellar::asyncrt::wall_ms() as u64 + 60_000 })
+            .await?;
+        let mut command = dispatch
+            .command(
+                cell.clone(),
+                CellCommandRequest {
+                    id: CommandId::new(ClientId::new([211; 16])?, 1)?,
+                    contract: class.contract("Add").context("Add")?,
+                    input: b"slow command".to_vec(),
+                    durability: Durability::Quorum,
+                    retry_until_ms,
+                },
+                CellRoutingLimits {
+                    timeout: Duration::from_secs(2),
+                    max_attempts: 1,
+                },
+                None,
+            )
+            .await?;
+        command.begin().await?;
+        assert_eq!(
+            command.execute_remote(source, leader).await?.result(),
+            b"slow command"
+        );
+        drop(command);
+
+        // The separation must not extend a caller whose own budget is short.
+        let mut expired = invocation(
+            &dispatch,
+            &class,
+            &cell,
+            CellQueryConsistency::Stale,
+            Duration::from_millis(100),
+            b"expires",
+        )
+        .await?;
+        assert!(expired.execute_remote(source, leader).await.is_err());
+        drop(expired);
+        wait_for(async || {
+            Ok(source.usage().query_items == 0
+                && fixture.appliers[&(0, route.history)]
+                    .0
+                    .usage()?
+                    .active_cells
+                    == 0)
+        })
+        .await?;
+        assert_eq!(dispatch.usage(), (0, 0));
+        drop(command_owner);
+        drop(query_owners);
+        for controller in controllers {
+            controller.close().await?;
+        }
+        fixture.close().await?;
+    }
+    Ok(())
+}
+
 pub(crate) async fn remote_queries() -> Result<()> {
     for rooted in [false, true] {
         let calls = Arc::new(AtomicUsize::new(0));

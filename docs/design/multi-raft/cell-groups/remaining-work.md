@@ -48,12 +48,21 @@ existing recovery and release dependencies rather than removing those gates.
    SQL drill passes **8/8** configurations, with real CLI coverage in all four
    RustFS configurations. Preserve the earlier cold-race timeout controls; the
    passing cohort does not establish their causal performance resolution.
-   Then deliver KV revision conditions, expiry, durable alarms and payloads.
-   The immutable payload storage layer at `41a19a24` passes its native and
-   canonical one-CPU RustFS protocol selections (**2/2**). This is a prerequisite:
-   ordinary KV service/ingress and invocation authority are not connected yet.
-   Full-size binding input/source-intent budgets, expiry, lifecycle/disaster
-   payload restoration and root-aware collection remain required. See the
+   Complete ordinary KV qualification alongside SQL recovery. SDK bindings,
+   native/Axum ingress, operator/CLI, revision conditions, durable expiry and
+   compact full-size wire transport are implemented at `05cd04b4`/`fe8ef583`.
+   At `f935ebd2`, direct verified-value references pass **2/2** native image
+   configurations, including exactly one publication per 25-MiB put/get, forged
+   reference refusal and aggregate admission. Canonical real RustFS/Axum remains
+   **0/4** complete configurations: three child RPC transport timeouts and one
+   source Unicode deadline. Axum extents passes its 25-MiB round trip before the
+   aggregate-reference failure. Fix the request-versus-I/O deadline boundary and
+   qualify the full original-budget paths; retain the earlier failed cohorts.
+   The original chained twenty-second source workload still fails and remains
+   a load control. External-object recovery closure, movement/wake and root-aware
+   collection remain required. See the [KV checkpoint](progress.md#cg-17-ordinary-kv-bindings-and-compact-wire-transport).
+   The underlying immutable store at `41a19a24` separately passes native and
+   canonical one-CPU RustFS protocol selections (**2/2**). See the
    [payload checkpoint](progress.md#cg-17-immutable-external-payload-publication).
    See the [SQL checkpoint](progress.md#cg-17-authenticated-sql-operator-cli-and-axum).
    The new after-child-reply interruption drill initially passes **13/16** at

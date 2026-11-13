@@ -989,7 +989,9 @@ pub(super) use sql::{
     enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
 };
 
-pub(super) use sql::{remote_follower_reads, remote_queries, remote_query_lifecycle};
+pub(super) use sql::{
+    remote_execution_deadlines, remote_follower_reads, remote_queries, remote_query_lifecycle,
+};
 
 pub(super) use sql::{nonmember_controller_queries, nonmember_queries, nonmember_query_revocation};
 
