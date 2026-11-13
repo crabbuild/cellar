@@ -3337,3 +3337,10 @@ full-family, constrained-node, disaster, performance and CG/OPT gates stay open.
 The upstream base advances to `5ff087c4` during these frozen campaigns. This
 checkpoint remains pinned to integrated `da66d967`; qualification is not
 transferred to that newer base. `origin/main` is still `d0c2873f`.
+
+Review subsequently confirms that `5ff087c4` changes only six design/evidence
+documents. It is merged while retaining all 3,311 compiler inputs at `4e0b5795`
+and the same 24 anchored source files. The upstream Queue RustFS result remains
+bound to its `9498029b` source; it does not qualify these optimization changes.
+Additional documentation/design/anchor checks cover this merge. Recorded task
+acceptance and the remaining combined runtime/backend/CG/OPT gates are unchanged.

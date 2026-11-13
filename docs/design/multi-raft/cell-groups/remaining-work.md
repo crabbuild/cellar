@@ -59,7 +59,8 @@ existing recovery and release dependencies rather than removing those gates.
    source-intent/receipt dependencies before admitting a recovered incarnation.
    Preserve failed controls and the chained twenty-second KV load failure.
 2. Build on the [qualified callback and Queue implementation](queue-durable-work.md):
-   at `a5f65e79`, real RustFS passes **12/12** configurations across separate
+   at `a5f65e79` and combined KV/RPC source `9498029b`, real RustFS passes
+   **12/12** configurations across separate
    deployments, native/Axum SDK/CLI, lost DLQ replies, stale handlers, purge,
    retention replay, 65-second callbacks and bounded load. The load envelope is
    four producers/two in-flight requests; cold S3 first use and higher concurrency
