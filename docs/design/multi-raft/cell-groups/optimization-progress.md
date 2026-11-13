@@ -3396,3 +3396,144 @@ archive-controller suite. It has not yet run against RustFS. The remaining
 rooted seal-authorization failure, 128-cell unavailable/closed-runtime failure,
 Linux sandbox shutdown failure, full combined native/backend campaigns,
 historical evidence gate and broader CG/OPT requirements stay open.
+
+## Demand refresh on the sending node
+
+The managed inspection regression exposes a separate sender revision-floor
+defect. Holding its background Fleet read behind a real catalog mutation makes
+one physical-inventory request refuse with `StalePeer` before any RPC. The
+receiver is independently current, so receiver refresh cannot repair this
+failure. Unchanged production reproduces it at `9eae4b64` in 1.185 seconds.
+
+The candidate performs sender discovery in the existing eagerly admitted
+transport task, installs the complete trust cut, then binds the peer and sends
+the original request. It refreshes only when installed trust is behind the
+requested revision. Identity refusals, endpoint checks, process revocation,
+metadata ceilings and the original absolute deadline remain enforced. No
+caller retry or extra transport owner is introduced.
+
+The strengthened regression retains its receiver and self-inspection phases
+and additionally requires sender discovery while the response future remains
+unpolled. At `211e3e63`, all five optimized repetitions pass in
+0.989–1.040 seconds while both background reads remain held, with unchanged
+source guards. This is component evidence with temporary diagnostics still
+present. Matching clean-source runtime checks and the original rooted
+merge-seal failure remain open; that earlier `Observation(Refused)` has not
+been attributed to this `StalePeer` defect. No CG/OPT acceptance changes.
+
+The same frozen candidate subsequently passes all 16 ordinary Raft directory
+tests, including real process replacement, retained unpolled waiters and joined
+shutdown. Two focused rooted unpublished-parent repetitions pass in
+57.506/52.338 seconds. The full ordinary disaster target remains failed:
+six functions pass and two fail in 549.733 seconds. Materialized-image
+recovery-barrier execution still refuses merge-seal inspection; rooted
+unpublished-parent recovery separately rejects a close report with committed
+progress ahead of applied progress. These failures remain independent of the
+sender-floor regression and require further diagnosis without relaxing either
+physical admission or shutdown assertions.
+
+Hosted native Python 3.14t validation at published archive-lifecycle head
+`edfc1b0a` also fails the disaster target: four functions pass and four fail
+in 263.31 seconds. The recovery-barrier, uncertain-outbox, old-token retry and
+complete-closure cases report unavailable/unknown management outcomes in
+[job 131913326541](https://github.com/crabbuild/cellar/actions/runs/43433706144/job/131913326541).
+That head does not include the sender-refresh candidate. Filesystem release
+applications pass on all three configured platforms; the remaining SDK/native
+jobs have not supplied terminal results at this checkpoint.
+
+The corresponding native Python 3.14 job subsequently fails three disaster
+functions (five pass, eight ignored) in 383.80 seconds. The unavailable/unknown
+outcomes occur in rooted uncertain-outbox recovery, old-token retries and
+unpublished-parent recovery, as retained in
+[job 131913326491](https://github.com/crabbuild/cellar/actions/runs/43433706144/job/131913326491).
+Neither native job reaches qualification of the remaining failures farther
+along its test sequence.
+
+The sender regression gains a real cancellation control at diagnostic input
+`e4e1d923`: a held foreground Fleet read must be withdrawn and its metadata
+admission restored after dropping an unpolled response. This supplementary
+request has a thirty-second deadline, while cancellation must finish within
+five seconds; natural request expiry cannot satisfy the assertion. The complete
+receiver/self/sender/cancellation regression passes in 1.031 seconds. Original
+inspection and recovery request limits remain unchanged. Physical-refusal
+diagnostics and clean-source qualification are still in progress.
+
+At this diagnostic input, five isolated materialized recovery-barrier
+repetitions pass before the sixth returns another unavailable CLI outcome in
+33.325 seconds. No physical-inventory refusal probe fires in that failure and
+its stack does not identify seal authorization, so it is not treated as a
+reproduction of the earlier `Observation(Refused)`. The CLI fixture now includes
+the first two operation words in failed-success diagnostics, following its
+existing timeout-context convention and excluding credentials. The original
+recovery matrix remains the next diagnostic boundary.
+
+## Demand discovery of inspection caller views
+
+The original four-case recovery matrix passes once at `65a5e17c` in
+227.412 seconds, then reproduces the rooted unpublished-parent seal failure in
+123.806 seconds. The operation-aware CLI diagnostic identifies
+`transition authorize-seal`. Targeted transport evidence places the refusal in
+receiver authorization on node 5 at Fleet revision 58, before physical capture.
+This rules out physical-inventory construction for that failure.
+
+A separate deterministic public-node regression holds only the receiver's
+background process-view reads, then registers and boots a new caller. A local
+inspection independently installs current Fleet trust on the receiver. Exactly
+one remote physical-inventory request still fails with `Refused` before endpoint
+discovery. Unchanged receiver behavior reproduces this at `9a16f854` in
+1.253 seconds with all node/domain cleanup joined. Current Fleet trust and an
+installed current process view are independent observations.
+
+The candidate uses the existing bounded endpoint-discovery owner to obtain a
+missing or stale caller view only after matching the request's node, disk,
+process, engine and label to its current enrolled boot. Foreign scope,
+unenrolled or superseded callers remain refused. Discovery reads authenticated
+registration data and supplies no group or application authority. The original
+deadline and all authorization checks remain in force. Temporary diagnostics
+are removed. Repeated receiver regression checks, a cached follow-up, existing
+sender cancellation checks and the original recovery campaign still require
+verification at this updated input.
+
+At input `10256229`, all five receiver repetitions pass without diagnostics in
+0.835–0.943 seconds. Each first request enters exactly one existing endpoint
+owner, and its cached follow-up enters none. The existing
+receiver/self/sender/unpolled-cancellation control also passes in 1.004 seconds.
+The missing-view refusal is therefore reproduced and corrected at its owning
+public boundary. These component results do not close the original recovery
+campaign, negative authorization checks, or any full CG/OPT gate.
+
+The first new negative-caller unit campaign at `432268db` stops on a malformed
+removal fixture (`Corrupt("node descriptor")`); it is not a passing authority
+campaign. The fixture omitted the required removal operation ID. Its raw edit
+helper also replaced repeated epoch fields inside the retained boot. The
+correction supplies a valid operation, changes only top-level record fields,
+and verifies that decoding the edited payload equals the intended record.
+Production authorization and the negative refusal assertions are unchanged.
+
+At corrected input `b8dbfbf5`, the negative caller test passes in 0.088 seconds.
+It verifies refusal without endpoint discovery for wrong node, disk, process,
+engine, label and Fleet/catalog/cluster scope, and after removing the formerly
+valid caller. All three sibling Fleet transport tests and both metadata wire
+authorization tests also pass. The public cold/cached receiver and sender
+cancellation controls pass in 1.022/1.011 seconds, and all 16 ordinary directory
+tests pass in 27.348 seconds. The full ordinary disaster target is still
+running at this checkpoint; source checks and matching broader native/backend
+qualification remain open.
+
+The corrected `b8dbfbf5` campaign subsequently passes its complete original
+ordinary disaster target: eight pass, zero fail, eight explicit RustFS skips,
+in 603.247 seconds. All eleven campaign checks pass with unchanged source
+guards. This includes the six authorization unit checks, both public metadata
+regressions and all 16 directory tests described above. The previously failed
+campaigns retain their results; this pass does not replace broad primitive,
+backend or repeated release-scale recovery qualification.
+
+The synchronized managed checkout passes all eleven source checks at
+`1441cd2a`, including formatting/layout, strict core/logic all-target Clippy
+(699.196 seconds), reviewed anchors, dependency/docs checks and both Python
+performance-tool suites. All 3,312 shared compiler inputs independently match
+the canonical runtime snapshot. The managed checkout's 60 additional ignored
+JavaScript inputs remain separately recorded. These checks close the
+demonstrated sender-floor and receiver-view component defects; full native
+families, RustFS/Colima/Linux, 128-cell enrollment, sandbox shutdown, historical
+evidence and the remaining CG/OPT gates stay open.

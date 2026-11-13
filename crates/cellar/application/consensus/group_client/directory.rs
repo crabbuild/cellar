@@ -6,8 +6,8 @@ use crate::raft::{completion::RuntimeError, group_host::RouterRefreshRequest};
 use tokio::sync::mpsc;
 
 impl RaftCells {
-    /// Catch up a lagging inspection receiver within the incoming request's
-    /// original deadline. This grants no group or application authority.
+    /// Catch up installed inspection trust within the original request deadline.
+    /// This grants no group or application authority.
     pub(crate) async fn refresh_inspection_trust(
         &self,
         previous: crate::raft::fleet_catalog::FleetTrustSnapshot,

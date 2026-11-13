@@ -152,6 +152,7 @@ impl OperatorCli {
         Ok(CliReply {
             code: output.status.code().context("CLI exited by signal")?,
             value,
+            operation: args[..args.len().min(2)].join(" "),
         })
     }
 
@@ -185,11 +186,17 @@ impl Drop for OperatorCli {
 pub struct CliReply {
     pub code: i32,
     pub value: Value,
+    operation: String,
 }
 
 impl CliReply {
     pub fn success(self) -> Result<Value> {
-        ensure!(self.code == 0, "managed CLI refused: {}", self.value);
+        ensure!(
+            self.code == 0,
+            "managed CLI {} refused: {}",
+            self.operation,
+            self.value
+        );
         Ok(self.value)
     }
 }

@@ -25,6 +25,8 @@ pub mod managed_fixture;
 mod bootstrap;
 #[path = "support/cell_group_managed_inspection_catchup.rs"]
 mod inspection_catchup;
+#[path = "support/cell_group_managed_inspection_endpoint.rs"]
+mod inspection_endpoint;
 #[path = "support/cell_group_managed_registry.rs"]
 mod registry;
 #[path = "support/cell_group_rustfs.rs"]
