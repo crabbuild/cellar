@@ -55,6 +55,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         additional_namespaces: f.additional_namespaces.clone(),
         application: f.application.clone(),
         configuration: f.configuration.clone(),
+        external_http: f.external_http.clone(),
         // A newly registered peer owns independent physical I/O.
         filesystem: Arc::new(cellar_ltx::DirectFileSystem),
         effects: f.effects,
@@ -575,7 +576,27 @@ impl ManagedCluster {
                 ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
                 ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
             } else {
-                result?;
+                if let Err(error) = result {
+                    // A failed activation may already own durable state. Join
+                    // every started owner before preserving its disks; dropping
+                    // node handles alone only requests cancellation.
+                    let mut cleanup = Vec::new();
+                    for node in nodes {
+                        if let Err(error) = node.cancel().await {
+                            cleanup.push(format!("node join: {error:#}"));
+                        }
+                    }
+                    for host in &hosts {
+                        if let Err(error) = host.close().await {
+                            cleanup.push(format!("Raft close: {error:#}"));
+                        }
+                    }
+                    for root in roots {
+                        eprintln!("retained managed startup disk: {}", root.keep().display());
+                    }
+                    return Err(anyhow::Error::from(error)
+                        .context(format!("managed startup cleanup: {}", cleanup.join("; "))));
+                }
             }
         }
         if public_operator {

@@ -382,7 +382,14 @@ impl Storage {
         sql: &str,
         readonly: bool,
     ) -> Result<cellar_native::sql::SqlResponse> {
-        crate::storage::sql_console(self.scope()?, sql, readonly).map_err(Into::into)
+        if matches!(&self.0, Owner::RaftCommand(_)) {
+            self.transaction_sync(|transaction| {
+                crate::storage::sql_console_in_transaction(transaction.data_scope()?, sql, readonly)
+                    .map_err(Into::into)
+            })
+        } else {
+            crate::storage::sql_console(self.scope()?, sql, readonly).map_err(Into::into)
+        }
     }
 
     pub(crate) fn sql_console_migrations(
@@ -390,7 +397,12 @@ impl Storage {
         table: &str,
         after: u64,
     ) -> Result<serde_json::Value> {
-        crate::storage::sql_console_migrations(self.scope()?, table, after)
+        let scope = if matches!(&self.0, Owner::RaftCommand(_)) {
+            self.data_scope()?
+        } else {
+            self.scope()?
+        };
+        crate::storage::sql_console_migrations(scope, table, after)
     }
 
     fn installed_activation_scope(&self) -> Result<&str> {

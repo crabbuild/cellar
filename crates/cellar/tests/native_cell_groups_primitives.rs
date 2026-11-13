@@ -1757,3 +1757,30 @@ async fn ordinary_sql_bindings_use_managed_shared_groups() -> Result<()> {
 async fn rustfs_ordinary_sql_bindings_use_managed_shared_groups() -> Result<()> {
     Box::pin(sql_bindings::qualify(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_sql_bindings_and_operators_use_managed_shared_groups() -> Result<()> {
+    Box::pin(sql_bindings::qualify_axum(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS and the compiled SQL CLI"]
+async fn rustfs_axum_sql_bindings_and_operators_use_managed_shared_groups() -> Result<()> {
+    Box::pin(sql_bindings::qualify_axum(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn interrupted_sql_bindings_recover_without_replaying_business_calls() -> Result<()> {
+    Box::pin(sql_bindings::qualify_recovery(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_interrupted_sql_bindings_recover_without_replaying_business_calls() -> Result<()> {
+    Box::pin(sql_bindings::qualify_recovery(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sql_error_recovery_preserves_s3_extent_progress() -> Result<()> {
+    Box::pin(sql_bindings::extent_error_progress()).await
+}

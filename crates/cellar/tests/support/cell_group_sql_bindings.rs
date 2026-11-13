@@ -4,6 +4,14 @@
 
 use super::*;
 
+#[path = "cell_group_sql_operator.rs"]
+mod operator;
+#[path = "cell_group_sql_recovery.rs"]
+mod recovery;
+
+pub use recovery::extent_error_progress;
+pub use recovery::qualify as qualify_recovery;
+
 const SCRIPT: &str = "sql-binding-service";
 const DATABASE: &str = "shared/orders";
 const MIGRATIONS: &str = "__sys_sql_migrations";
@@ -173,6 +181,14 @@ async fn http_request(context: Context, invocation: Invocation) -> Result<Output
                 ensure!(error.downcast_ref::<CommandFailure>() == Some(&CommandFailure::UnsupportedCapability));
                 Ok(json!(true))
             }
+            "IngressOperatorRefused" => {
+                let error = context.rpc_cell(
+                    cellar::engine_api::sql_cell_scope(DATABASE), Some(DATABASE.into()),
+                    "__sqlOperator".into(), RpcData::Json(json!([{"exec":{"sql":"CREATE TABLE operator_escape(v)","rows":true}}]).to_string()),
+                ).await.err().context("ordinary binding entered the operator contract")?;
+                ensure!(format!("{error:#}").contains("UnknownOperation"));
+                Ok(json!(true))
+            }
             _ => {
                 let result = Arc::new(Caller(database)).invoke(context, Invocation::CellRpc {
                     method: operation, args: RpcData::Json(String::from_utf8(input)?),
@@ -206,6 +222,7 @@ async fn public_sql(
     method: &str,
     input: serde_json::Value,
 ) -> Result<serde_json::Value> {
+    let started = cellar::asyncrt::mono_ms();
     let response = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
@@ -219,6 +236,10 @@ async fn public_sql(
         .await?;
     let status = response.status();
     let body = response.text().await?;
+    eprintln!(
+        "public SQL {method} node={node}: elapsed_ms={} status={status}",
+        cellar::asyncrt::mono_ms().saturating_sub(started)
+    );
     ensure!(
         status == 200,
         "public SQL {method} node {node}: {status} {body}"
@@ -393,24 +414,47 @@ async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
 }
 
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
+    qualify_host(real_rustfs, false).await
+}
+
+pub async fn qualify_axum(real_rustfs: bool) -> Result<()> {
+    qualify_host(real_rustfs, true).await
+}
+
+async fn qualify_host(real_rustfs: bool, external: bool) -> Result<()> {
     let mut failures = Vec::new();
     for rooted in [false, true] {
         let result = async {
-            let store = if real_rustfs {
-                Arc::new(catalog_fault::Store::around(rustfs::store(
-                    "sql-bindings",
-                    rooted,
-                )?))
+            let backend = real_rustfs
+                .then(|| {
+                    rustfs::StoreConfig::load(
+                        if external {
+                            "sql-bindings-axum"
+                        } else {
+                            "sql-bindings"
+                        },
+                        rooted,
+                    )
+                })
+                .transpose()?;
+            let store = if let Some(backend) = &backend {
+                Arc::new(catalog_fault::Store::around(backend.open(None)?))
             } else {
                 Arc::new(catalog_fault::Store::default())
             };
-            Box::pin(run(rooted, store)).await
+            Box::pin(run(rooted, store, backend.as_ref(), external)).await
         }
         .await;
         match result {
-            Ok(()) => eprintln!("SQL binding RustFS={real_rustfs} extents={rooted}: PASS"),
+            Ok(()) => eprintln!(
+                "SQL binding RustFS={real_rustfs} extents={rooted}: PASS host={}",
+                if external { "Axum" } else { "native" }
+            ),
             Err(error) => {
-                eprintln!("SQL binding RustFS={real_rustfs} extents={rooted}: FAILED: {error:#}");
+                eprintln!(
+                    "SQL binding RustFS={real_rustfs} extents={rooted}: FAILED host={}: {error:#}",
+                    if external { "Axum" } else { "native" }
+                );
                 failures.push(format!("extents={rooted}: {error:#}"));
             }
         }
@@ -423,9 +467,14 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
     Ok(())
 }
 
-async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+async fn run(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    backend: Option<&rustfs::StoreConfig>,
+    external: bool,
+) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::query_connection=debug")
+        .with_env_filter("cellar::raft::query_connection=debug,cellar::raft::sql_ingress=debug")
         .with_test_writer()
         .try_init();
     let (application, declared) = application()?;
@@ -437,12 +486,14 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
     )
     .await?;
     fixture.configuration = Some(declared);
+    let http = external.then(|| Arc::new(managed_fixture::http::Owner::default()));
+    fixture.external_http = http.clone();
     fixture.sql_workers = 1;
     fixture.max_input_bytes = 16 * 1024;
     // The old per-call client allocation fails this public drill. The fixed
     // ingress stream must share four permanent slots with ordinary bindings.
     fixture.max_client_identities = 4;
-    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+    let started = Box::pin(ManagedCluster::start_with_applications(
         fixture,
         &[],
         ArchiveSetup::Initialized,
@@ -450,7 +501,18 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         None,
         FirstGroupSetup::Normal,
     ))
-    .await?;
+    .await;
+    let mut cluster = match started {
+        Ok(cluster) => cluster,
+        Err(error) => {
+            if let Some(http) = http {
+                http.close()
+                    .await
+                    .context(format!("SQL node startup: {error:#}"))?;
+            }
+            return Err(error);
+        }
+    };
     let domain = cluster.fixtures[0].domain.clone();
     let work = domain.run(async {
         let sql_group = database_group(&cluster).await?;
@@ -473,15 +535,23 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             }
             Ok::<_, anyhow::Error>(())
         }).await??;
+        operator::before(&cluster, backend, sql_group).await?;
+        eprintln!("SQL operator admission RustFS={} extents={rooted} host={}: PASS", backend.is_some(), if external { "Axum" } else { "native" });
         let public_hints_before = applied_hints(&cluster)?;
         let raced = futures_util::try_join!(
             public_sql(&cluster, 0, "IngressRace", json!(1)),
             public_sql(&cluster, 2, "IngressRace", json!(1)),
-        )?;
+        );
+        if raced.is_err() {
+            for (node, host) in cluster.hosts.iter().enumerate() {
+                eprintln!("SQL race performance node={node}: {}", serde_json::to_string(&host.performance())?);
+            }
+        }
+        let raced = raced?;
         ensure!(raced == (json!(true), json!(true)));
         ensure!(public_sql(&cluster, 1, "IngressRaceCount", json!(null)).await? == json!(2));
-        // First access is a public, stateless request and must enroll through
-        // the SQL group. Every voter exposes the same canonical database.
+        // Public stateless calls share the operator's canonical database;
+        // every voter must expose the same committed history.
         ensure!(public_sql(&cluster, 0, "IngressSetup", json!(null)).await? == json!(true));
         ensure!(public_sql(&cluster, 1, "IngressWrite", json!(8)).await? == json!(true));
         ensure!(public_sql(&cluster, 2, "IngressRollback", json!(null)).await? == json!(true));
@@ -543,6 +613,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         managed_fixture::leader(&cluster.hosts, sql_group).await?;
         let leader = managed_fixture::leader(&cluster.hosts, group).await?;
         let source = cluster.hosts[leader].cell(history)?;
+        operator::after_restart(&cluster).await?;
         ensure!(public_sql(&cluster, 2, "IngressRead", json!(null)).await? == json!([[7],[8]]));
         ensure!(public_sql(&cluster, 1, "IngressWrite", json!(9)).await? == json!(true));
         ensure!(public_sql(&cluster, 0, "IngressRead", json!(null)).await? == json!([[7],[8],[9]]));
@@ -557,6 +628,7 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         let stopped = cluster.nodes.split_off(1);
         managed_fixture::close_group_nodes_with_groups(stopped, &cluster.hosts[1..], 2).await?;
         cluster.hosts.truncate(1);
+        operator::quorum_refused(&cluster).await?;
         let response = reqwest::Client::builder().no_proxy().timeout(TIMEOUT + Duration::from_secs(1)).build()?
             .post(format!("http://{}/IngressWrite", cluster.nodes[0].info().public_address))
             .body("10").send().await?;
@@ -578,12 +650,17 @@ async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         2,
     )
     .await;
-    if work.is_err() || joined.is_err() {
+    let http_joined = match http {
+        Some(http) => http.close().await,
+        None => Ok(()),
+    };
+    if work.is_err() || joined.is_err() || http_joined.is_err() {
         for root in std::mem::take(&mut cluster.roots) {
             eprintln!("retained SQL binding disk: {}", root.keep().display());
         }
     }
     domain.shutdown().await;
     work?;
-    joined
+    joined?;
+    http_joined
 }

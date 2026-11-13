@@ -5,6 +5,12 @@
 use super::*;
 use crate::application::cell_bindings::{Host, Route};
 
+#[derive(Clone, Copy)]
+enum Access {
+    Binding,
+    SqlOperator,
+}
+
 impl CellGroupHost {
     pub(crate) fn install_binding_host(
         &self,
@@ -52,7 +58,7 @@ impl CellGroupHost {
             ));
         }
         let (target_key, target) = select(&self.inner.namespaces, key, configuration, class)?;
-        let mut route = route(target_key, target, scope, method)?;
+        let mut route = route(target_key, target, scope, method, Access::Binding)?;
         route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
         Ok(route)
     }
@@ -64,6 +70,29 @@ impl CellGroupHost {
         scope: &str,
         method: &str,
         log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.sql_route(scope, method, log, Access::Binding)
+    }
+
+    pub(crate) fn sql_operator_route(
+        &self,
+        scope: &str,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.sql_route(
+            scope,
+            crate::application::sql::operator::METHOD,
+            log,
+            Access::SqlOperator,
+        )
+    }
+
+    fn sql_route(
+        &self,
+        scope: &str,
+        method: &str,
+        log: &crate::raft::storage::ReplicaLog,
+        access: Access,
     ) -> Result<Route, CellDispatchError> {
         self.inner.check_lifecycle()?;
         let mut services = self
@@ -79,7 +108,7 @@ impl CellGroupHost {
                 "declared SQL namespace is ambiguous",
             ));
         }
-        let mut route = route(*key, target, scope, method)?;
+        let mut route = route(*key, target, scope, method, access)?;
         route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
         Ok(route)
     }
@@ -90,6 +119,7 @@ fn route(
     target: &Binding,
     scope: &str,
     method: &str,
+    access: Access,
 ) -> Result<Route, CellDispatchError> {
     let (config, _, _) = target.dispatcher.host_binding()?;
     let limits = target
@@ -99,7 +129,11 @@ fn route(
         .as_ref()
         .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?
         .options_limits();
-    let contract = target.class.binding_contract(method).ok_or_else(|| {
+    let contract = match access {
+        Access::Binding => target.class.binding_contract(method),
+        Access::SqlOperator => target.class.sql_operator_contract(),
+    }
+    .ok_or_else(|| {
         CellDispatchError::Registration(RegistrationError::UnknownOperation(method.into()))
     })?;
     Ok(Route {

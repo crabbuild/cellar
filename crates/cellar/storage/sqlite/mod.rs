@@ -59,7 +59,7 @@ pub(crate) mod outbox_control;
 mod transaction_cache_tests;
 pub(crate) mod wake_record;
 pub(crate) mod work;
-pub(crate) use console::{sql_console, sql_console_migrations};
+pub(crate) use console::{sql_console, sql_console_in_transaction, sql_console_migrations};
 
 // Each Raft image belongs to exactly one cell. Both private writes and
 // committed reads use this persisted row scope across placement and recovery.

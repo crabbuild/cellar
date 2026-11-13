@@ -41,15 +41,32 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Finish SQL operator/CLI and Axum integration and SQL-specific recovery, followed
-   by KV revision conditions, expiry, durable alarms and payloads. At `d1f8535f`,
+1. Finish the SQL recovery/startup deadline gates and SQL-specific interruption,
+   movement, wake, archive outage and disaster
+   recovery qualification, plus sustained contention and independent Linux voters.
+   Operator/CLI and Axum-listener integration is delivered at `979addd0`: the basic
+   SQL drill passes **8/8** configurations, with real CLI coverage in all four
+   RustFS configurations. Preserve the earlier cold-race timeout controls; the
+   passing cohort does not establish their causal performance resolution.
+   Then deliver KV revision conditions, expiry, durable alarms and payloads.
+   See the [SQL checkpoint](progress.md#cg-17-authenticated-sql-operator-cli-and-axum).
+   The new after-child-reply interruption drill initially passes **13/16** at
+   `bf19176f`; failed controls remain required. It adds commit/error/rollback and
+   fresh-call checks but does not qualify target-S3, before-child-completion or
+   the remaining lifecycle cases. See the
+   [recovery checkpoint](progress.md#cg-17-interrupted-sql-parent-recovery).
+   The subsequent `b3aacf7a` cohort is **14/16**, with cold setup and post-restart
+   SQL inspection deadlines still open. Run the new `ordinary-sql-bindings`
+   canonical RustFS suite with its frozen CLI and required one-CPU profile;
+   standalone recovery evidence used a two-CPU backend and is not that gate.
+   At the earlier binding source `d1f8535f`,
    public SQL passes **4/4**, ordinary bindings **8/8** and interrupted-binding
    recovery **8/8** across native storage and real RustFS image configurations.
    The previous S3 deadline cases now pass with original budgets and quotas.
    A bounded node-wide proof batch reuses actual verified coverage during remote
    cleanup; joined shutdown still retires unretained predecessors. Bounded SQL
    identities, normal outbound admission and exact proof/fencing checks remain.
-   See the [current checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
+   See the [binding checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
    Preserve all failed controls. These basic passes do not complete a primitive
    family or its independent recovery and release matrix.
 2. Connect committed due-work discovery and fenced settlement to ordinary

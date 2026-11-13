@@ -27,6 +27,105 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 interrupted SQL parent recovery
+
+Source `bf19176f` adds ordinary SQL binding interruption scenarios for successful
+writes and failed batches. The parent is stopped after its SQL child has replied,
+but before publishing parent completion or private source resolution. A fresh
+linearizable source read checks the exact intent/selection mutation count and
+proves that pre-child writes survived while post-child writes remained private.
+After retained RF3 restart, node-owned maintenance must settle the obligation.
+Rollback-only probes observe settlement; they never retry the business call or
+invoke maintenance. The original parent must remain unknown, its callback must
+run once, SQL commit/rollback must survive and a fresh binding must advance.
+
+The first native/RustFS cohort passes **13/16** scenarios. Native storage passes
+**7/8**; its extent/S3-source/error scenario settles the obligation but times out
+on the first fresh call. RustFS passes **6/8**; two materialized/Quorum-source
+cases fail managed startup with transport timeouts before interruption begins.
+Those failed startup disks were dropped by the former fixture; their logs remain.
+The three native post-recovery failure disks and frozen executable are retained
+in `CG-17-sql-recovery-bf19176f-01` and its workspace backup.
+
+At `b3aacf7a`, failed managed activation joins every started node/Raft owner before
+retaining its disks. Source callback and failure-only state/performance diagnostics
+now distinguish child execution from final parent proof. The focused native
+extent/S3/error regression passes, but that is not a causal fix for the earlier
+timeout. The subsequent full matrix is **14/16**, with native **7/8** and real
+RustFS **7/8**. Native fails a three-second cold SQL setup before interruption;
+RustFS materialized/S3/write fails a SQL inspection after restart. The other
+fourteen scenarios, including native extents/S3/error, pass recovery and fresh
+calls. Evidence is `CG-17-sql-recovery-b3aacf7a-02`, with frozen binaries, retained
+failure disks, workspace backup and the preceding failed control. The owned
+RustFS backend and VM are stopped.
+
+`tools/multi-raft/cell_groups.py --suite ordinary-sql-bindings` now selects the
+native-host, Axum-host and interrupted-binding RustFS commands. It retains/hashes
+the actual CLI and gives the test its frozen path, records the CI test profile
+and supports collecting every process-isolated case without clearing failures.
+The selector inventory is checked against the frozen executable. This new
+canonical suite has not yet run end to end against its required one-CPU backend;
+the recorded recovery campaigns used a two-CPU/2-GiB RustFS container.
+
+Source durability varies Quorum/S3; the independent SQL namespace minimum is
+Quorum. Each configuration uses one SQL worker, 16 KiB inputs, four client slots
+and the original three/five-second budgets. No production recovery algorithm or
+deadline is changed. Full SQL lifecycle acceptance still requires unresolved
+deadline/startup gates, target-S3 coverage, interruption before child completion,
+movement, wake, archive outage and disaster recovery, plus independent Linux/load
+qualification. Full task/case acceptance remains **13/17 and 147/195**.
+
+## CG-17 authenticated SQL operator, CLI and Axum
+
+Source `979addd0` delivers the peer-authenticated `/runtime/` SQL adapter through
+the managed group owner. CLI execute, migrations and console work use the same
+bounded per-database stream, nonce, admission and namespace minimum as stateless
+SDK SQL. Ordinary bindings cannot discover its private operator contract. Missing
+ownership refuses admission. Console errors roll back their owned savepoint and
+retain the command authorizer; inspection does not create a migration ledger.
+`cellar sql --entrance NODE=HOST:PORT` reaches managed nodes without Fleet leases.
+A structured unknown outcome prevents mutation retry through another entrance.
+See the [SQL contract](named-bindings.md#sql-database-bindings).
+
+| Scoped SQL gate | Result |
+| --- | --- |
+| Native and Axum-owned listeners, native storage, both image formats | **4/4 pass** |
+| Native and Axum-owned listeners, real RustFS, both image formats | **4/4 pass** |
+| Authenticated operator admission, rollback, migrations and grant revocation/regrant | **8/8 pass** |
+| Actual CLI migrations, row output, idempotent apply and lost-committed-reply refusal | **4/4 RustFS configurations pass** |
+| Existing native SQL conformance and Fleet-activation refusal | **2 tests pass** |
+
+Every complete SQL configuration includes ordinary SDK calls, a concurrent cold
+enrollment/insert race, retained restart, receipt replay and refusal after two
+voters stop. Axum uses the real `CellarService` and application-owned listener;
+authenticated operators remain on the private peer listener. SQL namespaces use
+Quorum minimum durability, one SQL worker, 16 KiB inputs and four client slots.
+The original three-second node/SQL-call and five-second Raft budgets are unchanged.
+
+The first control at `1747923b` failed the native materialized cold SQL race;
+`6bf89f31` added phase timing and passed native storage **4/4**, but real RustFS
+exposed another cold-race timeout and a test migration-ledger collision. The
+corrected fixture gives CLI migrations a separate ledger and asserts its exact
+contents, preserving the SDK history assertions. The final cohort records build
+and backend setup writeback flushes before its cases, following the qualification
+guide. This passing cohort is not a causal performance fix or a sustained-load
+SLO. Both earlier failed cohorts and their disks/binaries remain retained.
+
+Locked runtime builds, strict all-target Clippy, formatting, layout, dependency
+and documentation checks pass, along with 44 plan and 13 primitive-verifier
+tests. Source anchors and the generated implementation index match; executable
+and primitive-contract inputs match the frozen runtime source. These checks do
+not replace the missing historical full-plan preflight evidence.
+Evidence is `.cellar/cell-groups-evidence/CG-17-sql-operator-979addd0-04`, with a
+checkout-owned workspace backup and links to the failed controls. RustFS used two
+CPUs and 2 GiB; RF3 voters shared one native macOS process. The owned backend and
+VM are stopped. Independent constrained Linux voters, sustained contention and
+SQL interruption/movement/wake/archive/disaster qualification remain open.
+No complete primitive family is accepted: **13/17 tasks, 147/195 cases**.
+Next close those SQL gates, then deliver grouped KV revisions, expiry, alarms and
+payload ownership. The earlier generic binding **8/8** and interrupted-binding
+**8/8** results retain source `d1f8535f`; they were not rerun for this SQL cohort.
+
 ## CG-17 S3 proof scheduling and joined retirement
 
 Source `d1f8535f` closes the reproduced basic binding deadline gate. A selected,

@@ -11,8 +11,8 @@
 //! `cellar sql` — run SQL and migrations against a deployed SQL database.
 //!
 //! A SQL database is a cell, so it is only reachable through the node that owns
-//! it. This command finds the fleet the way `cellar diagnose` does — it walks
-//! the node leases in the bucket, and it reads the same shared secret — and
+//! it. This command accepts explicit managed node entrances or finds the fleet
+//! through the node leases in the bucket. It reads the same shared secret and
 //! then sends the SQL to a live node's `/runtime/` route, which forwards to the
 //! owner. The CLI therefore holds no ownership logic and no SQLite: it reaches
 //! the database over the dispatch a Worker's `env.DB` reaches it over.
@@ -110,23 +110,30 @@ pub async fn run(arguments: Vec<String>) -> anyhow::Result<()> {
         })?;
     let scope = crate::engine_api::sql_cell_scope(&declaration.database_identity);
     let storage = command.fleet.clone().resolve("cellar sql")?;
-    let database = Reachable::open(
-        Fleet {
-            bucket: &storage.bucket,
-            endpoint: storage.endpoint.as_deref(),
-            region: &storage.region,
-            unsafe_public_advertise: command.unsafe_public_advertise,
-        },
-        Subject {
-            noun: "database",
-            source: "sql",
-            // A migration on a large table is not a diagnostic ping.
-            timeout: std::time::Duration::from_secs(120),
-        },
-        scope,
-        None,
-    )
-    .await?;
+    let fleet = Fleet {
+        bucket: &storage.bucket,
+        endpoint: storage.endpoint.as_deref(),
+        region: &storage.region,
+        unsafe_public_advertise: command.unsafe_public_advertise,
+    };
+    let subject = Subject {
+        noun: "database",
+        source: "sql",
+        // A migration on a large table is not a diagnostic ping.
+        timeout: std::time::Duration::from_secs(120),
+    };
+    let database = if command.entrances.is_empty() {
+        Reachable::open(fleet, subject, scope, Some(&declaration.database_identity)).await?
+    } else {
+        Reachable::open_at(
+            fleet,
+            subject,
+            scope,
+            Some(&declaration.database_identity),
+            command.entrances,
+        )
+        .await?
+    };
 
     let mut out = Output::new(if command.json {
         Format::Json
@@ -407,6 +414,7 @@ struct Command {
     fleet: FleetFlags,
     json: bool,
     unsafe_public_advertise: bool,
+    entrances: Vec<(String, String)>,
 }
 
 impl Command {
@@ -443,6 +451,7 @@ impl Command {
         let mut fleet = FleetFlags::default();
         let mut json = false;
         let mut unsafe_public_advertise = false;
+        let mut entrances = Vec::new();
         while let Some(argument) = arguments.next() {
             let mut value = |flag: &str| {
                 arguments
@@ -454,6 +463,7 @@ impl Command {
                 "--file" => file = Some(PathBuf::from(value("--file")?)),
                 "--json" => json = true,
                 "--unsafe-public-advertise" => unsafe_public_advertise = true,
+                "--entrance" => entrances.push(value("--entrance")?),
                 "--help" | "-h" => return Ok(None),
                 other => {
                     // The fleet flags are shared, so `--bucket gs://name`
@@ -469,6 +479,28 @@ impl Command {
                 }
             }
         }
+        anyhow::ensure!(
+            entrances.len() <= 32,
+            "at most 32 SQL entrances may be configured"
+        );
+        let mut nodes = std::collections::BTreeSet::new();
+        let entrances = entrances
+            .into_iter()
+            .map(|value| -> anyhow::Result<_> {
+                let (node, address) = value
+                    .split_once('=')
+                    .context("--entrance requires NODE=HOST:PORT")?;
+                let address = address.trim();
+                crate::machine::validate_node_name(node)?;
+                anyhow::ensure!(nodes.insert(node.to_owned()), "duplicate SQL entrance node");
+                let advertise = crate::startup::parse_advertise(address)?;
+                anyhow::ensure!(
+                    !advertise.is_public_ip() || unsafe_public_advertise,
+                    "public SQL entrance requires --unsafe-public-advertise"
+                );
+                Ok((node.to_owned(), address.to_owned()))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
         let action = match action {
             Some(action) => {
                 // Accepting the flag and ignoring it would tell an operator
@@ -497,6 +529,7 @@ impl Command {
             fleet: fleet.with_environment(),
             json,
             unsafe_public_advertise,
+            entrances,
         }))
     }
 }
@@ -515,11 +548,11 @@ is the directory holding wrangler.jsonc, and defaults to the working directory.
 The `database_id` is the stable database identity when the declaration has one.
 Otherwise, cellar uses the `database_name` as the identity.
 
-cellar sql needs a running fleet. It finds a node through the bucket's node
-leases and sends the SQL to that node, which forwards it to the node that owns
-the database. It signs each request with the fleet's shared secret, which it
-reads from the bucket, so it needs the same bucket credentials cellar deploy
-needs.
+cellar sql signs each request with the peer secret in the configured bucket.
+Use --entrance NODE=HOST:PORT for managed Raft nodes without Fleet node leases;
+repeat it for alternate entrances. Each node routes to the database's group.
+Without explicit entrances, cellar discovers live node leases in the bucket.
+Timeouts and unknown mutation outcomes are never retried automatically.
 
 Migration files are `NNNN_description.sql` in `migrations/`. The `sql`
 extension is ASCII case-insensitive. cellar applies the files in the order of
@@ -536,6 +569,8 @@ OPTIONS:
   --command SQL       SQL to run; several statements are permitted
   --file PATH         Read the SQL from a file instead
   --json              Print one JSON object per row instead of a table
+  --entrance NODE=HOST:PORT
+                      Explicit authenticated node entrance; repeat up to 32 times
 {FLEET_HELP}
   --unsafe-public-advertise
                       Permit a node whose advertised address is a public IP

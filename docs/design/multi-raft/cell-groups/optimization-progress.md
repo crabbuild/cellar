@@ -3018,3 +3018,32 @@ is distinct from the canonical manifest. Fixed-source RF3 replacement, member
 reclamation/return, all-target integration and RustFS/Colima qualification are
 pending. The failed native and archive campaigns above remain failed; no full
 CG/OPT gate is accepted.
+
+## Detached-member RF3 checkpoint and SQL base refresh
+
+Committed checkpoint `f9ceaa17`, managed source `787fc27c`, passes three
+complete removed-member repetitions through SDK, native HTTP and Axum in both
+image modes. Each repetition has six independently validated profile records.
+The actual removed-member physical reclamation and return with a fresh member
+ID also passes in both images, together with all six matching CLI controls.
+The retained executables use Rust 1.98.1, optimization level 1, debug information
+disabled and assertions/overflow checks enabled. Incremental compilation alone
+remains disabled after the recorded compiler ICE. Source guards are unchanged.
+These are targeted native, in-memory checks; they do not repair the earlier
+failed combined campaigns or establish current RustFS/Linux qualification.
+
+PR #166 advances to `418cf719`, adding public SQL operator/CLI and interrupted
+SQL recovery coverage. The follow-up integrates that base while preserving its
+existing routing, archive-owner and named-binding qualification suites. The
+Python runner keeps both captured CLI environment contracts and the SQL test
+profile record. Its new SQL campaign fixture resolves the temporary root before
+comparing paths, matching the runner's canonical output path on macOS. Before
+that fixture correction, all three new SQL runner tests fail on `/var` versus
+`/private/var`; afterward all 155 runner tests pass, with one optional skip.
+This runner evidence is separate from execution of the Rust SQL/RustFS cases.
+
+The admission-scoped S3 verification-reuse candidate remains local to the
+managed checkout and under verification. It is excluded from this integration.
+Archive dependency refusal, the maintenance-independent S3 wakeup, startup and
+Python delivery failures, exact-current-source combined/backend checks and
+full CG/OPT acceptance remain open.

@@ -65,8 +65,36 @@ also refuse legacy SQL HTTP/RPC egress at the source, so another co-hosted scrip
 cannot supply a weaker SQL service through the global identity. Stateless native
 handlers in a Raft application use the node-owned SQL group service directly.
 Only declared database identities and compiled SQL methods are admitted. The host
-requires exactly one loaded SQL namespace. Direct SQL operator/CLI HTTP routing
-still requires its group adapter; ordinary SQL HTTP activation remains refused.
+requires exactly one loaded SQL namespace. Ordinary SQL HTTP activation remains
+refused.
+
+Authenticated `/runtime/` SQL requests now select the same node-owned group
+service through a private compiled operator contract. This contract is absent
+from ordinary binding discovery. Method, path and body authentication precede
+admission; unavailable group ownership refuses the request. SQL console work runs
+inside an owned savepoint, with the existing authorizer and query limits. It
+cannot commit the outer Raft transaction. Migration inspection does not create
+the ledger it reads.
+
+`cellar sql` accepts repeatable `--entrance NODE=HOST:PORT` arguments to reach
+managed nodes without Fleet ownership leases. The CLI still reads the configured
+bucket's peer key and sends authenticated HTTP; it owns no database or routing
+state. Without explicit entrances it retains node-lease discovery. Only a
+structured refusal before dispatch permits another entrance. An unknown outcome,
+including a lost reply after commit, must not replay the mutation with a new
+identity. Axum applications keep this operator protocol on the private node
+listener and use `CellarService` for public SDK ingress.
+
+Operator calls reuse the bounded per-database stream, nonce validation and
+original absolute deadline below. The SQL service schema digest changes for this
+contract; provision fresh compatible SQL namespaces and matching voter binaries.
+Format markers remain at 1. At `979addd0`, the scoped SQL drill passes all eight
+native/RustFS, native/Axum-listener and image configurations. Real CLI qualification
+passes in all four RustFS configurations, including a reply lost after commit.
+Earlier cold-race timeouts remain retained; this single cohort is not sustained
+contention or full SQL lifecycle acceptance. Debug target
+`cellar::raft::sql_ingress` reports history, sequence and command phase timing
+without SQL payloads. See the [qualification record](progress.md#cg-17-authenticated-sql-operator-cli-and-axum).
 
 SQL calls from Raft cells use the durable binding protocol below, including the
 target namespace's independent minimum durability, original caller deadline,

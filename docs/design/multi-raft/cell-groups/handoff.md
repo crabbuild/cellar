@@ -4,7 +4,76 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current binding deadline and recovery checkpoint
+## Current interrupted SQL recovery checkpoint
+
+The SQL recovery drill now covers a parent lost after an independently durable
+SQL success or rolled-back error but before source completion. It verifies exact
+source checkpoint counts, private-write rollback, preserved parent uncertainty,
+one callback execution, autonomous obligation settlement and a subsequent fresh
+SQL call across both images and Quorum/S3 sources. It uses ordinary SDK, managed
+RF3, source queries and authenticated SQL operator paths.
+
+The first cohort at `bf19176f` passes **13/16**: native **7/8**, RustFS **6/8**.
+Native extents/S3/error reaches settlement then times out on its fresh call;
+two RustFS materialized/Quorum cases fail startup before interruption. Logs and
+the three native failure disks are retained in `CG-17-sql-recovery-bf19176f-01`;
+the former fixture dropped the two startup cases' disks.
+
+At `b3aacf7a`, failed managed activation cancels/joins all started node owners,
+closes their Raft handles and retains disks, while preserving the original error.
+The focused failed configuration passes once; the full native matrix is **7/8**
+with a cold SQL setup deadline failure. The full matrix is **14/16**: RustFS is
+also **7/8**, with a materialized/S3/write inspection deadline after restart.
+These passes do not establish a causal fix for earlier timeouts. Evidence is
+`CG-17-sql-recovery-b3aacf7a-02`, with a workspace backup and linked failed control;
+the owned backend and VM are stopped. The independent SQL
+minimum remains Quorum; source requests vary Quorum/S3. Budgets and quotas stay
+unchanged. No complete family or release gate is accepted.
+
+The new canonical `ordinary-sql-bindings` RustFS suite selects native/Axum SQL
+and interrupted recovery, freezes the actual CLI, records the CI test profile
+and retains failed cases under `--keep-going`. Its inventory is verified, but
+the canonical one-CPU-backend suite has not yet executed end to end. These scoped
+campaigns used two CPUs and 2 GiB for RustFS and native in-process RF3 voters.
+
+Next resolve the deadline/startup gates and complete SQL target-S3, before-child-
+completion and movement/wake/archive/disaster scenarios. Continue grouped KV
+feature delivery and the remaining execution/payload adapters; do not replace
+full compatibility with a narrower SQL-only contract.
+
+## Previous SQL operator, CLI and Axum checkpoint
+
+At `979addd0`, the scoped SQL SDK/operator drill passes **8/8** native/RustFS,
+native/Axum-owned-listener and image configurations. All four RustFS configurations
+execute the actual CLI, including migrations, JSON row output, idempotent apply
+and refusal to retry a mutation after its committed reply is lost. Every complete
+configuration includes rollback, private-contract refusal, revoked/restored
+namespace grants, retained restart, receipt replay and quorum refusal.
+The two existing native SQL tests and strict all-target Clippy pass.
+
+The authenticated private `/runtime/` adapter uses the managed SQL owner and
+bounded fixed client stream. Console work owns a savepoint inside the Raft
+command. `--entrance NODE=HOST:PORT` bootstraps the CLI without Fleet node leases.
+No weaker fallback or deadline/quota increase is introduced. The SQL schema
+digest changes; use fresh compatible namespaces and matching voters.
+
+Evidence is `CG-17-sql-operator-979addd0-04`, with frozen binaries, a workspace
+backup and preceding failed control records. Controls at `1747923b` and
+`6bf89f31` retain cold SQL race timeouts; the latter also found the CLI/SDK test
+ledger collision. The corrected fixture isolates and verifies the CLI ledger.
+The final cohort records build/setup writeback barriers before runtime cases.
+Its pass does not establish a causal contention fix or a sustained-load SLO.
+RustFS used two CPUs and 2 GiB; voters shared one native macOS process. The owned
+backend and VM are stopped.
+
+Next qualify SQL interruption, movement, wake, archive outage and disaster
+recovery, sustained contention and independent Linux voters, then implement
+grouped KV revision/expiry/alarm/payload semantics. Full primitive and release
+acceptance remains **13/17 tasks, 147/195 cases**. The generated implementation
+index still matches `tasks.json`; full historical plan preflight still lacks
+CG-01 evidence. See the [SQL result and limits](progress.md#cg-17-authenticated-sql-operator-cli-and-axum).
+
+## Previous binding deadline and recovery checkpoint
 
 At `d1f8535f`, the basic binding runtime gate passes: public SQL **4/4**, ordinary
 bindings **8/8** and interrupted-binding recovery **8/8** across native storage and
@@ -140,10 +209,11 @@ See the [checkpoint](progress.md#cg-17-live-archive-proof-handoff).
 
 ## Immediate feature priorities
 
-1. Finish SQL operator/CLI and Axum integration and SQL-specific interruption,
-   movement, wake, archive outage and disaster qualification. The authenticated
-   `/runtime/` operator route still uses ordinary cell fetch; SDK SQL passes do
-   not qualify that adapter. Preserve bounded identities, normal outbound
+1. Finish SQL-specific interruption, movement, wake, archive outage and disaster
+   qualification, plus sustained contention and independent Linux voters. The
+   authenticated operator/CLI and Axum-owned-listener paths pass the scoped
+   `979addd0` cohort; earlier cold-race timeouts remain retained. Preserve bounded
+   identities, normal outbound
    admission, exact error/replay behavior and refusal of weaker fallback.
 2. Deliver the grouped KV service with revision conditions, expiry, durable
    alarms and external-payload publication/collection. Its existing Fleet

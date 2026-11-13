@@ -170,6 +170,23 @@ SUITES = {
         "must emit all four completed configurations. Target S3 minimum, cross-class "
         "selection, concurrent creation, movement/disaster and full CG-17 remain open.",
     ),
+    "ordinary-sql-bindings": (
+        "native_cell_groups_primitives",
+        (
+            "rustfs_ordinary_sql_bindings_use_managed_shared_groups",
+            "rustfs_axum_sql_bindings_and_operators_use_managed_shared_groups",
+            "rustfs_interrupted_sql_bindings_recover_without_replaying_business_calls",
+        ),
+        "ordinary SQL SDK, authenticated operator/CLI and interrupted parent recovery on shared RF3",
+        "Both image modes, separate source/database groups and one SQL worker per node. "
+        "Native and Axum-owned listeners use the public SDK and actual frozen CLI. "
+        "Rollback, private-contract refusal, grant revocation/regrant, lost committed replies, "
+        "retained restart, receipt replay and quorum refusal are checked. "
+        "Recovery covers SQL successes and rolled-back errors after child reply but before "
+        "parent completion, with Quorum/S3 sources and a Quorum destination minimum. "
+        "Original deadlines and quotas remain unchanged. Target-S3, before-child-completion, "
+        "movement/wake/archive/disaster, independent voters and sustained load remain separate gates.",
+    ),
     "ordinary-primitives": (
         "native_cell_groups_primitives",
         (
@@ -869,8 +886,10 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "named-bindings"):
-        parser.error("--keep-going requires a process-isolated primitive suite")
+    if args.keep_going and args.suite not in (
+        "ordinary-primitives", "named-bindings", "ordinary-sql-bindings"
+    ):
+        parser.error("--keep-going requires a process-isolated ordinary primitive or SQL suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -931,6 +950,10 @@ def main():
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_BUILD_JOBS", "CARGO_TERM_COLOR",
             )
         }
+        if args.suite == "ordinary-sql-bindings":
+            record["test_profile"] = {key: env[key] for key in (
+                "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
+                "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
@@ -969,7 +992,9 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle", *ROUTING_SUITES) and result.returncode == 0:
+            if args.suite in (
+                "managed-ingress", "managed-lifecycle", "ordinary-sql-bindings", *ROUTING_SUITES
+            ) and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")
@@ -981,6 +1006,8 @@ def main():
                 if cli_hash != record["operator_cli"]["sha256"] or sha(operator_cli) != cli_hash:
                     raise RuntimeError("managed operator CLI changed during qualification")
                 env["CELLAR_RAFT_OPERATOR_CLI"] = str(operator_cli)
+                if args.suite == "ordinary-sql-bindings":
+                    env["CELLAR_CELL_GROUPS_SQL_CLI"] = str(operator_cli)
             if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry"):
                 current_operator = executable.parent.parent / "cellar-perf-cell-group" if match else None
                 if current_operator is None or not current_operator.is_file():

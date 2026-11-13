@@ -32,6 +32,7 @@ pub struct Fixture {
     pub application: Arc<dyn Application>,
     /// One deployed application declaration, independent of each voter label.
     pub configuration: Option<cellar::engine_api::WorkerConfigOptions>,
+    pub external_http: Option<Arc<http::Owner>>,
     /// Captured physical I/O provider for the initial node owner.
     pub filesystem: Arc<dyn cellar_ltx::FileSystem>,
     pub effects: Option<RaftEffectOptions>,
@@ -178,6 +179,7 @@ impl Fixture {
             additional_namespaces: declarations.into_iter().skip(1).collect(),
             application,
             configuration: None,
+            external_http: None,
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             effects: None,
             sql_workers: 2,
@@ -201,6 +203,7 @@ impl Fixture {
             &self.spec.label,
             self.filesystem.clone(),
             self.configuration.clone(),
+            self.external_http.clone(),
         ))
         .await
     }
@@ -477,6 +480,7 @@ pub async fn start_node_with_filesystem(
         label,
         filesystem,
         None,
+        None,
     ))
     .await
 }
@@ -487,6 +491,7 @@ async fn start_configured_node(
     label: &str,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
     options: Option<cellar::engine_api::WorkerConfigOptions>,
+    external_http: Option<Arc<http::Owner>>,
 ) -> Result<Node> {
     let classes = vec![];
     let shutdown = ShutdownPolicy::default();
@@ -581,5 +586,32 @@ async fn start_configured_node(
         "test",
         move || Ok(application.clone()),
     )?;
-    Node::start_with_filesystem(config, services, graph, compiled, filesystem).await
+    if let Some(http) = external_http {
+        let public_address = services.listener.local_addr()?;
+        let (node, ingress) = Node::start_external(
+            config,
+            ExternalNodeServices {
+                wall_clock: services.wall_clock,
+                http_client: services.http_client,
+                host_executor: services.host_executor,
+                core_executor: services.core_executor,
+                public_address,
+                ingress_capacity: 16,
+                internal_listener: services.internal_listener,
+                peer_http: services.peer_http,
+                peer_auth: services.peer_auth,
+                probe_signer: services.probe_signer,
+                fleet: services.fleet,
+                containers: services.containers,
+                metrics: services.metrics,
+            },
+            graph,
+            compiled,
+        )
+        .await?;
+        http.serve(services.listener, ingress);
+        Ok(node)
+    } else {
+        Node::start_with_filesystem(config, services, graph, compiled, filesystem).await
+    }
 }
