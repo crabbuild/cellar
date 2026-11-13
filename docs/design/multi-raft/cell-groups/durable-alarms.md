@@ -20,6 +20,14 @@ Undeclared classes and framework work/query operations do not gain authority
 through this adapter. Stateful Raft callers retain their source-journaled
 binding protocol and proof requirements.
 
+Provision the deployment's explicit namespace query/command peer grants for
+forwarding; voting membership alone supplies no application RPC permission.
+The positive alarm fixture waits for a serving RF3 group, then forces the first
+cold-cell RPC through a follower. It does not pre-enroll or invoke the cell.
+Cold Raft-group startup within a three-second operation budget remains separate
+from that gate; the fixture retains its original three-second operation deadline
+and six-second HTTP client timeout.
+
 Native and built-in SQL/KV/Queue ingress share the node-owned admission and
 command pipeline. Calls retain bounded request/reply storage, one original
 deadline, nonce-bearing input and a persistent client stream per cell.
@@ -65,6 +73,11 @@ separate admission regression rejects missing/ambiguous namespaces before any
 cell factory runs. These tests exercise no operator CLI. Consult the
 [progress record](progress.md) for actual source-pinned results; implemented
 tests do not establish a passing qualification.
+
+At `d22ef830`, the native and real-RustFS native/Axum alarm selections pass all
+12 image/minimum configurations. The combined cohort remains failed by its
+separate Queue enrollment and archive-deadline regression guards; see the
+[source-pinned checkpoint](progress.md#cg-17-ordinary-native-ingress-and-durable-alarms).
 
 Ordinary failure/backoff exhaustion, archive outages, movement/wake and
 independent voter/disk-loss qualification remain required. The current claim

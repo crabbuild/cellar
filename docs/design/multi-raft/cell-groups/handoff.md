@@ -4,7 +4,52 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current KV and binding checkpoint
+## Current native ingress and alarm checkpoint
+
+Source `d22ef830` implements ordinary stateless named-cell RPCs through the
+admitted shared-group pipeline and fixes alarm visibility in callbacks and
+pinned queries. Declared configuration, namespace uniqueness, private-operation
+refusal, original deadlines, immutable identities and source proofs remain
+required. Use fresh compatible namespaces/matching voters for the private
+ingress contract change; format markers remain 1.
+
+Ordinary alarm qualification passes **12/12 configurations**: four native and
+eight real-RustFS native/Axum configurations, across both images and Quorum/S3
+minima. It covers follower-first cold-cell onboarding on a serving RF3 group,
+rollback/cancellation, same-deadline replacement, pinned reads, stale Contexts,
+autonomous interrupted retained restart and quorum refusal. Explicit namespace
+grants precede forwarding. Cold Raft-group startup inside a three-second RPC
+budget is not qualified; the operation deadline and HTTP client timeout remain
+three and six seconds.
+
+Current-source native SDK source-proof, named bindings and interrupted recovery
+pass. Canonical real-RustFS SQL SDK/operator/actual CLI passes **4/4**
+configurations plus **8/8** interrupted success/error recovery configurations.
+KV SDK/operator/CLI passes **4/4**, including 25-MiB values, expiry, retained
+restart, outages and quorum refusal. Strict affected-target Clippy and static
+checks pass, with 16 runner and 44 plan tests; unchanged owning checks retain
+their verified source equivalence.
+
+Keep `CG-17-alarms-d22ef830-24` **FAILED**. Queue's existing regression fails
+with uncertain target enrollment; frozen pre-change `9f6a5d08` reproduces the
+identical command/child refusal in `CG-17-alarm-guard-controls-d22ef830-25`.
+The current archive-deadline guard times out waiting for retained S3/idle SQL;
+the frozen predecessor passes, so this failure remains unresolved. Neither is
+erased by the successful alarm/SQL/KV suites. Those existing guard harnesses
+did not preserve failure disks. Logs/executables and verified workspace backups
+remain; all 42 alarm-control disks from failed cohorts 20–23 are retained.
+The owned backend/VM are stopped with objects retained. See
+[current results](progress.md#cg-17-ordinary-native-ingress-and-durable-alarms).
+
+Next resolve these guards, then implement ordinary alarm failure/backoff
+exhaustion and the cron deployment/occurrence adapter on the existing shared
+callback owner. Continue broader Queue lifecycles, EventStream and Workflow,
+binding target-S3/large-call and movement/wake recovery, external-object closure
+and remaining adapters. Combined Linux voter/load/crash/disk-loss qualification
+still gates release. No complete family is accepted: **13/17 tasks and 147/195
+cases** remain the full-plan totals.
+
+## Previous KV and binding checkpoint
 
 Runtime source `9f6a5d08` skips ineligible archive prefixes and finishes quiet
 maintenance without replaying an unchanged head. Advisory maintenance cannot

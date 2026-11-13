@@ -50,13 +50,26 @@ capture with the same runtime/CLI hashes and unchanged strict verifier. Preserve
 the failed capture cohort and earlier deadline controls. This one-CPU/2-GiB
 RustFS, host-native RF3 cohort does not establish complete family, load or
 independent Linux voter support. See the
-[current checkpoint](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
+[binding/SQL/KV checkpoint](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
 
-1. Deliver durable alarms/cron, EventStream and Workflow on the
+At `d22ef830`, ordinary native ingress and alarm visibility are implemented.
+Alarms pass **12/12 native/RustFS configurations**, including public follower
+onboarding, replacement/cancellation and autonomous interrupted retained restart.
+Current canonical RustFS SQL passes **4/4** plus **8/8** interrupted recovery;
+KV passes **4/4**. The combined cohort still **fails** its Queue enrollment and
+archive-deadline guards. Frozen `9f6a5d08` reproduces the identical Queue refusal
+but passes the archive guard. Keep both current failures and their evidence
+limits open. See the [latest checkpoint](progress.md#cg-17-ordinary-native-ingress-and-durable-alarms)
+and [alarm contract](durable-alarms.md).
+
+1. Resolve the reproduced Queue enrollment refusal and current archive-deadline
+   guard, then finish durable alarms/cron, EventStream and Workflow on the
    [qualified callback and Queue implementation](queue-durable-work.md).
-   Ordinary alarms already use `RaftClass::durable_callbacks`; qualify their
-   normal SDK path, replacement/cancellation, retry and autonomous retained
-   restart before claiming full support. Cron, EventStream/outbox/inbox and
+   Ordinary alarms now pass their normal SDK, replacement/cancellation and
+   autonomous retained-restart cases. Implement durable failure/backoff
+   exhaustion using the ordinary alarm policy; the current claim lease is not
+   that policy. Qualify archive outages and movement/wake before full support.
+   Cron, EventStream/outbox/inbox and
    Workflow need their public adapters and generation-fenced committed work.
    Reuse the bounded shared owner rather than adding per-idle-cell tasks.
    Pending work must resume after retained restart, movement and wake without
@@ -68,7 +81,8 @@ independent Linux voter support. See the
    four producers/two in-flight requests; cold S3 first use and higher concurrency
    remain open alongside full-size payload, clock, deployment-change,
    movement/wake, disk-loss and independent Linux gates. Queue's qualified
-   source is separate and was not rerun at `9f6a5d08`.
+   source is separate; the `d22ef830` native Queue guard is failed, and its
+   frozen predecessor reproduces that failure.
 2. Complete the remaining binding and SQL/KV recovery boundaries. The current
    cases use a Quorum destination minimum; add target-S3, before-child-completion,
    concurrent creation/cross-class and interrupted large-call cases. Finish

@@ -27,6 +27,73 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 ordinary native ingress and durable alarms
+
+Source `d22ef830` delivers stateless ordinary named-cell RPC ingress and fixes
+ordinary alarm visibility on shared groups. Declared native classes use the
+existing bounded SQL/KV/Queue ingress pipeline with their compiled configuration,
+one nonce-bearing input, original deadline and persistent command identity.
+Missing or ambiguous namespaces and private framework operations refuse before
+application entry. Stateful callers retain their source-journaled binding path.
+Transient read-only name readiness may wait within the original deadline;
+submitted mutations are never blindly retried.
+
+`Storage::get_alarm()` now reads pinned immutable images without requiring a
+writer. During a callback, both current and constructor-cached Storage hide its
+active generation while exposing a replacement, including one at the same
+deadline. The invocation frame owns this marker; no idle cell gains a task,
+timer or persistent cache entry. See the [alarm contract](durable-alarms.md).
+
+| Gate at `d22ef830` | Result |
+| --- | --- |
+| Ordinary alarms on native storage, both images and Quorum/S3 minima | **4/4 configurations pass** |
+| Canonical real-RustFS alarms, native/Axum, both images and minima | **8/8 configurations pass** |
+| Missing/ambiguous native namespace admission | **Both scenarios pass; no factory entry** |
+| Native SDK source-proof, named bindings and interrupted binding recovery | **All three exact tests pass** |
+| Canonical RustFS SQL SDK/operator/actual CLI, native/Axum | **4/4 configurations pass** |
+| Canonical RustFS interrupted SQL success/error recovery | **8/8 configurations pass** |
+| Canonical RustFS KV SDK/operator/actual CLI, native/Axum | **4/4 configurations pass** |
+| Initial archive-intent reconciliation | **Pass** |
+| Existing ordinary Queue callback regression | **FAILED: uncertain target enrollment refusal** |
+| Existing S3 command-deadline regression | **FAILED: waiting for retained S3 and idle SQL** |
+| Strict affected-target Clippy, formatting/layout, dependencies/docs | **Pass** |
+| Qualification-runner and plan unit tests | **16 and 44 tests pass** |
+
+The alarm cases cover public first enrollment through a follower, pinned reads,
+transactional rollback/cancellation, same-deadline replacement, stale Context
+refusal, interrupted retained restart without client traffic and quorum refusal.
+They provision explicit namespace peer grants and wait for a serving RF3 group
+before the first cold-cell request. Raft membership grants no application RPC
+permission. Cold Raft-group election within a three-second operation budget is
+not qualified. The fixture keeps its original three-second operation deadline
+and six-second HTTP client timeout; callback timeout is five seconds plus the existing
+one-second lease margin. SQL/KV retain their large-value and fault assertions.
+
+The combined cohort `CG-17-alarms-d22ef830-24` remains **FAILED** because of the
+two regression guards. In `CG-17-alarm-guard-controls-d22ef830-25`, the preserved
+pre-change `9f6a5d08` Queue executable reproduces the identical command/child
+identity and uncertain `Unavailable` enrollment refusal. That predecessor's
+archive-deadline guard passes, so the current archive failure remains unresolved.
+No guard is accepted by rerun or attributed to an unverified cause.
+
+Failed controls 20–23 preserve the original Fleet dispatch refusal, name
+readiness failures and early startup/permission failures. Their **42 voter
+disks** remain at recorded paths. The existing failed Queue/archive guard
+harnesses did not retain disks; their logs and frozen executables remain, and
+that evidence gap is explicit. Cohorts 24/25 have verified workspace backups and
+credential scans. The owned RustFS container and VM are stopped, with objects
+retained. All runtime cases use the same frozen native/CLI hashes as applicable;
+alarms exercise no CLI. RustFS has one CPU/2 GiB; voters share a native process
+with separate disks. This is not independent Linux voter or load qualification.
+
+The native ingress contract changes compiled class identity: use fresh compatible
+namespaces and matching voters; format markers stay at 1. Ordinary alarm failure
+backoff/exhaustion, cron, archive outages, movement/wake and combined recovery
+remain open, alongside Queue, EventStream, Workflow and the remaining adapters.
+Full acceptance stays **13/17 tasks and 147/195 cases**; no complete primitive
+family is accepted. The earlier binding/RustFS checkpoint remains separately
+pinned below.
+
 ## CG-17 archive proofs and public SQL and KV
 
 Runtime source `9f6a5d08` closes the reproduced materialized S3 named-binding
