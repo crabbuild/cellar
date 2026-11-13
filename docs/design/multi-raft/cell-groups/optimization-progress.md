@@ -3047,3 +3047,71 @@ managed checkout and under verification. It is excluded from this integration.
 Archive dependency refusal, the maintenance-independent S3 wakeup, startup and
 Python delivery failures, exact-current-source combined/backend checks and
 full CG/OPT acceptance remain open.
+
+## Archive reuse and progress wakeup candidate
+
+The sibling-dependency failure reproduces at `f9ceaa17` with a passive test
+observer: the initial result is Quorum, its retry returns S3, the deleted sibling
+chunk remains missing and neither chunk nor index reads occur between deletion
+and that response. The retained diagnostic source is `1917cd8e`. No archive
+closure was repaired during the unsafe acknowledgement.
+
+An unpublished admission-scoped reuse candidate, source `5b860c5f`, passes three
+logged dependency/late-receipt pairs, held-retirement replay and enrollment
+controls. Its wakeup case still fails after 20.902 seconds, so the campaign
+remains failed. All source guards remain unchanged. A subsequent scheduler
+diagnostic, source `458973f3`, reproduces the original wakeup failure in 21.528
+seconds: proof against cut 5 defers until the 60-second maintenance interval;
+publication of cut 6 leaves both retry clocks deferred with a queued waiter.
+This rules out lost queue membership in that reproduction.
+
+The candidate is now based on `0a7d6acc`. Physical retirement protection remains
+separate from reuse eligibility. A fresh publication seals its admitted cohort
+on controller completion; revalidation of an existing cut cannot authorize a
+later Quorum-to-S3 upgrade. Already-proved outputs can share their still-live
+physical verification. Retry state is per group, and new physical verification
+completion wakes that owner's proof lane. A weak identity captured at batch
+launch prevents a later completion from restoring older backoff. These weak
+notifications retain no physical reader or archive admission and grant no
+serving or durability authority. No task, timer or workspace is added.
+
+Temporary diagnostic probes and test counters are removed. Current-source
+format/layout/type checks, complete archive-controller and ordinary archive
+targets, the four reuse-policy tests and two physical-join regressions are
+pending. Existing deadlines, image configurations, resource limits and negative
+oracles remain unchanged. RustFS/Linux and full CG/OPT qualification remain open.
+
+The first typechecked wakeup candidate, managed source `c19e4245` and canonical
+source `d5a9abc0`, passes nine source checks but fails strict Clippy: carrying
+`CoverageUse` as the weak progress notification expands the proof-completion
+variant to at least 632 bytes. Its native no-run build is stopped before runtime
+tests; the source campaign remains failed and the native build is recorded as
+aborted. The revised notification contains only an opaque weak coverage
+identity, with no copied hold, new allocation or physical admission. Library
+Clippy now precedes native code generation in the candidate validation loop.
+
+## Archive proof reuse and wakeup checkpoint
+
+The compact candidate passes all ten source checks at canonical source
+`2a524031`, including strict core/logic all-target Clippy. Managed native source
+`5ffcf68b` passes all 25 archive-controller cases and all 33 ordinary archive
+cases. Its four reuse-policy tests and two physical-join regressions also pass.
+Three complete wakeup repetitions pass in 2.699, 2.703 and 2.629 seconds, within
+the original 20-second deadline and with both image modes. Three logged
+dependency/late-receipt pairs pass at unchanged fault and refusal assertions.
+The full controller run includes the held-retirement and enrollment controls.
+
+The three retained executables use pinned Rust 1.98.1, optimization level 1,
+debug information disabled, assertions/overflow checks enabled and incremental
+compilation disabled. Full source guards remain unchanged. Canonical and
+managed inputs have identical common file bytes; the managed manifest also
+includes the same sixty ignored generated JavaScript assets recorded earlier.
+These input manifests remain separately scoped.
+
+The broader native campaign is running on the frozen managed source: all twelve
+ordinary primitive cases, all 21 ordinary routing cases, and the existing
+performance, SQL identity, receipt, native SQL and CLI checks. This expands the
+earlier 50-function selection to 61 functions. No result is claimed for that
+campaign yet. Current RustFS/Colima/Linux, startup/Python delivery and full
+CG/OPT qualification remain open. Earlier failed campaigns and the aborted
+pre-compact build retain their original outcomes.
