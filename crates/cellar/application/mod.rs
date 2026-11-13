@@ -220,6 +220,20 @@ pub trait Application: Send + Sync + 'static {
         )
     }
 
+    /// Resolve the immutable definition selected by a namespace, including
+    /// cohosted deployments that export the same reserved service class.
+    fn resolve_raft_namespace(
+        &self,
+        namespace: &consensus::NamespaceConfig,
+        class: &str,
+    ) -> std::result::Result<Arc<consensus::RaftClass>, consensus::RegistrationError> {
+        let definition = self.resolve_raft_class(class)?;
+        if definition.schema_digest() != namespace.schema_digest {
+            return Err(consensus::RegistrationError::ContractMismatch);
+        }
+        Ok(definition)
+    }
+
     fn supports_workflow(&self, _class: &str) -> bool {
         false
     }

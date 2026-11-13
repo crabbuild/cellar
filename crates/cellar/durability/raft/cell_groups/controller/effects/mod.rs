@@ -38,6 +38,7 @@ impl CellGroupEffectRegistration {
     ) -> Result<Self, CellGroupControllerError> {
         if !(10..=60_000).contains(&options.interval_ms)
             || !(1..=60_000).contains(&options.operation_timeout_ms)
+            || !(1..=300_000).contains(&options.callback_timeout_ms)
             || options
                 .operation_timeout_ms
                 .checked_add(100)

@@ -112,7 +112,7 @@ impl From<RuntimeError> for CellGroupControllerError {
 pub struct CellGroupControllerUsage {
     pub ordinary: super::CellGroupAdmissionUsage,
     pub archive_settlement: super::CellGroupAdmissionUsage,
-    /// One internal callback can wait for ordinary child commands independently.
+    /// Two bounded internal callbacks can wait for ordinary child commands independently.
     pub callbacks: super::CellGroupAdmissionUsage,
     pub groups: usize,
     pub pending_registrations: usize,
@@ -140,8 +140,8 @@ pub struct CellGroupControllerUsage {
     /// max_command_bytes. This lane cannot recursively consume command slots.
     pub retained_s3: usize,
     pub s3_bytes: usize,
-    /// At most one effect turn runs on the node. Native callbacks have one
-    /// independent command slot; SQL admission and child commands remain shared.
+    /// At most one discovery turn runs on the node. Native callbacks have two
+    /// independent command slots sharing one byte ceiling; SQL and children remain shared.
     pub active_effects: usize,
     pub effect_turns: u64,
     pub effect_retries: u64,
@@ -331,7 +331,7 @@ impl CellGroupController {
         }
         runtime.admit()?;
         let domain = runtime.log().domain();
-        let (requests, receiver) = tokio::sync::mpsc::channel(limits.max_commands + 1);
+        let (requests, receiver) = tokio::sync::mpsc::channel(limits.max_commands + 2);
         let shared = Arc::new(Shared {
             admission_configuration: Mutex::new(()),
             public: OnceLock::new(),
@@ -342,7 +342,7 @@ impl CellGroupController {
             limits,
             domain: domain.clone(),
             commands: commands::budget(limits),
-            callbacks: crate::raft::budget::Budget::new(limits.max_command_bytes, 1),
+            callbacks: crate::raft::budget::Budget::new(limits.max_command_bytes, 2),
             provisioning: Mutex::new(None),
             retired_sources: Mutex::new(BTreeMap::new()),
             effects: Mutex::new(None),

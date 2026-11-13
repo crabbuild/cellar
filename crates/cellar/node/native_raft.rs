@@ -63,6 +63,20 @@ impl Startup {
                     self.script
                 )
             })?;
+        // The namespace's immutable schema selects its deployment. Never pick
+        // whichever application's reserved Queue class was loaded first.
+        let generation = app
+            .runtime
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("native runtime unavailable"))?
+            .generation();
+        let mut cohosted: Vec<_> = generation.native_applications.iter().collect();
+        cohosted.sort_by_key(|(name, _)| *name);
+        let application: Arc<dyn crate::application::Application> =
+            Arc::new(crate::application::consensus::RaftApplications::new(
+                application,
+                cohosted.into_iter().map(|(_, app)| app.clone()),
+            )?);
         let prepared = (self.prepare)(NativeRaftNode {
             node: node.clone(),
             data_dir: data_dir.clone(),
