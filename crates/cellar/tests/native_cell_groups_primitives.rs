@@ -1741,3 +1741,14 @@ async fn axum_sql_bindings_and_operators_use_managed_shared_groups() -> Result<(
 async fn rustfs_axum_sql_bindings_and_operators_use_managed_shared_groups() -> Result<()> {
     Box::pin(sql_bindings::qualify_axum(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn interrupted_sql_bindings_recover_without_replaying_business_calls() -> Result<()> {
+    Box::pin(sql_bindings::qualify_recovery(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_interrupted_sql_bindings_recover_without_replaying_business_calls() -> Result<()> {
+    Box::pin(sql_bindings::qualify_recovery(true)).await
+}
