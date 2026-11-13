@@ -51,6 +51,19 @@ CASES = (
 )
 
 SUITES = {
+    "ordinary-alarms": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_alarms_recover_through_shared_quorum",
+         "rustfs_axum_alarms_recover_through_shared_quorum"),
+        "ordinary alarm SDK/native/Axum paths and autonomous RF3 retained restart",
+        "Both image forms and Quorum/S3 namespace minima, with one SQL worker per node. "
+        "Public named SDK enrollment and alarm APIs, pinned-image reads, transactional "
+        "rollback/cancellation, same-deadline rearming, stale Context refusal, "
+        "interrupted callbacks, autonomous retained restart and quorum refusal are checked. "
+        "RF3 voters share one native process. No operator CLI is exercised. "
+        "Application failure/backoff exhaustion, archive outage, movement/wake, "
+        "independent voter limits, load and all-voter disk loss remain separate gates.",
+    ),
     "immutable-payloads": (
         "raft_cell_group_payloads",
         ("rustfs_immutable_payloads_confirm_bytes_and_preserve_old_recovery_cuts",),
@@ -665,7 +678,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "queue-primitives"):
         parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
@@ -716,7 +729,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -729,7 +742,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite == "ordinary-kv-bindings" and number != 0:
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

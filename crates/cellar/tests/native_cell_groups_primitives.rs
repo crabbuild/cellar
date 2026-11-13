@@ -24,6 +24,8 @@ pub mod catalog_fault;
 // The host fixture controls wall clocks, test processes and on-disk faults.
 #[path = "support/cell_group_activations.rs"]
 mod activations;
+#[path = "support/cell_group_alarms.rs"]
+mod alarms;
 #[path = "support/cell_group_binding_recovery.rs"]
 mod binding_recovery;
 #[path = "support/cell_group_bindings.rs"]
@@ -61,6 +63,23 @@ mod sql_cursors;
 mod sql_exec_batches;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_alarms_recover_through_shared_quorum() -> Result<()> {
+    alarms::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_ordinary_alarms_recover_through_shared_quorum() -> Result<()> {
+    alarms::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_alarms_recover_through_shared_quorum() -> Result<()> {
+    alarms::qualify(true, true).await
+}
 
 fn update(storage: &Storage, delta: i64) -> Result<i64> {
     storage.tx(|tx| {
