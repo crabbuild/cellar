@@ -82,6 +82,7 @@ struct Observed {
     calls: Mutex<Vec<(String, u16)>>,
     changed: Notify,
     abandoned: Mutex<Option<queue::Event>>,
+    allow_dead: std::sync::atomic::AtomicBool,
 }
 
 impl Observed {
@@ -107,7 +108,7 @@ impl Observed {
             }
         })
         .await
-        .context("autonomous Queue callback deadline")?;
+        .with_context(|| format!("autonomous Queue callback {text} attempt {attempt} deadline"))?;
         Ok(())
     }
 }
@@ -161,7 +162,15 @@ fn application(
                     context.identity().is_none() && context.storage().is_err(),
                     "Queue callback exposed broker storage"
                 );
-                queue::dispatch(batch, move |event| async move {
+                eprintln!(
+                    "Queue consumer entry: {:?}",
+                    batch
+                        .messages
+                        .iter()
+                        .map(|m| (&m.id, m.attempts))
+                        .collect::<Vec<_>>()
+                );
+                let output = queue::dispatch(batch, move |event| async move {
                     if event.messages().iter().any(|m| {
                         matches!(&m.body,Body::Text(text) if text=="interrupted") && m.attempts == 1
                     }) {
@@ -178,7 +187,10 @@ fn application(
                         let Body::Text(text) = &message.body else {
                             anyhow::bail!("text message required")
                         };
-                        if text == "dead" || (text == "retry" && message.attempts == 1) {
+                        if (text == "dead" && !observed.allow_dead.load(Ordering::Acquire))
+                            || text == "dead-purge"
+                            || (text == "retry" && message.attempts == 1)
+                        {
                             observed
                                 .calls
                                 .lock()
@@ -202,12 +214,24 @@ fn application(
                             .calls
                             .lock()
                             .unwrap()
+                            .push((format!("acked:{text}"), message.attempts));
+                        observed
+                            .calls
+                            .lock()
+                            .unwrap()
                             .push((text.clone(), message.attempts));
                         observed.changed.notify_waiters();
                     }
                     Ok(())
                 })
-                .await
+                .await?;
+                if let Output::Queue(result) = &output {
+                    eprintln!(
+                        "Queue consumer result: outcome={:?} error={:?}",
+                        result.outcome, result.error
+                    );
+                }
+                Ok(output)
             })
         })
         .raft_cell(class, |_, _| Ok(Arc::new(Caller)))?,
@@ -256,9 +280,24 @@ fn options(sequence: u64) -> Result<CommandOptions> {
 }
 
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
+    qualify_host(real_rustfs, false).await
+}
+
+pub async fn qualify_axum() -> Result<()> {
+    qualify_host(true, true).await
+}
+
+async fn qualify_host(real_rustfs: bool, external: bool) -> Result<()> {
     for rooted in [false, true] {
         let backend = if real_rustfs {
-            Some(rustfs::StoreConfig::load("queue-kernel", rooted)?)
+            Some(rustfs::StoreConfig::load(
+                if external {
+                    "queue-kernel-axum"
+                } else {
+                    "queue-kernel"
+                },
+                rooted,
+            )?)
         } else {
             None
         };
@@ -266,7 +305,7 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
             Some(backend) => Arc::new(catalog_fault::Store::around(backend.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        Box::pin(run(rooted, store, backend.as_ref()))
+        Box::pin(run(rooted, store, backend.as_ref(), external))
             .await
             .context(format!("Queue RustFS={real_rustfs} extents={rooted}"))?;
         eprintln!("Queue RustFS={real_rustfs} extents={rooted}: PASS");
@@ -278,7 +317,9 @@ async fn run(
     rooted: bool,
     store: Arc<catalog_fault::Store>,
     backend: Option<&rustfs::StoreConfig>,
+    external: bool,
 ) -> Result<()> {
+    let _=tracing_subscriber::fmt().with_env_filter("cellar::raft::cell_groups::controller::effects=debug,cellar::raft::cell_groups::dispatch=debug").with_test_writer().try_init();
     let observed = Arc::new(Observed::default());
     let (application, declared) = application(observed.clone())?;
     let mut fixture = Fixture::with_namespaces(
@@ -289,9 +330,10 @@ async fn run(
     )
     .await?;
     fixture.configuration = Some(declared);
-    fixture.effects = Some(RaftEffectOptions::default());
+    let http = external.then(|| Arc::new(managed_fixture::http::Owner::default()));
+    fixture.external_http = http.clone();
     fixture.sql_workers = 1;
-    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+    let started = Box::pin(ManagedCluster::start_with_applications(
         fixture,
         &[],
         ArchiveSetup::Initialized,
@@ -299,11 +341,30 @@ async fn run(
         None,
         FirstGroupSetup::Normal,
     ))
-    .await?;
+    .await;
+    let mut cluster = match started {
+        Ok(cluster) => cluster,
+        Err(error) => {
+            if let Some(http) = http {
+                http.close()
+                    .await
+                    .context(format!("Queue startup: {error:#}"))?;
+            }
+            return Err(error);
+        }
+    };
     let domain = cluster.fixtures[0].domain.clone();
     let work = domain
         .run(async {
             let queue_group = queue_group(&cluster).await?;
+            for host in &cluster.hosts {
+                let usage = host.resource_usage().host.controller;
+                ensure!(
+                    usage.ordinary.max_items == 2 && usage.callbacks.max_items == 1,
+                    "callback admission must preserve the original ordinary quota"
+                );
+            }
+
             let group = cluster.history;
             let leader = managed_fixture::leader(&cluster.hosts, group).await?;
             let source = cluster.hosts[leader].cell(CellHistory {
@@ -335,14 +396,34 @@ async fn run(
             let status = response.status();
             let body = response.text().await?;
             ensure!(status == 200, "public Queue send: {status} {body}");
-            observed.wait("public", 1).await?;
+            if let Err(error) = observed.wait("public", 1).await {
+                eprintln!(
+                    "Queue failed delivery info: {:?}",
+                    admin(&cluster, QUEUE, json!({"op":"info"})).await
+                );
+                eprintln!(
+                    "Queue failed delivery peek: {:?}",
+                    admin(&cluster, QUEUE, json!({"op":"peek","limit":10})).await
+                );
+                eprintln!(
+                    "Queue callback observations: {:?}",
+                    observed.calls.lock().unwrap()
+                );
+                for (index, host) in cluster.hosts.iter().enumerate() {
+                    eprintln!(
+                        "Queue host {index} controller: {:?}",
+                        host.resource_usage().host.controller
+                    );
+                }
+                return Err(error);
+            }
             let paused = admin(&cluster, QUEUE, json!({"op":"pause"})).await?;
             ensure!(paused["paused"] == true);
             ensure!(admin(&cluster, QUEUE, json!({"op":"info"})).await?["paused"] == true);
             admin(&cluster, QUEUE, json!({"op":"resume"})).await?;
             let send = source.contract("Send")?;
             let mut sequence = 1;
-            let batch = serde_json::to_vec(&json!({"batch":["ack","retry","dead"]}))?;
+            let batch = serde_json::to_vec(&json!({"batch":["ack","retry","dead","dead-purge"]}))?;
             let original = options(sequence)?;
             sequence += 1;
             let accepted = source
@@ -361,7 +442,7 @@ async fn run(
                         .await?;
                     sequence += 1;
                     let value: serde_json::Value = serde_json::from_slice(&receipt.result)?;
-                    if value["count"] == 1.0 {
+                    if value["count"] == 2.0 {
                         break Ok::<_, anyhow::Error>(());
                     }
                     tokio::time::sleep(Duration::from_millis(20)).await;
@@ -373,8 +454,16 @@ async fn run(
             }
             let peek = admin(&cluster, DEAD, json!({"op":"peek","limit":10})).await?;
             ensure!(peek.to_string().contains("deadLetterSource"));
+            observed.allow_dead.store(true, Ordering::Release);
+            let redrive = admin(&cluster, DEAD, json!({"op":"redrive","limit":1})).await?;
+            ensure!(redrive["redriven"] == 1);
+            observed.wait("acked:dead", 1).await?;
             let purged = admin(&cluster, DEAD, json!({"op":"purge"})).await?;
             ensure!(purged["deleted"] == 1);
+            let denied = cluster.fixtures[0]
+                .store
+                .denied_group_archive_writes
+                .load(Ordering::Acquire);
             cluster.fixtures[0]
                 .store
                 .deny_group_archive_writes
@@ -388,6 +477,18 @@ async fn run(
                 .await?;
             sequence += 1;
             observed.wait("archive-outage", 1).await?;
+            tokio::time::timeout(TIMEOUT, async {
+                while cluster.fixtures[0]
+                    .store
+                    .denied_group_archive_writes
+                    .load(Ordering::Acquire)
+                    == denied
+                {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .context("archive outage must reach the real write adapter")?;
             cluster.fixtures[0]
                 .store
                 .deny_group_archive_writes
@@ -411,7 +512,36 @@ async fn run(
                 .await?;
             sequence += 1;
             observed.wait("interrupted", 1).await?;
-            restart(&mut cluster).await?;
+            let id = observed
+                .abandoned
+                .lock()
+                .unwrap()
+                .as_ref()
+                .context("interrupted event")?
+                .messages()[0]
+                .id
+                .clone();
+            let rows = admin(&cluster, QUEUE, json!({"op":"peek","limit":10})).await?;
+            let leased = rows["messages"]
+                .as_array()
+                .context("Queue peek")?
+                .iter()
+                .find(|m| m["id"] == id)
+                .context("committed interrupted lease")?;
+            let until = leased["lease"]["expiresAt"]
+                .as_u64()
+                .context("Queue lease expiry")?;
+            let now = u64::try_from(cellar::asyncrt::wall_ms())?;
+            ensure!(
+                until > now && until - now < 120_000,
+                "Raft callback inherited the Fleet lease: {} ms",
+                until.saturating_sub(now)
+            );
+            eprintln!("Queue interrupted lease remaining_ms={}", until - now);
+
+            restart(&mut cluster)
+                .await
+                .context("retained Queue restart")?;
             observed
                 .wait_within("after-restart", 1, Duration::from_secs(40))
                 .await?;
@@ -429,7 +559,9 @@ async fn run(
                     .is_err(),
                 "interrupted event retained live settlement handles"
             );
-            let leader = managed_fixture::leader(&cluster.hosts, group).await?;
+            let leader = managed_fixture::leader(&cluster.hosts, group)
+                .await
+                .context("source leader after restart")?;
             let source = cluster.hosts[leader].cell(source.history().clone())?;
             let sink = cluster.hosts[leader]
                 .resolve_cell_history(
@@ -441,7 +573,8 @@ async fn run(
                         ..Default::default()
                     },
                 )
-                .await?
+                .await
+                .context("resolve consumer sink after restart")?
                 .context("consumer sink")?;
             let sink = cluster.hosts[leader].cell(sink)?;
             let result = sink
@@ -454,25 +587,49 @@ async fn run(
                         ..Default::default()
                     },
                 )
-                .await?;
-            ensure!(serde_json::from_slice::<serde_json::Value>(&result.result)? == json!(6));
+                .await
+                .context("linearizable sink count after restart")?;
+            ensure!(serde_json::from_slice::<serde_json::Value>(&result.result)? == json!(7));
+            eprintln!("Queue retained restart and sink count verified");
             // Transfer the whole Queue group and verify a fresh public send/consume.
             let before = managed_fixture::leader(&cluster.hosts, queue_group).await?;
-            let status = cluster.hosts[before]
-                .group(queue_group)?
-                .replication_status(TIMEOUT)
-                .await?;
-            cluster.hosts[before]
-                .group(queue_group)?
-                .transfer_leadership(
-                    LeadershipTransfer {
-                        target: MemberId::new(((before + 1) % 3) as u64 + 1)?,
-                        expected_term: status.term,
-                        expected_revision: status.membership_revision,
-                    },
-                    TIMEOUT,
-                )
-                .await?;
+            tokio::time::timeout(TIMEOUT, async {
+                loop {
+                    let status = cluster.hosts[before]
+                        .group(queue_group)?
+                        .replication_status(TIMEOUT)
+                        .await?;
+                    match cluster.hosts[before]
+                        .group(queue_group)?
+                        .transfer_leadership(
+                            LeadershipTransfer {
+                                target: MemberId::new(((before + 1) % 3) as u64 + 1)?,
+                                expected_term: status.term,
+                                expected_revision: status.membership_revision,
+                            },
+                            TIMEOUT,
+                        )
+                        .await
+                    {
+                        Ok(()) => break,
+                        // A callback settlement can still be applying. This is
+                        // a proven pre-admission refusal, not an unknown handoff.
+                        Err(RuntimeError::NotReady) => {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+                loop {
+                    if managed_fixture::leader(&cluster.hosts, queue_group).await? != before {
+                        break Ok::<_, anyhow::Error>(());
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .context("Queue leader transfer deadline")?
+            .context("transfer Queue leader")?;
             source
                 .command(
                     &send,
@@ -481,7 +638,10 @@ async fn run(
                 )
                 .await?;
             sequence += 1;
-            observed.wait("new-leader", 1).await?;
+            observed
+                .wait("new-leader", 1)
+                .await
+                .context("Queue delivery after leader transfer")?;
             // No successful write can escape through Fleet after losing RF3 quorum.
             let stopped = cluster.nodes.split_off(1);
             for node in stopped {
@@ -510,6 +670,11 @@ async fn run(
     for host in &cluster.hosts {
         if let Err(e) = host.close().await {
             failures.push(e.to_string());
+        }
+    }
+    if let Some(http) = http {
+        if let Err(error) = http.close().await {
+            failures.push(error.to_string());
         }
     }
     work??;
@@ -756,6 +921,6 @@ async fn cli(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<
         .replace(&backend.secret, "[redacted]");
     ensure!(status.success(), "Queue CLI {status}: {error}");
     let output: serde_json::Value = serde_json::from_slice(&stdout)?;
-    ensure!(output["backlogCount"] == 1.0, "Queue CLI reply: {output}");
+    ensure!(output["backlogCount"] == 2.0, "Queue CLI reply: {output}");
     Ok(())
 }

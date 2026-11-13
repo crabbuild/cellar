@@ -3082,7 +3082,7 @@
           ]
         },
         {
-          "action": "CG17-04 — Durable work and time, after CG17-02/03. Map every ordinary framework work reason and Queue/Workflow/cron obligation into committed bounded shared discovery, installation-specific settlement and park/wake. Retained startup and deployment removal must rediscover existing obligations without application traffic. Capture operation time/random identities consistently and preserve wall-clock schedules versus monotonic deadlines under clock jumps.",
+          "action": "CG17-04 — Durable work and time, after CG17-02/03. Map every ordinary framework work reason and Queue/Workflow/cron obligation into committed bounded shared discovery, installation-specific settlement and park/wake. Retained startup and deployment removal must rediscover existing obligations without application traffic. Capture operation time/random identities consistently and preserve wall-clock schedules versus monotonic deadlines under clock jumps. Delivery checkpoint: the native Alarm/Queue callback kernel is implemented; qualify generation-fenced claim/completion and autonomous retained restart with queue-primitives. Remaining work reasons, cron, clock faults and deployment removal remain open; see queue-durable-work.md.",
           "tests": [
             "primitives_due_work_recovery_without_requests",
             "primitives_alarms_cron_occurrence_identity",
@@ -3099,7 +3099,7 @@
           ]
         },
         {
-          "action": "CG17-06 — Queue, EventStream and Workflow state machines, after CG17-02/03/04 and applicable payload support. Preserve existing public producer/consumer/step APIs, partial batch/DLQ settlement, durable stream chunks/checkpoints, compensation, cancellation, lease generations and receipt horizons. Define each primitive schema/deployment change contract and recover existing obligations through deployment changes. Reuse the common storage/effect kernel and keep callbacks outside consensus polling.",
+          "action": "CG17-06 — Queue, EventStream and Workflow state machines, after CG17-02/03/04 and applicable payload support. Preserve existing public producer/consumer/step APIs, partial batch/DLQ settlement, durable stream chunks/checkpoints, compensation, cancellation, lease generations and receipt horizons. Define each primitive schema/deployment change contract and recover existing obligations through deployment changes. Reuse the common storage/effect kernel and keep callbacks outside consensus polling. Delivery checkpoint: ordinary native Queue producer/callback/operator adapters reuse the existing broker policy through the shared kernel. The scoped RF3/RustFS runner is implemented; qualification, cross-deployment catalogs, full retention/load/disk-loss evidence and the EventStream/Workflow families remain open.",
           "tests": [
             "primitives_queue_leases_ack_retry_and_dead_letter",
             "primitives_event_stream_outbox_inbox_replay",

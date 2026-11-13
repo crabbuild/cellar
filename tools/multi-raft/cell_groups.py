@@ -53,7 +53,7 @@ CASES = (
 SUITES = {
     "queue-primitives": (
         "native_cell_groups_primitives",
-        ("rustfs_ordinary_queue_callbacks_use_shared_quorum",),
+        ("rustfs_ordinary_queue_callbacks_use_shared_quorum", "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum"),
         "ordinary Queue producer/callback/settlement through shared RF3 with real RustFS",
         "Both image modes, one SQL worker per node, native public ingress, declared bindings, "
         "ack/retry/dead-letter delivery, authenticated Queue operator controls, exact producer replay, "

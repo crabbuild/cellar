@@ -11,7 +11,7 @@ not create a Raft group, timer or background task for each broker or message.
 ## Durable callback contract
 
 `RaftClass::durable_callbacks()` enables ordinary `Invocation::Alarm` callbacks.
-Its host must configure `RaftEffectOptions` and checkpoint/receipt capacity.
+Its host installs bounded `RaftEffectOptions` defaults and validates checkpoint/receipt capacity.
 The runtime-owned Queue service enables the same capability automatically.
 Unsupported work reasons and unavailable scheduler capacity refuse admission.
 
@@ -22,7 +22,10 @@ linearizable image, then compares the complete installation in a private system
 command. Public bindings cannot obtain this command contract or its client ID.
 
 A successful claim installs a retry deadline and commits through the ordinary
-quorum/S3 checkpoint before entering the callback. Callback code runs on the SQL
+quorum/S3 checkpoint before entering the callback. One node-wide callback admission slot has its own `max_command_bytes` ceiling.
+Ordinary request and S3 settlement capacity remain independent; startup resource
+bounds reserve all three ceilings, and metrics expose each lane. Retention and
+quiescence include callbacks after response expiry. Callback code runs on the SQL
 execution owner, outside Raft consensus polling. Followers apply captured bytes.
 Completion removes only the claimed generation and attempt. Rearming another
 generation, or a different reason, survives a late completion. An interrupted
@@ -47,6 +50,10 @@ its own transaction. The host's consensus batching remains available; Fleet's
 timer-based aggregation cannot combine Storage authority from separate Raft
 invocations. Enqueue and its next due-work installation publish together.
 
+A Raft callback leases at most one batch; remaining readiness schedules another
+turn. A stalled handler cannot consume attempts for batches it never received.
+Raft leases use the callback's remaining monotonic budget plus settlement time;
+the unrelated Fleet handler budget does not delay redelivery.
 Before invoking user code, the broker checkpoints the leased batch and its next
 wake. The consumer receives the ordinary `Invocation::Queue` and `queue::Event`
 APIs. Its Context has no cell identity or broker Storage capability. Declared
@@ -66,7 +73,7 @@ timeouts preserve an unknown mutation outcome rather than replaying the command.
 The owning RF3 drill is `ordinary_queue_callbacks_use_shared_quorum`; the real
 backend selection is `rustfs_ordinary_queue_callbacks_use_shared_quorum` in
 `native_cell_groups_primitives`. Both materialized and extent images are selected.
-The scenario exercises public native ingress, declared producer bindings,
+The scenario exercises public native/Axum ingress, the actual Queue CLI, declared producer bindings,
 acknowledgement, retry, dead letters, authenticated controls, an injected archive
 write outage, retained restart without a new producer request, leader transfer,
 exact original request replay and quorum-loss refusal. Kernel unit tests cover

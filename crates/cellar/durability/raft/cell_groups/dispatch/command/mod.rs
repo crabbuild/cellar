@@ -725,12 +725,7 @@ impl CellCommandInvocation {
         if authority.route() != &origin.route {
             return Err(CellDispatchError::Invalid("origin route binding"));
         }
-        let outcome = if self.system
-            && !self
-                .dispatcher
-                .class
-                .is_cell_rpc(&self.request.contract.operation)
-        {
+        let outcome = if self.system {
             origin
                 .sql
                 .stage_system_owned(

@@ -1754,3 +1754,9 @@ async fn ordinary_queue_callbacks_use_shared_quorum() -> Result<()> {
 async fn rustfs_ordinary_queue_callbacks_use_shared_quorum() -> Result<()> {
     Box::pin(queues::qualify(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit isolated real RustFS configuration"]
+async fn rustfs_ordinary_queue_axum_callbacks_use_shared_quorum() -> Result<()> {
+    Box::pin(queues::qualify_axum()).await
+}

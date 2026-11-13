@@ -632,6 +632,15 @@ impl RaftClass {
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
         self.validate_cell_factory()?;
+        if self.has_native_callbacks() {
+            anyhow::ensure!(
+                host.execution.max_pending_transactions > 0
+                    && host.max_input_bytes >= 1024
+                    && host.execution.max_client_identities >= 2
+                    && host.execution.max_retained_receipts >= 2,
+                "durable callbacks require checkpoint and receipt capacity"
+            );
+        }
         if let Some(outbox) = &self.outbox {
             anyhow::ensure!(host.effects.is_some_and(|options|options.metadata_bytes>=512*1024)
                 && host.max_input_bytes>=32*1024
@@ -738,7 +747,8 @@ impl RaftClass {
     }
 
     /// Enable ordinary durable Alarm callbacks on the shared scheduler. Queue
-    /// services use this same kernel. Hosts must configure `RaftEffectOptions`.
+    /// services use this same kernel. Hosts install bounded scheduler defaults;
+    /// configure `RaftEffectOptions` to tune them.
     /// Callbacks are at least once after interrupted execution; external effects
     /// require application idempotency. Followers apply bytes, never callbacks.
     pub fn durable_callbacks(mut self) -> Result<Self, RegistrationError> {
@@ -932,14 +942,17 @@ impl RaftClass {
     }
 
     fn uses_cell_factory(&self) -> bool {
-        self.commands.values().any(|command| {
-            matches!(
-                command.handler,
-                CommandHandler::JsonCellRpc
-                    | CommandHandler::NativeCellRpc { .. }
-                    | CommandHandler::NativeWork
-            )
-        })
+        self.commands
+            .values()
+            .chain(self.system_commands.values())
+            .any(|command| {
+                matches!(
+                    command.handler,
+                    CommandHandler::JsonCellRpc
+                        | CommandHandler::NativeCellRpc { .. }
+                        | CommandHandler::NativeWork
+                )
+            })
     }
 
     pub(crate) fn is_cell_rpc(&self, operation: &str) -> bool {
@@ -1209,6 +1222,11 @@ impl RaftClass {
 
     /// Bindings require the shared recovery owner even without user effects.
     /// Target retirement itself is invoked by the claiming source owner.
+    pub(crate) fn has_native_callbacks(&self) -> bool {
+        self.system_commands
+            .contains_key(super::native_work::OPERATION)
+    }
+
     pub(crate) fn has_scheduled_work(&self) -> bool {
         !self.system_commands.is_empty() || self.has_binding_maintenance()
     }

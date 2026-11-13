@@ -43,6 +43,15 @@ helper reference and a fetch-result type inference error; the new harness also
 had to propagate both execution-domain result layers. Those failures supply no
 passing runtime evidence.
 
+Subsequent native runs exposed three delivery defects: stateless consumer
+bindings requested public broker Storage, callbacks consumed ordinary child
+admission, and interrupted leases inherited Fleet's five-minute handler budget.
+The candidate now retains private source-intent authority, reserves one bounded
+callback slot independently of ordinary commands, and derives Queue leases from
+the admitted callback deadline plus settlement. A callback leases one batch,
+so a stalled handler cannot consume attempts for unentered batches. These fixes
+require the complete native and real-RustFS cohort before acceptance.
+
 ## CG-17 S3 proof scheduling and joined retirement
 
 Source `d1f8535f` closes the reproduced basic binding deadline gate. A selected,

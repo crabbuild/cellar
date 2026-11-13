@@ -434,7 +434,12 @@ impl Broker {
         self.exec("SELECT seq,id,body,content_type,size,enqueued_at,visible_at,attempts,lease_id,lease_generation,leased_until,purge_on_settle FROM __sys_queue_messages WHERE dlq_target IS NULL AND ((purge_on_settle=1 AND (lease_id IS NULL OR leased_until<=?)) OR (purge_on_settle=0 AND visible_at<=? AND (lease_id IS NULL OR leased_until<=?))) ORDER BY visible_at,seq LIMIT ?",&[at.into(),at.into(),at.into(),(limit as i64).into()])
     }
 
-    fn lease_batch(&self, at: i64, consumer: &Consumer) -> Result<Option<Value>> {
+    fn lease_batch(
+        &self,
+        at: i64,
+        consumer: &Consumer,
+        lease_duration_ms: i64,
+    ) -> Result<Option<Value>> {
         let active=number(&self.exec("SELECT COUNT(DISTINCT lease_id) AS count FROM __sys_queue_messages WHERE lease_id IS NOT NULL AND leased_until>?",&[at.into()])?.remove(0),"count")? as usize;
         if !policy::can_install_lease(
             active,
@@ -517,7 +522,7 @@ impl Broker {
         let installs=plan.leases.iter().filter(|lease|expiry.get(&lease.seq).is_none_or(|expiry|matches!(expiry.action,policy::ExpiredLeaseAction::RetryAt(deadline) if deadline<=at))).collect::<Vec<_>>();
         let lease_id = uuid(4, None)?;
         let leased_until = at
-            .saturating_add(self.config.lease_duration_ms)
+            .saturating_add(lease_duration_ms)
             .min(9_007_199_254_740_991);
         self.storage.transaction_sync(|_| {
             for seq in &plan.delete_purged {self.exec("DELETE FROM __sys_queue_messages WHERE seq=? AND purge_on_settle=1 AND (lease_id IS NULL OR leased_until<=?)",&[(*seq).into(),at.into()])?;}
@@ -617,12 +622,31 @@ impl Broker {
         if let Err(error) = self.drive_dlq(context, 100).await {
             tracing::error!(%error,"Queue DLQ transfer failed");
         }
+        // Raft already admitted this callback. Its monotonic deadline fences
+        // further handler polling; retain an additional settlement budget. Do
+        // not inherit Fleet's unrelated five-minute stateless handler lease.
+        let (at, lease_duration_ms) = if self.storage.is_raft() {
+            let dispatch = crate::storage::capture_raft_dispatch()?
+                .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?;
+            let remaining = i64::try_from(dispatch.remaining_timeout()?.as_millis())?;
+            let settle = i64::try_from(crate::asyncrt::services().operation_deadline_ms()?)?;
+            (now(), policy::lease_duration_ms(0, remaining, settle))
+        } else {
+            (at, self.config.lease_duration_ms)
+        };
         let swept = self.sweep(at)?;
         let mut batches = Vec::new();
         if !self.paused()? {
             if let Some(consumer) = self.consumer() {
-                while let Some(batch) = self.lease_batch(at, &consumer)? {
+                while let Some(batch) = self.lease_batch(at, &consumer, lease_duration_ms)? {
                     batches.push(batch);
+                    if self.callback.is_some() {
+                        // One Raft callback owns one delivered batch. Leasing
+                        // later batches before entering their handlers would
+                        // spend their retry attempts if an earlier one stalls.
+                        // Remaining readiness stays in the committed work index.
+                        break;
+                    }
                 }
             }
         }

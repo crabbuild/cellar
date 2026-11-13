@@ -60,3 +60,23 @@ fn named_binding_seal_is_private_and_binds_the_schema() -> anyhow::Result<()> {
     assert!(class.has_scheduled_work());
     Ok(())
 }
+
+#[test]
+fn native_callbacks_are_private_and_require_checkpoint_capacity() -> anyhow::Result<()> {
+    let class = RaftClass::new("AlarmOnly", 1, [51; 32])?
+        .durable_callbacks()?
+        .with_cell_factory(Arc::new(|_, _| {
+            anyhow::bail!("admission must not construct a cell")
+        }))?;
+    let operation = super::super::native_work::OPERATION;
+    assert!(class.contract(operation).is_none());
+    assert!(class
+        .validate_operation(&class.system_contract(operation).unwrap())
+        .is_err());
+    assert!(class.is_cell_rpc(operation));
+    let mut host = crate::raft::host::RaftHostOptions::default();
+    class.validate_shared_host(&host)?;
+    host.execution.max_pending_transactions = 0;
+    assert!(class.validate_shared_host(&host).is_err());
+    Ok(())
+}

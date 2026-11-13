@@ -190,8 +190,14 @@ pub(super) fn admit(
         let bytes = bytes
             .checked_add(option_bytes(&mut options).map_err(|e| error(command, false, e))?)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
-        let permit = shared
-            .commands
+        // The sole internal callback may await a normal child operation. Its
+        // own admission must not occupy that child's progress capacity.
+        let budget = if invocation.is_native_callback() {
+            &shared.callbacks
+        } else {
+            &shared.commands
+        };
+        let permit = budget
             .acquire(bytes)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
         Ok((command, deadline, permit, registration))

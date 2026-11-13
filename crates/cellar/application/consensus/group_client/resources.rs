@@ -216,6 +216,7 @@ impl CellGroupResourceUsage {
         for (lane, usage) in [
             ("ordinary", c.ordinary),
             ("archive_settlement", c.archive_settlement),
+            ("callback", c.callbacks),
         ] {
             let labels = format!("{{lane=\"{lane}\"}}");
             for (name, value) in [

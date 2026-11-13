@@ -71,8 +71,8 @@ pub struct CellGroupControllerLimits {
     /// Shared by commands, queries, enrollments and registrations, including queued work, resolution
     /// and unconsumed responses.
     pub max_commands: usize,
-    /// Invocation/input/options retention. The independent S3 output stage has
-    /// the same byte ceiling; configure their combined envelope as twice this
+    /// Invocation/input/options retention. S3 settlement and the single native
+    /// callback lane each have this byte ceiling: reserve three times this
     /// value. SQL capture/apply/results retain separate SQL pool admission.
     pub max_command_bytes: usize,
     /// Automatic compaction at an apply boundary. Requires the transport's
@@ -112,6 +112,8 @@ impl From<RuntimeError> for CellGroupControllerError {
 pub struct CellGroupControllerUsage {
     pub ordinary: super::CellGroupAdmissionUsage,
     pub archive_settlement: super::CellGroupAdmissionUsage,
+    /// One internal callback can wait for ordinary child commands independently.
+    pub callbacks: super::CellGroupAdmissionUsage,
     pub groups: usize,
     pub pending_registrations: usize,
     /// Retained failed groups still consume the registration capacity.
@@ -138,8 +140,8 @@ pub struct CellGroupControllerUsage {
     /// max_command_bytes. This lane cannot recursively consume command slots.
     pub retained_s3: usize,
     pub s3_bytes: usize,
-    /// At most one effect turn runs on the node. SQL and command admission are
-    /// shared with ordinary operations; configured metadata has its own permit.
+    /// At most one effect turn runs on the node. Native callbacks have one
+    /// independent command slot; SQL admission and child commands remain shared.
     pub active_effects: usize,
     pub effect_turns: u64,
     pub effect_retries: u64,
@@ -164,6 +166,7 @@ struct Shared {
     limits: CellGroupControllerLimits,
     domain: crate::asyncrt::DomainToken,
     commands: Arc<crate::raft::budget::Budget>,
+    callbacks: Arc<crate::raft::budget::Budget>,
     provisioning: Mutex<Option<Arc<provision::Config>>>,
     retired_sources: Mutex<BTreeMap<cellar_logic::cell_group::GroupHistory, CellGroupApplier>>,
     effects: Mutex<Option<Arc<effects::Config>>>,
@@ -328,7 +331,7 @@ impl CellGroupController {
         }
         runtime.admit()?;
         let domain = runtime.log().domain();
-        let (requests, receiver) = tokio::sync::mpsc::channel(limits.max_commands);
+        let (requests, receiver) = tokio::sync::mpsc::channel(limits.max_commands + 1);
         let shared = Arc::new(Shared {
             admission_configuration: Mutex::new(()),
             public: OnceLock::new(),
@@ -339,6 +342,7 @@ impl CellGroupController {
             limits,
             domain: domain.clone(),
             commands: commands::budget(limits),
+            callbacks: crate::raft::budget::Budget::new(limits.max_command_bytes, 1),
             provisioning: Mutex::new(None),
             retired_sources: Mutex::new(BTreeMap::new()),
             effects: Mutex::new(None),
@@ -467,6 +471,7 @@ impl CellGroupController {
         CellGroupControllerUsage {
             ordinary: super::CellGroupAdmissionUsage::read(&shared.commands),
             archive_settlement: super::CellGroupAdmissionUsage::read(&shared.s3),
+            callbacks: super::CellGroupAdmissionUsage::read(&shared.callbacks),
             active_effects: shared.active_effects.load(Ordering::Acquire),
             effect_turns: shared.effect_turns.load(Ordering::Relaxed),
             effect_retries: shared.effect_retries.load(Ordering::Relaxed),
