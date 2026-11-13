@@ -3670,3 +3670,51 @@ The prior broad native failures, Linux recovery and shutdown failures, current
 RustFS/Colima qualification, full occupancy/performance matrix and remaining
 CG/OPT gates stay open. The owned backend remains stopped. This follow-up is a
 bounded local fairness change, not full Queue or multi-Raft acceptance.
+
+## Enrollment resolution after an applied observation becomes stale
+
+The hosted `7f900435` enrollment failures motivate a controlled regression at
+the existing SQL pool resolution boundary. At test-only input `27b088e7`, both
+`concurrent_enrollment_one_cell` and its rooted counterpart capture valid
+absence, apply the exact prepared creation, then submit the old observation
+for resolution. Both fail at the new assertion in 0.283/0.267 seconds: the
+expected uncertain result is `Refused(Unavailable)`. Production code is
+unchanged in this red checkpoint; unrelated startup or timeout failures do not
+count as reproduction.
+
+The correction keeps applied-state validation and maps its `NotReady` result
+to uncertain enrollment resolution, matching existing command reconciliation.
+It retains the producer for fresh proof instead of reporting the same failure
+used for a lost shared SQL worker reply. All other error mappings and binding
+checks remain. The regression also checks equal route/term, the exact committed
+creation, retained bytes/operations/workspace, one initializer call and eventual
+fresh-proof resolution.
+
+At candidate input `8f0ec3be`, both regressions pass in 0.501/0.506 seconds.
+All 17 exact existing enrollment controls pass, including leadership loss and
+transfer, disconnected initializers, original deadlines, cancelled shutdown,
+remote permission/revocation and genuine lost-worker reply shutdown. The locked
+Rust 1.98.1 build, formatting/layout, focused strict Clippy, native dependency
+and documentation checks also pass. Frozen binaries and unchanged-input guards
+bind these results to this candidate; no temporary probes are introduced.
+
+The complete original `cellar-perf-raft` unit target remains failed: 19 pass,
+two fail, zero skip, in 378.399 seconds. The original 1/32/128 matrix reaches
+its original sixty-second enrollment deadline with 103 of 128 group-zero cells
+observed on each voter; its other group has one cell. The separate 128-cell
+diagnostic also reaches that deadline, with 114/113/114 group-zero cells and an
+empty second group. Both fixtures retain their disks and join cleanup. Their
+snapshots show open controllers and SQL pools, two live SQL workers per node,
+zero apply retries, no extent-store quarantine and no collector failures.
+The rooted 32-cell control passes. No compiler or other native fixture is
+observed at the full target's start.
+
+The first failed fixture records substantial SQL preparation, publication
+and engine file-sync time; its timing spans can overlap. Most SQL
+resolution calls finish within tens of microseconds, so their high failure
+count alone does not establish a costly retry-loop bottleneck. Preparation,
+persistence and workspace-close costs need targeted attribution before another
+optimization. This closes the demonstrated stale-observation component defect,
+not the 128-cell latency gap, hosted Linux enrollment matrix, broader native
+failures, current RustFS/Colima qualification or any full CG/OPT gate. No speedup
+is claimed and no request budget, resource limit or durability barrier changes.
