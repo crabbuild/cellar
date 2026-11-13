@@ -213,6 +213,14 @@ S3 response. Lookup and enrollment requests retain their full verification path.
 Pending publication intents still reconcile, and held proofs retain the existing
 current-plus-retiring allocation bound.
 
+After the current owner has physically verified its head, retirement-only work
+may finish with an advisory marker when no output waits, no publication intent
+remains and local apply is covered. That result carries no physical proof and
+cannot settle a response or advance compaction. Initial registration, restart
+and foreground S3 requests retain actual verification; idle groups retain no
+additional image pins or replay slots. Duplicate enrollment responses may share
+the same still-live verified cut while retaining separate response admission.
+
 ## Sequences and retained obligations
 
 The source has 64 persistent exclusive outgoing lanes. A global lane serial

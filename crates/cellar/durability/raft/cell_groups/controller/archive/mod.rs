@@ -610,14 +610,16 @@ impl Manager {
                 continue;
             }
             entry.dirty = false;
-            if let Some(status) = shared
+            let observed_head = shared
                 .archives
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .get_mut(&group)
-            {
-                status.attempts = status.attempts.saturating_add(1);
-            }
+                .and_then(|status| {
+                    status.attempts = status.attempts.saturating_add(1);
+                    status.published.clone()
+                })
+                .filter(|_| entry.context.is_some());
             let registration = entry.registration.clone();
             let activation = entry.activation.clone();
             let mut context = entry.context.clone();
@@ -698,11 +700,20 @@ impl Manager {
                         &registration,
                         &runtime,
                         &execution,
-                        !waiters.is_empty(),
-                        settlement::required_prefix(&waiters),
+                        job::Demand {
+                            outputs: !waiters.is_empty(),
+                            required_prefix: settlement::required_prefix(&waiters),
+                            observed_head,
+                        },
                         handoff,
                     )
                     .await?;
+                    let driven = match driven {
+                        job::Outcome::Verified(driven) => driven,
+                        // This advisory completion cannot settle a waiter or
+                        // advance compaction; it owns no physical coverage.
+                        job::Outcome::Maintenance(published) => return Ok(published),
+                    };
                     maintenance_pending = driven.maintenance_pending;
                     let coverage = driven.coverage;
                     confirm_coverage(&runtime, group, &coverage)?;
