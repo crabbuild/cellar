@@ -3,7 +3,7 @@
 //! Peer-authenticated KV uses the same admitted group owner as SDK ingress.
 
 use super::{response, AppHandle, HttpReply, StatusCode};
-use crate::application::{encode_rpc, kv};
+use crate::application::kv;
 
 /// This is called after the private entrance verifies the exact method, path
 /// and body. An unavailable Raft owner never selects ordinary Fleet execution.
@@ -46,14 +46,11 @@ pub(super) async fn dispatch_authenticated(
             scope,
             name,
         )?;
-        let body: serde_json::Value = serde_json::from_slice(body)
-            .map_err(|_| anyhow::anyhow!("KV_ERROR: invalid request body"))?;
-        encode_rpc(&cellar_native::clone::StructuredValue::from_json(
-            serde_json::json!([body]),
-        )?)
+        serde_json::from_slice::<serde_json::Value>(body)
+            .map_err(|_| anyhow::anyhow!("KV_ERROR: invalid request body"))
     })();
-    let args = match input {
-        Ok(args) => args,
+    let body = match input {
+        Ok(body) => body,
         Err(error) => {
             return Some(response(
                 StatusCode::BAD_REQUEST,
@@ -64,7 +61,7 @@ pub(super) async fn dispatch_authenticated(
     let prepared = async {
         let services = crate::asyncrt::services();
         let owner = services.raft_lifecycle().application_service()?;
-        let args = kv::raft_wire::stage_admin(&owner, scope, name, args, deadline).await?;
+        let args = kv::raft_wire::stage_admin(&owner, scope, name, body, deadline).await?;
         let admitted = services
             .admit_outbound_rpc(scope, name, kv::OPERATOR, &args)
             .ok_or(crate::application::consensus::CommandFailure::Overloaded)?;

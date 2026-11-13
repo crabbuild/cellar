@@ -61,7 +61,9 @@ values above the existing 1-MiB storage threshold use direct value references:
 the SDK publishes bytes before the small child call, and that quorum command
 independently verifies actual complete bytes before installing the row. A read
 commits the exact row reference; the SDK verifies its body before exposing a
-value. The private operator/CLI uses the same path. Value bytes are not repeatedly
+value. The private operator/CLI stages the authenticated JSON body before native
+RPC encoding and releases its base64 field before publication. Only the compact
+reference enters the native codec. Value bytes are not repeatedly
 read, encoded and re-published inside a long child RPC. Aggregate value admission
 runs before fetching bodies, preserving the native result ceiling.
 

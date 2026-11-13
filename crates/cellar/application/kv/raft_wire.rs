@@ -700,10 +700,11 @@ pub(crate) async fn stage_admin(
     owner: &super::super::consensus::RaftCells,
     scope: &str,
     name: Option<&str>,
-    args: RpcData,
+    body: Value,
     deadline: u64,
 ) -> Result<RpcData> {
-    let args = super::raft_value::stage_operator(owner, scope, name, args, deadline).await?;
+    let body = super::raft_value::stage_operator(owner, scope, name, body, deadline).await?;
+    let args = encode_rpc(&StructuredValue::from_json(json!([body]))?)?;
     let request = native_rpc::encode_request(name, &args, MAX_BYTES)?;
     if request.len() <= owner.kv_wire_input_limit(scope, PREPARE)? {
         return Ok(args);
