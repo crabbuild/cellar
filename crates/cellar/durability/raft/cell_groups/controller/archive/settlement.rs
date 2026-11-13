@@ -136,6 +136,7 @@ pub(in crate::raft::cell_groups::controller) struct Request {
     cancelled: Arc<AtomicBool>,
     reply: oneshot::Sender<std::result::Result<Settled, CellDispatchError>>,
     permit: Arc<Mutex<Permit>>,
+    attempted_cut: Option<cellar_logic::consensus::LogIndex>,
 }
 
 struct Cancel(Arc<AtomicBool>);
@@ -366,6 +367,7 @@ impl Client {
                 cancelled: cancelled.clone(),
                 reply,
                 permit,
+                attempted_cut: None,
             },
             receiver,
             _cancel: Cancel(cancelled),
@@ -436,6 +438,10 @@ impl Prepared {
 }
 
 impl Request {
+    pub(super) fn may_reuse(&self, index: cellar_logic::consensus::LogIndex) -> bool {
+        self.attempted_cut.is_none_or(|previous| previous < index)
+    }
+
     pub(super) fn fail(self, error: Arc<Error>) {
         let _ = self.reply.send(Err(CellDispatchError::Archive(error)));
     }
@@ -567,7 +573,7 @@ pub(super) async fn prove(
         let Ok(read) = read else {
             continue;
         };
-        let Ok((request, result)) = read.await else {
+        let Ok((mut request, result)) = read.await else {
             continue;
         };
         let now = execution
@@ -578,7 +584,11 @@ pub(super) async fn prove(
             continue;
         }
         match result {
-            Ok(false) | Err(CellGroupArchiveError::Busy) => waiting.push(request),
+            Ok(false) => {
+                request.attempted_cut = Some(coverage.marker().position().index);
+                waiting.push(request);
+            }
+            Err(CellGroupArchiveError::Busy) => waiting.push(request),
             Err(CellGroupArchiveError::Replay(error))
                 if matches!(&request.output, Output::Lookup(_)) =>
             {

@@ -263,42 +263,77 @@ pub(super) async fn verified_current(
         .path()
         .join("node-1/log/cell-group-archive-journals");
     let history = route.history;
-    let hold = fixture
-        .cluster
-        .domain
-        .blocking(move || -> Result<CellGroupArchiveHold> {
-            for entry in std::fs::read_dir(directory)? {
-                let state = entry?.path().join("state");
-                let envelope: serde_json::Value = serde_json::from_slice(&std::fs::read(state)?)?;
-                let record = &envelope["record"];
-                let Some(hold) =
-                    serde_json::from_value::<Option<CellGroupArchiveHold>>(record["head"].clone())?
-                else {
-                    continue;
-                };
-                if hold.marker().route().history == history {
-                    assert!(record["retire"].is_null());
-                    assert_eq!(record["pending"], "None");
-                    return Ok(hold);
+    let mut selected = None;
+    // Publication makes a complete cut available before predecessor cleanup.
+    // This audit requires quiescent ownership, so wait under the existing
+    // lifecycle bound rather than treating the published status as that proof.
+    controller::wait_for(async || {
+        let directory = directory.clone();
+        selected = fixture
+            .cluster
+            .domain
+            .blocking(move || -> Result<Option<CellGroupArchiveHold>> {
+                for entry in std::fs::read_dir(directory)? {
+                    let state = entry?.path().join("state");
+                    let envelope: serde_json::Value =
+                        serde_json::from_slice(&std::fs::read(state)?)?;
+                    let record = &envelope["record"];
+                    let Some(hold) = serde_json::from_value::<Option<CellGroupArchiveHold>>(
+                        record["head"].clone(),
+                    )?
+                    else {
+                        continue;
+                    };
+                    if hold.marker().route().history == history {
+                        if !record["retire"].is_null() || record["pending"] != "None" {
+                            return Ok(None);
+                        }
+                        assert!(record["retire"].is_null());
+                        assert_eq!(record["pending"], "None");
+                        return Ok(Some(hold));
+                    }
                 }
-            }
-            anyhow::bail!("no selected journal hold for {history:?}")
-        })?
-        .await??;
+                Ok(None)
+            })?
+            .await??;
+        Ok(selected.is_some())
+    })
+    .await
+    .context("archive ownership did not finish predecessor cleanup")?;
+    let hold = selected.context("selected settled journal hold")?;
     let destination = verifier(fixture, route, rooted, name).await?;
-    let coverage = registry
-        .verify_hold(
-            &fixture.cluster.domain,
-            &hold,
-            &config.tails,
-            config.checkpoints.receive_archive(
-                destination,
-                config.scratch.clone(),
-                config.scratch_directory.clone(),
-            )?,
-        )
-        .await?;
-    Ok(coverage)
+    let mut verified = None;
+    // Maintenance may still own the sole replay slot after clearing debt.
+    // Verification is read-only: retry only admission Busy, without increasing
+    // the pool or treating any storage/integrity failure as eventual success.
+    controller::wait_for(async || {
+        let receiver = match config.checkpoints.receive_archive(
+            destination.clone(),
+            config.scratch.clone(),
+            config.scratch_directory.clone(),
+        ) {
+            Ok(receiver) => receiver,
+            Err(CellGroupCheckpointError::Busy) => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        match registry
+            .verify_hold(&fixture.cluster.domain, &hold, &config.tails, receiver)
+            .await
+        {
+            Ok(coverage) => {
+                verified = Some(coverage);
+                Ok(true)
+            }
+            Err(
+                CellGroupArchiveError::Busy
+                | CellGroupArchiveError::Checkpoint(CellGroupCheckpointError::Busy),
+            ) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    })
+    .await
+    .context("archive audit verification admission did not settle")?;
+    verified.context("verified settled archive")
 }
 
 async fn audit(

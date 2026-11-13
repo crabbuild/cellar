@@ -289,6 +289,30 @@ verify before it can advance the historical reclamation frontier. It cannot
 prove a newer command result. S3 output still checks the exact archived receipt
 and current birth; local compaction still requires its own admitted checkpoint.
 
+After selecting a verified publication, the owner durably journals its new head
+and previous-hold retirement debt before settling output proofs. Remote release
+of the previous hold runs as maintenance; it cannot delay an already covered
+response. Another allocation still requires that retirement, preserving the
+current-plus-retiring bound across cancellation, shutdown and retained restart.
+One node-wide proof batch can reuse an actually live admitted verification while
+publication waits on remote cleanup. The existing weak verification index retains
+no idle image; receipt identity, the journal hold and current birth still verify.
+Each batch holds at most 32 requests under their original S3 admission and
+deadlines, without allocating another physical verification. An uncovered output
+requires a newer cut; transient busy reads use the existing shared retry timer.
+Group retirement closes proof admission on the controller before joining async
+attempts and escaped physical work.
+The one temporary completed verification drops after cleanup before a new cut
+needs physical verification, preserving the original pool bounds.
+Shutdown also attempts the joined publication's unretained predecessor cleanup
+before closing the verifier. A live output keeps its hold journaled; a failed
+cleanup remains durable and visible in archive status for retained restart.
+At `d1f8535f`, the held-retirement regression passes in both native and real
+RustFS image forms. Ordinary bindings and interrupted recovery each pass 8/8
+backend/image/durability configurations under the original request budgets.
+Full primitive-family and combined lifecycle qualification remain open; see the
+[checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
+
 ## Remaining qualification and delivery
 
 The focused public regression exercises ordinary named calls, repeated calls,

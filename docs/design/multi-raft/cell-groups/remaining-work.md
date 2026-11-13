@@ -41,21 +41,17 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Fix the RustFS materialized S3 recovery deadline: `Again` at parent sequence 4
-   still returns ambiguous `DeadlineExceeded` after the original obligation clears.
-   Preserve the failed disks and original budgets. Then finish SQL operator/CLI
-   and Axum integration and the SQL-specific recovery matrix, followed by KV
-   revision conditions, expiry, durable alarms and payloads.
-   At `b233dfbb`, bounded stateless SQL identities pass all four native/RustFS image
-   configurations under a four-client ceiling, including identical concurrent
-   first access, retained restart, exact errors and quorum refusal. One durable
-   stream replaces per-call permanent client floors; ordinary outbound admission
-   transfers with admitted SQL business commands. No production quota or deadline
-   increases. See the [ownership checkpoint](progress.md#cg-17-bounded-stateless-sql-ownership).
-   Interrupted binding recovery passes 7/8 at this source. Keep all earlier
-   deadline/clean-stop failures and the separate ordinary S3-source deadline gate
-   open: its retained `2aca4c6b` cohort passed 5/8 and was not rerun here.
-   Complete primitive-family and combined release qualification remain required.
+1. Finish SQL operator/CLI and Axum integration and SQL-specific recovery, followed
+   by KV revision conditions, expiry, durable alarms and payloads. At `d1f8535f`,
+   public SQL passes **4/4**, ordinary bindings **8/8** and interrupted-binding
+   recovery **8/8** across native storage and real RustFS image configurations.
+   The previous S3 deadline cases now pass with original budgets and quotas.
+   A bounded node-wide proof batch reuses actual verified coverage during remote
+   cleanup; joined shutdown still retires unretained predecessors. Bounded SQL
+   identities, normal outbound admission and exact proof/fencing checks remain.
+   See the [current checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
+   Preserve all failed controls. These basic passes do not complete a primitive
+   family or its independent recovery and release matrix.
 2. Connect committed due-work discovery and fenced settlement to ordinary
    alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
    resume after retained restart, movement and wake without client traffic.

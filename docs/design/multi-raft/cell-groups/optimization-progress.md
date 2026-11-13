@@ -2932,3 +2932,38 @@ seconds (two skips) and Python 3.15 in 16.427 seconds (one skip). The existing
 exact-registry regression fails before this change and passes afterward. The
 prior eight-check campaigns did not include this separate CI step; these guard
 results do not qualify the skipped Python adapter/ABI runtime steps.
+
+## Combined native failure and archive-completion integration
+
+Checkpoint `2c8be2ff`, source `be0c5f1a`, passes all ten source checks,
+including strict core/logic all-target Clippy and the 317 performance guards
+on Python 3.14 and 3.15. Its physical archive-owner case passes both image
+profiles, and all 33 ordinary archive cases pass; eight RustFS cases remain
+ignored. The canonical checkout and Git archive have identical 3,281-file
+input manifests.
+
+The combined native campaign fails: 49 selected functions pass and
+`removed_member_advice_cannot_grant_authority` fails. The runner continues
+through every independent ordinary routing case. In the first SDK/materialized
+fixture, real voter replacement reaches Joint, but trust refresh to the new
+voter remains unreachable at the original deadline. Joined shutdown reports
+`unregistered group event`. This occurs before wire fault injection, and no
+completed removed-member evidence row is credited. Two exact unchanged-binary
+repetitions pass all six profiles in 56.138 and 56.174 seconds. They establish
+neither the original cause nor a repair; the failed campaign remains failed.
+Independent ledgers verify eleven completed fixed routing cases, with the
+removed-member case still pending.
+
+Hosted CI at the same head proceeds beyond the corrected performance guard,
+then fails the Python 3.14t bridge lifecycle case `--runtime-delivery` with
+`delivery held consumer admission deadline`. Its shutdown report records
+`host_failed=true`. The cause remains unestablished; this is separate from the
+native controller lifecycle failure and the earlier startup failures.
+
+The next integration includes base `a5f6183c` and its archive completion,
+covered-output proof and joined-retirement fixes. The two merge conflicts are
+test export lists: both the existing peer-idle probe and the base's deferred
+retirement regression are retained. The prior checkpoint results above do not
+qualify this new combined source. Fresh affected-boundary checks are pending;
+current-source RustFS/Linux, the open lifecycle failures and full CG/OPT
+acceptance remain open.

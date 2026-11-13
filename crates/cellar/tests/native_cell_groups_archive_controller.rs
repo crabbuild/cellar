@@ -77,6 +77,31 @@ async fn s3_replays_from_peer_archive_without_new_upload() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_response_precedes_previous_archive_hold_retirement() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_response_precedes_hold_retirement(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_response_precedes_previous_archive_hold_retirement() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_response_precedes_hold_retirement(
+            rooted,
+            rustfs::store("archive-deferred-retirement", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
 async fn rustfs_s3_replays_from_peer_archive_without_new_upload() -> Result<()> {
     for rooted in [false, true] {

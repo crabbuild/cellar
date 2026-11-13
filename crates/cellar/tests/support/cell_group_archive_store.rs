@@ -32,6 +32,7 @@ pub struct Store {
     held_put: Mutex<Option<(Path, Arc<Gate>)>>,
     held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
     publication: Mutex<Option<(u64, Arc<Gate>)>>,
+    retirement: Mutex<Option<(u64, Arc<Gate>)>>,
     pub publication_cuts: Mutex<Vec<u64>>,
     pub deny_generation_writes: AtomicBool,
     pub deny_chunk_reads: AtomicBool,
@@ -60,6 +61,7 @@ impl Store {
             held_put: Mutex::new(None),
             held_delete: Mutex::new(None),
             publication: Mutex::new(None),
+            retirement: Mutex::new(None),
             publication_cuts: Mutex::new(Vec::new()),
             deny_generation_writes: AtomicBool::new(false),
             deny_chunk_reads: AtomicBool::new(false),
@@ -80,6 +82,14 @@ impl Store {
     pub fn hold_publication_after(&self, index: u64) -> Arc<Gate> {
         let gate = Arc::new(Gate::default());
         *self.publication.lock().unwrap() = Some((index, gate.clone()));
+        gate
+    }
+
+    /// Stall only removal of an older hold after a newer selected cut exists.
+    /// Reservation/publication CASes and the selected root remain available.
+    pub fn hold_retirement_after(&self, index: u64) -> Arc<Gate> {
+        let gate = Arc::new(Gate::default());
+        *self.retirement.lock().unwrap() = Some((index, gate.clone()));
         gate
     }
 
@@ -170,6 +180,32 @@ impl ObjectStore for Store {
             None
         };
         if let Some(index) = publication {
+            let retirement = self
+                .retirement
+                .lock()
+                .unwrap()
+                .as_ref()
+                .filter(|(previous, _)| index > *previous)
+                .cloned();
+            if let Some((_, gate)) = retirement {
+                let bytes: Vec<u8> = payload
+                    .iter()
+                    .flat_map(|bytes| bytes.iter().copied())
+                    .collect();
+                let next: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                let before: serde_json::Value =
+                    serde_json::from_slice(&self.inner.get(path).await?.bytes().await?).unwrap();
+                if next["selected"] == before["selected"]
+                    && next["pending"] == before["pending"]
+                    && next["holds"].as_array().unwrap().len()
+                        < before["holds"].as_array().unwrap().len()
+                {
+                    self.retirement.lock().unwrap().take();
+                    gate.publication_index.store(index, Ordering::Release);
+                    gate.entered.notify_one();
+                    gate.release.notified().await;
+                }
+            }
             let gate = {
                 let mut pending = self.publication.lock().unwrap();
                 if pending
