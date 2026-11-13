@@ -466,9 +466,18 @@ pub(super) async fn drive(
         .map_err(CellGroupArchiveError::from)?;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "captured",
         index = source.marker().position().index.get());
-    let uploaded = upload
-        .upload_next_cut(execution, &registration.tails, record.head.as_ref(), source)
-        .await?;
+    let uploaded = if demand.outputs {
+        // A waiting S3 response needs this exact cut. Prefer a complete image
+        // over reading and replaying an older checkpoint's tail on its original
+        // request budget. Background publication may amortize image uploads.
+        upload
+            .upload_cut(execution, &registration.tails, source)
+            .await?
+    } else {
+        upload
+            .upload_next_cut(execution, &registration.tails, record.head.as_ref(), source)
+            .await?
+    };
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "uploaded");
     let publication = upload
         .prepare_publication(

@@ -220,7 +220,7 @@ fn capture_successor(
         return Err(CellGroupArchiveError::Invalid("successor committed source"));
     }
     let count = target.index.get() - base.position().index.get();
-    if count > limits.max_entries as u64 {
+    if count > limits.max_entries as u64 || count > u64::from(root.marker().root().cells().max(1)) {
         return Err(CellGroupArchiveError::Limit);
     }
     let mut entries = Vec::with_capacity(count as usize);
