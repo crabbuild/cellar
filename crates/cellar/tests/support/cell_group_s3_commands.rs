@@ -773,6 +773,34 @@ pub(crate) async fn s3_deadline(
     h.close().await
 }
 
+pub(crate) async fn archive_hot_cell_tail_bound(rooted: bool) -> Result<()> {
+    let h = Harness::new(rooted, Arc::new(object_store::memory::InMemory::new()), 1).await?;
+    let work = async {
+        for sequence in 1..=3 {
+            let response = h.command(sequence, b"hot", Durability::Quorum, Duration::from_secs(15))
+                .await?.response().await?;
+            let cut = response.local_receipt().context("hot cell receipt")?.position.index;
+            drop(response);
+            archive_controller::published(&h.controllers[0], h.route.history, cut).await?;
+            let coverage = archive_controller::verified_current(
+                &h.fixture, &h.archive, rooted, &format!("hot-cell-tail-{sequence}"),
+            ).await?;
+            let base = coverage.recovery().checkpoint().checkpoint().marker().position().index;
+            let span = cut.get() - base.get();
+            let cells = u64::from(coverage.marker().root().cells());
+            anyhow::ensure!(span <= cells.max(1),
+                "hot-cell archive replay exceeds one transition per cell: span={span} cells={cells}");
+            let (_, pin) = coverage.recovery().manifest().pin_cell(&h.cell.cell)
+                .context("recovered hot cell")?;
+            h.fixture.cluster.domain.blocking(move || dependencies::image_value(pin, sequence))?.await??;
+        }
+        anyhow::ensure!(h.calls.load(Ordering::SeqCst) == 3, "archive replay re-entered callbacks");
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    h.close().await?;
+    work
+}
+
 pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
     let h = Harness::new(rooted, store, 1).await?;
     let sibling_index = dependencies::mutate_sibling(&h).await?;
