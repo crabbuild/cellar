@@ -179,7 +179,7 @@ pub(crate) async fn remote_execution_deadlines() -> Result<()> {
             let response = command.execute_remote(source, leader);
             tokio::pin!(response);
             loop {
-                tokio::select! {
+                cellar::asyncrt::select! {
                     result = &mut response => break result?,
                     _ = tokio::time::sleep(Duration::from_millis(50)) => {
                         for runtime in &fixture.runtimes { runtime.tick().await?; }
