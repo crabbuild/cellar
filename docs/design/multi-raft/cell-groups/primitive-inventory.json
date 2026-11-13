@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "edb08c68b1e60ac5119f3a48d8c3baf3b9abc3c30b503b3ba0d1cf23416665e9"
+    "crates/cellar/application/mod.rs": "e58049eb1ee069cb7e0a61ac2b14d5c72f4d164cb3a625c837cb18b14cfe8b4d"
   },
   "entries": [
     {
@@ -127,7 +127,15 @@
       ],
       "owners": [
         "crates/cellar/application/kv/mod.rs",
-        "crates/cellar/application/kv/blob_backend.rs"
+        "crates/cellar/application/kv/blob_backend.rs",
+        "crates/cellar/application/kv/raft_blob.rs",
+        "crates/cellar/application/kv/raft_wire.rs",
+        "crates/cellar/application/kv/inspection.rs",
+        "crates/cellar/application/consensus/native_services.rs",
+        "crates/cellar/durability/raft/cell_groups/payload.rs",
+        "crates/cellar/node/kv_operator.rs",
+        "crates/cellar/cli/kv_cli.rs",
+        "crates/cellar/application/kv/raft_value.rs"
       ],
       "schemas": [
         "KV revisions, expiries and external value references"
@@ -143,9 +151,9 @@
         "native",
         "axum"
       ],
-      "permission": "Independent namespace and operation grant",
-      "proof": "Target commit and recoverable payload bytes",
-      "ordering": "Conditional revisions, TTL and list cursors",
+      "permission": "Exact declared namespace, current invocation and original deadline; private operator authority remains separate",
+      "proof": "Target quorum commit after verified immutable external-value publication; large wire arguments/replies use confirmed namespace-bound objects",
+      "ordering": "Incarnation-qualified conditional revisions, receiver-clock TTLs, list cursors and durable expiry work",
       "recovery": "Restore bytes and retain selected object dependencies",
       "case": "primitives_sql_sessions_kv_ttl_and_revision_conditions",
       "refusals": {}

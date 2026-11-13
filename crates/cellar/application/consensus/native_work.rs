@@ -57,6 +57,27 @@ pub(crate) fn arm(db: &Connection, reason: &str, due: i64) -> Result<()> {
     Ok(())
 }
 
+/// Queue deadlines are discovery hints over the current broker image. Keep an
+/// earlier pending wake valid across producer commits. A claimed installation
+/// must always get a replacement, even at the same/later deadline, so its old
+/// completion cannot remove a newly installed retry or delayed delivery.
+pub(crate) fn arm_queue(db: &Connection, due: i64) -> Result<()> {
+    ensure!(due >= 0, CommandFailure::UnsupportedCapability);
+    if exists(db)? {
+        let pending: Option<(i64, u32)> = db
+            .query_row(
+                "SELECT due,attempts FROM __sys_raft_native_work WHERE reason='queue'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if pending.is_some_and(|(installed, attempts)| attempts == 0 && installed <= due) {
+            return Ok(());
+        }
+    }
+    arm(db, "queue", due)
+}
+
 pub(crate) fn get(db: &Connection, reason: &str) -> Result<Option<i64>> {
     validate(reason)?;
     if !exists(db)? {

@@ -69,6 +69,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         stale_source_timeout_ms: f.stale_source_timeout_ms,
         small_segments: f.small_segments,
         settle_periodic_purges: false,
+        payloads: f.payloads,
         image_bytes: f.image_bytes,
         logical_byte_capacity: f.logical_byte_capacity,
         placement_domains: f.placement_domains.clone(),

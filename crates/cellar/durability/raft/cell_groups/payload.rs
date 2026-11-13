@@ -13,7 +13,10 @@ use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 
 const FORMAT: u8 = 1;
-const MAX_BYTES: usize = cellar_logic::kv::MAX_VALUE_BYTES;
+
+// Native structured values are bounded at 64 MiB. KV's input/reply envelope
+// adds framing while its individual public values retain their 25-MiB bound.
+pub(crate) const MAX_BYTES: usize = 64 * 1024 * 1024 + 4096;
 const MAX_CHUNKS: usize = 16_384;
 
 #[derive(Debug)]
@@ -151,13 +154,13 @@ impl Default for CellGroupPayloadLimits {
         Self {
             max_operations: 2,
             max_retained_bytes: 104 * 1024 * 1024,
-            max_payload_bytes: MAX_BYTES,
+            max_payload_bytes: cellar_logic::kv::MAX_VALUE_BYTES,
             io_timeout: Duration::from_secs(10),
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct CellGroupPayloadUsage {
     pub operations: usize,
     pub retained_bytes: usize,
@@ -172,6 +175,10 @@ pub struct CellGroupPayloadPool {
 }
 
 impl CellGroupPayloadPool {
+    pub(crate) fn limits(&self) -> CellGroupPayloadLimits {
+        self.limits
+    }
+
     pub fn new(limits: CellGroupPayloadLimits) -> Result<Self> {
         if !(1..=4096).contains(&limits.max_operations)
             || !(1..=MAX_BYTES).contains(&limits.max_payload_bytes)
@@ -233,6 +240,17 @@ pub struct CellGroupPayloadStore {
 }
 
 impl CellGroupPayloadStore {
+    pub(crate) fn prepare_reference(
+        &self,
+        history: &CellHistory,
+        digest: [u8; 32],
+        length: u64,
+    ) -> Result<CellGroupPayloadReference> {
+        let reference = CellGroupPayloadReference::prepare(history, digest, length);
+        self.check(history, &reference)?;
+        Ok(reference)
+    }
+
     fn deadline(&self, timeout: Duration) -> Result<u64> {
         let duration = timeout.min(self.pool.limits.io_timeout);
         let millis = u64::try_from(duration.as_millis())
@@ -322,6 +340,29 @@ impl CellGroupPayloadStore {
         bytes: bytes::Bytes,
         timeout: Duration,
     ) -> Result<PublishedCellGroupPayload> {
+        self.publish_inner(history, None, bytes, timeout).await
+    }
+
+    /// Runtime KV stores the prepared locator in its row only after this exact
+    /// publication. A stale writer or different payload refuses before I/O.
+    pub(crate) async fn publish_prepared(
+        &self,
+        history: &CellHistory,
+        reference: CellGroupPayloadReference,
+        bytes: bytes::Bytes,
+        timeout: Duration,
+    ) -> Result<PublishedCellGroupPayload> {
+        self.publish_inner(history, Some(reference), bytes, timeout)
+            .await
+    }
+
+    async fn publish_inner(
+        &self,
+        history: &CellHistory,
+        reference: Option<CellGroupPayloadReference>,
+        bytes: bytes::Bytes,
+        timeout: Duration,
+    ) -> Result<PublishedCellGroupPayload> {
         let deadline = self.deadline(timeout)?;
         if bytes.is_empty() || bytes.len() > self.pool.limits.max_payload_bytes {
             return Err(CellGroupPayloadError::Invalid("payload length"));
@@ -336,11 +377,21 @@ impl CellGroupPayloadStore {
             .budget
             .acquire(CellGroupPayloadPool::workspace(bytes.len())?)
             .ok_or(CellGroupPayloadError::Overloaded)?;
-        let reference = CellGroupPayloadReference::prepare(
-            history,
-            Sha256::digest(&bytes).into(),
-            bytes.len() as u64,
-        );
+        let reference = match reference {
+            Some(reference) => {
+                self.check(history, &reference)?;
+                if reference.writer != history.incarnation.bytes() {
+                    return Err(CellGroupPayloadError::Invalid("retired payload writer"));
+                }
+                reference.verify(&bytes)?;
+                reference
+            }
+            None => CellGroupPayloadReference::prepare(
+                history,
+                Sha256::digest(&bytes).into(),
+                bytes.len() as u64,
+            ),
+        };
         self.check(history, &reference)?;
         Self::check_deadline(deadline)?;
         crate::asyncrt::timeout_at(deadline, async {
@@ -372,19 +423,42 @@ impl CellGroupPayloadStore {
         reference: &CellGroupPayloadReference,
         timeout: Duration,
     ) -> Result<CellGroupPayloadBytes> {
+        self.get_with_retained_copies(history, reference, timeout, 1)
+            .await
+    }
+
+    /// A decoder retains its bounded body/graph workspace until the SDK or
+    /// command owner finishes consuming it, rather than refunding on GET EOF.
+    pub(crate) async fn get_with_retained_copies(
+        &self,
+        history: &CellHistory,
+        reference: &CellGroupPayloadReference,
+        timeout: Duration,
+        copies: usize,
+    ) -> Result<CellGroupPayloadBytes> {
         let deadline = self.deadline(timeout)?;
         self.check(history, reference)?;
+        if !(1..=16).contains(&copies) {
+            return Err(CellGroupPayloadError::Invalid("retained workspace"));
+        }
+        let retained_bytes = (reference.length as usize)
+            .checked_mul(copies)
+            .ok_or(CellGroupPayloadError::Overloaded)?;
+        let workspace = retained_bytes
+            .checked_add(64 * 1024)
+            .ok_or(CellGroupPayloadError::Overloaded)?
+            .max(CellGroupPayloadPool::workspace(reference.length as usize)?);
         let permit = self
             .pool
             .budget
-            .acquire(CellGroupPayloadPool::workspace(reference.length as usize)?)
+            .acquire(workspace)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         let bytes = crate::asyncrt::timeout_at(deadline, self.read(reference, deadline))
             .await
             .map_err(|_| CellGroupPayloadError::DeadlineExceeded)??
             .ok_or(CellGroupPayloadError::Missing)?;
         let retained = permit
-            .retain_bytes(bytes.len())
+            .retain_bytes(retained_bytes)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         Ok(CellGroupPayloadBytes {
             bytes,

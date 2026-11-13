@@ -4,6 +4,19 @@
 use super::*;
 
 impl NamespaceCell {
+    pub(super) fn revision(&self, revision: i64) -> Result<String> {
+        if !self.storage.is_raft() {
+            return Ok(revision.to_string());
+        }
+        let history = crate::storage::capture_raft_dispatch()?
+            .ok_or(super::super::consensus::CommandFailure::UnsupportedCapability)?
+            .source_history()?;
+        Ok(format!(
+            "cg1:{}:{revision}",
+            hex::encode(history.incarnation.bytes())
+        ))
+    }
+
     pub(super) fn observed_revision(
         &self,
         key: &str,
@@ -18,7 +31,7 @@ impl NamespaceCell {
             .next();
         match row {
             Some(row) => Ok((
-                Some(integer(&row, "revision")?.to_string()),
+                Some(self.revision(integer(&row, "revision")?)?),
                 optional_integer(&row, "expires_at")?,
             )),
             None => Ok((None, None)),

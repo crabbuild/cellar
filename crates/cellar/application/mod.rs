@@ -476,6 +476,7 @@ impl Application for Registry {
         {
             if shared {
                 if (class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty())
+                    || (class == crate::deploy::KV_CLASS && !options.kv_bindings.is_empty())
                     || (class == crate::deploy::QUEUE_CLASS
                         && (!options.queue_bindings.is_empty()
                             || !options.queue_consumers.is_empty()))
@@ -519,6 +520,12 @@ impl Application for Registry {
                 classes.insert(
                     crate::deploy::SQL_CLASS.into(),
                     Arc::new(consensus::sql_service()?),
+                );
+            }
+            if !options.kv_bindings.is_empty() {
+                classes.insert(
+                    crate::deploy::KV_CLASS.into(),
+                    Arc::new(consensus::kv_service()?),
                 );
             }
             if !options.queue_bindings.is_empty() || !options.queue_consumers.is_empty() {
@@ -652,6 +659,7 @@ pub(crate) struct EventState {
     /// Global SQL identities can resolve to another co-hosted script.
     pub(crate) raft_sql: bool,
     pub(crate) raft_queue: bool,
+    pub(crate) raft_kv: bool,
     pub background: Mutex<Vec<HandlerFuture<()>>>,
     pub(crate) blocks: concurrency::Blocks,
     // Keep framework cleanup behind the requesting event and its reply proof.

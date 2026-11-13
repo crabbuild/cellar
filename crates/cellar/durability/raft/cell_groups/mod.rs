@@ -75,6 +75,7 @@ pub use host::{
 
 mod effect_index;
 mod payload;
+pub(crate) use payload::MAX_BYTES as MAX_CELL_GROUP_PAYLOAD_BYTES;
 pub use payload::{
     CellGroupPayloadBytes, CellGroupPayloadError, CellGroupPayloadLimits, CellGroupPayloadPool,
     CellGroupPayloadReference, CellGroupPayloadStore, CellGroupPayloadUsage,

@@ -140,24 +140,25 @@ pub async fn run(arguments: Vec<String>) -> anyhow::Result<()> {
     };
     let scope = crate::engine_api::kv_cell_scope(&command.namespace, shard);
     let storage = command.fleet.clone().resolve("cellar kv")?;
-    let namespace = Reachable::open(
-        Fleet {
-            bucket: &storage.bucket,
-            endpoint: storage.endpoint.as_deref(),
-            region: &storage.region,
-            unsafe_public_advertise: command.unsafe_public_advertise,
-        },
-        Subject {
-            noun: "namespace",
-            source: "kv",
-            // A bulk seed is not a diagnostic ping, and a namespace read is not
-            // a migration: between the two.
-            timeout: Duration::from_secs(60),
-        },
-        scope,
-        None,
-    )
-    .await?;
+    let fleet = Fleet {
+        bucket: &storage.bucket,
+        endpoint: storage.endpoint.as_deref(),
+        region: &storage.region,
+        unsafe_public_advertise: command.unsafe_public_advertise,
+    };
+    let subject = Subject {
+        noun: "namespace",
+        source: "kv",
+        // A bulk seed is not a diagnostic ping, and a namespace read is not
+        // a migration: between the two.
+        timeout: Duration::from_secs(60),
+    };
+    let name = cellar_logic::kv::cell_name(&command.namespace, shard);
+    let namespace = if command.entrances.is_empty() {
+        Reachable::open(fleet, subject, scope, None).await?
+    } else {
+        Reachable::open_at(fleet, subject, scope, Some(&name), command.entrances).await?
+    };
 
     match command.action {
         Action::Get { key } => {
@@ -622,6 +623,7 @@ struct Command {
     fleet: crate::cli_options::FleetFlags,
     json: bool,
     unsafe_public_advertise: bool,
+    entrances: Vec<(String, String)>,
 }
 
 impl Command {
@@ -665,6 +667,7 @@ impl Command {
         let mut bounds = Bounds::default();
         let mut json = false;
         let mut unsafe_public_advertise = false;
+        let mut entrances = Vec::new();
         while let Some(argument) = arguments.next() {
             let mut value = |flag: &str| {
                 arguments
@@ -689,6 +692,7 @@ impl Command {
                 "--prefix" => prefix = value("--prefix")?,
                 "--json" => json = true,
                 "--unsafe-public-advertise" => unsafe_public_advertise = true,
+                "--entrance" => entrances.push(value("--entrance")?),
                 // cellar has neither concept, and a flag that silently means
                 // nothing is the gap the compatibility page forbids.
                 // `--local` and `--remote` select between miniflare's on-disk
@@ -794,6 +798,25 @@ impl Command {
             _ => unreachable!("the verb was matched above"),
         };
         bounds.validate()?;
+        anyhow::ensure!(entrances.len() <= 32, "too many KV entrances");
+        let mut nodes = std::collections::BTreeSet::new();
+        let entrances = entrances
+            .into_iter()
+            .map(|value| -> anyhow::Result<_> {
+                let (node, address) = value
+                    .split_once('=')
+                    .context("--entrance requires NODE=HOST:PORT")?;
+                crate::machine::validate_node_name(node)?;
+                anyhow::ensure!(nodes.insert(node.to_string()), "duplicate KV entrance node");
+                let address = address.trim();
+                let advertise = crate::startup::parse_advertise(address)?;
+                anyhow::ensure!(
+                    !advertise.is_public_ip() || unsafe_public_advertise,
+                    "public KV entrance requires --unsafe-public-advertise"
+                );
+                Ok((node.into(), address.into()))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(Some(Self {
             action,
             namespace,
@@ -803,6 +826,7 @@ impl Command {
             fleet: fleet.with_environment(),
             json,
             unsafe_public_advertise,
+            entrances,
         }))
     }
 }
@@ -838,6 +862,7 @@ LISTING OPTIONS (list)
 FLEET OPTIONS
 {FLEET_HELP}
   --unsafe-public-advertise
+  --entrance NODE=HOST:PORT  Explicit managed entrance; repeat for alternatives
                       Trust a node advertising a public address
 
 BULK

@@ -2,7 +2,7 @@
 
 # Immutable cell payload storage
 
-Purpose: Define external payload publication and retention before connecting ordinary KV bindings.
+Purpose: Define immutable payload publication, ordinary KV transport and recovery boundaries.
 
 `NamespaceCatalog::cell_payloads` binds a `CellGroupPayloadStore` to the actual
 Raft namespace backend and prefix. Nodes share one `CellGroupPayloadPool` across
@@ -31,10 +31,44 @@ its operation slot while keeping its byte charge until dropped. Cancellation and
 errors release their reservations without detached tasks. The default maximum
 value is the ordinary KV ceiling of 25 MiB. This does not increase an RPC envelope,
 private-image budget or result quota; deployment admission must intersect them.
-The durable outgoing binding intent currently retains its encoded input. Moving
-the destination's value out of SQLite does not by itself remove those input
-bytes from the source checkpoint. Full-size ordinary KV requests must qualify
-that transitive budget or acquire a verified external-input protocol as well.
+Ordinary KV bindings use a separate immutable wire protocol for arguments or
+replies larger than the actual Raft execution limits. The native request/reply
+purpose and canonical named-cell identity are verified after decoding. Source
+binding intents and receipts retain compact descriptors. A public wrapper cannot
+tunnel the private operator contract. The caller's one original deadline covers
+preparation, publication, the actual child call and reply expansion; no phase
+receives a fresh budget.
+
+A prepared descriptor is a pending upload intent, not a confirmed dependency.
+Preparation is a small quorum operation and performs no object I/O. Publication
+checks the prepared writer, logical owner, digest and length and confirms the
+exact bytes before marking the descriptor published. Target execution verifies
+the uploaded input and commits an external-value row only after publication.
+Oversized non-value envelopes receive the same immutable treatment. Ordinary
+values above the existing 1-MiB storage threshold use direct value references:
+the SDK publishes bytes before the small child call, and that quorum command
+independently verifies actual complete bytes before installing the row. A read
+commits the exact row reference; the SDK verifies its body before exposing a
+value. The private operator/CLI uses the same path. Value bytes are not repeatedly
+read, encoded and re-published inside a long child RPC. Aggregate value admission
+runs before fetching bodies, preserving the native result ceiling.
+
+Small ordinary Quorum calls remain independent of asynchronous archive PUTs;
+large transfers additionally require the payload provider. Caller-supplied
+publication flags and well-formed locators alone never authorize a row.
+
+Managed KV registration requires an explicit node-wide pool admitting the full
+64-MiB native wire ceiling plus framing, decoder workspace and a concurrent
+publication. The default standalone payload limits remain 25 MiB. Returned
+body leases keep decoder workspace charged through operation/reply consumption.
+This is lazy capacity, not memory allocated for every idle cell. Node usage and
+Prometheus output include active payload operations and retained/capacity bytes.
+
+KV conditional revision tokens include the current cell incarnation and the
+monotonic SQLite counter. A restored counter in a new incarnation cannot match
+a pre-disaster token. Retained restart and group movement preserve tokens.
+Raft TTL evaluation uses the receiving service's clock, including relative TTLs;
+ordinary alarm work reclaims expired rows without another caller request.
 
 The API has no list or delete operation. A list of current KV rows cannot protect
 old images, retained archive cuts, readers, pending uploads or interrupted turns.
@@ -49,10 +83,22 @@ incarnation references, corruption and ranged-response refusal, original body
 deadlines, cancellation and shared admission. These are payload protocol gates,
 not RF3 or ordinary binding qualification.
 
-Remaining integration: install one node-owned pool with explicit admission;
-connect the runtime KV service's prepare/put/get to the current Raft invocation,
-its original deadline and namespace; commit a row only after confirmed external
-publication; deliver revision/TTL/list/bulk/stream and durable expiry adapters;
-verify actual payload bytes after retained restart, movement, wake and fenced
-disaster recovery; then implement and qualify root-aware reclamation. Fleet's
+The ordinary SDK, stateless native/Axum ingress, private authenticated operator
+and CLI adapters are implemented. Their owning tests reuse the Fleet KV API
+contract and add full-size wire transport, conditional edits, autonomous expiry,
+retained restart, archive outage and quorum refusal. Implementation and passing
+qualification are distinct: consult the source-pinned progress record for actual
+results. A compiled adapter does not establish a complete primitive family.
+
+Remaining work includes interrupted large calls, movement and wake, and the
+complete payload dependency closure before fenced disaster-recovery admission.
+Recovery must verify actual external-value and wire bytes, including descriptors
+retained by source intents and receipts. It must distinguish prepared/pending
+uploads from confirmed dependencies. Then implement and qualify root-aware
+reclamation across every retained image, reader and recovery cut. Fleet's
 epoch-based blob collector must never collect these immutable payload keys.
+
+Format markers remain 1. The value-reference service changes its compiled KV
+schema identity, and the integrated callback kernel changes its private work
+contract. Internal development therefore requires fresh compatible namespaces
+and matching voters. Existing Fleet data is not reinterpreted as Raft data.

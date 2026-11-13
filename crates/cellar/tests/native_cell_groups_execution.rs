@@ -1345,6 +1345,11 @@ async fn shared_remote_queries_bind_cell_versions_and_gateway_owners() -> Result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_execution_uses_request_deadline_and_bounded_socket_io() -> Result<()> {
+    Box::pin(runtime_fixture::remote_execution_deadlines()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn shared_remote_queries_retain_cancelled_sql_until_join() -> Result<()> {
     Box::pin(runtime_fixture::remote_query_lifecycle(false)).await
 }

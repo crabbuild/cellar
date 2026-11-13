@@ -29,6 +29,9 @@ pub(crate) fn rpc(
             }) || context.queue_bindings.values().any(|queue| {
                 crate::engine_api::queue_cell_scope(queue.name()) == scope
                     && name.as_deref() == Some(queue.name())
+            }) || context.kv_bindings.values().any(|identity| {
+                crate::engine_api::kv_cell_scope(identity, 0) == scope
+                    && name.as_deref() == Some(cellar_logic::kv::cell_name(identity, 0).as_str())
             }),
             CommandFailure::UnsupportedCapability
         );

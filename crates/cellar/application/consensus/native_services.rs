@@ -6,6 +6,45 @@ use super::{AdmittedCellConfiguration, NativeCellConfiguration, RaftClass, Regis
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+pub(in crate::application) fn kv_service() -> Result<RaftClass, RegistrationError> {
+    let mut class = RaftClass::kv_service()?
+        .initializer(
+            Sha256::digest(b"cellar-raft-kv-initializer-1").into(),
+            |_, _| Ok(()),
+        )?
+        .durable_callbacks()?;
+    for method in [
+        "__kvGet",
+        "__kvPut",
+        "__kvDelete",
+        "__kvList",
+        "__kvMetrics",
+        "__kvSweep",
+        crate::application::kv::OPERATOR,
+        crate::application::kv::raft_wire::PREPARE,
+        crate::application::kv::raft_wire::EXTERNAL,
+    ] {
+        let mut hash = Sha256::new();
+        hash.update(b"cellar-raft-kv-operation-1");
+        hash.update(method);
+        class = class.cell_rpc(method, hash.finalize().into())?;
+    }
+    class = class.query(
+        super::sql_ingress_identity::OPERATION,
+        Sha256::digest(b"cellar-kv-ingress-sequence-1").into(),
+        |query, input| query.sql_ingress_sequence(input),
+    )?;
+    class = class.with_cell_factory(Arc::new(|context, _| {
+        crate::application::kv::create_cell(&context)
+    }))?;
+    let options = NativeCellConfiguration {
+        do_classes: vec![crate::deploy::KV_CLASS.into()],
+        ..Default::default()
+    }
+    .options("cellar-kv-service");
+    Ok(class.configured_cell(&AdmittedCellConfiguration::from_options(&options)?))
+}
+
 pub(in crate::application) fn sql_service() -> Result<RaftClass, RegistrationError> {
     // Enrollment commits an empty business database. Framework storage and
     // receipt tables belong to the command owner; SQL creates user tables on

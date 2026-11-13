@@ -152,6 +152,7 @@ impl CellPrivateExecutor {
                 .bind_dispatch(crate::application::storage::RaftDispatchContext {
                     domain,
                     deadline,
+                    result_limit: self.options.limits.max_result_bytes,
                     fence: self.authority.activation_fence(),
                     binding_source: bindings.and_then(|host| {
                         class.cell_configuration_digest().map(|configuration| {

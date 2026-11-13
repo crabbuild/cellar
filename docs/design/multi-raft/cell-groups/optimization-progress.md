@@ -3232,3 +3232,22 @@ including strict core/logic all-target Clippy, the 24 reviewed source anchors,
 Optional skips remain recorded and source guards are unchanged. This source
 qualification preserves the separate one-callback failure and grants no new
 combined runtime, backend or release acceptance.
+
+## KV and callback-retention base integration
+
+The next integration pins fetched base `da66d967`, including the Queue
+callback-retention/wake changes, ordinary shared-group KV and the RPC execution
+deadline correction. `origin/main` remains `d0c2873f` and is already an ancestor
+of the optimization branch. The five merge conflicts are resolved by retaining
+both sets of fixture controls: payload settings beside source-expiry and
+small-segment/purge policies, archive/range faults beside payload counters, and
+all routing/named/SQL/Queue/KV runner provenance. Existing deadlines, byte
+ceilings and ownership assertions are preserved.
+
+Formatting and the merged runner tests pass. This is an integration preflight;
+strict combined-source and runtime verification remain pending. The incoming
+base's own KV/RustFS and ordinary S3-binding failures remain recorded in its
+handoff. Its two-callback profile does not repair the earlier one-callback Queue
+failure. The automatic name-discovery correction is being verified separately
+against that original profile before combined-source qualification. Neither
+integration nor a passing diagnostic grants CG/OPT acceptance.

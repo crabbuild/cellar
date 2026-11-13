@@ -181,6 +181,21 @@ SUITES = {
         "Objects are retained without deletion. Root-aware reclamation, fenced KV row "
         "publication and combined lifecycle/disaster recovery remain separate gates.",
     ),
+    "ordinary-kv-bindings": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_kv_bindings_use_managed_shared_groups",
+         "rustfs_axum_kv_bindings_use_managed_shared_groups"),
+        "ordinary KV SDK and authenticated operator/CLI on shared RF3 with real RustFS",
+        "Both image modes, separate source/KV groups, one SQL worker per node, "
+        "16-KiB command inputs and unchanged result limits. Native and Axum ingress, "
+        "the shared Fleet/Quorum API contract (five separately admitted source phases "
+        "with 20-second parents), 1-MiB and 25-MiB values, immutable "
+        "wire transport, conditional revisions, autonomous expiration, retained restart, "
+        "receipt replay, archive-write outage and quorum refusal are checked. "
+        "Large values require the payload provider. Voters share one host process; "
+        "interrupted large calls, external-object recovery closure, root-aware reclamation, "
+        "independent voter limits, load and disk-loss recovery remain separate gates.",
+    ),
     "ordinary-sql-bindings": (
         "native_cell_groups_primitives",
         (
@@ -201,10 +216,10 @@ SUITES = {
     "queue-primitives": (
         "native_cell_groups_primitives",
         (
+            "rustfs_queue_load_preserves_acknowledged_messages",
             "rustfs_queue_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_axum_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_long_callbacks_preserve_progress",
-            "rustfs_queue_load_preserves_acknowledged_messages",
             "rustfs_ordinary_queue_callbacks_use_shared_quorum",
             "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum",
         ),
@@ -937,9 +952,10 @@ def main():
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
     if args.keep_going and args.suite not in (
-        "ordinary-primitives", "named-bindings", "ordinary-sql-bindings", "queue-primitives"
+        "ordinary-primitives", "named-bindings", "ordinary-sql-bindings",
+        "ordinary-kv-bindings", "queue-primitives"
     ):
-        parser.error("--keep-going requires a process-isolated ordinary primitive, SQL or Queue suite")
+        parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -1002,7 +1018,7 @@ def main():
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_BUILD_JOBS", "CARGO_TERM_COLOR",
             )
         }
-        if args.suite in ("ordinary-sql-bindings", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "immutable-payloads", "queue-primitives"):
             record["test_profile"] = {key: env[key] for key in (
                 "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
@@ -1014,7 +1030,8 @@ def main():
                            or selection in (ARCHIVE_FAIRNESS_CASE, ARCHIVE_OWNER_CASE)
                            or selection in NAMED_BINDING_CASES):
                 argv.append("--show-output")
-            if selection == "rustfs_queue_load_preserves_acknowledged_messages":
+            if (selection == "rustfs_queue_load_preserves_acknowledged_messages"
+                    or (args.suite == "ordinary-kv-bindings" and number != 0)):
                 argv.append("--nocapture")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
@@ -1048,7 +1065,7 @@ def main():
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
             if args.suite in (
                 "managed-ingress", "managed-lifecycle", "ordinary-sql-bindings",
-                "queue-primitives", *ROUTING_SUITES
+                "ordinary-kv-bindings", "queue-primitives", *ROUTING_SUITES
             ) and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
@@ -1065,6 +1082,8 @@ def main():
                     env["CELLAR_CELL_GROUPS_SQL_CLI"] = str(operator_cli)
                 if args.suite == "queue-primitives":
                     env["CELLAR_CELL_GROUPS_QUEUE_CLI"] = str(operator_cli)
+                if args.suite == "ordinary-kv-bindings":
+                    env["CELLAR_CELL_GROUPS_KV_CLI"] = str(operator_cli)
             if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry"):
                 current_operator = executable.parent.parent / "cellar-perf-cell-group" if match else None
                 if current_operator is None or not current_operator.is_file():

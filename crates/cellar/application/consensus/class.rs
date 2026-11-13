@@ -430,6 +430,14 @@ impl RaftClass {
         )
     }
 
+    pub(super) fn kv_service() -> Result<Self, RegistrationError> {
+        Self::definition(
+            crate::deploy::KV_CLASS.into(),
+            1,
+            Sha256::digest(b"cellar-raft-kv-value-reference-callback-service-1").into(),
+        )
+    }
+
     fn definition(
         name: String,
         schema_version: u32,
@@ -805,6 +813,8 @@ impl RaftClass {
             && operation == crate::application::sql::operator::METHOD)
             || (self.name == crate::deploy::QUEUE_CLASS
                 && operation == crate::application::queue::OPERATOR)
+            || (self.name == crate::deploy::KV_CLASS
+                && operation == crate::application::kv::OPERATOR)
         {
             return None;
         }
@@ -827,6 +837,12 @@ impl RaftClass {
     pub(crate) fn queue_operator_contract(&self) -> Option<OperationContract> {
         (self.name == crate::deploy::QUEUE_CLASS)
             .then(|| self.contract(crate::application::queue::OPERATOR))
+            .flatten()
+    }
+
+    pub(crate) fn kv_operator_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::KV_CLASS)
+            .then(|| self.contract(crate::application::kv::OPERATOR))
             .flatten()
     }
 
@@ -1108,7 +1124,7 @@ impl RaftClass {
         let ingress = id.client == super::sql_ingress_identity::client();
         if (matches!(
             self.name.as_str(),
-            crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS
+            crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS | crate::deploy::KV_CLASS
         ) && ingress)
             || (self.is_cell_rpc(&contract.operation)
                 && super::native_rpc::has_ingress_nonce(input))
@@ -1117,7 +1133,9 @@ impl RaftClass {
                 ingress
                     && matches!(
                         self.name.as_str(),
-                        crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS
+                        crate::deploy::SQL_CLASS
+                            | crate::deploy::QUEUE_CLASS
+                            | crate::deploy::KV_CLASS
                     )
                     && self.is_cell_rpc(&contract.operation)
                     && super::native_rpc::has_ingress_nonce(input),

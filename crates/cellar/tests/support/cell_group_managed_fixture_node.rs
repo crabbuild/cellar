@@ -50,6 +50,7 @@ pub struct Fixture {
     pub stale_source_timeout_ms: Option<u64>,
     pub small_segments: bool,
     pub settle_periodic_purges: bool,
+    pub payloads: Option<CellGroupPayloadLimits>,
     pub image_bytes: u64,
     /// Logical admission only; physical attestations and engine/image limits stay unchanged.
     pub logical_byte_capacity: Option<u64>,
@@ -229,6 +230,7 @@ impl Fixture {
             stale_source_timeout_ms: None,
             small_segments: false,
             settle_periodic_purges: false,
+            payloads: None,
             image_bytes: 256 * 1024 * 1024,
             logical_byte_capacity: None,
             placement_domains: None,
@@ -378,6 +380,7 @@ impl Fixture {
             log.purge_interval_ms = Some(500);
         }
         let mut shared = limits();
+        shared.payloads = self.payloads;
         shared.controller.max_groups = groups;
         if let Some((items, bytes)) = self.ordinary_admission {
             shared.controller.max_commands = items;
@@ -455,6 +458,7 @@ pub fn request(id: u8, revision: u64) -> FleetRequestIdentity {
 
 pub fn limits() -> CellGroupNodeLimits {
     CellGroupNodeLimits {
+        payloads: None,
         namespaces: CellGroupHostLimits {
             max_namespaces: 1,
             namespace_bytes: 16 * 1024 * 1024,

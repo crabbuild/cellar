@@ -71,6 +71,8 @@ pub struct TransportOptions {
     pub node_control_bytes: usize,
     pub node_data_bytes: usize,
     pub queue_items: usize,
+    /// Socket connection, framing and idle-read bound. Application execution
+    /// and waiting for its first response byte use the invocation deadline.
     pub io_timeout_ms: u64,
     /// Whole-transfer deadline, independent of the per-I/O idle deadline.
     pub snapshot_timeout_ms: u64,

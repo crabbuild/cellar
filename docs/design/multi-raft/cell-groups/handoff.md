@@ -4,26 +4,64 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current Queue MVP checkpoint
+## Current KV and binding checkpoint
 
-At `efd9c4c9`, the shared durable callback kernel and ordinary Queue adapter pass
-native/Axum real-RustFS qualification in both image modes (**4/4**), including
-the captured CLI. The source includes the immutable payload implementation below.
-The existing Fleet Queue conformance regression and focused strict Clippy pass.
-See [results](progress.md#cg-17-durable-callbacks-and-queue-mvp) and
-[callback/Queue contract](queue-durable-work.md). Full CG-17 acceptance stays open.
+KV configuration/grants, SDK and native/Axum ingress, authenticated operator/CLI,
+revision conditions, expiry and immutable full-size value transport are implemented.
+At `b99f12c4`, native KV passes **2/2** images and interrupted binding recovery
+passes **4/4** Quorum/S3-source configurations. RPC execution now honors the
+original caller deadline independently of bounded socket I/O. Its owning
+regression passes; `64836845` changes only the test scheduler macro and passes
+that regression again with strict Clippy.
 
-The kernel persists independent reason/generation/attempt deadlines and commits
-claims before callbacks. Retained startup resumes pending Queue work without a
-producer request. Use this owner for future expiry/cron/Stream/Workflow adapters;
-do not add per-cell timer tasks or expose broker Storage to stateless consumers.
-One bounded callback admission slot preserves ordinary child-call capacity.
-Callback operation budgets default to five seconds and are configurable to sixty.
+Canonical one-CPU RustFS KV remains **0/4** complete configurations. Three reach
+and pass the 25-MiB SDK round trip, then fail the original-three-second CLI put;
+Axum/materialized fails its earlier public boundary deadline. Ordinary native
+bindings pass **2/4**, failing both S3-source modes. The unchanged workload also
+fails **2/4** in a sequential old-`d1f8535f` binary control, so the cause is not
+isolated. Preserve these failures and original budgets. See the
+[combined-source results](progress.md#cg-17-request-execution-deadlines-and-combined-source-qualification).
 
-Finish Queue cross-deployment catalogs, longer-consumer timing, inter-group lost
-DLQ replies, late settlement/purge/retention, movement/wake/disk-loss and load
-qualification before counting the whole Queue family accepted. The owned backend and VM are stopped with data retained. The artifact root
-is `/Volumes/Workspace/crabbuild-target/cellar-queue-rustfs-qualification-03-combined`.
+Evidence is `CG-17-kv-b99f12c4-06`: frozen binaries/CLI, complete logs, twenty-four
+retained failure disks and an explicit test-only follow-up. The owned backend and
+VM are stopped. Next isolate source-proof and large-ingress latency, finish
+external-object dependency verification before disaster admission, then close
+SQL/KV lifecycle coverage and advance the shared callback adapters below. Full
+primitive acceptance remains open; keep the chained twenty-second load control.
+
+## Current Queue checkpoint
+
+Source `a5f65e79` passes canonical real-RustFS `queue-primitives` qualification:
+**6/6 exact tests, 12/12 image configurations**. It covers native/Axum public
+SDK/CLI, cohosted producer/consumer/storage-only DLQ schemas, stale consumers,
+partial retry, active purge, lost cross-group S3-DLQ completion, retained
+restart, retention replay, quorum refusal, 65-second callbacks and bounded load.
+See [results](progress.md#cg-17-queue-cross-deployment-and-bounded-load-qualification)
+and the [contract](queue-durable-work.md).
+
+The kernel holds one physical callback per cell within two node-wide slots and
+one byte ceiling. Pending earlier Queue wakes coalesce; claimed/rearmed work
+always gets a new generation so late completion cannot erase obligations.
+Ordinary alarms keep replacement semantics. Callback budgets are separate from
+five-second control RPCs, default to 300 seconds and stay bounded to 300 seconds.
+Public routing keeps its sixty-second maximum. The earlier private digest change
+requires fresh compatible namespaces/matching voters; markers remain 1.
+
+Load is four producers, two requests in flight, one SQL worker per node and
+small eight-message batches: 528 distinct deliveries per image, including a
+16-message archive-refusal burst. Batch enqueue p99 is 1198/1330 ms. Scope is
+host-native RF3 and one-CPU/2-GiB RustFS. Setup observes initial archive coverage;
+cold S3 first use and four-in-flight controls were not rerun after their failures.
+Clock/configuration/deployment removal, full-size payloads, movement/wake,
+all-voter disk loss and independent Linux voters remain gates. Full CG-17
+acceptance is unchanged at **13/17 tasks and 147/195 cases**.
+
+Canonical artifacts: `/Volumes/Workspace/crabbuild-target/cellar-queue-expanded-rustfs-06`.
+Hash-verified ignored copy: `.cellar/cell-groups-evidence/CG-17-queue-expanded-a5f65e79-01`.
+The `fe4cd801` failed load control, frozen binaries and three voter disks remain
+in the preceding `cellar-queue-expanded-rustfs-05` cohort. Use the shared owner
+for subsequent expiry/cron/EventStream/Workflow work; add no per-idle-cell tasks.
+Backend shutdown is recorded separately and retains all objects.
 
 ## Current immutable payload checkpoint
 
@@ -43,15 +81,11 @@ operation, keeping old recovery cuts safe while a root-aware collector remains
 unfinished. This proves neither Raft admission nor complete payload recovery.
 See the [contract](payload-storage.md) and [results](progress.md#cg-17-immutable-external-payload-publication).
 
-Next integrate the ordinary runtime KV service: declared configuration/grants,
-stateful/stateless/private operator ingress, invocation-owned payload publication
-before row visibility, revisions, list/bulk/stream APIs and committed expiry work.
-Use the qualified shared callback kernel above. Intersect full-size
-binding inputs with source-intent, envelope, staging and result budgets; external
-destination values alone do not remove input bytes from a source checkpoint.
-Then qualify retained restart, movement/wake and fenced disaster payload restore,
-followed by root-aware collection. Keep the SQL deadline gates below open and
-advance Queue/EventStream/Workflow execution without reducing final compatibility.
+The ordinary KV service is now implemented; its current qualification and blockers
+are above. Full-size source-intent/envelope budgets, verified external-object
+recovery closure and root-aware collection remain required. No collector may
+protect only current KV rows: retained images, receipts, readers, pending uploads
+and interrupted turns remain roots. See the [payload contract](payload-storage.md).
 Task/case acceptance stays **13/17 and 147/195**.
 
 ## Previous interrupted SQL recovery checkpoint

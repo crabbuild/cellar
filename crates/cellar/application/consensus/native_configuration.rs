@@ -30,6 +30,7 @@ pub(crate) struct NativeCellConfiguration {
     pub(crate) do_classes: Vec<String>,
     pub(crate) bindings: Vec<(String, String)>,
     pub(crate) sql_bindings: Vec<(String, String)>,
+    pub(crate) kv_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<NativeQueueBinding>,
     pub(crate) queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
 }
@@ -43,7 +44,7 @@ impl NativeCellConfiguration {
             bindings: self.bindings.clone(),
             blob_bindings: Vec::new(),
             sql_bindings: self.sql_bindings.clone(),
-            kv_bindings: Vec::new(),
+            kv_bindings: self.kv_bindings.clone(),
             queue_bindings: self
                 .queue_bindings
                 .iter()
@@ -72,6 +73,7 @@ pub(in crate::application) struct AdmittedCellConfiguration {
     pub(in crate::application) classes: Arc<BTreeSet<String>>,
     pub(in crate::application) bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) sql_bindings: Arc<BTreeMap<String, String>>,
+    pub(in crate::application) kv_bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) queue_bindings: Arc<BTreeMap<String, (String, u32)>>,
     pub(in crate::application) queue_consumers:
         Arc<BTreeMap<String, crate::protocol::QueueConsumerConfig>>,
@@ -85,7 +87,6 @@ impl AdmittedCellConfiguration {
         // adapter must first acquire shared execution and settlement authority.
         if !options.src.is_empty()
             || !options.modules.is_empty()
-            || !options.kv_bindings.is_empty()
             || !options.blob_bindings.is_empty()
             || !options.stream_bindings.is_empty()
             || !options.workflow_bindings.is_empty()
@@ -130,6 +131,7 @@ impl AdmittedCellConfiguration {
         if options.do_classes.len() > 256
             || options.bindings.len() > 256
             || options.sql_bindings.len() > 256
+            || options.kv_bindings.len() > 256
             || options.queue_bindings.len() > 256
             || options.queue_consumers.len() > 256
         {
@@ -188,6 +190,20 @@ impl AdmittedCellConfiguration {
             !name.is_empty() && name.len() <= 256 && !name.chars().any(char::is_control)
         };
         let mut queue_bindings = BTreeMap::new();
+        let mut kv_bindings = BTreeMap::new();
+        for (name, identity) in &options.kv_bindings {
+            if !valid_name(name)
+                || identity.is_empty()
+                || identity.len() > cellar_logic::cell_group::MAX_CELL_ID_BYTES - 2
+                || identity.chars().any(char::is_control)
+                || kv_bindings.insert(name.clone(), identity.clone()).is_some()
+            {
+                return Err(RegistrationError::Invalid("Raft KV binding"));
+            }
+            bytes = bytes
+                .checked_add(name.len() + identity.len())
+                .ok_or(RegistrationError::Limit)?;
+        }
         for binding in &options.queue_bindings {
             if !valid_name(&binding.environment)
                 || !cellar_logic::cell::valid_cell_scope(&binding.queue)
@@ -252,6 +268,7 @@ impl AdmittedCellConfiguration {
             classes: Arc::new(classes),
             bindings: Arc::new(bindings),
             sql_bindings: Arc::new(sql_bindings),
+            kv_bindings: Arc::new(kv_bindings),
             queue_bindings: Arc::new(queue_bindings),
             queue_consumers: Arc::new(queue_consumers),
         })
@@ -286,6 +303,10 @@ impl AdmittedCellConfiguration {
                     .expect("Queue configuration"),
             );
         }
+        if !self.kv_bindings.is_empty() {
+            hash.update(b"kv-bindings-payloads-callbacks-1");
+            hash.update(serde_json::to_vec(self.kv_bindings.as_ref()).expect("KV configuration"));
+        }
         hash.finalize().into()
     }
 
@@ -293,6 +314,7 @@ impl AdmittedCellConfiguration {
         !self.classes.is_empty()
             || !self.bindings.is_empty()
             || !self.sql_bindings.is_empty()
+            || !self.kv_bindings.is_empty()
             || !self.queue_bindings.is_empty()
             || !self.queue_consumers.is_empty()
     }
@@ -325,6 +347,11 @@ impl AdmittedCellConfiguration {
             queue_consumers: self.queue_consumers.values().cloned().collect(),
             sql_bindings: self
                 .sql_bindings
+                .iter()
+                .map(|(name, identity)| (name.clone(), identity.clone()))
+                .collect(),
+            kv_bindings: self
+                .kv_bindings
                 .iter()
                 .map(|(name, identity)| (name.clone(), identity.clone()))
                 .collect(),

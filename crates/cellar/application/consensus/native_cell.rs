@@ -50,6 +50,7 @@ pub(super) struct CellRpcFactory {
     configuration: Option<[u8; 32]>,
     binding_classes: std::collections::BTreeSet<String>,
     sql_scopes: std::collections::BTreeSet<String>,
+    kv_scopes: std::collections::BTreeSet<String>,
     queue_scopes: std::collections::BTreeSet<String>,
     queue_owners: std::collections::BTreeSet<String>,
     queue_dead_letters: std::collections::BTreeSet<String>,
@@ -77,6 +78,8 @@ impl CellRpcFactory {
             self.queue_scopes.contains(scope)
         } else if class == crate::deploy::SQL_CLASS {
             self.sql_scopes.contains(scope)
+        } else if class == crate::deploy::KV_CLASS {
+            self.kv_scopes.contains(scope)
         } else {
             self.binding_classes.contains(class)
         }
@@ -230,6 +233,14 @@ impl NativeCellFactory {
         if !options.sql_bindings.is_empty() {
             binding_classes.insert(crate::deploy::SQL_CLASS.into());
         }
+        if !options.kv_bindings.is_empty() {
+            binding_classes.insert(crate::deploy::KV_CLASS.into());
+        }
+        let kv_scopes = options
+            .kv_bindings
+            .iter()
+            .map(|(_, identity)| crate::engine_api::kv_cell_scope(identity, 0))
+            .collect();
         if !options.queue_bindings.is_empty() || !options.queue_consumers.is_empty() {
             binding_classes.insert(crate::deploy::QUEUE_CLASS.into());
         }
@@ -287,6 +298,7 @@ impl NativeCellFactory {
             configuration: declared.map(AdmittedCellConfiguration::digest),
             binding_classes,
             sql_scopes,
+            kv_scopes,
             queue_scopes,
             queue_owners,
             queue_dead_letters,
@@ -367,6 +379,7 @@ impl NativeCellFactory {
         if !self.config.bindings.is_empty()
             || !self.config.do_classes.is_empty()
             || !self.config.sql_bindings.is_empty()
+            || !self.config.kv_bindings.is_empty()
             || !self.config.queue_bindings.is_empty()
             || !self.config.queue_consumers.is_empty()
         {
@@ -471,7 +484,7 @@ impl NativeCellFactory {
             trace: None,
             vars: self.vars.clone(),
             sql_bindings: Arc::new(self.config.sql_bindings.iter().cloned().collect()),
-            kv_bindings: Arc::default(),
+            kv_bindings: Arc::new(self.config.kv_bindings.iter().cloned().collect()),
             queue_bindings: Arc::new(
                 self.config
                     .queue_bindings

@@ -449,6 +449,10 @@ impl NativeWorker {
                 .application
                 .resolve_raft_class(crate::deploy::QUEUE_CLASS)
                 .is_ok(),
+            raft_kv: self
+                .application
+                .resolve_raft_class(crate::deploy::KV_CLASS)
+                .is_ok(),
             ..Default::default()
         });
         io.native_event
@@ -1962,6 +1966,7 @@ fn check_fleet_sql(context: &Context, scope: &str) -> Result<()> {
         Some(crate::deploy::QUEUE_CLASS) => {
             context.state.raft_queue || context.raft_storage.is_some()
         }
+        Some(crate::deploy::KV_CLASS) => context.state.raft_kv || context.raft_storage.is_some(),
         _ => false,
     };
     anyhow::ensure!(
@@ -2039,6 +2044,9 @@ pub(crate) fn kv_blob(
     request: serde_json::Value,
     value: Option<Vec<u8>>,
 ) -> HandlerFuture<crate::kv_blob::BlobReply> {
+    if context.raft_storage.is_some() {
+        return crate::application::kv::raft_blob::rpc(context, request, value);
+    }
     let prepared: Result<_> = (|| {
         context.check_turn()?;
         let identity = context
@@ -2076,6 +2084,7 @@ pub(crate) fn rpc_cell(
         && scope.split_once(':').is_some_and(|(class, _)| {
             (class == crate::deploy::SQL_CLASS && context.state.raft_sql)
                 || (class == crate::deploy::QUEUE_CLASS && context.state.raft_queue)
+                || (class == crate::deploy::KV_CLASS && context.state.raft_kv)
         })
     {
         return crate::application::sql::ingress::rpc(

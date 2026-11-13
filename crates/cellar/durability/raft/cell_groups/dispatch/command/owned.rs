@@ -11,6 +11,10 @@ impl CellCommandInvocation {
                 == crate::application::consensus::native_work::OPERATION
     }
 
+    pub(crate) fn native_callback_cell(&self) -> Option<&CellHistory> {
+        self.is_native_callback().then_some(&self.cell)
+    }
+
     pub(crate) fn controller_admission(
         &self,
         domain: &DomainToken,

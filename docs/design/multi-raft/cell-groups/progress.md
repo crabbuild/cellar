@@ -27,6 +27,126 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 request execution deadlines and combined-source qualification
+
+Source `84af2661`, qualified with the Queue admission changes at `b99f12c4`,
+separates command/query execution time from socket I/O time. The authenticated
+invocation keeps its original deadline while connect/TLS, framing, body transfer
+and idle header reads keep the configured I/O bound. Waiting for a server's first
+response byte does not silently truncate a longer application budget. Revocation,
+cancellation, ambiguity and joined ownership remain enforced; no retry is added.
+
+The owning regression passes in both image modes: a 600-ms query and command
+complete with a 200-ms I/O bound and their original two-second caller budgets;
+a 100-ms caller still expires. Its first control at `00e60332` passed the query
+but stalled replication after idle sockets expired because the fixture disables
+automatic Raft ticks. The final fixture drives normal heartbeat/retry progress
+without changing either deadline. That failed control remains retained.
+
+| Combined-source gate at `b99f12c4` | Result |
+| --- | --- |
+| Deadline regression, both image modes | **1/1 owning test passes** |
+| Cancelled/expired physical SQL ownership | **2/2 owning tests pass** |
+| Fleet KV and native immutable payload regressions | **2/2 owning tests pass** |
+| Native KV SDK drill, both image modes | **2/2 configurations pass** |
+| Native ordinary bindings, Quorum/S3 sources | **2/4; FAILED** |
+| Native interrupted-binding recovery, Quorum/S3 sources | **4/4 configurations pass** |
+| Canonical real RustFS KV, native/Axum, both images | **0/4; FAILED** |
+
+The RustFS result advances past the former child RPC transport failures. The
+25-MiB source SDK put/get passes all three configurations that reach it, taking
+18.459/15.401/19.212 seconds within their original twenty-second parent budgets.
+Each asserts exactly one 26,214,400-byte publication. Those three then fail the
+25-MiB CLI put with an original three-second server budget; target execution
+starts with only about 1.8–2.0 seconds remaining. The fourth, Axum/materialized,
+fails its earlier public 1-MiB boundary call at its original deadline. Later
+RustFS restart/archive/quorum checks are unrun in this cohort. Small-value CLI
+passes in the three configurations that reach it. No full RustFS KV acceptance
+or public-ingress performance fix is claimed.
+
+Native ordinary bindings pass both Quorum configurations but miss their original
+S3-source deadlines in both images. Interrupted-binding recovery passes all four
+native configurations. The older `d1f8535f` **8/8** ordinary and **8/8** interrupted
+native/RustFS results remain scoped to that source; they do not qualify the
+combined source. These S3 latency failures remain a higher-priority blocker.
+A sequential same-environment control using the SHA-verified frozen `d1f8535f`
+binary also passes only **2/4** native ordinary-binding configurations: its
+materialized S3 and extents Quorum first requests miss their deadlines. The
+binding workload source is unchanged between the two pins. This does not isolate
+the cause or establish a Queue-merge regression; it shows the older green cohort
+cannot establish deadline stability in the current environment. Both control
+failures and all six additional voter disks remain retained.
+
+Evidence is `CG-17-kv-b99f12c4-06`, including the frozen actual CLI, test binaries,
+source inputs, complete failed controls and retained voter disks. The complete
+primitive/recovery/release gate remains open. External-object verification before
+disaster admission, interrupted large transfers, movement/wake, root-aware
+collection and independent Linux voter/load qualification remain required.
+
+## CG-17 ordinary KV bindings and compact wire transport
+
+Sources `05cd04b4` and `fe8ef583` implement the ordinary KV service on managed
+cell groups: declared SDK bindings, stateless native/Axum ingress, authenticated
+operator controls and actual CLI entrances. Large request and reply bodies use
+confirmed immutable objects while Raft retains compact descriptors. The 25-MiB
+KV ceiling remains intact with 16-KiB Raft inputs and unchanged result limits.
+Publication and reply expansion share the original call deadline and node-wide
+operation/decoder-byte admission. The [payload contract](payload-storage.md)
+describes ownership, retention and recovery limits.
+
+At `f935ebd2`, the native RF3 selection passes **2/2** image configurations.
+It reuses the Fleet API assertions for text/JSON/bytes/streams, metadata, bulk
+reads/deletes, Unicode/list cursors and validation. Both modes also pass exact
+1-MiB/25-MiB round trips, namespace isolation, private-wrapper refusal,
+incarnation-qualified conditional edits, physical expiration through durable
+alarm work, joined retained restart, exact parent replay without callback entry,
+actual archive-PUT refusal while Quorum requests progress, provider-read failure,
+and read/write refusal after two voter owners stop. Payload operations and
+retained bytes return to zero.
+
+The new direct-value path publishes large values before the compact child RPC.
+The receiver reads and verifies the actual object before committing its reference;
+SDK/operator reads expand the returned reference after the quorum reply. The
+25-MiB SDK put/get asserts exactly one 26,214,400-byte publication. Pending,
+forged-confirmed and wrong-owner references refuse mutation, and aggregate reads
+refuse their byte ceiling before fetching. Original request deadlines still cover
+publication, child execution and expansion.
+
+The canonical one-CPU real RustFS/native/Axum campaign still fails **0/4** complete
+configurations. All four pass public small-value APIs and the actual small-value
+CLI. Native materialized and Axum materialized fail the 25-MiB source child RPC;
+native extents reaches the original twenty-second source Unicode deadline.
+Axum extents passes the 25-MiB source round trip with exactly one publication,
+then its aggregate-reference child RPC times out. Logs, twelve voter disks,
+actual CLI and executables are retained. Transport execution deadlines are the
+next causal boundary under investigation; no timeout resolution is claimed.
+The older `c6400c66` native **2/2** and RustFS **0/4** wire-copy cohort remains
+retained separately.
+
+Profiles are explicit: each stateless binding call retains its three-second
+budget; normal source read/write/replay calls retain five seconds. Conformance
+uses five separately admitted source phases with twenty-second parents, and the
+large-value/compound operations also use twenty seconds. This does not qualify
+all APIs chained into one twenty-second parent. That original workload fails in
+both modes at `fe8ef583`; its logs, six disks and frozen executable are retained,
+and the original workload remains an opt-in load selection. Splitting the API
+contract is not a causal performance fix or a latency-SLO claim.
+
+The first `05cd04b4` control fails **0/2** at the first stateless request because
+reserved ingress nonce validation omitted KV. `fe8ef583` adds KV to the existing
+SQL/Queue validation; both modes then pass the stateless contract, boundary
+transport, conditional edits and expiry before the chained-source deadline.
+`05cd04b4` separately passes the Fleet KV and immutable-payload native regressions. Both failed
+cohorts remain available. Current evidence is `CG-17-kv-f935ebd2-04`.
+
+No complete primitive family is accepted. S3-source deadline/interruption gates,
+external-value and wire dependency verification before disaster admission,
+movement/wake, root-aware collection, independent voters and sustained load
+remain open. Objects are retained without an unsafe current-row collector.
+The broader test-library typecheck was interrupted after owning integration
+targets compiled; it is not reported as a pass. Historical plan validation still
+stops at the missing CG-01 evidence file. Default cutover remains gated.
+
 ## CG-17 immutable external payload publication
 
 Source `41a19a24` adds the namespace-bound immutable payload store needed before
@@ -173,7 +293,87 @@ Next close those SQL gates, then deliver grouped KV revisions, expiry, alarms an
 payload ownership. The earlier generic binding **8/8** and interrupted-binding
 **8/8** results retain source `d1f8535f`; they were not rerun for this SQL cohort.
 
+## CG-17 Queue cross-deployment and bounded load qualification
+
+At `a5f65e79`, the complete `queue-primitives` real-RustFS campaign passes
+**6/6 exact tests, 12/12 image configurations** on one-CPU/2-GiB RustFS with
+host-native RF3 and one SQL worker per node. Materialized and extent images
+both pass. This is a scoped Queue result; full CG-17 acceptance is unchanged.
+
+| Scenario | Result |
+| --- | --- |
+| Separate producer/consumer/DLQ deployments, native and Axum ingress | **4/4 pass** |
+| 65-second handler and independent Queue progress | **2/2 pass** |
+| Four producers, two in-flight requests, archive-refusal burst and steady load | **2/2 pass** |
+| Public SDK/CLI, retained restart, leader transfer and quorum refusal | **4/4 pass** |
+
+Cross-deployment faults cover partial retry, stale event handles after leader
+transfer, purge during active delivery, loss of a different group's S3-minimum
+DLQ completion after target quorum apply, retained RF3 restart, autonomous
+original-ID transfer recovery and retention-boundary enqueue replay. These
+workloads observe setup archive cuts before S3-DLQ preparation and after
+restart/leader change. Every request keeps its original budget; this does not
+qualify cold first-use S3 latency or physical host crashes.
+
+The load profile has four producers with one in-flight request per Queue
+(two total), eight-message batches, eight ordinary slots/128 KiB, the same two
+callback slots/byte ceiling, and a five-second callback budget. Fault/MVP profiles
+keep two ordinary slots. Each image delivers all **528 distinct messages**:
+16 enqueues during observed archive PUT refusal, followed by 512 steady-state
+enqueues. Delivery is at least once; this is not a transactional business inbox
+or an exactly-once claim.
+
+| Image mode | Steady phase, including drain | Messages/s | Batch enqueue p50 | Batch enqueue p99 |
+| --- | --- | --- | --- | --- |
+| Materialized | 23.714 s | 21.59 | 650 ms | 1198 ms |
+| Extents | 21.355 s | 23.98 | 565 ms | 1330 ms |
+
+The passing source retains one native callback per cell through physical
+settlement, within two fixed node-wide slots. It coalesces earlier unclaimed
+Queue wakes across producer commits. Claimed installations always get a new
+generation when rearmed, including later deadlines, so old completion cannot
+erase new retry/delivery work. Ordinary alarm replacement semantics remain.
+No request deadline, production quota, message count or load credit was relaxed
+from the failed two-in-flight control.
+
+Eleven focused Rust unit/ownership checks and the existing Fleet Queue
+regression pass. Strict library/all-test Clippy, canonical formatting/layout,
+native dependency/docs checks and **66 Python checks** pass. The inventory stays
+partial and recorded acceptance stays **13/17 tasks, 147/195 cases**.
+
+The canonical record, protocol probe, frozen executable/CLI, benchmark JSON and
+logs are under
+`/Volumes/Workspace/crabbuild-target/cellar-queue-expanded-rustfs-06`.
+Its record SHA-256 is
+`21397d1dbdfcb25393738945e279c88c489bbabb4264b2e1669b9d36c856e7c1`;
+executable SHA-256 is
+`0265db33cdd48262e48b4d8bcc8706fa532232090cc364ff1a0d0087a4d90c0c`;
+CLI SHA-256 is
+`d480211ce3490af116ee44ec161be1998b3308c837e7093b49bff59ab187d02f`.
+A hash-verified copy, focused check logs and controls are retained in this
+checkout's ignored `.cellar/cell-groups-evidence/CG-17-queue-expanded-a5f65e79-01`.
+
+Earlier results remain controls: `fe4cd801` passes ten configurations but fails
+materialized load at ingress sequence 13 (extent load unrun). Its record, frozen
+binaries, bounded status/resource samples and all three failed voter disks
+remain under `cellar-queue-expanded-rustfs-05`. Advisory immutable-generation
+inspection finds fourteen no-op work receipts beside eighteen claimed receipts
+in one broker image; it neither selects an authoritative manifest nor runs
+recovery. Four-in-flight controls and cold S3-DLQ first use also miss deadlines.
+Those envelopes were not rerun on the passing source; no causal resolution or
+higher-concurrency SLA is claimed. Interrupted inventory/collector runs remain
+separate from runtime passes.
+
+Next Queue gates are cold S3 startup, higher concurrency and full-size payload
+budgets, clock discontinuities, deployment changes/removal, movement/wake,
+all-voter disk-loss recovery and independent Linux process/resource qualification.
+EventStream, Workflow and cron adapters still need their own shared-work
+integration and conformance. Backend/VM shutdown is recorded after qualification;
+S3 objects and local failure evidence are retained.
+
 ## CG-17 cross-deployment Queue and long callbacks
+
+Historical preparation and controls, superseded by the qualified checkpoint above.
 
 The next Queue increment resolves producer, consumer and storage-only DLQ
 namespaces by their admitted schemas across cohosted deployments. Ambiguous
