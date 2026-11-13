@@ -4,6 +4,31 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current KV and binding checkpoint
+
+KV configuration/grants, SDK and native/Axum ingress, authenticated operator/CLI,
+revision conditions, expiry and immutable full-size value transport are implemented.
+At `b99f12c4`, native KV passes **2/2** images and interrupted binding recovery
+passes **4/4** Quorum/S3-source configurations. RPC execution now honors the
+original caller deadline independently of bounded socket I/O. Its owning
+regression passes; `64836845` changes only the test scheduler macro and passes
+that regression again with strict Clippy.
+
+Canonical one-CPU RustFS KV remains **0/4** complete configurations. Three reach
+and pass the 25-MiB SDK round trip, then fail the original-three-second CLI put;
+Axum/materialized fails its earlier public boundary deadline. Ordinary native
+bindings pass **2/4**, failing both S3-source modes. The unchanged workload also
+fails **2/4** in a sequential old-`d1f8535f` binary control, so the cause is not
+isolated. Preserve these failures and original budgets. See the
+[combined-source results](progress.md#cg-17-request-execution-deadlines-and-combined-source-qualification).
+
+Evidence is `CG-17-kv-b99f12c4-06`: frozen binaries/CLI, complete logs, twenty-four
+retained failure disks and an explicit test-only follow-up. The owned backend and
+VM are stopped. Next isolate source-proof and large-ingress latency, finish
+external-object dependency verification before disaster admission, then close
+SQL/KV lifecycle coverage and advance the shared callback adapters below. Full
+primitive acceptance remains open; keep the chained twenty-second load control.
+
 ## Current Queue checkpoint
 
 Source `a5f65e79` passes canonical real-RustFS `queue-primitives` qualification:
@@ -56,15 +81,11 @@ operation, keeping old recovery cuts safe while a root-aware collector remains
 unfinished. This proves neither Raft admission nor complete payload recovery.
 See the [contract](payload-storage.md) and [results](progress.md#cg-17-immutable-external-payload-publication).
 
-Next integrate the ordinary runtime KV service: declared configuration/grants,
-stateful/stateless/private operator ingress, invocation-owned payload publication
-before row visibility, revisions, list/bulk/stream APIs and committed expiry work.
-Use the qualified shared callback kernel above. Intersect full-size
-binding inputs with source-intent, envelope, staging and result budgets; external
-destination values alone do not remove input bytes from a source checkpoint.
-Then qualify retained restart, movement/wake and fenced disaster payload restore,
-followed by root-aware collection. Keep the SQL deadline gates below open and
-advance Queue/EventStream/Workflow execution without reducing final compatibility.
+The ordinary KV service is now implemented; its current qualification and blockers
+are above. Full-size source-intent/envelope budgets, verified external-object
+recovery closure and root-aware collection remain required. No collector may
+protect only current KV rows: retained images, receipts, readers, pending uploads
+and interrupted turns remain roots. See the [payload contract](payload-storage.md).
 Task/case acceptance stays **13/17 and 147/195**.
 
 ## Previous interrupted SQL recovery checkpoint
