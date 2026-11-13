@@ -51,6 +51,23 @@ CASES = (
 )
 
 SUITES = {
+    "ordinary-sql-bindings": (
+        "native_cell_groups_primitives",
+        (
+            "rustfs_ordinary_sql_bindings_use_managed_shared_groups",
+            "rustfs_axum_sql_bindings_and_operators_use_managed_shared_groups",
+            "rustfs_interrupted_sql_bindings_recover_without_replaying_business_calls",
+        ),
+        "ordinary SQL SDK, authenticated operator/CLI and interrupted parent recovery on shared RF3",
+        "Both image modes, separate source/database groups and one SQL worker per node. "
+        "Native and Axum-owned listeners use the public SDK and actual frozen CLI. "
+        "Rollback, private-contract refusal, grant revocation/regrant, lost committed replies, "
+        "retained restart, receipt replay and quorum refusal are checked. "
+        "Recovery covers SQL successes and rolled-back errors after child reply but before "
+        "parent completion, with Quorum/S3 sources and a Quorum destination minimum. "
+        "Original deadlines and quotas remain unchanged. Target-S3, before-child-completion, "
+        "movement/wake/archive/disaster, independent voters and sustained load remain separate gates.",
+    ),
     "queue-primitives": (
         "native_cell_groups_primitives",
         ("rustfs_ordinary_queue_callbacks_use_shared_quorum", "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum"),
@@ -676,7 +693,7 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle", "queue-primitives") and result.returncode == 0:
+            if args.suite in ("managed-ingress", "managed-lifecycle", "ordinary-sql-bindings", "queue-primitives") and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")

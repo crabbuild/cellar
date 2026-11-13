@@ -1760,3 +1760,19 @@ async fn rustfs_ordinary_queue_callbacks_use_shared_quorum() -> Result<()> {
 async fn rustfs_ordinary_queue_axum_callbacks_use_shared_quorum() -> Result<()> {
     Box::pin(queues::qualify_axum()).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn interrupted_sql_bindings_recover_without_replaying_business_calls() -> Result<()> {
+    Box::pin(sql_bindings::qualify_recovery(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_interrupted_sql_bindings_recover_without_replaying_business_calls() -> Result<()> {
+    Box::pin(sql_bindings::qualify_recovery(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sql_error_recovery_preserves_s3_extent_progress() -> Result<()> {
+    Box::pin(sql_bindings::extent_error_progress()).await
+}

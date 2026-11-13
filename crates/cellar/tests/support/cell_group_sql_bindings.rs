@@ -6,6 +6,11 @@ use super::*;
 
 #[path = "cell_group_sql_operator.rs"]
 mod operator;
+#[path = "cell_group_sql_recovery.rs"]
+mod recovery;
+
+pub use recovery::extent_error_progress;
+pub use recovery::qualify as qualify_recovery;
 
 const SCRIPT: &str = "sql-binding-service";
 const DATABASE: &str = "shared/orders";

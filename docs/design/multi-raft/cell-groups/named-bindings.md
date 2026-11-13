@@ -88,8 +88,13 @@ listener and use `CellarService` for public SDK ingress.
 Operator calls reuse the bounded per-database stream, nonce validation and
 original absolute deadline below. The SQL service schema digest changes for this
 contract; provision fresh compatible SQL namespaces and matching voter binaries.
-Format markers remain at 1. Runtime qualification for this new operator path is
-pending; earlier SQL binding checkpoints retain their recorded source revisions.
+Format markers remain at 1. At `979addd0`, the scoped SQL drill passes all eight
+native/RustFS, native/Axum-listener and image configurations. Real CLI qualification
+passes in all four RustFS configurations, including a reply lost after commit.
+Earlier cold-race timeouts remain retained; this single cohort is not sustained
+contention or full SQL lifecycle acceptance. Debug target
+`cellar::raft::sql_ingress` reports history, sequence and command phase timing
+without SQL payloads. See the [qualification record](progress.md#cg-17-authenticated-sql-operator-cli-and-axum).
 
 SQL calls from Raft cells use the durable binding protocol below, including the
 target namespace's independent minimum durability, original caller deadline,

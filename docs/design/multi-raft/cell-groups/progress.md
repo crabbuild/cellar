@@ -27,6 +27,57 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 authenticated SQL operator, CLI and Axum
+
+Source `979addd0` delivers the peer-authenticated `/runtime/` SQL adapter through
+the managed group owner. CLI execute, migrations and console work use the same
+bounded per-database stream, nonce, admission and namespace minimum as stateless
+SDK SQL. Ordinary bindings cannot discover its private operator contract. Missing
+ownership refuses admission. Console errors roll back their owned savepoint and
+retain the command authorizer; inspection does not create a migration ledger.
+`cellar sql --entrance NODE=HOST:PORT` reaches managed nodes without Fleet leases.
+A structured unknown outcome prevents mutation retry through another entrance.
+See the [SQL contract](named-bindings.md#sql-database-bindings).
+
+| Scoped SQL gate | Result |
+| --- | --- |
+| Native and Axum-owned listeners, native storage, both image formats | **4/4 pass** |
+| Native and Axum-owned listeners, real RustFS, both image formats | **4/4 pass** |
+| Authenticated operator admission, rollback, migrations and grant revocation/regrant | **8/8 pass** |
+| Actual CLI migrations, row output, idempotent apply and lost-committed-reply refusal | **4/4 RustFS configurations pass** |
+| Existing native SQL conformance and Fleet-activation refusal | **2 tests pass** |
+
+Every complete SQL configuration includes ordinary SDK calls, a concurrent cold
+enrollment/insert race, retained restart, receipt replay and refusal after two
+voters stop. Axum uses the real `CellarService` and application-owned listener;
+authenticated operators remain on the private peer listener. SQL namespaces use
+Quorum minimum durability, one SQL worker, 16 KiB inputs and four client slots.
+The original three-second node/SQL-call and five-second Raft budgets are unchanged.
+
+The first control at `1747923b` failed the native materialized cold SQL race;
+`6bf89f31` added phase timing and passed native storage **4/4**, but real RustFS
+exposed another cold-race timeout and a test migration-ledger collision. The
+corrected fixture gives CLI migrations a separate ledger and asserts its exact
+contents, preserving the SDK history assertions. The final cohort records build
+and backend setup writeback flushes before its cases, following the qualification
+guide. This passing cohort is not a causal performance fix or a sustained-load
+SLO. Both earlier failed cohorts and their disks/binaries remain retained.
+
+Locked runtime builds, strict all-target Clippy, formatting, layout, dependency
+and documentation checks pass, along with 44 plan and 13 primitive-verifier
+tests. Source anchors and the generated implementation index match; executable
+and primitive-contract inputs match the frozen runtime source. These checks do
+not replace the missing historical full-plan preflight evidence.
+Evidence is `.cellar/cell-groups-evidence/CG-17-sql-operator-979addd0-04`, with a
+checkout-owned workspace backup and links to the failed controls. RustFS used two
+CPUs and 2 GiB; RF3 voters shared one native macOS process. The owned backend and
+VM are stopped. Independent constrained Linux voters, sustained contention and
+SQL interruption/movement/wake/archive/disaster qualification remain open.
+No complete primitive family is accepted: **13/17 tasks, 147/195 cases**.
+Next close those SQL gates, then deliver grouped KV revisions, expiry, alarms and
+payload ownership. The earlier generic binding **8/8** and interrupted-binding
+**8/8** results retain source `d1f8535f`; they were not rerun for this SQL cohort.
+
 ## CG-17 durable callback and Queue candidate
 
 CG17-04/06 now have a [shared callback and Queue implementation](queue-durable-work.md)

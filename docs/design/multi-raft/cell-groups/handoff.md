@@ -4,7 +4,39 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current binding deadline and recovery checkpoint
+## Current SQL operator, CLI and Axum checkpoint
+
+At `979addd0`, the scoped SQL SDK/operator drill passes **8/8** native/RustFS,
+native/Axum-owned-listener and image configurations. All four RustFS configurations
+execute the actual CLI, including migrations, JSON row output, idempotent apply
+and refusal to retry a mutation after its committed reply is lost. Every complete
+configuration includes rollback, private-contract refusal, revoked/restored
+namespace grants, retained restart, receipt replay and quorum refusal.
+The two existing native SQL tests and strict all-target Clippy pass.
+
+The authenticated private `/runtime/` adapter uses the managed SQL owner and
+bounded fixed client stream. Console work owns a savepoint inside the Raft
+command. `--entrance NODE=HOST:PORT` bootstraps the CLI without Fleet node leases.
+No weaker fallback or deadline/quota increase is introduced. The SQL schema
+digest changes; use fresh compatible namespaces and matching voters.
+
+Evidence is `CG-17-sql-operator-979addd0-04`, with frozen binaries, a workspace
+backup and preceding failed control records. Controls at `1747923b` and
+`6bf89f31` retain cold SQL race timeouts; the latter also found the CLI/SDK test
+ledger collision. The corrected fixture isolates and verifies the CLI ledger.
+The final cohort records build/setup writeback barriers before runtime cases.
+Its pass does not establish a causal contention fix or a sustained-load SLO.
+RustFS used two CPUs and 2 GiB; voters shared one native macOS process. The owned
+backend and VM are stopped.
+
+Next qualify SQL interruption, movement, wake, archive outage and disaster
+recovery, sustained contention and independent Linux voters, then implement
+grouped KV revision/expiry/alarm/payload semantics. Full primitive and release
+acceptance remains **13/17 tasks, 147/195 cases**. The generated implementation
+index still matches `tasks.json`; full historical plan preflight still lacks
+CG-01 evidence. See the [SQL result and limits](progress.md#cg-17-authenticated-sql-operator-cli-and-axum).
+
+## Previous binding deadline and recovery checkpoint
 
 At `d1f8535f`, the basic binding runtime gate passes: public SQL **4/4**, ordinary
 bindings **8/8** and interrupted-binding recovery **8/8** across native storage and
@@ -140,10 +172,11 @@ See the [checkpoint](progress.md#cg-17-live-archive-proof-handoff).
 
 ## Immediate feature priorities
 
-1. Finish SQL operator/CLI and Axum integration and SQL-specific interruption,
-   movement, wake, archive outage and disaster qualification. The authenticated
-   `/runtime/` operator route still uses ordinary cell fetch; SDK SQL passes do
-   not qualify that adapter. Preserve bounded identities, normal outbound
+1. Finish SQL-specific interruption, movement, wake, archive outage and disaster
+   qualification, plus sustained contention and independent Linux voters. The
+   authenticated operator/CLI and Axum-owned-listener paths pass the scoped
+   `979addd0` cohort; earlier cold-race timeouts remain retained. Preserve bounded
+   identities, normal outbound
    admission, exact error/replay behavior and refusal of weaker fallback.
 2. Deliver the grouped KV service with revision conditions, expiry, durable
    alarms and external-payload publication/collection. Its existing Fleet
