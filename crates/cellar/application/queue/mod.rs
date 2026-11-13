@@ -3,6 +3,8 @@
 //! Native Queue producers, consumer settlement handles and the broker cell.
 //! Broker policy and fleet dispatch remain the existing Rust implementations.
 
+pub(crate) const OPERATOR: &str = "__queueOperator";
+
 mod broker;
 mod configuration;
 pub(crate) mod message;
@@ -22,7 +24,7 @@ use serde_json::{json, Value};
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
-pub(crate) use broker::create_cell;
+pub(crate) use broker::{create_cell, create_raft_cell};
 pub(crate) use configuration::{BrokerConfig as Config, ConsumerConfig as Consumer};
 
 #[derive(Clone, Debug)]

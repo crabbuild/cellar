@@ -13,6 +13,7 @@ use rand::RngCore as _;
 enum Origin {
     Binding,
     Operator,
+    QueueOperator,
 }
 
 impl RaftCells {
@@ -33,6 +34,15 @@ impl RaftCells {
         deadline: u64,
     ) -> HandlerFuture<RpcData> {
         self.submit_sql(admitted, call_scope, deadline, Origin::Operator)
+    }
+
+    pub(crate) fn queue_operator(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+    ) -> HandlerFuture<RpcData> {
+        self.submit_sql(admitted, call_scope, deadline, Origin::QueueOperator)
     }
 
     fn submit_sql(
@@ -57,6 +67,16 @@ impl RaftCells {
                     &method,
                     &self.handle.core.log,
                 )?,
+                Origin::QueueOperator => {
+                    anyhow::ensure!(
+                        method == crate::application::queue::OPERATOR,
+                        super::super::CommandFailure::UnsupportedCapability
+                    );
+                    self.handle
+                        .core
+                        .host
+                        .queue_operator_route(&scope, &self.handle.core.log)?
+                }
                 Origin::Operator => {
                     anyhow::ensure!(
                         method == crate::application::sql::operator::METHOD,

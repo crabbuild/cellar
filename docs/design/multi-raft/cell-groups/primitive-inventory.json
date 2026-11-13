@@ -168,10 +168,15 @@
       "owners": [
         "crates/cellar/application/queue/mod.rs",
         "crates/cellar/application/queue/broker.rs",
-        "crates/cellar/application/queue/schema.sql"
+        "crates/cellar/application/queue/schema.sql",
+        "crates/cellar/application/consensus/native_work.rs",
+        "crates/cellar/application/consensus/native_services.rs",
+        "crates/cellar/node/queue_operator.rs",
+        "crates/cellar/cli/queue_cli.rs"
       ],
       "schemas": [
-        "Messages, due times, lease generations and dead-letter state"
+        "Messages, due times, lease generations and dead-letter state",
+        "Shared native work reason, generation, due time and fenced claim attempt"
       ],
       "bindings": [
         "Named producer",
@@ -321,13 +326,15 @@
         "cellar::sdk::CommandContext::cancel_alarm",
         "cellar::sdk::Invocation::Alarm",
         "cellar::sdk::Invocation::Scheduled",
-        "cellar::sdk::cron::Scheduled::no_retry"
+        "cellar::sdk::cron::Scheduled::no_retry",
+        "cellar::sdk::RaftClass::durable_callbacks"
       ],
       "owners": [
         "crates/cellar/application/storage/mod.rs",
         "crates/cellar/application/cron/mod.rs",
         "crates/cellar/application/cron/types.rs",
-        "crates/cellar/application/consensus/class.rs"
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/application/consensus/native_work.rs"
       ],
       "schemas": [
         "Schedule generations and occurrence history"

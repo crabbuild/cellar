@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Stateless SQL uses the node-owned group service, never Fleet routing.
+//! Stateless built-in SQL and Queue calls use the node-owned group service.
 
 use crate::application::{consensus::CommandFailure, Context, HandlerFuture};
 use crate::engine_api::RpcData;
@@ -24,9 +24,11 @@ pub(crate) fn rpc(
         context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
         anyhow::ensure!(
             context.sql_bindings.values().any(|database| {
-                // The canonical scope is global, independent of script and alias.
                 crate::engine_api::sql_cell_scope(database) == scope
                     && name.as_deref() == Some(database.as_str())
+            }) || context.queue_bindings.values().any(|queue| {
+                crate::engine_api::queue_cell_scope(queue.name()) == scope
+                    && name.as_deref() == Some(queue.name())
             }),
             CommandFailure::UnsupportedCapability
         );

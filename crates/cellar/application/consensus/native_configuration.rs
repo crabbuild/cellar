@@ -4,12 +4,21 @@
 
 use super::RegistrationError;
 use crate::engine_api::{Compat, WorkerConfigOptions};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NativeQueueBinding {
+    environment: String,
+    queue: String,
+    #[serde(default)]
+    delivery_delay: u32,
+}
 
 /// Provisioning carries the same values as the daemon's deployment. Node-local
 /// identity is deliberately excluded from the namespace's immutable definition.
@@ -21,6 +30,8 @@ pub(crate) struct NativeCellConfiguration {
     pub(crate) do_classes: Vec<String>,
     pub(crate) bindings: Vec<(String, String)>,
     pub(crate) sql_bindings: Vec<(String, String)>,
+    pub(crate) queue_bindings: Vec<NativeQueueBinding>,
+    pub(crate) queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
 }
 
 impl NativeCellConfiguration {
@@ -33,9 +44,17 @@ impl NativeCellConfiguration {
             blob_bindings: Vec::new(),
             sql_bindings: self.sql_bindings.clone(),
             kv_bindings: Vec::new(),
-            queue_bindings: Vec::new(),
+            queue_bindings: self
+                .queue_bindings
+                .iter()
+                .map(|b| crate::engine_api::QueueBinding {
+                    environment: b.environment.clone(),
+                    queue: b.queue.clone(),
+                    delivery_delay: b.delivery_delay,
+                })
+                .collect(),
             stream_bindings: Vec::new(),
-            queue_consumers: Vec::new(),
+            queue_consumers: self.queue_consumers.clone(),
             workflow_bindings: Vec::new(),
             vars: self.vars.clone(),
             node: String::new(),
@@ -53,6 +72,9 @@ pub(in crate::application) struct AdmittedCellConfiguration {
     pub(in crate::application) classes: Arc<BTreeSet<String>>,
     pub(in crate::application) bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) sql_bindings: Arc<BTreeMap<String, String>>,
+    pub(in crate::application) queue_bindings: Arc<BTreeMap<String, (String, u32)>>,
+    pub(in crate::application) queue_consumers:
+        Arc<BTreeMap<String, crate::protocol::QueueConsumerConfig>>,
 }
 
 impl AdmittedCellConfiguration {
@@ -65,9 +87,7 @@ impl AdmittedCellConfiguration {
             || !options.modules.is_empty()
             || !options.kv_bindings.is_empty()
             || !options.blob_bindings.is_empty()
-            || !options.queue_bindings.is_empty()
             || !options.stream_bindings.is_empty()
-            || !options.queue_consumers.is_empty()
             || !options.workflow_bindings.is_empty()
         {
             return Err(RegistrationError::Invalid(
@@ -110,6 +130,8 @@ impl AdmittedCellConfiguration {
         if options.do_classes.len() > 256
             || options.bindings.len() > 256
             || options.sql_bindings.len() > 256
+            || options.queue_bindings.len() > 256
+            || options.queue_consumers.len() > 256
         {
             return Err(RegistrationError::Limit);
         }
@@ -162,6 +184,67 @@ impl AdmittedCellConfiguration {
         if bytes > 64 * 1024 {
             return Err(RegistrationError::Limit);
         }
+        let valid_name = |name: &str| {
+            !name.is_empty() && name.len() <= 256 && !name.chars().any(char::is_control)
+        };
+        let mut queue_bindings = BTreeMap::new();
+        for binding in &options.queue_bindings {
+            if !valid_name(&binding.environment)
+                || !cellar_logic::cell::valid_cell_scope(&binding.queue)
+                || binding.queue.len() > 1024
+                || binding.delivery_delay > cellar_logic::queue::Limits::default().max_delay_seconds
+                || queue_bindings
+                    .insert(
+                        binding.environment.clone(),
+                        (binding.queue.clone(), binding.delivery_delay),
+                    )
+                    .is_some()
+            {
+                return Err(RegistrationError::Invalid("Raft Queue binding"));
+            }
+            bytes = bytes
+                .checked_add(binding.environment.len() + binding.queue.len() + 4)
+                .ok_or(RegistrationError::Limit)?;
+        }
+        let mut queue_consumers = BTreeMap::new();
+        for consumer in &options.queue_consumers {
+            let config = cellar_logic::queue::QueueConfig {
+                max_batch_size: consumer.max_batch_size,
+                max_batch_timeout_seconds: consumer.max_batch_timeout,
+                max_retries: consumer.max_retries,
+                max_concurrency: consumer.max_concurrency,
+                delivery_delay_seconds: 0,
+                retry_delay_seconds: consumer.retry_delay,
+            };
+            if !cellar_logic::cell::valid_cell_scope(&consumer.queue)
+                || consumer.queue.len() > 1024
+                || consumer.dead_letter_queue.as_ref().is_some_and(|q| {
+                    q == &consumer.queue
+                        || q.len() > 1024
+                        || !cellar_logic::cell::valid_cell_scope(q)
+                })
+                || cellar_logic::queue::validate_config_with_limits(
+                    &config,
+                    &cellar_logic::queue::Limits::default(),
+                )
+                .is_err()
+                || queue_consumers
+                    .insert(consumer.queue.clone(), consumer.clone())
+                    .is_some()
+            {
+                return Err(RegistrationError::Invalid("Raft Queue consumer"));
+            }
+            bytes = bytes
+                .checked_add(
+                    serde_json::to_vec(consumer)
+                        .expect("Queue configuration")
+                        .len(),
+                )
+                .ok_or(RegistrationError::Limit)?;
+        }
+        if bytes > 64 * 1024 {
+            return Err(RegistrationError::Limit);
+        }
         Ok(Self {
             script: options.script_name.clone(),
             vars: Arc::new(vars),
@@ -169,6 +252,8 @@ impl AdmittedCellConfiguration {
             classes: Arc::new(classes),
             bindings: Arc::new(bindings),
             sql_bindings: Arc::new(sql_bindings),
+            queue_bindings: Arc::new(queue_bindings),
+            queue_consumers: Arc::new(queue_consumers),
         })
     }
 
@@ -194,11 +279,22 @@ impl AdmittedCellConfiguration {
                 serde_json::to_vec(self.sql_bindings.as_ref()).expect("serializable SQL bindings"),
             );
         }
+        if !self.queue_bindings.is_empty() || !self.queue_consumers.is_empty() {
+            hash.update(b"queue-bindings-callbacks-1");
+            hash.update(
+                serde_json::to_vec(&(self.queue_bindings.as_ref(), self.queue_consumers.as_ref()))
+                    .expect("Queue configuration"),
+            );
+        }
         hash.finalize().into()
     }
 
     pub(in crate::application) fn has_cell_bindings(&self) -> bool {
-        !self.classes.is_empty() || !self.bindings.is_empty() || !self.sql_bindings.is_empty()
+        !self.classes.is_empty()
+            || !self.bindings.is_empty()
+            || !self.sql_bindings.is_empty()
+            || !self.queue_bindings.is_empty()
+            || !self.queue_consumers.is_empty()
     }
 
     pub(in crate::application) fn options(&self) -> WorkerConfigOptions {
@@ -215,6 +311,18 @@ impl AdmittedCellConfiguration {
                 .iter()
                 .map(|(name, class)| (name.clone(), class.clone()))
                 .collect(),
+            queue_bindings: self
+                .queue_bindings
+                .iter()
+                .map(
+                    |(environment, (queue, delivery_delay))| NativeQueueBinding {
+                        environment: environment.clone(),
+                        queue: queue.clone(),
+                        delivery_delay: *delivery_delay,
+                    },
+                )
+                .collect(),
+            queue_consumers: self.queue_consumers.values().cloned().collect(),
             sql_bindings: self
                 .sql_bindings
                 .iter()

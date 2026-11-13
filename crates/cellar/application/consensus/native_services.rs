@@ -46,3 +46,37 @@ pub(in crate::application) fn sql_service() -> Result<RaftClass, RegistrationErr
     .options("cellar-sql-service");
     Ok(class.configured_cell(&AdmittedCellConfiguration::from_options(&options)?))
 }
+
+/// Queue leases and callbacks share the broker's quorum-proven private image.
+/// The consumer remains the deployment's ordinary native Queue handler.
+pub(in crate::application) fn queue_service(
+    configuration: &AdmittedCellConfiguration,
+    handler: crate::application::Handler,
+) -> Result<RaftClass, RegistrationError> {
+    let mut class = RaftClass::queue_service()?
+        .initializer(
+            Sha256::digest(b"cellar-raft-queue-initializer-1").into(),
+            |_, _| Ok(()),
+        )?
+        .durable_callbacks()?;
+    for method in [
+        "__queueSend",
+        "__queueMetrics",
+        "__queueDlqAcceptBatch",
+        crate::application::queue::OPERATOR,
+    ] {
+        let mut hash = Sha256::new();
+        hash.update(b"cellar-raft-queue-operation-1");
+        hash.update(method);
+        class = class.cell_rpc(method, hash.finalize().into())?;
+    }
+    class = class.query(
+        super::sql_ingress_identity::OPERATION,
+        Sha256::digest(b"cellar-queue-ingress-sequence-1").into(),
+        |query, input| query.sql_ingress_sequence(input),
+    )?;
+    class = class.with_cell_factory(Arc::new(move |context, _| {
+        crate::application::queue::create_raft_cell(&context, handler.clone())
+    }))?;
+    Ok(class.configured_cell(configuration))
+}

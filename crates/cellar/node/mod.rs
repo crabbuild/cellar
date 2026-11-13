@@ -69,6 +69,7 @@ mod event_wait;
 mod ingress;
 mod maintenance;
 pub(crate) mod operations;
+mod queue_operator;
 mod raft_metrics;
 mod raft_startup;
 mod rpc_deadline;
@@ -3679,6 +3680,23 @@ async fn handle_internal(
                 .is_some_and(|(class, _)| class == crate::deploy::SQL_CLASS)
             {
                 if let Some(reply) = sql_operator::dispatch_authenticated(
+                    &app,
+                    &method,
+                    &scope,
+                    name.as_deref(),
+                    &body,
+                    deadline,
+                )
+                .await
+                {
+                    return Ok(peer_response(reply));
+                }
+            }
+            if scope
+                .split_once(':')
+                .is_some_and(|(class, _)| class == crate::deploy::QUEUE_CLASS)
+            {
+                if let Some(reply) = queue_operator::dispatch_authenticated(
                     &app,
                     &method,
                     &scope,

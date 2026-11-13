@@ -77,6 +77,7 @@ impl CellGroupController {
             || public.admission.is_poisoned()
             || public.work.snapshot().pending_events != 0
             || shared.commands.usage().1 != 0
+            || shared.callbacks.usage().1 != 0
             || shared.active_effects.load(Ordering::Acquire) != 0
             || !shared.groups.producers_quiesced()
         {
@@ -111,6 +112,7 @@ impl CellGroupController {
         }
         if shared.closing.load(Ordering::Acquire)
             || shared.commands.usage().1 != 0
+            || shared.callbacks.usage().1 != 0
             || shared.active_effects.load(Ordering::Acquire) != 0
         {
             return Err(CellGroupControllerError::Invalid(

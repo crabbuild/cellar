@@ -720,6 +720,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/payload-storage.md",
+      "title": "Immutable cell payload storage",
+      "summary": "Namespace-bound external payload publication, verified reads and retention before ordinary KV integration.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/progress.md",
       "title": "Cell-group implementation progress",
       "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",
@@ -747,6 +758,18 @@
       "path": "design/multi-raft/cell-groups/qualification.md",
       "title": "Qualification and evidence contract",
       "summary": "Failure oracles, workload profiles and evidence required for release.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/queue-durable-work.md",
+      "title": "Durable native callbacks and Queue",
+      "summary": "Generation-fenced callback discovery and ordinary Queue delivery through shared-group quorum.",
       "roles": [
         "builder",
         "platform",

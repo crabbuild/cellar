@@ -49,6 +49,12 @@ existing recovery and release dependencies rather than removing those gates.
    RustFS configurations. Preserve the earlier cold-race timeout controls; the
    passing cohort does not establish their causal performance resolution.
    Then deliver KV revision conditions, expiry, durable alarms and payloads.
+   The immutable payload storage layer at `41a19a24` passes its native and
+   canonical one-CPU RustFS protocol selections (**2/2**). This is a prerequisite:
+   ordinary KV service/ingress and invocation authority are not connected yet.
+   Full-size binding input/source-intent budgets, expiry, lifecycle/disaster
+   payload restoration and root-aware collection remain required. See the
+   [payload checkpoint](progress.md#cg-17-immutable-external-payload-publication).
    See the [SQL checkpoint](progress.md#cg-17-authenticated-sql-operator-cli-and-axum).
    The new after-child-reply interruption drill initially passes **13/16** at
    `bf19176f`; failed controls remain required. It adds commit/error/rollback and
@@ -69,8 +75,11 @@ existing recovery and release dependencies rather than removing those gates.
    See the [binding checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
    Preserve all failed controls. These basic passes do not complete a primitive
    family or its independent recovery and release matrix.
-2. Connect committed due-work discovery and fenced settlement to ordinary
-   alarms/cron, Queue, EventStream/outbox/inbox and Workflow. Pending work must
+2. Build on the [qualified callback and Queue MVP](queue-durable-work.md):
+   native/Axum real RustFS and captured CLI pass **4/4** at `efd9c4c9`. Complete
+   Queue cross-deployment, longer-callback and fault/retention/movement gates;
+   connect alarms/cron, EventStream/outbox/inbox and Workflow adapters to the same
+   shared owner. Pending work must
    resume after retained restart, movement and wake without client traffic.
 3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
    container/provider adapters with their documented publication, execution and

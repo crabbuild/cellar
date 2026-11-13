@@ -391,6 +391,7 @@ pub(super) fn startup_bounds(
     let bytes = [
         c.max_command_bytes,
         c.max_command_bytes,
+        c.max_command_bytes,
         options.max_control_bytes,
         r.max_request_bytes,
         r.max_event_bytes,

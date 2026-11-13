@@ -26,6 +26,7 @@ pub(crate) struct Resources {
     /// Installed from the admitted native definition before exposing Context.
     /// Plain registered SQL callbacks retain the default compatibility policy.
     pub(crate) delete_all_deletes_alarm: AtomicBool,
+    pub(crate) durable_callbacks: AtomicBool,
     pub(crate) provider_lifecycle: super::container_bindings::LifecycleLocks,
     pub(crate) retired: AtomicBool,
     pub(crate) source_generation: AtomicU64,
@@ -260,6 +261,28 @@ impl Storage {
         Self(Owner::Native(activation), transaction, source_generation)
     }
 
+    pub(crate) fn is_raft(&self) -> bool {
+        matches!(self.0, Owner::RaftCommand(_) | Owner::RaftQuery(_))
+    }
+
+    pub(crate) fn arm_raft_work(&self, reason: &str, at_ms: i64) -> Result<()> {
+        self.write_scope()?;
+        anyhow::ensure!(
+            self.resources().durable_callbacks.load(Ordering::Acquire),
+            consensus::CommandFailure::UnsupportedCapability
+        );
+        crate::storage::raft_native_work(|db| consensus::native_work::arm(db, reason, at_ms))
+    }
+
+    pub(crate) fn cancel_raft_work(&self, reason: &str) -> Result<()> {
+        self.write_scope()?;
+        anyhow::ensure!(
+            self.resources().durable_callbacks.load(Ordering::Acquire),
+            consensus::CommandFailure::UnsupportedCapability
+        );
+        crate::storage::raft_native_work(|db| consensus::native_work::cancel(db, reason))
+    }
+
     pub(crate) fn raft_command_authority(&self) -> Result<RaftStorageAuthority> {
         match &self.0 {
             Owner::RaftCommand(resources) => Ok(resources.clone()),
@@ -341,7 +364,7 @@ impl Storage {
     }
 
     pub(crate) fn system_sql(&self, query: &str, bindings: &[SqlValue]) -> Result<Vec<SqlRow>> {
-        crate::storage::system_sql(self.scope()?, query, bindings)
+        crate::storage::system_sql(self.write_scope()?, query, bindings)
     }
 
     /// Built-in maintenance can remove a key range without reading its values.
@@ -360,7 +383,7 @@ impl Storage {
     }
 
     pub(crate) fn system_sql_schema(&self, ddl: &str) -> Result<()> {
-        crate::storage::system_sql_schema(self.scope()?, ddl)
+        crate::storage::system_sql_schema(self.write_scope()?, ddl)
     }
 
     pub(crate) fn sql_request(
@@ -722,14 +745,24 @@ impl Storage {
     }
 
     pub fn get_alarm(&self) -> Result<Option<i64>> {
+        if self.is_raft() {
+            self.data_scope()?;
+            return crate::storage::raft_native_work(|db| consensus::native_work::get(db, "alarm"));
+        }
         Ok(crate::storage::get_alarm(self.scope()?))
     }
 
     pub fn set_alarm(&self, at_ms: i64) -> Result<()> {
+        if self.is_raft() {
+            return self.arm_raft_work("alarm", at_ms);
+        }
         crate::native_worker::set_alarm(self.scope()?, at_ms)
     }
 
     pub fn delete_alarm(&self) -> Result<()> {
+        if self.is_raft() {
+            return self.cancel_raft_work("alarm");
+        }
         let scope = self.scope()?;
         crate::storage::delete_alarm(scope)?;
         crate::native_worker::refresh_wake_gate(scope)

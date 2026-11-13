@@ -635,6 +635,11 @@ is durable. Workflow output chunks and EventStream records are durable state;
 ordinary network byte pipes are not. Fully qualified API identities prevent the
 word "stream" or "bucket" from collapsing these different contracts.
 
+The [immutable payload storage contract](payload-storage.md) specifies the
+namespace-bound publication/read-back layer and its deliberate retention of
+older references. Its protocol gates do not replace ordinary KV integration,
+complete payload recovery closure or root-aware collection qualification.
+
 Derive a feasible capability profile from the intersection of public application
 limits and actual envelope, result/receipt, private image, staging, worker,
 scheduler, archive and provider limits. Bounded profiles must accept valid
@@ -822,3 +827,18 @@ python3 -m unittest discover -s tools/perf -p 'test_*.py'
 
 Feature-specific and external consumer checks in the SDK CI workflow remain
 required. The new package runner supplements CI; it is not a substitute for it.
+
+### Durable callback and Queue implementation
+
+The [durable-work/Queue contract](queue-durable-work.md) records the shared
+native callback owner, generation claims, source checkpoints and normal Queue
+producer/consumer/operator paths. Run the scoped real-backend selection with:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite queue-primitives \
+  --backend /absolute/owned/rustfs-run --output /absolute/new/evidence-run \
+  --target-directory /absolute/checkout-private/target
+```
+
+This runner retains exact source and executable hashes. Its host-native RF3
+fixture and scoped Queue scenarios do not replace the complete CG-17 matrix.

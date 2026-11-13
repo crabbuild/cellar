@@ -77,3 +77,17 @@ fn call_obligations_schedule_recovery_and_unresolved_calls_prevent_idle() {
         .unwrap();
     assert!(read(&db, 4).is_err());
 }
+
+#[test]
+fn native_callbacks_project_independent_deadlines_and_refuse_invalid_rows() {
+    let db = rusqlite::Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE __sys_raft_native_work(due); INSERT INTO __sys_raft_native_work VALUES(5),(10);").unwrap();
+    assert_eq!(read(&db, 2).unwrap().next_due_unix_millis(), Some(5));
+    assert!(read(&db, 1).is_err());
+    db.execute("DELETE FROM __sys_raft_native_work WHERE due=5", [])
+        .unwrap();
+    assert_eq!(read(&db, 2).unwrap().next_due_unix_millis(), Some(10));
+    db.execute("UPDATE __sys_raft_native_work SET due=-1", [])
+        .unwrap();
+    assert!(read(&db, 2).is_err());
+}

@@ -5,6 +5,12 @@ use super::*;
 use tokio::sync::watch;
 
 impl CellCommandInvocation {
+    pub(crate) fn is_native_callback(&self) -> bool {
+        self.system
+            && self.request.contract.operation
+                == crate::application::consensus::native_work::OPERATION
+    }
+
     pub(crate) fn controller_admission(
         &self,
         domain: &DomainToken,

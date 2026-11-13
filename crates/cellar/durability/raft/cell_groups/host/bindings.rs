@@ -9,6 +9,7 @@ use crate::application::cell_bindings::{Host, Route};
 enum Access {
     Binding,
     SqlOperator,
+    QueueOperator,
 }
 
 impl CellGroupHost {
@@ -71,7 +72,56 @@ impl CellGroupHost {
         method: &str,
         log: &crate::raft::storage::ReplicaLog,
     ) -> Result<Route, CellDispatchError> {
-        self.sql_route(scope, method, log, Access::Binding)
+        let class = scope
+            .split_once(':')
+            .map(|(class, _)| class)
+            .ok_or(CellDispatchError::Invalid("builtin binding scope"))?;
+        if class == crate::deploy::SQL_CLASS {
+            return self.sql_route(scope, method, log, Access::Binding);
+        }
+        if class != crate::deploy::QUEUE_CLASS {
+            return Err(CellDispatchError::Invalid("builtin binding class"));
+        }
+        self.queue_route(scope, method, log, Access::Binding)
+    }
+
+    pub(crate) fn queue_operator_route(
+        &self,
+        scope: &str,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.queue_route(
+            scope,
+            crate::application::queue::OPERATOR,
+            log,
+            Access::QueueOperator,
+        )
+    }
+
+    fn queue_route(
+        &self,
+        scope: &str,
+        method: &str,
+        log: &crate::raft::storage::ReplicaLog,
+        access: Access,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let mut services = self
+            .inner
+            .namespaces
+            .iter()
+            .filter(|(_, binding)| binding.class.name() == crate::deploy::QUEUE_CLASS);
+        let (key, target) = services.next().ok_or(CellDispatchError::Invalid(
+            "declared Queue namespace is missing",
+        ))?;
+        if services.next().is_some() {
+            return Err(CellDispatchError::Invalid(
+                "declared Queue namespace is ambiguous",
+            ));
+        }
+        let mut route = route(*key, target, scope, method, access)?;
+        route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
+        Ok(route)
     }
 
     pub(crate) fn sql_operator_route(
@@ -132,6 +182,7 @@ fn route(
     let contract = match access {
         Access::Binding => target.class.binding_contract(method),
         Access::SqlOperator => target.class.sql_operator_contract(),
+        Access::QueueOperator => target.class.queue_operator_contract(),
     }
     .ok_or_else(|| {
         CellDispatchError::Registration(RegistrationError::UnknownOperation(method.into()))

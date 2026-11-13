@@ -170,6 +170,17 @@ SUITES = {
         "must emit all four completed configurations. Target S3 minimum, cross-class "
         "selection, concurrent creation, movement/disaster and full CG-17 remain open.",
     ),
+    "immutable-payloads": (
+        "raft_cell_group_payloads",
+        ("rustfs_immutable_payloads_confirm_bytes_and_preserve_old_recovery_cuts",),
+        "namespace-bound immutable external payload publication and verified reads",
+        "Data protocol only; no Raft voters or ordinary KV bindings are launched. "
+        "Real conditional creation, lost PUT replies, concurrent publishers, cold reopen, "
+        "old/new cell incarnations, corruption, body deadlines, cancellation and "
+        "shared operation/retained-byte admission are checked. "
+        "Objects are retained without deletion. Root-aware reclamation, fenced KV row "
+        "publication and combined lifecycle/disaster recovery remain separate gates.",
+    ),
     "ordinary-sql-bindings": (
         "native_cell_groups_primitives",
         (
@@ -186,6 +197,16 @@ SUITES = {
         "parent completion, with Quorum/S3 sources and a Quorum destination minimum. "
         "Original deadlines and quotas remain unchanged. Target-S3, before-child-completion, "
         "movement/wake/archive/disaster, independent voters and sustained load remain separate gates.",
+    ),
+    "queue-primitives": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_queue_callbacks_use_shared_quorum", "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum"),
+        "ordinary Queue producer/callback/settlement through shared RF3 with real RustFS",
+        "Both image modes, one SQL worker per node, native public ingress, declared bindings, "
+        "ack/retry/dead-letter delivery, authenticated Queue operator controls, exact producer replay, "
+        "archive-write refusal, joined retained restart and autonomous interrupted-consumer recovery, "
+        "leader transfer and quorum-loss refusal. Voters share the host process; complete CG-17 "
+        "conformance, cross-deployment catalogs, Linux voter limits, load and disk-loss recovery remain separate gates.",
     ),
     "ordinary-primitives": (
         "native_cell_groups_primitives",
@@ -909,7 +930,9 @@ def main():
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(args.suite), "backend": remote, "prefix": prefix, "commands": [],
         "keep_going": args.keep_going, "passed_cases": [], "failed_cases": [],
-        "limitations": ("Host-native three-voter TLS fixture, both image forms, with RustFS in one local VM. "
+        "limitations": (("Payload data protocol with RustFS in one local VM; no Raft voters or image fixtures. "
+                         if args.suite == "immutable-payloads" else
+                         "Host-native three-voter TLS fixture, both image forms, with RustFS in one local VM. ")
                         + limitations + " Independent hosts remain a separate gate."),
     }
 
@@ -950,7 +973,7 @@ def main():
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_BUILD_JOBS", "CARGO_TERM_COLOR",
             )
         }
-        if args.suite == "ordinary-sql-bindings":
+        if args.suite in ("ordinary-sql-bindings", "immutable-payloads"):
             record["test_profile"] = {key: env[key] for key in (
                 "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
@@ -993,7 +1016,8 @@ def main():
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
             if args.suite in (
-                "managed-ingress", "managed-lifecycle", "ordinary-sql-bindings", *ROUTING_SUITES
+                "managed-ingress", "managed-lifecycle", "ordinary-sql-bindings",
+                "queue-primitives", *ROUTING_SUITES
             ) and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
@@ -1008,6 +1032,8 @@ def main():
                 env["CELLAR_RAFT_OPERATOR_CLI"] = str(operator_cli)
                 if args.suite == "ordinary-sql-bindings":
                     env["CELLAR_CELL_GROUPS_SQL_CLI"] = str(operator_cli)
+                if args.suite == "queue-primitives":
+                    env["CELLAR_CELL_GROUPS_QUEUE_CLI"] = str(operator_cli)
             if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry"):
                 current_operator = executable.parent.parent / "cellar-perf-cell-group" if match else None
                 if current_operator is None or not current_operator.is_file():
@@ -1095,7 +1121,8 @@ def main():
     finally:
         save()
     print(json.dumps({"record": str(out / "record.json"), "status": record["status"],
-                      "rustfs_cases": len(cases)}), flush=True)
+                      "rustfs_cases": len(cases),
+                      "image_modes_per_case": 0 if args.suite == "immutable-payloads" else 2}), flush=True)
 
 
 if __name__ == "__main__":

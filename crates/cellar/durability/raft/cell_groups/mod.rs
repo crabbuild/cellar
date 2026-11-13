@@ -74,6 +74,12 @@ pub use host::{
 };
 
 mod effect_index;
+mod payload;
+pub use payload::{
+    CellGroupPayloadBytes, CellGroupPayloadError, CellGroupPayloadLimits, CellGroupPayloadPool,
+    CellGroupPayloadReference, CellGroupPayloadStore, CellGroupPayloadUsage,
+    PublishedCellGroupPayload,
+};
 mod execution_authority;
 pub(crate) mod member_reclaim;
 pub(crate) mod source_reclaim;

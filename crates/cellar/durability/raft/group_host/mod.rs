@@ -569,10 +569,9 @@ pub(crate) async fn start(
                 let effect_options = options
                     .effects
                     .or_else(|| {
-                        namespace
-                            .class
-                            .has_binding_maintenance()
-                            .then(crate::raft::effects::RaftEffectOptions::default)
+                        (namespace.class.has_binding_maintenance()
+                            || namespace.class.has_native_callbacks())
+                        .then(crate::raft::effects::RaftEffectOptions::default)
                     })
                     .ok_or_else(|| anyhow::anyhow!("effects require a scheduler"))?;
                 effect_options.validate(&options)?;

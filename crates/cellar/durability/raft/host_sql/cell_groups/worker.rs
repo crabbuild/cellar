@@ -34,7 +34,7 @@ impl Stage {
     fn is_cell_rpc(&self) -> bool {
         matches!(
             &self.callback,
-            Callback::Registered { class, system: false, .. }
+            Callback::Registered { class, .. }
                 if class.is_cell_rpc(&self.attempt.request.operation)
         )
     }

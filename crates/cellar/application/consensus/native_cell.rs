@@ -20,10 +20,12 @@ pub(crate) struct NativeCellFactory {
     vars: Arc<std::collections::HashMap<String, String>>,
     config: Arc<WorkerConfig>,
     identity: Arc<()>,
+    callbacks: bool,
 }
 
 pub(super) enum CellRpcMethod<'a> {
     Json(&'a str),
+    Work,
     Owned { method: &'a str, json_only: bool },
 }
 
@@ -48,6 +50,7 @@ pub(super) struct CellRpcFactory {
     configuration: Option<[u8; 32]>,
     binding_classes: std::collections::BTreeSet<String>,
     sql_scopes: std::collections::BTreeSet<String>,
+    queue_scopes: std::collections::BTreeSet<String>,
     configure: Arc<ConfigureCellFactory>,
 }
 
@@ -68,7 +71,9 @@ impl CellRpcFactory {
         let Some((class, _)) = scope.split_once(':') else {
             return false;
         };
-        if class == crate::deploy::SQL_CLASS {
+        if class == crate::deploy::QUEUE_CLASS {
+            self.queue_scopes.contains(scope)
+        } else if class == crate::deploy::SQL_CLASS {
             self.sql_scopes.contains(scope)
         } else {
             self.binding_classes.contains(class)
@@ -183,14 +188,15 @@ impl Drop for NativeActivation {
 }
 
 impl NativeCellFactory {
-    pub(super) fn bind(class: &str, factory: Factory) -> Arc<CellRpcFactory> {
-        Self::bind_configuration(class, factory, None)
+    pub(super) fn bind(class: &str, factory: Factory, callbacks: bool) -> Arc<CellRpcFactory> {
+        Self::bind_configuration(class, factory, None, callbacks)
     }
 
     fn bind_configuration(
         class: &str,
         factory: Factory,
         declared: Option<&AdmittedCellConfiguration>,
+        callbacks: bool,
     ) -> Arc<CellRpcFactory> {
         let options = declared.map_or_else(
             || super::NativeCellConfiguration::default().options(class),
@@ -206,6 +212,22 @@ impl NativeCellFactory {
         if !options.sql_bindings.is_empty() {
             binding_classes.insert(crate::deploy::SQL_CLASS.into());
         }
+        if !options.queue_bindings.is_empty() || !options.queue_consumers.is_empty() {
+            binding_classes.insert(crate::deploy::QUEUE_CLASS.into());
+        }
+        let queue_scopes = options
+            .queue_bindings
+            .iter()
+            .map(|b| b.queue.as_str())
+            .chain(options.queue_consumers.iter().map(|c| c.queue.as_str()))
+            .chain(
+                options
+                    .queue_consumers
+                    .iter()
+                    .filter_map(|c| c.dead_letter_queue.as_deref()),
+            )
+            .map(crate::engine_api::queue_cell_scope)
+            .collect();
         let sql_scopes = options
             .sql_bindings
             .iter()
@@ -221,14 +243,21 @@ impl NativeCellFactory {
             vars,
             config: Arc::new(config),
             identity: identity.clone(),
+            callbacks,
         });
         Arc::new(CellRpcFactory {
             identity,
             configuration: declared.map(AdmittedCellConfiguration::digest),
             binding_classes,
             sql_scopes,
+            queue_scopes,
             configure: Arc::new(move |config| {
-                Self::bind_configuration(&compiled_class, compiled_factory.clone(), Some(config))
+                Self::bind_configuration(
+                    &compiled_class,
+                    compiled_factory.clone(),
+                    Some(config),
+                    callbacks,
+                )
             }),
             handler: Arc::new(move |cell, epoch, method, input, transaction, activation| {
                 owner.start(cell, epoch, method, input, transaction, activation)
@@ -250,6 +279,26 @@ impl NativeCellFactory {
         activation: &mut Option<CellRpcActivation>,
     ) -> Result<HandlerFuture<Vec<u8>>> {
         let owned_wire = matches!(method, CellRpcMethod::Owned { .. });
+        let work = if matches!(method, CellRpcMethod::Work) {
+            anyhow::ensure!(self.callbacks, CommandFailure::UnsupportedCapability);
+            anyhow::ensure!(input.len() <= 1024, CommandFailure::Overloaded);
+            let work: super::native_work::Work = serde_json::from_slice(input)?;
+            anyhow::ensure!(
+                work.reason == "alarm"
+                    || (work.reason == "queue" && self.class == crate::deploy::QUEUE_CLASS),
+                CommandFailure::UnsupportedCapability
+            );
+            if !super::native_work::claim(
+                &*transaction.framework()?,
+                &work,
+                transaction.inputs().now_unix_millis,
+            )? {
+                return Ok(Box::pin(async { Ok(vec![0]) }));
+            }
+            Some(work)
+        } else {
+            None
+        };
         let (operation, args, incoming_name) = match method {
             CellRpcMethod::Owned { method, json_only } => {
                 let request = super::native_rpc::decode_request(input)?;
@@ -265,6 +314,7 @@ impl NativeCellFactory {
                 );
                 (method, request.args, request.name)
             }
+            CellRpcMethod::Work => ("", RpcData::Json("null".into()), None),
             CellRpcMethod::Json(operation) => {
                 let json = std::str::from_utf8(input)?;
                 serde_json::from_str::<serde::de::IgnoredAny>(json)?;
@@ -278,6 +328,8 @@ impl NativeCellFactory {
         if !self.config.bindings.is_empty()
             || !self.config.do_classes.is_empty()
             || !self.config.sql_bindings.is_empty()
+            || !self.config.queue_bindings.is_empty()
+            || !self.config.queue_consumers.is_empty()
         {
             crate::storage::raft_bindings::install(&*transaction.framework()?)?;
         }
@@ -302,7 +354,7 @@ impl NativeCellFactory {
                 "Raft activation factory or storage changed"
             );
         } else {
-            let context = self.context(identity.clone(), authority.activation());
+            let context = self.context(identity.clone(), authority.activation())?;
             let instance = (self.factory)(context, &identity)?;
             *activation = Some(CellRpcActivation(Arc::new(NativeActivation {
                 owner: self.identity.clone(),
@@ -310,18 +362,35 @@ impl NativeCellFactory {
                 resources: authority.resources.clone(),
             })));
         }
-        let context = self.context(identity, authority);
-        let invocation = Invocation::CellRpc {
-            method: operation.to_owned(),
-            args,
+        let context = self.context(identity, authority)?;
+        let invocation = match &work {
+            Some(work) => Invocation::Alarm {
+                scheduled_ms: i64::try_from(work.due)?,
+            },
+            None => Invocation::CellRpc {
+                method: operation.to_owned(),
+                args,
+            },
         };
-        let future = activation
+        let instance = activation
             .as_ref()
             .ok_or(CommandFailure::Unavailable)?
-            .0
-            .invoke(context, invocation)?;
+            .clone();
+        let storage = context.storage()?;
         Ok(Box::pin(async move {
-            let Output::Rpc(result) = future.await? else {
+            if let Some(work) = work {
+                // No callback entry until the exact claim survives quorum (and
+                // any stronger namespace minimum). A crash retains retry work.
+                storage.sync().await?;
+                let result = instance.0.invoke(context, invocation)?.await?;
+                anyhow::ensure!(
+                    matches!(result, Output::Done),
+                    CommandFailure::UnsupportedCapability
+                );
+                crate::storage::raft_native_work(|db| super::native_work::complete(db, &work))?;
+                return Ok(vec![1]);
+            }
+            let Output::Rpc(result) = instance.0.invoke(context, invocation)?.await? else {
                 anyhow::bail!(CommandFailure::UnsupportedCapability);
             };
             if owned_wire {
@@ -340,12 +409,16 @@ impl NativeCellFactory {
         &self,
         identity: CellIdentity,
         storage: crate::application::storage::RaftStorageAuthority,
-    ) -> Context {
+    ) -> Result<Context> {
+        storage
+            .resources
+            .durable_callbacks
+            .store(self.callbacks, std::sync::atomic::Ordering::Release);
         storage.resources.delete_all_deletes_alarm.store(
             self.config.compat.delete_all_deletes_alarm,
             std::sync::atomic::Ordering::Release,
         );
-        Context {
+        Ok(Context {
             raft_storage: Some(storage),
             container_supervision: None,
             rpc_catalog: None,
@@ -360,15 +433,36 @@ impl NativeCellFactory {
             vars: self.vars.clone(),
             sql_bindings: Arc::new(self.config.sql_bindings.iter().cloned().collect()),
             kv_bindings: Arc::default(),
-            queue_bindings: Arc::default(),
+            queue_bindings: Arc::new(
+                self.config
+                    .queue_bindings
+                    .iter()
+                    .map(|b| {
+                        (
+                            b.environment.clone(),
+                            crate::application::queue::Producer::new(
+                                b.queue.clone(),
+                                b.delivery_delay,
+                                self.config.compat.queue_json_messages,
+                            ),
+                        )
+                    })
+                    .collect(),
+            ),
             workflow_bindings: Arc::default(),
             blob_bindings: Arc::default(),
             asset_binding: None,
-            queue_config: None,
+            queue_config: if self.class == crate::deploy::QUEUE_CLASS {
+                Some(Arc::new(serde_json::from_value(
+                    crate::queue_policy::consumer_config(&self.config)?,
+                )?))
+            } else {
+                None
+            },
             generation: self.config.generation,
             worker_config: self.config.clone(),
             loader_owner: None,
             loaded_environment: None,
-        }
+        })
     }
 }

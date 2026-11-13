@@ -3741,42 +3741,49 @@ pub(crate) fn system_sql(
     use cellar_native::sql::Value;
     use rusqlite::types::{Value as SqliteValue, ValueRef};
     with_application_storage_write(scope, |connection| {
-        let bindings = bindings.iter().map(|value| match value {
-            Value::Null => SqliteValue::Null,
-            Value::Integer(value) => SqliteValue::Integer(*value),
-            Value::Real(value) => SqliteValue::Real(*value),
-            Value::Text(value) => SqliteValue::Text(value.clone()),
-            Value::Blob(value) => SqliteValue::Blob(value.clone()),
-        });
-        let mut statement = connection.prepare_cached(query)?;
-        let columns: Vec<String> = statement
-            .column_names()
-            .iter()
-            .map(|name| name.to_string())
-            .collect();
-        let mut rows = statement.query(rusqlite::params_from_iter(bindings))?;
-        let mut result = Vec::new();
-        while let Some(row) = rows.next()? {
-            let mut values = crate::application::storage::SqlRow::new();
-            for (index, column) in columns.iter().enumerate() {
-                let value = match row.get_ref(index)? {
-                    ValueRef::Null => Value::Null,
-                    ValueRef::Integer(value) => Value::Integer(value),
-                    ValueRef::Real(value) => Value::Real(value),
-                    ValueRef::Text(value) => {
-                        Value::Text(String::from_utf8_lossy(value).into_owned())
-                    }
-                    ValueRef::Blob(value) => Value::Blob(value.to_vec()),
-                };
-                values.insert(column.clone(), value);
+        as_framework_sql(|| {
+            let bindings = bindings.iter().map(|value| match value {
+                Value::Null => SqliteValue::Null,
+                Value::Integer(value) => SqliteValue::Integer(*value),
+                Value::Real(value) => SqliteValue::Real(*value),
+                Value::Text(value) => SqliteValue::Text(value.clone()),
+                Value::Blob(value) => SqliteValue::Blob(value.clone()),
+            });
+            let mut statement = connection.prepare_cached(query)?;
+            let columns: Vec<String> = statement
+                .column_names()
+                .iter()
+                .map(|name| name.to_string())
+                .collect();
+            let mut rows = statement.query(rusqlite::params_from_iter(bindings))?;
+            let mut result = Vec::new();
+            while let Some(row) = rows.next()? {
+                let mut values = crate::application::storage::SqlRow::new();
+                for (index, column) in columns.iter().enumerate() {
+                    let value = match row.get_ref(index)? {
+                        ValueRef::Null => Value::Null,
+                        ValueRef::Integer(value) => Value::Integer(value),
+                        ValueRef::Real(value) => Value::Real(value),
+                        ValueRef::Text(value) => {
+                            Value::Text(String::from_utf8_lossy(value).into_owned())
+                        }
+                        ValueRef::Blob(value) => Value::Blob(value.to_vec()),
+                    };
+                    values.insert(column.clone(), value);
+                }
+                result.push(values);
             }
-            result.push(values);
-        }
-        Ok(result)
+            Ok(result)
+        })
     })
 }
 
 pub(crate) fn system_sql_schema(scope: &str, ddl: &str) -> anyhow::Result<()> {
+    if scope == RAFT_STORAGE_SCOPE {
+        return with_application_storage_write(scope, |connection| {
+            as_framework_sql(|| connection.execute_batch(ddl).map_err(Into::into))
+        });
+    }
     with_application_storage_write(scope, |connection| {
         without_sql_authorizer(connection, || {
             let transaction = rusqlite::Transaction::new_unchecked(
@@ -4894,4 +4901,13 @@ mod system_schema_tests {
         close(scope);
         Ok(())
     }
+}
+
+/// Fixed framework work metadata under the currently installed private command.
+pub(crate) fn raft_native_work<T>(
+    callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    with_application_storage_write(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| callback(connection))
+    })
 }

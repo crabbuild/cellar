@@ -445,6 +445,10 @@ impl NativeWorker {
                 .application
                 .resolve_raft_class(crate::deploy::SQL_CLASS)
                 .is_ok(),
+            raft_queue: self
+                .application
+                .resolve_raft_class(crate::deploy::QUEUE_CLASS)
+                .is_ok(),
             ..Default::default()
         });
         io.native_event
@@ -1952,16 +1956,18 @@ pub(crate) fn storage_sync(scope: &str) -> HandlerFuture<()> {
 }
 
 fn check_fleet_sql(context: &Context, scope: &str) -> Result<()> {
-    // Shared reserved classes retain the first co-hosted script's ordinary
-    // config. Refuse at the source too: its SQL declaration cannot be weakened
-    // by another script owning that global Fleet identity.
+    let class = scope.split_once(':').map(|(class, _)| class);
+    let shared = match class {
+        Some(crate::deploy::SQL_CLASS) => context.state.raft_sql || context.raft_storage.is_some(),
+        Some(crate::deploy::QUEUE_CLASS) => {
+            context.state.raft_queue || context.raft_storage.is_some()
+        }
+        _ => false,
+    };
     anyhow::ensure!(
-        !((context.state.raft_sql || context.raft_storage.is_some())
-            && scope
-                .split_once(':')
-                .is_some_and(|(class, _)| class == crate::deploy::SQL_CLASS)),
+        !shared,
         crate::application::consensus::RegistrationError::WrongMode {
-            class: crate::deploy::SQL_CLASS.into(),
+            class: class.unwrap_or_default().into(),
             mode: cellar_logic::NamespaceMode::Fleet,
         }
     );
@@ -2066,11 +2072,11 @@ pub(crate) fn rpc_cell(
             context, scope, name, method, args, call_scope,
         );
     }
-    if context.state.raft_sql
-        && context.identity().is_none()
-        && scope
-            .split_once(':')
-            .is_some_and(|(class, _)| class == crate::deploy::SQL_CLASS)
+    if context.identity().is_none()
+        && scope.split_once(':').is_some_and(|(class, _)| {
+            (class == crate::deploy::SQL_CLASS && context.state.raft_sql)
+                || (class == crate::deploy::QUEUE_CLASS && context.state.raft_queue)
+        })
     {
         return crate::application::sql::ingress::rpc(
             context, scope, name, method, args, call_scope,

@@ -359,6 +359,7 @@ enum CommandHandler {
     Registered(Arc<CommandCallback>),
     JsonCellRpc,
     NativeCellRpc { method: String, json_only: bool },
+    NativeWork,
 }
 
 pub(crate) struct CommandTarget<'a> {
@@ -418,6 +419,14 @@ impl RaftClass {
             crate::deploy::SQL_CLASS.into(),
             1,
             Sha256::digest(b"cellar-raft-sql-service-operator-1").into(),
+        )
+    }
+
+    pub(super) fn queue_service() -> Result<Self, RegistrationError> {
+        Self::definition(
+            crate::deploy::QUEUE_CLASS.into(),
+            1,
+            Sha256::digest(b"cellar-raft-queue-service-1").into(),
         )
     }
 
@@ -623,6 +632,15 @@ impl RaftClass {
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
         self.validate_cell_factory()?;
+        if self.has_native_callbacks() {
+            anyhow::ensure!(
+                host.execution.max_pending_transactions > 0
+                    && host.max_input_bytes >= 1024
+                    && host.execution.max_client_identities >= 2
+                    && host.execution.max_retained_receipts >= 2,
+                "durable callbacks require checkpoint and receipt capacity"
+            );
+        }
         if let Some(outbox) = &self.outbox {
             anyhow::ensure!(host.effects.is_some_and(|options|options.metadata_bytes>=512*1024)
                 && host.max_input_bytes>=32*1024
@@ -728,6 +746,29 @@ impl RaftClass {
         Ok(self)
     }
 
+    /// Enable ordinary durable Alarm callbacks on the shared scheduler. Queue
+    /// services use this same kernel. Hosts install bounded scheduler defaults;
+    /// configure `RaftEffectOptions` to tune them.
+    /// Callbacks are at least once after interrupted execution; external effects
+    /// require application idempotency. Followers apply bytes, never callbacks.
+    pub fn durable_callbacks(mut self) -> Result<Self, RegistrationError> {
+        if self
+            .system_commands
+            .contains_key(super::native_work::OPERATION)
+        {
+            return Err(RegistrationError::Invalid("duplicate durable callbacks"));
+        }
+        self.system_commands.insert(
+            super::native_work::OPERATION.into(),
+            Command {
+                digest: Sha256::digest(b"cellar-native-work-callback-1").into(),
+                handler: CommandHandler::NativeWork,
+            },
+        );
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
     /// Route owned JSON or structured RPC values through the ordinary cell.
     /// Leased capabilities require their separate session adapter.
     pub fn cell_rpc(
@@ -752,8 +793,10 @@ impl RaftClass {
     }
 
     pub(crate) fn binding_contract(&self, operation: &str) -> Option<OperationContract> {
-        if self.name == crate::deploy::SQL_CLASS
-            && operation == crate::application::sql::operator::METHOD
+        if (self.name == crate::deploy::SQL_CLASS
+            && operation == crate::application::sql::operator::METHOD)
+            || (self.name == crate::deploy::QUEUE_CLASS
+                && operation == crate::application::queue::OPERATOR)
         {
             return None;
         }
@@ -763,7 +806,7 @@ impl RaftClass {
             CommandHandler::JsonCellRpc => {
                 self.contract(&super::native_rpc::binding_operation(operation))
             }
-            CommandHandler::Registered(_) => None,
+            CommandHandler::Registered(_) | CommandHandler::NativeWork => None,
         }
     }
 
@@ -773,11 +816,17 @@ impl RaftClass {
             .flatten()
     }
 
+    pub(crate) fn queue_operator_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::QUEUE_CLASS)
+            .then(|| self.contract(crate::application::queue::OPERATOR))
+            .flatten()
+    }
+
     pub(crate) fn binding_json_only(&self, operation: &str) -> Option<bool> {
         match &self.commands.get(operation)?.handler {
             CommandHandler::JsonCellRpc => Some(true),
             CommandHandler::NativeCellRpc { json_only, .. } => Some(*json_only),
-            CommandHandler::Registered(_) => None,
+            CommandHandler::Registered(_) | CommandHandler::NativeWork => None,
         }
     }
 
@@ -811,7 +860,12 @@ impl RaftClass {
         if self.cell_factory.is_some() || !self.uses_cell_factory() {
             return Err(RegistrationError::Invalid("Raft cell factory registration"));
         }
-        self.cell_factory = Some(NativeCellFactory::bind(&self.name, factory));
+        self.cell_factory = Some(NativeCellFactory::bind(
+            &self.name,
+            factory,
+            self.system_commands
+                .contains_key(super::native_work::OPERATION),
+        ));
         Ok(self)
     }
 
@@ -888,21 +942,31 @@ impl RaftClass {
     }
 
     fn uses_cell_factory(&self) -> bool {
-        self.commands.values().any(|command| {
-            matches!(
-                command.handler,
-                CommandHandler::JsonCellRpc | CommandHandler::NativeCellRpc { .. }
-            )
-        })
+        self.commands
+            .values()
+            .chain(self.system_commands.values())
+            .any(|command| {
+                matches!(
+                    command.handler,
+                    CommandHandler::JsonCellRpc
+                        | CommandHandler::NativeCellRpc { .. }
+                        | CommandHandler::NativeWork
+                )
+            })
     }
 
     pub(crate) fn is_cell_rpc(&self, operation: &str) -> bool {
-        self.commands.get(operation).is_some_and(|command| {
-            matches!(
-                command.handler,
-                CommandHandler::JsonCellRpc | CommandHandler::NativeCellRpc { .. }
-            )
-        })
+        self.commands
+            .get(operation)
+            .or_else(|| self.system_commands.get(operation))
+            .is_some_and(|command| {
+                matches!(
+                    command.handler,
+                    CommandHandler::JsonCellRpc
+                        | CommandHandler::NativeCellRpc { .. }
+                        | CommandHandler::NativeWork
+                )
+            })
     }
 
     pub(crate) fn start_cell_rpc(
@@ -913,7 +977,11 @@ impl RaftClass {
         transaction: &CommandTransaction<'_>,
         activation: &mut Option<CellRpcActivation>,
     ) -> anyhow::Result<HandlerFuture<Vec<u8>>> {
-        self.validate_operation(contract)?;
+        if contract.operation == super::native_work::OPERATION {
+            self.validate_system_operation(contract)?;
+        } else {
+            self.validate_operation(contract)?;
+        }
         anyhow::ensure!(
             self.is_cell_rpc(&contract.operation),
             RegistrationError::KindMismatch
@@ -929,6 +997,7 @@ impl RaftClass {
         let method = match &self
             .commands
             .get(&contract.operation)
+            .or_else(|| self.system_commands.get(&contract.operation))
             .ok_or(RegistrationError::KindMismatch)?
             .handler
         {
@@ -937,6 +1006,7 @@ impl RaftClass {
                 method,
                 json_only: *json_only,
             },
+            CommandHandler::NativeWork => CellRpcMethod::Work,
             CommandHandler::Registered(_) => return Err(RegistrationError::KindMismatch.into()),
         };
         factory.start(target.cell, epoch, method, input, transaction, activation)
@@ -1016,13 +1086,19 @@ impl RaftClass {
         input: &[u8],
     ) -> anyhow::Result<()> {
         let ingress = id.client == super::sql_ingress_identity::client();
-        if (self.name == crate::deploy::SQL_CLASS && ingress)
+        if (matches!(
+            self.name.as_str(),
+            crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS
+        ) && ingress)
             || (self.is_cell_rpc(&contract.operation)
                 && super::native_rpc::has_ingress_nonce(input))
         {
             anyhow::ensure!(
                 ingress
-                    && self.name == crate::deploy::SQL_CLASS
+                    && matches!(
+                        self.name.as_str(),
+                        crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS
+                    )
                     && self.is_cell_rpc(&contract.operation)
                     && super::native_rpc::has_ingress_nonce(input),
                 super::CommandFailure::UnsupportedCapability
@@ -1146,6 +1222,11 @@ impl RaftClass {
 
     /// Bindings require the shared recovery owner even without user effects.
     /// Target retirement itself is invoked by the claiming source owner.
+    pub(crate) fn has_native_callbacks(&self) -> bool {
+        self.system_commands
+            .contains_key(super::native_work::OPERATION)
+    }
+
     pub(crate) fn has_scheduled_work(&self) -> bool {
         !self.system_commands.is_empty() || self.has_binding_maintenance()
     }

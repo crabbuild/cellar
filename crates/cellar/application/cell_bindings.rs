@@ -330,7 +330,15 @@ pub(crate) fn rpc(
         let observed = selected.clone();
         let command = Arc::new(Mutex::new(None));
         let observed_command = command.clone();
-        let storage = context.storage()?;
+        // Stateless durable callbacks retain internal source authority without
+        // exposing the broker's Storage capability to application code.
+        let storage = Storage::raft_command(
+            context
+                .raft_storage
+                .as_ref()
+                .ok_or(CommandFailure::UnsupportedCapability)?
+                .clone(),
+        );
         let action = dispatch.clone();
         let action_source = source.clone();
         let (identity, call) = crate::storage::raft_bindings::prepare(
