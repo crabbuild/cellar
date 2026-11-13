@@ -82,12 +82,16 @@ The scenario exercises public native/Axum ingress, the actual Queue CLI, declare
 acknowledgement, retry, dead letters, authenticated controls, an injected archive
 write outage, retained restart without a new producer request, leader transfer,
 exact original request replay and quorum-loss refusal. Kernel unit tests cover
-generation replacement, expired attempts and rollback. Test results must be
-recorded before treating any of these scenarios as qualified.
+generation replacement, expired attempts and rollback. At `efd9c4c9`, the native
+and Axum RustFS cases pass in both image modes (**4/4**), including the actual
+captured CLI and direct stateless public refusal after quorum loss. The existing
+Fleet Queue regression and focused strict Clippy pass. See the
+[source-pinned results](progress.md#cg-17-durable-callbacks-and-queue-mvp).
 
 These selections do not complete CG-17 or its independent coverage matrix.
 EventStream, Workflow, cron and the other framework work reasons still require
-their own callback adapters. Cross-deployment Queue consumer catalogs, deployment
-removal, clock-discontinuity faults, all-voter-disk-loss recovery and independent
+their own callback adapters. Cross-deployment Queue consumer catalogs, longer consumer execution, deployment
+removal, lost DLQ replies across groups, active-delivery purge, retention and
+clock-discontinuity faults, all-voter-disk-loss recovery and independent
 Linux voter resource/load qualification remain separate gates. A real RustFS
 backend with host-native RF3 voters is not an independent-host resilience result.

@@ -173,30 +173,60 @@ Next close those SQL gates, then deliver grouped KV revisions, expiry, alarms an
 payload ownership. The earlier generic binding **8/8** and interrupted-binding
 **8/8** results retain source `d1f8535f`; they were not rerun for this SQL cohort.
 
-## CG-17 durable callback and Queue candidate
+## CG-17 durable callbacks and Queue MVP
 
-CG17-04/06 now have a [shared callback and Queue implementation](queue-durable-work.md)
-on the isolated Queue branch. It adds generation-specific committed discovery,
-private checkpointable callback commands, ordinary Queue producer/consumer
-bindings, stateless native ingress and authenticated operator routing. Consumer
-Context remains stateless and cannot access broker Storage. Interrupted work
-retains its retry/lease deadlines across retained startup.
+Source `efd9c4c9` integrates the shared callback/Queue adapter with the qualified
+immutable-payload groundwork through `41a19a24`. It delivers ordinary Queue
+producers and consumers on shared RF3, using generation-fenced work discovery,
+quorum-proven claims, message leases, exact settlement and autonomous retained
+restart. Consumer Context remains stateless: public broker Storage is refused;
+its declared bindings retain private source-intent authority.
 
-The owning native/RustFS RF3 drill and the `queue-primitives` evidence runner are
-implemented. Qualification is pending; this candidate does not mark a CG-17
-case or primitive family accepted. Earlier candidate builds exposed a private
-helper reference and a fetch-result type inference error; the new harness also
-had to propagate both execution-domain result layers. Those failures supply no
-passing runtime evidence.
+| Scoped gate | Result |
+| --- | --- |
+| Native ingress, real RustFS, materialized and extent images | **2/2 pass** |
+| Axum-owned ingress, real RustFS, materialized and extent images | **2/2 pass** |
+| Actual captured `cellar queue` CLI | **4/4 configurations pass** |
+| Existing Fleet Queue grouping/lease/settlement/transfer regression | **1 test passes** |
+| Kernel/ownership and callback admission/projection controls | **22 unit checks pass** |
 
-Subsequent native runs exposed three delivery defects: stateless consumer
-bindings requested public broker Storage, callbacks consumed ordinary child
-admission, and interrupted leases inherited Fleet's five-minute handler budget.
-The candidate now retains private source-intent authority, reserves one bounded
-callback slot independently of ordinary commands, and derives Queue leases from
-the admitted callback deadline plus settlement. A callback leases one batch,
-so a stalled handler cannot consume attempts for unentered batches. These fixes
-require the complete native and real-RustFS cohort before acceptance.
+Each complete RustFS configuration covers enqueue/batch, exact producer-command
+replay, acknowledgement, retry, delayed visibility, DLQ transfer/redrive/purge,
+authenticated controls, observed archive-write refusal, retained RF3 restart,
+autonomous interrupted-consumer redelivery, retired event handles, confirmed
+Queue group leader transfer, and quorum refusal through both source-cell and
+stateless public producer paths. The archive fault wrapper refuses selected
+PUTs over real RustFS; it does not stop the RustFS service.
+
+The fixes keep stateless source-intent access private, give callbacks one
+separately bounded admission slot, and size Queue leases from the actual Raft
+callback deadline plus settlement. A callback leases one batch so a stalled
+handler cannot spend attempts for batches it never entered. Ordinary command
+capacity stays unchanged; startup bounds, metrics and quiescence account the
+additional callback slot. The operator preserves the CLI's result envelope and
+unknown-outcome refusal.
+
+The combined-source `queue-primitives` campaign retains source inputs, protocol
+probe, frozen executable/CLI and logs under
+`/Volumes/Workspace/crabbuild-target/cellar-queue-rustfs-qualification-03-combined`.
+Executable SHA-256 is
+`d3322a84ee2c8ad7679ab92f2a0a7ea2ad33ba8badc7525d60ca1da7cc1ee149`;
+CLI SHA-256 is
+`330bf8ddf0910879572b58c55e2071142d0b67c20bd0809eb14b9b8f54e4f89b`.
+The preceding `1a185e00` cohort also passes **4/4**; the cancelled pre-case
+campaign and failed native controls remain retained. A zero-selected test or
+changed frozen CLI is rejected by the runner's tests. Focused strict Clippy,
+format/layout, dependency/docs checks, 44 plan and 13 coverage-verifier tests pass.
+
+These are MVP path results, not the complete Queue oracle or CG-17 acceptance.
+RustFS uses one CPU/2 GiB; RF3 voters share one native macOS process. Callback
+execution uses the explicit five-second default (at most sixty seconds).
+Cross-deployment catalogs, longer consumer execution, lost DLQ replies across
+different groups, late settlements, active-delivery purge, retention/clock faults,
+movement/wake, disk-loss recovery and independent-voter load remain open. See the
+[contract and scope](queue-durable-work.md). EventStream, Workflow, cron and the
+remaining framework work reasons still need adapters. Acceptance stays
+**13/17 tasks, 147/195 cases**; no complete primitive family is accepted.
 
 ## CG-17 S3 proof scheduling and joined retirement
 

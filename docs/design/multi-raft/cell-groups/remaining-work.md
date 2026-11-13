@@ -75,9 +75,11 @@ existing recovery and release dependencies rather than removing those gates.
    See the [binding checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
    Preserve all failed controls. These basic passes do not complete a primitive
    family or its independent recovery and release matrix.
-2. Qualify the [durable callback and Queue candidate](queue-durable-work.md),
-   then connect the remaining alarms/cron, EventStream/outbox/inbox and Workflow
-   adapters to the shared owner. Pending work must
+2. Build on the [qualified callback and Queue MVP](queue-durable-work.md):
+   native/Axum real RustFS and captured CLI pass **4/4** at `efd9c4c9`. Complete
+   Queue cross-deployment, longer-callback and fault/retention/movement gates;
+   connect alarms/cron, EventStream/outbox/inbox and Workflow adapters to the same
+   shared owner. Pending work must
    resume after retained restart, movement and wake without client traffic.
 3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
    container/provider adapters with their documented publication, execution and

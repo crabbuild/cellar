@@ -4,6 +4,27 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current Queue MVP checkpoint
+
+At `efd9c4c9`, the shared durable callback kernel and ordinary Queue adapter pass
+native/Axum real-RustFS qualification in both image modes (**4/4**), including
+the captured CLI. The source includes the immutable payload implementation below.
+The existing Fleet Queue conformance regression and focused strict Clippy pass.
+See [results](progress.md#cg-17-durable-callbacks-and-queue-mvp) and
+[callback/Queue contract](queue-durable-work.md). Full CG-17 acceptance stays open.
+
+The kernel persists independent reason/generation/attempt deadlines and commits
+claims before callbacks. Retained startup resumes pending Queue work without a
+producer request. Use this owner for future expiry/cron/Stream/Workflow adapters;
+do not add per-cell timer tasks or expose broker Storage to stateless consumers.
+One bounded callback admission slot preserves ordinary child-call capacity.
+Callback operation budgets default to five seconds and are configurable to sixty.
+
+Finish Queue cross-deployment catalogs, longer-consumer timing, inter-group lost
+DLQ replies, late settlement/purge/retention, movement/wake/disk-loss and load
+qualification before counting the whole Queue family accepted. The artifact root
+is `/Volumes/Workspace/crabbuild-target/cellar-queue-rustfs-qualification-03-combined`.
+
 ## Current immutable payload checkpoint
 
 At `41a19a24`, the new namespace-bound immutable payload store passes its owning
@@ -25,7 +46,7 @@ See the [contract](payload-storage.md) and [results](progress.md#cg-17-immutable
 Next integrate the ordinary runtime KV service: declared configuration/grants,
 stateful/stateless/private operator ingress, invocation-owned payload publication
 before row visibility, revisions, list/bulk/stream APIs and committed expiry work.
-Use the qualified shared callback kernel when available. Intersect full-size
+Use the qualified shared callback kernel above. Intersect full-size
 binding inputs with source-intent, envelope, staging and result budgets; external
 destination values alone do not remove input bytes from a source checkpoint.
 Then qualify retained restart, movement/wake and fenced disaster payload restore,
