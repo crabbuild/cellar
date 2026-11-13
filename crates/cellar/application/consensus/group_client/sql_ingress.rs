@@ -146,6 +146,7 @@ impl RaftCells {
             let selected = Mutex::new(None);
             let command = Mutex::new(None);
             let submitted = std::sync::atomic::AtomicBool::new(false);
+            let started = owner.handle.domain.mono_ms()?;
             let remaining = || -> anyhow::Result<Duration> {
                 let now = owner.handle.domain.mono_ms()?;
                 Ok(Duration::from_millis(
@@ -227,6 +228,8 @@ impl RaftCells {
                     }
                 };
                 *selected.lock().unwrap() = Some(history.clone());
+                tracing::debug!(target: "cellar::raft::sql_ingress", %method,
+                    phase="history", newly_enrolled, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
                 let cell = owner.cell(history.clone())?;
                 // The runtime-owned initializer creates an empty stream. This
                 // is a hint at the enrollment cut, never an exclusive sequence
@@ -238,6 +241,8 @@ impl RaftCells {
                 };
                 *command.lock().unwrap() =
                     Some(CommandId::new(sql_ingress_identity::client(), next)?);
+                tracing::debug!(target: "cellar::raft::sql_ingress", %method,
+                    phase="sequence", next, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
                 let fingerprint = super::super::command_request_digest(&input);
                 let mut attempt = 0u64;
                 let receipt = loop {
@@ -261,6 +266,9 @@ impl RaftCells {
                             Some(reservation.clone()),
                         )
                         .await;
+                    tracing::debug!(target: "cellar::raft::sql_ingress", %method,
+                        phase="command", attempt, sequence=id.sequence(), success=result.is_ok(),
+                        elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
                     match result {
                         Ok(receipt) => break receipt,
                         Err(error)

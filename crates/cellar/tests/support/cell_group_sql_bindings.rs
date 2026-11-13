@@ -217,6 +217,7 @@ async fn public_sql(
     method: &str,
     input: serde_json::Value,
 ) -> Result<serde_json::Value> {
+    let started = cellar::asyncrt::mono_ms();
     let response = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
@@ -230,6 +231,10 @@ async fn public_sql(
         .await?;
     let status = response.status();
     let body = response.text().await?;
+    eprintln!(
+        "public SQL {method} node={node}: elapsed_ms={} status={status}",
+        cellar::asyncrt::mono_ms().saturating_sub(started)
+    );
     ensure!(
         status == 200,
         "public SQL {method} node {node}: {status} {body}"
@@ -464,7 +469,7 @@ async fn run(
     external: bool,
 ) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::query_connection=debug")
+        .with_env_filter("cellar::raft::query_connection=debug,cellar::raft::sql_ingress=debug")
         .with_test_writer()
         .try_init();
     let (application, declared) = application()?;
