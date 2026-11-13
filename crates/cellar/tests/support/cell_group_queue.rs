@@ -92,7 +92,7 @@ impl Observed {
     }
 
     async fn wait_within(&self, text: &str, attempt: u16, timeout: Duration) -> Result<()> {
-        tokio::time::timeout(timeout, async {
+        cellar::asyncrt::timeout(timeout, async {
             loop {
                 let wake = self.changed.notified();
                 if self
@@ -435,7 +435,7 @@ async fn run(
             observed.wait("retry", 2).await?;
             observed.wait("dead", 2).await?;
             let metrics = source.contract("Metrics")?;
-            tokio::time::timeout(Duration::from_secs(20), async {
+            cellar::asyncrt::timeout(Duration::from_secs(20), async {
                 loop {
                     let receipt = source
                         .command(&metrics, b"\"DLQ\"".to_vec(), options(sequence)?)
@@ -445,7 +445,7 @@ async fn run(
                     if value["count"] == 2.0 {
                         break Ok::<_, anyhow::Error>(());
                     }
-                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
                 }
             })
             .await??;
@@ -477,14 +477,14 @@ async fn run(
                 .await?;
             sequence += 1;
             observed.wait("archive-outage", 1).await?;
-            tokio::time::timeout(TIMEOUT, async {
+            cellar::asyncrt::timeout(TIMEOUT, async {
                 while cluster.fixtures[0]
                     .store
                     .denied_group_archive_writes
                     .load(Ordering::Acquire)
                     == denied
                 {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
                 }
             })
             .await
@@ -593,7 +593,7 @@ async fn run(
             eprintln!("Queue retained restart and sink count verified");
             // Transfer the whole Queue group and verify a fresh public send/consume.
             let before = managed_fixture::leader(&cluster.hosts, queue_group).await?;
-            tokio::time::timeout(TIMEOUT, async {
+            cellar::asyncrt::timeout(TIMEOUT, async {
                 loop {
                     let status = cluster.hosts[before]
                         .group(queue_group)?
@@ -615,7 +615,7 @@ async fn run(
                         // A callback settlement can still be applying. This is
                         // a proven pre-admission refusal, not an unknown handoff.
                         Err(RuntimeError::NotReady) => {
-                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
                         }
                         Err(error) => return Err(error.into()),
                     }
@@ -624,7 +624,7 @@ async fn run(
                     if managed_fixture::leader(&cluster.hosts, queue_group).await? != before {
                         break Ok::<_, anyhow::Error>(());
                     }
-                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
                 }
             })
             .await
@@ -905,7 +905,7 @@ async fn cli(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<
     let mut err = child.stderr.take().context("Queue CLI stderr")?;
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
-    let result = tokio::time::timeout(Duration::from_secs(20), async {
+    let result = cellar::asyncrt::timeout(Duration::from_secs(20), async {
         tokio::try_join!(
             child.wait(),
             out.read_to_end(&mut stdout),
