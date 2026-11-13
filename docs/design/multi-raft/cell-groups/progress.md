@@ -27,6 +27,53 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 immutable external payload publication
+
+Source `41a19a24` adds the namespace-bound immutable payload store needed before
+ordinary KV can publish external values under Raft. `NamespaceCatalog::cell_payloads`
+selects its actual backend/prefix and refuses Fleet mode. One shared pool admits
+operations before hashing and accounts returned bytes after their I/O slots end.
+Conditional creation plus a complete bounded read-back confirms publication;
+lost replies, corruption, ranged bodies and missing objects remain distinct.
+Hashing, requests, body chunks and confirmation share one monotonic deadline.
+The [payload contract](payload-storage.md) describes the API and remaining wiring.
+
+Both owning protocol selections pass from the retained executable:
+
+| Protocol gate | Result |
+| --- | --- |
+| Native in-memory object store | **1/1 pass** |
+| Canonical `immutable-payloads` runner against real RustFS | **1/1 pass** |
+
+The RustFS backend is constrained to one CPU and 2 GiB with no added swap. Its
+seven HTTP probes pass. The standard preparation attempt hit Docker address-pool
+exhaustion; its record is retained. The checkout-owned controller completed the
+same captured backend on the existing bridge with loopback-only publication and
+verified limits. No Docker networks or other runs were removed. The owned
+backend and VM are stopped, with object volumes retained.
+
+The protocol checks real conditional creation with a lost response, concurrent
+publishers, cold reopening, old/new incarnation locators, cross-owner and malformed
+reference refusal, actual stored corruption without overwrite, body deadlines,
+cancellation and shared operation/retained-byte exhaustion. New incarnations can
+read old references for the same logical cell; this is not a disaster-recovery
+activation or fencing drill. No Raft voters or image modes run in this suite.
+
+Evidence is `CG-17-payload-41a19a24-01`, with the frozen executable and source,
+command, backend and artifact hashes. All objects are retained: the store has no
+list/delete API, so a current-row sweep cannot erase older recovery cuts. Remote
+reclamation remains required. Ordinary KV service admission, public SDK/CLI,
+revision/TTL/list/bulk/stream behavior, callback ownership and combined lifecycle
+recovery still need implementation/qualification. Full-size binding inputs also
+need their transitive source-intent and envelope budgets. SQL deadline failures
+below remain open. No complete family or task is accepted by this checkpoint.
+
+Targeted strict Clippy, formatting/layout, native dependency and documentation
+checks pass, with **61 Python checks** (44 plan, 13 coverage verifier, four runner).
+The two changed catalog source anchors are reviewed/re-pinned and the generated
+implementation index still matches. Full historical preflight still lacks the
+CG-01 evidence record. A workspace-volume backup retains the evidence and binary.
+
 ## CG-17 interrupted SQL parent recovery
 
 Source `bf19176f` adds ordinary SQL binding interruption scenarios for successful

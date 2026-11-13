@@ -4,7 +4,36 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current interrupted SQL recovery checkpoint
+## Current immutable payload checkpoint
+
+At `41a19a24`, the new namespace-bound immutable payload store passes its owning
+native protocol selection and canonical real-RustFS selection (**2/2**). The
+RustFS runner uses one CPU/2 GiB and records no Raft voters or image modes.
+Evidence is `CG-17-payload-41a19a24-01`, including the frozen executable. The
+standard backend preparation hit Docker address-pool exhaustion; the retained
+record explains completion on the existing bridge under the actual captured
+owner/loopback/limit checks. Both backend and VM are stopped; volumes remain.
+
+The layer confirms immutable bytes after ambiguous conditional writes, verifies
+bounded complete bodies, shares one original deadline across publication stages
+and retains byte admission with returned bodies. Old incarnation references can
+be read by a fresh incarnation of the same logical cell. It has no collection
+operation, keeping old recovery cuts safe while a root-aware collector remains
+unfinished. This proves neither Raft admission nor complete payload recovery.
+See the [contract](payload-storage.md) and [results](progress.md#cg-17-immutable-external-payload-publication).
+
+Next integrate the ordinary runtime KV service: declared configuration/grants,
+stateful/stateless/private operator ingress, invocation-owned payload publication
+before row visibility, revisions, list/bulk/stream APIs and committed expiry work.
+Use the qualified shared callback kernel when available. Intersect full-size
+binding inputs with source-intent, envelope, staging and result budgets; external
+destination values alone do not remove input bytes from a source checkpoint.
+Then qualify retained restart, movement/wake and fenced disaster payload restore,
+followed by root-aware collection. Keep the SQL deadline gates below open and
+advance Queue/EventStream/Workflow execution without reducing final compatibility.
+Task/case acceptance stays **13/17 and 147/195**.
+
+## Previous interrupted SQL recovery checkpoint
 
 The SQL recovery drill now covers a parent lost after an independently durable
 SQL success or rolled-back error but before source completion. It verifies exact

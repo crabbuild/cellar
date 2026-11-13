@@ -31,6 +31,10 @@ its operation slot while keeping its byte charge until dropped. Cancellation and
 errors release their reservations without detached tasks. The default maximum
 value is the ordinary KV ceiling of 25 MiB. This does not increase an RPC envelope,
 private-image budget or result quota; deployment admission must intersect them.
+The durable outgoing binding intent currently retains its encoded input. Moving
+the destination's value out of SQLite does not by itself remove those input
+bytes from the source checkpoint. Full-size ordinary KV requests must qualify
+that transitive budget or acquire a verified external-input protocol as well.
 
 The API has no list or delete operation. A list of current KV rows cannot protect
 old images, retained archive cuts, readers, pending uploads or interrupted turns.
