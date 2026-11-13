@@ -567,6 +567,10 @@ impl CellGroupSqlPool {
         self.inner.admission.release_reclaimed_group(history)
     }
 
+    pub(crate) fn writer_progress(&self) -> tokio::sync::watch::Receiver<()> {
+        self.inner.admission.writer_progress()
+    }
+
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
         let (active_cells, retained_bytes, retained_operations) = self.inner.admission.usage()?;
         let resources = self.inner.resources.capture().ok_or_else(unavailable)?;

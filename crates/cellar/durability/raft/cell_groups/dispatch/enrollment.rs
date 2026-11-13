@@ -607,15 +607,22 @@ impl CellEnrollmentInvocation {
     ) -> Result<CellSqlOutcome, CellDispatchError> {
         let mut observed_cut = None;
         let mut noted = false;
+        let mut writers = sql.writer_progress();
         loop {
             self.session
                 .validate_attempt(attempt)
                 .map_err(CellDispatchError::Routing)?;
             progress.borrow_and_update();
+            writers.borrow_and_update();
             let mut before_enqueue = false;
             let staged = self
                 .initialize_at(runtime, sql, options.clone(), attempt, &mut before_enqueue)
                 .await;
+            let wait_for_writer = before_enqueue
+                && matches!(
+                    &staged,
+                    Err(CellDispatchError::Execution(ExecutionError::Busy))
+                );
             match staged {
                 Err(CellDispatchError::Execution(
                     ExecutionError::Busy | ExecutionError::Refused(CommandFailure::Overloaded),
@@ -667,6 +674,7 @@ impl CellEnrollmentInvocation {
                 .map_err(|_| closed())?;
             crate::asyncrt::select! {
                 result = progress.changed() => result.map_err(|_| closed())?,
+                result = writers.changed(), if wait_for_writer => result.map_err(|_| closed())?,
                 _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
             }
         }
