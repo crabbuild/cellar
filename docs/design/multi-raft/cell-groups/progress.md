@@ -27,6 +27,62 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 request execution deadlines and combined-source qualification
+
+Source `84af2661`, qualified with the Queue admission changes at `b99f12c4`,
+separates command/query execution time from socket I/O time. The authenticated
+invocation keeps its original deadline while connect/TLS, framing, body transfer
+and idle header reads keep the configured I/O bound. Waiting for a server's first
+response byte does not silently truncate a longer application budget. Revocation,
+cancellation, ambiguity and joined ownership remain enforced; no retry is added.
+
+The owning regression passes in both image modes: a 600-ms query and command
+complete with a 200-ms I/O bound and their original two-second caller budgets;
+a 100-ms caller still expires. Its first control at `00e60332` passed the query
+but stalled replication after idle sockets expired because the fixture disables
+automatic Raft ticks. The final fixture drives normal heartbeat/retry progress
+without changing either deadline. That failed control remains retained.
+
+| Combined-source gate at `b99f12c4` | Result |
+| --- | --- |
+| Deadline regression, both image modes | **1/1 owning test passes** |
+| Cancelled/expired physical SQL ownership | **2/2 owning tests pass** |
+| Fleet KV and native immutable payload regressions | **2/2 owning tests pass** |
+| Native KV SDK drill, both image modes | **2/2 configurations pass** |
+| Native ordinary bindings, Quorum/S3 sources | **2/4; FAILED** |
+| Native interrupted-binding recovery, Quorum/S3 sources | **4/4 configurations pass** |
+| Canonical real RustFS KV, native/Axum, both images | **0/4; FAILED** |
+
+The RustFS result advances past the former child RPC transport failures. The
+25-MiB source SDK put/get passes all three configurations that reach it, taking
+18.459/15.401/19.212 seconds within their original twenty-second parent budgets.
+Each asserts exactly one 26,214,400-byte publication. Those three then fail the
+25-MiB CLI put with an original three-second server budget; target execution
+starts with only about 1.8–2.0 seconds remaining. The fourth, Axum/materialized,
+fails its earlier public 1-MiB boundary call at its original deadline. Later
+RustFS restart/archive/quorum checks are unrun in this cohort. Small-value CLI
+passes in the three configurations that reach it. No full RustFS KV acceptance
+or public-ingress performance fix is claimed.
+
+Native ordinary bindings pass both Quorum configurations but miss their original
+S3-source deadlines in both images. Interrupted-binding recovery passes all four
+native configurations. The older `d1f8535f` **8/8** ordinary and **8/8** interrupted
+native/RustFS results remain scoped to that source; they do not qualify the
+combined source. These S3 latency failures remain a higher-priority blocker.
+A sequential same-environment control using the SHA-verified frozen `d1f8535f`
+binary also passes only **2/4** native ordinary-binding configurations: its
+materialized S3 and extents Quorum first requests miss their deadlines. The
+binding workload source is unchanged between the two pins. This does not isolate
+the cause or establish a Queue-merge regression; it shows the older green cohort
+cannot establish deadline stability in the current environment. Both control
+failures and all six additional voter disks remain retained.
+
+Evidence is `CG-17-kv-b99f12c4-06`, including the frozen actual CLI, test binaries,
+source inputs, complete failed controls and retained voter disks. The complete
+primitive/recovery/release gate remains open. External-object verification before
+disaster admission, interrupted large transfers, movement/wake, root-aware
+collection and independent Linux voter/load qualification remain required.
+
 ## CG-17 ordinary KV bindings and compact wire transport
 
 Sources `05cd04b4` and `fe8ef583` implement the ordinary KV service on managed

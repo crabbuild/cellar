@@ -41,61 +41,41 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Finish the SQL recovery/startup deadline gates and SQL-specific interruption,
-   movement, wake, archive outage and disaster
-   recovery qualification, plus sustained contention and independent Linux voters.
-   Operator/CLI and Axum-listener integration is delivered at `979addd0`: the basic
-   SQL drill passes **8/8** configurations, with real CLI coverage in all four
-   RustFS configurations. Preserve the earlier cold-race timeout controls; the
-   passing cohort does not establish their causal performance resolution.
-   Complete ordinary KV qualification alongside SQL recovery. SDK bindings,
-   native/Axum ingress, operator/CLI, revision conditions, durable expiry and
-   compact full-size wire transport are implemented at `05cd04b4`/`fe8ef583`.
-   At `f935ebd2`, direct verified-value references pass **2/2** native image
-   configurations, including exactly one publication per 25-MiB put/get, forged
-   reference refusal and aggregate admission. Canonical real RustFS/Axum remains
-   **0/4** complete configurations: three child RPC transport timeouts and one
-   source Unicode deadline. Axum extents passes its 25-MiB round trip before the
-   aggregate-reference failure. Fix the request-versus-I/O deadline boundary and
-   qualify the full original-budget paths; retain the earlier failed cohorts.
-   The original chained twenty-second source workload still fails and remains
-   a load control. External-object recovery closure, movement/wake and root-aware
-   collection remain required. See the [KV checkpoint](progress.md#cg-17-ordinary-kv-bindings-and-compact-wire-transport).
-   The underlying immutable store at `41a19a24` separately passes native and
-   canonical one-CPU RustFS protocol selections (**2/2**). See the
-   [payload checkpoint](progress.md#cg-17-immutable-external-payload-publication).
-   See the [SQL checkpoint](progress.md#cg-17-authenticated-sql-operator-cli-and-axum).
-   The new after-child-reply interruption drill initially passes **13/16** at
-   `bf19176f`; failed controls remain required. It adds commit/error/rollback and
-   fresh-call checks but does not qualify target-S3, before-child-completion or
-   the remaining lifecycle cases. See the
-   [recovery checkpoint](progress.md#cg-17-interrupted-sql-parent-recovery).
-   The subsequent `b3aacf7a` cohort is **14/16**, with cold setup and post-restart
-   SQL inspection deadlines still open. Run the new `ordinary-sql-bindings`
-   canonical RustFS suite with its frozen CLI and required one-CPU profile;
-   standalone recovery evidence used a two-CPU backend and is not that gate.
-   At the earlier binding source `d1f8535f`,
-   public SQL passes **4/4**, ordinary bindings **8/8** and interrupted-binding
-   recovery **8/8** across native storage and real RustFS image configurations.
-   The previous S3 deadline cases now pass with original budgets and quotas.
-   A bounded node-wide proof batch reuses actual verified coverage during remote
-   cleanup; joined shutdown still retires unretained predecessors. Bounded SQL
-   identities, normal outbound admission and exact proof/fencing checks remain.
-   See the [binding checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
-   Preserve all failed controls. These basic passes do not complete a primitive
-   family or its independent recovery and release matrix.
-2. Build on the [qualified callback and Queue MVP](queue-durable-work.md):
-   native/Axum real RustFS and captured CLI pass **4/4** at `efd9c4c9`. Complete
-   Queue cross-deployment, longer-callback and fault/retention/movement gates;
-   connect alarms/cron, EventStream/outbox/inbox and Workflow adapters to the same
-   shared owner. Pending work must
-   resume after retained restart, movement and wake without client traffic.
+1. Close the original-deadline binding and SQL/KV recovery gates. At `b99f12c4`,
+   native ordinary bindings pass **2/4** configurations: both Quorum modes pass,
+   both S3-source modes time out. Interrupted-binding recovery passes **4/4**
+   native configurations. KV services, native/Axum ingress, operator/CLI, revision
+   conditions, durable expiry and verified immutable-value references are
+   implemented. Native KV passes **2/2** images. Canonical one-CPU RustFS KV is
+   still **0/4** complete configurations: three pass the 25-MiB source round trip
+   before a large CLI deadline failure; Axum/materialized fails its earlier
+   public boundary call. The separate RPC I/O cap is fixed and qualified, but
+   these original-budget failures remain open. See the
+   [combined-source checkpoint](progress.md#cg-17-request-execution-deadlines-and-combined-source-qualification).
+   SQL SDK/operator/CLI has older scoped **8/8** coverage at `979addd0`, while
+   after-child parent recovery remains **14/16; FAILED** at `b3aacf7a`.
+   The canonical one-CPU SQL suite is unrun. Finish cold startup, interruption,
+   movement/wake, archive outage and disaster recovery; verify external-value and
+   source-intent/receipt dependencies before admitting a recovered incarnation.
+   Preserve failed controls and the chained twenty-second KV load failure.
+2. Complete ordinary alarms/cron and Queue lifecycle coverage, then EventStream
+   and Workflow execution through the shared durable callback owner. Queue's
+   cross-deployment fault drill passes **4/4** real RustFS configurations and its
+   bounded load passes **2/2** at `a5f65e79`; these are scoped MVP gates. Cold
+   first-use S3, deployment removal, remaining callback/retention/movement faults
+   and the complete family matrix remain open. Pending work must resume after
+   retained restart, movement and wake without client traffic. See the
+   [Queue delivery record](queue-durable-work.md).
 3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
-   container/provider adapters with their documented publication, execution and
-   recovery boundaries. Include stateless/ephemeral and optional-adapter regressions.
-4. Admit full support only after every CG-17 case and the independent API ×
-   scenario × configuration evidence gate passes, followed by CG-15/16 combined
-   qualification. Quorum selection cannot fall back to Fleet/bucket durability.
+   container/provider adapters. Include stateless/ephemeral and optional-adapter
+   regressions. Root-aware payload collection must protect every retained image,
+   reader, pending upload, interrupted turn and recovery cut; retaining objects
+   is not complete recovery qualification. See the [payload contract](payload-storage.md).
+4. Admit full support only after every CG-17 API × scenario × configuration gate
+   passes, followed by CG-15/16 combined qualification and independent Linux
+   voter/load/crash/disk-loss coverage. Quorum selection must refuse unavailable
+   durability without falling back to Fleet/bucket storage. Full public cutover
+   and legacy removal remain gated on that evidence.
 
 Full CLI plan preflight currently stops at the missing historical
 `CG-01-06-gates-e32115aa-02/CG-01-record.json` evidence file. Reviewed source
