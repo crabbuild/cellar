@@ -2945,8 +2945,10 @@ input manifests.
 The combined native campaign fails: 49 selected functions pass and
 `removed_member_advice_cannot_grant_authority` fails. The runner continues
 through every independent ordinary routing case. In the first SDK/materialized
-fixture, real voter replacement reaches Joint, but trust refresh to the new
-voter remains unreachable at the original deadline. Joined shutdown reports
+fixture, real voter replacement reaches Joint, but trust refresh to retiring
+voter Node5 remains unreachable at the original deadline. The retained snapshot
+shows Node5 closing with zero registered groups while replacement voter Node8
+remains active. Joined shutdown reports
 `unregistered group event`. This occurs before wire fault injection, and no
 completed removed-member evidence row is credited. Two exact unchanged-binary
 repetitions pass all six profiles in 56.138 and 56.174 seconds. They establish
@@ -2964,6 +2966,10 @@ The next integration includes base `a5f6183c` and its archive completion,
 covered-output proof and joined-retirement fixes. The two merge conflicts are
 test export lists: both the existing peer-idle probe and the base's deferred
 retirement regression are retained. The prior checkpoint results above do not
-qualify this new combined source. Fresh affected-boundary checks are pending;
+qualify this new combined source. Integration checkpoint `a3ee932d`, source
+`a26d602b`, is running fresh source checks, both joined-owner library regressions
+and the ordinary archive/controller targets. This documentation follow-up
+preserves its runtime/tool inputs; the canonical checkout remains frozen while
+those checks run. Fresh affected-boundary results are pending;
 current-source RustFS/Linux, the open lifecycle failures and full CG/OPT
 acceptance remain open.
