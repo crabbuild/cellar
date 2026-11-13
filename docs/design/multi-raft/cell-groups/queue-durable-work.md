@@ -63,6 +63,11 @@ owners or ambiguous fallbacks refuse startup/routing. Adding a producer does
 not relocate stored messages. Removing a required deployment refuses service;
 automatic obligation migration on deployment removal remains a separate gate.
 Producer, consumer and DLQ definitions may have different schemas and groups.
+A producer needs its outbound binding and its own application namespaces; it
+must not provision another Queue namespace for a queue already owned by its
+consumer. Provisioning a storage-only Queue namespace declares ownership, so
+competing declarations refuse. Automatic deployment changes that move existing
+Queue ownership remain unsupported.
 Source binding allowlists, namespace grants and independent destination minimum
 durability remain enforced. A lost cross-group DLQ response retains the original
 transfer ID for recovery rather than allocating a new enqueue.

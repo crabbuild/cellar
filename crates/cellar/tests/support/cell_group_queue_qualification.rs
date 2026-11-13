@@ -59,17 +59,17 @@ fn binding(environment: &str, queue: &str) -> cellar::engine_api::QueueBinding {
     }
 }
 
-fn applications(
-    signals: Arc<Signals>,
-) -> Result<(
-    Arc<dyn Application>,
-    cellar::engine_api::WorkerConfigOptions,
-    Vec<(Arc<RaftClass>, Durability)>,
-    Vec<(
+struct Deployments {
+    application: Arc<dyn Application>,
+    options: cellar::engine_api::WorkerConfigOptions,
+    definitions: Vec<(Arc<RaftClass>, Durability)>,
+    cohosted: Vec<(
         cellar::engine_api::WorkerConfigOptions,
         Arc<dyn Application>,
     )>,
-)> {
+}
+
+fn applications(signals: Arc<Signals>) -> Result<Deployments> {
     let producer = Arc::new(
         Registry::new(|context, invocation| {
             Box::pin(async move {
@@ -226,12 +226,12 @@ fn applications(
             storage.clone() as Arc<dyn Application>,
         ],
     )?);
-    Ok((
+    Ok(Deployments {
         application,
-        producer_options,
+        options: producer_options,
         definitions,
-        vec![(consumer_options, consumer), (storage_options, storage)],
-    ))
+        cohosted: vec![(consumer_options, consumer), (storage_options, storage)],
+    })
 }
 
 struct Scenario {
@@ -252,7 +252,12 @@ impl Scenario {
         ordinary_slots: usize,
     ) -> Result<Self> {
         let signals = Arc::new(Signals::default());
-        let (application, options, definitions, cohosted) = applications(signals.clone())?;
+        let Deployments {
+            application,
+            options,
+            definitions,
+            cohosted,
+        } = applications(signals.clone())?;
         let mut fixture =
             Fixture::with_definition_policies(rooted, definitions, application, store).await?;
         fixture.configuration = Some(options);
@@ -710,14 +715,24 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             outage?;
             s.empty(QUEUE).await?;s.empty(FAST).await?;
             let start=cellar::asyncrt::mono_ms();
-            let producers=(0..4).map(|client| { let cluster=&s.cluster; async move {
+            let credits=[tokio::sync::Semaphore::new(1),tokio::sync::Semaphore::new(1)];
+            let producers=(0..4).map(|client| { let cluster=&s.cluster; let credits=&credits; async move {
                 let mut latency=Vec::new();
                 for batch in 0..16 {
                     let bodies=(0..8).map(|item|format!("load-{client}-{batch}-{item}")).collect::<Vec<_>>();
+                    let _credit=credits[client%2].acquire().await?;
                     latency.push(send(cluster,if client%2==0 {QUEUE}else{FAST},&bodies).await?);
                 }Ok::<_,anyhow::Error>(latency)
             }});
             let results=futures_util::future::join_all(producers).await;
+            if results.iter().any(Result::is_err) {
+                for (node,host) in s.cluster.hosts.iter().enumerate() {
+                    eprintln!("QUEUE_LOAD_FAILURE {}",json!({"node":node,"resources":host.resource_usage()}));
+                    for group in [s.queue,s.dead] {
+                        eprintln!("QUEUE_LOAD_GROUP node={node} history={group:?} status={:?}",host.group(group)?.status().await);
+                    }
+                }
+            }
             let mut latencies=Vec::new();for result in results {latencies.extend(result?);}
             s.empty(QUEUE).await?;s.empty(FAST).await?;
 
@@ -725,7 +740,7 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             let delivered=s.signals.deliveries.lock().unwrap();
             let unique=delivered.iter().map(|(_,_,id)|id).collect::<BTreeSet<_>>();ensure!(unique.len()==528);
             latencies.sort_unstable();
-            eprintln!("QUEUE_LOAD {}",json!({"realRustFS":real,"extents":rooted,"producers":4,"ordinarySlots":8,"ordinaryBytes":131072,"callbackSlots":2,"queues":2,"batchMessages":8,"steadyMessages":512,"archiveOutageMessages":16,"delivered":delivered.len(),"uniqueMessageIds":unique.len(),"elapsedMs":cellar::asyncrt::mono_ms()-start,"enqueueBatchP50Ms":latencies[latencies.len()/2],"enqueueBatchP99Ms":latencies[(latencies.len()*99/100).min(latencies.len()-1)]}));
+            eprintln!("QUEUE_LOAD {}",json!({"realRustFS":real,"extents":rooted,"producers":4,"inFlightRequests":2,"perQueueInFlight":1,"ordinarySlots":8,"ordinaryBytes":131072,"callbackSlots":2,"queues":2,"batchMessages":8,"steadyMessages":512,"archiveOutageMessages":16,"delivered":delivered.len(),"uniqueMessageIds":unique.len(),"elapsedMs":cellar::asyncrt::mono_ms()-start,"enqueueBatchP50Ms":latencies[latencies.len()/2],"enqueueBatchP99Ms":latencies[(latencies.len()*99/100).min(latencies.len()-1)]}));
             Ok::<_,anyhow::Error>(())
         }).await;
         let cleanup = s.close().await;

@@ -194,7 +194,8 @@ qualification passes both images and requires another Queue to progress within
 its original five-second bound.
 
 The four-producer load selection offers 512 messages in batches of eight across
-two queues with one SQL worker per node. Its explicit load profile has eight
+two queues with one SQL worker per node and one in-flight request per Queue
+(two total). Its explicit load profile has eight
 ordinary slots/128 KiB, while fault/MVP scenarios retain two ordinary slots. The
 callback slots and shared byte ceiling remain bounded. Debug controls failed:
 the two-slot flood refused overload, the eight-slot full-archive-outage flood
@@ -202,9 +203,16 @@ missed a deadline at ingress sequence 16, and the eight-slot healthy-archive
 flood missed a deadline at sequence 20. Those results do not isolate archive
 headroom as the cause. Logs remain under
 `/Volumes/Workspace/crabbuild-target/cellar-queue-expanded-controls`.
-The optimized profile preserves debug assertions, overflow checks, original
-three/five-second request budgets and unknown-outcome refusals. Its full-source
-RustFS campaign and final load result are pending; these native passes do not
+The optimized four-in-flight control also missed its original deadline, at
+sequence 8. It does not establish a throughput fix. The bounded two-in-flight
+native profile passes both images: each delivers all 528 distinct message IDs,
+16 during archive-write refusal plus 512 under steady load. Materialized/extents
+steady phases take 33.566/33.292 seconds, with enqueue-batch p50 735/505 ms and
+p99 1547/1275 ms. These are measured limits of this fixed profile, not an SLA or
+unbounded admission claim. The profile preserves debug assertions, overflow
+checks, original three/five-second request budgets and unknown-outcome refusals.
+The pending campaign was interrupted before any runtime selection to record that
+load boundary. The final full-source RustFS campaign is pending; these native passes do not
 complete a Queue family or release gate.
 
 ## CG-17 durable callbacks and Queue MVP

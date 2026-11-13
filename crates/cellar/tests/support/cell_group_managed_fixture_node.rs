@@ -232,10 +232,12 @@ impl Fixture {
             self.application.clone(),
             &self.spec.label,
             self.filesystem.clone(),
-            self.configuration.clone(),
-            self.external_http.clone(),
-            self.cell_limits,
-            self.cohosted.clone(),
+            Frontend {
+                options: self.configuration.clone(),
+                external_http: self.external_http.clone(),
+                cell_limits: self.cell_limits,
+                cohosted: self.cohosted.clone(),
+            },
         ))
         .await
     }
@@ -491,19 +493,13 @@ pub async fn start_node_with_filesystem(
         application,
         label,
         filesystem,
-        None,
-        None,
-        Default::default(),
-        Vec::new(),
+        Frontend::default(),
     ))
     .await
 }
 
-async fn start_configured_node(
-    directory: &Path,
-    application: Arc<dyn Application>,
-    label: &str,
-    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+#[derive(Default)]
+struct Frontend {
     options: Option<cellar::engine_api::WorkerConfigOptions>,
     external_http: Option<Arc<http::Owner>>,
     cell_limits: cellar::application::limits::CellLimits,
@@ -511,7 +507,21 @@ async fn start_configured_node(
         cellar::engine_api::WorkerConfigOptions,
         Arc<dyn Application>,
     )>,
+}
+
+async fn start_configured_node(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    label: &str,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    frontend: Frontend,
 ) -> Result<Node> {
+    let Frontend {
+        options,
+        external_http,
+        cell_limits,
+        cohosted,
+    } = frontend;
     let classes = vec![];
     let shutdown = ShutdownPolicy::default();
     let bucket: Option<Bucket> = None;
