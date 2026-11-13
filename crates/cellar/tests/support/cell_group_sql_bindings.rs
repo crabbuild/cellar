@@ -531,11 +531,18 @@ async fn run(
             Ok::<_, anyhow::Error>(())
         }).await??;
         operator::before(&cluster, backend, sql_group).await?;
+        eprintln!("SQL operator admission RustFS={} extents={rooted} host={}: PASS", backend.is_some(), if external { "Axum" } else { "native" });
         let public_hints_before = applied_hints(&cluster)?;
         let raced = futures_util::try_join!(
             public_sql(&cluster, 0, "IngressRace", json!(1)),
             public_sql(&cluster, 2, "IngressRace", json!(1)),
-        )?;
+        );
+        if raced.is_err() {
+            for (node, host) in cluster.hosts.iter().enumerate() {
+                eprintln!("SQL race performance node={node}: {}", serde_json::to_string(&host.performance())?);
+            }
+        }
+        let raced = raced?;
         ensure!(raced == (json!(true), json!(true)));
         ensure!(public_sql(&cluster, 1, "IngressRaceCount", json!(null)).await? == json!(2));
         // Public stateless calls share the operator's canonical database;

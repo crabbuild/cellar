@@ -300,7 +300,7 @@ async fn cli_qualification(cluster: &ManagedCluster, backend: &rustfs::StoreConf
     std::fs::write(
         project.join("wrangler.jsonc"),
         serde_json::to_vec(
-            &json!({"name":SCRIPT,"main":"index.js","sql_databases":[{"binding":"DB","database_name":"orders","database_id":DATABASE}]}),
+            &json!({"name":SCRIPT,"main":"index.js","sql_databases":[{"binding":"DB","database_name":"orders","database_id":DATABASE,"migrations_table":"__sys_sql_migrations_cli"}]}),
         )?,
     )?;
     std::fs::write(
@@ -345,6 +345,16 @@ async fn cli_qualification(cluster: &ManagedCluster, backend: &rustfs::StoreConf
     )
     .await?;
     ensure!(rows(cluster, "SELECT count(*) FROM cli_data").await? == json!([[1]]));
+    ensure!(
+        ok(
+            cluster,
+            1,
+            json!({"migrations":{"table":"__sys_sql_migrations_cli"}})
+        )
+        .await?["names"]
+            == json!(["0001_initial.sql"]),
+        "CLI did not use its configured migration ledger"
+    );
     ok(
         cluster,
         0,
