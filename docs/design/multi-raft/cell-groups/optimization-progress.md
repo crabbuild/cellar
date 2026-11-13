@@ -3195,3 +3195,40 @@ failed campaign. The queued backend/Linux pipeline records
 `NOT_RUN_NATIVE_PREREQUISITE_FAILED`; it starts neither Colima nor RustFS.
 A diagnostic of the actual first DLQ metrics prefix is pending. No current
 combined-source backend, hosted CI or full CG/OPT acceptance is granted.
+
+## Cross-deployment Queue base integration
+
+The base advances to `fe4cd801`, adding deployed application selection and Queue
+ownership, bounded callback budgets, and the fault/long-callback/load suites.
+Unpublished source checkpoint `35cf990d` combines it with the optimization code.
+The merge preserves small-segment and periodic-purge policies and every routing,
+archive-owner, named-binding, SQL, Queue and immutable-payload runner contract.
+It also removes an automatically duplicated native-work SQL helper, retaining
+the previously qualified implementation and placement. Formatting passes and
+all 161 runner tests pass with one optional skip. The combined 24-anchor source
+review passes against the actual Git checkpoint; the historical runtime baseline
+and release acceptance remain unchanged.
+
+The incoming implementation has two callback slots sharing the existing byte
+ceiling. Its legacy Queue fixture explicitly keeps a five-second callback
+window, and public routing retains its sixty-second maximum; only private native
+work admits the separate bounded callback window. This resource profile cannot
+repair the failed one-callback campaign. That campaign remains failed, and its
+original limits are retained in a separate diagnostic artifact.
+
+The first narrowed metrics diagnostic completes sixteen original Extents
+prefixes successfully. Twenty-three internal enrollment refusals all resolve to
+an existing target. An initial classifier incorrectly matched that handled
+refusal text; an independent audit corrects it to no original outer-failure
+reproduction. The raw successful test and initial classification remain recorded.
+A complete original-case loop with the same tagged observations is running.
+Fresh combined-source Rust and repository checks, the actual Queue correction,
+current RustFS/Colima/Linux and hosted CI remain required. No CG/OPT acceptance
+is granted.
+
+All eleven combined-source checks subsequently pass at input `43e90629`,
+including strict core/logic all-target Clippy, the 24 reviewed source anchors,
+44 design tests, 161 runner tests and both 317-test Python performance suites.
+Optional skips remain recorded and source guards are unchanged. This source
+qualification preserves the separate one-callback failure and grants no new
+combined runtime, backend or release acceptance.
