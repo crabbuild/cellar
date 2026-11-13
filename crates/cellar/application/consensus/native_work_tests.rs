@@ -44,3 +44,24 @@ fn callback_installation_and_claim_follow_transaction_rollback() -> Result<()> {
     assert!(arm(&db, "queue", -1).is_err());
     Ok(())
 }
+
+#[test]
+fn callback_claim_uses_its_bounded_execution_lease() -> Result<()> {
+    let db = Connection::open_in_memory()?;
+    arm(&db, "queue", 10)?;
+    let mut work = due(&db, 10)?.unwrap();
+    for invalid in [0, 1000, 301_001, u64::MAX] {
+        work.lease_ms = invalid;
+        assert!(claim(&db, &work, 10).is_err());
+        assert_eq!(get(&db, "queue")?, Some(10));
+    }
+    work.lease_ms = 91_000;
+    assert!(claim(&db, &work, 10)?);
+    assert!(due(&db, 91_009)?.is_none());
+    let retry = due(&db, 91_010)?.unwrap();
+    assert_eq!(retry.generation, work.generation);
+    assert_eq!(retry.attempts, 1);
+    complete(&db, &work)?;
+    assert_eq!(get(&db, "queue")?, None);
+    Ok(())
+}

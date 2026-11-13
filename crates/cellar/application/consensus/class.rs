@@ -634,6 +634,14 @@ impl RaftClass {
         self.validate_cell_factory()?;
         if self.has_native_callbacks() {
             anyhow::ensure!(
+                host.effects
+                    .unwrap_or_default()
+                    .callback_timeout_ms
+                    .checked_add(1000)
+                    .is_some_and(|n| n <= host.execution.max_retry_window_ms),
+                "callback budget exceeds execution receipt horizon"
+            );
+            anyhow::ensure!(
                 host.execution.max_pending_transactions > 0
                     && host.max_input_bytes >= 1024
                     && host.execution.max_client_identities >= 2
@@ -761,7 +769,7 @@ impl RaftClass {
         self.system_commands.insert(
             super::native_work::OPERATION.into(),
             Command {
-                digest: Sha256::digest(b"cellar-native-work-callback-1").into(),
+                digest: Sha256::digest(b"cellar-native-work-callback-budget-1").into(),
                 handler: CommandHandler::NativeWork,
             },
         );
@@ -883,6 +891,18 @@ impl RaftClass {
         self.cell_factory
             .as_ref()
             .map(|factory| factory.binding_classes())
+    }
+
+    pub(crate) fn cell_queue_scopes(&self) -> Option<&BTreeSet<String>> {
+        self.cell_factory
+            .as_ref()
+            .map(|factory| factory.queue_scopes())
+    }
+
+    pub(crate) fn queue_ownership(&self, scope: &str) -> Option<bool> {
+        self.cell_factory
+            .as_ref()
+            .and_then(|factory| factory.queue_ownership(scope))
     }
 
     pub(crate) fn allows_cell_binding(&self, scope: &str) -> bool {

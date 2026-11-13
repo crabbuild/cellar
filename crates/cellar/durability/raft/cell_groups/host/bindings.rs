@@ -58,7 +58,11 @@ impl CellGroupHost {
                 ),
             ));
         }
-        let (target_key, target) = select(&self.inner.namespaces, key, configuration, class)?;
+        let (target_key, target) = if class == crate::deploy::QUEUE_CLASS {
+            select_queue(&self.inner.namespaces, Some(source.cluster), scope)?
+        } else {
+            select(&self.inner.namespaces, key, configuration, class)?
+        };
         let mut route = route(target_key, target, scope, method, Access::Binding)?;
         route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
         Ok(route)
@@ -106,20 +110,8 @@ impl CellGroupHost {
         access: Access,
     ) -> Result<Route, CellDispatchError> {
         self.inner.check_lifecycle()?;
-        let mut services = self
-            .inner
-            .namespaces
-            .iter()
-            .filter(|(_, binding)| binding.class.name() == crate::deploy::QUEUE_CLASS);
-        let (key, target) = services.next().ok_or(CellDispatchError::Invalid(
-            "declared Queue namespace is missing",
-        ))?;
-        if services.next().is_some() {
-            return Err(CellDispatchError::Invalid(
-                "declared Queue namespace is ambiguous",
-            ));
-        }
-        let mut route = route(*key, target, scope, method, access)?;
+        let (key, target) = select_queue(&self.inner.namespaces, None, scope)?;
+        let mut route = route(key, target, scope, method, access)?;
         route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
         Ok(route)
     }
@@ -214,10 +206,53 @@ pub(super) fn validate(
             continue;
         };
         for class in source.class.cell_binding_classes().into_iter().flatten() {
-            select(namespaces, *key, configuration, class)?;
+            if class == crate::deploy::QUEUE_CLASS {
+                for scope in source.class.cell_queue_scopes().into_iter().flatten() {
+                    select_queue(namespaces, Some(key.0), scope)?;
+                }
+            } else {
+                select(namespaces, *key, configuration, class)?;
+            }
         }
     }
     Ok(())
+}
+
+/// Namespace declarations are the durable ownership catalogue. Loading another
+/// producer cannot relocate a Queue; conflicting explicit owners fail closed.
+fn select_queue<'a>(
+    namespaces: &'a BTreeMap<(ClusterId, NamespaceId), Arc<Binding>>,
+    cluster: Option<ClusterId>,
+    scope: &str,
+) -> Result<((ClusterId, NamespaceId), &'a Binding), CellDispatchError> {
+    let mut explicit = None;
+    let mut implicit = None;
+    let mut ambiguous_implicit = false;
+    for (key, binding) in namespaces {
+        if cluster.is_some_and(|cluster| key.0 != cluster)
+            || binding.class.name() != crate::deploy::QUEUE_CLASS
+        {
+            continue;
+        }
+        match binding.class.queue_ownership(scope) {
+            Some(true) => {
+                if explicit.replace((*key, binding.as_ref())).is_some() {
+                    return Err(CellDispatchError::Invalid(
+                        "declared Queue owner is ambiguous",
+                    ));
+                }
+            }
+            Some(false) => {
+                ambiguous_implicit |= implicit.replace((*key, binding.as_ref())).is_some();
+            }
+            None => (),
+        }
+    }
+    explicit
+        .or_else(|| (!ambiguous_implicit).then_some(implicit).flatten())
+        .ok_or(CellDispatchError::Invalid(
+            "declared Queue owner is missing or ambiguous",
+        ))
 }
 
 fn select<'a>(

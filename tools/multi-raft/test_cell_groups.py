@@ -35,7 +35,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite in ("ordinary-sql-bindings", "immutable-payloads"):
+                if suite in ("ordinary-sql-bindings", "immutable-payloads", "queue-primitives"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -44,6 +44,8 @@ class SqlCampaignTests(unittest.TestCase):
                     return subprocess.CompletedProcess(
                         argv, 0, prefix + "\n".join(f"{case}: test" for case in cases)
                     )
+                if suite == "queue-primitives":
+                    self.assertIn("--nocapture", argv)
                 if suite in ("ordinary-sql-bindings", "queue-primitives"):
                     retained = Path(env["CELLAR_CELL_GROUPS_SQL_CLI" if suite == "ordinary-sql-bindings" else "CELLAR_CELL_GROUPS_QUEUE_CLI"])
                     self.assertEqual(retained, output / "cellar")

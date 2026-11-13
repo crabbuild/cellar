@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) const OPERATION: &str = "__sys_raft_native_work";
 
-// The scheduler admits operations for at most 60 seconds. A crashed callback
-// becomes discoverable again after that owner can no longer publish a result.
+// Each claim carries the admitted callback budget. The extra second prevents a
+// fresh claim from racing the former owner before its execution deadline.
 const LEASE_MS: u64 = 61_000;
 const MAX_REASONS: usize = 16;
 
@@ -22,6 +22,7 @@ pub(crate) struct Work {
     pub generation: [u8; 16],
     pub due: u64,
     pub attempts: u32,
+    pub lease_ms: u64,
 }
 
 fn exists(db: &Connection) -> Result<bool> {
@@ -99,6 +100,7 @@ pub(crate) fn due(db: &Connection, now: u64) -> Result<Option<Work>> {
                 .map_err(|_| CommandFailure::CorruptState)?,
             due,
             attempts,
+            lease_ms: LEASE_MS,
         })
     })
     .transpose()
@@ -108,11 +110,15 @@ pub(crate) fn due(db: &Connection, now: u64) -> Result<Option<Work>> {
 /// replacement, nor a lease already renewed by another callback attempt.
 pub(crate) fn claim(db: &Connection, work: &Work, now: u64) -> Result<bool> {
     validate(&work.reason)?;
+    ensure!(
+        (1001..=301_000).contains(&work.lease_ms),
+        CommandFailure::UnsupportedCapability
+    );
     if !exists(db)? || work.due > now {
         return Ok(false);
     }
     let next = i64::try_from(
-        now.checked_add(LEASE_MS)
+        now.checked_add(work.lease_ms)
             .ok_or(CommandFailure::Overloaded)?,
     )?;
     let attempts = work

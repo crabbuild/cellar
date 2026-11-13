@@ -163,20 +163,56 @@ pub(super) async fn run(
         ..
     } = *scan.into_scan();
     let _metadata = _reservation;
-    let Some(due) = due else {
+    let Some(mut due) = due else {
         return Ok(());
     };
+    let native_callback = matches!(due, DueEffect::Work(_));
+    let callback_window = registration.options.callback_timeout_ms + 1000;
+    if let DueEffect::Work(work) = &mut due {
+        work.lease_ms = callback_window;
+    }
+    if native_callback && callback_window > limits.max_retry_window_ms {
+        return Err(Error::Invalid(
+            "callback retry window exceeds execution limit",
+        ));
+    }
     let minimum = due.minimum().map_err(effect)?;
     let (operation, input) = due.command().map_err(effect)?;
     let retry_until = wall()?
-        .checked_add(registration.options.retry_window_ms)
+        .checked_add(if native_callback {
+            callback_window.max(registration.options.retry_window_ms)
+        } else {
+            registration.options.retry_window_ms
+        })
         .ok_or(Error::Invalid("effect retry window"))?;
+    let prepared_request = request(registration, next, &operation, input, minimum, retry_until)?;
+    if native_callback {
+        // Admission transfers the entire invocation to the joined controller.
+        // Dropping its response does not cancel it. Discovery remains available
+        // for other queues while a long callback holds one of two bounded slots.
+        let invocation = registration
+            .dispatcher
+            .system_command(
+                cell.clone(),
+                prepared_request,
+                CellRoutingLimits {
+                    timeout: Duration::from_millis(registration.options.callback_timeout_ms),
+                    max_attempts: 4,
+                },
+            )
+            .await
+            .map_err(|error| Error::Command(Arc::new(error)))?;
+        let call = commands::admit(shared, invocation, options)
+            .map_err(|error| Error::Command(Arc::new(error.error)))?;
+        drop(call);
+        return Ok(());
+    }
     let receipt = command(
         shared,
         registration,
         &cell,
         options.clone(),
-        request(registration, next, &operation, input, minimum, retry_until)?,
+        prepared_request,
     )
     .await?;
     let local = receipt

@@ -1776,3 +1776,42 @@ async fn rustfs_interrupted_sql_bindings_recover_without_replaying_business_call
 async fn sql_error_recovery_preserves_s3_extent_progress() -> Result<()> {
     Box::pin(sql_bindings::extent_error_progress()).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_cross_deployment_faults_preserve_quorum() -> Result<()> {
+    Box::pin(queues::qualify_faults(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_cross_deployment_faults_preserve_quorum() -> Result<()> {
+    Box::pin(queues::qualify_faults(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_axum_cross_deployment_faults_preserve_quorum() -> Result<()> {
+    Box::pin(queues::qualify_faults(true, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_long_callbacks_preserve_progress() -> Result<()> {
+    Box::pin(queues::qualify_long(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_load_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_long_callbacks_preserve_progress() -> Result<()> {
+    Box::pin(queues::qualify_long(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_load_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load(false)).await
+}

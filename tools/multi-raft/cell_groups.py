@@ -81,13 +81,23 @@ SUITES = {
     ),
     "queue-primitives": (
         "native_cell_groups_primitives",
-        ("rustfs_ordinary_queue_callbacks_use_shared_quorum", "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum"),
+        (
+            "rustfs_ordinary_queue_callbacks_use_shared_quorum",
+            "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum",
+            "rustfs_queue_cross_deployment_faults_preserve_quorum",
+            "rustfs_queue_axum_cross_deployment_faults_preserve_quorum",
+            "rustfs_queue_long_callbacks_preserve_progress",
+            "rustfs_queue_load_preserves_acknowledged_messages",
+        ),
         "ordinary Queue producer/callback/settlement through shared RF3 with real RustFS",
         "Both image modes, one SQL worker per node, native public ingress, declared bindings, "
         "ack/retry/dead-letter delivery, authenticated Queue operator controls, exact producer replay, "
         "archive-write refusal, joined retained restart and autonomous interrupted-consumer recovery, "
-        "leader transfer and quorum-loss refusal. Voters share the host process; complete CG-17 "
-        "conformance, cross-deployment catalogs, Linux voter limits, load and disk-loss recovery remain separate gates.",
+        "leader transfer and quorum-loss refusal. Separate producer, consumer and DLQ deployments, "
+        "partial retry, stale handlers, active purge, expired enqueue replay, cross-group S3 DLQ "
+        "reply loss, 65-second callbacks and concurrent two-queue load are checked. "
+        "Voters share the host process; complete CG-17 conformance, deployment removal, "
+        "clock discontinuities, independent Linux voter limits and disk-loss recovery remain separate gates.",
     ),
     "ordinary-primitives": (
         "native_cell_groups_primitives",
@@ -672,7 +682,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("ordinary-sql-bindings", "immutable-payloads"):
+        if args.suite in ("ordinary-sql-bindings", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -683,6 +693,8 @@ def main():
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
+            if number and args.suite == "queue-primitives":
+                argv.append("--nocapture")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
             if selection == "rustfs_quorum_continues_bounded_s3_outage":

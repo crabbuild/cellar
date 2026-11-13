@@ -173,6 +173,40 @@ Next close those SQL gates, then deliver grouped KV revisions, expiry, alarms an
 payload ownership. The earlier generic binding **8/8** and interrupted-binding
 **8/8** results retain source `d1f8535f`; they were not rerun for this SQL cohort.
 
+## CG-17 cross-deployment Queue and long callbacks
+
+The next Queue increment resolves producer, consumer and storage-only DLQ
+namespaces by their admitted schemas across cohosted deployments. Ambiguous
+owners and missing code refuse admission. It separates native callback execution
+(default 300 seconds, maximum 300 seconds) from the existing five-second control
+RPC budget. Two bounded callback slots share the original single callback-byte
+ceiling; ordinary production request capacity and public routing limits stay
+unchanged. The private native-work digest changes, requiring fresh compatible
+namespaces and matching voters; format markers remain 1.
+
+Native fault qualification passes both image modes. It covers partial retry,
+stale event handles after leader transfer, purge during active delivery, a lost
+cross-group DLQ completion reply after target quorum apply while target S3
+publication is refused, all-node retained restart and autonomous original-ID
+DLQ recovery. A separate short-retention scenario proves exact original producer
+replay does not recreate an expired message. Separate native 65-second handler
+qualification passes both images and requires another Queue to progress within
+its original five-second bound.
+
+The four-producer load selection offers 512 messages in batches of eight across
+two queues with one SQL worker per node. Its explicit load profile has eight
+ordinary slots/128 KiB, while fault/MVP scenarios retain two ordinary slots. The
+callback slots and shared byte ceiling remain bounded. Debug controls failed:
+the two-slot flood refused overload, the eight-slot full-archive-outage flood
+missed a deadline at ingress sequence 16, and the eight-slot healthy-archive
+flood missed a deadline at sequence 20. Those results do not isolate archive
+headroom as the cause. Logs remain under
+`/Volumes/Workspace/crabbuild-target/cellar-queue-expanded-controls`.
+The optimized profile preserves debug assertions, overflow checks, original
+three/five-second request budgets and unknown-outcome refusals. Its full-source
+RustFS campaign and final load result are pending; these native passes do not
+complete a Queue family or release gate.
+
 ## CG-17 durable callbacks and Queue MVP
 
 Source `efd9c4c9` integrates the shared callback/Queue adapter with the qualified

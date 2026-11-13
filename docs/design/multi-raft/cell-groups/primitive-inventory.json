@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "5226780b70c9943f077c52e6a68e8a7913eff54990f640c832dd79c140f4465e"
+    "crates/cellar/application/mod.rs": "edb08c68b1e60ac5119f3a48d8c3baf3b9abc3c30b503b3ba0d1cf23416665e9"
   },
   "entries": [
     {
@@ -327,14 +327,16 @@
         "cellar::sdk::Invocation::Alarm",
         "cellar::sdk::Invocation::Scheduled",
         "cellar::sdk::cron::Scheduled::no_retry",
-        "cellar::sdk::RaftClass::durable_callbacks"
+        "cellar::sdk::RaftClass::durable_callbacks",
+        "cellar::sdk::consensus::RaftEffectOptions::callback_timeout_ms"
       ],
       "owners": [
         "crates/cellar/application/storage/mod.rs",
         "crates/cellar/application/cron/mod.rs",
         "crates/cellar/application/cron/types.rs",
         "crates/cellar/application/consensus/class.rs",
-        "crates/cellar/application/consensus/native_work.rs"
+        "crates/cellar/application/consensus/native_work.rs",
+        "crates/cellar/durability/raft/effect_options.rs"
       ],
       "schemas": [
         "Schedule generations and occurrence history"
@@ -459,7 +461,10 @@
         "cellar::sdk::QueryContext",
         "cellar::sdk::QueryContext::outbox_progress",
         "cellar::sdk::QueryContext::storage",
-        "cellar::sdk::CommandContext::storage"
+        "cellar::sdk::CommandContext::storage",
+        "cellar::sdk::Application::resolve_raft_namespace",
+        "cellar::sdk::consensus::RaftApplications",
+        "cellar::sdk::consensus::RaftApplications::new"
       ],
       "owners": [
         "crates/cellar/application/consensus/class.rs",
@@ -467,7 +472,8 @@
         "crates/cellar/application/consensus/native_cell.rs",
         "crates/cellar/storage/sqlite/command.rs",
         "crates/cellar/storage/sqlite/immutable.rs",
-        "crates/cellar/application/consensus/native_configuration.rs"
+        "crates/cellar/application/consensus/native_configuration.rs",
+        "crates/cellar/application/consensus/native_applications.rs"
       ],
       "schemas": [
         "Private command image and receipts"

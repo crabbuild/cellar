@@ -51,6 +51,8 @@ pub(super) struct CellRpcFactory {
     binding_classes: std::collections::BTreeSet<String>,
     sql_scopes: std::collections::BTreeSet<String>,
     queue_scopes: std::collections::BTreeSet<String>,
+    queue_owners: std::collections::BTreeSet<String>,
+    queue_dead_letters: std::collections::BTreeSet<String>,
     configure: Arc<ConfigureCellFactory>,
 }
 
@@ -77,6 +79,22 @@ impl CellRpcFactory {
             self.sql_scopes.contains(scope)
         } else {
             self.binding_classes.contains(class)
+        }
+    }
+
+    pub(super) fn queue_scopes(&self) -> &std::collections::BTreeSet<String> {
+        &self.queue_scopes
+    }
+
+    /// Explicit consumer/storage declarations own resources; a dead-letter
+    /// reference supplies a fallback only when no explicit owner exists.
+    pub(super) fn queue_ownership(&self, scope: &str) -> Option<bool> {
+        if self.queue_owners.contains(scope) {
+            Some(true)
+        } else if self.queue_dead_letters.contains(scope) {
+            Some(false)
+        } else {
+            None
         }
     }
 
@@ -228,6 +246,25 @@ impl NativeCellFactory {
             )
             .map(crate::engine_api::queue_cell_scope)
             .collect();
+        let queue_owners = if options.queue_consumers.is_empty() {
+            options
+                .queue_bindings
+                .iter()
+                .map(|b| crate::engine_api::queue_cell_scope(&b.queue))
+                .collect()
+        } else {
+            options
+                .queue_consumers
+                .iter()
+                .map(|b| crate::engine_api::queue_cell_scope(&b.queue))
+                .collect()
+        };
+        let queue_dead_letters = options
+            .queue_consumers
+            .iter()
+            .filter_map(|b| b.dead_letter_queue.as_deref())
+            .map(crate::engine_api::queue_cell_scope)
+            .collect();
         let sql_scopes = options
             .sql_bindings
             .iter()
@@ -251,6 +288,8 @@ impl NativeCellFactory {
             binding_classes,
             sql_scopes,
             queue_scopes,
+            queue_owners,
+            queue_dead_letters,
             configure: Arc::new(move |config| {
                 Self::bind_configuration(
                     &compiled_class,
