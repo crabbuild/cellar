@@ -4759,6 +4759,15 @@ fn sqlite_limit_categories(limits: crate::application::limits::SqliteLimits) -> 
     ]
 }
 
+/// Fixed framework work metadata under the currently installed private command.
+pub(crate) fn raft_native_work<T>(
+    callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    with_application_storage_write(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| callback(connection))
+    })
+}
+
 #[cfg(test)]
 mod system_schema_tests {
     use super::*;
@@ -4902,13 +4911,4 @@ mod system_schema_tests {
         close(scope);
         Ok(())
     }
-}
-
-/// Fixed framework work metadata under the currently installed private command.
-pub(crate) fn raft_native_work<T>(
-    callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    with_application_storage_write(RAFT_STORAGE_SCOPE, |connection| {
-        as_framework_sql(|| callback(connection))
-    })
 }
