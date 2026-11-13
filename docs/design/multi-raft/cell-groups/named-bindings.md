@@ -202,9 +202,12 @@ both phases, without a detached task or another command admission slot.
 A successful call verifies the target receipt's identity, history and durability
 before marking its private source intent resolved. The next source effect or final
 parent acknowledgement proves that resolution; it needs no separate redundant
-checkpoint. Only an explicit overload refusal before target admission retries
-automatically, with identical input/history/identity and the original deadline.
-Application failures and ambiguous outcomes are not automatically retried.
+checkpoint. Enrollment and business dispatch may both wait on a typed local
+overload refusal that proves no admission occurred. Enrollment keeps the durable
+source intent, candidate and creation ID; business dispatch keeps its input,
+history and command ID. Both consume the original deadline through the existing
+parked binding task. Transmitted/ambiguous requests, initializer failures and
+application failures are not automatically retried.
 
 The archive owner rejects a cut below a waiting command's committed log position
 before retained-cut validation or receipt worker admission. When an older held

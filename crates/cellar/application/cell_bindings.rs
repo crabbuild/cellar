@@ -442,16 +442,41 @@ async fn run(
     let history = if !intent.enroll {
         intent.candidate.clone()
     } else {
-        match source
-            .host
-            .enroll(
-                intent.candidate.clone(),
-                intent.creation,
-                intent.route.durability,
-                dispatch.remaining_timeout()?,
-            )
-            .await
-        {
+        let mut noted = false;
+        let enrolled = loop {
+            let result = source
+                .host
+                .enroll(
+                    intent.candidate.clone(),
+                    intent.creation,
+                    intent.route.durability,
+                    dispatch.remaining_timeout()?,
+                )
+                .await;
+            let overloaded = result
+                .as_ref()
+                .err()
+                .and_then(|cause| cause.downcast_ref::<Arc<CellEnrollmentError>>())
+                .is_some_and(|error| {
+                    !error.ambiguous
+                        && matches!(
+                            error.cause.as_ref(),
+                            CellDispatchError::Runtime(RuntimeError::Overloaded)
+                        )
+                });
+            if !overloaded {
+                break result;
+            }
+            // Local admission refused before entering an initializer or using
+            // a route attempt. Retain the durable source intent, candidate and
+            // creation ID; unknown/transmitted enrollments never enter this wait.
+            if !noted {
+                tracing::debug!(target: "cellar::raft::enrollment", phase = "binding-admission-wait", creation = ?intent.creation);
+                noted = true;
+            }
+            dispatch.wait_admission().await?;
+        };
+        match enrolled {
             Ok(()) => intent.candidate.clone(),
             Err(error) => match source
                 .host
