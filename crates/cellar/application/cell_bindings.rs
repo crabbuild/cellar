@@ -467,9 +467,9 @@ async fn run(
             if !overloaded {
                 break result;
             }
-            // Local admission refused before entering an initializer or using
-            // a route attempt. Retain the durable source intent, candidate and
-            // creation ID; unknown/transmitted enrollments never enter this wait.
+            // A local overload proved no initializer entered. Retain the
+            // durable source intent, candidate and creation ID. Unknown or
+            // transmitted enrollments never enter this wait.
             if !noted {
                 tracing::debug!(target: "cellar::raft::enrollment", phase = "binding-admission-wait", creation = ?intent.creation);
                 noted = true;

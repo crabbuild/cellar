@@ -209,6 +209,14 @@ history and command ID. Both consume the original deadline through the existing
 parked binding task. Transmitted/ambiguous requests, initializer failures and
 application failures are not automatically retried.
 
+Within an admitted enrollment, a refused logical writer or SQL byte reservation
+may wait only with the SQL pool's explicit pre-enqueue proof. It retains the
+original captured initializer inputs, preview, creation ID, route attempt and
+deadline. Each retry acquires fresh leader/applied authority; unchanged fences
+still refuse. A received worker error or lost reply supplies no such proof and
+cannot re-enter initialization. Waiting uses the existing controller progress
+signal and node budgets, with no additional per-cell scheduler.
+
 The archive owner rejects a cut below a waiting command's committed log position
 before retained-cut validation or receipt worker admission. When an older held
 proof prevents a new allocation, that bound also avoids replaying an ineligible

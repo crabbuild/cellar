@@ -321,6 +321,12 @@ pub(crate) async fn remote_enrollment_writer_contention() -> Result<()> {
                 let returned_while_held = early.is_some();
                 let elapsed_while_held = began.elapsed();
                 ensure!(calls.load(Ordering::SeqCst) == 1, "competing initializer entered");
+                if mode == 2 && returned_while_held {
+                    tokio::time::timeout(
+                        Duration::from_secs(1),
+                        wait_for(async || Ok(controllers[0].usage().retained_commands == 1)),
+                    ).await??;
+                }
                 release.send(())?;
                 let original = first.response().await?;
                 let result = match early {
