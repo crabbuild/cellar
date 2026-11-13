@@ -55,6 +55,8 @@ class SqlCampaignTests(unittest.TestCase):
                 if suite == "queue-primitives":
                     self.assertEqual("--nocapture" in argv,
                                      selection == "rustfs_queue_load_preserves_acknowledged_messages")
+                if suite == "ordinary-kv-bindings":
+                    self.assertIn("--nocapture", argv)
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
                     retained = Path(env[{"ordinary-sql-bindings": "CELLAR_CELL_GROUPS_SQL_CLI", "ordinary-kv-bindings": "CELLAR_CELL_GROUPS_KV_CLI", "queue-primitives": "CELLAR_CELL_GROUPS_QUEUE_CLI"}[suite]])
                     self.assertEqual(retained, output / "cellar")

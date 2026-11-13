@@ -434,7 +434,7 @@ impl RaftClass {
         Self::definition(
             crate::deploy::KV_CLASS.into(),
             1,
-            Sha256::digest(b"cellar-raft-kv-payload-callback-service-1").into(),
+            Sha256::digest(b"cellar-raft-kv-value-reference-callback-service-1").into(),
         )
     }
 

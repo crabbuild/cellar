@@ -114,7 +114,8 @@ pub(crate) async fn prepare(
                 registration.class.clone()
             )
         );
-        let class = application.resolve_raft_namespace(&registration.namespace, &registration.class)?;
+        let class =
+            application.resolve_raft_namespace(&registration.namespace, &registration.class)?;
         if class.name() == crate::deploy::KV_CLASS {
             let limits = config
                 .shared

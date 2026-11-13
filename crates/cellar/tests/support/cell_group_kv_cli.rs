@@ -30,6 +30,36 @@ pub(super) async fn run(cluster: &ManagedCluster, backend: &rustfs::StoreConfig)
     Ok(())
 }
 
+pub(super) async fn large(cluster: &ManagedCluster, backend: &rustfs::StoreConfig) -> Result<()> {
+    let sdk_value = command(cluster, backend, &["get", NAMESPACE, "large"]).await?;
+    ensure!(sdk_value.len() == cellar_logic::kv::MAX_VALUE_BYTES);
+    ensure!(sdk_value
+        .iter()
+        .enumerate()
+        .all(|(index, byte)| *byte == (index % 251) as u8));
+    drop(sdk_value);
+    let value = (0..cellar_logic::kv::MAX_VALUE_BYTES)
+        .map(|index| (index % 251) as u8 ^ 5)
+        .collect::<Vec<_>>();
+    let path = cluster.roots[0].path().join("cli-large-value.bin");
+    std::fs::write(&path, &value)?;
+    command(
+        cluster,
+        backend,
+        &[
+            "put",
+            NAMESPACE,
+            "cli-large",
+            "--path",
+            path.to_str().context("CLI value path")?,
+        ],
+    )
+    .await?;
+    ensure!(command(cluster, backend, &["get", NAMESPACE, "cli-large"]).await? == value);
+    eprintln!("actual KV CLI 25-MiB SDK read and file put/get: PASS");
+    Ok(())
+}
+
 async fn command(
     cluster: &ManagedCluster,
     backend: &rustfs::StoreConfig,

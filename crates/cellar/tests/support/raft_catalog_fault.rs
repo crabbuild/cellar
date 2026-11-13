@@ -166,6 +166,11 @@ pub struct Store {
     pub deny_routing_metadata_reads: AtomicBool,
     pub denied_routing_metadata_reads: AtomicUsize,
     pub group_payload_reads: AtomicUsize,
+    pub cell_payload_put_calls: AtomicUsize,
+    pub cell_payload_put_bytes: AtomicUsize,
+    pub cell_payload_get_calls: AtomicUsize,
+    pub deny_cell_payload_reads: AtomicBool,
+    pub denied_cell_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
     pub deny_group_payload_reads: AtomicBool,
     pub denied_prefix: std::sync::Mutex<Option<Path>>,
@@ -384,6 +389,13 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/cell-payloads-1/") {
+            self.cell_payload_put_calls.fetch_add(1, Ordering::AcqRel);
+            self.cell_payload_put_bytes.fetch_add(
+                payload.iter().map(|bytes| bytes.len()).sum::<usize>(),
+                Ordering::AcqRel,
+            );
+        }
         if matches!(options.mode, PutMode::Create)
             && path.as_ref().contains("/cell-group-archives/")
             && DENIED_ARCHIVE_CREATION
@@ -699,6 +711,14 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if path.as_ref().contains("/cell-payloads-1/") {
+            self.cell_payload_get_calls.fetch_add(1, Ordering::AcqRel);
+            if self.deny_cell_payload_reads.load(Ordering::Acquire) {
+                self.denied_cell_payload_reads
+                    .fetch_add(1, Ordering::AcqRel);
+                return Err(failure());
+            }
+        }
         if self.deny_routing_metadata_reads.load(Ordering::Acquire)
             && (path.as_ref().contains("/cell-groups/")
                 || path.as_ref().contains("/fleet/")

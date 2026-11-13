@@ -25,13 +25,28 @@ const REPLY: &str = "__cellarKvReply";
 pub(super) struct Reply {
     value: StructuredValue,
     _retained: Option<CellGroupPayloadBytes>,
+    deadline: Option<u64>,
 }
 
 impl Reply {
+    pub(super) fn deadline(&self) -> Result<u64> {
+        self.deadline
+            .ok_or_else(|| CommandFailure::UnsupportedCapability.into())
+    }
+
+    pub(super) fn check(&self, context: &Context) -> Result<()> {
+        if let Some(deadline) = self.deadline {
+            remaining(deadline)?;
+            context.check_binding_turn()?;
+        }
+        Ok(())
+    }
+
     pub(super) fn inline(value: StructuredValue) -> Self {
         Self {
             value,
             _retained: None,
+            deadline: None,
         }
     }
 }
@@ -109,7 +124,7 @@ pub(super) fn enabled(context: &Context) -> bool {
     context.raft_storage.is_some() || context.state.raft_kv
 }
 
-fn deadline(context: &Context) -> Result<u64> {
+pub(super) fn deadline(context: &Context) -> Result<u64> {
     context.check_binding_turn()?;
     let timeout = if context.raft_storage.is_some() {
         crate::storage::capture_raft_dispatch()?
@@ -128,7 +143,7 @@ fn deadline(context: &Context) -> Result<u64> {
         .map_or(deadline, |parent| deadline.min(*parent)))
 }
 
-fn remaining(deadline: u64) -> Result<Duration> {
+pub(super) fn remaining(deadline: u64) -> Result<Duration> {
     Ok(Duration::from_millis(
         deadline
             .checked_sub(crate::asyncrt::mono_ms())
@@ -167,8 +182,19 @@ pub(super) async fn call(
     method: &str,
     args: RpcData,
 ) -> Result<Reply> {
+    call_at(context, identity, method, args, deadline(context)?).await
+}
+
+pub(super) async fn call_at(
+    context: &Context,
+    identity: &str,
+    method: &str,
+    args: RpcData,
+    deadline: u64,
+) -> Result<Reply> {
     ensure!(public_method(method), CommandFailure::UnsupportedCapability);
-    let deadline = deadline(context)?;
+    remaining(deadline)?;
+    context.check_binding_turn()?;
     let scope = policy_scope(identity);
     let name = policy::cell_name(identity, 0);
     let limit = if context.raft_storage.is_some() {
@@ -188,24 +214,7 @@ pub(super) async fn call(
     let request = native_rpc::encode_request(Some(&name), &args, MAX_BYTES)?;
     let (method, args) = if request.len() > limit {
         drop(args);
-        let digest = hex::encode(Sha256::digest(&request));
-        let prepared = raw(
-            context,
-            identity,
-            PREPARE,
-            encode_rpc(&StructuredValue::from_json(
-                json!([{"digest":digest,"length":request.len()}]),
-            )?)?,
-            deadline,
-        )
-        .await?;
-        let prepared = decode_rpc_result(&prepared)?.to_json()?;
-        let reference = Reference::parse(prepared.as_str().context("KV prepared wire locator")?)?;
-        let reference =
-            transfer(context, identity, reference, Some(request.into()), deadline).await?;
-        let Transfer::Published(reference) = reference else {
-            bail!(CommandFailure::CorruptState)
-        };
+        let reference = publish_bytes(context, identity, request.into(), deadline).await?;
         (
             EXTERNAL,
             encode_rpc(&StructuredValue::from_json(
@@ -230,12 +239,113 @@ pub(super) async fn call(
         Ok(Reply {
             value,
             _retained: Some(held),
+            deadline: Some(deadline),
         })
     } else {
         remaining(deadline)?;
         context.check_binding_turn()?;
-        Ok(Reply::inline(value))
+        Ok(Reply {
+            value,
+            _retained: None,
+            deadline: Some(deadline),
+        })
     }
+}
+
+/// Publish caller-owned bytes before the small, independently durable child
+/// operation. A publisher flag never substitutes for the receiver's read-back.
+pub(super) async fn publish_bytes(
+    context: &Context,
+    identity: &str,
+    bytes: bytes::Bytes,
+    deadline: u64,
+) -> Result<String> {
+    let digest = hex::encode(Sha256::digest(&bytes));
+    let prepared = raw(
+        context,
+        identity,
+        PREPARE,
+        encode_rpc(&StructuredValue::from_json(
+            json!([{"digest":digest,"length":bytes.len()}]),
+        )?)?,
+        deadline,
+    )
+    .await?;
+    let prepared = decode_rpc_result(&prepared)?.to_json()?;
+    let reference = Reference::parse(prepared.as_str().context("KV prepared locator")?)?;
+    let Transfer::Published(reference) =
+        transfer(context, identity, reference, Some(bytes), deadline).await?
+    else {
+        bail!(CommandFailure::CorruptState)
+    };
+    Ok(reference)
+}
+
+pub(super) fn value_length(encoded: &str) -> Result<usize> {
+    let reference = Reference::parse(encoded)?;
+    ensure!(
+        reference.published,
+        "KV_ERROR: unconfirmed value dependency"
+    );
+    let length = usize::try_from(reference.object.length())?;
+    check_value(length)?;
+    Ok(length)
+}
+
+pub(super) async fn fetch_value(
+    context: &Context,
+    identity: &str,
+    encoded: &str,
+    deadline: u64,
+) -> Result<CellGroupPayloadBytes> {
+    value_length(encoded)?;
+    let Transfer::Bytes(bytes) = transfer(
+        context,
+        identity,
+        Reference::parse(encoded)?,
+        None,
+        deadline,
+    )
+    .await?
+    else {
+        bail!(CommandFailure::CorruptState)
+    };
+    Ok(bytes)
+}
+
+/// The receiving quorum command checks complete actual bytes before installing
+/// a row. The caller's confirmed-publication descriptor alone grants no proof.
+pub(super) async fn verify_value(context: &Context, encoded: &str) -> Result<(String, usize)> {
+    let length = value_length(encoded)?;
+    let reference = Reference::parse(encoded)?;
+    let bytes = read_current(context, encoded).await?;
+    ensure!(bytes.as_ref().len() == length, CommandFailure::CorruptState);
+    drop(bytes);
+    Ok((serde_json::to_string(&reference.object)?, length))
+}
+
+/// Only a committed row supplies this locator. The SDK still reads and verifies
+/// the immutable body before exposing a value, under the same original deadline.
+pub(super) fn published_value(encoded: &str) -> Result<(String, usize)> {
+    ensure!(encoded.len() <= 1024, CommandFailure::CorruptState);
+    let object: CellGroupPayloadReference = serde_json::from_str(encoded)?;
+    let length = usize::try_from(object.length())?;
+    check_value(length)?;
+    let history = crate::storage::capture_raft_dispatch()?
+        .ok_or(CommandFailure::UnsupportedCapability)?
+        .source_history()?;
+    Ok((
+        serde_json::to_string(&Reference {
+            format: 1,
+            published: true,
+            cluster: history.cluster.bytes(),
+            namespace: history.namespace.bytes(),
+            cell: history.cell.as_str().into(),
+            incarnation: history.incarnation.bytes(),
+            object,
+        })?,
+        length,
+    ))
 }
 
 enum Transfer {
@@ -456,6 +566,71 @@ pub(super) async fn wrap_reply(context: &Context, result: RpcData) -> Result<Rpc
     )?)
 }
 
+/// The caller is the peer-authenticated operator entrance, not an application
+/// binding. The selected KV namespace still supplies the actual object store.
+pub(super) async fn publish_admin_bytes(
+    owner: &super::super::consensus::RaftCells,
+    scope: &str,
+    name: Option<&str>,
+    bytes: bytes::Bytes,
+    deadline: u64,
+) -> Result<String> {
+    owner.kv_wire_input_limit(scope, PREPARE)?;
+    remaining(deadline)?;
+    let preparation = encode_rpc(&StructuredValue::from_json(
+        json!([{"digest":hex::encode(Sha256::digest(&bytes)),"length":bytes.len()}]),
+    )?)?;
+    let admitted = crate::asyncrt::services()
+        .admit_outbound_rpc(scope, name, PREPARE, &preparation)
+        .ok_or(CommandFailure::Overloaded)?;
+    let mut call_scope = crate::host_rpc::CallScope::default();
+    call_scope.deadline_ms = Some(deadline);
+    let result = owner.sql_ingress(admitted, call_scope, deadline).await?;
+    let prepared = decode_rpc_result(&result)?.to_json()?;
+    let reference = Reference::parse(prepared.as_str().context("KV prepared operator bytes")?)?;
+    ensure!(
+        reference.cell == scope,
+        "KV_ERROR: external operator scope differs"
+    );
+    let store = owner.kv_wire_store(&reference.history()?)?;
+    let Transfer::Published(reference) =
+        execute(store, reference, Some(bytes), remaining(deadline)?).await?
+    else {
+        bail!(CommandFailure::CorruptState)
+    };
+    ensure!(
+        !owner.is_closed(),
+        super::super::consensus::RuntimeError::Closed
+    );
+    remaining(deadline)?;
+    Ok(reference)
+}
+
+pub(super) async fn fetch_admin_value(
+    owner: &super::super::consensus::RaftCells,
+    scope: &str,
+    encoded: &str,
+    deadline: u64,
+) -> Result<CellGroupPayloadBytes> {
+    value_length(encoded)?;
+    let reference = Reference::parse(encoded)?;
+    ensure!(
+        reference.cell == scope,
+        "KV_ERROR: external operator scope differs"
+    );
+    let store = owner.kv_wire_store(&reference.history()?)?;
+    let Transfer::Bytes(bytes) = execute(store, reference, None, remaining(deadline)?).await?
+    else {
+        bail!(CommandFailure::CorruptState)
+    };
+    ensure!(
+        !owner.is_closed(),
+        super::super::consensus::RuntimeError::Closed
+    );
+    remaining(deadline)?;
+    Ok(bytes)
+}
+
 pub(crate) async fn stage_admin(
     owner: &super::super::consensus::RaftCells,
     scope: &str,
@@ -463,33 +638,13 @@ pub(crate) async fn stage_admin(
     args: RpcData,
     deadline: u64,
 ) -> Result<RpcData> {
+    let args = super::raft_value::stage_operator(owner, scope, name, args, deadline).await?;
     let request = native_rpc::encode_request(name, &args, MAX_BYTES)?;
     if request.len() <= owner.kv_wire_input_limit(scope, PREPARE)? {
         return Ok(args);
     }
     drop(args);
-    let services = crate::asyncrt::services();
-    let preparation = encode_rpc(&StructuredValue::from_json(
-        json!([{"digest":hex::encode(Sha256::digest(&request)),"length":request.len()}]),
-    )?)?;
-    let admitted = services
-        .admit_outbound_rpc(scope, name, PREPARE, &preparation)
-        .ok_or(CommandFailure::Overloaded)?;
-    let mut call_scope = crate::host_rpc::CallScope::default();
-    call_scope.deadline_ms = Some(deadline);
-    let result = owner.sql_ingress(admitted, call_scope, deadline).await?;
-    let prepared = decode_rpc_result(&result)?.to_json()?;
-    let reference = Reference::parse(prepared.as_str().context("KV prepared operator input")?)?;
-    ensure!(
-        reference.cell == scope,
-        "KV_ERROR: external operator scope differs"
-    );
-    let store = owner.kv_wire_store(&reference.history()?)?;
-    let Transfer::Published(reference) =
-        execute(store, reference, Some(request.into()), remaining(deadline)?).await?
-    else {
-        bail!(CommandFailure::CorruptState)
-    };
+    let reference = publish_admin_bytes(owner, scope, name, request.into(), deadline).await?;
     encode_rpc(&StructuredValue::from_json(json!({(INPUT):reference}))?)
 }
 
@@ -500,7 +655,7 @@ pub(crate) async fn expand_admin(
     deadline: u64,
 ) -> Result<Value> {
     let value = decode_rpc_result(&result)?;
-    if let Some(encoded) = external_reply(&value)? {
+    let value = if let Some(encoded) = external_reply(&value)? {
         let reference = Reference::parse(&encoded)?;
         ensure!(
             reference.cell == scope,
@@ -511,8 +666,9 @@ pub(crate) async fn expand_admin(
         else {
             bail!(CommandFailure::CorruptState)
         };
-        decode_rpc_result(&native_rpc::decode_response(held.as_ref())?)?.to_json()
+        decode_rpc_result(&native_rpc::decode_response(held.as_ref())?)?.to_json()?
     } else {
-        value.to_json()
-    }
+        value.to_json()?
+    };
+    super::raft_value::expand_operator(owner, scope, value, deadline).await
 }

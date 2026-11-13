@@ -134,7 +134,8 @@
         "crates/cellar/application/consensus/native_services.rs",
         "crates/cellar/durability/raft/cell_groups/payload.rs",
         "crates/cellar/node/kv_operator.rs",
-        "crates/cellar/cli/kv_cli.rs"
+        "crates/cellar/cli/kv_cli.rs",
+        "crates/cellar/application/kv/raft_value.rs"
       ],
       "schemas": [
         "KV revisions, expiries and external value references"

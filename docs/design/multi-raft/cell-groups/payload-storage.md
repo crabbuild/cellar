@@ -44,9 +44,18 @@ Preparation is a small quorum operation and performs no object I/O. Publication
 checks the prepared writer, logical owner, digest and length and confirms the
 exact bytes before marking the descriptor published. Target execution verifies
 the uploaded input and commits an external-value row only after publication.
-Large replies receive the same immutable treatment. Small ordinary Quorum calls
-remain independent of asynchronous archive PUTs; large transfers additionally
-require the payload provider.
+Oversized non-value envelopes receive the same immutable treatment. Ordinary
+values above the existing 1-MiB storage threshold use direct value references:
+the SDK publishes bytes before the small child call, and that quorum command
+independently verifies actual complete bytes before installing the row. A read
+commits the exact row reference; the SDK verifies its body before exposing a
+value. The private operator/CLI uses the same path. Value bytes are not repeatedly
+read, encoded and re-published inside a long child RPC. Aggregate value admission
+runs before fetching bodies, preserving the native result ceiling.
+
+Small ordinary Quorum calls remain independent of asynchronous archive PUTs;
+large transfers additionally require the payload provider. Caller-supplied
+publication flags and well-formed locators alone never authorize a row.
 
 Managed KV registration requires an explicit node-wide pool admitting the full
 64-MiB native wire ceiling plus framing, decoder workspace and a concurrent
@@ -88,3 +97,8 @@ retained by source intents and receipts. It must distinguish prepared/pending
 uploads from confirmed dependencies. Then implement and qualify root-aware
 reclamation across every retained image, reader and recovery cut. Fleet's
 epoch-based blob collector must never collect these immutable payload keys.
+
+Format markers remain 1. The value-reference service changes its compiled KV
+schema identity, and the integrated callback kernel changes its private work
+contract. Internal development therefore requires fresh compatible namespaces
+and matching voters. Existing Fleet data is not reinterpreted as Raft data.

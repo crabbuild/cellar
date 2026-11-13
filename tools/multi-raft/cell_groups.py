@@ -727,7 +727,8 @@ def main():
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
-            if selection == "rustfs_queue_load_preserves_acknowledged_messages":
+            if (selection == "rustfs_queue_load_preserves_acknowledged_messages"
+                    or (args.suite == "ordinary-kv-bindings" and number != 0)):
                 argv.append("--nocapture")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()

@@ -17,6 +17,7 @@ async fn operation(context: &Context, method: &str) -> Result<serde_json::Value>
     match method {
         "Contract" => kv_contract::basic(context, &namespace).await?,
         "Large" => kv_contract::large(context, &namespace).await?,
+        "PublicLarge" => kv_contract::large(context, &context.kv("SIDE")?).await?,
         "ReadLarge" => {
             let Some(ReadValue::Bytes(value)) =
                 namespace.get(context, "large", ReadType::Bytes).await?
@@ -46,6 +47,83 @@ async fn operation(context: &Context, method: &str) -> Result<serde_json::Value>
                 anyhow::bail!("inline boundary value absent")
             };
             ensure!(actual == value);
+        }
+        "ReadCliLarge" => {
+            let Some(ReadValue::Bytes(value)) =
+                namespace.get(context, "cli-large", ReadType::Bytes).await?
+            else {
+                anyhow::bail!("CLI value absent")
+            };
+            ensure!(value.len() == cellar_logic::kv::MAX_VALUE_BYTES);
+            ensure!(value
+                .iter()
+                .enumerate()
+                .all(|(index, byte)| *byte == ((index % 251) as u8 ^ 5)));
+        }
+        "Aggregate" => {
+            let metadata = context
+                .rpc_cell(
+                    cellar::engine_api::kv_cell_scope(NAMESPACE, 0),
+                    Some(format!("{NAMESPACE}/0")),
+                    "__kvGet".into(),
+                    cellar::application::encode_rpc(
+                        &cellar::sdk::clone::StructuredValue::from_json(
+                            json!([{"keys":["large"],"externalValues":true}]),
+                        )?,
+                    )?,
+                )
+                .await?;
+            let metadata = cellar::application::decode_rpc_result(&metadata)?.to_json()?;
+            let reference = metadata[0]["externalValue"]
+                .as_str()
+                .context("large value reference")?;
+            for key in ["aggregate/a", "aggregate/b"] {
+                let reply = context.rpc_cell(cellar::engine_api::kv_cell_scope(NAMESPACE, 0), Some(format!("{NAMESPACE}/0")), "__kvPut".into(),
+                    cellar::application::encode_rpc(&cellar::sdk::clone::StructuredValue::from_json(json!([{"entries":[{"key":key,"externalValue":reference,"value":null,"tag":"bytes","metadata":null,"expiresAt":null}]}]))?)?).await?;
+                cellar::application::decode_rpc_result(&reply)?;
+            }
+            let error = namespace
+                .get_many(
+                    context,
+                    &["large".into(), "aggregate/a".into(), "aggregate/b".into()],
+                    ReadType::Bytes,
+                )
+                .await
+                .err()
+                .context("compact references bypassed aggregate capacity")?;
+            ensure!(
+                error.to_string().contains("aggregate"),
+                "bulk capacity refusal: {error:#}"
+            );
+        }
+        "Unconfirmed" => {
+            use sha2::Digest as _;
+            let prepared = context.rpc_cell(cellar::engine_api::kv_cell_scope(NAMESPACE, 0), Some(format!("{NAMESPACE}/0")),
+                "__kvPrepareWire".into(), cellar::application::encode_rpc(&cellar::sdk::clone::StructuredValue::from_json(
+                    json!([{"digest":hex::encode(sha2::Sha256::digest(b"never-uploaded")),"length":14}]))?)?).await?;
+            let encoded = cellar::application::decode_rpc_result(&prepared)?.to_json()?;
+            let prepared: serde_json::Value =
+                serde_json::from_str(encoded.as_str().context("prepared payload reference")?)?;
+            for mode in ["pending", "asserted", "wrong-owner"] {
+                let mut reference = prepared.clone();
+                if mode != "pending" {
+                    reference["published"] = json!(true);
+                }
+                if mode == "wrong-owner" {
+                    reference["cell"] =
+                        json!(cellar::engine_api::kv_cell_scope("shared/other-cache", 0));
+                }
+                let result = context.rpc_cell(cellar::engine_api::kv_cell_scope(NAMESPACE, 0), Some(format!("{NAMESPACE}/0")), "__kvPut".into(),
+                    cellar::application::encode_rpc(&cellar::sdk::clone::StructuredValue::from_json(json!([{"entries":[{"key":"unconfirmed","externalValue":reference.to_string(),"value":null,"tag":"bytes","metadata":null,"expiresAt":null}]}]))?)?).await?;
+                ensure!(
+                    cellar::application::decode_rpc_result(&result).is_err(),
+                    "caller supplied publication flag authorized a row: {mode}"
+                );
+                ensure!(namespace
+                    .get(context, "unconfirmed", ReadType::Bytes)
+                    .await?
+                    .is_none());
+            }
         }
         "Write" => {
             namespace
@@ -154,6 +232,8 @@ fn application(
         "Isolation",
         "Refused",
         "ContractPart",
+        "Unconfirmed",
+        "Aggregate",
     ]
     .into_iter()
     .enumerate()
@@ -422,6 +502,7 @@ async fn run(
             public_ok(&cluster, 0, "Contract").await?;
             public_ok(&cluster, 2, "Write").await?;
             public_ok(&cluster, 1, "Refused").await?;
+            public_ok(&cluster, 0, "Unconfirmed").await?;
             public_ok(&cluster, 0, "Boundary").await?;
             if let Some(backend) = backend {
                 cli::run(&cluster, backend).await?;
@@ -473,8 +554,10 @@ async fn run(
                 "Contract",
                 "Boundary",
                 "Large",
+                "Aggregate",
                 "Isolation",
                 "Refused",
+                "Unconfirmed",
                 "Delete",
             ] {
                 if method == "Contract" && !chained {
@@ -484,6 +567,8 @@ async fn run(
                 // Keep the predeclared compound-operation budget. Ordinary
                 // read/write/replay calls below retain their five-second budget.
                 options.timeout = Duration::from_secs(20);
+                let puts_before = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire);
+                let bytes_before = cluster.fixtures[0].store.cell_payload_put_bytes.load(Ordering::Acquire);
                 let start = cellar::asyncrt::mono_ms();
                 let reply = source
                     .command(&source.contract(method)?, b"null".to_vec(), options)
@@ -494,8 +579,17 @@ async fn run(
                     cellar::asyncrt::mono_ms() - start
                 );
                 ensure!(reply.result == b"true");
+                if method == "Large" {
+                    let puts = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire)-puts_before;
+                    let bytes = cluster.fixtures[0].store.cell_payload_put_bytes.load(Ordering::Acquire)-bytes_before;
+                    ensure!(puts == 1 && bytes == cellar_logic::kv::MAX_VALUE_BYTES,
+                        "large SDK put/get duplicated payload publication: calls={puts} bytes={bytes}");
+                    eprintln!("large KV immutable publication: calls={puts} bytes={bytes}");
+                }
                 sequence += 1;
             }
+            if let Some(backend) = backend { cli::large(&cluster, backend).await?; public_ok(&cluster, 2, "ReadCliLarge").await?; }
+            public_ok(&cluster, 0, "PublicLarge").await?;
             for host in &cluster.hosts {
                 let usage = host
                     .resource_usage()
@@ -533,6 +627,13 @@ async fn run(
                 "retained replay executed the parent again"
             );
             ensure!(admin(&cluster, json!({"op":"get","key":"warm"})).await?["revision"] == token);
+            public_ok(&cluster, 2, "ReadLarge").await?;
+            let denied_payload = cluster.fixtures[0].store.denied_cell_payload_reads.load(Ordering::Acquire);
+            cluster.fixtures[0].store.deny_cell_payload_reads.store(true, Ordering::Release);
+            let (status, body) = public(&cluster, 0, "ReadLarge").await?;
+            cluster.fixtures[0].store.deny_cell_payload_reads.store(false, Ordering::Release);
+            ensure!(status == 503 && body.contains("payload"), "unavailable external value became a miss/success: {status}: {body}");
+            ensure!(cluster.fixtures[0].store.denied_cell_payload_reads.load(Ordering::Acquire) > denied_payload);
             public_ok(&cluster, 2, "ReadLarge").await?;
             public_ok(&cluster, 1, "Read").await?;
             let denied = cluster.fixtures[0]
