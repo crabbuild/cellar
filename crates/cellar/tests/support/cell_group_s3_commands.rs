@@ -775,6 +775,7 @@ pub(crate) async fn s3_deadline(
 
 pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
     let h = Harness::new(rooted, store, 1).await?;
+    let sibling_index = dependencies::mutate_sibling(&h).await?;
     let result = h
         .command(1, b"first", Durability::Quorum, Duration::from_secs(15))
         .await?
@@ -792,57 +793,18 @@ pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>
         .context("published archive")?
         .published
         .context("archive marker")?;
-    let objects = h.remote.list(None).try_collect::<Vec<_>>().await?;
-    let mut missing = None;
-    for object in objects
-        .iter()
-        .filter(|object| object.location.as_ref().contains("/indexes/"))
-    {
-        let value: serde_json::Value =
-            serde_json::from_slice(&h.remote.get(&object.location).await?.bytes().await?)?;
-        let Some(chunks) = value.get("chunks").and_then(|v| v.as_array()) else {
-            continue;
-        };
-        let selected: GroupManifest = serde_json::from_value(value["marker"].clone())?;
-        if selected != marker {
-            continue;
-        }
-        let prefix = object
-            .location
-            .as_ref()
-            .split_once("/generations/")
-            .context("generation prefix")?
-            .0;
-        let path = |chunk: &serde_json::Value| -> Result<ObjectPath> {
-            let object = &chunk["object"];
-            let digest: Vec<u8> = serde_json::from_value(object["digest"].clone())?;
-            Ok(ObjectPath::from(format!(
-                "{prefix}/generations/{}/chunks/{}-{}",
-                object["generation"],
-                object["length"],
-                hex::encode(digest)
-            )))
-        };
-        let a = chunks
-            .iter()
-            .filter(|chunk| chunk["part"]["cell"] == "registered-a")
-            .map(&path)
-            .collect::<Result<Vec<_>>>()?;
-        for chunk in chunks
-            .iter()
-            .filter(|chunk| chunk["part"]["cell"] == "registered-b")
-        {
-            let candidate = path(chunk)?;
-            if !a.contains(&candidate) {
-                missing = Some(candidate);
-                break;
-            }
-        }
-        if missing.is_some() {
-            break;
-        }
-    }
-    let missing = missing.context("B dependency outside A closure")?;
+    anyhow::ensure!(sibling_index < index);
+    let coverage = archive_controller::verified_current(
+        &h.fixture,
+        &h.archive,
+        rooted,
+        "missing-sibling-fault",
+    )
+    .await?;
+    anyhow::ensure!(coverage.marker() == &marker);
+    let missing =
+        dependencies::sibling_dependency(&h, coverage.hold(), sibling_index, rooted).await?;
+    drop(coverage);
     h.remote.inner.delete(&missing).await?;
     // A still has its committed receipt. A cached published marker must not
     // acknowledge it while any other cell's selected dependency is missing.
@@ -872,7 +834,8 @@ pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>
             .result(),
         b"second"
     );
-    assert_eq!(h.calls.load(Ordering::SeqCst), 2);
+    // B mutation, A original, and the later A quorum successor each enter once.
+    assert_eq!(h.calls.load(Ordering::SeqCst), 3);
     drop(result);
     h.close().await
 }

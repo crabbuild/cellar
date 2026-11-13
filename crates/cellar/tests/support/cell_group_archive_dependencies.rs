@@ -87,10 +87,7 @@ async fn local_values(h: &Harness, index: LogIndex) -> Result<()> {
     Ok(())
 }
 
-async fn setup(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<Base> {
-    let h = Harness::new(rooted, store, 2).await?;
-    // Give B different actual SQLite bytes, so the fault cannot hit a shared
-    // empty/header chunk or any part of A's image.
+pub(super) async fn mutate_sibling(h: &Harness) -> Result<LogIndex> {
     let b = history(&h.route, "registered-b")?;
     let invocation = h
         .dispatcher
@@ -130,6 +127,99 @@ async fn setup(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<Base> {
         .index;
     drop(response);
     archive_controller::published(&h.controllers[0], h.route.history, index).await?;
+    Ok(index)
+}
+
+fn dependency_path(prefix: &str, kind: &str, reference: &serde_json::Value) -> Result<ObjectPath> {
+    let digest: Vec<u8> = serde_json::from_value(reference["digest"].clone())?;
+    Ok(ObjectPath::from(format!(
+        "{prefix}/generations/{}/{kind}/{}-{}",
+        reference["generation"],
+        reference["length"],
+        hex::encode(digest),
+    )))
+}
+
+/// Select B's exact mutation entry, or its distinct physical checkpoint data.
+/// The acquired hold identifies the selected root; an unrelated old index may
+/// never stand in for the current tail's actual dependency closure.
+pub(super) async fn sibling_dependency(
+    h: &Harness,
+    hold: &CellGroupArchiveHold,
+    mutation: LogIndex,
+    rooted: bool,
+) -> Result<ObjectPath> {
+    let encoded = serde_json::to_value(hold)?;
+    let suffix = dependency_path("", "roots", &encoded["root"]["object"])?;
+    let objects = h.remote.list(None).try_collect::<Vec<_>>().await?;
+    let location = &objects
+        .iter()
+        .find(|object| object.location.as_ref().ends_with(suffix.as_ref()))
+        .context("held archive root object")?
+        .location;
+    let prefix = location
+        .as_ref()
+        .split_once("/generations/")
+        .context("generation prefix")?
+        .0;
+    let root: serde_json::Value =
+        serde_json::from_slice(&h.remote.get(location).await?.bytes().await?)?;
+    anyhow::ensure!(
+        serde_json::from_value::<GroupManifest>(root["marker"].clone())? == *hold.marker()
+    );
+    let tail: serde_json::Value = serde_json::from_slice(
+        &h.remote
+            .get(&dependency_path(prefix, "tails", &root["tail"])?)
+            .await?
+            .bytes()
+            .await?,
+    )?;
+    anyhow::ensure!(
+        serde_json::from_value::<GroupManifest>(tail["cut"]["marker"].clone())? == *hold.marker()
+    );
+    let base: GroupManifest = serde_json::from_value(tail["base"].clone())?;
+    if mutation > base.position().index {
+        let entry = tail["entries"]
+            .as_array()
+            .context("archive tail entries")?
+            .iter()
+            .find(|entry| entry["index"].as_u64() == Some(mutation.get()))
+            .context("B mutation absent from the selected archive tail")?;
+        return dependency_path(prefix, "entries", &entry["object"]);
+    }
+    let checkpoint: serde_json::Value = serde_json::from_slice(
+        &h.remote
+            .get(&dependency_path(prefix, "indexes", &tail["checkpoint"])?)
+            .await?
+            .bytes()
+            .await?,
+    )?;
+    anyhow::ensure!(serde_json::from_value::<GroupManifest>(checkpoint["marker"].clone())? == base);
+    let chunks = checkpoint["chunks"]
+        .as_array()
+        .context("archive checkpoint chunks")?;
+    let a = chunks
+        .iter()
+        .filter(|chunk| chunk["part"]["cell"] == "registered-a")
+        .map(|chunk| dependency_path(prefix, "chunks", &chunk["object"]))
+        .collect::<Result<Vec<_>>>()?;
+    for chunk in chunks.iter().filter(|chunk| {
+        chunk["part"]["cell"] == "registered-b"
+            && chunk["part"]["kind"] == if rooted { "Extent" } else { "Materialized" }
+    }) {
+        let path = dependency_path(prefix, "chunks", &chunk["object"])?;
+        if !a.contains(&path) {
+            return Ok(path);
+        }
+    }
+    anyhow::bail!("B dependency outside A's checkpoint image closure")
+}
+
+async fn setup(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<Base> {
+    let h = Harness::new(rooted, store, 2).await?;
+    // Give B different actual SQLite bytes, so the fault cannot hit a shared
+    // empty/header chunk or any part of A's image.
+    let index = mutate_sibling(&h).await?;
     let coverage =
         archive_controller::verified_current(&h.fixture, &h.archive, rooted, "dependency-base")
             .await?;
@@ -177,56 +267,7 @@ async fn setup(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<Base> {
     let hold = registry.acquire(&h.fixture.cluster.domain, &intent).await?;
     assert_eq!(hold.marker(), &marker);
 
-    let objects = h.remote.list(None).try_collect::<Vec<_>>().await?;
-    let mut dependency = None;
-    for object in objects
-        .iter()
-        .filter(|o| o.location.as_ref().contains("/indexes/"))
-    {
-        let value: serde_json::Value =
-            serde_json::from_slice(&h.remote.get(&object.location).await?.bytes().await?)?;
-        let Some(chunks) = value.get("chunks").and_then(|v| v.as_array()) else {
-            continue;
-        };
-        if serde_json::from_value::<GroupManifest>(value["marker"].clone())? != marker {
-            continue;
-        }
-        let prefix = object
-            .location
-            .as_ref()
-            .split_once("/generations/")
-            .context("generation prefix")?
-            .0;
-        let path = |chunk: &serde_json::Value| -> Result<ObjectPath> {
-            let reference = &chunk["object"];
-            let digest: Vec<u8> = serde_json::from_value(reference["digest"].clone())?;
-            Ok(ObjectPath::from(format!(
-                "{prefix}/generations/{}/chunks/{}-{}",
-                reference["generation"],
-                reference["length"],
-                hex::encode(digest)
-            )))
-        };
-        let a = chunks
-            .iter()
-            .filter(|c| c["part"]["cell"] == "registered-a")
-            .map(&path)
-            .collect::<Result<Vec<_>>>()?;
-        for chunk in chunks.iter().filter(|c| {
-            c["part"]["cell"] == "registered-b"
-                && c["part"]["kind"] == if rooted { "Extent" } else { "Materialized" }
-        }) {
-            let candidate = path(chunk)?;
-            if !a.contains(&candidate) {
-                dependency = Some(candidate);
-                break;
-            }
-        }
-        if dependency.is_some() {
-            break;
-        }
-    }
-    let dependency = dependency.context("B image bytes outside A's entire image closure")?;
+    let dependency = sibling_dependency(&h, &hold, index, rooted).await?;
     let bytes = h
         .remote
         .inner
