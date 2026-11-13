@@ -69,7 +69,8 @@ SUITES = {
         "ordinary KV SDK and authenticated operator/CLI on shared RF3 with real RustFS",
         "Both image modes, separate source/KV groups, one SQL worker per node, "
         "16-KiB command inputs and unchanged result limits. Native and Axum ingress, "
-        "the shared Fleet/Quorum API contract, 1-MiB and 25-MiB values, immutable "
+        "the shared Fleet/Quorum API contract (five separately admitted source phases "
+        "with 20-second parents), 1-MiB and 25-MiB values, immutable "
         "wire transport, conditional revisions, autonomous expiration, retained restart, "
         "receipt replay, archive-write outage and quorum refusal are checked. "
         "Large values require the payload provider. Voters share one host process; "

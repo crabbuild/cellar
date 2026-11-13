@@ -120,13 +120,21 @@ async fn operation(context: &Context, method: &str) -> Result<serde_json::Value>
 impl Cell for Caller {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
-            let Invocation::CellRpc { method, .. } = invocation else {
+            let Invocation::CellRpc { method, args } = invocation else {
                 anyhow::bail!("RPC required")
             };
             self.0.fetch_add(1, Ordering::AcqRel);
-            Ok(Output::Rpc(RpcData::Json(
-                operation(&context, &method).await?.to_string(),
-            )))
+            let result = if method == "ContractPart" {
+                let RpcData::Json(args) = args else {
+                    anyhow::bail!("contract phase JSON required")
+                };
+                let part: String = serde_json::from_str(&args)?;
+                kv_contract::phase(&context, &context.kv("KV")?, &part).await?;
+                json!(true)
+            } else {
+                operation(&context, &method).await?
+            };
+            Ok(Output::Rpc(RpcData::Json(result.to_string())))
         })
     }
 }
@@ -145,6 +153,7 @@ fn application(
         "Delete",
         "Isolation",
         "Refused",
+        "ContractPart",
     ]
     .into_iter()
     .enumerate()
@@ -286,6 +295,14 @@ async fn operator_contract(cluster: &ManagedCluster) -> Result<serde_json::Value
 }
 
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
+    qualify_case(real_rustfs, external, false).await
+}
+
+pub async fn qualify_chained(real_rustfs: bool) -> Result<()> {
+    qualify_case(real_rustfs, false, true).await
+}
+
+async fn qualify_case(real_rustfs: bool, external: bool, chained: bool) -> Result<()> {
     let mut failures = Vec::new();
     for rooted in [false, true] {
         let result = async {
@@ -306,7 +323,7 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
             } else {
                 Arc::new(catalog_fault::Store::default())
             };
-            Box::pin(run(rooted, store, backend.as_ref(), external)).await
+            Box::pin(run(rooted, store, backend.as_ref(), external, chained)).await
         }
         .await;
         match result {
@@ -332,6 +349,7 @@ async fn run(
     store: Arc<catalog_fault::Store>,
     backend: Option<&rustfs::StoreConfig>,
     external: bool,
+    chained: bool,
 ) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let (application, declared) = application(calls.clone())?;
@@ -430,6 +448,27 @@ async fn run(
                 )
                 .await?;
             let mut sequence = 1;
+            if !chained {
+                for part in kv_contract::PARTS {
+                    let mut options = bindings::options(sequence, Durability::Quorum)?;
+                    options.timeout = Duration::from_secs(20);
+                    let start = cellar::asyncrt::mono_ms();
+                    let reply = source
+                        .command(
+                            &source.contract("ContractPart")?,
+                            serde_json::to_vec(part)?,
+                            options,
+                        )
+                        .await
+                        .with_context(|| format!("source KV contract phase {part}"))?;
+                    eprintln!(
+                        "source KV contract phase {part}: elapsed_ms={}",
+                        cellar::asyncrt::mono_ms() - start
+                    );
+                    ensure!(reply.result == b"true");
+                    sequence += 1;
+                }
+            }
             for method in [
                 "Contract",
                 "Boundary",
@@ -438,9 +477,12 @@ async fn run(
                 "Refused",
                 "Delete",
             ] {
+                if method == "Contract" && !chained {
+                    continue;
+                }
                 let mut options = bindings::options(sequence, Durability::Quorum)?;
-                // This profile admits a compound conformance operation consisting
-                // of dozens of independent KV API calls; it changes no SQL gate.
+                // Keep the predeclared compound-operation budget. Ordinary
+                // read/write/replay calls below retain their five-second budget.
                 options.timeout = Duration::from_secs(20);
                 let start = cellar::asyncrt::mono_ms();
                 let reply = source

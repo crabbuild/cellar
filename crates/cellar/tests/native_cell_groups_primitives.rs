@@ -1729,6 +1729,18 @@ async fn rustfs_interrupted_named_bindings_recover_after_retained_restart() -> R
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "retained chained 20-second load control; not the independently admitted API contract"]
+async fn chained_kv_contract_uses_one_original_parent_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_chained(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated RustFS; retained chained 20-second load control"]
+async fn rustfs_chained_kv_contract_uses_one_original_parent_deadline() -> Result<()> {
+    Box::pin(kv_bindings::qualify_chained(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_kv_bindings_use_managed_shared_groups() -> Result<()> {
     Box::pin(kv_bindings::qualify(false, false)).await
 }
