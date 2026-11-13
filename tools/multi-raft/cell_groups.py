@@ -50,6 +50,7 @@ CASES = (
     "rustfs_s3_commands_require_exact_archived_results",
     "rustfs_s3_replays_from_peer_archive_without_new_upload",
     "rustfs_follower_archiver_verifies_a_published_prefix_without_upload",
+    "rustfs_follower_archiver_bootstraps_the_first_prefix",
     "rustfs_s3_command_deadlines_do_not_quarantine_committed_sql",
     "rustfs_s3_command_requires_the_sibling_archive_dependencies",
     "rustfs_s3_namespace_minimum_cannot_be_downgraded",

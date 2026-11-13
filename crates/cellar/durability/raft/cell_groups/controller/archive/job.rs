@@ -358,6 +358,10 @@ pub(super) async fn drive(
         // and physical verification remain the archive authority. In particular,
         // an already journaled upload still reconciles after role loss.
         let publishing = registration.publisher == CellGroupArchivePublisher::LocalReplica
+            // Sealed sources still owe their final archive cut after serving
+            // leadership is withdrawn. Registry fencing and verification,
+            // rather than the scheduling role, authorize this publication.
+            || current.source_seal().is_some()
             || runtime
                 .observe(registration.birth.route().history)
                 .await
@@ -381,11 +385,19 @@ pub(super) async fn drive(
                     return Err(CellGroupArchiveError::Busy.into());
                 }
             }
-            Err(CellGroupArchiveError::Unconfirmed) if publishing => {
-                Pending::Reserve(context.registry.prepare_upload(execution).await?)
-            }
             Err(CellGroupArchiveError::Unconfirmed) => {
-                return Err(CellGroupArchiveError::Busy.into());
+                // A late-bound archive may have no published prefix while its
+                // only attached replica is a follower. Bootstrap through the
+                // ordinary journaled reservation and verified publication; the
+                // registry CAS, not this role sample, grants archive authority.
+                let intent = context.registry.prepare_upload(execution).await?;
+                if !publishing {
+                    // Another publisher may have advanced between the two
+                    // observations. A follower's bootstrap intent must still
+                    // reserve against no predecessor, including at its CAS.
+                    intent.require_initial_upload()?;
+                }
+                Pending::Reserve(intent)
             }
             Err(error) => return Err(error.into()),
         };

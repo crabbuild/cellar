@@ -115,6 +115,31 @@ async fn rustfs_s3_replays_from_peer_archive_without_new_upload() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn follower_archiver_bootstraps_the_first_prefix() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::follower_bootstraps_first_prefix(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_follower_archiver_bootstraps_the_first_prefix() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::follower_bootstraps_first_prefix(
+            rooted,
+            rustfs::store("follower-first-archive-prefix", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn follower_archiver_verifies_a_published_prefix_without_upload() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::follower_acquires_published_prefix(

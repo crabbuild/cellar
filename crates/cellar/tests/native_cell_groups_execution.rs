@@ -566,6 +566,11 @@ async fn rooted_cell_sql_reconciles_expired_and_conflicting_receipts() -> Result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn enrollment_authority_loss_keeps_controller_alive() -> Result<()> {
+    Box::pin(runtime_fixture::enrollment_authority_loss_keeps_controller_alive()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn concurrent_enrollment_one_cell() -> Result<()> {
     runtime_fixture::initialize_cells(false).await
 }

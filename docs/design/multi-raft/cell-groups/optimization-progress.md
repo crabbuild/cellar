@@ -3350,3 +3350,49 @@ pass. Full `plan.py validate` still refuses because the historical
 `CG-01-06-gates-e32115aa-02/CG-01-record.json` evidence is absent from this
 checkout. Its failed result is retained; no missing-evidence waiver or task
 acceptance change is applied.
+
+## Archive publication at lifecycle boundaries
+
+The matching `4e0b5795` native campaign completes with 147 of 148 selected Rust
+test functions passing. The untrusted-TLS case fails because its observation
+races the peer reading the client's certificate alert. The whole campaign
+remains failed. An unchanged local 128-cell enrollment control separately
+exhausts its original sixty-second parent budget; this does not reproduce the
+hosted unavailable/closed-runtime failure. No RustFS/Linux qualification is
+transferred from either result.
+
+The archive publisher's leader scheduling also blocks two lifecycle cuts.
+After a transfer archive binding is created, the only attached replica can be
+a follower. It cannot acquire a prefix that no replica has published. Later,
+a sealed source still owes its final archive cut after serving leadership is
+withdrawn. The candidate permits these initial and sealed cuts through the
+existing journal, registry CAS, physical capture and verification. Ordinary
+live-prefix production remains leader scheduled. A follower's initial intent
+must name no predecessor, including if another publisher advances between its
+observations; the reservation CAS still rejects a changed parent.
+
+The focused actual-follower regression fails unchanged production at
+`9f8007c1` after its original five-second window and joins cleanup. The
+`28e4daec` managed component candidate passes both image modes in 0.932 seconds.
+The combined optimized `ee65de6d` candidate passes the original complete
+split/merge case in 46.080 seconds. Its full ordinary disaster target passes
+seven of eight functions; rooted unpublished-parent recovery still reports an
+unknown Fleet outcome during later merge-seal authorization. That failed
+result is retained. These snapshots precede the final initial-intent guard and
+combined-source qualification; they grant no full CG/OPT acceptance.
+
+The TLS fixture now waits for the actual peer alert within the original
+absolute command deadline. Twelve component repetitions without diagnostic
+probes pass all 72 independently verified caller/image observations. An earlier
+post-format repetition that exhausted this same window remains recorded.
+Matching optimized combined-source and external-backend qualification remain
+open. A controlled initializer/leadership-loss case passes unchanged production,
+so failure classification is preserved; the real lost-SQL-worker-reply control
+still requires joined shutdown. Failed performance fixtures now retain their
+original error and join every node even when an archive observation is closed.
+
+The first-prefix regression also has an explicit isolated RustFS entry in the
+archive-controller suite. It has not yet run against RustFS. The remaining
+rooted seal-authorization failure, 128-cell unavailable/closed-runtime failure,
+Linux sandbox shutdown failure, full combined native/backend campaigns,
+historical evidence gate and broader CG/OPT requirements stay open.

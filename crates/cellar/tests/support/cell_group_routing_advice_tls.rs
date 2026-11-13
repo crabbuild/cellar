@@ -40,9 +40,26 @@ pub(super) async fn exercise(drill: &TlsDrill<'_>) -> Result<()> {
         // Fully join the cached trusted connection. The next handshake uses
         // the same enrolled node/disk/process/address but an unknown issuer.
         drill.server.trust(false).await?;
-        let failure = call(cluster, caller, drill.cell, &command, None).await?;
+        let deadline = tokio::time::Instant::now() + TIMEOUT;
+        let failure =
+            tokio::time::timeout_at(deadline, call(cluster, caller, drill.cell, &command, None))
+                .await??;
         let after = sample(cluster)?;
-        let (attempts_after, rejections_after, commands_after) = observation(drill.server)?;
+        // The client's certificate refusal can complete before the peer reads
+        // its TLS alert. Observe that physical result within the same request
+        // deadline instead of racing the server's handshake task.
+        let (attempts_after, rejections_after, commands_after) =
+            tokio::time::timeout_at(deadline, async {
+                loop {
+                    let observed = observation(drill.server)?;
+                    if observed.1.len() > rejections.len() {
+                        return Ok::<_, anyhow::Error>(observed);
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .with_context(|| format!("peer did not observe UnknownCA within the original request deadline: rooted={} caller={caller:?}, before=({attempts}, {}), after={:?}, routing={before:?}->{after:?}, failure={failure}", drill.rooted, rejections.len(), observation(drill.server)))??;
         let callbacks_refused = drill.callbacks.load(Ordering::Acquire);
         let stages_refused = authority::sql_stages(cluster)?;
         let rejected_after = counter(ingress, "cell_command_pre_admission_refusals")?;

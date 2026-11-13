@@ -88,6 +88,8 @@ type Result<T> = std::result::Result<T, Error>;
 pub enum CellGroupArchivePublisher {
     /// Managed groups configure archiving on every leader-eligible voter.
     /// Followers independently acquire and verify published prefixes.
+    /// Any configured replica may bootstrap an absent published prefix or
+    /// publish a sealed source's final cut through the ordinary fenced registry.
     GroupLeader {
         /// Minimum shared-timer interval for blocked/background archive work.
         /// A newly waiting S3 request may initiate one immediate attempt.
