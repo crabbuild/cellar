@@ -328,7 +328,9 @@ pub(crate) async fn remote_enrollment_writer_contention() -> Result<()> {
                     ).await??;
                 }
                 release.send(())?;
-                let original = first.response().await?;
+                // This fixture has one SQL retention slot. Copy the proof and
+                // release its response before the waiting creator needs it.
+                let original = first.response().await?.record().clone();
                 let result = match early {
                     Some(result) => result,
                     None => reply.await,
@@ -347,7 +349,7 @@ pub(crate) async fn remote_enrollment_writer_contention() -> Result<()> {
                         result.as_ref().err().map(ToString::to_string).unwrap_or_default(),
                     );
                     if mode == 0 {
-                        ensure!(result?.record() == original.record(), "creation receipt changed");
+                        ensure!(result?.record() == &original, "creation receipt changed");
                     } else {
                         ensure!(
                             result.err().context("competing creator")?.cause.refusal()
