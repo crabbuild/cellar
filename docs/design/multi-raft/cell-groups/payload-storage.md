@@ -75,8 +75,11 @@ Payload transfers use an internal I/O-only work kind. It becomes eligible for
 polling without SQLite only after the ordered source checkpoint has its required
 proof and the writer has parked. Stream readiness then polls that owned transfer
 without reopening the image for each body chunk. Ordinary Storage access and
-application continuations still require a resumed writer; general binding work
-keeps its existing resume path. Every transfer poll retains invocation,
+application continuations still require a resumed writer. Ordinary binding tasks
+also poll their owned remote I/O while parked, then explicitly resume the writer
+before source intent selection, completion or refusal; see the
+[binding contract](named-bindings.md#source-intent-and-target-proof).
+Every transfer poll retains invocation,
 activation, route, term and original-deadline checks. Callback and queue readiness
 unpark the existing SQL worker directly, with no additional queue slots or tasks.
 Cancellation continues dropping the same owned futures and byte reservations.

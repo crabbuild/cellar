@@ -41,7 +41,19 @@ SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
 CG-17 feature delivery ahead of optional routing/performance work; retain the
 existing recovery and release dependencies rather than removing those gates.
 
-1. Close the original-deadline binding and SQL/KV recovery gates. At `bc7284b1`,
+1. Close the original-deadline binding and SQL/KV recovery gates. At `8bc8a3f3`,
+   ordinary bindings poll proven remote I/O with SQLite parked and explicitly
+   resume their writer before source mutations. Named bindings pass **4/4
+   native** configurations; real RustFS remains **3/4; FAILED**, with materialized
+   S3 expiring during final source archival after both children return. Native
+   and RustFS interrupted binding recovery/sequence sealing pass **8/8** at
+   this source. The public native SQL drill passes **1/2** image modes, with a
+   materialized setup timeout before operator/SDK execution. First reject
+   archive prefixes below a waiting command's required position before proof
+   work, preserving the full physical/receipt proof for every success. Then
+   resolve SQL setup and run the current-source full KV/SQL recovery gates.
+   See the [current checkpoint](progress.md#cg-17-parked-binding-io-and-source-recovery).
+   The earlier `bc7284b1` cohort retains its separate KV scope:
    proven payload I/O progresses with SQLite parked, and readiness directly
    wakes its existing SQL worker. The formerly failing fragmented-body
    regression, source-proof/cold-enrollment regression and complete native KV
@@ -53,10 +65,9 @@ existing recovery and release dependencies rather than removing those gates.
    puts. Preserve the canonical failures and establish stable cold/expiry and
    full native/Axum qualification under the original budgets. See the
    [current checkpoint](progress.md#cg-17-proven-payload-io-and-sql-worker-readiness).
-   Native named bindings pass **3/4** configurations; the materialized S3 source
-   still misses its five-second parent. Interrupted binding recovery and sequence
-   sealing pass **4/4** native configurations at this same source. Reduce the
-   remaining S3 proof work, then complete combined-source real-RustFS recovery.
+   Native named bindings pass **3/4** configurations at that older pin, and
+   interrupted recovery passes **4/4 native** there. The newer eight-configuration
+   recovery result above does not close the remaining source S3 proof latency.
    SQL SDK/operator/CLI has older scoped **8/8** coverage at `979addd0`, while
    after-child parent recovery remains **14/16; FAILED** at `b3aacf7a`.
    The canonical one-CPU SQL suite is unrun. Finish cold startup, interruption,

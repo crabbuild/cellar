@@ -27,6 +27,65 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 parked binding I/O and source recovery
+
+Source `8bc8a3f3` extends proven, invocation-owned parked I/O to ordinary named
+bindings. Enrollment, lookup and child commands no longer reopen the source
+SQLite image whenever their I/O wakes. The task explicitly disables parked
+polling and waits for its writer before selecting another creator, recording
+completion or recording a known refusal. Selection/refusal checkpoints and the
+final parent proof remain required. Ordinary Storage and application
+continuations still require a healthy writer. Original identities, deadlines,
+term/activation checks, task ownership and byte admission are unchanged.
+
+The new owning writer-transition test passes. It rejects a source Storage write
+while parked, observes the pending request for a writer, resumes that writer and
+verifies the subsequent mutation. Ordinary library tests now resolve the shared
+fixture's self-crate references without enabling the external internal harness.
+
+| Gate at `8bc8a3f3` | Result |
+| --- | --- |
+| Writer-transition regression | **1/1 test passes** |
+| Ordinary named bindings, native images and Quorum/S3 sources | **4/4 configurations pass** |
+| Interrupted binding recovery and safe sequence sealing, native/RustFS | **8/8 configurations pass** |
+| Ordinary named bindings with one-CPU/2-GiB RustFS | **3/4 configurations; FAILED** |
+| Public SQL SDK/operator drill, native storage | **1/2 image configurations; FAILED** |
+| SDK source-proof refusal, KV proof/cold enrollment and fragmented payloads | **Each passes both native image modes** |
+| Strict affected-target Clippy, formatting/layout, dependencies/docs and plan tests | **Pass; 44 Python plan tests** |
+
+The unchanged frozen `bc7284b1` named-binding control again fails its materialized
+S3 source after child return, passing **3/4** configurations. The new source
+passes all four native configurations under the original five-second parent.
+This closes that reproduced native failure; it does not establish a general
+latency guarantee or a throughput improvement.
+
+Real RustFS still fails the materialized S3 source. Both child calls return
+(Echo at 3,501 ms), then the parent expires during final source archival. The
+trace attempts reuse of cut 8 before publishing cut 9 for the waiting work.
+The next archive optimization should reject prefixes below a waiting command's
+required position before spending proof work. This is only negative eligibility;
+every successful response must retain the complete physical and receipt proof.
+Background verification during maintenance also warrants investigation, without
+caching uncharged physical pins or bypassing initial/restart verification.
+
+The materialized SQL drill times out during setup before its first operator or
+SDK SQL execution; extents completes the full drill. Its retained disks and log
+are a current-source gate. The older **14/16** interrupted SQL matrix and the
+`bc7284b1` **1/4** canonical native/Axum KV campaign remain separate pins and
+were not rerun here. Neither full SQL/KV nor complete primitive support is
+accepted.
+
+Evidence is `CG-17-binding-io-8bc8a3f3-13` and
+`CG-17-binding-recovery-8bc8a3f3-14`. The first driver's strict exact-case parser
+rejects interleaved `--nocapture` debug output after all four RustFS recovery
+configurations report success. That observation stays failed. The unchanged
+case reruns with `--show-output` and passes the same strict verifier in cohort
+14; no runtime assertion or budget changes. Frozen unit/integration/CLI binaries,
+source inputs, failed controls, complete logs and nine failure disks are
+retained. Workspace evidence/binary backups are verified. The owned backend and
+VM are stopped with objects retained. Full acceptance stays **13/17 tasks and
+147/195 cases**.
+
 ## CG-17 proven payload I/O and SQL worker readiness
 
 Source `bc7284b1` lets source-proven payload transfers progress while SQLite

@@ -6,6 +6,39 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current KV and binding checkpoint
 
+Source `8bc8a3f3` adds explicit I/O/writer phases to ordinary bindings. Proven
+enrollment, lookup and child command I/O can progress while SQLite stays parked;
+selection, completion and refusal wait for its writer. Original proofs, fencing,
+identities, deadlines, byte admission and cancellation ownership remain intact.
+The new owning writer-transition test and ordinary library test build pass.
+
+Named bindings now pass **4/4 native** configurations; the unchanged old frozen
+control still fails materialized S3. Real RustFS passes **3/4**, with materialized
+S3 expiring after child return during final source archival. Interrupted binding
+recovery and sequence sealing pass **8/8 native/RustFS** configurations. Public
+SQL passes **1/2 native** image modes: materialized setup times out before its
+first SQL operator/SDK execution. SDK source-proof refusal, KV proof/cold
+enrollment and fragmented bodies each pass both native image modes. Strict
+affected-target Clippy, format/layout, dependencies/docs and 44 Python plan tests
+pass. Full KV and interrupted SQL matrices below retain their older sources.
+
+Evidence: `CG-17-binding-io-8bc8a3f3-13` and
+`CG-17-binding-recovery-8bc8a3f3-14`. Cohort 13 retains its failed SQL/RustFS
+cases and the strict parser's rejection of interleaved recovery debug output.
+Cohort 14 reruns the unchanged recovery case with captured output and passes
+the same exact-case verifier. Frozen binaries, complete logs and nine failure
+disks are retained with verified workspace evidence/binary backups. The owned
+backend and VM are stopped. See the [current results](progress.md#cg-17-parked-binding-io-and-source-recovery).
+
+Next skip archive prefixes below the waiting command's required position before
+proof work, while preserving complete physical/receipt verification. Close the
+materialized SQL setup and original-budget full KV/SQL recovery gates. Then
+verify trusted external-object dependencies before disaster admission, qualify
+ordinary alarms, and deliver cron/EventStream/Workflow adapters on the shared
+callback owner. Full family and release acceptance remain open.
+
+## Previous KV streaming checkpoint
+
 KV configuration/grants, SDK and native/Axum ingress, authenticated operator/CLI,
 revision conditions, expiry and immutable full-size value transport are implemented.
 Source `bc7284b1` polls only proven payload I/O while SQLite stays parked, avoiding
