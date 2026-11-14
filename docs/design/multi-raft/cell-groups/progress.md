@@ -27,6 +27,39 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 EventStream publishing, subscriptions and outbox
+
+The [shared EventStream adapter](event-stream-durable-work.md) connects compiled
+resource ownership, explicit UUID bindings, broker/catalog routing and autonomous
+outbox delivery to ordinary shared-group commands. Source business state and
+outbox intent share a transaction and required proof. Destination operations
+retain independent namespace minima. Host-minted provenance travels outside
+application arguments; generic cell RPC cannot supply event authority.
+
+The adapter retains source lane identity across physical placement, validates
+the exact bounded publication wire, projects embedded work into generation-fenced
+shared discovery, and preserves inbox proof before acknowledgement. Leased fetch,
+retry, absolute extension, acknowledgement replay and pause/resume use the
+existing stream state machines. Consumer-side empty polling releases the broker
+writer between independently durable fetches. Native HTTP and Axum have a
+separate stateless target-admission path.
+
+Development controls expose configuration/fixture errors, missing event-work
+dispatch and fresh-image initialization, plus a background recovery path using
+live-command-only name discovery. Retained competing-creation recovery now uses
+host name-read admission after proving its source claim, preserving original
+creation and child identities. The failed controls and their voter disks remain
+retained. A traced materialized-image development run completed the full flow;
+an extent-image run hit a post-restart read deadline. The final source-pinned
+native/Axum and real-RustFS qualification is pending; these controls are not
+qualification evidence.
+
+Full-plan acceptance remains **13/17 tasks and 147/195 cases**. Name-only selectors,
+operator inventory/retirement proof routing, cross-deployment grant changes,
+movement/wake, load, independent voter limits and all-voter disk loss retain
+separate implementation or qualification gates. This adapter does not complete
+the full CG-17 compatibility or release gates.
+
 ## CG-17 filesystem and consumer inbox foundation
 
 Sources `60feafa3` and `a2eda6b3` add declared filesystem policy to ordinary
@@ -42,8 +75,9 @@ Inbox operations retain the private command's SQL authorizer while using
 framework savepoints. Their focused guard checks receipt/effect rollback,
 deduplication, conflicting bytes, retained reopen, pruning, expired authority
 and refusal of nondeterministic SQL, protected tables and mutating pragmas.
-This is the consumer receipt foundation. Ordinary EventStream publication,
-subscription routing and autonomous outbox authority/recovery remain open.
+This is the consumer receipt foundation. The later
+[EventStream adapter](#cg-17-eventstream-publishing-subscriptions-and-outbox)
+connects publication, subscription routing and autonomous outbox authority.
 
 The first real-RustFS filesystem cohort passes both image forms at `60feafa3`.
 The follow-up at `a2eda6b3` reproduces and fixes a constructor-cached view that

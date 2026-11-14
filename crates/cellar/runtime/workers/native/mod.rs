@@ -2177,6 +2177,23 @@ pub(crate) fn event_rpc(
     args: RpcData,
     authority: crate::application::event_stream::Authority,
 ) -> HandlerFuture<RpcData> {
+    let call_scope = crate::host_rpc::CallScope::in_context(context, None, None);
+    if context.raft_storage.is_some() {
+        return crate::application::cell_bindings::rpc_authorized(
+            context,
+            scope,
+            name,
+            method,
+            args,
+            call_scope,
+            Some(authority),
+        );
+    }
+    if context.identity().is_none() && context.state.raft_cell_classes.is_some() {
+        return crate::application::consensus::native_ingress::event_rpc(
+            context, scope, name, method, args, call_scope, authority,
+        );
+    }
     if let Err(error) = context
         .check_turn()
         .and_then(|()| crate::application::event_stream::validate_target(&scope, &authority))

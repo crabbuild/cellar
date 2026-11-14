@@ -6,32 +6,70 @@ use super::*;
 use crate::application::event_stream::{DeliveryError, ErrorCode, Event, SealStatus, Stream};
 
 impl Storage {
+    fn event_configuration(
+        &self,
+    ) -> Result<std::sync::Arc<crate::application::event_stream::raft::Configuration>> {
+        self.write_scope()?;
+        if self.is_raft() {
+            Ok(self
+                .resources()
+                .event_source
+                .lock()
+                .unwrap()
+                .as_ref()
+                .ok_or_else(|| anyhow!("missing Raft event configuration"))?
+                .config
+                .clone())
+        } else {
+            Ok(std::sync::Arc::new(
+                crate::application::event_stream::raft::Configuration::from(
+                    self.native_activation()?.worker_config.as_ref(),
+                ),
+            ))
+        }
+    }
+
+    pub(super) fn event_source_scope(&self) -> Result<String> {
+        self.write_scope()?;
+        if self.is_raft() {
+            Ok(self
+                .resources()
+                .event_source
+                .lock()
+                .unwrap()
+                .as_ref()
+                .ok_or_else(|| anyhow!("missing Raft event identity"))?
+                .scope
+                .clone())
+        } else {
+            Ok(self.scope()?.into())
+        }
+    }
+
     pub(crate) fn ensure_outbox_schema(&self) -> Result<()> {
-        crate::storage::outbox::ensure_schema(self.scope()?)
+        crate::storage::outbox::ensure_schema(self.write_scope()?)
     }
 
     /// Disable further emission and commit a recoverable terminal seal request.
     /// The lane must have no pending rows. Like emit, this composes with the
     /// caller's business transaction; its return is not a destination receipt.
     pub fn seal<E: Event>(&self, stream: &Stream<E>, operation: &str) -> Result<SealStatus> {
-        let scope = self.scope()?;
+        let scope = self.write_scope()?;
         stream.check_domain()?;
-        let activation = self.native_activation()?;
+        let config = self.event_configuration()?;
         anyhow::ensure!(
             crate::storage::facet_opening(scope).is_none(),
             "facets cannot seal durable producers"
         );
         anyhow::ensure!(
-            activation.worker_config.script_name == stream.binding.principal
-                && activation
-                    .worker_config
+            config.script_name == stream.binding.principal
+                && config
                     .stream_bindings
                     .iter()
                     .any(|current| current.environment == stream.binding.environment
                         && current.principal == stream.binding.principal
                         && current.grant == stream.binding.grant
-                        && activation
-                            .worker_config
+                        && config
                             .event_readiness
                             .binding(current)
                             .is_ok_and(|resolved| resolved
@@ -40,13 +78,18 @@ impl Storage {
                         && current.publish),
             "producer seal is not bound to this application"
         );
-        crate::storage::outbox::seal(scope, &stream.binding, operation)
+        let source = self.resources().event_source.lock().unwrap().clone();
+        if source.is_some() {
+            crate::storage::outbox::seal_from(scope, &stream.binding, operation, source.as_ref())
+        } else {
+            crate::storage::outbox::seal(scope, &stream.binding, operation)
+        }
     }
 
     /// Retry this cell's pending delivery after repairing an unavailable or
     /// revoked destination. Event bytes and identities remain unchanged.
     pub fn retry_outbox(&self) -> Result<()> {
-        let scope = self.scope()?;
+        let scope = self.write_scope()?;
         anyhow::ensure!(
             crate::storage::facet_opening(scope).is_none(),
             "facets cannot retry durable source lanes"
@@ -79,28 +122,21 @@ impl Storage {
     }
 
     pub fn emit<E: Event>(&self, stream: &Stream<E>, event: E) -> Result<()> {
-        let scope = self.scope()?;
+        let scope = self.write_scope()?;
         stream.check_ready()?;
-        let activation = self.native_activation()?;
-        activation.worker_config.event_readiness.check()?;
-        if !(activation.worker_config.script_name == stream.binding.principal
-            && activation
-                .worker_config
-                .stream_bindings
-                .iter()
-                .any(|current| {
-                    current.environment == stream.binding.environment
-                        && current.principal == stream.binding.principal
-                        && current.grant == stream.binding.grant
-                        && activation
-                            .worker_config
-                            .event_readiness
-                            .binding(current)
-                            .is_ok_and(|resolved| {
-                                resolved.resource.same_identity(stream.resource())
-                            })
-                        && current.publish
-                }))
+        let config = self.event_configuration()?;
+        config.event_readiness.check()?;
+        if !(config.script_name == stream.binding.principal
+            && config.stream_bindings.iter().any(|current| {
+                current.environment == stream.binding.environment
+                    && current.principal == stream.binding.principal
+                    && current.grant == stream.binding.grant
+                    && config
+                        .event_readiness
+                        .binding(current)
+                        .is_ok_and(|resolved| resolved.resource.same_identity(stream.resource()))
+                    && current.publish
+            }))
             || !stream.binding.publish
         {
             return Err(DeliveryError::new(
@@ -151,6 +187,36 @@ impl Storage {
         let key = key.to_owned();
         let payload =
             crate::application::event_stream::encoding::payload(&event, limits.event_bytes())?;
-        crate::storage::outbox::emit(scope, &stream.binding, E::VERSION, key, payload, limits)
+        let source = self.resources().event_source.lock().unwrap().clone();
+        if source.is_none() {
+            return crate::storage::outbox::emit(
+                scope,
+                &stream.binding,
+                E::VERSION,
+                key,
+                payload,
+                limits,
+            );
+        }
+        let emission = source
+            .as_ref()
+            .map(|source| {
+                Ok::<_, anyhow::Error>(crate::application::event_stream::raft::Emission {
+                    source,
+                    input_limit: crate::application::event_stream::raft::append_limit(
+                        &stream.binding,
+                    )?,
+                })
+            })
+            .transpose()?;
+        crate::storage::outbox::emit_from(
+            scope,
+            &stream.binding,
+            E::VERSION,
+            key,
+            payload,
+            limits,
+            emission.as_ref(),
+        )
     }
 }

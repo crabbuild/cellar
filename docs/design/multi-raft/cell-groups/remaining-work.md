@@ -44,10 +44,13 @@ release gates.
 The [filesystem and inbox foundation](progress.md#cg-17-filesystem-and-consumer-inbox-foundation)
 adds transactional files, invocation-bound descriptors, shared maintenance and
 consumer receipts. Native and real-RustFS filesystem cases pass both image forms.
-EventStream still needs publication, subscription routing and autonomous outbox
-authority/recovery through its public adapter; accepting an inbox record alone
-does not establish that end-to-end contract. Filesystem movement/wake, archive
-outage/load and disk-loss recovery remain separate qualification work.
+The [EventStream adapter](progress.md#cg-17-eventstream-publishing-subscriptions-and-outbox)
+adds compiled ownership, publication, leased subscriptions and autonomous
+outbox/inbox integration with independent source/destination proof. Its scoped
+campaign uses explicit UUID bindings. Name-only selectors, operator routing,
+cross-deployment grant changes, movement/wake, load and disk-loss recovery retain
+separate gates. Filesystem movement/wake, archive outage/load and disk-loss
+recovery also remain separate qualification work.
 
 Source `25d81992` provides SQL writer-release wakeups, yielding of contended
 private binding maintenance and bounded background archive tails. Waiting S3
@@ -74,9 +77,10 @@ intermittent archive-deadline failure also remains unexplained.
 2. Complete Queue lifecycle/load, EventStream and Workflow execution through
    their public adapters. Queue normal/fault/long-callback/load results retain
    their exact source pins; full-size payload, clock, deployment, movement/wake
-   and disk-loss boundaries remain. EventStream needs committed outbox/inbox
-   authority and Workflow its durable execution/replay adapter. Reuse bounded
-   shared owners rather than per-idle-cell tasks.
+   and disk-loss boundaries remain. Broaden EventStream beyond its explicit-UUID
+   publishing/subscription/outbox adapter and deliver Workflow's durable
+   execution/replay adapter. Reuse bounded shared owners rather than per-idle-cell
+   tasks.
 3. Complete the remaining binding and SQL/KV recovery with independent target-S3 minima,
    interruption before the target checkpoint, unused child sequence sealing,
    concurrent/cross-class creation and interrupted large calls. Add movement,

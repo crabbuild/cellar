@@ -31,6 +31,11 @@ Start with these sections; subsequent entries retain their original source and e
 
 Updated 2026-10-17. The core [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md) is implemented and exercised end to end: atomic emission, durable dispatch and deduplication, resumable reads, leased fetch, inbox effects, acknowledgment and preserving restart. This is implementation and local regression evidence; production capacity and fleet resilience remain separate qualifications.
 
+Shared cell-group Raft integration has a separate
+[adapter contract](multi-raft/cell-groups/event-stream-durable-work.md) and
+[qualification record](multi-raft/cell-groups/progress.md). The earlier LTX/native
+results below do not establish shared-group EventStream qualification.
+
 ## Bounded finish and readiness
 
 The user limited this closeout to the three most critical finishing items:

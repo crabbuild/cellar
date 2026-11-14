@@ -277,6 +277,7 @@ pub struct Registry {
     cells: HashMap<String, Factory>,
     filesystems: HashMap<String, filesystem::Policy>,
     raft_classes: HashMap<String, Arc<consensus::RaftClass>>,
+    raft_streams: Vec<event_stream::Definition>,
     raft_configuration: std::sync::OnceLock<RaftConfiguration>,
     workflows: HashMap<String, WorkflowHandler>,
 }
@@ -297,9 +298,50 @@ impl Registry {
             cells: HashMap::new(),
             filesystems: HashMap::new(),
             raft_classes: HashMap::new(),
+            raft_streams: Vec::new(),
             raft_configuration: std::sync::OnceLock::new(),
             workflows: HashMap::new(),
         }
+    }
+
+    /// Compile trusted EventStream resource ownership for shared Raft namespaces.
+    /// New resources start at revision one; later changes use the stream's
+    /// authorized configuration API and retain their existing incarnation.
+    pub fn raft_event_stream(mut self, definition: event_stream::Definition) -> Result<Self> {
+        definition.validate()?;
+        anyhow::ensure!(
+            self.raft_configuration.get().is_none(),
+            "Raft resources are already admitted"
+        );
+        anyhow::ensure!(
+            definition.revision == 1 && self.raft_streams.len() < 256,
+            "invalid initial Raft stream definition"
+        );
+        anyhow::ensure!(
+            !self
+                .raft_streams
+                .iter()
+                .any(
+                    |current| current.resource.tenant == definition.resource.tenant
+                        && current.resource.application == definition.resource.application
+                        && (current.resource.id == definition.resource.id
+                            || current.resource.name == definition.resource.name)
+                ),
+            "duplicate Raft stream resource or name"
+        );
+        self.raft_streams.push(definition);
+        self.raft_streams.sort_by(|a, b| {
+            (&a.resource.tenant, &a.resource.application, &a.resource.id).cmp(&(
+                &b.resource.tenant,
+                &b.resource.application,
+                &b.resource.id,
+            ))
+        });
+        anyhow::ensure!(
+            serde_json::to_vec(&self.raft_streams)?.len() <= 64 * 1024,
+            "Raft stream definitions exceed capacity"
+        );
+        Ok(self)
     }
 
     /// Register a named stateless service. Once names are registered, unknown
@@ -453,10 +495,11 @@ impl Application for Registry {
         &self,
         options: &crate::engine_api::WorkerConfigOptions,
     ) -> Result<()> {
-        let shared = self
-            .raft_classes
-            .values()
-            .any(|class| class.has_cell_factory());
+        let shared = !self.raft_streams.is_empty()
+            || self
+                .raft_classes
+                .values()
+                .any(|class| class.has_cell_factory());
         for class in self.rpc.classes() {
             anyhow::ensure!(
                 self.cells.contains_key(class),
@@ -475,7 +518,10 @@ impl Application for Registry {
             )
         {
             if shared {
-                if (class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty())
+                if ((class == crate::deploy::EVENT_STREAM_CLASS
+                    || class == crate::deploy::EVENT_CATALOG_CLASS)
+                    && !self.raft_streams.is_empty())
+                    || (class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty())
                     || (class == crate::deploy::KV_CLASS && !options.kv_bindings.is_empty())
                     || (class == crate::deploy::QUEUE_CLASS
                         && (!options.queue_bindings.is_empty()
@@ -499,11 +545,7 @@ impl Application for Registry {
                 }
             );
         }
-        if self
-            .raft_classes
-            .values()
-            .any(|class| class.has_cell_factory())
-        {
+        if shared {
             let config = consensus::AdmittedCellConfiguration::from_options(options)?;
             if config.has_cell_bindings() {
                 for class in self.raft_classes.values() {
@@ -534,6 +576,12 @@ impl Application for Registry {
                     Arc::new(consensus::queue_service(&config, self.handler.clone())?),
                 );
             }
+            if !self.raft_streams.is_empty() {
+                for catalog in [false, true] {
+                    let service = consensus::event_service(&config, &self.raft_streams, catalog)?;
+                    classes.insert(service.name().into(), Arc::new(service));
+                }
+            }
             let installed = self
                 .raft_configuration
                 .get_or_init(|| RaftConfiguration { digest, classes });
@@ -546,14 +594,17 @@ impl Application for Registry {
     }
 
     fn validate_deployment(&self, deployment: &crate::fleet::LoadedDeployment) -> Result<()> {
-        if self
-            .raft_classes
-            .values()
-            .any(|class| class.has_cell_factory())
+        if !self.raft_streams.is_empty()
+            || self
+                .raft_classes
+                .values()
+                .any(|class| class.has_cell_factory())
         {
             anyhow::ensure!(
                 deployment.options.script_name == deployment.script_name
-                    && deployment.event_streams.is_empty()
+                    && (deployment.event_streams.is_empty()
+                        || serde_json::to_value(&deployment.event_streams)?
+                            == serde_json::to_value(&self.raft_streams)?)
                     && deployment.asset_binding.is_none()
                     && deployment.assets.is_none()
                     && deployment.loader_bindings.is_empty()

@@ -431,6 +431,14 @@ impl RaftClass {
         )
     }
 
+    pub(super) fn event_service(name: &str) -> Result<Self, RegistrationError> {
+        Self::definition(
+            name.into(),
+            1,
+            Sha256::digest(format!("cellar-raft-{name}-events-1")).into(),
+        )
+    }
+
     pub(super) fn kv_service() -> Result<Self, RegistrationError> {
         Self::definition(
             crate::deploy::KV_CLASS.into(),
@@ -576,6 +584,9 @@ impl RaftClass {
             .as_ref()
             .ok_or(RegistrationError::Invalid("missing initializer"))?;
         let _guard = CallbackGuard::enter()?;
+        if let Some(factory) = &self.cell_factory {
+            factory.configure_storage(&transaction.storage()?, cell);
+        }
         if self.filesystem.is_some() {
             let storage = transaction.storage()?;
             self.configure_filesystem(&storage, cell, false);
@@ -966,6 +977,12 @@ impl RaftClass {
             .map(|factory| factory.queue_scopes())
     }
 
+    pub(crate) fn cell_event_scopes(&self) -> Option<&BTreeSet<String>> {
+        self.cell_factory
+            .as_ref()
+            .map(|factory| factory.event_scopes())
+    }
+
     pub(crate) fn queue_ownership(&self, scope: &str) -> Option<bool> {
         self.cell_factory
             .as_ref()
@@ -1000,6 +1017,11 @@ impl RaftClass {
             filesystem: self.filesystem,
         };
         if let Some(factory) = &self.cell_factory {
+            if !configuration.stream_bindings.is_empty() && !class.has_native_callbacks() {
+                class = class
+                    .durable_callbacks()
+                    .expect("fresh stream callback registration");
+            }
             if configuration.has_cell_bindings() {
                 for (name, command) in &self.commands {
                     if matches!(command.handler, CommandHandler::JsonCellRpc) {
@@ -1017,6 +1039,7 @@ impl RaftClass {
                 }
             }
             class.cell_factory = Some(factory.configured(configuration));
+
             if configuration.has_cell_bindings() && !crate::deploy::is_reserved_class(&class.name) {
                 class.queries.insert(
                     super::sql_ingress_identity::OPERATION.into(),
@@ -1109,6 +1132,7 @@ impl RaftClass {
         if self.filesystem.is_some() {
             self.configure_filesystem(&transaction.storage()?, target.cell, false);
         }
+        factory.configure_storage(&transaction.storage()?, target.cell);
         factory.start(target.cell, epoch, method, input, transaction, activation)
     }
 
@@ -1188,7 +1212,11 @@ impl RaftClass {
         let ingress = id.client == super::sql_ingress_identity::client();
         let ingress_class = matches!(
             self.name.as_str(),
-            crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS | crate::deploy::KV_CLASS
+            crate::deploy::SQL_CLASS
+                | crate::deploy::QUEUE_CLASS
+                | crate::deploy::KV_CLASS
+                | crate::deploy::EVENT_STREAM_CLASS
+                | crate::deploy::EVENT_CATALOG_CLASS
         ) || self.has_native_ingress();
         if (ingress_class && ingress)
             || (self.is_cell_rpc(&contract.operation)

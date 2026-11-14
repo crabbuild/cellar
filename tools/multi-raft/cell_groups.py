@@ -51,6 +51,20 @@ CASES = (
 )
 
 SUITES = {
+    "ordinary-event-stream": (
+        "native_cell_groups_primitives",
+        ("rustfs_event_stream_publication_subscriptions_and_outbox_recover_through_quorum",
+         "rustfs_axum_event_stream_publication_subscriptions_and_outbox_recover_through_quorum"),
+        "EventStream publishing, leased subscriptions and autonomous outbox/inbox recovery",
+        "Materialized and extent images, Quorum source commands and S3 destination minima, "
+        "atomic business/outbox rollback, bounded wire admission, distinct logical source lanes, "
+        "blocked destination archive followed by retained restart, inbox deduplication, "
+        "lease replay/retry/extension, acknowledgement replay, pause/resume, terminal seals, "
+        "native HTTP/Axum reads and empty polling, and quorum refusal. Three host-native TLS "
+        "voters share a process. No operator CLI, name-only selectors, cross-deployment "
+        "grant changes, movement/wake, independent voter limits, sustained load or "
+        "all-voter disk loss is qualified by this suite.",
+    ),
     "ordinary-filesystem": (
         "native_cell_groups_primitives",
         ("rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum",),
@@ -689,7 +703,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-filesystem", "queue-primitives"):
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-filesystem", "ordinary-event-stream", "queue-primitives"):
         parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
@@ -740,7 +754,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-filesystem", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-filesystem", "ordinary-event-stream", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -748,7 +762,7 @@ def main():
                 "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
-        if args.suite == "ordinary-filesystem":
+        if args.suite in ("ordinary-filesystem", "ordinary-event-stream"):
             # Large coroutine layouts make incremental cache serialization a
             # poor fit for the constrained local qualification machine.
             env.update(CARGO_INCREMENTAL="0", CARGO_BUILD_JOBS="1")
@@ -758,7 +772,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-filesystem") and number != 0:
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-filesystem", "ordinary-event-stream") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

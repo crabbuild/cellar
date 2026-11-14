@@ -49,12 +49,25 @@ impl Broker {
         let deadline = crate::asyncrt::mono_ms()
             .checked_add(u64::try_from(wait)?)
             .ok_or_else(|| error(ErrorCode::InvalidRequest, "poll deadline overflow"))?;
+        if context.raft_storage.is_some() {
+            // The consumer-side adapter owns bounded polling between committed
+            // commands. Keeping this logical writer while waiting blocks append.
+            if wait != 0 {
+                return Err(error(
+                    ErrorCode::InvalidRequest,
+                    "Raft fetch requires consumer-side polling",
+                ));
+            }
+            return Ok(subscription_store::next(context, body)?
+                .value
+                .unwrap_or(Value::Null));
+        }
         // Subscribe before observing durable state. A successful mutation in
         // between the observation and await leaves a changed revision pending.
         let mut signal = self.changed.subscribe();
         let mut waiter = None;
         loop {
-            context.check_turn()?;
+            context.check_binding_turn()?;
             signal.borrow_and_update();
             let fetch = subscription_store::next(context, body)?;
             if let Some(value) = fetch.value {

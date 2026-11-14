@@ -156,6 +156,33 @@ impl RaftCells {
         deadline: u64,
         origin: Origin,
     ) -> HandlerFuture<RpcData> {
+        self.submit_sql_authorized(admitted, call_scope, deadline, origin, None)
+    }
+
+    pub(crate) fn event_ingress(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        authority: crate::application::event_stream::Authority,
+    ) -> HandlerFuture<RpcData> {
+        self.submit_sql_authorized(
+            admitted,
+            call_scope,
+            deadline,
+            Origin::Binding,
+            Some(authority),
+        )
+    }
+
+    fn submit_sql_authorized(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        origin: Origin,
+        event_authority: Option<crate::application::event_stream::Authority>,
+    ) -> HandlerFuture<RpcData> {
         let crate::outbound_rpc::Admitted {
             reservation,
             scope,
@@ -260,12 +287,24 @@ impl RaftCells {
             rng.fill_bytes(&mut incarnation);
             creation[0] |= 1;
             incarnation[0] |= 1;
-            let input = native_rpc::encode_ingress_request(
-                name.as_deref(),
-                &args,
-                nonce,
-                route.max_input_bytes,
-            )?;
+            let input = if let Some(authority) = &event_authority {
+                crate::application::event_stream::validate_target(&scope, authority)?;
+                authority.validate_operator_target(&scope, &method)?;
+                native_rpc::encode_event_request(
+                    name.as_deref(),
+                    &args,
+                    authority,
+                    Some(nonce),
+                    route.max_input_bytes,
+                )?
+            } else {
+                native_rpc::encode_ingress_request(
+                    name.as_deref(),
+                    &args,
+                    nonce,
+                    route.max_input_bytes,
+                )?
+            };
             let creation = ProposalId::new(creation)?;
             let candidate = CellHistory {
                 cluster: route.cluster,

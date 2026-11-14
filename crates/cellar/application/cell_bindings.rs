@@ -292,6 +292,18 @@ pub(crate) fn rpc(
     args: RpcData,
     call_scope: crate::host_rpc::CallScope,
 ) -> HandlerFuture<RpcData> {
+    rpc_authorized(context, scope, name, method, args, call_scope, None)
+}
+
+pub(crate) fn rpc_authorized(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    call_scope: crate::host_rpc::CallScope,
+    event_authority: Option<super::event_stream::Authority>,
+) -> HandlerFuture<RpcData> {
     let signal = call_scope.signal.clone();
     let prepared = (|| -> Result<_> {
         context.check_binding_turn()?;
@@ -342,11 +354,23 @@ pub(crate) fn rpc(
             .and_then(|n| n.checked_add(8192))
             .ok_or(CommandFailure::Overloaded)?;
         let lease = source.host.admit(source.group, bytes)?;
-        let input = super::consensus::native_rpc::encode_request(
-            name.as_deref(),
-            &args,
-            route.max_input_bytes,
-        )?;
+        let input = if let Some(authority) = &event_authority {
+            super::event_stream::validate_target(&scope, authority)?;
+            authority.validate_operator_target(&scope, &method)?;
+            super::consensus::native_rpc::encode_event_request(
+                name.as_deref(),
+                &args,
+                authority,
+                None,
+                route.max_input_bytes,
+            )?
+        } else {
+            super::consensus::native_rpc::encode_request(
+                name.as_deref(),
+                &args,
+                route.max_input_bytes,
+            )?
+        };
         anyhow::ensure!(
             source
                 .retry_until_ms

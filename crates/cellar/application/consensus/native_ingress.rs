@@ -16,6 +16,38 @@ pub(crate) fn rpc(
     args: RpcData,
     call_scope: CallScope,
 ) -> HandlerFuture<RpcData> {
+    rpc_with_authority(context, scope, name, method, args, call_scope, None)
+}
+
+pub(crate) fn event_rpc(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    call_scope: CallScope,
+    authority: crate::application::event_stream::Authority,
+) -> HandlerFuture<RpcData> {
+    rpc_with_authority(
+        context,
+        scope,
+        name,
+        method,
+        args,
+        call_scope,
+        Some(authority),
+    )
+}
+
+fn rpc_with_authority(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    call_scope: CallScope,
+    authority: Option<crate::application::event_stream::Authority>,
+) -> HandlerFuture<RpcData> {
     let prepared = (|| -> Result<_> {
         context.check_turn()?;
         anyhow::ensure!(
@@ -32,7 +64,17 @@ pub(crate) fn rpc(
                 .copied()
         });
         anyhow::ensure!(
-            native.is_some()
+            authority.as_ref().is_some_and(|authority| {
+                crate::application::event_stream::validate_target(&scope, authority).is_ok()
+                    && authority.validate_operator_target(&scope, &method).is_ok()
+                    && context.worker_config.stream_bindings.iter().any(|binding| {
+                        binding.explicit().is_ok_and(|binding| {
+                            binding.principal == authority.principal
+                                && binding.grant == authority.grant
+                                && binding.resource.same_identity(&authority.resource)
+                        })
+                    })
+            }) || native.is_some()
                 || context.sql_bindings.values().any(|database| {
                     crate::engine_api::sql_cell_scope(database) == scope
                         && name.as_deref() == Some(database.as_str())
@@ -86,6 +128,9 @@ pub(crate) fn rpc(
         admitted.reservation = admitted
             .reservation
             .with_reply_limit(call_scope.reply_limit());
+        if let Some(authority) = authority {
+            return Ok(owner.event_ingress(admitted, call_scope, deadline, authority));
+        }
         Ok(match native {
             Some(configuration) => {
                 owner.native_ingress(admitted, call_scope, deadline, configuration)

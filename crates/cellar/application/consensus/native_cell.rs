@@ -52,6 +52,8 @@ pub(super) struct CellRpcFactory {
     sql_scopes: std::collections::BTreeSet<String>,
     kv_scopes: std::collections::BTreeSet<String>,
     queue_scopes: std::collections::BTreeSet<String>,
+    event_scopes: std::collections::BTreeSet<String>,
+    config: Arc<crate::application::event_stream::raft::Configuration>,
     queue_owners: std::collections::BTreeSet<String>,
     queue_dead_letters: std::collections::BTreeSet<String>,
     configure: Arc<ConfigureCellFactory>,
@@ -74,7 +76,9 @@ impl CellRpcFactory {
         let Some((class, _)) = scope.split_once(':') else {
             return false;
         };
-        if class == crate::deploy::QUEUE_CLASS {
+        if crate::application::event_stream::is_event_scope(scope) {
+            self.event_scopes.contains(scope)
+        } else if class == crate::deploy::QUEUE_CLASS {
             self.queue_scopes.contains(scope)
         } else if class == crate::deploy::SQL_CLASS {
             self.sql_scopes.contains(scope)
@@ -83,6 +87,20 @@ impl CellRpcFactory {
         } else {
             self.binding_classes.contains(class)
         }
+    }
+
+    pub(super) fn configure_storage(
+        &self,
+        storage: &crate::application::Storage,
+        history: &CellHistory,
+    ) {
+        *storage.resources().event_source.lock().unwrap() = Some(
+            crate::application::event_stream::raft::Source::new(history, self.config.clone()),
+        );
+    }
+
+    pub(super) fn event_scopes(&self) -> &std::collections::BTreeSet<String> {
+        &self.event_scopes
     }
 
     pub(super) fn queue_scopes(&self) -> &std::collections::BTreeSet<String> {
@@ -219,6 +237,8 @@ impl NativeCellFactory {
         declared: Option<&AdmittedCellConfiguration>,
         callbacks: bool,
     ) -> Arc<CellRpcFactory> {
+        let callbacks =
+            callbacks || declared.is_some_and(|config| !config.stream_bindings.is_empty());
         let options = declared.map_or_else(
             || super::NativeCellConfiguration::default().options(class),
             AdmittedCellConfiguration::options,
@@ -235,6 +255,24 @@ impl NativeCellFactory {
         }
         if !options.kv_bindings.is_empty() {
             binding_classes.insert(crate::deploy::KV_CLASS.into());
+        }
+        let mut event_scopes = std::collections::BTreeSet::new();
+        for binding in &options.stream_bindings {
+            let binding = binding
+                .explicit()
+                .expect("admitted explicit stream binding");
+            event_scopes.insert(
+                crate::application::event_stream::cell_scope(&binding.resource)
+                    .expect("admitted stream"),
+            );
+            event_scopes.insert(
+                crate::application::event_stream::catalog_scope(&binding.resource)
+                    .expect("admitted catalog"),
+            );
+        }
+        if !event_scopes.is_empty() || class == crate::deploy::EVENT_CATALOG_CLASS {
+            binding_classes.insert(crate::deploy::EVENT_STREAM_CLASS.into());
+            binding_classes.insert(crate::deploy::EVENT_CATALOG_CLASS.into());
         }
         let kv_scopes = options
             .kv_bindings
@@ -297,6 +335,10 @@ impl NativeCellFactory {
             identity,
             configuration: declared.map(AdmittedCellConfiguration::digest),
             binding_classes,
+            event_scopes,
+            config: Arc::new(crate::application::event_stream::raft::Configuration::from(
+                owner.config.as_ref(),
+            )),
             sql_scopes,
             kv_scopes,
             queue_scopes,
@@ -337,6 +379,7 @@ impl NativeCellFactory {
             anyhow::ensure!(
                 work.reason == "alarm"
                     || work.reason == "filesystem"
+                    || work.reason == "events"
                     || (work.reason == "queue" && self.class == crate::deploy::QUEUE_CLASS),
                 CommandFailure::UnsupportedCapability
             );
@@ -354,7 +397,7 @@ impl NativeCellFactory {
         } else {
             None
         };
-        let (operation, args, incoming_name) = match method {
+        let (operation, args, incoming_name, event_authority) = match method {
             CellRpcMethod::Owned { method, json_only } => {
                 let request = super::native_rpc::decode_request(input)?;
                 super::native_rpc::validate_identity(
@@ -367,13 +410,29 @@ impl NativeCellFactory {
                     !json_only || matches!(&request.args, RpcData::Json(_)),
                     CommandFailure::UnsupportedCapability
                 );
-                (method, request.args, request.name)
+                if crate::application::event_stream::is_event_scope(cell.cell.as_str()) {
+                    let authority = request
+                        .event_authority
+                        .as_ref()
+                        .ok_or(CommandFailure::UnsupportedCapability)?;
+                    crate::application::event_stream::validate_target(
+                        cell.cell.as_str(),
+                        authority,
+                    )?;
+                    authority.validate_operator_target(cell.cell.as_str(), method)?;
+                } else {
+                    anyhow::ensure!(
+                        request.event_authority.is_none(),
+                        CommandFailure::UnsupportedCapability
+                    );
+                }
+                (method, request.args, request.name, request.event_authority)
             }
-            CellRpcMethod::Work => ("", RpcData::Json("null".into()), None),
+            CellRpcMethod::Work => ("", RpcData::Json("null".into()), None, None),
             CellRpcMethod::Json(operation) => {
                 let json = std::str::from_utf8(input)?;
                 serde_json::from_str::<serde::de::IgnoredAny>(json)?;
-                (operation, RpcData::Json(json.to_owned()), None)
+                (operation, RpcData::Json(json.to_owned()), None, None)
             }
         };
         let name = crate::storage::raft_bindings::cell_name(
@@ -386,6 +445,8 @@ impl NativeCellFactory {
             || !self.config.kv_bindings.is_empty()
             || !self.config.queue_bindings.is_empty()
             || !self.config.queue_consumers.is_empty()
+            || !self.config.stream_bindings.is_empty()
+            || self.class == crate::deploy::EVENT_CATALOG_CLASS
         {
             crate::storage::raft_bindings::install(&*transaction.framework()?)?;
         }
@@ -418,7 +479,8 @@ impl NativeCellFactory {
                 resources: authority.resources.clone(),
             })));
         }
-        let context = self.context(identity, authority)?;
+        let mut context = self.context(identity, authority)?;
+        context.event_authority = event_authority;
         let invocation = match &work {
             Some(work) => Invocation::Alarm {
                 scheduled_ms: i64::try_from(work.due)?,
@@ -438,6 +500,11 @@ impl NativeCellFactory {
                 // No callback entry until the exact claim survives quorum (and
                 // any stronger namespace minimum). A crash retains retry work.
                 storage.sync().await?;
+                if work.reason == "events" {
+                    crate::application::event_stream::raft::maintain(context).await?;
+                    crate::storage::raft_native_work(|db| super::native_work::complete(db, &work))?;
+                    return Ok(vec![1]);
+                }
                 if work.reason == "filesystem" {
                     storage.fs()?.collect_garbage()?;
                     crate::storage::raft_native_work(|db| super::native_work::complete(db, &work))?;

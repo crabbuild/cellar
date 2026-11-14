@@ -31,7 +31,7 @@ fn exists(db: &Connection) -> Result<bool> {
 
 fn install(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS __sys_raft_native_work (
-        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue','filesystem')),
+        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue','filesystem','events')),
         generation BLOB NOT NULL CHECK(typeof(generation)='blob' AND length(generation)=16),
         due INTEGER NOT NULL CHECK(typeof(due)='integer' AND due>=0),
         attempts INTEGER NOT NULL CHECK(typeof(attempts)='integer' AND attempts BETWEEN 0 AND 4294967295)
@@ -41,7 +41,7 @@ fn install(db: &Connection) -> Result<()> {
 
 fn validate(reason: &str) -> Result<()> {
     ensure!(
-        matches!(reason, "alarm" | "queue" | "filesystem"),
+        matches!(reason, "alarm" | "queue" | "filesystem" | "events"),
         CommandFailure::UnsupportedCapability
     );
     Ok(())

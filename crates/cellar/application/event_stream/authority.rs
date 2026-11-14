@@ -80,8 +80,24 @@ impl Authority {
     /// Framework dispatch uses the immutable principal in a persisted source
     /// lane. A later application generation may rename its script or remove
     /// the binding; neither action revokes the receiver's independent grant.
+    pub(crate) fn producer(binding: &Binding, source: &str) -> Result<Self> {
+        binding.validate()?;
+        anyhow::ensure!(binding.publish, "stored lane does not grant publication");
+        let authority = Self {
+            principal: binding.principal.clone(),
+            grant: binding.grant.clone(),
+            resource: binding.resource.clone(),
+            source: Some(source.into()),
+            action: Action::Append,
+            operator: None,
+            provision: false,
+        };
+        authority.validate()?;
+        Ok(authority)
+    }
+
     pub(crate) fn delivery(context: &Context, persisted: &Binding) -> Result<Self> {
-        context.check_turn()?;
+        context.check_binding_turn()?;
         persisted.validate()?;
         anyhow::ensure!(persisted.publish, "stored lane does not grant publication");
         let source = context
@@ -103,7 +119,7 @@ impl Authority {
     }
 
     pub(crate) fn mint(context: &Context, binding: &Binding, action: Action) -> Result<Self> {
-        context.check_turn()?;
+        context.check_binding_turn()?;
         binding
             .validate()
             .map_err(|_| error(ErrorCode::InvalidRequest, "invalid stream binding"))?;

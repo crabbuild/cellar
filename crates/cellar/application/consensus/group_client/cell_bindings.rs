@@ -205,8 +205,12 @@ impl Host for BindingHost {
                     )
                     .await;
                 if let Err(error) = enrolled {
+                    // The joined recovery job already proved its source claim
+                    // and runs outside an application command. Name discovery
+                    // uses host admission; its direct adapter requires a live
+                    // command's framework-dispatch permit.
                     let observed = owner
-                        .resolve_cell_history_direct(
+                        .resolve_cell_history(
                             history.cluster,
                             history.namespace,
                             history.cell.clone(),

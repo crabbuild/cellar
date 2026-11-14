@@ -41,6 +41,7 @@ pub(crate) struct Resources {
     pub(crate) transaction: Mutex<Option<Arc<Transaction>>>,
     pub(crate) facets: Mutex<Option<Arc<super::facets::State>>>,
     pub(crate) filesystem: super::filesystem::Registry,
+    pub(crate) event_source: Mutex<Option<super::event_stream::raft::Source>>,
     pub(crate) filesystem_policy: Mutex<Option<super::filesystem::RaftPolicy>>,
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
@@ -323,7 +324,7 @@ impl Storage {
     }
 
     pub(crate) fn clear_current_work(&self, reason: cellar_logic::work::Reason) -> Result<()> {
-        if let Some(installation) = crate::storage::work::current(self.scope()?, reason)? {
+        if let Some(installation) = crate::storage::work::current(self.write_scope()?, reason)? {
             self.clear_work(installation)?;
         }
         Ok(())
@@ -334,7 +335,7 @@ impl Storage {
         reason: cellar_logic::work::Reason,
         at_ms: i64,
     ) -> Result<()> {
-        let scope = self.scope()?;
+        let scope = self.write_scope()?;
         if let Some(effective) = crate::storage::work::set(scope, reason, at_ms)? {
             if effective >= 0 {
                 crate::host_gates::spawn_arm_gate(
@@ -351,7 +352,7 @@ impl Storage {
         &self,
         installation: cellar_logic::work::Installation,
     ) -> Result<bool> {
-        let scope = self.scope()?;
+        let scope = self.write_scope()?;
         let (cleared, effective) = crate::storage::work::clear(scope, installation)?;
         if let Some(effective) = effective.filter(|deadline| *deadline >= 0) {
             crate::host_gates::spawn_arm_gate(
@@ -367,7 +368,11 @@ impl Storage {
         &self,
         reason: cellar_logic::work::Reason,
     ) -> Result<Option<cellar_logic::work::Installation>> {
-        crate::storage::work::installation(self.scope()?, reason)
+        if self.is_raft() {
+            crate::storage::work::current(self.write_scope()?, reason)
+        } else {
+            crate::storage::work::installation(self.scope()?, reason)
+        }
     }
 
     pub(crate) fn system_sql(&self, query: &str, bindings: &[SqlValue]) -> Result<Vec<SqlRow>> {

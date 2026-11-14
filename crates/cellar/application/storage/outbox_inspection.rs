@@ -304,7 +304,7 @@ impl OutboxPage {
 
 impl Storage {
     pub(crate) fn outbox_incarnation(&self) -> Result<Option<String>> {
-        let scope = self.scope()?;
+        let scope = self.write_scope()?;
         anyhow::ensure!(
             crate::storage::facet_opening(scope).is_none(),
             "facets cannot inspect or retry durable source lanes"
@@ -332,7 +332,8 @@ impl Storage {
                 "outbox page limit must be between 1 and 100",
             ));
         }
-        let source = self.scope()?;
+        let identity = self.event_source_scope()?;
+        let source = identity.as_str();
         let incarnation = self.outbox_incarnation()?;
         let after = after(options.cursor.as_deref(), source, incarnation.as_deref())?;
         let now = crate::asyncrt::wall_ms().max(0);
@@ -463,7 +464,7 @@ impl Storage {
     /// A stale observation fails; an already settled lane returns false.
     /// Commit proves the retry obligation, not destination delivery.
     pub fn retry_outbox_lane(&self, revision: &OutboxRevision) -> Result<bool> {
-        if revision.source != self.scope()?
+        if revision.source != self.event_source_scope()?
             || !valid_hex(&revision.incarnation, 32)
             || !valid_hex(&revision.lane, 64)
         {

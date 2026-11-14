@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Runtime-owned contracts for globally named database cells.
+//! Runtime-owned contracts for shared database, Queue and EventStream cells.
 
 use super::{AdmittedCellConfiguration, NativeCellConfiguration, RaftClass, RegistrationError};
 use sha2::{Digest, Sha256};
@@ -118,4 +118,108 @@ pub(in crate::application) fn queue_service(
         crate::application::queue::create_raft_cell(&context, handler.clone())
     }))?;
     Ok(class.configured_cell(configuration))
+}
+
+/// Resource definitions are trusted compiled ownership; RPC arguments cannot
+/// create a resource by proposing their own administration grant.
+pub(in crate::application) fn event_service(
+    configuration: &AdmittedCellConfiguration,
+    definitions: &[crate::application::event_stream::Definition],
+    catalog: bool,
+) -> Result<RaftClass, RegistrationError> {
+    use crate::application::event_stream as events;
+    let name = if catalog {
+        crate::deploy::EVENT_CATALOG_CLASS
+    } else {
+        crate::deploy::EVENT_STREAM_CLASS
+    };
+    let mut identity = Sha256::new();
+    identity.update(b"cellar-raft-event-provision-1");
+    identity.update(
+        serde_json::to_vec(definitions)
+            .map_err(|_| RegistrationError::Invalid("stream definitions"))?,
+    );
+    let mut class = RaftClass::event_service(name)?
+        .initializer(identity.finalize().into(), |_, _| Ok(()))?
+        .durable_callbacks()?;
+    let methods: &[&str] = if catalog {
+        &[
+            "__catalogConfigure",
+            "__catalogStatus",
+            "__catalogRetire",
+            "__catalogRetirementStatus",
+        ]
+    } else {
+        &[
+            "__streamConfigure",
+            "__streamAppend",
+            "__streamSeal",
+            "__streamRetirementCheck",
+            "__streamRetire",
+            "__streamRead",
+            "__streamResolve",
+            "__streamNext",
+            "__streamAck",
+            "__streamRetry",
+            "__streamExtend",
+            "__streamSubscriptionStatus",
+            "__streamSubscriptions",
+            "__streamSources",
+            "__streamSubscriptionChange",
+            "__streamAudit",
+            "__streamOperationStatus",
+            "__streamDescribe",
+        ]
+    };
+    for method in methods {
+        let mut hash = Sha256::new();
+        hash.update(b"cellar-raft-event-operation-1");
+        hash.update(method);
+        class = class.cell_rpc(*method, hash.finalize().into())?;
+    }
+    class = class.query(
+        super::sql_ingress_identity::OPERATION,
+        Sha256::digest(b"cellar-event-ingress-sequence-1").into(),
+        |query, input| query.sql_ingress_sequence(input),
+    )?;
+    let definitions: Arc<[events::Definition]> = definitions.to_vec().into();
+    let principal = configuration.script.clone();
+    let mut bindings = Vec::new();
+    for definition in definitions.iter() {
+        events::Authority::deployment(&principal, definition)
+            .map_err(|_| RegistrationError::Invalid("stream owner administration grant"))?;
+        let grant = definition
+            .grants
+            .iter()
+            .find(|g| g.principal == principal && g.administer)
+            .ok_or(RegistrationError::Invalid("stream owner grant"))?;
+        bindings.push(
+            events::Binding {
+                environment: definition.resource.id.clone(),
+                resource: definition.resource.clone(),
+                principal: principal.clone(),
+                grant: grant.id.clone(),
+                publish: grant.publish,
+                read: grant.read,
+                subscriptions: grant.subscriptions.clone(),
+                administer: true,
+            }
+            .into(),
+        );
+    }
+    class = class.with_cell_factory(Arc::new(move |context, _| {
+        let cell = if catalog {
+            events::catalog::create_cell(&context)?
+        } else {
+            events::broker::create_cell(&context)?
+        };
+        events::raft::provision(&context, &definitions, catalog, &principal)?;
+        Ok(cell)
+    }))?;
+    let options = NativeCellConfiguration {
+        stream_bindings: bindings,
+        ..Default::default()
+    }
+    .options(&configuration.script);
+    Ok(class.configured_cell(&AdmittedCellConfiguration::from_options(&options)?))
 }

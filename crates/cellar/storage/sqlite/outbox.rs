@@ -67,6 +67,13 @@ pub(super) fn restore_schema(connection: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub(super) fn validate_raft_existing(connection: &Connection) -> anyhow::Result<()> {
+    if check_schema(connection)? {
+        validate_retained(connection)?;
+    }
+    Ok(())
+}
+
 fn open_schema(connection: &Connection) -> anyhow::Result<()> {
     SCHEMA.open(connection)
 }
@@ -149,6 +156,22 @@ pub(crate) fn emit(
     payload: serde_json::Value,
     limits: Limits,
 ) -> anyhow::Result<()> {
+    emit_from(scope, binding, version, key, payload, limits, None)
+}
+
+pub(crate) fn emit_from(
+    scope: &str,
+    binding: &Binding,
+    version: u32,
+    key: String,
+    payload: serde_json::Value,
+    limits: Limits,
+    identity: Option<&crate::application::event_stream::raft::Emission<'_>>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        scope != RAFT_STORAGE_SCOPE || identity.is_some(),
+        "Raft outbox requires logical source identity"
+    );
     binding.validate()?;
     anyhow::ensure!(binding.publish, "event stream publication is forbidden");
     limits.validate()?;
@@ -162,9 +185,11 @@ pub(crate) fn emit(
             )
             .into());
         }
-        without_sql_authorizer(connection, || {
-            connection.execute_batch("SAVEPOINT cellar_outbox_emit;")?;
-            let result = (|| -> anyhow::Result<()> {
+        with_storage_batch(connection, |connection| {
+            as_framework_sql(|| -> anyhow::Result<()> {
+                if scope == RAFT_STORAGE_SCOPE {
+                    connection.execute_batch(super::work::SCHEMA)?;
+                }
                 open_schema(connection)?;
                 let incarnation = connection
                     .query_row(
@@ -174,7 +199,13 @@ pub(crate) fn emit(
                     )
                     .optional()?;
                 let incarnation = match incarnation {
-                    Some(value) => value,
+                    Some(value) => {
+                        anyhow::ensure!(
+                            identity.is_none_or(|identity| identity.source.incarnation == value),
+                            "outbox belongs to another logical history"
+                        );
+                        value
+                    }
                     None => {
                         let mut random = [0; 16];
                         crate::asyncrt::rng("event-source-incarnation")
@@ -182,7 +213,10 @@ pub(crate) fn emit(
                             .map_err(|error| {
                                 anyhow::anyhow!("event source identity generation failed: {error}")
                             })?;
-                        let value = hex::encode(random);
+                        let value = identity.map_or_else(
+                            || hex::encode(random),
+                            |identity| identity.source.incarnation.clone(),
+                        );
                         connection
                             .execute("INSERT INTO __sys_event_source VALUES(1,?1,1)", [&value])?;
                         value
@@ -190,7 +224,7 @@ pub(crate) fn emit(
                 };
                 let lane = crate::application::event_stream::lane_identity(
                     &binding.resource,
-                    scope,
+                    identity.map_or(scope, |identity| identity.source.scope.as_str()),
                     &incarnation,
                 )?;
                 let next = connection
@@ -249,7 +283,9 @@ pub(crate) fn emit(
                     id: format!("v1:{lane}:{sequence}"),
                     lane: lane.clone(),
                     sequence,
-                    source: scope.to_owned(),
+                    source: identity
+                        .map_or(scope, |identity| identity.source.scope.as_str())
+                        .to_owned(),
                     source_incarnation: incarnation,
                     family: binding.resource.family.clone(),
                     version,
@@ -264,6 +300,23 @@ pub(crate) fn emit(
                 // Apply the same JSON recursion/shape bound as destination
                 // decoding before accepting a durable delivery obligation.
                 let _: Envelope = serde_json::from_slice(&bytes)?;
+                if let Some(identity) = identity {
+                    use base64::Engine;
+                    let record = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    if !crate::application::event_stream::raft::append_fits(
+                        binding,
+                        &identity.source.scope,
+                        &lane,
+                        &[record],
+                        identity.input_limit,
+                    )? {
+                        return Err(DeliveryError::new(
+                            ErrorCode::PayloadTooLarge,
+                            "event exceeds destination command capacity",
+                        )
+                        .into());
+                    }
+                }
                 let size = i64::try_from(bytes.len())?;
                 let (count, stored_bytes): (i64, i64) = connection.query_row(
                     "SELECT rows,bytes FROM __sys_outbox_stats WHERE singleton=1",
@@ -295,34 +348,41 @@ pub(crate) fn emit(
                         at_ms=CASE WHEN at_ms IS NULL THEN excluded.at_ms ELSE min(at_ms,excluded.at_ms) END",
                     rusqlite::params![scope,now_ms],
                 )?;
+                if scope == RAFT_STORAGE_SCOPE {
+                    super::work::project_in(connection)?;
+                }
                 Ok(())
-            })();
-            if result.is_err() {
-                connection.execute_batch("ROLLBACK TO cellar_outbox_emit;")?;
-            }
-            connection.execute_batch("RELEASE cellar_outbox_emit;")?;
-            result
+            })
         })
     })?;
-    publish_alarm(scope);
+    if scope != RAFT_STORAGE_SCOPE {
+        publish_alarm(scope);
+    }
     Ok(())
 }
 
 pub(crate) fn ensure_schema(scope: &str) -> anyhow::Result<()> {
     with_application_storage_write(scope, |connection| {
-        without_sql_authorizer(connection, || {
-            connection.execute_batch("SAVEPOINT cellar_outbox_schema;")?;
-            let result = open_schema(connection);
-            if result.is_err() {
-                connection.execute_batch("ROLLBACK TO cellar_outbox_schema;")?;
-            }
-            connection.execute_batch("RELEASE cellar_outbox_schema;")?;
-            result
+        with_storage_batch(connection, |connection| {
+            as_framework_sql(|| open_schema(connection))
         })
     })
 }
 
 pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::Result<SealStatus> {
+    seal_from(scope, binding, operation, None)
+}
+
+pub(crate) fn seal_from(
+    scope: &str,
+    binding: &Binding,
+    operation: &str,
+    identity: Option<&crate::application::event_stream::raft::Source>,
+) -> anyhow::Result<SealStatus> {
+    anyhow::ensure!(
+        scope != RAFT_STORAGE_SCOPE || identity.is_some(),
+        "Raft seal requires logical source identity"
+    );
     binding.validate()?;
     anyhow::ensure!(binding.publish, "event stream publication is forbidden");
     anyhow::ensure!(
@@ -338,9 +398,11 @@ pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::R
             !connection.is_autocommit(),
             "producer sealing requires an active transaction"
         );
-        without_sql_authorizer(connection, || {
-            connection.execute_batch("SAVEPOINT cellar_outbox_seal;")?;
-            let result = (|| -> anyhow::Result<SealStatus> {
+        with_storage_batch(connection, |connection| {
+            as_framework_sql(|| -> anyhow::Result<SealStatus> {
+                if scope == RAFT_STORAGE_SCOPE {
+                    connection.execute_batch(super::work::SCHEMA)?;
+                }
                 open_schema(connection)?;
                 let incarnation = connection
                     .query_row(
@@ -355,9 +417,13 @@ pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::R
                             "source has no producer incarnation",
                         )
                     })?;
+                anyhow::ensure!(
+                    identity.is_none_or(|identity| identity.incarnation == incarnation),
+                    "seal belongs to another logical history"
+                );
                 let lane = crate::application::event_stream::lane_identity(
                     &binding.resource,
-                    scope,
+                    identity.map_or(scope, |identity| identity.scope.as_str()),
                     &incarnation,
                 )?;
                 let prior = connection
@@ -444,21 +510,21 @@ pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::R
                 connection.execute("INSERT INTO __sys_work(scope,reason,generation,at_ms) VALUES(?1,'outbox',1,?2)
                     ON CONFLICT(scope,reason) DO UPDATE SET generation=generation+1,at_ms=CASE WHEN at_ms IS NULL THEN excluded.at_ms ELSE min(at_ms,excluded.at_ms) END",
                     rusqlite::params![scope,now])?;
+                if scope == RAFT_STORAGE_SCOPE {
+                    super::work::project_in(connection)?;
+                }
                 Ok(SealStatus {
                     lane,
                     operation: operation.into(),
                     terminal,
                     state: "pending".into(),
                 })
-            })();
-            if result.is_err() {
-                connection.execute_batch("ROLLBACK TO cellar_outbox_seal;")?;
-            }
-            connection.execute_batch("RELEASE cellar_outbox_seal;")?;
-            result
+            })
         })
     })?;
-    publish_alarm(scope);
+    if scope != RAFT_STORAGE_SCOPE {
+        publish_alarm(scope);
+    }
     Ok(result)
 }
 

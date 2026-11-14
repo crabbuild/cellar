@@ -76,6 +76,13 @@ domain. A declared binding, an active catalog entry and successful readiness
 checks are required. Bucket-backed storage, replication and durable wake
 discovery currently are required even for a single deployed node.
 
+Shared Raft applications compile resource ownership with
+`Registry::raft_event_stream(Definition)` and register its broker/catalog classes
+as managed namespaces. Their stream bindings currently require explicit UUIDs.
+The same publishing, subscription and inbox APIs use independently proved source
+and destination commands. See [shared EventStream durable work](design/multi-raft/cell-groups/event-stream-durable-work.md)
+for setup, proof boundaries and qualification limits.
+
 ### Resource readiness and development formats
 
 `Node::start` waits for resource activation while supervising the node. If the
