@@ -284,7 +284,9 @@ impl ActiveCommand {
     }
 
     pub(crate) fn can_park(&self) -> Result<bool> {
-        self.frame.cursors.publishable()?;
+        if !self.frame.cursors.parkable()? {
+            return Ok(false);
+        }
         let work = self.frame.work.borrow();
         // Only a host-owned SDK task that has already proven its source root
         // can wait without SQLite. Transaction/sync tasks keep their writer.

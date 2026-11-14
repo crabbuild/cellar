@@ -33,12 +33,9 @@ impl Suspended {
         now: u64,
     ) -> Poll<Result<(), ExecutionError>> {
         if self.resuming.is_none() {
-            match self.retention.lease.resume() {
-                Err(ExecutionError::Busy) => {
-                    self.ready.0.store(true, Ordering::Release);
-                    return Poll::Pending;
-                }
-                result => result?,
+            match self.retention.lease.resume(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(result) => result?,
             }
             let commits = self.commits.as_ref().ok_or_else(unavailable)?.clone();
             let cell = self.cell.clone();

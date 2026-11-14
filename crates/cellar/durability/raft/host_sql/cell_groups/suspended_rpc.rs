@@ -547,7 +547,7 @@ impl Cells {
             let Poll::Ready(result) = outcome else {
                 let progress = if let Some(reply) = rpc.turn.take_checkpoint() {
                     rpc.begin_checkpoint(reply, domain)
-                } else if !rpc.ready.0.load(Ordering::Acquire) {
+                } else if !rpc.ready.0.load(Ordering::Acquire) || rpc.retention.lease.contended() {
                     rpc.try_park(&self.activations, now)
                 } else {
                     Ok(())
