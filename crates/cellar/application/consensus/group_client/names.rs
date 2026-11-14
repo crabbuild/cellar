@@ -278,7 +278,7 @@ impl Resolution {
                     .await;
                 response
                     .map(|response| response.record().cloned())
-                    .map_err(CellDispatchError::Transport)
+                    .map_err(|error| CellDispatchError::Transport(error.for_read()))
             };
             match selected {
                 Ok(record) => {

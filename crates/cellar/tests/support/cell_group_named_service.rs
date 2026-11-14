@@ -4,7 +4,7 @@
 use super::*;
 
 pub async fn activate(cluster: &ManagedCluster, archive_name: &str) -> Result<GroupHistory> {
-    activate_namespace(cluster, 0, archive_name).await
+    activate_at(cluster, archive_name, 0).await
 }
 
 pub async fn activate_namespace(
@@ -12,18 +12,16 @@ pub async fn activate_namespace(
     index: usize,
     archive_name: &str,
 ) -> Result<GroupHistory> {
+    activate_at(cluster, archive_name, index).await
+}
+
+pub async fn activate_at(
+    cluster: &ManagedCluster,
+    archive_name: &str,
+    index: usize,
+) -> Result<GroupHistory> {
     let fixture = &cluster.fixtures[0];
-    let declaration = cluster.fixtures[0]
-        .additional_namespaces
-        .get(index)
-        .context("additional namespace")?;
-    let identity = 210u8
-        .checked_add(
-            u8::try_from(index)?
-                .checked_mul(2)
-                .context("namespace identity")?,
-        )
-        .context("namespace identity")?;
+    let declaration = &fixture.additional_namespaces[index];
     let adapter = Catalog::new(
         fixture.store.clone(),
         CatalogOptions {
@@ -34,19 +32,12 @@ pub async fn activate_namespace(
     let standby = fixture
         .catalog
         .observe_managed_standby(&adapter, declaration, DirectoryLimits::default(), TIMEOUT)
-        .await
-        .context("observe additional namespace standby")?;
-    // Fleet group IDs are permanent across namespaces. A second primitive
-    // service needs its own ID even though its logical history also names a
-    // different namespace.
-    let group = 181u8
-        .checked_add(u8::try_from(index)?)
-        .context("additional namespace group identity")?;
+        .await?;
     let history = GroupHistory {
         cluster: declaration.namespace.cluster,
         namespace: declaration.namespace.namespace,
-        group: GroupId::new([group; 16])?,
-        incarnation: IncarnationId::new([182; 16])?,
+        group: GroupId::new([u8::try_from(181 + 2 * index)?; 16])?,
+        incarnation: IncarnationId::new([u8::try_from(182 + 2 * index)?; 16])?,
     };
     let cut = fixture.catalog.read(TIMEOUT).await?;
     let reserved = fixture
@@ -55,14 +46,17 @@ pub async fn activate_namespace(
             &adapter,
             declaration,
             RaftManagedFirstGroupRequest {
-                reservation: managed_fixture::request(identity, cut.revision()),
+                reservation: managed_fixture::request(
+                    u8::try_from(210 + 2 * index)?,
+                    cut.revision(),
+                ),
                 standby,
-                publication: ProposalId::new([183; 16])?,
+                publication: ProposalId::new([u8::try_from(183 + index)?; 16])?,
                 group: CellGroupBirthSpec {
                     history,
                     range: CellRange::all(),
                     epoch: RouteEpoch::new(1)?,
-                    creation: ProposalId::new([184; 16])?,
+                    creation: ProposalId::new([u8::try_from(184 + index)?; 16])?,
                     voters: cluster
                         .fixtures
                         .iter()
@@ -81,20 +75,17 @@ pub async fn activate_namespace(
             TIMEOUT,
         )
         .await
-        .context("reserve additional namespace group")?;
+        .with_context(|| format!("reserve named service group {index}"))?;
     let cut = fixture.catalog.read(TIMEOUT).await?;
     let authorization = fixture
         .catalog
         .publish_managed_first_group(
             &reserved,
-            &managed_fixture::request(
-                identity.checked_add(1).context("namespace identity")?,
-                cut.revision(),
-            ),
+            &managed_fixture::request(u8::try_from(211 + 2 * index)?, cut.revision()),
             TIMEOUT,
         )
         .await
-        .context("publish additional namespace group")?;
+        .with_context(|| format!("publish named service group {index}"))?;
     let mut database_fixture = fixture.clone();
     database_fixture.declaration = declaration.clone();
     let intent_root = cluster.roots[0].path().join(archive_name);
@@ -149,24 +140,51 @@ pub async fn grant(cluster: &ManagedCluster) -> Result<()> {
     Ok(())
 }
 
-pub async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
-    restart_with_groups(cluster, 2).await
+pub async fn restart_with_groups(cluster: &mut ManagedCluster, groups: usize) -> Result<()> {
+    ensure!(
+        groups == 1 + cluster.fixtures[0].additional_namespaces.len(),
+        "retained namespace group count"
+    );
+    restart(cluster).await
 }
 
-pub async fn restart_with_groups(cluster: &mut ManagedCluster, groups: usize) -> Result<()> {
+pub async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
+    restart_after_close(cluster, || {}).await
+}
+
+pub async fn restart_after_close(
+    cluster: &mut ManagedCluster,
+    closed: impl FnOnce(),
+) -> Result<()> {
+    let generation = cluster
+        .peers
+        .first()
+        .context("retained service peers")?
+        .process
+        .bytes()[0]
+        .checked_add(u8::try_from(cluster.fixtures.len())?)
+        .context("retained service process generation exhausted")?
+        .max(104);
     let old_hosts = std::mem::take(&mut cluster.hosts);
     managed_fixture::close_group_nodes_with_groups(
         std::mem::take(&mut cluster.nodes),
         &old_hosts,
-        groups,
+        1 + cluster.fixtures[0].additional_namespaces.len(),
     )
     .await?;
+    closed();
     cluster.peers.clear();
     for (index, fixture) in cluster.fixtures.iter().enumerate() {
         let node = fixture.start_node(cluster.roots[index].path()).await?;
         let started = async {
             let (mut config, services) = fixture
-                .config(&node, LogOpenMode::Resume, 104 + index as u8)
+                .config(
+                    &node,
+                    LogOpenMode::Resume,
+                    generation
+                        .checked_add(u8::try_from(index)?)
+                        .context("retained service process generation exhausted")?,
+                )
                 .await?;
             managed_fixture::archives::configure(&mut config);
             let peer = config.peers[0].clone();

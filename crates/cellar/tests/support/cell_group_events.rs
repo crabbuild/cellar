@@ -200,7 +200,8 @@ fn application() -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptio
                 }))
             })
         })
-        .raft_cell(class, |_, _| Ok(Arc::new(Producer)))?,
+        .raft_cell(class, |_, _| Ok(Arc::new(Producer)))?
+        .raft_event_stream(definition())?,
     );
     let mut options = configuration::options(SCRIPT);
     options.do_classes = vec!["Counter".into()];

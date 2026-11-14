@@ -42,12 +42,7 @@ pub(crate) async fn configure(
     for (script, definition) in definitions {
         let bytes = event_stream::encoding::json(definition, event_stream::MAX_DEFINITION_BYTES)?;
         let digest = hex::encode(Sha256::digest(&bytes));
-        let mut identity = Sha256::new();
-        identity.update(b"cellar-event-deployment-operation-v1\0");
-        identity.update(u32::try_from(script.len())?.to_be_bytes());
-        identity.update(script.as_bytes());
-        identity.update(&bytes);
-        let operation = hex::encode(&identity.finalize()[..16]);
+        let operation = event_stream::raft::operation(script, definition)?;
         let authority = Authority::deployment(script, definition)?;
         let configured = rpc(host, script, authority.clone(), event_stream::catalog_scope(&definition.resource)?, event_stream::catalog_name(&definition.resource)?,
             "__catalogConfigure", json!([{"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(bytes)}])).await?;

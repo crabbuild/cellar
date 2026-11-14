@@ -29,6 +29,16 @@ fn definition() -> event_stream::Definition {
     }
 }
 
+fn service(catalog: bool) -> Result<RaftClass> {
+    let options = super::super::NativeCellConfiguration::default().options("shop");
+    let configuration = super::super::AdmittedCellConfiguration::from_options(&options)?;
+    Ok(super::super::native_services::event_service(
+        &configuration,
+        &[definition()],
+        catalog,
+    )?)
+}
+
 #[test]
 fn private_event_request_retains_authority_and_global_name() -> Result<()> {
     let definition = definition();
@@ -221,8 +231,8 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
 #[test]
 fn event_service_factories_use_one_global_contract_and_keep_callbacks_private() -> Result<()> {
     for catalog in [false, true] {
-        let class = super::super::native_services::event_service(catalog)?;
-        let repeated = super::super::native_services::event_service(catalog)?;
+        let class = service(catalog)?;
+        let repeated = service(catalog)?;
         assert_eq!(class.schema_digest(), repeated.schema_digest());
         assert!(class.event_contract().is_some());
         assert!(class.has_native_callbacks());
@@ -278,7 +288,7 @@ fn event_ingress_nonce_is_inside_the_authenticated_request_and_keeps_identity_ch
         &args,
         4096
     )?));
-    let class = super::super::native_services::event_service(true)?;
+    let class = service(true)?;
     let history = CellHistory {
         cluster: ClusterId::new([1; 16])?,
         namespace: NamespaceId::new([2; 16])?,
@@ -386,7 +396,7 @@ fn superseded_source_activation_cannot_reopen_or_cancel_new_bindings() -> Result
 
 #[test]
 fn event_services_refuse_sql_only_profiles_without_raising_their_quotas() -> Result<()> {
-    let class = super::super::native_services::event_service(false)?;
+    let class = service(false)?;
     let mut host = crate::raft::host::RaftHostOptions::default();
     let limits = cellar_logic::event_stream::Limits::default();
     assert!(class.validate_event_host(&host, limits).is_err());
@@ -394,8 +404,27 @@ fn event_services_refuse_sql_only_profiles_without_raising_their_quotas() -> Res
     host.max_input_bytes = 1024;
     assert!(class.validate_event_host(&host, limits).is_err());
     assert_eq!(host.max_input_bytes, 1024);
+    host.max_input_bytes = 16 << 10;
+    class.validate_event_host(&host, limits)?;
+    let mut large = definition();
+    large
+        .grants
+        .extend((0..64).map(|index| event_stream::Grant {
+            id: format!("reader-{index}"),
+            principal: "x".repeat(128),
+            publish: false,
+            read: true,
+            subscriptions: vec![],
+            administer: false,
+        }));
+    let options = super::super::NativeCellConfiguration::default().options("shop");
+    let configuration = super::super::AdmittedCellConfiguration::from_options(&options)?;
+    let large = super::super::native_services::event_service(&configuration, &[large], false)?;
+    assert!(large.validate_event_host(&host, limits).is_err());
+    assert_eq!(host.max_input_bytes, 16 << 10);
     host.max_input_bytes = 2 << 20;
     host.execution.max_result_bytes = 2 << 20;
     class.validate_event_host(&host, limits)?;
+    large.validate_event_host(&host, limits)?;
     Ok(())
 }

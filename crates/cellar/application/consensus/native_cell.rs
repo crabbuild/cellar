@@ -56,6 +56,7 @@ pub(super) struct CellRpcFactory {
     sql_scopes: std::collections::BTreeSet<String>,
     kv_scopes: std::collections::BTreeSet<String>,
     queue_scopes: std::collections::BTreeSet<String>,
+    event_scopes: std::collections::BTreeSet<String>,
     queue_owners: std::collections::BTreeSet<String>,
     queue_dead_letters: std::collections::BTreeSet<String>,
     event_source: Option<Arc<crate::application::storage::EventSourceConfiguration>>,
@@ -93,7 +94,9 @@ impl CellRpcFactory {
         let Some((class, _)) = scope.split_once(':') else {
             return false;
         };
-        if class == crate::deploy::QUEUE_CLASS {
+        if crate::application::event_stream::is_event_scope(scope) {
+            self.event_scopes.contains(scope)
+        } else if class == crate::deploy::QUEUE_CLASS {
             self.queue_scopes.contains(scope)
         } else if class == crate::deploy::SQL_CLASS {
             self.sql_scopes.contains(scope)
@@ -102,6 +105,10 @@ impl CellRpcFactory {
         } else {
             self.binding_classes.contains(class)
         }
+    }
+
+    pub(super) fn event_scopes(&self) -> &std::collections::BTreeSet<String> {
+        &self.event_scopes
     }
 
     pub(super) fn queue_scopes(&self) -> &std::collections::BTreeSet<String> {
@@ -238,6 +245,8 @@ impl NativeCellFactory {
         declared: Option<&AdmittedCellConfiguration>,
         callbacks: bool,
     ) -> Arc<CellRpcFactory> {
+        let callbacks =
+            callbacks || declared.is_some_and(|config| !config.stream_bindings.is_empty());
         let options = declared.map_or_else(
             || super::NativeCellConfiguration::default().options(class),
             AdmittedCellConfiguration::options,
@@ -254,6 +263,24 @@ impl NativeCellFactory {
         }
         if !options.kv_bindings.is_empty() {
             binding_classes.insert(crate::deploy::KV_CLASS.into());
+        }
+        let mut event_scopes = std::collections::BTreeSet::new();
+        for declaration in &options.stream_bindings {
+            let namespace = crate::application::event_stream::CatalogNamespace {
+                tenant: declaration.resource.tenant.clone(),
+                application: declaration.resource.application.clone(),
+            };
+            event_scopes.insert(namespace.scope().expect("admitted catalog namespace"));
+            if let Ok(binding) = declaration.explicit() {
+                event_scopes.insert(
+                    crate::application::event_stream::cell_scope(&binding.resource)
+                        .expect("admitted stream"),
+                );
+            }
+        }
+        if !event_scopes.is_empty() || class == crate::deploy::EVENT_CATALOG_CLASS {
+            binding_classes.insert(crate::deploy::EVENT_STREAM_CLASS.into());
+            binding_classes.insert(crate::deploy::EVENT_CATALOG_CLASS.into());
         }
         let kv_scopes = options
             .kv_bindings
@@ -314,7 +341,12 @@ impl NativeCellFactory {
                 crate::application::event_stream::readiness::Readiness::new(false),
             );
         }
-        let event_source = (!config.stream_bindings.is_empty()).then(|| {
+        let event_source = (!config.stream_bindings.is_empty()
+            && !matches!(
+                class,
+                crate::deploy::EVENT_STREAM_CLASS | crate::deploy::EVENT_CATALOG_CLASS
+            ))
+        .then(|| {
             Arc::new(crate::application::storage::EventSourceConfiguration::new(
                 &config,
             ))
@@ -336,6 +368,7 @@ impl NativeCellFactory {
             configuration: declared.map(AdmittedCellConfiguration::digest),
             script,
             binding_classes,
+            event_scopes,
             sql_scopes,
             kv_scopes,
             queue_scopes,
@@ -450,6 +483,8 @@ impl NativeCellFactory {
             || !self.config.kv_bindings.is_empty()
             || !self.config.queue_bindings.is_empty()
             || !self.config.queue_consumers.is_empty()
+            || !self.config.stream_bindings.is_empty()
+            || self.class == crate::deploy::EVENT_CATALOG_CLASS
             || !self.config.workflow_bindings.is_empty()
         {
             crate::storage::raft_bindings::install(&*transaction.framework()?)?;

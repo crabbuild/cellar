@@ -98,10 +98,7 @@ impl RaftCells {
             generation
                 .native_applications
                 .get(script)
-                .is_some_and(|app| {
-                    app.resolve_raft_class(crate::deploy::EVENT_STREAM_CLASS)
-                        .is_ok()
-                })
+                .is_some_and(|app| app.uses_raft_primitives())
         };
         anyhow::ensure!(
             generation

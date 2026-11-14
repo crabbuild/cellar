@@ -41,6 +41,7 @@ mod lifecycle_store;
 pub(crate) mod metadata;
 pub(crate) mod name_resolution;
 mod producer;
+pub(crate) mod raft;
 pub(crate) mod readiness;
 mod retirement;
 pub(crate) mod retirement_proof;

@@ -656,7 +656,7 @@ impl CellQueryInvocation {
             response = transport.query_cell(attempt.route(), &attempt.request().cell, member, call, crate::raft::transport::CellQueryContext { keys: self.dispatcher.keys.clone(), admission: self._admission.clone() }, attempt.deadline_ms()) => response,
             _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
         };
-        let response = response.map_err(CellDispatchError::Transport)?;
+        let response = response.map_err(|error| CellDispatchError::Transport(error.for_read()))?;
         self.leader_hint = response.leader_hint;
         let response = response.result.map_err(|failure| {
             CellDispatchError::Transport(crate::raft::transport::TransportError::Query(failure))

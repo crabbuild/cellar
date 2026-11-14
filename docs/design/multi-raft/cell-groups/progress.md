@@ -217,6 +217,72 @@ qualification remain open. Neither the build nor private units establish those
 public behaviors.
 Acceptance remains **13/17 tasks and 147/195 cases**.
 
+## CG-17 EventStream publishing, subscriptions and outbox
+
+Source `5eb62ed9` connects the [shared EventStream adapter](event-stream-durable-work.md)
+to compiled resource ownership, explicit UUID bindings, authenticated broker/catalog
+routing and autonomous outbox delivery. It includes the updated `origin/main`
+primitive runtime at `50b927d9`. Business state, source outbox rows and discovery
+share a transaction; source obligation and destination acceptance retain
+independent namespace proofs. Framework provenance travels outside application
+arguments and generic cell RPC cannot supply it.
+
+The native and Axum public cases pass with materialized and extent images:
+**3 tests passed, 0 failed, 2 real-store cases intentionally ignored**, 412.52s.
+Both exact RustFS cases then pass on the same frozen executable: native 192.613s,
+Axum 215.487s, each covering both image forms. The campaign record is
+`/Volumes/Workspace/crabbuild-target/cellar-event-stream-rustfs-01/record.json`.
+Its executable SHA-256 is
+`07363bf053089fe70cc36aa8c7e9b6ae8e2575d75b1604d2195ff3b03a43fc4d`.
+The build is locked on Rust 1.98.1 with test optimization 1, debug assertions and
+overflow checks enabled, no incremental cache and one Cargo build job.
+
+The cases cover business/outbox rollback, exact publication wire admission,
+distinct logical producer lanes within one physical group, Quorum and S3 source
+commands, S3 destination minima, actual archive-write refusal, complete retained
+restart and autonomous delivery. Subscription coverage includes stable fetch
+replay, retry, absolute extension, durable inbox deduplication, retained local
+effects, acknowledgement replay, pause/resume, empty native HTTP/Axum polling,
+terminal seals and quorum refusal. Expired receipts require a new lease without
+repeating inbox effects or advancing the checkpoint through the stale receipt.
+
+Development controls identified missing adapter wiring and initialization,
+background discovery requiring a live-command permit, known target readiness
+refusals after restart, and retirement discovery repeatedly selecting a claim
+that a parked same-cell RPC must refuse. Discovery now leaves that retirement
+obligation intact while exposing runnable callbacks; the retirement claim keeps
+its joined-frame exclusion. The failed logs, frozen diagnostic executables and
+byte-verified voter copies remain under the
+`/Volumes/Workspace/crabbuild-target/cellar-event-stream-controls-*` directories.
+
+Command deadlines and capacities remain unchanged. Known non-admission retries
+preserve original identities and remaining deadlines. Ambiguous outputs require
+receipt-only proof; consumer replay additionally preserves its fetch ID and
+transactional inbox. The RustFS native case records one S3 receipt recovery.
+Passing these cases does not establish a first-response latency bound.
+
+Strict library/affected-test Clippy, the library check without default features,
+and the five existing EventStream/outbox/filesystem SDK tests pass. The same
+frozen executable also passes named-binding retained recovery (78.117s), SQL
+binding recovery without business replay (167.433s), and the shared filesystem
+regression (83.039s). Their record is
+`/Volumes/Workspace/crabbuild-target/cellar-event-stream-recovery-regressions-01/record.json`.
+The owned RustFS container and dedicated Colima VM were stopped after the
+campaign; the backend volume, credentials and failed controls remain retained.
+Formatting
+and layout cover 2,252 Rust files; documentation checks cover 124 documents,
+11 crate READMEs and 2,587 local references. The 106 tooling tests complete with
+one intentional skip. The native dependency guard retains 496 reachable packages
+with no JavaScript engine.
+
+Three TLS voters and three physical groups share a host-native process. The
+owned local RustFS container has 1-vCPU/2-GiB limits; this campaign does not prove
+independent voter cgroups or host failure domains. Full-plan acceptance remains
+**13/17 tasks and 147/195 cases**. Name-only selectors, operator inventory and
+retirement-proof routing, cross-deployment grant changes, movement/wake,
+sustained load and all-voter disk loss retain separate gates. These component
+cases do not complete full CG-17 compatibility or release qualification.
+
 ## CG-17 EventStream source journal and shared work
 
 Runtime source `6282bb465a64d3b16bde41458c558f11065d476e` implements the

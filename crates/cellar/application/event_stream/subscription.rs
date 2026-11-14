@@ -214,16 +214,54 @@ impl<E> Subscription<E> {
             }
             slot.get_or_insert(observed).clone()
         };
-        let value = self
-            .call(
-                context,
-                "__streamNext",
-                json!({"fetch_id":fetch_id,"expected":&identity,
-            "max_records":options.max_records.min(limits.batch_records()),
-            "max_bytes":options.max_bytes.min(limits.batch_bytes()),
-            "wait_ms":options.wait_ms.min(limits.max_poll_ms).to_string()}),
+        let raft = context.raft_storage.is_some()
+            || (context.identity().is_none() && context.state.raft_cell_classes.is_some());
+        let wait = options.wait_ms.min(limits.max_poll_ms);
+        let _waiter = if raft && wait > 0 {
+            Some(
+                context
+                    .io
+                    .host_services()
+                    .events()
+                    .waiter(limits.max_host_waiters)
+                    .ok_or_else(|| {
+                        error(
+                            ErrorCode::TooManyWaiters,
+                            "host stream waiter capacity exhausted",
+                        )
+                    })?,
             )
-            .await?;
+        } else {
+            None
+        };
+        let deadline = crate::asyncrt::mono_ms().saturating_add(u64::try_from(wait)?);
+        let value = loop {
+            let value = self
+                .call(
+                    context,
+                    "__streamNext",
+                    json!({"fetch_id":fetch_id,"expected":&identity,
+                "max_records":options.max_records.min(limits.batch_records()),
+                "max_bytes":options.max_bytes.min(limits.batch_bytes()),
+                "wait_ms":if raft { "0".to_owned() } else {wait.to_string()}}),
+                )
+                .await?;
+            let now = crate::asyncrt::mono_ms();
+            if !raft || !value.is_null() || now >= deadline {
+                break value;
+            }
+            let delay = std::time::Duration::from_millis((deadline - now).min(1000));
+            if let Some(dispatch) = crate::storage::capture_raft_dispatch()? {
+                dispatch
+                    .schedule_io(move |remaining| async move {
+                        crate::asyncrt::sleep(delay.min(remaining)).await;
+                    })
+                    .future
+                    .await?;
+            } else {
+                crate::asyncrt::sleep(delay).await;
+            }
+        };
         if value.is_null() {
             return Ok(None);
         }

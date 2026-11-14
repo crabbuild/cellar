@@ -480,10 +480,7 @@ impl NativeWorker {
                 .application
                 .resolve_raft_class(crate::deploy::KV_CLASS)
                 .is_ok(),
-            raft_event: self
-                .application
-                .resolve_raft_class(crate::deploy::EVENT_STREAM_CLASS)
-                .is_ok(),
+            raft_event: self.application.uses_raft_primitives(),
             ..Default::default()
         });
         io.native_event

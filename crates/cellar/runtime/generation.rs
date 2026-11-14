@@ -334,10 +334,9 @@ pub struct Generation {
 impl Generation {
     pub(crate) fn has_raft_event_resources(&self) -> bool {
         let shared = |script: &str| {
-            self.native_applications.get(script).is_some_and(|app| {
-                app.resolve_raft_class(crate::deploy::EVENT_STREAM_CLASS)
-                    .is_ok()
-            })
+            self.native_applications
+                .get(script)
+                .is_some_and(|app| app.uses_raft_primitives())
         };
         self.event_streams.iter().any(|(script, _)| shared(script))
             || self
@@ -617,8 +616,10 @@ impl Generation {
         crate::asyncrt::services().loader_policy();
         let native_applications = applications.clone();
         let cell_limits = crate::application::limits::current();
-        let managed_events =
-            std::iter::once(&graph.primary)
+        let managed_events = native_applications
+            .values()
+            .any(|app| !app.raft_event_definitions().is_empty())
+            || std::iter::once(&graph.primary)
                 .chain(&graph.cohosted)
                 .any(|deployment| {
                     !deployment.event_streams.is_empty()
@@ -658,15 +659,22 @@ impl Generation {
             occupied.extend(deployment.loader_bindings.iter().cloned());
             occupied.extend(deployment.services.iter().map(|(name, _, _)| name.clone()));
             occupied.extend(deployment.asset_binding.iter().cloned());
+            let definitions = if deployment.event_streams.is_empty() {
+                native_applications
+                    .get(&deployment.script_name)
+                    .map_or(&[][..], |app| app.raft_event_definitions())
+            } else {
+                &deployment.event_streams
+            };
             crate::protocol::validate_event_resources(
                 &deployment.script_name,
-                &deployment.event_streams,
+                definitions,
                 &options.stream_bindings,
                 &occupied,
                 &cell_limits.events,
             )?;
             event_bindings.extend(options.stream_bindings.iter().cloned());
-            for definition in &deployment.event_streams {
+            for definition in definitions {
                 anyhow::ensure!(
                     stream_identities.insert(definition.resource.id.clone())
                         && stream_names.insert((

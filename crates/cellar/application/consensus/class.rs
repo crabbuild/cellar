@@ -405,6 +405,7 @@ struct Query {
 /// `Registry::raft_class` or bind ordinary cell RPC handlers with
 /// `Registry::raft_cell`. Schema versions do not authorize automatic migration.
 pub struct RaftClass {
+    pub(super) event_configuration_bytes: usize,
     name: String,
     schema_version: u32,
     base_schema_digest: [u8; 32],
@@ -465,6 +466,7 @@ impl RaftClass {
             1,
             Sha256::digest(b"cellar-raft-event-service-1").into(),
         )?;
+        class.event_configuration_bytes = 4096;
         let contract = super::native_event_rpc::contract(name);
         class.system_commands.insert(
             contract.operation,
@@ -537,6 +539,7 @@ impl RaftClass {
             schema_digest,
             commands: BTreeMap::new(),
             initializer: None,
+            event_configuration_bytes: 0,
             system_commands: BTreeMap::new(),
             queries: BTreeMap::new(),
             blobs: None,
@@ -848,32 +851,17 @@ impl RaftClass {
         );
         if source {
             anyhow::ensure!(
-                (events.max_outbox_bytes as u64)
-                    .checked_add(128 << 10)
-                    .is_some_and(|bytes| bytes <= host.execution.max_image_bytes),
-                "EventStream outbox exceeds the declared cell image capacity"
+                events.max_outbox_bytes > 0 && host.execution.max_image_bytes > (128 << 10),
+                "EventStream requires bounded outbox image capacity"
             );
         }
         if self.event_contract().is_some() {
-            // Base64 bodies and bounded authority metadata must fit inside the
-            // existing command and retained result budgets. Admission never
-            // raises a SQL-only profile's limits to accommodate this service.
-            let frame = |bytes: usize| {
-                bytes
-                    .div_ceil(3)
-                    .checked_mul(4)
-                    .and_then(|bytes| bytes.checked_add(32 << 10))
-            };
-            let input = frame(
-                events
-                    .batch_bytes()
-                    .max(events.event_bytes())
-                    .max(crate::application::event_stream::MAX_DEFINITION_BYTES),
-            );
-            let result = frame(events.batch_bytes());
+            // Compiled configuration must fit. Append batching intersects policy
+            // maxima with this target's actual wire/result bounds, while private
+            // image capture enforces the source image limit before output.
             anyhow::ensure!(
-                input.is_some_and(|bytes| bytes <= host.max_input_bytes)
-                    && result.is_some_and(|bytes| bytes <= host.execution.max_result_bytes),
+                self.event_configuration_bytes.max(4096) <= host.max_input_bytes
+                    && host.execution.max_result_bytes >= 4096,
                 "EventStream exceeds the declared command or retained result capacity"
             );
         }
@@ -1102,6 +1090,12 @@ impl RaftClass {
             .map(|factory| factory.queue_scopes())
     }
 
+    pub(crate) fn cell_event_scopes(&self) -> Option<&BTreeSet<String>> {
+        self.cell_factory
+            .as_ref()
+            .map(|factory| factory.event_scopes())
+    }
+
     pub(crate) fn queue_ownership(&self, scope: &str) -> Option<bool> {
         self.cell_factory
             .as_ref()
@@ -1125,6 +1119,7 @@ impl RaftClass {
             schema_digest: self.schema_digest,
             commands: self.commands.clone(),
             initializer: self.initializer.clone(),
+            event_configuration_bytes: self.event_configuration_bytes,
             system_commands: self.system_commands.clone(),
             queries: self.queries.clone(),
             blobs: self.blobs,
@@ -1139,6 +1134,11 @@ impl RaftClass {
             class.install_native_callbacks();
         }
         if let Some(factory) = &self.cell_factory {
+            if !configuration.stream_bindings.is_empty() && !class.has_native_callbacks() {
+                class = class
+                    .durable_callbacks()
+                    .expect("fresh stream callback registration");
+            }
             if configuration.has_cell_bindings() {
                 for (name, command) in &self.commands {
                     if matches!(command.handler, CommandHandler::JsonCellRpc) {
@@ -1345,7 +1345,11 @@ impl RaftClass {
         };
         let ingress_class = matches!(
             self.name.as_str(),
-            crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS | crate::deploy::KV_CLASS
+            crate::deploy::SQL_CLASS
+                | crate::deploy::QUEUE_CLASS
+                | crate::deploy::KV_CLASS
+                | crate::deploy::EVENT_STREAM_CLASS
+                | crate::deploy::EVENT_CATALOG_CLASS
         ) || self.has_native_ingress();
         if (ingress_class && ingress) || ((event || self.is_cell_rpc(&contract.operation)) && nonce)
         {

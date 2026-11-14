@@ -427,6 +427,7 @@ impl QueryClock {
 pub(super) fn run(
     mut query: Query,
     domain: &crate::asyncrt::DomainToken,
+    binding_ready: bool,
 ) -> Result<CellSqlOutcome, ExecutionError> {
     let check = |query: &Query| {
         if query.cancelled.load(Ordering::Acquire) || query.closing.load(Ordering::Acquire) {
@@ -511,6 +512,7 @@ pub(super) fn run(
             &observation.version.history,
             &class,
             now,
+            binding_ready,
             reservation,
         )
         .map(Box::new)

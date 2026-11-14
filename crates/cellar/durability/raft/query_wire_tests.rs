@@ -811,6 +811,23 @@ fn private_event_queries_authenticate_purpose_and_minimum_without_public_admissi
 }
 
 #[test]
+fn read_transport_unavailability_preserves_security_and_mutation_failures() {
+    assert_eq!(
+        TransportError::Io("offline".into()).for_read(),
+        TransportError::Query(CommandFailure::Unavailable)
+    );
+    for error in [
+        TransportError::Authentication,
+        TransportError::Identity,
+        TransportError::Protocol,
+        TransportError::CommandRejected(CommandFailure::Unavailable),
+        TransportError::Timeout,
+    ] {
+        assert_eq!(error.clone().for_read(), error);
+    }
+}
+
+#[test]
 fn shared_command_wire_preserves_inputs_and_refuses_query_payloads() {
     let call = command_call();
     let bytes = call.encode(4096).unwrap();
