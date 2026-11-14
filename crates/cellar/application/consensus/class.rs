@@ -825,6 +825,53 @@ impl RaftClass {
         Ok(())
     }
 
+    pub(crate) fn validate_event_host(
+        &self,
+        host: &crate::raft::host::RaftHostOptions,
+        events: cellar_logic::event_stream::Limits,
+    ) -> anyhow::Result<()> {
+        let source = self.event_source_configuration().is_some();
+        if !source && self.event_contract().is_none() {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            host.effects.is_some(),
+            "EventStream requires the shared durable work scheduler"
+        );
+        if source {
+            anyhow::ensure!(
+                (events.max_outbox_bytes as u64)
+                    .checked_add(128 << 10)
+                    .is_some_and(|bytes| bytes <= host.execution.max_image_bytes),
+                "EventStream outbox exceeds the declared cell image capacity"
+            );
+        }
+        if self.event_contract().is_some() {
+            // Base64 bodies and bounded authority metadata must fit inside the
+            // existing command and retained result budgets. Admission never
+            // raises a SQL-only profile's limits to accommodate this service.
+            let frame = |bytes: usize| {
+                bytes
+                    .div_ceil(3)
+                    .checked_mul(4)
+                    .and_then(|bytes| bytes.checked_add(32 << 10))
+            };
+            let input = frame(
+                events
+                    .batch_bytes()
+                    .max(events.event_bytes())
+                    .max(crate::application::event_stream::MAX_DEFINITION_BYTES),
+            );
+            let result = frame(events.batch_bytes());
+            anyhow::ensure!(
+                input.is_some_and(|bytes| bytes <= host.max_input_bytes)
+                    && result.is_some_and(|bytes| bytes <= host.execution.max_result_bytes),
+                "EventStream exceeds the declared command or retained result capacity"
+            );
+        }
+        Ok(())
+    }
+
     pub fn command(
         mut self,
         operation: impl Into<String>,
@@ -882,6 +929,11 @@ impl RaftClass {
         {
             return Err(RegistrationError::Invalid("duplicate durable callbacks"));
         }
+        self.install_native_callbacks();
+        Ok(self)
+    }
+
+    fn install_native_callbacks(&mut self) {
         self.system_commands.insert(
             super::native_work::OPERATION.into(),
             Command {
@@ -890,7 +942,6 @@ impl RaftClass {
             },
         );
         self.bind_command_manifest();
-        Ok(self)
     }
 
     /// Route owned JSON or structured RPC values through the ordinary cell.
@@ -1076,6 +1127,9 @@ impl RaftClass {
             cell_factory: self.cell_factory.clone(),
             filesystem: self.filesystem,
         };
+        if !configuration.stream_bindings.is_empty() && !class.has_native_callbacks() {
+            class.install_native_callbacks();
+        }
         if let Some(factory) = &self.cell_factory {
             if configuration.has_cell_bindings() {
                 for (name, command) in &self.commands {
@@ -1093,7 +1147,8 @@ impl RaftClass {
                     }
                 }
             }
-            class.cell_factory = Some(factory.configured(configuration));
+            class.cell_factory =
+                Some(factory.configured(configuration, class.has_native_callbacks()));
             if configuration.has_cell_bindings() && !crate::deploy::is_reserved_class(&class.name) {
                 class.queries.insert(
                     super::sql_ingress_identity::OPERATION.into(),
@@ -1106,6 +1161,12 @@ impl RaftClass {
             class.bind_command_manifest();
         }
         class
+    }
+
+    pub(crate) fn event_source_configuration(
+        &self,
+    ) -> Option<Arc<crate::application::storage::EventSourceConfiguration>> {
+        self.cell_factory.as_ref()?.event_source()
     }
 
     pub(crate) fn validate_cell_factory(&self) -> Result<(), RegistrationError> {
@@ -1268,22 +1329,30 @@ impl RaftClass {
         input: &[u8],
     ) -> anyhow::Result<()> {
         let ingress = id.client == super::sql_ingress_identity::client();
+        let event = self.event_contract().as_ref() == Some(contract);
+        let nonce = if event {
+            super::native_event_rpc::has_ingress_nonce(input)
+        } else {
+            super::native_rpc::has_ingress_nonce(input)
+        };
         let ingress_class = matches!(
             self.name.as_str(),
             crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS | crate::deploy::KV_CLASS
         ) || self.has_native_ingress();
-        if (ingress_class && ingress)
-            || (self.is_cell_rpc(&contract.operation)
-                && super::native_rpc::has_ingress_nonce(input))
+        if (ingress_class && ingress) || ((event || self.is_cell_rpc(&contract.operation)) && nonce)
         {
             anyhow::ensure!(
                 ingress
                     && ingress_class
-                    && self.is_cell_rpc(&contract.operation)
-                    && super::native_rpc::has_ingress_nonce(input),
+                    && (event || self.is_cell_rpc(&contract.operation))
+                    && nonce,
                 super::CommandFailure::UnsupportedCapability
             );
-            super::native_rpc::decode_request(input)?;
+            if event {
+                super::native_event_rpc::decode(scope.cell.as_str(), input)?;
+            } else {
+                super::native_rpc::decode_request(input)?;
+            }
         }
         if let Some(inbox) = self.inboxes.get(&contract.operation) {
             anyhow::ensure!(

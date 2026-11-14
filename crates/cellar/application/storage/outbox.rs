@@ -9,6 +9,7 @@ pub(crate) struct EventSourceConfiguration {
     script: String,
     bindings: Arc<[crate::application::event_stream::BindingConfig]>,
     readiness: Arc<crate::application::event_stream::readiness::Readiness>,
+    activation: std::sync::Mutex<u64>,
 }
 
 impl EventSourceConfiguration {
@@ -17,7 +18,67 @@ impl EventSourceConfiguration {
             script: config.script_name.clone(),
             bindings: config.stream_bindings.clone().into(),
             readiness: config.event_readiness.clone(),
+            activation: std::sync::Mutex::new(0),
         }
+    }
+
+    pub(crate) fn begin_activation(&self) -> Result<u64> {
+        let mut epoch = self
+            .activation
+            .lock()
+            .map_err(|_| consensus::CommandFailure::Unavailable)?;
+        *epoch = epoch
+            .checked_add(1)
+            .ok_or(consensus::CommandFailure::Unavailable)?;
+        self.readiness.begin();
+        Ok(*epoch)
+    }
+
+    pub(crate) fn pin_activation(
+        &self,
+        epoch: u64,
+        resolved: &[crate::application::event_stream::Binding],
+    ) -> Result<()> {
+        let current = self
+            .activation
+            .lock()
+            .map_err(|_| consensus::CommandFailure::Unavailable)?;
+        anyhow::ensure!(*current == epoch, "event activation was superseded");
+        let bindings = self
+            .bindings
+            .iter()
+            .map(|declaration| {
+                let binding = resolved
+                    .iter()
+                    .find(|binding| {
+                        binding.principal == self.script
+                            && binding.environment == declaration.environment
+                    })
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("event binding is absent from activated generation")
+                    })?;
+                anyhow::ensure!(
+                    declaration.resolve(binding.resource.clone())? == *binding,
+                    "event binding differs from shared namespace configuration"
+                );
+                Ok(binding.clone())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.readiness.pin(bindings)
+    }
+
+    pub(crate) fn finish_activation(
+        &self,
+        epoch: u64,
+        result: std::result::Result<(), String>,
+    ) -> bool {
+        if let Ok(current) = self.activation.lock() {
+            if *current == epoch {
+                self.readiness.finish(result);
+                return true;
+            }
+        }
+        false
     }
 }
 

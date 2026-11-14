@@ -8,6 +8,54 @@ use crate::engine_api::RpcData;
 use crate::host_rpc::CallScope;
 use anyhow::Result;
 
+pub(crate) fn event_rpc(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    authority: super::native_event_rpc::Authority,
+) -> HandlerFuture<RpcData> {
+    let prepared = (|| -> Result<_> {
+        context.check_turn()?;
+        anyhow::ensure!(
+            context.identity().is_none() && context.state.raft_event,
+            CommandFailure::UnsupportedCapability
+        );
+        authority.validate_target(&scope, name.as_deref(), &method)?;
+        context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
+        let call_scope =
+            CallScope::in_context(context, context.io.rpc_deadline_ms.get().copied(), None);
+        let services = crate::asyncrt::services();
+        let now = crate::asyncrt::mono_ms();
+        let budget =
+            crate::host_rpc::event_budget_ms(&method, &args, services.operation_deadline_ms()?);
+        let deadline = now.checked_add(budget).ok_or(CommandFailure::Unavailable)?;
+        let deadline = call_scope
+            .deadline_ms
+            .map_or(deadline, |parent| parent.min(deadline));
+        anyhow::ensure!(
+            deadline > now,
+            crate::raft::completion::RuntimeError::DeadlineExceeded
+        );
+        let owner = services.raft_lifecycle().application_service()?;
+        let mut admitted = services
+            .admit_outbound_rpc(&scope, name.as_deref(), &method, &args)
+            .ok_or_else(|| {
+                if services.accepts_work() {
+                    CommandFailure::Overloaded
+                } else {
+                    CommandFailure::Unavailable
+                }
+            })?;
+        admitted.reservation = admitted
+            .reservation
+            .with_reply_limit(call_scope.reply_limit());
+        Ok(owner.event_ingress(admitted, call_scope, deadline, authority))
+    })();
+    Box::pin(async move { prepared?.await })
+}
+
 pub(crate) fn rpc(
     context: &Context,
     scope: String,

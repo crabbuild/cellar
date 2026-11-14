@@ -181,3 +181,169 @@ fn event_service_factories_use_one_global_contract_and_keep_callbacks_private() 
     }
     Ok(())
 }
+
+#[test]
+fn event_ingress_nonce_is_inside_the_authenticated_request_and_keeps_identity_checks() -> Result<()>
+{
+    use cellar_logic::{
+        cell_group::{CellHistory, CellId},
+        consensus::{ClusterId, IncarnationId, NamespaceId},
+    };
+    let definition = definition();
+    let scope = event_stream::catalog_scope(&definition.resource)?;
+    let name = event_stream::catalog_name(&definition.resource)?;
+    let authority = Authority::Event(event_stream::Authority::deployment("shop", &definition)?);
+    let args = RpcData::Json("[{}]".into());
+    let first = encode_ingress(
+        &scope,
+        Some(&name),
+        "__catalogConfigure",
+        authority.clone(),
+        &args,
+        4096,
+        [1; 16],
+    )?;
+    let second = encode_ingress(
+        &scope,
+        Some(&name),
+        "__catalogConfigure",
+        authority.clone(),
+        &args,
+        4096,
+        [2; 16],
+    )?;
+    assert!(has_ingress_nonce(&first));
+    assert!(decode(&scope, &first).is_ok());
+    assert_ne!(
+        super::super::command_request_digest(&first),
+        super::super::command_request_digest(&second)
+    );
+    assert!(!has_ingress_nonce(&encode(
+        &scope,
+        Some(&name),
+        "__catalogConfigure",
+        authority,
+        &args,
+        4096
+    )?));
+    let class = super::super::native_services::event_service(true)?;
+    let history = CellHistory {
+        cluster: ClusterId::new([1; 16])?,
+        namespace: NamespaceId::new([2; 16])?,
+        cell: CellId::new(scope)?,
+        incarnation: IncarnationId::new([3; 16])?,
+    };
+    let contract = class.event_contract().unwrap();
+    let ingress = super::super::CommandId::new(super::super::sql_ingress_identity::client(), 1)?;
+    class.validate_command_identity(
+        &history,
+        &contract,
+        ingress,
+        super::super::Durability::Quorum,
+        &first,
+    )?;
+    let foreign =
+        super::super::CommandId::new(cellar_logic::consensus::ClientId::new([9; 16])?, 1)?;
+    assert!(class
+        .validate_command_identity(
+            &history,
+            &contract,
+            foreign,
+            super::super::Durability::Quorum,
+            &first
+        )
+        .is_err());
+    let mut malformed = first;
+    malformed[5..9].copy_from_slice(&u32::MAX.to_be_bytes());
+    assert!(!has_ingress_nonce(&malformed));
+    assert!(class
+        .validate_command_identity(
+            &history,
+            &contract,
+            ingress,
+            super::super::Durability::Quorum,
+            &malformed
+        )
+        .is_err());
+    Ok(())
+}
+
+fn binding() -> event_stream::Binding {
+    event_stream::Binding {
+        environment: "EVENTS".into(),
+        resource: definition().resource,
+        principal: "shop".into(),
+        grant: "owner".into(),
+        publish: true,
+        read: true,
+        subscriptions: vec![],
+        administer: true,
+    }
+}
+
+#[test]
+fn shared_event_declarations_bind_schema_and_refuse_cross_family_aliases() -> Result<()> {
+    let mut options = super::super::NativeCellConfiguration::default().options("shop");
+    options.stream_bindings = vec![binding().into()];
+    let first = super::super::AdmittedCellConfiguration::from_options(&options)?;
+    let repeated = super::super::AdmittedCellConfiguration::from_options(&first.options())?;
+    assert_eq!(first.digest(), repeated.digest());
+    options.stream_bindings[0].publish = false;
+    assert_ne!(
+        first.digest(),
+        super::super::AdmittedCellConfiguration::from_options(&options)?.digest()
+    );
+    options.sql_bindings = vec![("EVENTS".into(), "db".into())];
+    assert!(super::super::AdmittedCellConfiguration::from_options(&options).is_err());
+    options.sql_bindings.clear();
+    options.stream_bindings[0].principal = "foreign".into();
+    assert!(super::super::AdmittedCellConfiguration::from_options(&options).is_err());
+    Ok(())
+}
+
+#[test]
+fn superseded_source_activation_cannot_reopen_or_cancel_new_bindings() -> Result<()> {
+    let mut options = super::super::NativeCellConfiguration::default().options("shop");
+    let resolved = binding();
+    let mut declaration: event_stream::BindingConfig = resolved.clone().into();
+    declaration.resource.id = None;
+    options.stream_bindings = vec![declaration.clone()];
+    let mut config = crate::worker_config::WorkerConfig::new(options);
+    config.event_readiness = std::sync::Arc::new(event_stream::readiness::Readiness::new(false));
+    let source = crate::application::storage::EventSourceConfiguration::new(&config);
+    let old = source.begin_activation()?;
+    let current = source.begin_activation()?;
+    assert!(source
+        .pin_activation(old, std::slice::from_ref(&resolved))
+        .is_err());
+    assert!(!source.finish_activation(old, Ok(())));
+    assert!(config.event_readiness.check().is_err());
+    source.pin_activation(current, std::slice::from_ref(&resolved))?;
+    assert!(source.finish_activation(current, Ok(())));
+    assert!(!source.finish_activation(old, Err("old cancellation".into())));
+    config.event_readiness.check()?;
+    assert_eq!(config.event_readiness.binding(&declaration)?, resolved);
+    let next = source.begin_activation()?;
+    let mut recreated = resolved;
+    recreated.resource.id = "00000000000000000000000000000002".into();
+    assert!(source.pin_activation(next, &[recreated]).is_err());
+    assert!(source.finish_activation(next, Err("retarget refused".into())));
+    assert!(config.event_readiness.check().is_err());
+    Ok(())
+}
+
+#[test]
+fn event_services_refuse_sql_only_profiles_without_raising_their_quotas() -> Result<()> {
+    let class = super::super::native_services::event_service(false)?;
+    let mut host = crate::raft::host::RaftHostOptions::default();
+    let limits = cellar_logic::event_stream::Limits::default();
+    assert!(class.validate_event_host(&host, limits).is_err());
+    host.effects = Some(Default::default());
+    host.max_input_bytes = 1024;
+    assert!(class.validate_event_host(&host, limits).is_err());
+    assert_eq!(host.max_input_bytes, 1024);
+    host.max_input_bytes = 2 << 20;
+    host.execution.max_result_bytes = 2 << 20;
+    class.validate_event_host(&host, limits)?;
+    Ok(())
+}

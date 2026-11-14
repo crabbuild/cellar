@@ -23,6 +23,18 @@ pub(crate) enum Authority {
     Catalog(crate::runtime::rpc_authority::CatalogAuthority),
 }
 
+impl From<event_stream::Authority> for Authority {
+    fn from(value: event_stream::Authority) -> Self {
+        Self::Event(value)
+    }
+}
+
+impl From<event_stream::name_resolution::NameAuthority> for Authority {
+    fn from(value: event_stream::name_resolution::NameAuthority) -> Self {
+        Self::Name(value)
+    }
+}
+
 impl Authority {
     pub(crate) fn validate_target(
         &self,
@@ -110,6 +122,30 @@ pub(crate) fn encode(
     args: &RpcData,
     max_bytes: usize,
 ) -> Result<Vec<u8>> {
+    encode_inner(scope, name, method, authority, args, max_bytes, None)
+}
+
+pub(crate) fn encode_ingress(
+    scope: &str,
+    name: Option<&str>,
+    method: &str,
+    authority: Authority,
+    args: &RpcData,
+    max_bytes: usize,
+    nonce: [u8; 16],
+) -> Result<Vec<u8>> {
+    encode_inner(scope, name, method, authority, args, max_bytes, Some(nonce))
+}
+
+fn encode_inner(
+    scope: &str,
+    name: Option<&str>,
+    method: &str,
+    authority: Authority,
+    args: &RpcData,
+    max_bytes: usize,
+    nonce: Option<[u8; 16]>,
+) -> Result<Vec<u8>> {
     validate_method(method)?;
     authority.validate_target(scope, name, method)?;
     let header = serde_json::to_vec(&Header {
@@ -120,13 +156,31 @@ pub(crate) fn encode(
     let remaining = max_bytes
         .checked_sub(MAGIC.len() + 4 + header.len())
         .ok_or(CommandFailure::Overloaded)?;
-    let rpc = native_rpc::encode_request(name, args, remaining)?;
+    let rpc = match nonce {
+        Some(nonce) => native_rpc::encode_ingress_request(name, args, nonce, remaining)?,
+        None => native_rpc::encode_request(name, args, remaining)?,
+    };
     let mut output = Vec::with_capacity(MAGIC.len() + 4 + header.len() + rpc.len());
     output.extend_from_slice(MAGIC);
     output.extend_from_slice(&u32::try_from(header.len())?.to_be_bytes());
     output.extend_from_slice(&header);
     output.extend_from_slice(&rpc);
     Ok(output)
+}
+
+pub(crate) fn has_ingress_nonce(input: &[u8]) -> bool {
+    let Some(length) = input
+        .get(5..9)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map(u32::from_be_bytes)
+    else {
+        return false;
+    };
+    input.starts_with(MAGIC)
+        && length as usize <= MAX_HEADER
+        && input
+            .get(9 + length as usize..)
+            .is_some_and(native_rpc::has_ingress_nonce)
 }
 
 pub(crate) fn decode(scope: &str, input: &[u8]) -> Result<Request> {

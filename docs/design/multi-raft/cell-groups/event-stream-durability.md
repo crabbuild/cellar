@@ -105,6 +105,22 @@ Provisioning/reconciliation must reach destination Quorum/S3 proof before catalo
 configuration becomes active. Named bindings need actual catalog resolution and
 generation-local readiness; handles cannot silently retarget recreated resources.
 
+The public activation candidate reuses the same configuration/status and catalog/
+stream resolution protocol for Fleet and shared-group targets. The shared path
+retains a nonce-bearing private command, one original deadline and the existing
+bounded ingress/receipt owner. It pins both generation and shared-cell factory
+bindings after proof. Superseded activation completions cannot reopen or cancel a
+newer source latch; an already pinned generation cannot adopt a recreated ID.
+
+Embedded shared-event nodes return a control-capable handle with public ingress
+closed. After installing Raft and provisioning the declared stream/catalog groups,
+the owner calls `Node::activate_event_resources`. The daemon activates after its
+Raft startup hook. A directly embedded `RaftCells` owner can activate a captured
+generation with `activate_event_generation`. Event services require explicit
+scheduler, command/result and source image capacity; a SQL-only profile refuses
+instead of receiving larger limits. This candidate still requires its public RF3
+and RustFS qualification; these API paths are not family acceptance evidence.
+
 Reuse existing stream, subscription and catalog state machines. Qualify
 publication/read, lease fetch, inbox/sync/ack, retry/extend, configuration,
 retirement and operators. Long polling releases the writer between proven roots.

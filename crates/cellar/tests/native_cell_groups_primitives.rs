@@ -42,6 +42,8 @@ mod cursor_rollback;
 mod dispatch;
 #[path = "support/cell_group_erase.rs"]
 mod erase;
+#[path = "support/cell_group_events.rs"]
+mod events;
 #[path = "support/cell_group_filesystem.rs"]
 mod filesystem;
 #[path = "support/cell_group_interleaving.rs"]
@@ -77,6 +79,17 @@ mod workflows;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()> {
+    Box::pin(events::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()> {
+    Box::pin(events::qualify(true)).await
 }
 
 #[test]

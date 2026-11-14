@@ -44,6 +44,7 @@ pub(crate) struct NativeCellConfiguration {
     pub(crate) kv_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<NativeQueueBinding>,
     pub(crate) queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
+    pub(crate) stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub(crate) crons: Vec<String>,
     pub(crate) cron_history: Option<crate::application::cron::HistoryConfiguration>,
 }
@@ -67,7 +68,7 @@ impl NativeCellConfiguration {
                     delivery_delay: b.delivery_delay,
                 })
                 .collect(),
-            stream_bindings: Vec::new(),
+            stream_bindings: self.stream_bindings.clone(),
             queue_consumers: self.queue_consumers.clone(),
             workflow_bindings: self
                 .workflow_bindings
@@ -100,6 +101,8 @@ pub(in crate::application) struct AdmittedCellConfiguration {
     pub(in crate::application) queue_bindings: Arc<BTreeMap<String, (String, u32)>>,
     pub(in crate::application) queue_consumers:
         Arc<BTreeMap<String, crate::protocol::QueueConsumerConfig>>,
+    pub(in crate::application) stream_bindings:
+        Arc<BTreeMap<String, crate::application::event_stream::BindingConfig>>,
 }
 
 impl AdmittedCellConfiguration {
@@ -111,7 +114,6 @@ impl AdmittedCellConfiguration {
         if !options.src.is_empty()
             || !options.modules.is_empty()
             || !options.blob_bindings.is_empty()
-            || !options.stream_bindings.is_empty()
         {
             return Err(RegistrationError::Invalid(
                 "unimplemented Raft cell bindings",
@@ -157,6 +159,7 @@ impl AdmittedCellConfiguration {
             || options.queue_bindings.len() > 256
             || options.queue_consumers.len() > 256
             || options.workflow_bindings.len() > 256
+            || options.stream_bindings.len() > 256
         {
             return Err(RegistrationError::Limit);
         }
@@ -316,6 +319,38 @@ impl AdmittedCellConfiguration {
                 .checked_add(binding.environment.len() + binding.workflow.len() + identity.len())
                 .ok_or(RegistrationError::Limit)?;
         }
+        let mut stream_bindings = BTreeMap::new();
+        let occupied = vars
+            .keys()
+            .chain(bindings.keys())
+            .chain(sql_bindings.keys())
+            .chain(kv_bindings.keys())
+            .chain(queue_bindings.keys())
+            .chain(workflow_bindings.keys())
+            .collect::<BTreeSet<_>>();
+        for binding in &options.stream_bindings {
+            binding
+                .validate()
+                .map_err(|_| RegistrationError::Invalid("Raft EventStream binding"))?;
+            if binding.principal != options.script_name
+                || occupied.contains(&binding.environment)
+                || binding.environment.chars().any(char::is_control)
+                || stream_bindings
+                    .insert(binding.environment.clone(), binding.clone())
+                    .is_some()
+            {
+                return Err(RegistrationError::Invalid(
+                    "Raft EventStream principal or duplicate binding",
+                ));
+            }
+            bytes = bytes
+                .checked_add(
+                    serde_json::to_vec(binding)
+                        .map_err(|_| RegistrationError::Invalid("Raft EventStream binding"))?
+                        .len(),
+                )
+                .ok_or(RegistrationError::Limit)?;
+        }
         if bytes > 64 * 1024 {
             return Err(RegistrationError::Limit);
         }
@@ -330,6 +365,7 @@ impl AdmittedCellConfiguration {
             kv_bindings: Arc::new(kv_bindings),
             queue_bindings: Arc::new(queue_bindings),
             queue_consumers: Arc::new(queue_consumers),
+            stream_bindings: Arc::new(stream_bindings),
         })
     }
 
@@ -373,6 +409,13 @@ impl AdmittedCellConfiguration {
                     .expect("Workflow configuration"),
             );
         }
+        if !self.stream_bindings.is_empty() {
+            hash.update(b"event-stream-bindings-1");
+            hash.update(
+                serde_json::to_vec(self.stream_bindings.as_ref())
+                    .expect("EventStream configuration"),
+            );
+        }
         hash.finalize().into()
     }
 
@@ -384,6 +427,7 @@ impl AdmittedCellConfiguration {
             || !self.queue_bindings.is_empty()
             || !self.queue_consumers.is_empty()
             || !self.workflow_bindings.is_empty()
+            || !self.stream_bindings.is_empty()
     }
 
     pub(in crate::application) fn options(&self) -> WorkerConfigOptions {
@@ -413,6 +457,7 @@ impl AdmittedCellConfiguration {
                 )
                 .collect(),
             queue_consumers: self.queue_consumers.values().cloned().collect(),
+            stream_bindings: self.stream_bindings.values().cloned().collect(),
             crons: Vec::new(),
             cron_history: None,
             sql_bindings: self

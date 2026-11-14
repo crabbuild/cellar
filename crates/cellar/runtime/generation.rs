@@ -332,6 +332,20 @@ pub struct Generation {
 }
 
 impl Generation {
+    pub(crate) fn has_raft_event_resources(&self) -> bool {
+        let shared = |script: &str| {
+            self.native_applications.get(script).is_some_and(|app| {
+                app.resolve_raft_class(crate::deploy::EVENT_STREAM_CLASS)
+                    .is_ok()
+            })
+        };
+        self.event_streams.iter().any(|(script, _)| shared(script))
+            || self
+                .event_bindings
+                .iter()
+                .any(|binding| shared(&binding.principal))
+    }
+
     pub(crate) fn event_bindings(&self) -> &[crate::application::event_stream::BindingConfig] {
         &self.event_bindings
     }

@@ -16,6 +16,22 @@ enum Access {
 }
 
 impl CellGroupHost {
+    pub(crate) fn event_sources(
+        &self,
+    ) -> Result<Vec<Arc<crate::application::storage::EventSourceConfiguration>>, CellDispatchError>
+    {
+        self.inner.check_lifecycle()?;
+        let mut sources = Vec::new();
+        for binding in self.inner.namespaces.values() {
+            if let Some(source) = binding.class.event_source_configuration() {
+                if !sources.iter().any(|old| Arc::ptr_eq(old, &source)) {
+                    sources.push(source);
+                }
+            }
+        }
+        Ok(sources)
+    }
+
     pub(crate) fn event_binding_route(
         &self,
         source: &CellHistory,
@@ -36,6 +52,28 @@ impl CellGroupHost {
                 RegistrationError::ContractMismatch,
             ));
         }
+        self.select_event_route(Some(source.cluster), scope, method, authority, log)
+    }
+
+    pub(crate) fn event_ingress_route(
+        &self,
+        scope: &str,
+        method: &str,
+        authority: &crate::application::consensus::native_event_rpc::Authority,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        self.select_event_route(None, scope, method, authority, log)
+    }
+
+    fn select_event_route(
+        &self,
+        cluster: Option<cellar_logic::consensus::ClusterId>,
+        scope: &str,
+        method: &str,
+        authority: &crate::application::consensus::native_event_rpc::Authority,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
         authority
             .target_name(scope, method)
             .map_err(|_| CellDispatchError::Invalid("event binding authority"))?;
@@ -46,7 +84,7 @@ impl CellGroupHost {
         // A producer reference cannot create a second storage owner. All
         // callers select the one admitted global resource service namespace.
         let mut candidates = self.inner.namespaces.iter().filter(|(key, binding)| {
-            key.0 == source.cluster
+            cluster.is_none_or(|cluster| key.0 == cluster)
                 && binding.class.name() == class
                 && binding.class.event_contract().is_some()
         });

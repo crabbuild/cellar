@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+pub(crate) mod activation;
 pub(crate) mod authority;
 mod binding_config;
 pub(crate) mod broker;

@@ -42,7 +42,8 @@ type CellRpcHandler = dyn Fn(
     + Send
     + Sync;
 
-type ConfigureCellFactory = dyn Fn(&AdmittedCellConfiguration) -> Arc<CellRpcFactory> + Send + Sync;
+type ConfigureCellFactory =
+    dyn Fn(&AdmittedCellConfiguration, bool) -> Arc<CellRpcFactory> + Send + Sync;
 
 /// Compiled dispatch keeps ordinary native configuration out of consensus
 /// handle types. Its identity also fences cache reuse after factory replacement.
@@ -57,6 +58,7 @@ pub(super) struct CellRpcFactory {
     queue_scopes: std::collections::BTreeSet<String>,
     queue_owners: std::collections::BTreeSet<String>,
     queue_dead_letters: std::collections::BTreeSet<String>,
+    event_source: Option<Arc<crate::application::storage::EventSourceConfiguration>>,
     configure: Arc<ConfigureCellFactory>,
 }
 
@@ -65,8 +67,18 @@ impl CellRpcFactory {
         &self.script
     }
 
-    pub(super) fn configured(&self, config: &AdmittedCellConfiguration) -> Arc<Self> {
-        (self.configure)(config)
+    pub(super) fn configured(
+        &self,
+        config: &AdmittedCellConfiguration,
+        callbacks: bool,
+    ) -> Arc<Self> {
+        (self.configure)(config, callbacks)
+    }
+
+    pub(super) fn event_source(
+        &self,
+    ) -> Option<Arc<crate::application::storage::EventSourceConfiguration>> {
+        self.event_source.clone()
     }
 
     pub(super) fn configuration_digest(&self) -> Option<[u8; 32]> {
@@ -254,6 +266,10 @@ impl NativeCellFactory {
         if !options.workflow_bindings.is_empty() {
             binding_classes.insert(crate::deploy::workflow_class(&options.script_name));
         }
+        if !options.stream_bindings.is_empty() {
+            binding_classes.insert(crate::deploy::EVENT_STREAM_CLASS.into());
+            binding_classes.insert(crate::deploy::EVENT_CATALOG_CLASS.into());
+        }
         let queue_scopes = options
             .queue_bindings
             .iter()
@@ -292,7 +308,12 @@ impl NativeCellFactory {
             .map(|(_, identity)| crate::engine_api::sql_cell_scope(identity))
             .collect();
         let script = options.script_name.clone();
-        let config = WorkerConfig::new(options).with_egress(EgressPolicy::Deny);
+        let mut config = WorkerConfig::new(options).with_egress(EgressPolicy::Deny);
+        if !config.stream_bindings.is_empty() {
+            config.event_readiness = Arc::new(
+                crate::application::event_stream::readiness::Readiness::new(false),
+            );
+        }
         let event_source = (!config.stream_bindings.is_empty()).then(|| {
             Arc::new(crate::application::storage::EventSourceConfiguration::new(
                 &config,
@@ -306,7 +327,7 @@ impl NativeCellFactory {
             class: class.to_owned(),
             vars,
             config: Arc::new(config),
-            event_source,
+            event_source: event_source.clone(),
             identity: identity.clone(),
             callbacks,
         });
@@ -320,7 +341,8 @@ impl NativeCellFactory {
             queue_scopes,
             queue_owners,
             queue_dead_letters,
-            configure: Arc::new(move |config| {
+            event_source,
+            configure: Arc::new(move |config, callbacks| {
                 Self::bind_configuration(
                     &compiled_class,
                     compiled_factory.clone(),

@@ -117,6 +117,7 @@ mod cell_bindings;
 mod close;
 mod directory;
 mod drain;
+mod event_activation;
 mod fleet;
 mod hibernation;
 mod learner;

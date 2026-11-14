@@ -530,6 +530,8 @@ impl Application for Registry {
         {
             if shared {
                 if (class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty())
+                    || class == crate::deploy::EVENT_STREAM_CLASS
+                    || class == crate::deploy::EVENT_CATALOG_CLASS
                     || (class == &crate::deploy::workflow_class(&options.script_name)
                         && !options.workflow_bindings.is_empty())
                     || options.workflow_bindings.iter().any(|binding| {
@@ -589,13 +591,11 @@ impl Application for Registry {
                     Arc::new(consensus::queue_service(&config, self.handler.clone())?),
                 );
             }
-            if !options.stream_bindings.is_empty() {
-                for (name, catalog) in [
-                    (crate::deploy::EVENT_STREAM_CLASS, false),
-                    (crate::deploy::EVENT_CATALOG_CLASS, true),
-                ] {
-                    classes.insert(name.into(), Arc::new(consensus::event_service(catalog)?));
-                }
+            for (name, catalog) in [
+                (crate::deploy::EVENT_STREAM_CLASS, false),
+                (crate::deploy::EVENT_CATALOG_CLASS, true),
+            ] {
+                classes.insert(name.into(), Arc::new(consensus::event_service(catalog)?));
             }
             if !options.workflow_bindings.is_empty() {
                 classes.insert(
@@ -622,7 +622,6 @@ impl Application for Registry {
         if self.uses_raft_primitives() {
             anyhow::ensure!(
                 deployment.options.script_name == deployment.script_name
-                    && deployment.event_streams.is_empty()
                     && deployment.asset_binding.is_none()
                     && deployment.assets.is_none()
                     && deployment.loader_bindings.is_empty()
@@ -774,6 +773,7 @@ pub(crate) struct EventState {
     pub(crate) raft_sql: bool,
     pub(crate) raft_queue: bool,
     pub(crate) raft_kv: bool,
+    pub(crate) raft_event: bool,
     /// Declared native classes and their immutable deployment configurations.
     pub(crate) raft_cell_classes: Option<Arc<std::collections::BTreeMap<String, [u8; 32]>>>,
     pub background: Mutex<Vec<HandlerFuture<()>>>,

@@ -15,6 +15,11 @@ pub(in crate::application) fn event_service(catalog: bool) -> Result<RaftClass, 
             |_, _| Ok(()),
         )?
         .durable_callbacks()?
+        .query(
+            super::sql_ingress_identity::OPERATION,
+            super::sql_ingress_identity::native_digest(),
+            |query, input| query.sql_ingress_sequence(input),
+        )?
         .with_cell_factory(Arc::new(move |context, _| {
             if catalog {
                 crate::application::event_stream::catalog::create_cell(&context)

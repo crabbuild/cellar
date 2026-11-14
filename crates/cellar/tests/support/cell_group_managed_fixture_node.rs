@@ -31,6 +31,7 @@ pub struct Fixture {
     /// One deployed application declaration, independent of each voter label.
     pub configuration: Option<cellar::engine_api::WorkerConfigOptions>,
     pub crons: Vec<String>,
+    pub event_streams: Vec<cellar::sdk::event_stream::Definition>,
     pub cohosted: Vec<(
         cellar::engine_api::WorkerConfigOptions,
         Arc<dyn Application>,
@@ -212,6 +213,7 @@ impl Fixture {
             application,
             configuration: None,
             crons: Vec::new(),
+            event_streams: Vec::new(),
             cohosted: Vec::new(),
             external_http: None,
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
@@ -239,6 +241,7 @@ impl Fixture {
             Frontend {
                 options: self.configuration.clone(),
                 crons: self.crons.clone(),
+                event_streams: self.event_streams.clone(),
                 external_http: self.external_http.clone(),
                 cell_limits: self.cell_limits,
                 cohosted: self.cohosted.clone(),
@@ -509,6 +512,7 @@ pub async fn start_node_with_filesystem(
 struct Frontend {
     options: Option<cellar::engine_api::WorkerConfigOptions>,
     crons: Vec<String>,
+    event_streams: Vec<cellar::sdk::event_stream::Definition>,
     external_http: Option<Arc<http::Owner>>,
     cell_limits: cellar::application::limits::CellLimits,
     cohosted: Vec<(
@@ -527,6 +531,7 @@ async fn start_configured_node(
     let Frontend {
         options,
         crons,
+        event_streams,
         external_http,
         cell_limits,
         cohosted,
@@ -618,6 +623,7 @@ async fn start_configured_node(
         .map_or(label, |options| &options.script_name);
     let mut graph = graph::graph(script, "", classes);
     graph.primary.crons = crons;
+    graph.primary.event_streams = event_streams;
     if let Some(options) = options {
         graph.primary.options = options;
     }

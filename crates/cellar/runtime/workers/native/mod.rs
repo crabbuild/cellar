@@ -480,6 +480,10 @@ impl NativeWorker {
                 .application
                 .resolve_raft_class(crate::deploy::KV_CLASS)
                 .is_ok(),
+            raft_event: self
+                .application
+                .resolve_raft_class(crate::deploy::EVENT_STREAM_CLASS)
+                .is_ok(),
             ..Default::default()
         });
         io.native_event
@@ -2211,6 +2215,16 @@ pub(crate) fn event_rpc(
             crate::application::consensus::native_event_rpc::Authority::Event(authority),
         );
     }
+    if context.state.raft_event {
+        return crate::application::consensus::native_ingress::event_rpc(
+            context,
+            scope,
+            name,
+            method,
+            args,
+            crate::application::consensus::native_event_rpc::Authority::Event(authority),
+        );
+    }
     if let Err(error) = context
         .check_turn()
         .and_then(|()| crate::application::event_stream::validate_target(&scope, &authority))
@@ -2241,6 +2255,16 @@ pub(crate) fn catalog_rpc(
 ) -> HandlerFuture<RpcData> {
     if context.raft_storage.is_some() {
         return crate::application::cell_bindings::event_rpc(
+            context,
+            scope,
+            Some(name),
+            method,
+            args,
+            crate::application::consensus::native_event_rpc::Authority::Catalog(authority),
+        );
+    }
+    if context.state.raft_event {
+        return crate::application::consensus::native_ingress::event_rpc(
             context,
             scope,
             Some(name),

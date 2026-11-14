@@ -4,8 +4,26 @@
 use super::*;
 
 pub async fn activate(cluster: &ManagedCluster, archive_name: &str) -> Result<GroupHistory> {
+    activate_namespace(cluster, 0, archive_name).await
+}
+
+pub async fn activate_namespace(
+    cluster: &ManagedCluster,
+    index: usize,
+    archive_name: &str,
+) -> Result<GroupHistory> {
     let fixture = &cluster.fixtures[0];
-    let declaration = &fixture.additional_namespaces[0];
+    let declaration = cluster.fixtures[0]
+        .additional_namespaces
+        .get(index)
+        .context("additional namespace")?;
+    let identity = 210u8
+        .checked_add(
+            u8::try_from(index)?
+                .checked_mul(2)
+                .context("namespace identity")?,
+        )
+        .context("namespace identity")?;
     let adapter = Catalog::new(
         fixture.store.clone(),
         CatalogOptions {
@@ -30,7 +48,7 @@ pub async fn activate(cluster: &ManagedCluster, archive_name: &str) -> Result<Gr
             &adapter,
             declaration,
             RaftManagedFirstGroupRequest {
-                reservation: managed_fixture::request(210, cut.revision()),
+                reservation: managed_fixture::request(identity, cut.revision()),
                 standby,
                 publication: ProposalId::new([183; 16])?,
                 group: CellGroupBirthSpec {
@@ -61,7 +79,10 @@ pub async fn activate(cluster: &ManagedCluster, archive_name: &str) -> Result<Gr
         .catalog
         .publish_managed_first_group(
             &reserved,
-            &managed_fixture::request(211, cut.revision()),
+            &managed_fixture::request(
+                identity.checked_add(1).context("namespace identity")?,
+                cut.revision(),
+            ),
             TIMEOUT,
         )
         .await?;
@@ -120,11 +141,15 @@ pub async fn grant(cluster: &ManagedCluster) -> Result<()> {
 }
 
 pub async fn restart(cluster: &mut ManagedCluster) -> Result<()> {
+    restart_with_groups(cluster, 2).await
+}
+
+pub async fn restart_with_groups(cluster: &mut ManagedCluster, groups: usize) -> Result<()> {
     let old_hosts = std::mem::take(&mut cluster.hosts);
     managed_fixture::close_group_nodes_with_groups(
         std::mem::take(&mut cluster.nodes),
         &old_hosts,
-        2,
+        groups,
     )
     .await?;
     cluster.peers.clear();

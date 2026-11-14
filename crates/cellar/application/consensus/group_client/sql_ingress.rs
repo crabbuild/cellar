@@ -10,7 +10,7 @@ use crate::raft::completion::RuntimeError;
 use cellar_logic::consensus::{IncarnationId, ProposalId};
 use rand::RngCore as _;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Origin {
     Binding,
     Native { configuration: [u8; 32] },
@@ -19,9 +19,20 @@ enum Origin {
     KvOperator,
     WorkflowOperator,
     KvPreparation { digest: [u8; 32], length: u64 },
+    Event(super::super::native_event_rpc::Authority),
 }
 
 impl RaftCells {
+    pub(crate) fn event_ingress(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        authority: super::super::native_event_rpc::Authority,
+    ) -> HandlerFuture<RpcData> {
+        self.submit_sql(admitted, call_scope, deadline, Origin::Event(authority))
+    }
+
     pub(crate) fn native_ingress(
         &self,
         admitted: crate::outbound_rpc::Admitted,
@@ -175,7 +186,13 @@ impl RaftCells {
         } = admitted;
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
-            let route = match origin {
+            let route = match &origin {
+                Origin::Event(authority) => self.handle.core.host.event_ingress_route(
+                    &scope,
+                    &method,
+                    authority,
+                    &self.handle.core.log,
+                )?,
                 Origin::KvPreparation { .. } => {
                     anyhow::ensure!(
                         method == crate::application::kv::raft_wire::PREPARE,
@@ -200,7 +217,7 @@ impl RaftCells {
                     &self.handle.core.log,
                 )?,
                 Origin::Native { configuration } => self.handle.core.host.native_ingress_route(
-                    configuration,
+                    *configuration,
                     &scope,
                     &method,
                     &self.handle.core.log,
@@ -280,12 +297,23 @@ impl RaftCells {
             rng.fill_bytes(&mut incarnation);
             creation[0] |= 1;
             incarnation[0] |= 1;
-            let input = native_rpc::encode_ingress_request(
-                name.as_deref(),
-                &args,
-                nonce,
-                route.max_input_bytes,
-            )?;
+            let input = match &origin {
+                Origin::Event(authority) => super::super::native_event_rpc::encode_ingress(
+                    &scope,
+                    name.as_deref(),
+                    &method,
+                    authority.clone(),
+                    &args,
+                    route.max_input_bytes,
+                    nonce,
+                )?,
+                _ => native_rpc::encode_ingress_request(
+                    name.as_deref(),
+                    &args,
+                    nonce,
+                    route.max_input_bytes,
+                )?,
+            };
             let creation = ProposalId::new(creation)?;
             let candidate = CellHistory {
                 cluster: route.cluster,
@@ -297,6 +325,7 @@ impl RaftCells {
                 .checked_add(route.max_retry_window_ms.min(60_000))
                 .ok_or(RuntimeError::DeadlineExceeded)?;
             Ok((
+                route.admission,
                 route.contract,
                 route.durability,
                 route.history_hint,
@@ -312,6 +341,7 @@ impl RaftCells {
         let owner = self.internal_observer();
         Box::pin(async move {
             let (
+                admission,
                 contract,
                 durability,
                 history_hint,
@@ -440,11 +470,12 @@ impl RaftCells {
                         .ok_or(super::super::CommandFailure::Overloaded)?;
                     submitted.store(true, Ordering::Release);
                     let result = cell
-                        .command_retaining(
+                        .command_retaining_admitted(
                             &contract,
                             input.clone(),
                             options,
                             Some(reservation.clone()),
+                            admission,
                         )
                         .await;
                     tracing::debug!(target: "cellar::raft::sql_ingress", %method,
