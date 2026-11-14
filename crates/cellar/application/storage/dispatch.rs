@@ -251,8 +251,8 @@ impl RaftDispatch {
         self.try_schedule_inner(move |_| action(io), parked_io)
     }
 
-    /// Payload adapters execute only owned byte I/O after source proof. They
-    /// can progress while their writer is parked; they cannot access SQLite or
+    /// Target calls and payload adapters execute owned I/O after source proof.
+    /// They can progress while their writer is parked; they cannot access SQLite or
     /// poll the application continuation until that writer resumes.
     pub(crate) fn schedule_io<T, F, Fut>(self, action: F) -> DispatchCall<T>
     where
