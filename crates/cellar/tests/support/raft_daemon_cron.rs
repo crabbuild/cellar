@@ -236,6 +236,14 @@ pub(crate) fn child(root: PathBuf, mode: &str) -> Result<()> {
             Ok(cells)
         },
         move |service| async move {
+            // The returned service has rooted its exact boot and installed its
+            // transport. Order this existing operator admission before starting
+            // another voter; this marker is not a quorum/readiness proof.
+            persist(
+                &preparing_root,
+                &format!("cron-boot-{retained}-{index}"),
+                std::process::id().to_string().as_bytes(),
+            )?;
             if index == 0 && !retained {
                 provision_first_group(&fixture, &service, &preparing_root, group).await?;
             }
@@ -328,6 +336,30 @@ async fn pages(client: &reqwest::Client, addresses: &[ManagedIngress]) -> Result
     Ok(pages)
 }
 
+async fn wait_boot(root: &Path, index: u8, retained: bool, process: &mut Process) -> Result<()> {
+    let marker = root.join(format!("cron-boot-{retained}-{index}"));
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        ensure!(
+            process.child.try_wait()?.is_none() && Instant::now() < deadline,
+            "cron voter {index} did not admit its boot\n{}",
+            process.logs()?
+        );
+        match std::fs::read_to_string(&marker) {
+            Ok(pid) => {
+                ensure!(
+                    pid.parse::<u64>()? == process.pid()?,
+                    "boot marker belongs to another process"
+                );
+                return Ok(());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
 pub(crate) async fn qualify() -> Result<()> {
     ensure!(
         std::env::var_os(RUSTFS_ENDPOINT).is_some(),
@@ -343,8 +375,10 @@ pub(crate) async fn qualify() -> Result<()> {
         initialize(root.path()).await?;
         for index in 0..3 {
             let disk = root.path().join(format!("disk-{index}"));
-            processes.push(Process::spawn(root.path(), &format!("cron-{index}"),
-                &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()], false)?);
+            let mut process = Process::spawn(root.path(), &format!("cron-{index}"),
+                &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()], false)?;
+            wait_boot(root.path(), index, false, &mut process).await?;
+            processes.push(process);
         }
         let mut addresses = Vec::new();
         for process in &mut processes { addresses.push(process.managed_addresses().await?); }
@@ -369,8 +403,10 @@ pub(crate) async fn qualify() -> Result<()> {
         processes.clear();
         for index in 0..3 {
             let disk = root.path().join(format!("disk-{index}"));
-            processes.push(Process::spawn(root.path(), &format!("cron-resume-{index}"),
-                &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()], false)?);
+            let mut process = Process::spawn(root.path(), &format!("cron-resume-{index}"),
+                &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()], false)?;
+            wait_boot(root.path(), index, true, &mut process).await?;
+            processes.push(process);
         }
         addresses.clear();
         for (index, process) in processes.iter_mut().enumerate() {
