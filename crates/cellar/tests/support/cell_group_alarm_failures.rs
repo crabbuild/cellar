@@ -162,9 +162,7 @@ async fn restart_pending(cluster: &mut ManagedCluster, control: &Control) -> Res
         match host.close().await {
             Ok(report)
                 if report.groups_total == 1
-                    && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers =>
-            {
-                ()
+                    && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers => {
             }
             result => errors.push(format!("pending-retry host closure: {result:?}")),
         }
