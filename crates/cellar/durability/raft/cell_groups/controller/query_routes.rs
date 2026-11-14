@@ -169,7 +169,7 @@ impl Destination<'_> {
                     let mut members = vec![local];
                     match self
                         .transport
-                        .cell_query_router_members(&route, invocation.maximum_attempts())
+                        .cell_query_members(&route, invocation.maximum_attempts())
                     {
                         Ok(peers) => {
                             for peer in peers {

@@ -291,10 +291,15 @@ impl Resolution {
                 Err(error)
                     if name_retryable(&error) && attempt.ordinal() < self.options.max_attempts =>
                 {
-                    attempt = session
-                        .refresh(&attempt)
-                        .await
-                        .map_err(CellDispatchError::Routing)?;
+                    attempt = if next < members.len() {
+                        // A replica refusal does not invalidate the verified
+                        // range. Keep cached peers available during an archive
+                        // outage, under the same deadline and attempt bank.
+                        session.retry(&attempt).await
+                    } else {
+                        session.refresh(&attempt).await
+                    }
+                    .map_err(CellDispatchError::Routing)?;
                 }
                 Err(error) => return Err(error),
             }
@@ -311,7 +316,7 @@ impl Resolution {
             QueryRouting::Replicas { members, .. } => Ok(members.clone()),
             QueryRouting::Automatic => {
                 let transport = &self.owner.handle.core.transport;
-                let remote = match transport.cell_query_router_members(route, 8) {
+                let remote = match transport.cell_query_members(route, 8) {
                     Err(crate::raft::transport::TransportError::UnknownGroup)
                         if local.is_none() =>
                     {
@@ -320,7 +325,7 @@ impl Resolution {
                             .await
                             .map_err(CellDispatchError::Runtime)?;
                         transport
-                            .cell_query_router_members(route, 8)
+                            .cell_query_members(route, 8)
                             .map_err(CellDispatchError::Transport)?
                     }
                     Err(crate::raft::transport::TransportError::UnknownGroup) => Vec::new(),
