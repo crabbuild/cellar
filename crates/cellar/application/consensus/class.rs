@@ -360,6 +360,21 @@ enum CommandHandler {
     JsonCellRpc,
     NativeCellRpc { method: String, json_only: bool },
     NativeWork,
+    NativeEventRpc,
+}
+
+/// Framework provenance is supplied by admission, never by application input.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandAdmission {
+    Public,
+    System,
+    Event,
+}
+
+impl CommandAdmission {
+    pub(crate) fn is_system(self) -> bool {
+        self == Self::System
+    }
 }
 
 pub(crate) struct CommandTarget<'a> {
@@ -429,6 +444,29 @@ impl RaftClass {
             1,
             Sha256::digest(b"cellar-raft-queue-service-1").into(),
         )
+    }
+
+    pub(super) fn event_service(catalog: bool) -> Result<Self, RegistrationError> {
+        let name = if catalog {
+            crate::deploy::EVENT_CATALOG_CLASS
+        } else {
+            crate::deploy::EVENT_STREAM_CLASS
+        };
+        let mut class = Self::definition(
+            name.into(),
+            1,
+            Sha256::digest(b"cellar-raft-event-service-1").into(),
+        )?;
+        let contract = super::native_event_rpc::contract(name);
+        class.system_commands.insert(
+            contract.operation,
+            Command {
+                digest: contract.digest,
+                handler: CommandHandler::NativeEventRpc,
+            },
+        );
+        class.bind_command_manifest();
+        Ok(class)
     }
 
     pub(super) fn cron_service(digest: [u8; 32]) -> Result<Self, RegistrationError> {
@@ -896,7 +934,9 @@ impl RaftClass {
             CommandHandler::JsonCellRpc => {
                 self.contract(&super::native_rpc::binding_operation(operation))
             }
-            CommandHandler::Registered(_) | CommandHandler::NativeWork => None,
+            CommandHandler::Registered(_)
+            | CommandHandler::NativeWork
+            | CommandHandler::NativeEventRpc => None,
         }
     }
 
@@ -928,7 +968,9 @@ impl RaftClass {
         match &self.commands.get(operation)?.handler {
             CommandHandler::JsonCellRpc => Some(true),
             CommandHandler::NativeCellRpc { json_only, .. } => Some(*json_only),
-            CommandHandler::Registered(_) | CommandHandler::NativeWork => None,
+            CommandHandler::Registered(_)
+            | CommandHandler::NativeWork
+            | CommandHandler::NativeEventRpc => None,
         }
     }
 
@@ -1083,6 +1125,7 @@ impl RaftClass {
                     CommandHandler::JsonCellRpc
                         | CommandHandler::NativeCellRpc { .. }
                         | CommandHandler::NativeWork
+                        | CommandHandler::NativeEventRpc
                 )
             })
     }
@@ -1097,6 +1140,7 @@ impl RaftClass {
                     CommandHandler::JsonCellRpc
                         | CommandHandler::NativeCellRpc { .. }
                         | CommandHandler::NativeWork
+                        | CommandHandler::NativeEventRpc
                 )
             })
     }
@@ -1109,7 +1153,9 @@ impl RaftClass {
         transaction: &CommandTransaction<'_>,
         activation: &mut Option<CellRpcActivation>,
     ) -> anyhow::Result<HandlerFuture<Vec<u8>>> {
-        if contract.operation == super::native_work::OPERATION {
+        if contract.operation == super::native_event_rpc::OPERATION {
+            self.validate_command_admission(contract, CommandAdmission::Event)?;
+        } else if contract.operation == super::native_work::OPERATION {
             self.validate_system_operation(contract)?;
         } else {
             self.validate_operation(contract)?;
@@ -1139,6 +1185,7 @@ impl RaftClass {
                 json_only: *json_only,
             },
             CommandHandler::NativeWork => CellRpcMethod::Work,
+            CommandHandler::NativeEventRpc => CellRpcMethod::Event,
             CommandHandler::Registered(_) => return Err(RegistrationError::KindMismatch.into()),
         };
         if self.filesystem.is_some() {
@@ -1342,11 +1389,35 @@ impl RaftClass {
             }
         }
         let command = self.system_commands.get(operation)?;
+        if matches!(command.handler, CommandHandler::NativeEventRpc) {
+            return None;
+        }
         Some(OperationContract {
             operation: operation.into(),
             kind: OperationKind::Command,
             digest: command.digest,
         })
+    }
+
+    pub(crate) fn event_contract(&self) -> Option<OperationContract> {
+        let contract = super::native_event_rpc::contract(&self.name);
+        self.system_commands
+            .get(&contract.operation)
+            .filter(|command| matches!(command.handler, CommandHandler::NativeEventRpc))
+            .map(|_| contract)
+    }
+
+    pub(crate) fn validate_command_admission(
+        &self,
+        contract: &OperationContract,
+        admission: CommandAdmission,
+    ) -> Result<(), RegistrationError> {
+        match admission {
+            CommandAdmission::Public => self.validate_operation(contract),
+            CommandAdmission::System => self.validate_system_operation(contract),
+            CommandAdmission::Event if self.event_contract().as_ref() == Some(contract) => Ok(()),
+            CommandAdmission::Event => Err(RegistrationError::ContractMismatch),
+        }
     }
 
     pub(crate) fn has_system_commands(&self) -> bool {

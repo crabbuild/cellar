@@ -589,6 +589,14 @@ impl Application for Registry {
                     Arc::new(consensus::queue_service(&config, self.handler.clone())?),
                 );
             }
+            if !options.stream_bindings.is_empty() {
+                for (name, catalog) in [
+                    (crate::deploy::EVENT_STREAM_CLASS, false),
+                    (crate::deploy::EVENT_CATALOG_CLASS, true),
+                ] {
+                    classes.insert(name.into(), Arc::new(consensus::event_service(catalog)?));
+                }
+            }
             if !options.workflow_bindings.is_empty() {
                 classes.insert(
                     crate::deploy::workflow_class(&options.script_name),

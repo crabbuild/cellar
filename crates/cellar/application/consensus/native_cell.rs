@@ -27,6 +27,7 @@ pub(crate) struct NativeCellFactory {
 pub(super) enum CellRpcMethod<'a> {
     Json(&'a str),
     Work,
+    Event,
     Owned { method: &'a str, json_only: bool },
 }
 
@@ -346,7 +347,7 @@ impl NativeCellFactory {
         transaction: &CommandTransaction<'_>,
         activation: &mut Option<CellRpcActivation>,
     ) -> Result<HandlerFuture<Vec<u8>>> {
-        let owned_wire = matches!(method, CellRpcMethod::Owned { .. });
+        let owned_wire = matches!(method, CellRpcMethod::Owned { .. } | CellRpcMethod::Event);
         let work = if matches!(method, CellRpcMethod::Work) {
             anyhow::ensure!(self.callbacks, CommandFailure::UnsupportedCapability);
             anyhow::ensure!(input.len() <= 1024, CommandFailure::Overloaded);
@@ -381,7 +382,7 @@ impl NativeCellFactory {
         } else {
             None
         };
-        let (operation, args, incoming_name) = match method {
+        let (operation, args, incoming_name, event_authority) = match method {
             CellRpcMethod::Owned { method, json_only } => {
                 let request = super::native_rpc::decode_request(input)?;
                 super::native_rpc::validate_identity(
@@ -394,13 +395,27 @@ impl NativeCellFactory {
                     !json_only || matches!(&request.args, RpcData::Json(_)),
                     CommandFailure::UnsupportedCapability
                 );
-                (method, request.args, request.name)
+                (method.to_owned(), request.args, request.name, None)
             }
-            CellRpcMethod::Work => ("", RpcData::Json("null".into()), None),
+            CellRpcMethod::Event => {
+                let request = super::native_event_rpc::decode(cell.cell.as_str(), input)?;
+                (
+                    request.method,
+                    request.rpc.args,
+                    request.rpc.name,
+                    Some(request.authority),
+                )
+            }
+            CellRpcMethod::Work => (String::new(), RpcData::Json("null".into()), None, None),
             CellRpcMethod::Json(operation) => {
                 let json = std::str::from_utf8(input)?;
                 serde_json::from_str::<serde::de::IgnoredAny>(json)?;
-                (operation, RpcData::Json(json.to_owned()), None)
+                (
+                    operation.to_owned(),
+                    RpcData::Json(json.to_owned()),
+                    None,
+                    None,
+                )
             }
         };
         let name = crate::storage::raft_bindings::cell_name(
@@ -446,7 +461,10 @@ impl NativeCellFactory {
                 resources: authority.resources.clone(),
             })));
         }
-        let context = self.context(identity, authority)?;
+        let mut context = self.context(identity, authority)?;
+        if let Some(authority) = event_authority {
+            authority.install(&mut context);
+        }
         let invocation = match &work {
             Some((work, _)) => Invocation::Alarm {
                 scheduled_ms: i64::try_from(work.due)?,

@@ -46,10 +46,12 @@ pub(crate) fn validate_identity(
     scope: &str,
     name: Option<&str>,
 ) -> Result<()> {
-    let namespace = cellar_native::cell_id::Namespace::new(
-        class,
-        crate::engine_api::namespace_key(script, class),
-    );
+    let key = match class {
+        crate::deploy::EVENT_STREAM_CLASS => crate::engine_api::EVENT_STREAM_NAMESPACE_KEY.into(),
+        crate::deploy::EVENT_CATALOG_CLASS => crate::engine_api::EVENT_CATALOG_NAMESPACE_KEY.into(),
+        _ => crate::engine_api::namespace_key(script, class),
+    };
+    let namespace = cellar_native::cell_id::Namespace::new(class, key);
     let (actual_class, id) = scope
         .split_once(':')
         .context("invalid named cell identity")?;

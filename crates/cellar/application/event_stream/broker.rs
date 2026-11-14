@@ -103,6 +103,13 @@ impl Broker {
             } else {
                 deadline
             };
+            if context.raft_storage.is_some() {
+                // `next` advances logical time even when there is no batch.
+                // Prove that root and release the private writer before waiting
+                // so a concurrent append can enter and wake this subscription.
+                context.storage()?.sync().await?;
+                context.check_turn()?;
+            }
             // Neither a SQLite transaction nor a native input hold crosses
             // this wait. Activation retirement cancels its owning turn.
             crate::asyncrt::select! {

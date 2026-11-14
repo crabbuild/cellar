@@ -20,6 +20,7 @@ pub(crate) struct Route {
     pub cell: CellId,
     pub schema: [u8; 32],
     pub contract: OperationContract,
+    pub admission: CommandAdmission,
     pub durability: Durability,
     pub max_input_bytes: usize,
     pub max_result_bytes: usize,
@@ -80,6 +81,15 @@ pub(crate) trait Host: Send + Sync {
         method: &str,
     ) -> Result<Route>;
 
+    fn event_route(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+        authority: &super::consensus::native_event_rpc::Authority,
+    ) -> Result<Route>;
+
     fn query(&self, route: Route, input: Vec<u8>, timeout: Duration) -> HandlerFuture<RpcData>;
 
     fn resolve(&self, route: Route, timeout: Duration) -> HandlerFuture<Option<CellHistory>>;
@@ -106,6 +116,7 @@ pub(crate) trait Host: Send + Sync {
         contract: OperationContract,
         input: Vec<u8>,
         options: CommandOptions,
+        admission: CommandAdmission,
     ) -> HandlerFuture<CommandReceipt>;
 }
 
@@ -421,6 +432,38 @@ pub(crate) fn rpc(
     if read_resource(&scope, &method) {
         return rpc_read(context, scope, name, method, args, call_scope, true);
     }
+    rpc_admitted(context, scope, name, method, args, call_scope, None)
+}
+
+pub(crate) fn event_rpc(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    authority: super::consensus::native_event_rpc::Authority,
+) -> HandlerFuture<RpcData> {
+    let call_scope = crate::host_rpc::CallScope::in_context(context, None, None);
+    rpc_admitted(
+        context,
+        scope,
+        name,
+        method,
+        args,
+        call_scope,
+        Some(authority),
+    )
+}
+
+fn rpc_admitted(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    call_scope: crate::host_rpc::CallScope,
+    event: Option<super::consensus::native_event_rpc::Authority>,
+) -> HandlerFuture<RpcData> {
     let signal = call_scope.signal.clone();
     let prepared = (|| -> Result<_> {
         context.check_binding_turn()?;
@@ -438,10 +481,21 @@ pub(crate) fn rpc(
             dispatch = dispatch.limit_source(Duration::from_millis(remaining))?;
         }
         let source = dispatch.binding_source()?;
-        let mut route =
-            source
+        let mut route = match &event {
+            Some(authority) => {
+                authority.validate_target(&scope, name.as_deref(), &method)?;
+                source.host.event_route(
+                    &source.history,
+                    source.configuration,
+                    &scope,
+                    &method,
+                    authority,
+                )?
+            }
+            None => source
                 .host
-                .route(&source.history, source.configuration, &scope, &method)?;
+                .route(&source.history, source.configuration, &scope, &method)?,
+        };
         route.history_hint = dispatch.binding_hint(&route)?.or(route.history_hint.take());
         let (class, _) = scope
             .split_once(':')
@@ -471,11 +525,21 @@ pub(crate) fn rpc(
             .and_then(|n| n.checked_add(8192))
             .ok_or(CommandFailure::Overloaded)?;
         let lease = source.host.admit(source.group, bytes)?;
-        let input = super::consensus::native_rpc::encode_request(
-            name.as_deref(),
-            &args,
-            route.max_input_bytes,
-        )?;
+        let input = match event {
+            Some(authority) => super::consensus::native_event_rpc::encode(
+                &scope,
+                name.as_deref(),
+                &method,
+                authority,
+                &args,
+                route.max_input_bytes,
+            )?,
+            None => super::consensus::native_rpc::encode_request(
+                name.as_deref(),
+                &args,
+                route.max_input_bytes,
+            )?,
+        };
         anyhow::ensure!(
             source
                 .retry_until_ms
@@ -639,6 +703,7 @@ async fn run(
                 intent.route.contract.clone(),
                 intent.input.clone(),
                 options.clone(),
+                intent.route.admission,
             )
             .await;
         let overloaded = result

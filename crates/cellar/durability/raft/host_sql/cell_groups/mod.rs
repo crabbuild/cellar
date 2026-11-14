@@ -16,6 +16,7 @@ mod worker;
 pub use query::{CellSqlEffectScan, CellSqlQueryResult, CellSqlReceiptLookup};
 
 use super::{Budget, Envelope, Permit, Pool, ResourceObserver, Worker};
+use crate::application::consensus::CommandAdmission;
 use crate::raft::cell_groups::{
     cell_image_history_digest, CellEnrollmentAuthority, CellEnrollmentState,
     CellExecutionAuthority, CellReconciliationAuthority, EnrollmentRecord,
@@ -717,7 +718,7 @@ impl CellGroupSqlPool {
             worker::Callback::Registered {
                 class,
                 input: input.into_boxed_slice(),
-                system: false,
+                admission: CommandAdmission::Public,
                 commits: None,
             },
         )
@@ -731,9 +732,9 @@ impl CellGroupSqlPool {
         attempt: CommandAttempt,
         class: Arc<crate::application::consensus::RaftClass>,
         input: Vec<u8>,
+        admission: CommandAdmission,
         commits: RpcCommitContext,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
-        let system = class.system_contract(&attempt.request.operation).is_some();
         self.stage_compiled_owned(
             options,
             authority,
@@ -742,8 +743,31 @@ impl CellGroupSqlPool {
             worker::Callback::Registered {
                 class,
                 input: input.into_boxed_slice(),
-                system,
+                admission,
                 commits: Some(Box::new(commits)),
+            },
+        )
+        .await
+    }
+
+    pub(crate) async fn stage_event_lookup(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Vec<u8>,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        self.stage_compiled_owned(
+            options,
+            authority,
+            attempt,
+            CellSqlStageMode::Lookup,
+            worker::Callback::Registered {
+                class,
+                input: input.into_boxed_slice(),
+                admission: CommandAdmission::Event,
+                commits: None,
             },
         )
         .await
@@ -766,7 +790,7 @@ impl CellGroupSqlPool {
             worker::Callback::Registered {
                 class,
                 input: input.into_boxed_slice(),
-                system: true,
+                admission: CommandAdmission::System,
                 commits: None,
             },
         )

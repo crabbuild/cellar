@@ -27,6 +27,24 @@ impl BindingHost {
 }
 
 impl Host for BindingHost {
+    fn event_route(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+        authority: &crate::application::consensus::native_event_rpc::Authority,
+    ) -> anyhow::Result<Route> {
+        let owner = self.owner()?;
+        Ok(owner.handle.core.host.event_binding_route(
+            source,
+            configuration,
+            scope,
+            method,
+            authority,
+            &owner.handle.core.log,
+        )?)
+    }
     fn prepare_kv_payload(
         &self,
         source: &CellHistory,
@@ -276,13 +294,14 @@ impl Host for BindingHost {
         contract: OperationContract,
         input: Vec<u8>,
         options: CommandOptions,
+        admission: super::super::CommandAdmission,
     ) -> HandlerFuture<CommandReceipt> {
         let prepared = require_framework_dispatch()
             .and_then(|()| self.owner())
             .and_then(|owner| {
                 Ok(owner
                     .cell(history)?
-                    .command_direct(&contract, input, options))
+                    .command_direct_admitted(&contract, input, options, admission))
             });
         Box::pin(async move { prepared?.await.map_err(anyhow::Error::from) })
     }

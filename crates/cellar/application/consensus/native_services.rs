@@ -6,6 +6,33 @@ use super::{AdmittedCellConfiguration, NativeCellConfiguration, RaftClass, Regis
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+/// Stream and catalog databases use global resource identities. Their service
+/// definition is independent of a producer application's variables or aliases.
+pub(in crate::application) fn event_service(catalog: bool) -> Result<RaftClass, RegistrationError> {
+    let class = RaftClass::event_service(catalog)?
+        .initializer(
+            Sha256::digest(b"cellar-raft-event-initializer-1").into(),
+            |_, _| Ok(()),
+        )?
+        .durable_callbacks()?
+        .with_cell_factory(Arc::new(move |context, _| {
+            if catalog {
+                crate::application::event_stream::catalog::create_cell(&context)
+            } else {
+                crate::application::event_stream::broker::create_cell(&context)
+            }
+        }))?;
+    let options = NativeCellConfiguration {
+        do_classes: vec![
+            crate::deploy::EVENT_STREAM_CLASS.into(),
+            crate::deploy::EVENT_CATALOG_CLASS.into(),
+        ],
+        ..Default::default()
+    }
+    .options("cellar-event-service");
+    Ok(class.configured_cell(&AdmittedCellConfiguration::from_options(&options)?))
+}
+
 pub(in crate::application) fn kv_service() -> Result<RaftClass, RegistrationError> {
     let mut class = RaftClass::kv_service()?
         .initializer(

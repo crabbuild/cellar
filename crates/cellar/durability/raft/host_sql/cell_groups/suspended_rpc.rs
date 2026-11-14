@@ -291,7 +291,7 @@ impl Cells {
             let Callback::Registered {
                 class,
                 input,
-                system,
+                admission,
                 commits,
             } = callback
             else {
@@ -326,7 +326,7 @@ impl Cells {
                         mode.allows_new(),
                         commits.is_some(),
                         CellRpcEnvironment {
-                            system,
+                            admission,
                             activation: &mut activation.activation,
                             reserve: &mut reserve,
                             dispatch: commits.as_ref().map(|commits| CellRpcDispatch {

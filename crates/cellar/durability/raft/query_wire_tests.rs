@@ -701,6 +701,54 @@ fn command_call() -> command::CellCommandCall {
 }
 
 #[test]
+fn private_event_commands_bind_purpose_and_refuse_public_command_bodies() {
+    let call = command_call();
+    let body = call.encode_event(4096).unwrap();
+    let decoded = command::CellCommandCall::decode_event(&body, 4096).unwrap();
+    assert_eq!(decoded.encode_event(4096).unwrap(), body);
+    assert!(command::CellCommandCall::decode(&body, 4096).is_err());
+    assert!(command::CellCommandCall::decode_event(&call.encode(4096).unwrap(), 4096).is_err());
+    for end in 0..body.len() {
+        assert!(command::CellCommandCall::decode_event(&body[..end], 4096).is_err());
+    }
+    let read = Route::new_shared(
+        identity(1).node_identity(),
+        "node-1",
+        &identity(2),
+        "node-2",
+        &cell_observation().version.history,
+        [9; 32],
+    )
+    .unwrap();
+    let event = read.for_event_command().unwrap();
+    assert!(event.is_event_command());
+    assert!(event.requires_command_grant());
+    assert!(!event.is_command());
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let request = RequestHead::new(event, 4, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    for purpose in [
+        "Query",
+        "Command",
+        "BindingRetirement",
+        "Enrollment",
+        "Receipt",
+        "Name",
+    ] {
+        let mut value = serde_json::to_value(&request).unwrap();
+        value["route"]["purpose"] = serde_json::json!(purpose);
+        let changed = FrameHead {
+            prefix: head.prefix,
+            header: serde_json::to_vec(&value).unwrap(),
+            tag: head.tag,
+            payload_len: head.payload_len,
+        };
+        assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+    }
+}
+
+#[test]
 fn shared_command_wire_preserves_inputs_and_refuses_query_payloads() {
     let call = command_call();
     let bytes = call.encode(4096).unwrap();

@@ -113,7 +113,14 @@ impl CellGroupController {
         routing: CellRoutingLimits,
         options: CellSqlOptions,
     ) -> Result<CellCommandCall, CellCommandError> {
-        let pending = dispatcher.prepare_command(cell, request, routing, None, None, false)?;
+        let pending = dispatcher.prepare_command(
+            cell,
+            request,
+            routing,
+            None,
+            None,
+            crate::application::consensus::CommandAdmission::Public,
+        )?;
         self.dispatch_prepared_command(pending, options)
     }
 

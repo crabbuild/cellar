@@ -2201,12 +2201,15 @@ pub(crate) fn event_rpc(
     args: RpcData,
     authority: crate::application::event_stream::Authority,
 ) -> HandlerFuture<RpcData> {
-    // Shared EventStream dispatch needs its own authenticated framework purpose.
-    // Until installed, retain the source obligation rather than using Fleet.
     if context.raft_storage.is_some() {
-        return Box::pin(async {
-            Err(crate::application::consensus::CommandFailure::UnsupportedCapability.into())
-        });
+        return crate::application::cell_bindings::event_rpc(
+            context,
+            scope,
+            name,
+            method,
+            args,
+            crate::application::consensus::native_event_rpc::Authority::Event(authority),
+        );
     }
     if let Err(error) = context
         .check_turn()
@@ -2236,6 +2239,16 @@ pub(crate) fn catalog_rpc(
     method: String,
     args: RpcData,
 ) -> HandlerFuture<RpcData> {
+    if context.raft_storage.is_some() {
+        return crate::application::cell_bindings::event_rpc(
+            context,
+            scope,
+            Some(name),
+            method,
+            args,
+            crate::application::consensus::native_event_rpc::Authority::Catalog(authority),
+        );
+    }
     if let Err(error) = context
         .check_turn()
         .and_then(|()| authority.validate_target(&scope, &method))

@@ -423,6 +423,30 @@ impl CellGroupCellHandle {
         limits: CellRoutingLimits,
         reservation: Option<crate::rpc_reservation::Reservation>,
     ) -> Result<CellCommandCall, CellCommandError> {
+        self.command_admitted(
+            request,
+            limits,
+            reservation,
+            crate::application::consensus::CommandAdmission::Public,
+        )
+    }
+
+    pub(crate) fn command_admitted(
+        &self,
+        request: CellCommandRequest,
+        limits: CellRoutingLimits,
+        reservation: Option<crate::rpc_reservation::Reservation>,
+        admission: crate::application::consensus::CommandAdmission,
+    ) -> Result<CellCommandCall, CellCommandError> {
+        if admission.is_system() {
+            return Err(CellCommandError {
+                command: request.id,
+                ambiguous: false,
+                cause: Box::new(CellDispatchError::Invalid(
+                    "system commands require their maintenance owner",
+                )),
+            });
+        }
         self.host.check_open().map_err(|cause| CellCommandError {
             command: request.id,
             ambiguous: false,
@@ -442,7 +466,7 @@ impl CellGroupCellHandle {
             limits,
             None,
             None,
-            false,
+            admission,
         )?;
         pending.retain_submission(reservation);
         self.host

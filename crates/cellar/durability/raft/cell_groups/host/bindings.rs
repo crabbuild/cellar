@@ -12,9 +12,58 @@ enum Access {
     QueueOperator,
     KvOperator,
     WorkflowOperator,
+    Event,
 }
 
 impl CellGroupHost {
+    pub(crate) fn event_binding_route(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+        authority: &crate::application::consensus::native_event_rpc::Authority,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let owner = self
+            .inner
+            .namespaces
+            .get(&(source.cluster, source.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        if owner.class.cell_configuration_digest() != Some(configuration) {
+            return Err(CellDispatchError::Registration(
+                RegistrationError::ContractMismatch,
+            ));
+        }
+        authority
+            .target_name(scope, method)
+            .map_err(|_| CellDispatchError::Invalid("event binding authority"))?;
+        let class = scope
+            .split_once(':')
+            .ok_or(CellDispatchError::Invalid("event binding scope"))?
+            .0;
+        // A producer reference cannot create a second storage owner. All
+        // callers select the one admitted global resource service namespace.
+        let mut candidates = self.inner.namespaces.iter().filter(|(key, binding)| {
+            key.0 == source.cluster
+                && binding.class.name() == class
+                && binding.class.event_contract().is_some()
+        });
+        let (key, target) = candidates.next().ok_or(CellDispatchError::Invalid(
+            "event service namespace is missing",
+        ))?;
+        if candidates.next().is_some() {
+            return Err(CellDispatchError::Invalid(
+                "event service namespace is ambiguous",
+            ));
+        }
+        let mut selected = route(*key, target, scope, method, Access::Event)?;
+        selected.history_hint = target
+            .dispatcher
+            .applied_history_hint(log, &selected.cell)?;
+        Ok(selected)
+    }
     pub(crate) fn prepare_binding_kv_payload(
         &self,
         source: &CellHistory,
@@ -486,6 +535,7 @@ fn route(
         Access::QueueOperator => target.class.queue_operator_contract(),
         Access::KvOperator => target.class.kv_operator_contract(),
         Access::WorkflowOperator => target.class.workflow_operator_contract(),
+        Access::Event => target.class.event_contract(),
     }
     .ok_or_else(|| {
         CellDispatchError::Registration(RegistrationError::UnknownOperation(method.into()))
@@ -497,15 +547,24 @@ fn route(
             .map_err(|_| CellDispatchError::Invalid("cell binding identity"))?,
         schema: config.schema_digest,
         contract,
+        admission: if matches!(access, Access::Event) {
+            crate::application::consensus::CommandAdmission::Event
+        } else {
+            crate::application::consensus::CommandAdmission::Public
+        },
         durability: config.minimum_durability,
         history_hint: None,
         max_input_bytes: target.dispatcher.input_limit(),
         max_result_bytes: limits.max_result_bytes,
         max_retry_window_ms: limits.max_retry_window_ms,
-        json_only: target
-            .class
-            .binding_json_only(method)
-            .ok_or(CellDispatchError::Invalid("cell binding codec"))?,
+        json_only: if matches!(access, Access::Event) {
+            false
+        } else {
+            target
+                .class
+                .binding_json_only(method)
+                .ok_or(CellDispatchError::Invalid("cell binding codec"))?
+        },
     })
 }
 

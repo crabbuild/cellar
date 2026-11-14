@@ -415,6 +415,7 @@ impl State {
 pub(super) enum IncomingCall {
     Shared(CellQueryCall),
     Command(crate::raft::query_wire::command::CellCommandCall),
+    Event(crate::raft::query_wire::command::CellCommandCall),
     Binding(crate::raft::query_wire::binding::Call),
     CommandProbe(crate::raft::query_wire::command::CellCommandProbe),
     Enrollment(crate::raft::query_wire::enrollment::CellEnrollmentCall),
@@ -453,6 +454,11 @@ impl IncomingCall {
                 crate::raft::query_wire::command::CellCommandProbe::decode(bytes, limit)?,
             ));
         }
+        if route.is_event_command() {
+            return Ok(Self::Event(wire::command::CellCommandCall::decode_event(
+                bytes, limit,
+            )?));
+        }
         if route.is_command() {
             return Ok(Self::Command(
                 crate::raft::query_wire::command::CellCommandCall::decode(bytes, limit)?,
@@ -464,7 +470,7 @@ impl IncomingCall {
     pub(super) fn timeout_ms(&self) -> u64 {
         match self {
             Self::Shared(call) => call.timeout_ms,
-            Self::Command(call) => call.timeout_ms,
+            Self::Command(call) | Self::Event(call) => call.timeout_ms,
             Self::Binding(call) => call.timeout_ms,
             Self::CommandProbe(call) => call.timeout_ms,
             Self::Enrollment(call) => call.timeout_ms,
@@ -486,7 +492,26 @@ impl IncomingCall {
                     .await
             }
             Self::Name(call) => state.execute_cell_name(route, call, deadline).await,
-            Self::Command(call) => state.execute_cell_command(route, call, deadline).await,
+            Self::Command(call) => {
+                state
+                    .execute_cell_command(
+                        route,
+                        call,
+                        deadline,
+                        crate::application::consensus::CommandAdmission::Public,
+                    )
+                    .await
+            }
+            Self::Event(call) => {
+                state
+                    .execute_cell_command(
+                        route,
+                        call,
+                        deadline,
+                        crate::application::consensus::CommandAdmission::Event,
+                    )
+                    .await
+            }
             Self::CommandProbe(call) => {
                 state
                     .execute_cell_command_probe(route, call, deadline)

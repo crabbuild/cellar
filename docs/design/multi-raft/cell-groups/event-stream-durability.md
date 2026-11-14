@@ -55,7 +55,34 @@ view, retaining no provider, application or node execution owner. Arguments do
 not install bindings. Shared contexts refuse the Fleet event RPC path until the
 shared adapter exists; pending source obligations remain recoverable.
 
-## Remaining target and public adapters
+## Private destination admission candidate
+
+The destination candidate carries a typed Event/Name/Catalog authority, method
+and canonical native request in the retained command input. Its private `CEVT`
+frame keeps marker 1 and cannot decode as ordinary RPC. Normal command discovery
+and validation cannot select its operation. Transport uses a separate
+authenticated `EventCommand` purpose and body marker, retaining the independent
+namespace write grant, current boot/membership fences and exact route binding.
+Application bytes cannot select Event admission. Maintenance keeps its separate
+derived-client identity check and local ownership.
+
+Source calls reuse the binding intent, original child identity/deadline,
+checkpoint proof and independently configured target minimum. Interrupted source
+recovery can retire the original private child sequence without invoking business
+work. The receiver validates the global resource scope and canonical name before
+receipt lookup, then installs authority only in that invocation's context. The
+existing receiver still checks its current resource grants. Long polling proves
+and releases its root before waiting so another append can enter.
+
+Stream and catalog service definitions are independent of producer aliases and
+variables. Private routing requires one admitted global service namespace per
+class and cluster; missing or conflicting owners refuse. This does not provision
+resource definitions or activate application bindings.
+
+The candidate requires its own compilation, owning tests and RF3/public-path
+qualification. It does not establish public EventStream support.
+
+## Remaining public adapters
 
 Use a private authenticated query-route purpose, following binding retirement.
 Its origin, target, purpose and body must be covered by existing transport

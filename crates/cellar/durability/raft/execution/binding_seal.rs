@@ -53,7 +53,11 @@ pub(crate) fn execute(
         kind: OperationKind::Command,
         digest: request.contract,
     };
-    class.validate_operation(&contract)?;
+    if class.event_contract().as_ref() == Some(&contract) {
+        class.validate_command_admission(&contract, CommandAdmission::Event)?;
+    } else {
+        class.validate_operation(&contract)?;
+    }
     anyhow::ensure!(
         class.is_cell_rpc(&request.operation),
         CommandFailure::UnsupportedCapability

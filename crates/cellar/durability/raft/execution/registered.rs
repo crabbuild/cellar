@@ -13,17 +13,38 @@ pub(crate) fn validate(
     input: &[u8],
     system: bool,
 ) -> Result<OperationContract, ExecutionError> {
+    validate_admission(
+        limits,
+        schema,
+        history,
+        request,
+        class,
+        input,
+        if system {
+            CommandAdmission::System
+        } else {
+            CommandAdmission::Public
+        },
+    )
+}
+
+pub(crate) fn validate_admission(
+    limits: ExecutionLimits,
+    schema: [u8; 32],
+    history: &CellHistory,
+    request: &CommandRequest,
+    class: &RaftClass,
+    input: &[u8],
+    admission: CommandAdmission,
+) -> Result<OperationContract, ExecutionError> {
     let contract = OperationContract {
         operation: request.operation.clone(),
         kind: OperationKind::Command,
         digest: request.contract_digest,
     };
-    if system {
-        class.validate_system_operation(&contract)
-    } else {
-        class.validate_operation(&contract)
-    }
-    .map_err(ExecutionError::Registration)?;
+    class
+        .validate_command_admission(&contract, admission)
+        .map_err(ExecutionError::Registration)?;
     if class.schema_digest() != schema {
         return Err(ExecutionError::Registration(
             RegistrationError::ContractMismatch,
@@ -35,7 +56,19 @@ pub(crate) fn validate(
     if command_request_digest(input) != request.request_digest {
         return Err(ExecutionError::Refused(CommandFailure::CommandConflict));
     }
-    if !system {
+    if admission == CommandAdmission::Event {
+        let rpc =
+            crate::application::consensus::native_event_rpc::decode(history.cell.as_str(), input)
+                .map_err(|_| ExecutionError::Refused(CommandFailure::UnsupportedCapability))?;
+        crate::application::consensus::native_rpc::validate_identity(
+            "",
+            class.name(),
+            history.cell.as_str(),
+            rpc.rpc.name.as_deref(),
+        )
+        .map_err(|_| ExecutionError::Refused(CommandFailure::UnsupportedCapability))?;
+    }
+    if !admission.is_system() {
         class
             .validate_command_identity(history, &contract, request.id, request.durability, input)
             .map_err(|error| {

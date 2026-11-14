@@ -23,8 +23,8 @@ mod images;
 pub use cell::{CellCommittedReceipt, CellPrivateExecutor, CellReconciliation, CellStageOutcome};
 mod rooted_working;
 use crate::application::consensus::{
-    command_request_digest, CommittedVersion, EnvelopeLimits, OperationContract, OperationKind,
-    ProtocolError, RaftClass, RegistrationError,
+    command_request_digest, CommandAdmission, CommittedVersion, EnvelopeLimits, OperationContract,
+    OperationKind, ProtocolError, RaftClass, RegistrationError,
 };
 use crate::storage::{CommandInputs, CommandTransaction};
 use cellar_logic::consensus::Durability;

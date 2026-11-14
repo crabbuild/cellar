@@ -10,7 +10,8 @@ mod archive_status;
 pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
 pub(crate) use class::{
-    callback_active, framework_dispatch, require_framework_dispatch, CommandTarget,
+    callback_active, framework_dispatch, require_framework_dispatch, CommandAdmission,
+    CommandTarget,
 };
 pub(crate) mod group_client;
 mod group_contracts;
@@ -20,6 +21,7 @@ mod native_applications;
 pub use native_applications::RaftApplications;
 mod native_cell;
 mod native_configuration;
+pub(crate) mod native_event_rpc;
 pub(crate) mod native_ingress;
 mod native_services;
 mod native_workflow;
@@ -27,7 +29,7 @@ pub(in crate::application) use native_workflow::workflow_service;
 pub(crate) mod native_work;
 pub(crate) mod sql_ingress_identity;
 pub(in crate::application) use native_services::{
-    cron_service, kv_service, queue_service, sql_service,
+    cron_service, event_service, kv_service, queue_service, sql_service,
 };
 pub(crate) mod native_rpc;
 pub(crate) use native_cell::CellRpcActivation;
