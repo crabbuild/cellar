@@ -373,6 +373,15 @@ impl Storage {
         crate::storage::system_sql(self.write_scope()?, query, bindings)
     }
 
+    /// Read framework-owned state through the current command or committed image.
+    pub(crate) fn system_sql_read(
+        &self,
+        query: &str,
+        bindings: &[SqlValue],
+    ) -> Result<Vec<SqlRow>> {
+        crate::storage::system_sql_read(self.data_scope()?, query, bindings)
+    }
+
     /// Built-in maintenance can remove a key range without reading its values.
     pub(crate) fn system_delete_range(&self, start: &str, end: &str) -> Result<()> {
         let scope = self.scope()?;
