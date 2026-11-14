@@ -523,6 +523,10 @@ pub async fn refuse_resource_ownership() -> Result<()> {
         fixture.configuration = Some(declared);
         fixture.event_streams = vec![definition()];
         fixture.max_input_bytes = 384 << 10;
+        // Four namespaces otherwise reserve over 21 MiB against the fixture's
+        // 16-MiB node bank before ownership validation. Bound each directory
+        // cache explicitly; keep invocation banks and operation deadlines.
+        fixture.directory_cache_bytes = Some(2 << 20);
         fixture.cell_limits.events.max_event_bytes = 2048;
         fixture.cell_limits.events.max_batch_bytes = 4096;
         fixture.cell_limits.events.max_outbox_bytes = 64 << 10;

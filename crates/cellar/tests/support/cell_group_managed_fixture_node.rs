@@ -46,6 +46,8 @@ pub struct Fixture {
     pub max_pending_transactions: usize,
     pub max_client_identities: usize,
     pub max_input_bytes: usize,
+    /// Explicit cache profile within the unchanged node namespace bank.
+    pub directory_cache_bytes: Option<usize>,
     pub payloads: Option<CellGroupPayloadLimits>,
     pub image_bytes: u64,
     /// Logical admission only; physical attestations and engine/image limits stay unchanged.
@@ -224,6 +226,7 @@ impl Fixture {
             max_pending_transactions: 32,
             max_client_identities: 1024,
             max_input_bytes: 1024,
+            directory_cache_bytes: None,
             payloads: None,
             image_bytes: 256 * 1024 * 1024,
             logical_byte_capacity: None,
@@ -363,6 +366,9 @@ impl Fixture {
             shared.controller.max_command_bytes = bytes;
         }
         shared.namespaces.max_namespaces = 1 + self.additional_namespaces.len();
+        if let Some(bytes) = self.directory_cache_bytes {
+            shared.directory.max_cache_bytes = bytes;
+        }
         shared.sql.workers = self.sql_workers;
         shared.dispatch.max_input_bytes = self.max_input_bytes;
         Ok((
