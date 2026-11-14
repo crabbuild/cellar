@@ -454,9 +454,12 @@ impl NativeCellFactory {
         let retire = workflow.then(|| (instance.resources(), state.clone()));
         let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
             if let Some((work, leased_until)) = work {
-                // No callback entry until the exact claim survives quorum (and
-                // any stronger namespace minimum). A crash retains retry work.
-                storage.sync().await?;
+                // The trusted Queue broker proves this claim together with its
+                // lease before consumer entry, or with its DLQ intent before
+                // dispatch. Other callbacks prove the claim before entry here.
+                if work.reason != "queue" {
+                    storage.sync().await?;
+                }
                 if work.reason == "filesystem" {
                     storage.fs()?.collect_garbage()?;
                     crate::storage::raft_native_work(|db| {
