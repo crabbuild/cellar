@@ -4111,3 +4111,14 @@ Fleet settlement, provider/independent-domain and historical-evidence gates
 remain open; no OPT/CG acceptance is promoted.
 The full plan CLI preflight still fails on the missing historical CG-01 record;
 plan unit-test passes do not waive that evidence gate.
+
+The subsequent [SQL follow-up](main-168-sql-followup-2026-11-14.md) preserves an
+isolated recovery pass and an eight-configuration pass under temporary test-only
+diagnostic inputs; the earlier failure does not recur, so no recovery fix is
+claimed. Probes are removed and compiler inputs return to `b417c200`. A separate
+SQL quorum syscall diagnostic fails at c4 read with two node lease-expiry exits.
+It retains 69,391 successful sync calls: 10,627 engine, 30,234 serving-image/manifest
+and 28,530 archive-verifier/journal calls. Tracing changes timings and final Raft
+observations are incomplete. Counts include failure observation/shutdown, and
+summed syscall times overlap. Bounded image/archive batching and isolation are
+profiling priorities; original failures and every OPT/CG gate remain unchanged.

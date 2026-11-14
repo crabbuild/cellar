@@ -1,0 +1,424 @@
+{
+  "format": 1,
+  "main": "50b927d9ee0b323485be55220409498ab2617d65",
+  "source_head_before_addendum": "63feacd6011f22547b489a3ae65d3d5ad3f29791",
+  "qualification": "FAILED; earlier native and twelve-case failures retained; no production fix or OPT/CG acceptance",
+  "recovery": {
+    "isolated": {
+      "status": "PASSED",
+      "driver_pid": 99994,
+      "source_revision": "63feacd6011f22547b489a3ae65d3d5ad3f29791",
+      "source_digest": "138c121663acae0dd2297ad86a7adef9af374a1c377ad519545a3018ebe9e9ef",
+      "source_input_count": 3410,
+      "argv": [
+        "cargo",
+        "+1.98.1",
+        "test",
+        "--locked",
+        "-p",
+        "cellar",
+        "--test",
+        "native_cell_groups_primitives",
+        "--",
+        "sql_success_recovery_preserves_s3_extent_progress",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "scope": "One real-three-voter successful S3 child/extent retained-restart case. Original native fixture, one SQL worker, five-second operation/readiness budgets; failure-only observations do not retry mutations or extend budgets. Not Colima performance qualification.",
+      "cargo_environment": {
+        "CARGO_TARGET_DIR": "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_PROFILE_TEST_OPT_LEVEL": "1",
+        "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS": "true",
+        "CARGO_PROFILE_TEST_OVERFLOW_CHECKS": "true",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_TERM_COLOR": "never"
+      },
+      "child_pid": 99998,
+      "exit_code": 0,
+      "results": [
+        {
+          "result": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "executables": [
+        {
+          "path": "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/debug/deps/native_cell_groups_primitives-e69e4a2d323268b7",
+          "sha256": "1edf499b683234c7f5cf8e1ec405fd5885dbb227a01eb2f144ec7149e9cc5eb2"
+        }
+      ],
+      "elapsed_seconds": 71.34089783299714,
+      "source_inputs_unchanged": true,
+      "driver_reaped_exit_code": 0,
+      "copied_executable": {
+        "path": "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/qualification/sql-recovery-readiness-01/native-primitives-executable",
+        "sha256": "1edf499b683234c7f5cf8e1ec405fd5885dbb227a01eb2f144ec7149e9cc5eb2"
+      }
+    },
+    "matrix": {
+      "status": "PASSED",
+      "driver_pid": 17402,
+      "source_digest": "138c121663acae0dd2297ad86a7adef9af374a1c377ad519545a3018ebe9e9ef",
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-tikv-cursor-refusal-6aff/qualification/sql-recovery-readiness-01/native-primitives-executable",
+        "interrupted_sql_bindings_recover_without_replaying_business_calls",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "binary_sha256": "1edf499b683234c7f5cf8e1ec405fd5885dbb227a01eb2f144ec7149e9cc5eb2",
+      "scope": "Original eight-configuration native SQL recovery matrix, using exactly the isolated-case executable. No limits, resource policies or mutation retry rules changed.",
+      "test_pid": 17410,
+      "exit_code": 0,
+      "results": [
+        [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      ],
+      "configurations": [
+        "SQL recovery RustFS=false extents=false source=Quorum error=false: PASS",
+        "SQL recovery RustFS=false extents=false source=Quorum error=true: PASS",
+        "SQL recovery RustFS=false extents=false source=S3 error=false: PASS",
+        "SQL recovery RustFS=false extents=false source=S3 error=true: PASS",
+        "SQL recovery RustFS=false extents=true source=Quorum error=false: PASS",
+        "SQL recovery RustFS=false extents=true source=Quorum error=true: PASS",
+        "SQL recovery RustFS=false extents=true source=S3 error=false: PASS",
+        "SQL recovery RustFS=false extents=true source=S3 error=true: PASS"
+      ],
+      "elapsed_seconds": 198.9334250409156,
+      "source_inputs_unchanged": true,
+      "driver_reaped_exit_code": 0
+    },
+    "diagnostic_patch_sha256": "d8d64c7ab479e62bb1332daed2fe3b89c109a65c512078147d40904745c958a8",
+    "temporary_probe_removed": true,
+    "failure_only_status_probe_triggered": false,
+    "conclusion": "The earlier post-restart failure did not recur. These test-only diagnostic inputs differ from measured production source. Neither earlier failure is erased; no root cause or fix is established."
+  },
+  "profiling": {
+    "run_id": "ebddff780d20",
+    "status": "FAILED",
+    "source_inputs_sha256": "b417c20047a9c50818224c0db1e1275e8a6451868dbfe12471261ab2ebd6493b",
+    "image": "sha256:630bbfa5fad50399b0a74e3d044786d468e8bd62c2946938af53c0dc87a0ac2f",
+    "profile": {
+      "node_count": 3,
+      "voters_per_raft_group": 3,
+      "resources": {
+        "node_cpu": 1,
+        "node_memory_bytes": 2147483648,
+        "store_cpu": 1,
+        "store_memory_bytes": 2147483648,
+        "load_cpu": 1,
+        "load_memory_bytes": 2147483648,
+        "extra_swap_bytes": 0,
+        "cpu_sets": {
+          "nodes": [
+            0,
+            1,
+            2
+          ],
+          "store": 3,
+          "load": 4
+        }
+      },
+      "entities": 24,
+      "raft_groups": 3,
+      "payload_bytes": 256,
+      "queue_batch_messages": 8,
+      "actor_operation_ms": 5000,
+      "actor_lease_ms": 5000,
+      "lease_trace": false,
+      "seconds": 30,
+      "warmup_seconds": 5,
+      "repetitions": 2,
+      "concurrency": [
+        1,
+        4,
+        16
+      ]
+    },
+    "diagnostic_only": true,
+    "tracing": "Ubuntu strace 6.8-0ubuntu2, fsync/fdatasync only, attached to exact owned node PIDs after readiness, tracer processes on CPU5; nodes/store/client remain CPU0-4 with original ceilings. Traces include load, failure observation and shutdown, not initialization.",
+    "total_completed_sync_calls": 69391,
+    "categories": {
+      "raft_engine_log": {
+        "calls": 10627,
+        "sum_seconds": 36.07215,
+        "call_share_percent": 15.314666167082185,
+        "summed_call_duration_share_percent": 16.6498195183132
+      },
+      "serving_extent_inventory": {
+        "calls": 23376,
+        "sum_seconds": 69.612083,
+        "call_share_percent": 33.68736579671715,
+        "summed_call_duration_share_percent": 32.13084382948724
+      },
+      "manifest_pages": {
+        "calls": 6858,
+        "sum_seconds": 22.467013,
+        "call_share_percent": 9.883126053811013,
+        "summed_call_duration_share_percent": 10.370097473136378
+      },
+      "archive_journal": {
+        "calls": 9738,
+        "sum_seconds": 30.700393,
+        "call_share_percent": 14.033520197143723,
+        "summed_call_duration_share_percent": 14.170378050415234
+      },
+      "archive_verifier": {
+        "calls": 18792,
+        "sum_seconds": 57.800259,
+        "call_share_percent": 27.081321785245926,
+        "summed_call_duration_share_percent": 26.678861128647945
+      }
+    },
+    "traces": [
+      {
+        "node": 1,
+        "target_pid": 264573,
+        "sha256": "0b86af6f4426cf5276bc1eb12c7023b9d8d610a138c6a427e79988209406fed6",
+        "bytes": 4090542,
+        "exit_code": 0
+      },
+      {
+        "node": 2,
+        "target_pid": 264667,
+        "sha256": "65f7c23959c4dbe4bee299d90dde72401d6fc58d9cfd93e1040952a86dde6385",
+        "bytes": 4073763,
+        "exit_code": 0
+      },
+      {
+        "node": 3,
+        "target_pid": 264771,
+        "sha256": "b34d492089ccdc37a6a8ef1da9cd216a9bfe2d87548856da297e345fec271c1d",
+        "bytes": 4078368,
+        "exit_code": 0
+      }
+    ],
+    "windows": [
+      {
+        "phase": "warmup",
+        "prefix": "ebddff780d20.0.1.warmup",
+        "concurrency": 1,
+        "requested_seconds": 5,
+        "elapsed_seconds": 5.10383349499898,
+        "attempts": 51,
+        "successful_requests": 51,
+        "errors": [],
+        "requests_per_second": 9.99248898890856,
+        "attempt_latency": {
+          "p50_ms": 97.822,
+          "p95_ms": 125.555,
+          "p99_ms": 128.441,
+          "max_ms": 128.441
+        },
+        "success_latency": {
+          "p50_ms": 97.822,
+          "p95_ms": 125.555,
+          "p99_ms": 128.441,
+          "max_ms": 128.441
+        },
+        "verified": true,
+        "verified_keys": 24,
+        "family": "sql",
+        "repeat": 0
+      },
+      {
+        "phase": "write",
+        "prefix": "ebddff780d20.0.1.write",
+        "concurrency": 1,
+        "requested_seconds": 30,
+        "elapsed_seconds": 30.13400595600251,
+        "attempts": 282,
+        "successful_requests": 282,
+        "errors": [],
+        "requests_per_second": 9.35819819016885,
+        "attempt_latency": {
+          "p50_ms": 101.898,
+          "p95_ms": 143.384,
+          "p99_ms": 186.947,
+          "max_ms": 213.652
+        },
+        "success_latency": {
+          "p50_ms": 101.898,
+          "p95_ms": 143.384,
+          "p99_ms": 186.947,
+          "max_ms": 213.652
+        },
+        "verified": true,
+        "verified_keys": 24,
+        "family": "sql",
+        "repeat": 0
+      },
+      {
+        "phase": "read",
+        "prefix": "ebddff780d20.0.1.read",
+        "concurrency": 1,
+        "requested_seconds": 30,
+        "elapsed_seconds": 30.104144151999208,
+        "attempts": 208,
+        "successful_requests": 208,
+        "errors": [],
+        "requests_per_second": 6.909347727999993,
+        "attempt_latency": {
+          "p50_ms": 127.208,
+          "p95_ms": 252.305,
+          "p99_ms": 348.071,
+          "max_ms": 369.805
+        },
+        "success_latency": {
+          "p50_ms": 127.208,
+          "p95_ms": 252.305,
+          "p99_ms": 348.071,
+          "max_ms": 369.805
+        },
+        "verified": true,
+        "family": "sql",
+        "repeat": 0
+      },
+      {
+        "phase": "warmup",
+        "prefix": "ebddff780d20.0.4.warmup",
+        "concurrency": 4,
+        "requested_seconds": 5,
+        "elapsed_seconds": 5.188180473996908,
+        "attempts": 77,
+        "successful_requests": 77,
+        "errors": [],
+        "requests_per_second": 14.841426659292786,
+        "attempt_latency": {
+          "p50_ms": 239.019,
+          "p95_ms": 444.698,
+          "p99_ms": 621.373,
+          "max_ms": 621.373
+        },
+        "success_latency": {
+          "p50_ms": 239.019,
+          "p95_ms": 444.698,
+          "p99_ms": 621.373,
+          "max_ms": 621.373
+        },
+        "verified": true,
+        "verified_keys": 24,
+        "family": "sql",
+        "repeat": 0
+      },
+      {
+        "phase": "write",
+        "prefix": "ebddff780d20.0.4.write",
+        "concurrency": 4,
+        "requested_seconds": 30,
+        "elapsed_seconds": 30.339048296002147,
+        "attempts": 348,
+        "successful_requests": 348,
+        "errors": [],
+        "requests_per_second": 11.470366393986618,
+        "attempt_latency": {
+          "p50_ms": 308.458,
+          "p95_ms": 634.72,
+          "p99_ms": 1016.746,
+          "max_ms": 1385.555
+        },
+        "success_latency": {
+          "p50_ms": 308.458,
+          "p95_ms": 634.72,
+          "p99_ms": 1016.746,
+          "max_ms": 1385.555
+        },
+        "verified": true,
+        "verified_keys": 24,
+        "family": "sql",
+        "repeat": 0
+      },
+      {
+        "phase": "read",
+        "prefix": "ebddff780d20.0.4.read",
+        "concurrency": 4,
+        "requested_seconds": 30,
+        "elapsed_seconds": 11.114786550002464,
+        "attempts": 37,
+        "successful_requests": 33,
+        "errors": [
+          {
+            "worker": 0,
+            "sequence": 8,
+            "entity": 4,
+            "identity": "ebddff780d20.0.4.read.0.8",
+            "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 }, ambiguous=true: Raft target attempt 1 started with 3603ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 } (ambiguous=true): cell dispatch: Transport(Io(\"peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof\"))",
+            "mutation_outcome": "read_failed"
+          },
+          {
+            "worker": 1,
+            "sequence": 10,
+            "entity": 13,
+            "identity": "ebddff780d20.0.4.read.1.10",
+            "error": "HTTP 503: SQL_ERROR: cell dispatch: Runtime(DeadlineExceeded)",
+            "mutation_outcome": "read_failed"
+          },
+          {
+            "worker": 2,
+            "sequence": 8,
+            "entity": 6,
+            "identity": "ebddff780d20.0.4.read.2.8",
+            "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 }, ambiguous=true: Raft target attempt 1 started with 3564ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 49 } (ambiguous=true): cell dispatch: Runtime(Closed)",
+            "mutation_outcome": "read_failed"
+          },
+          {
+            "worker": 3,
+            "sequence": 11,
+            "entity": 19,
+            "identity": "ebddff780d20.0.4.read.3.11",
+            "error": "HTTP 503: SQL_ERROR: cell binding call CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 }, ambiguous=true: Raft target attempt 1 started with 2896ms remaining: cell command CommandId { client: ClientId([83, 81, 76, 73, 110, 103, 114, 101, 115, 115, 76, 97, 110, 101, 48, 49]), sequence: 46 } (ambiguous=true): cell dispatch: Transport(Io(\"peer closed connection without sending TLS close_notify: https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof\"))",
+            "mutation_outcome": "read_failed"
+          }
+        ],
+        "requests_per_second": 2.969017880059306,
+        "attempt_latency": {
+          "p50_ms": 453.008,
+          "p95_ms": 3239.998,
+          "p99_ms": 5513.059,
+          "max_ms": 5513.059
+        },
+        "success_latency": {
+          "p50_ms": 423.253,
+          "p95_ms": 1997.909,
+          "p99_ms": 2286.503,
+          "max_ms": 2286.503
+        },
+        "verified": false,
+        "verification_error": "request failures retained; this window is not qualified",
+        "family": "sql",
+        "repeat": 0
+      }
+    ],
+    "limits": [
+      "Tracing changes scheduling and timing; these timings are not a cross-mode capacity comparison or speedup.",
+      "Calls overlap across threads and nodes. Summed sync duration shares are not request latency, critical-path time or wall-clock utilization.",
+      "This traced run has node1/node2 lease-expiry exits; the earlier untraced updated-main SQL quorum case did not. No common lease cause is established.",
+      "Read failures and incomplete end observations remain failed; public SQL reads execute their existing binding path.",
+      "No file barriers, limits, TTLs, admission checks or original identities were changed."
+    ],
+    "owner_joined": true,
+    "original_rustfs_restored_ready_http": 200
+  },
+  "next_priorities": [
+    "Preserve the untraced failure loop and isolate critical-path preparation from background archive verification before changing scheduling.",
+    "Measure bounded archive cohorts and shared image-publication barriers; preserve independent verification and synced deletion/physical credit rules.",
+    "Resolve original-deadline progress and Queue bucket drain backlog under unchanged limits; retain ambiguous identities.",
+    "Retain missing historical CG-01 evidence and broader authority/recovery/physical-release qualification gaps."
+  ],
+  "raw_evidence": {
+    "file": "main-168-sql-followup-2026-11-14.raw.json.gz",
+    "bytes": 2027236,
+    "sha256": "cf6a62b8ca8ef652f8e4679717be5a0f7588cc6fe37cdf61f47c450d769b7e32",
+    "credential_values_checked": 3
+  }
+}

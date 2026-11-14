@@ -710,6 +710,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/main-168-sql-followup-2026-11-14.md",
+      "title": "Main-168 SQL recovery and persistence follow-up, 2026-11-14 UTC",
+      "summary": "Record SQL recovery reruns and constrained sync profiling with retained failures and unchanged durability proofs.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/manifest-page-packs.md",
       "title": "Immutable manifest page packs",
       "summary": "Candidate page packing, publication barriers, physical accounting and bounded compaction.",

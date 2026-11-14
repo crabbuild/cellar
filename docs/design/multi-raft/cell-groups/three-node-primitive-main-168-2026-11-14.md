@@ -207,6 +207,12 @@ setup requests. These phases remain distinct; the exact readiness diagnosis is
 pending. All three stopped disks from the targeted failure are copied and hash
 verified locally.
 
+The later [SQL diagnostic follow-up](main-168-sql-followup-2026-11-14.md) records
+an isolated and eight-configuration recovery rerun that pass with test-only
+probes, plus a separately traced constrained-load failure. Neither erases these
+earlier failures. Its sync profile includes image/manifest and archive paths
+outside the engine counters; tracing timings are not comparison results.
+
 The real three-process TLS daemon runner exits zero with its explicit completion
 marker. It uses `harness=false`. The wrapper incorrectly requires a libtest footer
 and labels that stage failed; the original record is retained and a separate
