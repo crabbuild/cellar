@@ -56,6 +56,13 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
+The public activation candidate now connects shared ingress, resource bootstrap
+and generation/factory readiness. Nineteen owning units pass at `bbdbf828`.
+The first public RF3 run at `3732fd4a` fails before bootstrap on an incoherent
+fixture input/retained-byte profile. Correct that profile and qualify the broader
+failed-startup join/disk-retention branch before the public delivery matrix.
+See the [candidate and failed control](progress.md#cg-17-eventstream-public-activation-candidate).
+
 1. **Deliver EventStream end to end.** Implement ordinary publication and
    subscription routing, committed outbox discovery, destination authority,
    receipt/acknowledgement settlement and autonomous interrupted delivery

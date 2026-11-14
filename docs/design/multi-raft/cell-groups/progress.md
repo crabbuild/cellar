@@ -27,6 +27,50 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 EventStream public activation candidate
+
+Candidate `bbdbf828` connects private EventStream ingress to deployment
+configuration, global stream/catalog services and the existing configure/status/
+name-resolution protocol. Stateless SDK calls retain one nonce-bearing command
+and the original deadline. Stateful calls keep their source-journaled child
+identity and independent target proof. Shared factories and generation bindings
+remain closed until activation proves the current resource; epoch-fenced source
+latches refuse superseded completion and immutable bindings refuse retargeting.
+See the [activation contract](event-stream-durability.md).
+
+The candidate adds `Node::activate_event_resources` for embedded hosts after
+Raft/group provisioning and `RaftCells::activate_event_generation` for captured
+shared generations. Embedded nodes expose control services while public ingress
+is closed; the daemon activates after its Raft startup hook. Registration refuses
+missing scheduler and insufficient event command/result/source-image capacity.
+No request budget or automatic capacity increase is introduced.
+
+At `bbdbf828`, **19 owning units pass**: eight private event codec/configuration/
+readiness/admission cases, authenticated wire purpose, source journal/shared work
+and all five existing activation retry cases. Production and unit executables
+compile and repository checks pass. The cohort remains **FAILED_BUILD** because
+the new public integration fixture calls a private namespace helper. Frozen unit
+source/binary and 19 verified evidence files are retained in
+`CG-17-event-public-bbdbf828-125`; no public runtime was selected at that source.
+
+Fixture-only `3732fd4a` corrects the namespace API call; production and unit source
+are unchanged. Its integration build and repository checks pass. The new public
+RF3 selection then **FAILS before bootstrap**: a 512-KiB input declaration cannot
+fit two retained copies plus framing in the fixture's unchanged 1-MiB invocation
+bank. Cohort `CG-17-event-public-3732fd4a-126` retains its frozen executable, source
+inputs and 16 verified evidence files. The source-proof selection is unrun after
+that failure. Its startup disks were not retained: failure precedes the old
+activation-only cleanup branch.
+
+The next candidate uses a coherent 384-KiB input profile while retaining the same
+invocation bank, operation deadlines and assertions. Managed fixture startup now
+joins begun nodes and hosts and retains all disks on configuration, trust,
+capacity or activation failure. A negative regression checks the original typed
+refusal and reacquires the released directory locks. These corrections still need
+build/runtime qualification. Public RF3 delivery/inbox/ack/restart, real RustFS,
+long-poll concurrency, interruption and complete family qualification remain open.
+Acceptance remains **13/17 tasks and 147/195 cases**.
+
 ## CG-17 EventStream source journal and shared work
 
 Runtime source `6282bb465a64d3b16bde41458c558f11065d476e` implements the
