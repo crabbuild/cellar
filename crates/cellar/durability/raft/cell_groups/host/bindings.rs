@@ -81,22 +81,8 @@ impl CellGroupHost {
             .split_once(':')
             .ok_or(CellDispatchError::Invalid("event binding scope"))?
             .0;
-        // A producer reference cannot create a second storage owner. All
-        // callers select the one admitted global resource service namespace.
-        let mut candidates = self.inner.namespaces.iter().filter(|(key, binding)| {
-            cluster.is_none_or(|cluster| key.0 == cluster)
-                && binding.class.name() == class
-                && binding.class.event_contract().is_some()
-        });
-        let (key, target) = candidates.next().ok_or(CellDispatchError::Invalid(
-            "event service namespace is missing",
-        ))?;
-        if candidates.next().is_some() {
-            return Err(CellDispatchError::Invalid(
-                "event service namespace is ambiguous",
-            ));
-        }
-        let mut selected = route(*key, target, scope, method, Access::Event)?;
+        let (key, target) = select_event(&self.inner.namespaces, cluster, class)?;
+        let mut selected = route(key, target, scope, method, Access::Event)?;
         selected.history_hint = target
             .dispatcher
             .applied_history_hint(log, &selected.cell)?;
@@ -615,7 +601,12 @@ pub(super) fn validate(
             continue;
         };
         for class in source.class.cell_binding_classes().into_iter().flatten() {
-            if class == crate::deploy::QUEUE_CLASS {
+            if matches!(
+                class.as_str(),
+                crate::deploy::EVENT_STREAM_CLASS | crate::deploy::EVENT_CATALOG_CLASS
+            ) {
+                select_event(namespaces, Some(key.0), class)?;
+            } else if class == crate::deploy::QUEUE_CLASS {
                 for scope in source.class.cell_queue_scopes().into_iter().flatten() {
                     select_queue(namespaces, Some(key.0), scope)?;
                 }
@@ -625,6 +616,36 @@ pub(super) fn validate(
         }
     }
     Ok(())
+}
+
+/// A producer declaration grants no resource ownership. Startup and private
+/// dispatch select the same unique global service, independently of producer
+/// variables/aliases and without admitting an ordinary public RPC contract.
+fn select_event<'a>(
+    namespaces: &'a BTreeMap<(ClusterId, NamespaceId), Arc<Binding>>,
+    cluster: Option<ClusterId>,
+    class: &str,
+) -> Result<((ClusterId, NamespaceId), &'a Binding), CellDispatchError> {
+    if !matches!(
+        class,
+        crate::deploy::EVENT_STREAM_CLASS | crate::deploy::EVENT_CATALOG_CLASS
+    ) {
+        return Err(CellDispatchError::Invalid("event service class"));
+    }
+    let mut candidates = namespaces.iter().filter(|(key, binding)| {
+        cluster.is_none_or(|cluster| key.0 == cluster)
+            && binding.class.name() == class
+            && binding.class.event_contract().is_some()
+    });
+    let (key, target) = candidates.next().ok_or(CellDispatchError::Invalid(
+        "event service namespace is missing",
+    ))?;
+    if candidates.next().is_some() {
+        return Err(CellDispatchError::Invalid(
+            "event service namespace is ambiguous",
+        ));
+    }
+    Ok((*key, target))
 }
 
 /// Namespace declarations are the durable ownership catalogue. Loading another

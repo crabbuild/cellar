@@ -19,7 +19,7 @@ enum Origin {
     KvOperator,
     WorkflowOperator,
     KvPreparation { digest: [u8; 32], length: u64 },
-    Event(super::super::native_event_rpc::Authority),
+    Event(Box<super::super::native_event_rpc::Authority>),
 }
 
 impl RaftCells {
@@ -30,7 +30,7 @@ impl RaftCells {
         deadline: u64,
         authority: super::super::native_event_rpc::Authority,
     ) -> HandlerFuture<RpcData> {
-        self.submit_sql(admitted, call_scope, deadline, Origin::Event(authority))
+        self.submit_sql(admitted, call_scope, deadline, Origin::Event(Box::new(authority)))
     }
 
     pub(crate) fn native_ingress(
@@ -302,7 +302,7 @@ impl RaftCells {
                     &scope,
                     name.as_deref(),
                     &method,
-                    authority.clone(),
+                    authority.as_ref().clone(),
                     &args,
                     route.max_input_bytes,
                     nonce,

@@ -59,8 +59,11 @@ See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-sha
 The public activation candidate now connects shared ingress, resource bootstrap
 and generation/factory readiness. Nineteen owning units pass at `bbdbf828`.
 The first public RF3 run at `3732fd4a` fails before bootstrap on an incoherent
-fixture input/retained-byte profile. Correct that profile and qualify the broader
-failed-startup join/disk-retention branch before the public delivery matrix.
+fixture input/retained-byte profile. The corrected profile and failed-startup
+join/disk-retention regression pass at `1ef71db9`. Public startup then exposes a
+global service-selection gap: producer configuration is incorrectly required on
+resource-owned stream/catalog namespaces. Qualify the common unique-owner
+selector and its missing/ambiguous-owner refusals before the delivery matrix.
 See the [candidate and failed control](progress.md#cg-17-eventstream-public-activation-candidate).
 
 1. **Deliver EventStream end to end.** Implement ordinary publication and

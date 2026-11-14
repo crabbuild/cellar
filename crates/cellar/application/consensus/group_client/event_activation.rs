@@ -172,8 +172,7 @@ impl RaftCells {
             let admitted = services
                 .admit_outbound_rpc(&scope, Some(&name), method, &args)
                 .ok_or(super::super::CommandFailure::Overloaded)?;
-            let mut call_scope = crate::host_rpc::CallScope::default();
-            call_scope.deadline_ms = Some(deadline);
+            let call_scope = crate::host_rpc::CallScope::default().with_deadline(deadline);
             Ok(self.event_ingress(admitted, call_scope, deadline, authority))
         })();
         Box::pin(async move {

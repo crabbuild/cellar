@@ -66,9 +66,21 @@ The next candidate uses a coherent 384-KiB input profile while retaining the sam
 invocation bank, operation deadlines and assertions. Managed fixture startup now
 joins begun nodes and hosts and retains all disks on configuration, trust,
 capacity or activation failure. A negative regression checks the original typed
-refusal and reacquires the released directory locks. These corrections still need
-build/runtime qualification. Public RF3 delivery/inbox/ack/restart, real RustFS,
-long-poll concurrency, interruption and complete family qualification remain open.
+refusal and reacquires the released directory locks. At `1ef71db9`, the corrected integration build, repository checks, all 44 plan
+and 13 coverage-verifier units pass. The startup-refusal regression passes and
+verifies retained directories plus released owner locks. Public RF3 then fails
+at the next production boundary: startup applies the producer configuration
+digest to global stream/catalog services and reports a missing declared binding.
+The cohort remains FAILED, with the source-proof selection unrun. It retains six
+disks and 21 verified evidence files in `CG-17-event-public-1ef71db9-128`; the new
+cleanup also preserves the positive-path startup failure.
+
+The next source correction makes startup and authenticated dispatch select the
+same unique resource service, independent of producer aliases/configuration.
+Missing and ambiguous service owners still refuse. The correction and its public
+negative cases need qualification. Public RF3 delivery/inbox/ack/restart, real
+RustFS, long-poll concurrency, interruption and complete family qualification
+remain open.
 Acceptance remains **13/17 tasks and 147/195 cases**.
 
 ## CG-17 EventStream source journal and shared work

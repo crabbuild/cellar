@@ -19,6 +19,11 @@ pub(crate) struct CallScope {
 }
 
 impl CallScope {
+    pub(crate) fn with_deadline(mut self, deadline_ms: u64) -> Self {
+        self.deadline_ms = Some(deadline_ms);
+        self
+    }
+
     pub(crate) fn reply_limit(&self) -> Option<usize> {
         self.reply_limit
     }

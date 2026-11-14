@@ -410,3 +410,69 @@ pub async fn refuse_startup() -> Result<()> {
     domain.shutdown().await;
     Ok(())
 }
+
+pub async fn refuse_resource_ownership() -> Result<()> {
+    for (classes, expected) in [
+        (
+            vec!["Counter", cellar::deploy::EVENT_STREAM_CLASS],
+            "event service namespace is missing",
+        ),
+        (
+            vec![
+                "Counter",
+                cellar::deploy::EVENT_STREAM_CLASS,
+                cellar::deploy::EVENT_CATALOG_CLASS,
+                cellar::deploy::EVENT_CATALOG_CLASS,
+            ],
+            "event service namespace is ambiguous",
+        ),
+    ] {
+        let (application, declared) = application()?;
+        let mut fixture = Fixture::with_namespaces(
+            false,
+            &classes,
+            application,
+            Arc::new(catalog_fault::Store::default()),
+        )
+        .await?;
+        fixture.configuration = Some(declared);
+        fixture.event_streams = vec![definition()];
+        fixture.max_input_bytes = 384 << 10;
+        fixture.cell_limits.events.max_event_bytes = 2048;
+        fixture.cell_limits.events.max_batch_bytes = 4096;
+        fixture.cell_limits.events.max_outbox_bytes = 64 << 10;
+        fixture.effects = Some(RaftEffectOptions {
+            callback_timeout_ms: 5000,
+            ..Default::default()
+        });
+        let domain = fixture.domain.clone();
+        let result = Box::pin(ManagedCluster::start_with_applications(
+            fixture,
+            &[],
+            ArchiveSetup::Initialized,
+            false,
+            None,
+            FirstGroupSetup::Normal,
+        ))
+        .await;
+        let error = match result {
+            Err(error) => error,
+            Ok(mut cluster) => {
+                for node in std::mem::take(&mut cluster.nodes) {
+                    node.cancel().await?;
+                }
+                anyhow::bail!("missing or ambiguous EventStream owner admitted startup");
+            }
+        };
+        ensure!(
+            error
+                .chain()
+                .any(|cause| matches!(cause.downcast_ref::<CellDispatchError>(),
+            Some(CellDispatchError::Invalid(reason)) if *reason == expected)),
+            "unexpected resource ownership refusal: {error:#}"
+        );
+        managed_fixture::verify_failed_startup_joined(&error)?;
+        domain.shutdown().await;
+    }
+    Ok(())
+}
