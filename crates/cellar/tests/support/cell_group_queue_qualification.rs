@@ -20,7 +20,7 @@ pub async fn qualify_perf() -> Result<()> {
         5000,
         None,
         8,
-        Durability::Quorum,
+        Durability::Quorum.into(),
     )
     .await?;
     let domain = s.cluster.fixtures[0].domain.clone();

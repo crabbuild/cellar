@@ -108,6 +108,18 @@ actual Docker and cgroup limits, independent node process identities, resource
 samples, raw latency samples, source/compiler/binary hashes, exit codes, OOM
 state, node logs and verification failures. This local topology provides one
 failure domain and does not qualify cloud S3, crash recovery, partitions or soak.
+
+For a focused Raft lease-progress diagnostic, add `--lease-trace` and select only
+Raft modes. The runner records the switch and enables existing lease attempt
+and completed store-request traces with
+`RUST_LOG=warn,cellar::actor::effects=info,store=debug`. The Raft executable accepts
+`RUST_LOG` and defaults to `warn`; invalid filters fail before node startup.
+Trace-enabled observations include logging overhead and remain separate from
+untraced measurements. A started CAS without a completed store trace does not
+distinguish transport loss from cancellation; retain its ambiguity and actual
+readback outcome. This switch changes no lease, deadline, admission or resource
+limit.
+
 If the successful load process exits between resource inspection and sampling,
 the runner retains its verified terminal state without inventing a final cgroup
 sample. Failed loads, changed ownership or limits, and stopped nodes or stores

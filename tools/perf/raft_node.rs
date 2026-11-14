@@ -148,8 +148,13 @@ async fn bind_raft_listeners(peer: &RaftPeerNode) -> Result<NodeRaftListeners> {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> Result<()> {
+    let filter = match std::env::var("RUST_LOG") {
+        Ok(value) => tracing_subscriber::EnvFilter::try_new(value).context("invalid RUST_LOG")?,
+        Err(std::env::VarError::NotPresent) => tracing_subscriber::EnvFilter::new("warn"),
+        Err(error) => return Err(error.into()),
+    };
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
+        .with_env_filter(filter)
         .with_ansi(false)
         .init();
     if std::env::var_os("CELLAR_PERF_PRIMITIVE").is_some() {
