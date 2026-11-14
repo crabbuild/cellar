@@ -681,11 +681,13 @@ fn select_event_owner<'a>(
                 .cell_event_scopes()
                 .is_some_and(|scopes| scopes.contains(scope))
     });
-    let (key, binding) = owners
-        .next()
-        .ok_or(CellDispatchError::Invalid("event service namespace is missing"))?;
+    let (key, binding) = owners.next().ok_or(CellDispatchError::Invalid(
+        "event service namespace is missing",
+    ))?;
     if owners.next().is_some() {
-        return Err(CellDispatchError::Invalid("event service namespace is ambiguous"));
+        return Err(CellDispatchError::Invalid(
+            "event service namespace is ambiguous",
+        ));
     }
     Ok((*key, binding.as_ref()))
 }
