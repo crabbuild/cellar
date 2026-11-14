@@ -139,6 +139,72 @@ async fn backoff(
     .context("returned handler error did not persist its two-second backoff")?
 }
 
+async fn restart_pending(cluster: &mut ManagedCluster, control: &Control) -> Result<()> {
+    let old_hosts = std::mem::take(&mut cluster.hosts);
+    let nodes = std::mem::take(&mut cluster.nodes);
+    // Poll every stop together, fencing all old callbacks before the short
+    // backoff can be claimed by another surviving old voter.
+    let stopped = futures_util::future::join_all(nodes.into_iter().map(|node| async move {
+        let outcome = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+        ensure!(
+            matches!(outcome, cellar::sdk::NodeOutcome::Stopped(_)),
+            "pending-retry node stop: {outcome:?}"
+        );
+        Ok::<_, anyhow::Error>(())
+    }))
+    .await;
+    let mut errors = stopped
+        .into_iter()
+        .filter_map(Result::err)
+        .map(|error| error.to_string())
+        .collect::<Vec<_>>();
+    for host in &old_hosts {
+        match host.close().await {
+            Ok(report)
+                if report.groups_total == 1
+                    && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers =>
+            {
+                ()
+            }
+            result => errors.push(format!("pending-retry host closure: {result:?}")),
+        }
+    }
+    ensure!(
+        errors.is_empty(),
+        "pending-retry old voters did not join: {errors:?}"
+    );
+    ensure!(
+        control.entries.lock().unwrap().len() == 1,
+        "retry ran before all old voters stopped"
+    );
+    cluster.peers.clear();
+    for (index, fixture) in cluster.fixtures.iter().enumerate() {
+        let node = fixture.start_node(cluster.roots[index].path()).await?;
+        let started = async {
+            let (mut config, services) = fixture
+                .config(&node, LogOpenMode::Resume, 104 + index as u8)
+                .await?;
+            managed_fixture::archives::configure(&mut config);
+            let peer = config.peers[0].clone();
+            node.start_raft_cells(config, services)
+                .await
+                .map(|host| (host, peer))
+        }
+        .await;
+        let (host, peer) = match started {
+            Ok(started) => started,
+            Err(error) => {
+                node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+                return Err(error);
+            }
+        };
+        cluster.nodes.push(node);
+        cluster.hosts.push(host);
+        cluster.peers.push(peer);
+    }
+    Ok(())
+}
+
 pub async fn qualify(real: bool, external: bool) -> Result<()> {
     qualify_cases(real, external, false).await
 }
@@ -258,9 +324,7 @@ async fn case(
             );
             control.release.notify_one();
             backoff(&cluster, &history, control, lease).await?;
-            // This mutation needs a current instance, before restart can retire it.
-            request(&cluster, "Read", json!(null)).await?;
-            bindings::restart(&mut cluster).await?;
+            restart_pending(&mut cluster, control).await?;
             // No client request discovers the next installation after restart.
             let window = if exhaust {
                 Duration::from_millis(126_000 + 7 * 5000)
@@ -343,9 +407,7 @@ async fn case(
         match host.close().await {
             Ok(report)
                 if report.groups_total == 1
-                    && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers =>
-            {
-                ()
+                    && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers => {
             }
             result => cleanup.push(format!("alarm host closure: {result:?}")),
         }

@@ -94,7 +94,10 @@ operations still require application idempotency.
 The private callback contract binds the changed framework schema. Use fresh
 compatible namespaces and matching voters for this internal hard cutover;
 format markers remain 1 and no legacy schema reader or migration is installed.
-The public failure/restart and exhaustion fixtures are implemented. Their
+The public failure/restart fixture fences and joins every old voter, then
+asserts the retry did not run before reopening retained disks. This separates
+pending-work recovery from a retry that raced a sequential shutdown. The
+exhaustion fixture preserves the full ordinary retry schedule. Their
 qualification is pending; the earlier foundation checkpoint does not qualify
 this new failure path.
 
