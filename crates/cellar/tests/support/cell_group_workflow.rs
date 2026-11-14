@@ -41,10 +41,10 @@ fn application(
         })?,
     );
     let mut options = configuration::options(contract::SCRIPT);
-    options.do_classes = vec![
-        "Sink".into(),
-        cellar::deploy::workflow_class(contract::SCRIPT),
-    ];
+    options.do_classes = vec![cellar::deploy::workflow_class(contract::SCRIPT)];
+    if !scheduled {
+        options.do_classes.insert(0, "Sink".into());
+    }
     options.vars = vec![("SETTING".into(), "native".into())];
     options.workflow_bindings = vec![cellar::engine_api::WorkflowBinding {
         environment: "WF".into(),
