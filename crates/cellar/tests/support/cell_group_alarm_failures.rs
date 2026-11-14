@@ -45,11 +45,18 @@ pub(super) fn snapshot(storage: &Storage) -> Result<serde_json::Value> {
         "completed":storage.get_json("failure_completed")?}))
 }
 
+// Observe the returned error or unwind, after the panic hook has run. The
+// runtime starts its backoff after catching the failure, not before that hook.
+// This guard is installed only on the synchronous known-failure exit path.
+struct FailedAt<'a>(&'a AtomicI64);
+
+impl Drop for FailedAt<'_> {
+    fn drop(&mut self) {
+        self.0.store(cellar::asyncrt::wall_ms(), Ordering::Release);
+    }
+}
+
 pub(super) async fn invoke(cell: &AlarmCell, storage: &Storage, label: &str) -> Result<Output> {
-    eprintln!(
-        "[DEBUG-alarm-s3] callback label={label} at={}",
-        cellar::asyncrt::wall_ms()
-    );
     let control = &cell.observed.failure;
     control
         .entries
@@ -69,10 +76,6 @@ pub(super) async fn invoke(cell: &AlarmCell, storage: &Storage, label: &str) -> 
             storage.delete_alarm()?;
         }
         storage.sync().await?;
-        eprintln!(
-            "[DEBUG-alarm-s3] checkpoint label={label} at={}",
-            cellar::asyncrt::wall_ms()
-        );
         storage.put_json("failure_unsynced", &json!(1))?;
         if control.gate.swap(false, Ordering::AcqRel) {
             control.waiting.store(true, Ordering::Release);
@@ -81,9 +84,7 @@ pub(super) async fn invoke(cell: &AlarmCell, storage: &Storage, label: &str) -> 
             control.waiting.store(false, Ordering::Release);
         }
         cell.poisoned.store(true, Ordering::Release);
-        control
-            .failed_at
-            .store(cellar::asyncrt::wall_ms(), Ordering::Release);
+        let _failed_at = FailedAt(&control.failed_at);
         if label == "failure/panic" {
             panic!("intended ordinary alarm callback panic");
         }
@@ -102,7 +103,6 @@ pub(super) async fn invoke(cell: &AlarmCell, storage: &Storage, label: &str) -> 
 }
 
 async fn state(cluster: &ManagedCluster, history: &CellHistory) -> Result<serde_json::Value> {
-    let started = cellar::asyncrt::mono_ms();
     let cell = cluster.hosts[0].cell(history.clone())?;
     let value = cell
         .query(
@@ -115,11 +115,6 @@ async fn state(cluster: &ManagedCluster, history: &CellHistory) -> Result<serde_
             },
         )
         .await?;
-    eprintln!(
-        "[DEBUG-alarm-s3] state elapsed={} value={}",
-        cellar::asyncrt::mono_ms().saturating_sub(started),
-        String::from_utf8_lossy(&value.result)
-    );
     Ok(serde_json::from_slice(&value.result)?)
 }
 
@@ -409,24 +404,6 @@ async fn case(
         .map_err(anyhow::Error::from)
         .and_then(std::convert::identity);
     let mut cleanup = Vec::new();
-    if work.is_err() {
-        for (node, host) in cluster.hosts.iter().enumerate() {
-            let archive = host.group(cluster.history)?.archive_status().map(|status| {
-                status.map(|s| {
-                    (
-                        s.attempts,
-                        s.published.map(|m| m.position()),
-                        s.stopped,
-                        s.error,
-                    )
-                })
-            });
-            eprintln!(
-                "[DEBUG-alarm-s3] {}",
-                json!({"node":node,"resources":host.resource_usage(),"performance":host.performance(),"archive":format!("{archive:?}")})
-            );
-        }
-    }
     for node in std::mem::take(&mut cluster.nodes) {
         match node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {
             Ok(cellar::sdk::NodeOutcome::Stopped(_)) => (),

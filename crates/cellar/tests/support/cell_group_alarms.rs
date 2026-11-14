@@ -87,10 +87,6 @@ impl Cell for AlarmCell {
                     Ok(Output::Done)
                 }
                 Invocation::CellRpc { method, args } => {
-                    eprintln!(
-                        "[DEBUG-alarm-s3] application method={method} at={}",
-                        cellar::asyncrt::wall_ms()
-                    );
                     let RpcData::Json(args) = args else {
                         anyhow::bail!("JSON required")
                     };
@@ -239,21 +235,7 @@ async fn request(
     method: &str,
     args: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let started = cellar::asyncrt::mono_ms();
     let (status, body) = call(cluster, method, args).await?;
-    eprintln!(
-        "[DEBUG-alarm-s3] response method={method} elapsed={} status={status}",
-        cellar::asyncrt::mono_ms().saturating_sub(started)
-    );
-    if !status.is_success() {
-        for (node, host) in cluster.hosts.iter().enumerate() {
-            let group = host.group(cluster.history)?;
-            eprintln!(
-                "[DEBUG-alarm-s3] {}",
-                json!({"node":node,"resources":host.resource_usage(),"performance":host.performance(),"archive":format!("{:?}", group.archive_status().map(|status| status.map(|s| (s.attempts, s.published.map(|m| m.position()), s.stopped, s.error))))})
-            );
-        }
-    }
     ensure!(
         status.is_success(),
         "public alarm {method}: {status} {body}"
