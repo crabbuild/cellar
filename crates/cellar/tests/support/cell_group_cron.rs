@@ -26,26 +26,21 @@ impl Drop for Dropped {
     }
 }
 
-struct Unused;
-
-impl Cell for Unused {
-    fn invoke(self: Arc<Self>, _: Context, _: Invocation) -> HandlerFuture<Output> {
-        Box::pin(async { anyhow::bail!("the cron fixture has no ordinary cell requests") })
-    }
-}
-
 pub fn validate_contracts() -> Result<()> {
     ensure!(RaftClass::new(cellar_logic::cron::RESERVED_CLASS, 1, [237; 32]).is_err());
     let make = || -> Result<Registry> {
-        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
-            RaftClass::new("Counter", 1, [237; 32])?
-                .initializer([238; 32], |_, _| Ok(()))?
-                .json_cell_rpc("Unused", [239; 32])?,
-            |_, _| Ok(Arc::new(Unused)),
-        )
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_primitives()
     };
     let mut deployment = managed_fixture::graph::graph(SCRIPT, "", Vec::new()).primary;
     deployment.crons = vec![RETRY.into()];
+    let fleet = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }));
+    fleet.validate_deployment(&deployment)?;
+    ensure!(
+        fleet
+            .resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)
+            .is_err(),
+        "ordinary cron selected a Raft backend without opting in"
+    );
     let application = make()?;
     application.validate_deployment(&deployment)?;
     let digest = application
@@ -74,6 +69,42 @@ pub fn validate_contracts() -> Result<()> {
     ensure!(invalid
         .resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)
         .is_err());
+    ensure!(
+        application.raft_primitives().is_err(),
+        "backend selection changed after admission"
+    );
+    deployment.crons = vec![RETRY.into()];
+    deployment.options.src = "unimplemented adapter".into();
+    let unavailable = make()?;
+    ensure!(unavailable.validate_deployment(&deployment).is_err());
+    ensure!(unavailable
+        .resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)
+        .is_err());
+    let services = make()?;
+    let mut options = configuration::options(SCRIPT);
+    options.sql_bindings.push(("SQL".into(), "db".into()));
+    options.kv_bindings.push(("KV".into(), "kv".into()));
+    options
+        .queue_bindings
+        .push(cellar::engine_api::QueueBinding {
+            environment: "QUEUE".into(),
+            queue: "Queue:work".into(),
+            delivery_delay: 0,
+        });
+    services.validate_configuration(&options)?;
+    for class in [
+        "__SQLDatabase",
+        cellar_logic::kv::RESERVED_CLASS,
+        cellar_logic::queue::RESERVED_CLASS,
+    ] {
+        ensure!(services.resolve_raft_class(class)?.name() == class);
+    }
+    let mut missing = configuration::options(SCRIPT);
+    missing.do_classes.push("Absent".into());
+    ensure!(
+        make()?.validate_configuration(&missing).is_err(),
+        "selected primitives fell back to an ordinary cell factory"
+    );
     Ok(())
 }
 
@@ -212,12 +243,7 @@ async fn case(real: bool, rooted: bool, minimum: Durability) -> Result<()> {
                 }
             })
         })
-        .raft_cell(
-            RaftClass::new("Counter", 1, [237; 32])?
-                .initializer([238; 32], |_, _| Ok(()))?
-                .json_cell_rpc("Unused", [239; 32])?,
-            |_, _| Ok(Arc::new(Unused)),
-        )?,
+        .raft_primitives()?,
     );
     let mut options = configuration::options(SCRIPT);
     options.vars.push(("CRON_VALUE".into(), "admitted".into()));

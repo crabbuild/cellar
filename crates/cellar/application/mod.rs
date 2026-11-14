@@ -277,6 +277,7 @@ pub struct Registry {
     cells: HashMap<String, Factory>,
     filesystems: HashMap<String, filesystem::Policy>,
     raft_classes: HashMap<String, Arc<consensus::RaftClass>>,
+    raft_primitives: bool,
     raft_configuration: std::sync::OnceLock<RaftConfiguration>,
     raft_cron: std::sync::OnceLock<Arc<consensus::RaftClass>>,
     workflows: HashMap<String, WorkflowHandler>,
@@ -298,6 +299,7 @@ impl Registry {
             cells: HashMap::new(),
             filesystems: HashMap::new(),
             raft_classes: HashMap::new(),
+            raft_primitives: false,
             raft_configuration: std::sync::OnceLock::new(),
             raft_cron: std::sync::OnceLock::new(),
             workflows: HashMap::new(),
@@ -423,6 +425,29 @@ impl Registry {
         self.raft_class(class.with_cell_factory(Arc::new(factory))?)
     }
 
+    /// Select shared-group Raft for declared SQL, KV, Queue and cron services
+    /// without requiring an application-owned cell factory. Declare the matching
+    /// namespaces and start their Raft host before serving the application.
+    /// Namespace policy selects the minimum durability; unsupported bindings and
+    /// deployment capabilities refuse admission rather than falling back to Fleet.
+    /// Ordinary Raft cell factories already select these service adapters.
+    pub fn raft_primitives(mut self) -> Result<Self> {
+        anyhow::ensure!(
+            self.raft_configuration.get().is_none() && self.raft_cron.get().is_none(),
+            consensus::RegistrationError::ContractMismatch
+        );
+        self.raft_primitives = true;
+        Ok(self)
+    }
+
+    fn uses_raft_primitives(&self) -> bool {
+        self.raft_primitives
+            || self
+                .raft_classes
+                .values()
+                .any(|class| class.has_cell_factory())
+    }
+
     pub fn workflow(
         mut self,
         class: impl Into<String>,
@@ -455,10 +480,7 @@ impl Application for Registry {
         &self,
         options: &crate::engine_api::WorkerConfigOptions,
     ) -> Result<()> {
-        let shared = self
-            .raft_classes
-            .values()
-            .any(|class| class.has_cell_factory());
+        let shared = self.uses_raft_primitives();
         for class in self.rpc.classes() {
             anyhow::ensure!(
                 self.cells.contains_key(class),
@@ -501,11 +523,7 @@ impl Application for Registry {
                 }
             );
         }
-        if self
-            .raft_classes
-            .values()
-            .any(|class| class.has_cell_factory())
-        {
+        if shared {
             let config = consensus::AdmittedCellConfiguration::from_options(options)?;
             if config.has_cell_bindings() {
                 for class in self.raft_classes.values() {
@@ -548,11 +566,7 @@ impl Application for Registry {
     }
 
     fn validate_deployment(&self, deployment: &crate::fleet::LoadedDeployment) -> Result<()> {
-        if self
-            .raft_classes
-            .values()
-            .any(|class| class.has_cell_factory())
-        {
+        if self.uses_raft_primitives() {
             anyhow::ensure!(
                 deployment.options.script_name == deployment.script_name
                     && deployment.event_streams.is_empty()
@@ -569,7 +583,7 @@ impl Application for Registry {
             );
         }
         self.validate_configuration(&deployment.options)?;
-        if !self.raft_classes.is_empty() {
+        if self.raft_primitives || !self.raft_classes.is_empty() {
             if deployment.crons.is_empty() {
                 anyhow::ensure!(
                     self.raft_cron.get().is_none(),

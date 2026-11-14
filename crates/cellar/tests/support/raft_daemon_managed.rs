@@ -11,6 +11,8 @@ use std::io::Write;
 #[path = "raft_first_group_operator_cli.rs"]
 mod cli;
 use cli::{first_group_plan, OperatorCli, OWNER};
+#[path = "raft_daemon_cron.rs"]
+pub(super) mod cron;
 #[path = "raft_daemon_maintenance.rs"]
 pub(super) mod maintenance;
 #[path = "raft_daemon_repair.rs"]
@@ -150,10 +152,19 @@ struct Operator {
     fleet: FleetCatalog,
     adapter: Catalog,
     namespace: NamespaceConfig,
+    class: String,
 }
 
 impl Operator {
     fn open(domain: Arc<ExecutionDomain>, root: &Path) -> Result<Self> {
+        Self::open_for_class(domain, root, &counter::definition()?)
+    }
+
+    fn open_for_class(
+        domain: Arc<ExecutionDomain>,
+        root: &Path,
+        class: &RaftClass,
+    ) -> Result<Self> {
         let history = history()?;
         let bucket = open_bucket(root, "catalog.sqlite", "")?;
         let fleet = FleetCatalog::new(
@@ -168,7 +179,7 @@ impl Operator {
             history.cluster,
             history.namespace,
             NamespaceMode::Raft,
-            counter::definition()?.schema_digest(),
+            class.schema_digest(),
         );
         if std::env::var_os(RUSTFS_ENDPOINT).is_some() {
             namespace.image_storage =
@@ -184,13 +195,14 @@ impl Operator {
             fleet,
             adapter,
             namespace,
+            class: class.name().into(),
         })
     }
 
     fn declaration(&self) -> Result<RaftNamespaceRegistration> {
         Ok(RaftNamespaceRegistration {
             namespace: self.fleet.bind_namespace(self.namespace.clone())?,
-            class: "Counter".into(),
+            class: self.class.clone(),
         })
     }
 }
@@ -203,6 +215,10 @@ fn catalog_options() -> CatalogOptions {
 }
 
 async fn provision_call(root: &Path, plan: &Value) -> Result<std::process::Output> {
+    provision_call_for(root, plan, "provision-sql").await
+}
+
+async fn provision_call_for(root: &Path, plan: &Value, mode: &str) -> Result<std::process::Output> {
     let path = root.join("sql-namespace.json");
     std::fs::write(&path, serde_json::to_vec(plan)?)?;
     let bucket = std::env::var("CELLAR_CELL_GROUPS_RUSTFS_BUCKET")?;
@@ -210,7 +226,7 @@ async fn provision_call(root: &Path, plan: &Value) -> Result<std::process::Outpu
     let mut command = tokio::process::Command::new(std::env::current_exe()?);
     command
         .env_clear()
-        .env("CELLAR_RAFT_CLI_CHILD", "provision-sql")
+        .env("CELLAR_RAFT_CLI_CHILD", mode)
         .env("CELLAR_RAFT_CLI_ROOT", root)
         .arg("--provision-sql-namespace")
         .arg(path)
