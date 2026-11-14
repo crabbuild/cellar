@@ -586,10 +586,17 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
                 named_service::restart(&mut cluster).await?;
                 state(&cluster, "recovery", "waiting").await?;
                 ensure!(signals.first.load(Ordering::SeqCst) == 1);
+                call(&cluster, "event", "recovery").await?;
+                state(&cluster, "recovery", "complete").await?;
+                ensure!(signals.last.load(Ordering::SeqCst) == 1);
                 for cycle in 0..8 {
                     eprintln!("[DEBUG-wf-status] retry cycle {cycle}");
                     call(&cluster, "create", "retry").await?;
-                    state(&cluster, "retry", "complete").await?;
+                    futures_util::future::try_join(
+                        state(&cluster, "retry", "complete"),
+                        state(&cluster, "retry", "complete"),
+                    )
+                    .await?;
                     ensure!(&signals.retries.lock().unwrap()[cycle * 3..] == [1, 2, 3]);
                     call(&cluster, "delete", "retry").await?;
                 }

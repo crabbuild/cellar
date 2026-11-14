@@ -1540,6 +1540,19 @@ async fn rooted_controller_replica_routing_keeps_one_invocation() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn automatic_queries_leave_blocked_local_replica() -> Result<()> {
+    Box::pin(runtime_fixture::automatic_queries_leave_blocked_local(
+        false,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn rooted_automatic_queries_leave_blocked_local_replica() -> Result<()> {
+    Box::pin(runtime_fixture::automatic_queries_leave_blocked_local(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn shared_controller_queries_without_local_group_require_grants() -> Result<()> {
     Box::pin(runtime_fixture::nonmember_controller_queries(false)).await
 }

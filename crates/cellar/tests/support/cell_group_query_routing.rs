@@ -11,7 +11,15 @@ use std::sync::{
 };
 
 pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
-    for mode in 0..4 {
+    routed_queries(rooted, 0..4).await
+}
+
+pub(crate) async fn automatic_queries_leave_blocked_local(rooted: bool) -> Result<()> {
+    routed_queries(rooted, 4..5).await
+}
+
+async fn routed_queries(rooted: bool, modes: std::ops::Range<usize>) -> Result<()> {
+    for mode in modes {
         let (entered, started) = tokio::sync::oneshot::channel();
         let entered = Mutex::new(Some(entered));
         let (release, held) = std::sync::mpsc::sync_channel(1);
@@ -166,7 +174,7 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
         assert_eq!(fixture.transports[1].usage().query_items, 0);
 
         let (members, fallback, held_node) = match mode {
-            0 | 2 => (vec![MemberId::new(2)?, MemberId::new(3)?], false, 1),
+            0 | 2 | 4 => (vec![MemberId::new(2)?, MemberId::new(3)?], false, 1),
             1 => (vec![MemberId::new(3)?], true, 2),
             _ => (vec![MemberId::new(1)?], true, 0),
         };
@@ -175,20 +183,28 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
             request(
                 213,
                 b"captured-input",
-                CellQueryConsistency::AtLeast(token.clone()),
+                if mode == 4 {
+                    CellQueryConsistency::Linearizable
+                } else {
+                    CellQueryConsistency::AtLeast(token.clone())
+                },
             )?,
             bounds,
             None,
-            CellQueryRouting::Replicas {
-                members,
-                attempt_timeout: Duration::from_millis(180),
-                leader_fallback: fallback,
+            if mode == 4 {
+                CellQueryRouting::Automatic
+            } else {
+                CellQueryRouting::Replicas {
+                    members,
+                    attempt_timeout: Duration::from_millis(180),
+                    leader_fallback: fallback,
+                }
             },
         )?;
         let response = controllers[1].query(routed, options.clone())?;
         tokio::time::timeout(Duration::from_secs(5), started).await??;
         let response = response.response().await;
-        if mode < 2 {
+        if mode < 2 || mode == 4 {
             let response = response?;
             assert_eq!(response.result(), 0i64.to_be_bytes());
             assert_eq!(response.observation(), &observed);

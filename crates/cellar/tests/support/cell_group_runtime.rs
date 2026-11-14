@@ -1057,3 +1057,5 @@ pub(super) use sql::physical_log_reclamation;
 pub(super) use sql::{host_many_cells, host_query_shutdown, host_registration_and_deadline};
 
 pub(super) use sql::controller_routed_queries;
+
+pub(super) use sql::automatic_queries_leave_blocked_local;
