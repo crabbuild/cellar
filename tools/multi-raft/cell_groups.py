@@ -56,13 +56,16 @@ SUITES = {
         ("rustfs_ordinary_workflows_use_shared_quorum",
          "rustfs_axum_workflows_use_shared_quorum",
          "rustfs_scheduled_workflows_use_shared_quorum",
-         "rustfs_axum_scheduled_workflows_use_shared_quorum"),
+         "rustfs_axum_scheduled_workflows_use_shared_quorum",
+         "rustfs_workflow_status_reads_progress_during_checkpoints_and_restart"),
         "ordinary Workflow SDK/native/Axum execution over shared RF3 with real RustFS",
         "Both image forms with one SQL worker per node. Retained restart, durable "
         "step replay, retries, timeout continuations, compensation, stateless/stateful "
         "pinned stream reads with unchanged target version, signed operator fences, controls, "
         "archive PUT refusal and quorum refusal are checked. Workflow-only schedules "
         "autonomously create instances and retain their completed steps across restart. "
+        "Eight retry/delete/recreate cycles after restart retain two concurrent status "
+        "readers, followed by stream completion, within the original budgets. "
         "RF3 voters share a host process. No operator CLI, full-size boundary, clock faults, movement/wake, "
         "independent voter limits or disk-loss recovery is qualified by this suite.",
     ),

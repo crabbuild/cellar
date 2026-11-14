@@ -958,6 +958,109 @@ failed by ordinary-native status deadlines, despite a passing isolated control. 
 full-size values, provider execution and combined lifecycle/disaster scenarios
 remain open. The complete family is not accepted.
 
+## CG-17 Workflow native read progress
+
+The native status deadline has a deterministic reproduction at `98cb795b`:
+`automatic_queries_leave_blocked_local_replica` returns
+`Runtime(DeadlineExceeded)` while its local physical SQL is held and remote
+replicas remain healthy. The original two-second request budget, exact value,
+version proof and physical-retention assertions remain. Preserve
+`CG-17-workflow-automatic-routing-before-98cb795b-01`, including its frozen
+executable and log.
+
+The candidate at `85a3686b` gives an automatic local read a bounded portion of
+one invocation's original deadline and tries trusted peer destinations with the
+same attempt bank. Voters use their physical transport route; ingress-only nodes
+use the installed router view, matching the actual query sender. Neither view
+supplies permission or a read proof. Every destination still checks consistency,
+version minima and current authority. Explicit local reads and one-attempt
+budgets retain their refusal behavior; entered SQL remains charged until joined.
+Untried cached peers are attempted before rooted discovery, including for name
+resolution. These changes preserve Quorum reads during local apply/SQL stalls
+without weakening read consistency or renewing a deadline.
+
+The additional public Workflow regression completes a recovered Workflow after
+RF3 retained restart, then runs eight retry/delete/recreate cycles with two
+concurrent status readers and completes a streamed Workflow. It retains the
+original request/callback budgets, quotas and one SQL worker per voter. The
+RustFS suite now includes this case: five exact cases, ten image configurations.
+Temporary diagnostic tracing is removed. The earlier focused and original
+instrumented RustFS controls passed; they did not resolve the recorded failures.
+The routing regression passes both image modes at `85a3686b`, including the
+one-attempt and explicit-local refusal controls. The full RustFS campaign at
+`3b4c1218` remains **FAILED**: schedules pass four configurations, ordinary
+Axum and status pressure each pass materialized images, but extents fail a
+stateful stream read and repeated deletion respectively. Ordinary native times
+out during setup before a Workflow command applies; its extents mode is unrun.
+Keep `/Volumes/Workspace/crabbuild-target/cellar-workflow-rustfs-3b4c1218-01`
+and the failed native campaign `CG-17-workflow-native-after-3b4c1218-01`.
+
+Failure telemetry at `d02d9887` also reproduces a native extents status deadline
+after retained restart. SQL queries are fast and all apply queues are empty;
+this is not evidence of slow SQL. A second deterministic regression at
+`bdd6dbe6`, `membership_read_retries_without_unrelated_work`, loses the first
+follower membership ReadIndex with automatic ticks disabled. It times out
+without a heartbeat, status request or write to wake pending Raft work. Preserve
+`CG-17-workflow-membership-retry-before-bdd6dbe6-01`. The membership retry path
+now accounts for new RawNode read work and enqueues its group, as the cell-read
+cohort path already does. At `95562c1b`, that same regression passes both image
+modes in 1.18 seconds. Its primitives/Fleet executables were built with zero
+selected tests; those outputs are not runtime qualification. Follow-up source
+`d34e7648` carries the fixes onto merged `origin/main` (`50b927d9`), after PRs
+#168/#169 merged. The merged-source retry regression passes in 1.11 seconds.
+`54a8379d` replaces a diagnostic's disallowed system clock with the execution
+domain clock; production behavior is unchanged. The optimized build, strict
+Clippy, canonical format/layout, runner and partial-inventory checks pass.
+
+At `54a8379d`, the default-temp-volume owning campaign passes nine routing,
+permission and membership tests, then fails cold Quorum enrollment before SDK
+source-proof dispatch. Its full RustFS campaign remains **FAILED**: native
+ordinary materialized and four schedule configurations pass; native ordinary
+extents and ordinary Axum materialized fail instance-creation deadlines. Axum
+extents is unrun. Both status-pressure images complete under diagnostic stack
+sampling; those observations do not qualify a clean release run. Preserve
+`CG-17-workflow-read-regressions-54a8379d-01` and
+`/Volumes/Workspace/crabbuild-target/cellar-workflow-rustfs-54a8379d-01`.
+
+The failed ordinary runs show SQL preparation/publication outliers and retained
+physical SQL, with fast query callbacks. The system volume containing voter
+temp directories is 96% used. A controlled alternate profile places only this
+checkout's voter temp directories on its workspace volume; deadlines, quotas,
+source, executables and RustFS limits remain unchanged. Open node lock paths
+verify all three voters use that location. SDK source-proof dispatch, streamed
+Workflow controls and Fleet compatibility pass that profile in
+`CG-17-workflow-voter-volume-54a8379d-01`. This supports further storage-profile
+comparison, not a proven cause or a waiver of the failed controls. The same
+workspace profile also passes all nine routing/permission/membership checks in
+`CG-17-workflow-read-regressions-54a8379d-workspace-01`. The clean real-RustFS
+campaign is **PASSED** at `54a8379d`: five exact cases, ten image configurations,
+with no failed selections. Its record, frozen executable and complete logs are
+retained at
+`/Volumes/Workspace/crabbuild-target/cellar-workflow-rustfs-54a8379d-workspace-01`.
+
+| Clean real-RustFS gate | Materialized | Extents |
+| --- | --- | --- |
+| Ordinary public native Workflow | Pass | Pass |
+| Ordinary public Axum Workflow | Pass | Pass |
+| Autonomous scheduled native Workflow | Pass | Pass |
+| Autonomous scheduled Axum Workflow | Pass | Pass |
+| Restart, concurrent status, eight retry/delete/recreate cycles and streamed completion | Pass | Pass |
+
+These cases include replay, controls, signed generation fences, stateful stream
+source proofs with unchanged target versions, archive PUT outage and quorum
+refusal. The original three-second target budget, callback limits and quotas
+remain. RustFS has one CPU/two GiB; RF3 voters have separate workspace-volume
+directories and one SQL worker each in a shared native process. Neither this
+profile nor the passing frozen checks establishes independent voter resource,
+crash or disk-loss qualification. The default system-temp failures remain
+**FAILED** and unexplained; no result is erased or added across storage profiles.
+
+Follow-up [PR #171](https://github.com/crabbuild/cellar/pull/171) targets merged
+main. This closes the scoped read-liveness/MVP qualification. Full-size values,
+long continuous callbacks, provider I/O, clock/deployment transitions,
+movement/wake and combined disaster/release gates remain. Acceptance counts are
+unchanged; the complete Workflow/CG-17 family is not accepted.
+
 ## CG-17 bounded competing enrollment
 
 Source `4d6f7d2f` adds bounded waiting for competing first creators. A binding
