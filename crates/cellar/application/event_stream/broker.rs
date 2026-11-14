@@ -54,7 +54,7 @@ impl Broker {
         let mut signal = self.changed.subscribe();
         let mut waiter = None;
         loop {
-            context.check_turn()?;
+            context.check_binding_turn()?;
             signal.borrow_and_update();
             let fetch = subscription_store::next(context, body)?;
             if let Some(value) = fetch.value {
@@ -108,7 +108,7 @@ impl Broker {
                 // Prove that root and release the private writer before waiting
                 // so a concurrent append can enter and wake this subscription.
                 context.storage()?.sync().await?;
-                context.check_turn()?;
+                context.check_binding_turn()?;
             }
             // Neither a SQLite transaction nor a native input hold crosses
             // this wait. Activation retirement cancels its owning turn.

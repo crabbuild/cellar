@@ -238,7 +238,7 @@ async fn retire(context: &Context, body: &Value) -> Result<Value> {
             ));
         }
     }
-    context.check_turn()?;
+    context.check_binding_turn()?;
     db.tx(|tx| {
         if let Some(prior) = receipt(tx, &request.operation)? {
             validate_receipt(&prior, &caller, "retire", Some(&digest))?;
@@ -368,7 +368,7 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
         args,
     )
     .await;
-    context.check_turn()?;
+    context.check_binding_turn()?;
     match result {
         Ok(reply) => {
             if reply["resource"].as_str() != Some(definition.resource.id.as_str())

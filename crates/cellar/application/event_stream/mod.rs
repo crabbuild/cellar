@@ -341,7 +341,7 @@ impl<E> Stream<E> {
 
 impl Context {
     pub fn stream<E: Event>(&self, name: &str) -> Result<Stream<E>> {
-        self.check_turn()?;
+        self.check_binding_turn()?;
         let binding = self
             .worker_config
             .stream_bindings

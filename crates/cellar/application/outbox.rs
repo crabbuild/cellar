@@ -26,7 +26,7 @@ fn number(row: &SqlRow, column: &str) -> Result<i64> {
 }
 
 pub(crate) async fn dispatch(context: Context, installation: Installation) -> Result<Output> {
-    context.check_turn()?;
+    context.check_binding_turn()?;
     let db = context.storage()?;
     let now = crate::asyncrt::wall_ms();
     if db.work_installation(Reason::Outbox)? != Some(installation) {
@@ -39,7 +39,7 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
             crate::runtime::source_destruction::clean(&context).await
         }
         .await;
-        context.check_turn()?;
+        context.check_binding_turn()?;
         if result.is_err() || crate::runtime::source_destruction::pending(&db)? {
             crate::runtime::source_destruction::schedule(
                 &db,
@@ -141,7 +141,7 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
     )
     .await;
     metric_timer.finish(result.is_ok());
-    context.check_turn()?;
+    context.check_binding_turn()?;
     let current = db.system_sql(
         "SELECT dispatch_generation FROM __sys_outbox_lanes WHERE lane=?",
         &[lane.clone().into()],
