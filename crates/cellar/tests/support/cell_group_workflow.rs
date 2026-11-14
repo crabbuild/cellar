@@ -295,6 +295,7 @@ async fn workflow(
 }
 
 async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_json::Value> {
+    let started = std::time::Instant::now();
     let response = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
@@ -309,7 +310,8 @@ async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_
     let body = response.text().await?;
     ensure!(
         status.is_success(),
-        "Workflow {action}/{id}: {status} {body}"
+        "Workflow {action}/{id} after {}ms: {status} {body}",
+        started.elapsed().as_millis()
     );
     Ok(serde_json::from_str(&body)?)
 }
@@ -559,9 +561,15 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
     };
     let work = domain
         .run(async {
-            let group = named_service::activate(&cluster, "workflow").await?;
-            named_service::grant(&cluster).await?;
-            managed_fixture::leader(&cluster.hosts, group).await?;
+            let group = named_service::activate(&cluster, "workflow")
+                .await
+                .context("Workflow managed namespace activation")?;
+            named_service::grant(&cluster)
+                .await
+                .context("Workflow namespace origin grants")?;
+            managed_fixture::leader(&cluster.hosts, group)
+                .await
+                .context("Workflow initial quorum leader")?;
             if scheduled {
                 scheduled_case(&mut cluster, &signals).await?;
                 return Ok(());
@@ -858,7 +866,7 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
         for (node, host) in cluster.hosts.iter().enumerate() {
             eprintln!(
                 "Workflow failure resources: {}",
-                json!({"node":node,"resources":host.resource_usage()})
+                json!({"node":node,"resources":host.resource_usage(),"performance":host.performance()})
             );
         }
     }
