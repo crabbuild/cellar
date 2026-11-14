@@ -3853,3 +3853,46 @@ directory call is demonstrated by the controlled fixture; no end-to-end speedup
 or stable 128-cell progress is claimed. Stable four-request Queue progress, the
 broader routing failures, matching RustFS/Colima/Linux verification and full
 CG/OPT acceptance remain open. The earlier failed campaigns retain their scope.
+
+
+## Main integration after PR-166
+
+PR-166 is squash-merged as `3d6450d4`. Its pre-squash head `8de8e18b`
+has exactly the same Git tree. Integration `67a3d6e8` reconciles the actual
+shared history at `5ff087c4` and records `3d6450d4` as its main merge parent,
+retaining the optimization history without rewriting the published branch.
+
+The combined source preserves bounded committed archive tails and rollover,
+quiet-head maintenance and command-prefix filtering from main. Archive reuse
+still requires the admitted cohort, a live physical verification, current
+birth/journal checks and the exact requested output proof. The existing
+reserved SQL progress FIFO composes with worker wakeups and witnessed
+pre-enqueue enrollment admission; entered producers and lost replies retain
+their original reconciliation and shutdown requirements. Public alarms,
+KV payload preparation and their incoming regressions remain present.
+The performance reader includes both new KV preparation counters and preserves
+the exact vocabularies of retained measurement artifacts.
+
+The reviewed source baseline now pins this combined Git revision. Only its SQL
+worker anchor changes; it exactly matches main's reviewed `Port` implementation.
+The other 23 anchors retain the optimization bindings. Source preflight grants
+no runtime acceptance and does not restore missing historical CG-01 evidence.
+
+Before integration, the complete `dcbce778` native campaign at compiler input
+`71f4abcb` finishes **156 passes, two failures, zero skipped selected functions**
+across 67 check rows. All three routing cases that failed the earlier
+`752f2312` campaign now pass, but the four-in-flight Queue control and the
+live overlapping split control fail. The former reaches measured peak four
+and then returns an ambiguous materialized-mode producer deadline at sequence
+seven; the latter returns an ambiguous SDK command deadline at sequence four.
+Both preserve their original five-second windows and retain failed disks;
+cleanup completes and source/executable guards remain unchanged. The original
+two-request Queue load passes both image modes with 528 unique messages each.
+These results remain bound to the earlier source, which lacks this integration.
+
+The integration passes 178 multi-Raft runner tests and 317 performance-tool
+tests, with one opt-in case skipped in each suite. Native dependency checks,
+documentation checks and formatting pass. Combined Rust compilation, runtime,
+Clippy, Linux and RustFS/Colima qualification remain pending; the previous
+performance and Linux failures retain their original scopes. No complete
+OPT, CG-13 or CG-17 gate is accepted by this merge.
