@@ -560,6 +560,7 @@ async fn warm_manifest_preparations_revalidate_pages_and_reuse_completed_barrier
     let value = leaf(1, &pin, 1, 2);
     let root = tree.update(&mut pages, ManifestRoot::default(), value.clone(), None)?;
     let before = faults.image_seals.lock().unwrap().len();
+    let directories = faults.synced_paths.lock().unwrap().len();
     let reads = faults.reads.load(Ordering::Acquire);
     let first = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
         Ok(CellImagePin::Materialized(pin.clone()))
@@ -572,6 +573,11 @@ async fn warm_manifest_preparations_revalidate_pages_and_reuse_completed_barrier
         faults.image_seals.lock().unwrap().len(),
         before,
         "already durable page was flushed again"
+    );
+    assert_eq!(
+        faults.synced_paths.lock().unwrap().len(),
+        directories,
+        "already durable page directory was flushed again"
     );
     let directories = faults.synced_paths.lock().unwrap().len();
     assert_eq!(
@@ -630,14 +636,22 @@ async fn warm_manifest_preparations_revalidate_pages_and_reuse_completed_barrier
     ));
     drop(pages);
     let mut pages = open()?;
+    let directories = faults.synced_paths.lock().unwrap().len();
     let recovered = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
         Ok(CellImagePin::Materialized(pin.clone()))
     })?;
+    assert_eq!(
+        faults.synced_paths.lock().unwrap().len(),
+        directories + 1,
+        "cold preparation must complete its page directory barrier exactly once"
+    );
     let before = faults.image_seals.lock().unwrap().len();
+    let directories = faults.synced_paths.lock().unwrap().len();
     let again = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
         Ok(CellImagePin::Materialized(pin.clone()))
     })?;
     assert_eq!(faults.image_seals.lock().unwrap().len(), before);
+    assert_eq!(faults.synced_paths.lock().unwrap().len(), directories);
     drop(again);
     drop(recovered);
     drop(pages);

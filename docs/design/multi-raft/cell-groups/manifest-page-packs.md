@@ -60,6 +60,15 @@ flush. Cancellation discards unflushed bytes; already flushed packs retain
 ordinary pin and reclamation rules. No directory batch or mutex spans a network
 await, and an append alone supplies no prepared-root or installation authority.
 
+Complete-root preparation independently rereads every page and consumes each
+pack's persistence observation on the exact open page-store owner. A cold pack
+completes its file and directory barriers before any page pin is returned; pages
+sharing that pack reuse those completed barriers. Warm preparation keeps the
+physical reads while reusing the same observations, including the directory
+barrier. Opening another owner clears the observations, and a failed page read
+invalidates the affected pack's observation. Complete-root preparation performs
+no additional directory mutation that requires another directory-only sync.
+
 ## Physical reclamation
 
 Usage counts all resident encoded record copies, full encoded file lengths and

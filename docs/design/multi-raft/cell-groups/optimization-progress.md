@@ -3780,3 +3780,76 @@ uncontended execution or a repeatable speedup. The receiver packing component is
 verified; the original 128-cell latency gap, stable Queue progress, broader native
 failures, matching RustFS/Colima/Linux qualification and full CG/OPT gates remain
 open. No earlier failed campaign is relabeled.
+
+## Complete-root directory barrier reuse
+
+At published `bf7af7b5`, the unchanged original 1/32/128 matrix passes a sampled
+repeat in 174.567 seconds. Its preceding complete 21-test target still fails at
+121/128 cells. These are mixed results; the sampled pass establishes neither
+stable enrollment latency nor a speedup. Three bounded samples during the actual
+128-cell phase repeatedly observe manifest-pack, archive-journal, image-root and
+Raft-engine sync paths. Their thread-stack weights are not wall-time percentages.
+No competing compiler or native fixture is observed at profile start or at its
+sampled activity checks.
+
+Inspection identifies an unconditional page-directory sync after complete-root
+preparation has already obtained each page's pack-level file and directory
+persistence proof. The existing public warm/cold/corruption fixture is extended
+to count both kinds of barriers. At test-only input `24ac7213`, it fails in
+0.062 seconds on the exact extra-directory assertion: 12 calls versus 11.
+Production is unchanged at this red checkpoint.
+
+The candidate reuses the complete pins' existing store-bound persistence proofs
+at this boundary. Every physical page read and image check remains. Cold packs
+still require file and directory barriers; a failed page read invalidates the
+pack observation, and failed required barriers still quarantine the owner.
+The test additionally requires exactly one directory barrier for its one-pack
+cold preparation and no extra directory barrier for another warm preparation.
+Partition pre-copy's separate directory synchronization remains. This adds no
+new cache, lifetime, memory bank, deadline or changed durability requirement.
+Candidate component, original performance and matching backend checks are pending;
+the full optimization and release acceptance gates remain open.
+
+The first candidate input `07621ba4` passes the expanded storage regression in
+0.138 seconds and all 33 ordinary archive tests. The complete execution target
+passes 193 cases and fails the two image modes of
+`group_controller_drives_tls_apply_and_bounded_retry`; two owned process fixtures
+remain explicitly ignored. Storage and performance do not run after that failure.
+The exact same two cases also fail with the frozen published-parent binary
+(input `c3accf6b`) in 15.355/15.374 seconds.
+
+Tagged observations at diagnostic input `439bd260` identify the wait: both apply
+owners remain active and charged, one reserved progress slot is held, the callback
+is entered once and the controller stays open, while `apply_retries` remains zero.
+The existing FIFO now retains its second admitted job instead of returning a
+slot refusal that increments that counter. Both unchanged retry-counter waits
+reach their original deadlines in 15.341/15.343 seconds.
+
+The corrected fixture waits for two actual apply owners and reservations, no
+pending ticket and one occupied progress slot behind the held worker. It keeps
+all later replication, exact receipt/version, callback-once, capacity and joined
+shutdown assertions, with the original deadlines. The probes are removed.
+Qualification of this corrected fixture input is pending; the failed full
+execution campaign remains failed under its original input identity.
+
+At corrected input `71f4abcb`, all 250 selected ordinary tests pass: 33 archive,
+195 execution and 22 storage tests, including their owned crash parents. Eight
+RustFS cases and four child-only process fixtures keep their explicit ignores;
+the parents launch the owned children. The exact barrier regression passes in
+0.057 seconds, and the corrected controller cases pass all later oracles in
+0.514/0.529 seconds. Locked Rust 1.98.1 build, formatting/layout, focused strict
+Clippy, native dependency and documentation checks pass. Frozen artifacts and
+unchanged-input guards bind those results to this input, with no source probes.
+
+The complete original performance target remains failed: 19 pass, two fail,
+zero skip, in 337.039 seconds. The original 1/32/128 matrix reaches its unchanged
+sixty-second enrollment deadline at 115/128 group-zero cells on every voter.
+The separate 128-cell diagnostic reaches the same deadline at 123/128 cells on
+every voter. Each second group has one cell. Both failed fixtures retain their
+disks and join cleanup. The rooted 32-cell control passes. No competing compiler
+or native fixture is observed at target start or the recorded activity check.
+These observations do not establish uncontended execution. Removing one redundant
+directory call is demonstrated by the controlled fixture; no end-to-end speedup
+or stable 128-cell progress is claimed. Stable four-request Queue progress, the
+broader routing failures, matching RustFS/Colima/Linux verification and full
+CG/OPT acceptance remain open. The earlier failed campaigns retain their scope.

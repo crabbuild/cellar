@@ -211,7 +211,17 @@ pub(crate) async fn controller_replication(rooted: bool) -> Result<()> {
                 .await?,
         ));
     }
-    wait_for(async || Ok(controllers[0].usage().apply_retries > 0)).await?;
+    // Observe both admitted jobs behind the occupied SQL worker. The progress
+    // FIFO retains one queued job and one waiter under the same reserved slot.
+    wait_for(async || {
+        let controller = controllers[0].usage();
+        let sql = pool.usage()?;
+        Ok(controller.active_apply == 2
+            && controller.pending_apply == 0
+            && sql.apply_retained_operations == 2
+            && sql.completion_reservations == 1)
+    })
+    .await?;
     assert!(!controllers[0].usage().closing);
     assert!(controllers[0].usage().active_apply <= 2);
     assert!(controllers[0].usage().pending_apply <= 2);
