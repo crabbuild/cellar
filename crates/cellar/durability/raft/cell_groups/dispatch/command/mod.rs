@@ -642,6 +642,7 @@ impl CellCommandInvocation {
                 route: attempt.route().clone(),
                 limits: options.limits(),
                 deadline: attempt.deadline_ms(),
+                admission: self.admission_kind,
                 bindings: self.dispatcher.bindings.get().cloned(),
             };
             sql.stage_rpc_owned(
@@ -650,7 +651,6 @@ impl CellCommandInvocation {
                 command,
                 self.dispatcher.class.clone(),
                 self.request.input.clone(),
-                self.admission_kind,
                 commits,
             )
             .await

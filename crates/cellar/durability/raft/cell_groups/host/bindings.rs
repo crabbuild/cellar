@@ -64,6 +64,7 @@ impl CellGroupHost {
             .applied_history_hint(log, &selected.cell)?;
         Ok(selected)
     }
+
     pub(crate) fn prepare_binding_kv_payload(
         &self,
         source: &CellHistory,

@@ -45,6 +45,7 @@ impl Host for BindingHost {
             &owner.handle.core.log,
         )?)
     }
+
     fn prepare_kv_payload(
         &self,
         source: &CellHistory,

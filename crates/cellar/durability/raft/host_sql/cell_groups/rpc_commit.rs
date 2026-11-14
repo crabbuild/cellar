@@ -14,6 +14,8 @@ pub(crate) struct RpcCommitContext {
     pub route: cellar_logic::cell_group::GroupRoute,
     pub limits: ExecutionLimits,
     pub deadline: u64,
+    /// Captured by command admission and retained with every continuation.
+    pub admission: CommandAdmission,
     pub bindings: Option<Arc<dyn crate::application::cell_bindings::Host>>,
 }
 

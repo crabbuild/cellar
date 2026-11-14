@@ -732,7 +732,6 @@ impl CellGroupSqlPool {
         attempt: CommandAttempt,
         class: Arc<crate::application::consensus::RaftClass>,
         input: Vec<u8>,
-        admission: CommandAdmission,
         commits: RpcCommitContext,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         self.stage_compiled_owned(
@@ -743,7 +742,7 @@ impl CellGroupSqlPool {
             worker::Callback::Registered {
                 class,
                 input: input.into_boxed_slice(),
-                admission,
+                admission: commits.admission,
                 commits: Some(Box::new(commits)),
             },
         )
