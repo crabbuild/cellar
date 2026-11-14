@@ -489,7 +489,7 @@ async fn snapshot(cluster: &ManagedCluster, groups: &[GroupHistory]) {
     for (node, host) in cluster.hosts.iter().enumerate() {
         eprintln!(
             "QUEUE_FAILURE {}",
-            json!({"node":node,"resources":host.resource_usage()})
+            json!({"node":node,"resources":host.resource_usage(),"performance":host.performance()})
         );
         for group in groups {
             if let Ok(handle) = host.group(*group) {
