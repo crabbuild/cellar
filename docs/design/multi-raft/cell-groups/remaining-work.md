@@ -56,6 +56,9 @@ See the [current qualification](progress.md#cg-17-combined-filesystem-and-queue-
    recovery. The integrated inbox bridge alone is insufficient. Keep original
    event/lane identities through movement and new-incarnation recovery; never
    treat a source commit as destination acceptance.
+   The source journal, per-lane identity and shared work bridge are described in
+   the [EventStream contract](event-stream-durability.md). Public activation still
+   requires the authenticated target path and resource bootstrap.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
    and fault oracles, then resolve producer deadlines and the older final-drain
    failures under the unchanged load and budgets. Qualify both image forms.

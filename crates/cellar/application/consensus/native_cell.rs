@@ -21,6 +21,7 @@ pub(crate) struct NativeCellFactory {
     config: Arc<WorkerConfig>,
     identity: Arc<()>,
     callbacks: bool,
+    event_source: Option<Arc<crate::application::storage::EventSourceConfiguration>>,
 }
 
 pub(super) enum CellRpcMethod<'a> {
@@ -291,6 +292,11 @@ impl NativeCellFactory {
             .collect();
         let script = options.script_name.clone();
         let config = WorkerConfig::new(options).with_egress(EgressPolicy::Deny);
+        let event_source = (!config.stream_bindings.is_empty()).then(|| {
+            Arc::new(crate::application::storage::EventSourceConfiguration::new(
+                &config,
+            ))
+        });
         let compiled_factory = factory.clone();
         let compiled_class = class.to_owned();
         let identity = Arc::new(());
@@ -299,6 +305,7 @@ impl NativeCellFactory {
             class: class.to_owned(),
             vars,
             config: Arc::new(config),
+            event_source,
             identity: identity.clone(),
             callbacks,
         });
@@ -347,6 +354,11 @@ impl NativeCellFactory {
             anyhow::ensure!(
                 work.reason == "alarm"
                     || work.reason == "filesystem"
+                    || work.reason == "outbox"
+                    || (work.reason == "stream-maintenance"
+                        && self.class == crate::deploy::EVENT_STREAM_CLASS)
+                    || (work.reason == "resource-reconciliation"
+                        && self.class == crate::deploy::EVENT_CATALOG_CLASS)
                     || (work.reason == "queue" && self.class == crate::deploy::QUEUE_CLASS),
                 CommandFailure::UnsupportedCapability
             );
@@ -467,6 +479,38 @@ impl NativeCellFactory {
                     })?;
                     return Ok(vec![1]);
                 }
+                if let Some(reason) = cellar_logic::work::Reason::parse(&work.reason) {
+                    if let Some(installation) = storage.work_installation(reason)? {
+                        let output = match reason {
+                            cellar_logic::work::Reason::Outbox => {
+                                crate::application::outbox::dispatch(context, installation).await?
+                            }
+                            cellar_logic::work::Reason::StreamMaintenance => {
+                                crate::application::event_stream::broker::maintain(
+                                    context,
+                                    installation,
+                                )
+                                .await?
+                            }
+                            cellar_logic::work::Reason::ResourceReconciliation => {
+                                crate::application::event_stream::catalog::maintain(
+                                    context,
+                                    installation,
+                                )
+                                .await?
+                            }
+                            _ => anyhow::bail!(CommandFailure::UnsupportedCapability),
+                        };
+                        anyhow::ensure!(
+                            matches!(output, Output::Done),
+                            CommandFailure::UnsupportedCapability
+                        );
+                    }
+                    crate::storage::raft_native_work(|db| {
+                        super::native_work::complete(db, &work, leased_until)
+                    })?;
+                    return Ok(vec![1]);
+                }
                 use futures_util::FutureExt as _;
                 // Preserve known alarm failure capture around the entire owned
                 // Workflow turn, including physical timeout continuations.
@@ -551,6 +595,16 @@ impl NativeCellFactory {
         identity: CellIdentity,
         storage: crate::application::storage::RaftStorageAuthority,
     ) -> Result<Context> {
+        if let Some(config) = &self.event_source {
+            let admitted = storage
+                .resources
+                .event_source
+                .get_or_init(|| config.clone());
+            anyhow::ensure!(
+                Arc::ptr_eq(admitted, config),
+                CommandFailure::UnsupportedCapability
+            );
+        }
         storage
             .resources
             .durable_callbacks

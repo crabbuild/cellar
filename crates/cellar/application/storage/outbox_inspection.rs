@@ -230,7 +230,7 @@ impl OutboxPage {
             lane.resource.validate()?;
             let revision = &lane.revision;
             if revision.source != source
-                || self.incarnation.as_deref() != Some(revision.incarnation.as_str())
+                || !valid_hex(&revision.incarnation, 32)
                 || !valid_hex(&revision.lane, 64)
                 || revision.lane <= previous
                 || revision.lane
@@ -304,16 +304,16 @@ impl OutboxPage {
 
 impl Storage {
     pub(crate) fn outbox_incarnation(&self) -> Result<Option<String>> {
-        let scope = self.scope()?;
+        let scope = self.data_scope()?;
         anyhow::ensure!(
             crate::storage::facet_opening(scope).is_none(),
             "facets cannot inspect or retry durable source lanes"
         );
-        let present = self.system_sql("SELECT 1 AS present FROM sqlite_schema WHERE type='table' AND name='__sys_event_source'", &[])?;
+        let present = self.system_sql_read("SELECT 1 AS present FROM sqlite_schema WHERE type='table' AND name='__sys_event_source'", &[])?;
         if present.is_empty() {
             return Ok(None);
         }
-        self.system_sql(
+        self.system_sql_read(
             "SELECT incarnation FROM __sys_event_source WHERE singleton=1",
             &[],
         )?
@@ -332,9 +332,20 @@ impl Storage {
                 "outbox page limit must be between 1 and 100",
             ));
         }
-        let source = self.scope()?;
         let incarnation = self.outbox_incarnation()?;
-        let after = after(options.cursor.as_deref(), source, incarnation.as_deref())?;
+        let source = if self.is_raft() && incarnation.is_some() {
+            let rows = self.system_sql_read(
+                "SELECT source FROM __sys_event_source WHERE singleton=1",
+                &[],
+            )?;
+            text(rows.first().context("outbox source missing")?, "source")?
+        } else if self.is_raft() {
+            // No producer means there is no source identity or valid cursor.
+            String::new()
+        } else {
+            self.scope()?.to_owned()
+        };
+        let after = after(options.cursor.as_deref(), &source, incarnation.as_deref())?;
         let now = crate::asyncrt::wall_ms().max(0);
         let Some(incarnation) = incarnation else {
             return Ok(OutboxPage {
@@ -356,15 +367,15 @@ impl Storage {
                 },
             });
         };
-        let totals = self.system_sql(
+        let totals = self.system_sql_read(
             "SELECT rows,bytes FROM __sys_outbox_stats WHERE singleton=1",
             &[],
         )?;
         let totals = totals.first().context("outbox statistics missing")?;
         // Project only bounded identity fields. The full binding and envelope
         // are deliberately absent from the result and allocation budget.
-        let rows=self.system_sql(
-            "SELECT l.lane,l.next_sequence,l.settled_through,l.status,l.retry_at_ms,l.attempts,l.dispatch_generation,
+        let rows=self.system_sql_read(
+            "SELECT l.lane,l.incarnation,l.next_sequence,l.settled_through,l.status,l.retry_at_ms,l.attempts,l.dispatch_generation,
             substr(l.last_error,1,1024) AS last_error,s.state AS seal_state,l.blocked_reason,
             json_extract(l.binding,'$.resource') AS resource,json_extract(l.binding,'$.principal') AS principal,
             json_extract(l.binding,'$.grant') AS grant,
@@ -378,8 +389,8 @@ impl Storage {
             .map(|row| -> Result<OutboxLane> {
                 Ok(OutboxLane {
                     revision: OutboxRevision {
-                        source: source.into(),
-                        incarnation: incarnation.clone(),
+                        source: source.clone(),
+                        incarnation: text(row, "incarnation")?,
                         lane: text(row, "lane")?,
                         dispatch_generation: number(row, "dispatch_generation")?,
                         next_sequence: number(row, "next_sequence")?,
@@ -408,14 +419,14 @@ impl Storage {
                 Some(format!(
                     "v1.{}",
                     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(serde_json::to_vec(
-                        &(source, &incarnation, &last.revision.lane)
+                        &(&source, &incarnation, &last.revision.lane)
                     )?)
                 ))
             } else {
                 None
             };
-        let oldest = self.system_sql("SELECT created_at_ms FROM __sys_outbox INDEXED BY __sys_outbox_age ORDER BY created_at_ms LIMIT 1", &[])?;
-        let reasons = self.system_sql(
+        let oldest = self.system_sql_read("SELECT created_at_ms FROM __sys_outbox INDEXED BY __sys_outbox_age ORDER BY created_at_ms LIMIT 1", &[])?;
+        let reasons = self.system_sql_read(
             "SELECT reason,lanes FROM __sys_outbox_blocked ORDER BY reason LIMIT 8",
             &[],
         )?;
@@ -455,7 +466,7 @@ impl Storage {
                 blocked_lanes,
             },
         };
-        page.validate(source, options)?;
+        page.validate(&source, options)?;
         Ok(page)
     }
 
@@ -463,7 +474,7 @@ impl Storage {
     /// A stale observation fails; an already settled lane returns false.
     /// Commit proves the retry obligation, not destination delivery.
     pub fn retry_outbox_lane(&self, revision: &OutboxRevision) -> Result<bool> {
-        if revision.source != self.scope()?
+        if revision.source.is_empty()
             || !valid_hex(&revision.incarnation, 32)
             || !valid_hex(&revision.lane, 64)
         {
@@ -473,14 +484,15 @@ impl Storage {
             ));
         }
         self.tx(|tx| {
-            if tx.outbox_incarnation()?.as_deref() != Some(revision.incarnation.as_str()) {
-                return Err(failure(ErrorCode::ConfigConflict,"outbox retry source incarnation changed"));
-            }
-            let rows=tx.system_sql("SELECT dispatch_generation,next_sequence,settled_through,
+            let rows=tx.system_sql("SELECT incarnation,dispatch_generation,next_sequence,settled_through,
                 EXISTS(SELECT 1 FROM __sys_outbox WHERE lane=l.lane) OR
                 EXISTS(SELECT 1 FROM __sys_outbox_seals WHERE lane=l.lane AND state!='accepted') AS pending
                 FROM __sys_outbox_lanes AS l WHERE lane=?",&[revision.lane.clone().into()])?;
             let row=rows.first().ok_or_else(|| failure(ErrorCode::ConfigConflict,"outbox retry lane no longer exists"))?;
+            let source=tx.system_sql("SELECT source FROM __sys_event_source WHERE singleton=1", &[])?;
+            if text(source.first().context("outbox source missing")?, "source")? != revision.source || text(row, "incarnation")? != revision.incarnation {
+                return Err(failure(ErrorCode::ConfigConflict,"outbox retry source or lane incarnation changed"));
+            }
             let expected=cellar_logic::event_stream::ProducerRevision {generation:revision.dispatch_generation,next_sequence:revision.next_sequence,settled_through:revision.settled_through};
             let current=cellar_logic::event_stream::ProducerRevision {generation:number(row,"dispatch_generation")?,next_sequence:number(row,"next_sequence")?,settled_through:number(row,"settled_through")?};
             let generation=match cellar_logic::event_stream::retry_producer(expected,current,number(row,"pending")?!=0) {

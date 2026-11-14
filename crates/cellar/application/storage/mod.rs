@@ -10,6 +10,7 @@ mod dispatch;
 pub(crate) use dispatch::{RaftDispatch, RaftDispatchContext, RaftDispatchIo, RaftDispatchPermit};
 mod inbox;
 mod outbox;
+pub(crate) use outbox::EventSourceConfiguration;
 mod outbox_inspection;
 pub(crate) mod transaction;
 pub use cellar_native::sql::Value as SqlValue;
@@ -42,6 +43,7 @@ pub(crate) struct Resources {
     pub(crate) facets: Mutex<Option<Arc<super::facets::State>>>,
     pub(crate) filesystem: super::filesystem::Registry,
     pub(crate) filesystem_policy: Mutex<Option<super::filesystem::RaftPolicy>>,
+    pub(crate) event_source: std::sync::OnceLock<Arc<EventSourceConfiguration>>,
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
     transaction_serial: AtomicU64,
@@ -323,7 +325,12 @@ impl Storage {
     }
 
     pub(crate) fn clear_current_work(&self, reason: cellar_logic::work::Reason) -> Result<()> {
-        if let Some(installation) = crate::storage::work::current(self.scope()?, reason)? {
+        let current = if self.is_raft() {
+            crate::storage::work::raft_current(self.write_scope()?, reason)?
+        } else {
+            crate::storage::work::current(self.scope()?, reason)?
+        };
+        if let Some(installation) = current {
             self.clear_work(installation)?;
         }
         Ok(())
@@ -334,6 +341,13 @@ impl Storage {
         reason: cellar_logic::work::Reason,
         at_ms: i64,
     ) -> Result<()> {
+        if self.is_raft() {
+            anyhow::ensure!(
+                self.resources().durable_callbacks.load(Ordering::Acquire),
+                consensus::CommandFailure::UnsupportedCapability
+            );
+            return crate::storage::work::raft_set(self.write_scope()?, reason, at_ms);
+        }
         let scope = self.scope()?;
         if let Some(effective) = crate::storage::work::set(scope, reason, at_ms)? {
             if effective >= 0 {
@@ -351,6 +365,9 @@ impl Storage {
         &self,
         installation: cellar_logic::work::Installation,
     ) -> Result<bool> {
+        if self.is_raft() {
+            return crate::storage::work::raft_clear(self.write_scope()?, installation);
+        }
         let scope = self.scope()?;
         let (cleared, effective) = crate::storage::work::clear(scope, installation)?;
         if let Some(effective) = effective.filter(|deadline| *deadline >= 0) {
@@ -367,6 +384,9 @@ impl Storage {
         &self,
         reason: cellar_logic::work::Reason,
     ) -> Result<Option<cellar_logic::work::Installation>> {
+        if self.is_raft() {
+            return crate::storage::work::raft_current(self.write_scope()?, reason);
+        }
         crate::storage::work::installation(self.scope()?, reason)
     }
 
