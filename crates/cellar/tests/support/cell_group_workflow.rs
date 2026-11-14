@@ -295,7 +295,7 @@ async fn workflow(
 }
 
 async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_json::Value> {
-    let started = std::time::Instant::now();
+    let started = cellar::asyncrt::mono_ms();
     let response = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
@@ -311,7 +311,7 @@ async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_
     ensure!(
         status.is_success(),
         "Workflow {action}/{id} after {}ms: {status} {body}",
-        started.elapsed().as_millis()
+        cellar::asyncrt::mono_ms().saturating_sub(started)
     );
     Ok(serde_json::from_str(&body)?)
 }
