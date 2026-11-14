@@ -48,6 +48,18 @@ impl Startup<'_> {
         crate::application::consensus::RaftCells,
         Option<crate::raft::fleet_stop::Services>,
     )> {
+        if let Ok(cron) = services
+            .application
+            .resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)
+        {
+            anyhow::ensure!(
+                config.namespaces.iter().any(|namespace| {
+                    namespace.class == cellar_logic::cron::RESERVED_CLASS
+                        && namespace.namespace.schema_digest == cron.schema_digest()
+                }),
+                "Raft cron requires its declared shared namespace"
+            );
+        }
         anyhow::ensure!(
             config.infrastructure.log.directory == self.data_dir.join("raft"),
             "Raft log must use this node's raft directory"

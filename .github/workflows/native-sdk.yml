@@ -192,6 +192,22 @@ jobs:
         run: python3 tools/test_native_dependencies.py
       - name: Verify documentation integrity
         run: python3 tools/docs/check.py
+      - name: Fetch reviewed plan source
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import re
+          import subprocess
+
+          baseline = json.loads(Path("docs/design/multi-raft/cell-groups/baseline.json").read_text())
+          revision = baseline["source_revision"]
+          if not re.fullmatch(r"[0-9a-f]{40}", revision):
+              raise SystemExit("Invalid reviewed plan source revision")
+          # Squashed PR ancestry may be absent even in the main branch's full
+          # history. Fetch exactly the reviewed source without changing HEAD.
+          subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", revision], check=True)
+          PY
       - name: Verify primitive coverage contracts and refusal cases
         run: |
           python3 tools/multi-raft/primitive_coverage.py check-catalog

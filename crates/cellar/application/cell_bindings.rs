@@ -72,6 +72,16 @@ pub(crate) trait Host: Send + Sync {
         method: &str,
     ) -> Result<Route>;
 
+    fn read_route(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+    ) -> Result<Route>;
+
+    fn query(&self, route: Route, input: Vec<u8>, timeout: Duration) -> HandlerFuture<RpcData>;
+
     fn resolve(&self, route: Route, timeout: Duration) -> HandlerFuture<Option<CellHistory>>;
 
     fn enroll(
@@ -284,6 +294,122 @@ impl std::error::Error for CallError {
     }
 }
 
+fn read_resource(scope: &str, method: &str) -> bool {
+    scope
+        .split_once(':')
+        .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
+        && super::workflow::read_operation(method).is_some()
+}
+
+pub(crate) fn resource_rpc(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    call_scope: crate::host_rpc::CallScope,
+) -> HandlerFuture<RpcData> {
+    if !read_resource(&scope, &method) {
+        return Box::pin(async { Err(CommandFailure::UnsupportedCapability.into()) });
+    }
+    rpc_read(context, scope, name, method, args, call_scope, false)
+}
+
+fn rpc_read(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    call_scope: crate::host_rpc::CallScope,
+    charge: bool,
+) -> HandlerFuture<RpcData> {
+    let signal = call_scope.signal.clone();
+    let prepared = (|| -> Result<_> {
+        context.check_binding_turn()?;
+        if charge {
+            context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
+        }
+        if let Some(signal) = &signal {
+            signal.throw_if_aborted()?;
+        }
+        let mut dispatch = crate::storage::capture_raft_dispatch()?
+            .ok_or(CommandFailure::UnsupportedCapability)?;
+        dispatch = dispatch.limit_source(Duration::from_millis(
+            crate::asyncrt::services().operation_deadline_ms()?,
+        ))?;
+        if let Some(deadline) = call_scope.deadline_ms {
+            dispatch = dispatch.limit_source(Duration::from_millis(
+                deadline
+                    .checked_sub(crate::asyncrt::mono_ms())
+                    .filter(|remaining| *remaining != 0)
+                    .ok_or(RuntimeError::DeadlineExceeded)?,
+            ))?;
+        }
+        let source = dispatch.binding_source()?;
+        let route =
+            source
+                .host
+                .read_route(&source.history, source.configuration, &scope, &method)?;
+        let (class, _) = scope
+            .split_once(':')
+            .ok_or(CommandFailure::UnsupportedCapability)?;
+        super::consensus::native_rpc::validate_identity(
+            &context.worker_config.script_name,
+            class,
+            &scope,
+            name.as_deref(),
+        )?;
+        let bytes = route
+            .max_input_bytes
+            .checked_mul(2)
+            .and_then(|bytes| {
+                route
+                    .max_result_bytes
+                    .checked_mul(4)
+                    .and_then(|result| bytes.checked_add(result))
+            })
+            .and_then(|bytes| bytes.checked_add(8192))
+            .ok_or(CommandFailure::Overloaded)?;
+        let lease = source.host.admit(source.group, bytes)?;
+        let input = super::consensus::native_rpc::encode_request(
+            name.as_deref(),
+            &args,
+            route.max_input_bytes,
+        )?;
+        // Reads have no remote mutation/intent to reconcile. The same owned I/O
+        // driver proves prior source writes and retains physical read admission.
+        let call =
+            dispatch.schedule_read(move |remaining| source.host.query(route, input, remaining));
+        Ok((
+            call,
+            crate::rpc_reservation::Reservation::shared(Arc::new(lease)),
+        ))
+    })();
+    Box::pin(async move {
+        let (call, held) = prepared?;
+        let reply = async { call.future.await.and_then(std::convert::identity) };
+        let response = crate::runtime::cancellation::receive(
+            call_scope.parent_cancellation.as_ref(),
+            signal.as_ref(),
+            reply,
+        )
+        .await?;
+        let RpcData::Structured(bytes) = response else {
+            anyhow::bail!(CommandFailure::CorruptState)
+        };
+        if let Some(limit) = call_scope.reply_limit() {
+            anyhow::ensure!(
+                bytes.len() <= limit,
+                crate::application::rpc::Failure::new(
+                    crate::application::rpc::Code::InvalidResponse
+                )
+            );
+        }
+        Ok(RpcData::Structured(held.retain_bytes(bytes)))
+    })
+}
+
 pub(crate) fn rpc(
     context: &Context,
     scope: String,
@@ -292,6 +418,9 @@ pub(crate) fn rpc(
     args: RpcData,
     call_scope: crate::host_rpc::CallScope,
 ) -> HandlerFuture<RpcData> {
+    if read_resource(&scope, &method) {
+        return rpc_read(context, scope, name, method, args, call_scope, true);
+    }
     let signal = call_scope.signal.clone();
     let prepared = (|| -> Result<_> {
         context.check_binding_turn()?;

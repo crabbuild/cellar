@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "e58049eb1ee069cb7e0a61ac2b14d5c72f4d164cb3a625c837cb18b14cfe8b4d"
+    "crates/cellar/application/mod.rs": "497815307b7c611021cefea97caaca3a264da7e2449f9ea6b5437109065aa3fc"
   },
   "entries": [
     {
@@ -286,6 +286,7 @@
       "id": "workflow",
       "family": "workflow",
       "symbols": [
+        "cellar::sdk::Registry::raft_workflow",
         "cellar::sdk::Context::workflow",
         "cellar::sdk::workflow::Workflow",
         "cellar::sdk::workflow::Workflow::create",
@@ -301,7 +302,10 @@
         "crates/cellar/application/workflow/mod.rs",
         "crates/cellar/application/workflow/replay.rs",
         "crates/cellar/application/workflow/rollback.rs",
-        "crates/cellar/application/workflow/stream.rs"
+        "crates/cellar/application/workflow/stream.rs",
+        "crates/cellar/application/consensus/native_workflow.rs",
+        "crates/cellar/application/workflow/turn.rs",
+        "crates/cellar/application/consensus/group_client/workflow_read.rs"
       ],
       "schemas": [
         "Definitions, journals, outputs and compensation"
@@ -370,6 +374,7 @@
       "id": "filesystem",
       "family": "filesystem",
       "symbols": [
+        "cellar::sdk::RaftClass::filesystem",
         "cellar::sdk::Context::fs",
         "cellar::sdk::filesystem::Filesystem",
         "cellar::sdk::filesystem::Filesystem::open",
@@ -388,7 +393,11 @@
       ],
       "owners": [
         "crates/cellar/application/filesystem/mod.rs",
-        "crates/cellar/storage/sqlite/filesystem/schema.sql"
+        "crates/cellar/storage/sqlite/filesystem/schema.sql",
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/application/consensus/native_cell.rs",
+        "crates/cellar/storage/sqlite/command.rs",
+        "crates/cellar/storage/sqlite/immutable.rs"
       ],
       "schemas": [
         "SQLite inodes, directory entries and chunks"
@@ -464,6 +473,7 @@
         "cellar::sdk::RaftClass::cell_rpc",
         "cellar::sdk::RaftClass::query",
         "cellar::sdk::Registry::raft_cell",
+        "cellar::sdk::Registry::raft_primitives",
         "cellar::sdk::CommandContext::sql",
         "cellar::sdk::CommandContext::inputs",
         "cellar::sdk::QueryContext",
@@ -475,6 +485,7 @@
         "cellar::sdk::consensus::RaftApplications::new"
       ],
       "owners": [
+        "crates/cellar/application/mod.rs",
         "crates/cellar/application/consensus/class.rs",
         "crates/cellar/application/consensus/group_client/mod.rs",
         "crates/cellar/application/consensus/native_cell.rs",

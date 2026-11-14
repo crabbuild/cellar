@@ -417,7 +417,21 @@ impl Cells {
     ) -> bool {
         let outcome = match rpc.executor.take() {
             Some(mut executor) => {
+                let failed_callback = result.as_ref().err().is_some_and(|error| {
+                    error.is::<crate::application::consensus::native_work::Failure>()
+                });
                 let staged = executor.finish_rpc(*rpc.turn, result);
+                let staged = if failed_callback {
+                    // The retry receipt is a successful framework mutation,
+                    // but the failed application's memory is never reusable.
+                    let retired = rpc
+                        .activation
+                        .take()
+                        .map_or(Ok(()), |activation| self.activations.retire(activation));
+                    staged.and_then(|outcome| retired.map(|()| outcome))
+                } else {
+                    staged
+                };
                 self.publish_stage(
                     rpc.cell,
                     executor,
@@ -465,12 +479,23 @@ impl Cells {
             };
             // A submitted producer outlives deadline/term loss until exact
             // reconciliation; a parked invocation owns no submitted producer.
-            let admitted = if rpc.checkpoint.is_some() {
+            let mut admitted = if rpc.checkpoint.is_some() {
                 Ok(())
             } else {
                 rpc.check(now)
             };
-            if admitted.is_ok() && !rpc.ready.0.swap(false, Ordering::AcqRel) {
+            let mut yield_queries = false;
+            if admitted.is_ok()
+                && rpc.executor.is_some()
+                && rpc.retention.lease.contended()
+                && rpc.turn.waiting_on_queries()
+            {
+                match rpc.turn.can_park() {
+                    Ok(ready) => yield_queries = ready,
+                    Err(error) => admitted = Err(error),
+                }
+            }
+            if admitted.is_ok() && !rpc.ready.0.swap(false, Ordering::AcqRel) && !yield_queries {
                 self.suspended.push_back(rpc);
                 continue;
             }
@@ -479,6 +504,20 @@ impl Cells {
             let mut cx = Context::from_waker(&waker);
             if let Err(error) = admitted {
                 timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
+                return true;
+            }
+            if yield_queries {
+                // The SQL owner observes contention even if remote query I/O
+                // has not woken. Yield before polling application continuation.
+                match rpc.try_park(&self.activations, now) {
+                    Ok(()) => {
+                        self.suspended.push_back(rpc);
+                        timer.finish(true);
+                    }
+                    Err(error) => {
+                        timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
+                    }
+                }
                 return true;
             }
             if rpc.checkpoint.is_some() {
@@ -533,7 +572,7 @@ impl Cells {
             let Poll::Ready(result) = outcome else {
                 let progress = if let Some(reply) = rpc.turn.take_checkpoint() {
                     rpc.begin_checkpoint(reply, domain)
-                } else if !rpc.ready.0.load(Ordering::Acquire) {
+                } else if !rpc.ready.0.load(Ordering::Acquire) || rpc.retention.lease.contended() {
                     rpc.try_park(&self.activations, now)
                 } else {
                     Ok(())

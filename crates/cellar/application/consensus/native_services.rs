@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Runtime-owned contracts for globally named database cells.
+//! Runtime-owned contracts for shared primitive cells.
 
 use super::{AdmittedCellConfiguration, NativeCellConfiguration, RaftClass, RegistrationError};
 use sha2::{Digest, Sha256};
@@ -117,5 +117,79 @@ pub(in crate::application) fn queue_service(
     class = class.with_cell_factory(Arc::new(move |context, _| {
         crate::application::queue::create_raft_cell(&context, handler.clone())
     }))?;
+    Ok(class.configured_cell(configuration))
+}
+
+/// Enrollment installs the first calendar wake in the same durable creation
+/// record. Retained startup discovers existing work without rearming it.
+pub(in crate::application) fn cron_service(
+    configuration: &AdmittedCellConfiguration,
+    handler: crate::application::Handler,
+    expressions: Vec<String>,
+    history: crate::application::cron::HistoryConfiguration,
+) -> Result<RaftClass, RegistrationError> {
+    crate::deployment_cron::validate(&expressions)
+        .map_err(|_| RegistrationError::Invalid("Raft cron schedule"))?;
+    let mut hash = Sha256::new();
+    hash.update(b"cellar-raft-cron-service-1");
+    hash.update(
+        serde_json::to_vec(&(&expressions, &history))
+            .map_err(|_| RegistrationError::Invalid("Raft cron configuration"))?,
+    );
+    let scope = cellar_logic::cron::reserved_cell(&configuration.script);
+    // Match the constructor's stable binding order. Workflow-only deployments
+    // must arm their first occurrence without an ordinary scheduled handler or
+    // any client traffic. The admitted configuration binds these expressions.
+    let initial = expressions
+        .iter()
+        .cloned()
+        .chain(
+            configuration
+                .workflow_bindings
+                .values()
+                .flat_map(|binding| binding.settings.schedules.iter().cloned()),
+        )
+        .collect::<Vec<_>>();
+    let class = RaftClass::cron_service(hash.finalize().into())?
+        .initializer(
+            Sha256::digest(b"cellar-raft-cron-initializer-1").into(),
+            move |cell, tx| {
+                anyhow::ensure!(
+                    cell.cell.as_str() == scope,
+                    super::CommandFailure::UnsupportedCapability
+                );
+                let parsed = initial
+                    .iter()
+                    .map(|expression| {
+                        cellar_logic::cron::parse(expression)
+                            .map_err(|error| anyhow::anyhow!("{error}"))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                let now = i64::try_from(tx.inputs().now_unix_millis)?;
+                if let Some(at) = cellar_logic::cron::plan(&parsed, None, now, 0, false).arm_at {
+                    super::native_work::arm(&*tx.framework()?, "alarm", at)?;
+                }
+                Ok(())
+            },
+        )?
+        .durable_callbacks()?
+        .query(
+            "__cronHistory",
+            Sha256::digest(b"cellar-raft-cron-history-1").into(),
+            |query, input| {
+                anyhow::ensure!(input.len() <= 4096, super::CommandFailure::Overloaded);
+                let request = serde_json::from_slice(input)?;
+                let page = crate::application::cron::history_page(&query.storage(), request)?;
+                Ok(serde_json::to_vec(&page)?)
+            },
+        )?
+        .with_cell_factory(Arc::new(move |context, _| {
+            crate::application::cron::create_raft_cell(
+                &context,
+                handler.clone(),
+                expressions.clone(),
+                history.clone(),
+            )
+        }))?;
     Ok(class.configured_cell(configuration))
 }

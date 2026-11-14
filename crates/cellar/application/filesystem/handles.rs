@@ -82,8 +82,30 @@ impl Registry {
         fs: &Filesystem,
         description: Arc<Mutex<Description>>,
     ) -> Result<Arc<Descriptor>> {
-        let io = crate::host_io::installed_context()
-            .ok_or_else(|| Error::new(Errno::ESTALE, "no executing filesystem invocation"))?;
+        let raft = if fs.storage.is_raft() {
+            Some(crate::storage::raft_filesystem_lifetime().ok_or_else(|| {
+                Error::new(Errno::ESTALE, "no executing Raft filesystem invocation")
+            })?)
+        } else {
+            None
+        };
+        let io = crate::host_io::installed_context();
+        let (owner, event) = if raft.is_some() {
+            (Weak::new(), Weak::new())
+        } else {
+            let io = io
+                .as_ref()
+                .ok_or_else(|| Error::new(Errno::ESTALE, "no executing filesystem invocation"))?;
+            (
+                Arc::downgrade(io),
+                io.native_event.get().cloned().ok_or_else(|| {
+                    Error::new(
+                        Errno::ESTALE,
+                        "filesystem descriptor has no native invocation owner",
+                    )
+                })?,
+            )
+        };
         let mut registry = self.0.lock().unwrap();
         registry.retain(|record| record.upgrade().is_some_and(|record| record.live()));
         if registry.len() >= fs.limits.max_handles {
@@ -97,18 +119,14 @@ impl Registry {
             .map_err(|_| Error::new(Errno::EMFILE, "filesystem handle identity exhausted"))?;
         let record = Arc::new(Descriptor {
             token,
-            owner: Arc::downgrade(&io),
-            event: io.native_event.get().cloned().ok_or_else(|| {
-                Error::new(
-                    Errno::ESTALE,
-                    "filesystem descriptor has no native invocation owner",
-                )
-            })?,
+            owner,
+            event,
+            raft,
             transaction: fs.storage.1.as_ref().map(Arc::downgrade),
             closed: AtomicBool::new(false),
             description,
         });
-        io.host_services()
+        crate::asyncrt::services()
             .filesystem_handles()
             .register(&record, fs.limits.max_host_handles)?;
         registry.push(Arc::downgrade(&record));
@@ -141,6 +159,7 @@ pub(super) struct Descriptor {
     pub token: u64,
     owner: Weak<crate::host_io::IoContext>,
     event: Weak<crate::application::EventState>,
+    raft: Option<Weak<()>>,
     transaction: Option<Weak<Transaction>>,
     closed: AtomicBool,
     pub description: Arc<Mutex<Description>>,
@@ -149,14 +168,18 @@ pub(super) struct Descriptor {
 impl Descriptor {
     fn live(&self) -> bool {
         !self.closed.load(Ordering::Acquire)
-            && self
-                .event
-                .upgrade()
-                .is_some_and(|event| !event.retired.load(Ordering::Acquire))
-            && self
-                .owner
-                .upgrade()
-                .is_some_and(|io| !io.input_gates.lock().unwrap().retired)
+            && (self.raft.as_ref().map_or_else(
+                || {
+                    self.event
+                        .upgrade()
+                        .is_some_and(|event| !event.retired.load(Ordering::Acquire))
+                        && self
+                            .owner
+                            .upgrade()
+                            .is_some_and(|io| !io.input_gates.lock().unwrap().retired)
+                },
+                |lifetime| lifetime.strong_count() > 0,
+            ))
             && self
                 .transaction
                 .as_ref()
@@ -169,6 +192,18 @@ impl Descriptor {
                 Errno::EBADF,
                 "filesystem descriptor is closed or expired",
             ));
+        }
+        if let Some(lifetime) = &self.raft {
+            if !crate::storage::raft_filesystem_lifetime()
+                .is_some_and(|current| Weak::ptr_eq(lifetime, &current))
+            {
+                return Err(Error::new(
+                    Errno::ESTALE,
+                    "descriptor belongs to another invocation",
+                ));
+            }
+            fs.scope()?;
+            return Ok(());
         }
         let owner = self
             .owner
@@ -510,14 +545,7 @@ impl Directory {
 
     pub(super) fn inode(&self, fs: &Filesystem) -> Result<u64> {
         self.file.record.check(&self.file.fs)?;
-        if !Arc::ptr_eq(
-            self.file
-                .fs
-                .storage
-                .native_activation()
-                .map_err(Error::from)?,
-            fs.storage.native_activation().map_err(Error::from)?,
-        ) {
+        if !std::ptr::eq(self.file.fs.storage.resources(), fs.storage.resources()) {
             return Err(Error::new(
                 Errno::EXDEV,
                 "directory belongs to another cell",

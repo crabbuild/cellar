@@ -33,21 +33,23 @@ def command(argv):
     return result.stdout.strip()
 
 
-def required_resources(nodes):
+def required_resources(nodes, node_memory_gib=3):
     if type(nodes) is not int or nodes not in (1, 3, 5):
         raise ValueError("choose one, three or five local nodes")
-    # Each Cellar node: one CPU / 3 GiB. RustFS: one CPU / 2 GiB.
+    if type(node_memory_gib) is not int or node_memory_gib not in (2, 3):
+        raise ValueError("choose a two or three GiB voter limit")
+    # Each Cellar node: one CPU. RustFS: one CPU / 2 GiB.
     # Leave one CPU and at least 512 MiB for the guest and observation work.
-    return nodes + 2, (nodes * 3 + 2) * GIB + GIB // 2
+    return nodes + 2, (nodes * node_memory_gib + 2) * GIB + GIB // 2
 
 
-def preflight(profile, nodes):
+def preflight(profile, nodes, node_memory_gib=3):
     if not re.fullmatch(r"cellar-multi-raft(?:-[a-z0-9-]+)?", profile):
         raise ValueError("use a separate cellar-multi-raft[-NAME] Colima profile")
     context = "colima-" + profile
     docker = ["docker", "--context", context]
     info = json.loads(command(docker + ["info", "--format", "{{json .}} "]))
-    cpus, memory = required_resources(nodes)
+    cpus, memory = required_resources(nodes, node_memory_gib)
     if info["OSType"] != "linux" or not info.get("MemoryLimit") or not info.get("CpuCfsQuota"):
         raise RuntimeError("qualification requires Linux CPU and memory enforcement")
     if info["NCPU"] < cpus or info["MemTotal"] < memory:
@@ -61,7 +63,7 @@ def preflight(profile, nodes):
         "profile": profile, "context": context, "vm_cpus": info["NCPU"],
         "vm_memory_bytes": info["MemTotal"], "architecture": info["Architecture"],
         "docker_version": info["ServerVersion"], "kernel": info["KernelVersion"],
-        "planned_nodes": nodes, "node_limits": {"cpus": 1, "memory_bytes": 3 * GIB},
+        "planned_nodes": nodes, "node_limits": {"cpus": 1, "memory_bytes": node_memory_gib * GIB},
         "rustfs_limits": {"cpus": 1, "memory_bytes": 2 * GIB},
     }
 
@@ -73,7 +75,7 @@ def save(root, record):
 
 
 def prepare(args):
-    docker, record = preflight(args.profile, args.nodes)
+    docker, record = preflight(args.profile, args.nodes, args.node_memory_gib)
     if not re.fullmatch(r"[a-z0-9./-]+@sha256:[0-9a-f]{64}", args.rustfs_image):
         raise ValueError("pin the RustFS image by repository digest")
     root = args.output.resolve()
@@ -172,11 +174,12 @@ def main():
     parser.add_argument("action", choices=("preflight", "prepare", "probe", "stop"))
     parser.add_argument("--profile", default="cellar-multi-raft")
     parser.add_argument("--nodes", type=int, choices=(1, 3, 5), default=3)
+    parser.add_argument("--node-memory-gib", type=int, choices=(2, 3), default=3)
     parser.add_argument("--rustfs-image", default=RUSTFS_IMAGE)
     parser.add_argument("--output", type=pathlib.Path)
     args = parser.parse_args()
     if args.action == "preflight":
-        print(json.dumps(preflight(args.profile, args.nodes)[1], indent=2))
+        print(json.dumps(preflight(args.profile, args.nodes, args.node_memory_gib)[1], indent=2))
     elif args.output is None:
         parser.error("--output is required for prepare/stop")
     elif args.action == "prepare":

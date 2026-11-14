@@ -69,7 +69,7 @@ impl RpcCache {
         })
     }
 
-    fn retire(&self, value: RpcActivation) -> Result<(), ExecutionError> {
+    pub(super) fn retire(&self, value: RpcActivation) -> Result<(), ExecutionError> {
         let result = value.close();
         if let Err(error) = &result {
             self.record_failure(error)?;

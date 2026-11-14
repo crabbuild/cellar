@@ -46,6 +46,7 @@ fn binding_io_resumes_its_writer_before_mutating_source_storage() -> Result<()> 
             task,
             Arc::new(AtomicBool::new(true)),
             parked_io,
+            false,
         )
     })?;
     let mut cx = Context::from_waker(futures_util::task::noop_waker_ref());
@@ -68,4 +69,65 @@ fn binding_io_resumes_its_writer_before_mutating_source_storage() -> Result<()> 
 
 fn storage_value(authority: &RaftStorageAuthority) -> Result<Option<serde_json::Value>> {
     Storage::raft_command(authority.clone()).get_json("value")
+}
+
+#[test]
+#[allow(clippy::disallowed_methods)]
+fn query_writer_hint_requires_proof_and_excludes_mixed_work() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut database = crate::storage::CommandDatabase::open(
+        &root.path().join("query-source.sqlite"),
+        None,
+        16 * 1024 * 1024,
+    )?;
+    let inputs = crate::storage::CommandInputs {
+        now_unix_millis: 1000,
+        random: [2; 32],
+    };
+    database.transaction(inputs, |tx| {
+        tx.storage()?;
+        Ok(())
+    })?;
+    let active = database.begin(inputs, 2)?;
+    let storage = active.turn(|tx| tx.storage())?;
+    let Owner::RaftCommand(authority) = storage.0.clone() else {
+        anyhow::bail!("source command authority required")
+    };
+    let proven = Arc::new(AtomicBool::new(false));
+    active.turn(|_| {
+        crate::storage::schedule_raft_dispatch_work(
+            &authority,
+            Box::pin(std::future::pending()),
+            proven.clone(),
+            Arc::new(AtomicBool::new(true)),
+            true,
+        )
+    })?;
+    assert!(!active.waiting_on_queries());
+    proven.store(true, Ordering::Release);
+    assert!(active.waiting_on_queries());
+    assert!(active.can_park()?);
+    let checkpoint = active.turn(|_| Ok(crate::storage::commit_raft_work(&authority)))?;
+    assert!(!active.waiting_on_queries());
+    active
+        .take_checkpoint()
+        .unwrap()
+        .send(Ok(()))
+        .map_err(|_| anyhow!("checkpoint cancelled"))?;
+    drop(checkpoint);
+    assert!(active.waiting_on_queries());
+    // Generic external I/O must retain the ordinary park/resume policy.
+    active.turn(|_| {
+        crate::storage::schedule_raft_dispatch_work(
+            &authority,
+            Box::pin(std::future::pending()),
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AtomicBool::new(true)),
+            false,
+        )
+    })?;
+    assert!(!active.waiting_on_queries());
+    active.cancel_work()?;
+    assert!(!active.waiting_on_queries());
+    database.settle(active, Ok(()))
 }

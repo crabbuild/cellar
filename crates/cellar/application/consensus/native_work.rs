@@ -31,17 +31,28 @@ fn exists(db: &Connection) -> Result<bool> {
 
 fn install(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS __sys_raft_native_work (
-        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue')),
+        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue','filesystem','outbox','stream-maintenance','resource-reconciliation')),
         generation BLOB NOT NULL CHECK(typeof(generation)='blob' AND length(generation)=16),
         due INTEGER NOT NULL CHECK(typeof(due)='integer' AND due>=0),
-        attempts INTEGER NOT NULL CHECK(typeof(attempts)='integer' AND attempts BETWEEN 0 AND 4294967295)
+        attempts INTEGER NOT NULL CHECK(typeof(attempts)='integer' AND attempts BETWEEN 0 AND 4294967295),
+        retry INTEGER NOT NULL CHECK(typeof(retry)='integer' AND retry BETWEEN 0 AND 4294967295),
+        counted_retry INTEGER NOT NULL CHECK(typeof(counted_retry)='integer' AND counted_retry BETWEEN 0 AND 4294967295),
+        claimed INTEGER NOT NULL CHECK(typeof(claimed)='integer' AND claimed IN (0,1))
     ) WITHOUT ROWID; CREATE INDEX IF NOT EXISTS __sys_raft_native_work_due ON __sys_raft_native_work(due,reason);")?;
     Ok(())
 }
 
 fn validate(reason: &str) -> Result<()> {
     ensure!(
-        matches!(reason, "alarm" | "queue"),
+        matches!(
+            reason,
+            "alarm"
+                | "queue"
+                | "filesystem"
+                | "outbox"
+                | "stream-maintenance"
+                | "resource-reconciliation"
+        ),
         CommandFailure::UnsupportedCapability
     );
     Ok(())
@@ -53,7 +64,7 @@ pub(crate) fn arm(db: &Connection, reason: &str, due: i64) -> Result<()> {
     install(db)?;
     let mut generation = [0; 16];
     cellar_native::crypto::random_values(&mut generation)?;
-    db.execute("INSERT INTO __sys_raft_native_work(reason,generation,due,attempts) VALUES(?1,?2,?3,0) ON CONFLICT(reason) DO UPDATE SET generation=excluded.generation,due=excluded.due,attempts=0",params![reason,generation.as_slice(),due])?;
+    db.execute("INSERT INTO __sys_raft_native_work(reason,generation,due,attempts,retry,counted_retry,claimed) VALUES(?1,?2,?3,0,0,0,0) ON CONFLICT(reason) DO UPDATE SET generation=excluded.generation,due=excluded.due,attempts=0,retry=0,counted_retry=0,claimed=0",params![reason,generation.as_slice(),due])?;
     Ok(())
 }
 
@@ -62,12 +73,19 @@ pub(crate) fn arm(db: &Connection, reason: &str, due: i64) -> Result<()> {
 /// must always get a replacement, even at the same/later deadline, so its old
 /// completion cannot remove a newly installed retry or delayed delivery.
 pub(crate) fn arm_queue(db: &Connection, due: i64) -> Result<()> {
+    arm_maintenance(db, "queue", due)
+}
+
+/// Preserve an earlier unclaimed wake; replace claimed work so its completion
+/// cannot erase a new obligation installed by the callback.
+pub(crate) fn arm_maintenance(db: &Connection, reason: &str, due: i64) -> Result<()> {
+    validate(reason)?;
     ensure!(due >= 0, CommandFailure::UnsupportedCapability);
     if exists(db)? {
         let pending: Option<(i64, u32)> = db
             .query_row(
-                "SELECT due,attempts FROM __sys_raft_native_work WHERE reason='queue'",
-                [],
+                "SELECT due,attempts FROM __sys_raft_native_work WHERE reason=?1",
+                [reason],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
@@ -75,7 +93,7 @@ pub(crate) fn arm_queue(db: &Connection, due: i64) -> Result<()> {
             return Ok(());
         }
     }
-    arm(db, "queue", due)
+    arm(db, reason, due)
 }
 
 pub(crate) fn get(db: &Connection, reason: &str) -> Result<Option<i64>> {
@@ -164,19 +182,85 @@ pub(crate) fn claim(db: &Connection, work: &Work, now: u64) -> Result<bool> {
         .attempts
         .checked_add(1)
         .ok_or(CommandFailure::Overloaded)?;
-    Ok(db.execute("UPDATE __sys_raft_native_work SET due=?5,attempts=?6 WHERE reason=?1 AND generation=?2 AND due=?3 AND attempts=?4",params![work.reason,work.generation.as_slice(),work.due,work.attempts,next,attempts])? == 1)
+    Ok(db.execute("UPDATE __sys_raft_native_work SET due=?5,attempts=?6,claimed=1 WHERE reason=?1 AND generation=?2 AND due=?3 AND attempts=?4",params![work.reason,work.generation.as_slice(),work.due,work.attempts,next,attempts])? == 1)
 }
 
-pub(crate) fn complete(db: &Connection, work: &Work) -> Result<()> {
+pub(crate) fn complete(db: &Connection, work: &Work, leased_until: u64) -> Result<()> {
     db.execute(
-        "DELETE FROM __sys_raft_native_work WHERE reason=?1 AND generation=?2 AND attempts=?3",
+        "DELETE FROM __sys_raft_native_work WHERE reason=?1 AND generation=?2 AND attempts=?3 AND due=?4 AND claimed=1",
         params![
             work.reason,
             work.generation.as_slice(),
-            u64::from(work.attempts) + 1
+            u64::from(work.attempts) + 1,
+            leased_until
         ],
     )?;
     Ok(())
+}
+
+/// Only a known application error/panic after the claim proof creates this tag.
+/// Kernel cancellation, failed claim sync and unknown physical outcomes do not.
+#[derive(Debug)]
+pub(crate) struct Failure {
+    pub work: Work,
+    pub leased_until: u64,
+    pub at_ms: i64,
+    pub cause: anyhow::Error,
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ordinary alarm callback failed")
+    }
+}
+
+impl std::error::Error for Failure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.cause.as_ref())
+    }
+}
+
+/// Persist only after rolling back this attempt's unsynced application writes.
+/// The full claim prevents duplicate failure and late completion from changing
+/// a replacement, a newer attempt or an already persisted backoff.
+pub(crate) fn retry_failed(
+    db: &Connection,
+    work: &Work,
+    leased_until: u64,
+    now: i64,
+    counts_against_limit: bool,
+) -> Result<bool> {
+    ensure!(
+        work.reason == "alarm" && now >= 0,
+        CommandFailure::UnsupportedCapability
+    );
+    let attempt = u64::from(work.attempts) + 1;
+    let counters: Option<(u32, u32)> = db.query_row(
+        "SELECT retry,counted_retry FROM __sys_raft_native_work WHERE reason=?1 AND generation=?2 AND attempts=?3 AND due=?4 AND claimed=1",
+        params![work.reason, work.generation.as_slice(), attempt, leased_until],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional()?;
+    let Some((retry, counted)) = counters else {
+        return Ok(false);
+    };
+    let next =
+        cellar_logic::alarm::alarm_retry(now, retry.into(), counted.into(), counts_against_limit);
+    let changed = if let Some(next) = next {
+        let next_retry = retry.checked_add(1).ok_or(CommandFailure::Overloaded)?;
+        let next_counted = counted
+            .checked_add(u32::from(counts_against_limit))
+            .ok_or(CommandFailure::Overloaded)?;
+        db.execute(
+            "UPDATE __sys_raft_native_work SET due=?5,retry=?6,counted_retry=?7,claimed=0 WHERE reason=?1 AND generation=?2 AND attempts=?3 AND due=?4 AND claimed=1 AND retry=?8 AND counted_retry=?9",
+            params![work.reason, work.generation.as_slice(), attempt, leased_until, next, next_retry, next_counted, retry, counted],
+        )?
+    } else {
+        db.execute(
+            "DELETE FROM __sys_raft_native_work WHERE reason=?1 AND generation=?2 AND attempts=?3 AND due=?4 AND claimed=1 AND retry=?5 AND counted_retry=?6",
+            params![work.reason, work.generation.as_slice(), attempt, leased_until, retry, counted],
+        )?
+    };
+    Ok(changed == 1)
 }
 
 #[cfg(test)]

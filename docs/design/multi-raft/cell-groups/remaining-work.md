@@ -37,106 +37,71 @@ full disaster profile remain open.
 ## Primitive delivery priority
 
 Full public primitive compatibility is the required Quorum product contract.
-A passing SQL/KV foundation is not the final supported scope. Keep CG-17 feature
-delivery ahead of optional routing/performance work and retain recovery and
-release gates.
+The remaining work includes missing adapters and failing runtime gates; a scoped
+SQL/KV or filesystem pass is not the final supported scope.
 
-Source `25d81992` provides SQL writer-release wakeups, yielding of contended
-private binding maintenance and bounded background archive tails. Waiting S3
-outputs use a complete checkpoint. Original identities, deadlines, exact proofs,
-physical ownership and quotas remain mandatory. See the
-[current executed results](progress.md#cg-17-binding-deadlines-and-archive-tails)
-for native and real-RustFS binding/recovery, SQL/KV, alarm, Queue and archive
-coverage. Current failed selections: none in these component campaigns.
+At combined source `c13a4745`, the public filesystem/inbox adapter passes both
+native and real-RustFS image forms. Queue claim/lease coalescing passes all eight
+native/RustFS image/minimum configurations and preserves denied-publication
+refusal before consumer entry. Queue fault/retention, ordinary alarm failures,
+Fleet conformance and selected real-RustFS Workflows pass. Both load campaigns
+remain FAILED: native producer sequence 9 and RustFS producer sequence 7 exceed
+their original request budgets before final drain. An initial RustFS proof run
+also fails managed trust-refresh startup; the later pass does not explain it.
+See the [current qualification](progress.md#cg-17-combined-filesystem-and-queue-proof-qualification).
 
-Earlier `dc19ce98` passes live bindings and interrupted recovery each 8/8,
-RustFS SQL 4/4 plus 8/8 interrupted recovery, KV 4/4 including 25-MiB values,
-and alarms 12/12. Its Queue load fails materialized producer sequence 36 after
-ten normal/fault/long-callback image configurations pass. `024b8080` passes
-materialized 528-message load but fails extent producer sequence 35 and three
-native live-binding configurations. Keep all failed controls and disks; a newer
-pass cannot erase them or establish a capacity-deadlock cause. The older
-intermittent archive-deadline failure also remains unexplained.
+At source `6282bb46`, the EventStream source journal and shared work bridge pass
+40 owning units and six Fleet conformance tests. The `11c223a7` follow-up fixes Workflow test placement and passes strict
+library/all-test Clippy without changing production code.
+This does not qualify the authenticated destination or public EventStream path.
+See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-1. Implement ordinary alarm handler-failure rollback followed by committed,
-   generation-fenced backoff/exhaustion using the existing pure retry policy.
-   The claim lease is not that policy. Then connect cron deployment/startup,
-   persisted occurrence/history and the shared alarm projection. Pending work
-   must resume without client traffic after restart, movement and wake.
-2. Complete Queue lifecycle/load, EventStream and Workflow execution through
-   their public adapters. Queue normal/fault/long-callback/load results retain
-   their exact source pins; full-size payload, clock, deployment, movement/wake
-   and disk-loss boundaries remain. EventStream needs committed outbox/inbox
-   authority and Workflow its durable execution/replay adapter. Reuse bounded
+1. **Deliver EventStream end to end.** Implement ordinary publication and
+   subscription routing, committed outbox discovery, destination authority,
+   receipt/acknowledgement settlement and autonomous interrupted delivery
+   recovery. The integrated inbox bridge alone is insufficient. Keep original
+   event/lane identities through movement and new-incarnation recovery; never
+   treat a source commit as destination acceptance.
+   The source journal, per-lane identity and shared work bridge are described in
+   the [EventStream contract](event-stream-durability.md). Public activation still
+   requires the authenticated target path and resource bootstrap.
+2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
+   and fault oracles, then resolve producer deadlines and the older final-drain
+   failures under the unchanged load and budgets. Qualify both image forms.
+   Fix concurrent boot reconciliation and ensure every failed startup joins its
+   owners and retains its disks; the current retention branch covers activation
+   errors only. Do not attribute intermittent failures to an unproven cause.
+3. **Complete bindings, durable time and Workflow lifecycle.** Qualify independent
+   target-S3 minima, interruption before target proof, unused child sequence
+   sealing, concurrent/cross-class creation and large calls. Complete SQL
+   sessions, KV TTL/revision, schedule deployment changes, clock discontinuities,
+   long continuous callbacks, movement/wake and cold-start contention. Ordinary
+   and scheduled Workflow passed all eight real-RustFS native/Axum configurations
+   at `7e4347e9`; this does not accept its complete family matrix. Reuse bounded
    shared owners rather than per-idle-cell tasks.
-3. Complete the remaining binding and SQL/KV recovery with independent target-S3 minima,
-   interruption before the target checkpoint, unused child sequence sealing,
-   concurrent/cross-class creation and interrupted large calls. Add movement,
-   wake and cold-start contention. Verify actual external values and wire bytes
-   before recovery admission; prepared uploads are not confirmed dependencies.
-4. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
-   container/provider execution, including stateless/ephemeral and optional
-   adapter regressions. Root-aware collection must protect retained images,
-   readers, pending uploads, interrupted turns and recovery cuts. See the
-   [payload contract](payload-storage.md).
-5. Require every CG-17 API/scenario/configuration gate and the CG-15/16 combined
-   recovery/release matrix before claiming full support or default cutover.
-   Qualify independent Linux voters, partitions, constrained load, reclamation,
-   crashes and disk loss. Bound archive verification by actual generation/byte
-   capacity as well as replay work at large group sizes. Quorum refusal must
-   never fall back to Fleet/bucket storage. Full-plan acceptance remains
-   **13/17 tasks and 147/195 cases**; this checkpoint accepts no complete family.
+4. **Finish payload and provider adapters.** Complete Blob/external payload
+   publication, actual-byte recovery verification and root-aware collection that
+   protects retained images, readers, pending uploads and interrupted turns.
+   Qualify filesystem movement/wake, archive outage/load and disk-loss recovery.
+   Deliver HTTP/streaming, WebSocket reconnect/stale-owner handling, container and
+   external-provider fencing/reconciliation, and stateless/ephemeral and optional
+   adapter conformance. See [payload storage](payload-storage.md) and
+   [Workflow durability](workflow-durability.md).
+5. **Qualify and cut over at one release revision.** Complete CG-13 managed
+   recovery and all CG-17 API/scenario/configuration gates, then CG-15/16 with
+   constrained independent Linux voters, partitions, replacement, split/merge,
+   park/wake, archive outages, physical reclamation, crashes and fenced all-voter
+   disk loss. Bound archive verification by generation/byte capacity as well as
+   replay work. Require complete coverage evidence, public SDK/native/Axum/CLI/
+   admin and Fleet/bucket/feature-mode regressions, then remove legacy Raft paths.
+   Quorum refusal must never fall back to weaker durability.
 
-Full CLI plan preflight currently stops at the missing historical
-`CG-01-06-gates-e32115aa-02/CG-01-record.json` evidence file. Reviewed source
-anchors and plan/verifier unit tests pass; this does not replace the missing
-evidence or validate the complete release history.
-
-Feature checkpoints must identify the public API delivered and its remaining
-limits. Current-incarnation discovery passes its native control at `f2dcf1b0`,
-but real RustFS interleaving fails with `Runtime(Overloaded)` before the name
-case runs. Preserve that failure as a release gate. The public Storage KV-cursor
-adapter passes its three owning native selections and focused strict Clippy at
-`3200321f`. All six exact primitive RustFS cases pass at runner source
-`2f42cb5f`, including current-incarnation discovery and Storage, with unchanged
-native/build inputs. The earlier intermittent interleaving failure remains open.
-These checkpoints establish neither complete named-binding support nor a full
-primitive-family case.
-The SQL cursor execution owner and constructor-cached SQL/KV invocation fence are
-implemented at `89fe63fb`; committed-source compile, formatting and layout pass.
-At `d8974158`, four owning native selections and strict Clippy pass, including
-paired native/Raft schema-rollback behavior, root checkpoints and the existing
-RPC fault gates with live VMs. At `3f1fd59d`, the awaited sync extension passes natively, but real RustFS
-qualification fails RPC and dependent SDK deadlines; Storage, activation,
-interleaving and name discovery pass. A contextual RPC rerun passes while SDK
-fails at a different earlier observer wait. Keep both failures as release gates.
-Its read-VM/checkpoint/recursive-dispatch lifetime proof must precede a complete
-Storage or family claim.
-Source `2f6b7735` delivers transactional `delete_all`, preservation of Raft
-receipt/effect metadata, pending-delivery refusal and SQLite-based eager SQL batch
-selection. Four owning native selections and the exact real RustFS Storage case
-pass; five earlier erasure-owner checks retain their separate source. See the
-[erasure checkpoint](progress.md#cg-17-transactional-business-state-erasure) for
-failed controls, exact pins and scope. The full RustFS campaign and ordinary
-bindings remain open.
-
-At `053b6be6`, live read VMs survive same-cell SDK dispatch without retaining writer
-admission. Five owning native selections pass, including lazy rows, current-image
-reads, leadership fencing and physical image release. The exact real RustFS SDK
-case passes in both image modes at Quorum/S3 minima with the same executable.
-The backend and VM are stopped. This closes the reproduced cursor deadlock;
-earlier intermittent full-campaign deadline failures and complete primitive-family
-acceptance remain open. See the [cursor checkpoint](progress.md#cg-17-read-cursors-across-dependent-sdk-calls).
-
-At `202c0452`, leader-preferred publication, verified follower prefixes and
-bounded archive retries pass all 14 selected native commands and all six existing
-primitive RustFS commands. At `9e02f3f6`, per-configuration reporting confirms
-Quorum named bindings in both image forms on native storage and real RustFS;
-both S3-source configurations fail their unchanged deadlines. The complete
-binding case remains failed. Both owned RustFS campaigns stop cleanly. The
-catalog remains partial: 18 entries, 202 symbols and 4,872 coverage cells. No
-complete family or task is accepted. See the
-[current checkpoint](progress.md#cg-17-leader-archive-publication-and-quorum-binding-checkpoint).
+The primitive catalogue remains partial. Full-plan acceptance is **13/17 tasks
+and 147/195 cases**; no complete primitive family is accepted. Full CLI plan
+preflight also retains the missing historical
+`CG-01-06-gates-e32115aa-02/CG-01-record.json` evidence gate. The reviewed daemon
+source anchor is refreshed separately after current runtime qualification; neither
+that refresh nor verifier unit passes replace complete release evidence.
 
 ## Current boundary
 

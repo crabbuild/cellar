@@ -41,6 +41,9 @@ use std::{
 const SECRET: &str = "fixture-secret-raft-cli";
 
 fn child(root: PathBuf, mode: String) -> Result<()> {
+    if mode == "provision-cron" || mode.starts_with("cron-") {
+        return managed::cron::child(root, &mode);
+    }
     if mode == "provision-sql" {
         return Host::local(graph::graph("raft-cli", "", vec![]))
             .register("raft-cli", "test", || {
@@ -404,10 +407,12 @@ impl Process {
         let diagnostics = root.join(format!("{mode}-stderr.log"));
         // A new process generation keeps the configured physical node label.
         // The authenticated directory refreshes its new addresses and boot.
-        let label = managed::retained_index(mode).map_or_else(
-            || format!("raft-cli-{mode}"),
-            |index| format!("raft-cli-cluster-{index}"),
-        );
+        let label = managed::retained_index(mode)
+            .or_else(|| managed::cron::member(mode))
+            .map_or_else(
+                || format!("raft-cli-{mode}"),
+                |index| format!("raft-cli-cluster-{index}"),
+            );
         let mut cmd = Command::new(std::env::current_exe()?);
         cmd.env_clear()
             .env("CELLAR_RAFT_CLI_CHILD", mode)
@@ -426,8 +431,17 @@ impl Process {
                 "127.0.0.1:0",
             ])
             .args(data_args);
-        if mode.starts_with("cluster-") {
+        if mode.starts_with("cluster-") || mode.starts_with("cron-") {
             managed::configure_deployment(&mut cmd, root)?;
+        }
+        if mode.starts_with("cron-") {
+            cmd.env(
+                "CELLAR_RAFT_CRON_MINIMUM",
+                std::env::var("CELLAR_RAFT_CRON_MINIMUM")?,
+            );
+        }
+        if let Some(cli) = std::env::var_os("CELLAR_RAFT_OPERATOR_CLI") {
+            cmd.env("CELLAR_RAFT_OPERATOR_CLI", cli);
         }
         if override_dir {
             cmd.env("CELLAR_TEST_DATA_DIR", root.join("override"));
@@ -571,7 +585,7 @@ async fn qualify() -> Result<()> {
             .await?;
         ensure!(
             logs.contains(expected) && !logs.contains("cellar listening on "),
-            "wrong refusal\n{logs}"
+            "wrong refusal for {name}\n{logs}"
         );
         ensure!(
             !root.path().join("prepared").exists(),
@@ -580,7 +594,7 @@ async fn qualify() -> Result<()> {
     }
     for (mode, expected) in [
         ("missing-app", "absent from the active deployment"),
-        ("bad-schema", "compiled namespace schema mismatch"),
+        ("bad-schema", "Raft registration: ContractMismatch"),
         (
             "missing-peer-auth",
             "requires a fleet bucket for shared peer authentication",
@@ -598,7 +612,7 @@ async fn qualify() -> Result<()> {
         .await?;
         ensure!(
             logs.contains(expected) && !logs.contains("cellar listening on "),
-            "wrong refusal\n{logs}"
+            "wrong refusal for {mode}\n{logs}"
         );
         ensure!(
             !disk.join("raft").exists(),
@@ -1048,5 +1062,11 @@ fn main() -> Result<()> {
         .worker_threads(3)
         .enable_all()
         .build()?
-        .block_on(qualify())
+        .block_on(async {
+            if std::env::var_os("CELLAR_RAFT_CRON_PROCESS_GATE").is_some() {
+                managed::cron::qualify().await
+            } else {
+                qualify().await
+            }
+        })
 }

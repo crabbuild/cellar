@@ -662,6 +662,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/event-stream-durability.md",
+      "title": "EventStream on shared groups",
+      "summary": "Define the source journal, callback ownership and remaining public EventStream adapters.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/handoff.md",
       "title": "Cell-group implementation handoff",
       "summary": "Current implementation checkpoint, evidence transfer and next executor steps.",
@@ -770,6 +782,18 @@
       "path": "design/multi-raft/cell-groups/queue-durable-work.md",
       "title": "Durable native callbacks and Queue",
       "summary": "Generation-fenced callback discovery and ordinary Queue delivery through shared-group quorum.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/workflow-durability.md",
+      "title": "Workflow on shared-group Quorum durability",
+      "summary": "Ordinary Workflow execution, journal proofs and remaining qualification boundaries.",
       "roles": [
         "builder",
         "platform",
