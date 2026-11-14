@@ -308,7 +308,7 @@ impl std::error::Error for CallError {
 enum ReadAccess {
     Resource,
     Binding,
-    Event(super::consensus::native_event_rpc::Authority),
+    Event(Box<super::consensus::native_event_rpc::Authority>),
 }
 
 fn read_resource(scope: &str, method: &str) -> bool {
@@ -415,7 +415,7 @@ fn rpc_read(
                 &scope,
                 name.as_deref(),
                 &method,
-                authority,
+                *authority,
                 &args,
                 route.max_input_bytes,
             )?,
@@ -499,7 +499,7 @@ pub(crate) fn event_rpc(
             method,
             args,
             call_scope,
-            ReadAccess::Event(authority),
+            ReadAccess::Event(Box::new(authority)),
         );
     }
     rpc_admitted(
