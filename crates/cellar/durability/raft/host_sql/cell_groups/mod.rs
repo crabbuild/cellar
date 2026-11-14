@@ -888,7 +888,9 @@ impl CellGroupSqlPool {
         mode: CellSqlStageMode,
         callback: worker::Callback,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
-        let (cell, action) = self.stage_request(options, authority, attempt, mode, callback)?;
+        let (cell, action) = self
+            .stage_request(options, authority, attempt, mode, callback)
+            .await?;
         let wait = self
             .send_ordinary(cell, action)
             .map_err(|error| self.stage_failure(error, true))?;
@@ -921,10 +923,16 @@ impl CellGroupSqlPool {
         }
     }
 
-    fn stage_request(
+    fn stage_reservation_failure(&self, refusal: admission::Failure) -> CellSqlStageFailure {
+        let mut failure = self.stage_failure(refusal.error, true);
+        failure.capacity_wait = refusal.wait;
+        failure
+    }
+
+    async fn stage_request(
         &self,
         options: CellSqlOptions,
-        authority: CellExecutionAuthority,
+        mut authority: CellExecutionAuthority,
         attempt: CommandAttempt,
         mode: CellSqlStageMode,
         callback: worker::Callback,
@@ -957,15 +965,60 @@ impl CellGroupSqlPool {
             .and_then(|n| n.checked_add(4096))
             .ok_or_else(|| self.stage_failure(overloaded(), true))?;
         let cell = authority.cell().version.history.clone();
-        let (lease, bytes) = self
-            .inner
-            .admission
-            .reserve_stage(&cell, authority.route().history, bytes)
-            .map_err(|refusal| {
-                let mut failure = self.stage_failure(refusal.error, true);
-                failure.capacity_wait = refusal.wait;
-                failure
-            })?;
+        let group = authority.route().history;
+        let (lease, bytes) = if let (
+            CellSqlStageMode::InvokeBefore(deadline),
+            worker::Callback::Registered {
+                class,
+                commits: Some(commits),
+                ..
+            },
+        ) = (mode, &callback)
+        {
+            if class.is_cell_rpc(&attempt.request.operation) {
+                let fence = authority.activation_fence();
+                let domain = self.inner.workers[0].domain.clone();
+                let timeout = domain
+                    .sleep_until(deadline)
+                    .map_err(|_| self.stage_failure(unavailable(), true))?;
+                let waiting = async {
+                    let reserved = self
+                        .inner
+                        .admission
+                        .reserve_queued(&cell, group, bytes)
+                        .await
+                        .map_err(|failure| self.stage_reservation_failure(failure))?;
+                    self.admit()
+                        .map_err(|error| self.stage_failure(error, true))?;
+                    // The old writer may have proven several roots while this
+                    // request waited. Rebase only before any application entry,
+                    // keeping the original term/history fence and command ID.
+                    let fresh = commits
+                        .continuation_authority(&domain, &cell, &fence)
+                        .await
+                        .map_err(|error| self.stage_failure(error, true))?;
+
+                    Ok::<_, CellSqlStageFailure>((reserved, fresh))
+                };
+                let (reserved, fresh) = crate::asyncrt::select_biased! {
+                    "original SQL writer admission deadline";
+                    _=timeout=>return Err(self.stage_failure(crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded), true)),
+                    result=waiting=>result?,
+                };
+                authority = fresh;
+                reserved
+            } else {
+                self.inner
+                    .admission
+                    .reserve_stage(&cell, group, bytes)
+                    .map_err(|failure| self.stage_reservation_failure(failure))?
+            }
+        } else {
+            self.inner
+                .admission
+                .reserve_stage(&cell, group, bytes)
+                .map_err(|failure| self.stage_reservation_failure(failure))?
+        };
         Ok((
             cell,
             worker::Action::Stage(Box::new(worker::Stage {
@@ -1175,6 +1228,7 @@ impl CellGroupSqlPool {
 
     pub async fn close(&self) -> Result<(), ExecutionError> {
         self.inner.closing.store(true, Ordering::Release);
+        self.inner.admission.close();
         self.inner.stop.notify_one();
         self.inner
             .terminal

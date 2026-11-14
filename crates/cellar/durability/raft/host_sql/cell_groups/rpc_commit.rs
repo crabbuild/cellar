@@ -17,6 +17,54 @@ pub(crate) struct RpcCommitContext {
     pub bindings: Option<Arc<dyn crate::application::cell_bindings::Host>>,
 }
 
+impl RpcCommitContext {
+    /// Refresh before application entry or a proven-root continuation while
+    /// retaining the caller's writer position and original execution deadline.
+    pub(super) async fn continuation_authority(
+        &self,
+        domain: &crate::asyncrt::DomainToken,
+        cell: &CellHistory,
+        fence: &crate::raft::cell_groups::CellActivationFence,
+    ) -> Result<CellExecutionAuthority, ExecutionError> {
+        let timeout = domain
+            .sleep_until(self.deadline)
+            .map_err(|_| unavailable())?;
+        let waiting = async {
+            loop {
+                if !fence.term_current() {
+                    return Err(unavailable());
+                }
+                let now = domain.mono_ms().map_err(|_| unavailable())?;
+                if now >= self.deadline {
+                    return Err(crate::raft::execution::authority_failure(
+                        RuntimeError::DeadlineExceeded,
+                    ));
+                }
+                match self
+                    .runtime
+                    .execution_authority(self.route.history, cell.clone())
+                    .await
+                {
+                    Ok(authority) if fence.accepts_continuation(&authority) => {
+                        return Ok(authority)
+                    }
+                    Ok(_) => return Err(unavailable()),
+                    // Another cell can have a committed entry awaiting apply
+                    // after this writer reaches the head of its local queue.
+                    // Keep the invocation; only authority readiness is retried.
+                    Err(RuntimeError::NotReady | RuntimeError::Overloaded) => pause(domain).await?,
+                    Err(error) => return Err(crate::raft::execution::authority_failure(error)),
+                }
+            }
+        };
+        crate::asyncrt::select_biased! {
+            "original RPC authority deadline";
+            _=timeout=>Err(crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded)),
+            result=waiting=>result,
+        }
+    }
+}
+
 pub(super) enum CheckpointProof {
     Current(
         Box<CellExecutionAuthority>,

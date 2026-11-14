@@ -1,6 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Shared Storage over private commands and pinned committed queries.
+// Filesystem descriptors traverse the native activation and HTTP client types.
+#![recursion_limit = "256"]
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::engine_api::RpcData;
@@ -32,6 +34,8 @@ mod binding_recovery;
 mod bindings;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
+#[path = "support/cell_group_cron.rs"]
+mod cron;
 #[path = "support/sql_cursor_limits.rs"]
 mod cursor_limits;
 #[path = "support/sql_cursor_rollback.rs"]
@@ -40,6 +44,8 @@ mod cursor_rollback;
 mod dispatch;
 #[path = "support/cell_group_erase.rs"]
 mod erase;
+#[path = "support/cell_group_filesystem.rs"]
+mod filesystem;
 #[path = "support/cell_group_interleaving.rs"]
 mod interleaving;
 #[path = "support/cell_group_kv.rs"]
@@ -69,6 +75,38 @@ mod sql_cursors;
 mod sql_exec_batches;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
+#[path = "support/workflow_contract.rs"]
+mod workflow_contract;
+#[path = "support/cell_group_workflow.rs"]
+mod workflows;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
+    Box::pin(cron::qualify(false)).await
+}
+
+#[test]
+fn cron_declarations_refuse_changed_or_invalid_contracts() -> Result<()> {
+    cron::validate_contracts()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_cron_recovers_occurrences_without_requests() -> Result<()> {
+    Box::pin(cron::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn filesystem_transactions_and_descriptors_recover_through_shared_quorum() -> Result<()> {
+    filesystem::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum() -> Result<()>
+{
+    filesystem::qualify(true).await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
@@ -91,6 +129,73 @@ async fn rustfs_perf_queue() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_alarms_recover_through_shared_quorum() -> Result<()> {
     alarms::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_workflows_use_shared_quorum() -> Result<()> {
+    workflows::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scheduled_workflows_use_shared_quorum() -> Result<()> {
+    workflows::schedules(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_scheduled_workflows_use_shared_quorum() -> Result<()> {
+    workflows::schedules(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_scheduled_workflows_use_shared_quorum() -> Result<()> {
+    workflows::schedules(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn workflow_stream_checkpoints_allow_control_progress() -> Result<()> {
+    workflows::stream_controls().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
+    alarms::qualify_failures(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_alarm_failures_exhaust_durable_retries() -> Result<()> {
+    alarms::qualify_exhaustion(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_ordinary_workflows_use_shared_quorum() -> Result<()> {
+    workflows::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_workflows_use_shared_quorum() -> Result<()> {
+    workflows::qualify(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
+    alarms::qualify_failures(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
+    alarms::qualify_failures(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_alarm_failures_exhaust_durable_retries() -> Result<()> {
+    alarms::qualify_exhaustion(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1895,6 +2000,17 @@ async fn axum_sql_bindings_and_operators_use_managed_shared_groups() -> Result<(
 #[ignore = "requires isolated local RustFS and the compiled SQL CLI"]
 async fn rustfs_axum_sql_bindings_and_operators_use_managed_shared_groups() -> Result<()> {
     Box::pin(sql_bindings::qualify_axum(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_batch_claim_and_lease_share_one_proof_before_consumer_entry() -> Result<()> {
+    Box::pin(queues::qualify_batch_proof(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit isolated real RustFS configuration"]
+async fn rustfs_queue_batch_claim_and_lease_share_one_proof_before_consumer_entry() -> Result<()> {
+    Box::pin(queues::qualify_batch_proof(true)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

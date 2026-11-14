@@ -682,6 +682,7 @@ pub(crate) async fn start(
             service.configure_automatic_partitions(control, config.clone())?;
             Box::pin(service.resume_automatic_partitions(config.service.turn_timeout)).await?;
         }
+        service.start_cron_bootstrap()?;
         startup.public.take();
         startup.service.take();
         startup.sql.take();

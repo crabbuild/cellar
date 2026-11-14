@@ -26,18 +26,20 @@ pub(crate) fn initialize(scope: &str, limits: FilesystemLimits) -> Result<()> {
         return Ok(());
     }
     mutate(scope, limits, |db| {
-        let work_schema: String = db.connection.query_row(
-            "SELECT sql FROM sqlite_schema WHERE type='table' AND name='__sys_work'",
-            [],
-            |row| row.get(0),
-        )?;
-        if !work_schema.contains("'filesystem-maintenance'") {
-            return Err(Error::new(
-                Errno::EOPNOTSUPP,
-                "development database predates filesystem maintenance format",
-            )
-            .with_code("UnsupportedFormat")
-            .into());
+        if scope != super::RAFT_STORAGE_SCOPE {
+            let work_schema: String = db.connection.query_row(
+                "SELECT sql FROM sqlite_schema WHERE type='table' AND name='__sys_work'",
+                [],
+                |row| row.get(0),
+            )?;
+            if !work_schema.contains("'filesystem-maintenance'") {
+                return Err(Error::new(
+                    Errno::EOPNOTSUPP,
+                    "development database predates filesystem maintenance format",
+                )
+                .with_code("UnsupportedFormat")
+                .into());
+            }
         }
         db.connection.execute_batch(include_str!("schema.sql"))?;
         db.check_quota()
@@ -64,6 +66,14 @@ fn initialized(connection: &Connection) -> Result<bool> {
 /// Validate an already persisted filesystem before installing its connection as
 /// an admitted activation. This does not initialize unused filesystem state.
 pub(super) fn validate_existing(connection: &Connection) -> Result<()> {
+    validate(connection, true)
+}
+
+pub(super) fn validate_raft_existing(connection: &Connection) -> Result<()> {
+    validate(connection, false)
+}
+
+fn validate(connection: &Connection, ordinary_work: bool) -> Result<()> {
     if initialized(connection)? {
         let resize_trigger: Option<String> = connection
             .query_row(
@@ -85,15 +95,17 @@ pub(super) fn validate_existing(connection: &Connection) -> Result<()> {
         connection.prepare("SELECT id FROM __sys_fs_inodes INDEXED BY __sys_fs_live_directories WHERE parent=1 AND kind=1 AND nlink>0 ORDER BY id LIMIT 0")?;
         let root:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM __sys_fs_inodes WHERE id=1 AND kind=1 AND parent=1 AND nlink>=2)",[],|row|row.get(0))?;
         anyhow::ensure!(root, "invalid filesystem root inode");
-        let work_schema: String = connection.query_row(
-            "SELECT sql FROM sqlite_schema WHERE type='table' AND name='__sys_work'",
-            [],
-            |row| row.get(0),
-        )?;
-        anyhow::ensure!(
-            work_schema.contains("'filesystem-maintenance'"),
-            "unsupported filesystem maintenance format"
-        );
+        if ordinary_work {
+            let work_schema: String = connection.query_row(
+                "SELECT sql FROM sqlite_schema WHERE type='table' AND name='__sys_work'",
+                [],
+                |row| row.get(0),
+            )?;
+            anyhow::ensure!(
+                work_schema.contains("'filesystem-maintenance'"),
+                "unsupported filesystem maintenance format"
+            );
+        }
     }
     Ok(())
 }
@@ -128,7 +140,7 @@ pub(crate) fn mutate<T>(
             Ok(result)
         })
     });
-    if result.is_ok() {
+    if result.is_ok() && scope != super::RAFT_STORAGE_SCOPE {
         if let Some(deadline) = super::publish_alarm(scope) {
             if deadline >= 0 && crate::host_io::installed_context().is_some() {
                 crate::host_gates::spawn_arm_gate(

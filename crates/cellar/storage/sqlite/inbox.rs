@@ -52,17 +52,11 @@ fn transaction<T>(
             !connection.is_autocommit(),
             "inbox operations require an active transaction"
         );
-        without_sql_authorizer(connection, || {
-            connection.execute_batch("SAVEPOINT cellar_inbox;")?;
-            let result = (|| {
+        with_storage_batch(connection, |connection| {
+            as_framework_sql(|| {
                 open_schema(connection)?;
                 callback(connection)
-            })();
-            if result.is_err() {
-                connection.execute_batch("ROLLBACK TO cellar_inbox;")?;
-            }
-            connection.execute_batch("RELEASE cellar_inbox;")?;
-            result
+            })
         })
     })
 }
@@ -144,6 +138,73 @@ mod tests {
     use super::*;
 
     const SCOPE: &str = "Inbox:test";
+
+    #[test]
+    fn raft_inbox_receipts_share_business_rollback_and_preserve_the_command_authorizer(
+    ) -> anyhow::Result<()> {
+        use crate::application::event_stream::{Envelope, Record};
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("command.sqlite");
+        let event = Envelope {
+            id: "v1:lane:1".into(),
+            lane: "lane".into(),
+            sequence: 1,
+            source: "Source:one".into(),
+            source_incarnation: "11".repeat(16),
+            family: "orders".into(),
+            version: 1,
+            key: "order".into(),
+            created_at_ms: 0,
+            payload: serde_json::json!({"value": 7}),
+        };
+        let record = Record {
+            offset: 1,
+            encoded: serde_json::to_vec(&event)?,
+            event,
+        };
+        let inputs = CommandInputs {
+            now_unix_millis: 1,
+            random: [1; 32],
+        };
+        let mut database = command::CommandDatabase::open(&path, None, 4 * 1024 * 1024)?;
+        let mut escaped = None;
+        database.transaction(inputs, |transaction| {
+            let storage = transaction.storage()?;
+            let rolled: anyhow::Result<()> = storage.tx(|tx| {
+                assert!(tx.inbox("shipping")?.accept(&record)?);
+                tx.put_json("effect", &true.into())?;
+                anyhow::bail!("roll back receipt and business effect")
+            });
+            assert!(rolled.is_err());
+            assert!(storage.get_json("effect")?.is_none());
+            assert!(storage.inbox("shipping")?.accept(&record)?);
+            storage.put_json("effect", &true.into())?;
+            assert!(!storage.inbox("shipping")?.accept(&record)?);
+            let mut conflict = record.clone();
+            conflict.event.payload = false.into();
+            conflict.encoded = serde_json::to_vec(&conflict.event)?;
+            assert!(storage.inbox("shipping")?.accept(&conflict).is_err());
+            // Inbox framework SQL must never replace the private command's
+            // stricter authorizer with the ordinary activation authorizer.
+            assert!(storage.sql("SELECT random()", &[]).is_err());
+            assert!(storage.sql("PRAGMA user_version=7", &[]).is_err());
+            assert!(storage.sql("SELECT * FROM __sys_inbox", &[]).is_err());
+            escaped = Some(storage.inbox("shipping")?);
+            Ok(())
+        })?;
+        assert!(escaped.as_ref().unwrap().accept(&record).is_err());
+        drop(database);
+        let mut database = command::CommandDatabase::open(&path, None, 4 * 1024 * 1024)?;
+        database.transaction(inputs, |transaction| {
+            let storage = transaction.storage()?;
+            assert!(!storage.inbox("shipping")?.accept(&record)?);
+            assert_eq!(storage.get_json("effect")?, Some(true.into()));
+            assert!(escaped.as_ref().unwrap().accept(&record).is_err());
+            assert_eq!(storage.inbox("shipping")?.prune_before(i64::MAX, 1)?, 1);
+            assert!(storage.inbox("shipping")?.accept(&record)?);
+            Ok(())
+        })
+    }
 
     #[test]
     fn receipt_and_effect_rollback_and_duplicate_at_capacity_is_safe() -> anyhow::Result<()> {

@@ -8,13 +8,14 @@ use super::*;
 use crate::application::event_stream::{Binding, DeliveryError, Envelope, ErrorCode, SealStatus};
 use cellar_logic::event_stream::Limits;
 use rand::RngCore;
+use sha2::{Digest, Sha256};
 
 const SCHEMA: super::event_schema::Schema = super::event_schema::Schema {
     marker: "__sys_outbox_schema",
     ddl: include_str!("outbox.sql"),
     required: &[
-        ("__sys_event_source", "singleton,incarnation,protocol"),
-        ("__sys_outbox_lanes", "lane,binding,next_sequence,settled_through,status,retry_at_ms,attempts,last_error,dispatch_generation,pending_rows,pending_bytes,blocked_reason"),
+        ("__sys_event_source", "singleton,incarnation,protocol,source,owner"),
+        ("__sys_outbox_lanes", "lane,binding,next_sequence,settled_through,status,retry_at_ms,attempts,last_error,dispatch_generation,pending_rows,pending_bytes,blocked_reason,incarnation"),
         ("__sys_outbox", "lane,sequence,envelope,size,created_at_ms"),
         ("__sys_outbox_stats", "singleton,rows,bytes"),
         ("__sys_outbox_blocked", "reason,lanes"),
@@ -141,6 +142,30 @@ fn validate_policy(connection: &Connection, limits: Limits) -> anyhow::Result<()
     Ok(())
 }
 
+fn source_owner(scope: &str, history: Option<&cellar_logic::cell_group::CellHistory>) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"cellar-event-source-owner-1");
+    if let Some(history) = history {
+        hash.update([1]);
+        hash.update(history.cluster.bytes());
+        hash.update(history.namespace.bytes());
+        hash.update((history.cell.as_str().len() as u64).to_be_bytes());
+        hash.update(history.cell.as_str().as_bytes());
+    } else {
+        hash.update([0]);
+        hash.update(scope.as_bytes());
+    }
+    hash.finalize().into()
+}
+
+fn raft_incarnation(history: &cellar_logic::cell_group::CellHistory) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"cellar-raft-event-incarnation-1");
+    hash.update(source_owner(history.cell.as_str(), Some(history)));
+    hash.update(history.incarnation.bytes());
+    hex::encode(&hash.finalize()[..16])
+}
+
 pub(crate) fn emit(
     scope: &str,
     binding: &Binding,
@@ -149,11 +174,49 @@ pub(crate) fn emit(
     payload: serde_json::Value,
     limits: Limits,
 ) -> anyhow::Result<()> {
+    emit_with_history(scope, binding, version, key, payload, limits, None)
+}
+
+pub(crate) fn emit_raft(
+    binding: &Binding,
+    version: u32,
+    key: String,
+    payload: serde_json::Value,
+    limits: Limits,
+    history: &cellar_logic::cell_group::CellHistory,
+) -> anyhow::Result<()> {
+    emit_with_history(
+        RAFT_STORAGE_SCOPE,
+        binding,
+        version,
+        key,
+        payload,
+        limits,
+        Some(history),
+    )
+}
+
+fn emit_with_history(
+    scope: &str,
+    binding: &Binding,
+    version: u32,
+    key: String,
+    payload: serde_json::Value,
+    limits: Limits,
+    history: Option<&cellar_logic::cell_group::CellHistory>,
+) -> anyhow::Result<()> {
     binding.validate()?;
     anyhow::ensure!(binding.publish, "event stream publication is forbidden");
     limits.validate()?;
     let now_ms = crate::asyncrt::wall_ms();
     anyhow::ensure!(now_ms >= 0, "event creation time must be nonnegative");
+    let source = history.map_or(scope, |history| history.cell.as_str());
+    let expected_owner = source_owner(source, history);
+    let raft = command::with(|_| ()).is_some();
+    anyhow::ensure!(
+        raft == history.is_some(),
+        "event source history differs from its execution backend"
+    );
     with_application_storage_write(scope, |connection| {
         if connection.is_autocommit() {
             return Err(DeliveryError::new(
@@ -162,35 +225,63 @@ pub(crate) fn emit(
             )
             .into());
         }
-        without_sql_authorizer(connection, || {
-            connection.execute_batch("SAVEPOINT cellar_outbox_emit;")?;
-            let result = (|| -> anyhow::Result<()> {
+        with_storage_batch(connection, |connection| {
+            as_framework_sql(|| {
                 open_schema(connection)?;
                 let incarnation = connection
                     .query_row(
-                        "SELECT incarnation FROM __sys_event_source WHERE singleton=1",
+                        "SELECT incarnation,source,owner FROM __sys_event_source WHERE singleton=1",
                         [],
-                        |row| row.get::<_, String>(0),
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, Vec<u8>>(2)?,
+                            ))
+                        },
                     )
                     .optional()?;
                 let incarnation = match incarnation {
-                    Some(value) => value,
+                    Some((value, stored_source, owner)) => {
+                        anyhow::ensure!(
+                            stored_source == source && owner.as_slice() == expected_owner,
+                            "event source belongs to another logical cell"
+                        );
+                        if let Some(history) = history {
+                            let current = raft_incarnation(history);
+                            if current != value {
+                                // Old lanes and envelopes retain their original
+                                // identities. Fresh writes use the new history.
+                                connection.execute("UPDATE __sys_event_source SET incarnation=?1 WHERE singleton=1", [&current])?;
+                            }
+                            current
+                        } else {
+                            value
+                        }
+                    }
                     None => {
-                        let mut random = [0; 16];
-                        crate::asyncrt::rng("event-source-incarnation")
-                            .try_fill_bytes(&mut random)
-                            .map_err(|error| {
-                                anyhow::anyhow!("event source identity generation failed: {error}")
-                            })?;
-                        let value = hex::encode(random);
-                        connection
-                            .execute("INSERT INTO __sys_event_source VALUES(1,?1,1)", [&value])?;
+                        let mut random =
+                            history.map_or([0; 16], |history| history.incarnation.bytes());
+                        if history.is_none() {
+                            crate::asyncrt::rng("event-source-incarnation")
+                                .try_fill_bytes(&mut random)
+                                .map_err(|error| {
+                                    anyhow::anyhow!(
+                                        "event source identity generation failed: {error}"
+                                    )
+                                })?;
+                        }
+                        let value = history.map_or_else(|| hex::encode(random), raft_incarnation);
+                        connection.execute(
+                            "INSERT INTO __sys_event_source VALUES(1,?1,1,?2,?3)",
+                            rusqlite::params![value, source, expected_owner.as_slice()],
+                        )?;
                         value
                     }
                 };
                 let lane = crate::application::event_stream::lane_identity(
                     &binding.resource,
-                    scope,
+                    source,
                     &incarnation,
                 )?;
                 let next = connection
@@ -237,8 +328,8 @@ pub(crate) fn emit(
                         .into());
                     }
                     connection.execute(
-                        "INSERT INTO __sys_outbox_lanes(lane,binding,next_sequence,retry_at_ms) VALUES(?1,?2,1,?3)",
-                        rusqlite::params![lane,encoded_binding,now_ms],
+                        "INSERT INTO __sys_outbox_lanes(lane,binding,next_sequence,retry_at_ms,incarnation) VALUES(?1,?2,1,?3,?4)",
+                        rusqlite::params![lane,encoded_binding,now_ms,incarnation],
                     )?;
                     1
                 };
@@ -249,7 +340,7 @@ pub(crate) fn emit(
                     id: format!("v1:{lane}:{sequence}"),
                     lane: lane.clone(),
                     sequence,
-                    source: scope.to_owned(),
+                    source: source.to_owned(),
                     source_incarnation: incarnation,
                     family: binding.resource.family.clone(),
                     version,
@@ -281,6 +372,9 @@ pub(crate) fn emit(
                     )
                     .into());
                 }
+                if raft {
+                    connection.execute_batch(work::SCHEMA)?;
+                }
                 connection.execute(
                     "INSERT INTO __sys_outbox VALUES(?1,?2,?3,?4,?5)",
                     rusqlite::params![lane, sequence, bytes, size, now_ms],
@@ -295,34 +389,47 @@ pub(crate) fn emit(
                         at_ms=CASE WHEN at_ms IS NULL THEN excluded.at_ms ELSE min(at_ms,excluded.at_ms) END",
                     rusqlite::params![scope,now_ms],
                 )?;
+                if raft {
+                    crate::application::consensus::native_work::arm_maintenance(
+                        connection, "outbox", now_ms,
+                    )?;
+                }
                 Ok(())
-            })();
-            if result.is_err() {
-                connection.execute_batch("ROLLBACK TO cellar_outbox_emit;")?;
-            }
-            connection.execute_batch("RELEASE cellar_outbox_emit;")?;
-            result
+            })
         })
     })?;
-    publish_alarm(scope);
+    if !raft {
+        publish_alarm(scope);
+    }
     Ok(())
 }
 
 pub(crate) fn ensure_schema(scope: &str) -> anyhow::Result<()> {
     with_application_storage_write(scope, |connection| {
-        without_sql_authorizer(connection, || {
-            connection.execute_batch("SAVEPOINT cellar_outbox_schema;")?;
-            let result = open_schema(connection);
-            if result.is_err() {
-                connection.execute_batch("ROLLBACK TO cellar_outbox_schema;")?;
-            }
-            connection.execute_batch("RELEASE cellar_outbox_schema;")?;
-            result
+        with_storage_batch(connection, |connection| {
+            as_framework_sql(|| open_schema(connection))
         })
     })
 }
 
 pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::Result<SealStatus> {
+    seal_with_history(scope, binding, operation, None)
+}
+
+pub(crate) fn seal_raft(
+    binding: &Binding,
+    operation: &str,
+    history: &cellar_logic::cell_group::CellHistory,
+) -> anyhow::Result<SealStatus> {
+    seal_with_history(RAFT_STORAGE_SCOPE, binding, operation, Some(history))
+}
+
+fn seal_with_history(
+    scope: &str,
+    binding: &Binding,
+    operation: &str,
+    history: Option<&cellar_logic::cell_group::CellHistory>,
+) -> anyhow::Result<SealStatus> {
     binding.validate()?;
     anyhow::ensure!(binding.publish, "event stream publication is forbidden");
     anyhow::ensure!(
@@ -333,14 +440,19 @@ pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::R
         "invalid seal operation identity"
     );
     let now = crate::asyncrt::wall_ms();
+    let source = history.map_or(scope, |history| history.cell.as_str());
+    let raft = command::with(|_| ()).is_some();
+    anyhow::ensure!(
+        raft == history.is_some(),
+        "event source history differs from its execution backend"
+    );
     let result = with_application_storage_write(scope, |connection| {
         anyhow::ensure!(
             !connection.is_autocommit(),
             "producer sealing requires an active transaction"
         );
-        without_sql_authorizer(connection, || {
-            connection.execute_batch("SAVEPOINT cellar_outbox_seal;")?;
-            let result = (|| -> anyhow::Result<SealStatus> {
+        with_storage_batch(connection, |connection| {
+            as_framework_sql(|| {
                 open_schema(connection)?;
                 let incarnation = connection
                     .query_row(
@@ -355,9 +467,10 @@ pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::R
                             "source has no producer incarnation",
                         )
                     })?;
+                let incarnation = history.map_or(incarnation, raft_incarnation);
                 let lane = crate::application::event_stream::lane_identity(
                     &binding.resource,
-                    scope,
+                    source,
                     &incarnation,
                 )?;
                 let prior = connection
@@ -444,21 +557,23 @@ pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::R
                 connection.execute("INSERT INTO __sys_work(scope,reason,generation,at_ms) VALUES(?1,'outbox',1,?2)
                     ON CONFLICT(scope,reason) DO UPDATE SET generation=generation+1,at_ms=CASE WHEN at_ms IS NULL THEN excluded.at_ms ELSE min(at_ms,excluded.at_ms) END",
                     rusqlite::params![scope,now])?;
+                if raft {
+                    crate::application::consensus::native_work::arm_maintenance(
+                        connection, "outbox", now,
+                    )?;
+                }
                 Ok(SealStatus {
                     lane,
                     operation: operation.into(),
                     terminal,
                     state: "pending".into(),
                 })
-            })();
-            if result.is_err() {
-                connection.execute_batch("ROLLBACK TO cellar_outbox_seal;")?;
-            }
-            connection.execute_batch("RELEASE cellar_outbox_seal;")?;
-            result
+            })
         })
     })?;
-    publish_alarm(scope);
+    if !raft {
+        publish_alarm(scope);
+    }
     Ok(result)
 }
 
@@ -477,6 +592,10 @@ pub(crate) fn retained_source(scope: &str) -> anyhow::Result<bool> {
     })
     .ok_or_else(|| anyhow::anyhow!("source recovery storage is not resident"))?
 }
+
+#[cfg(test)]
+#[path = "outbox_raft_tests.rs"]
+mod raft_tests;
 
 #[cfg(test)]
 mod tests {

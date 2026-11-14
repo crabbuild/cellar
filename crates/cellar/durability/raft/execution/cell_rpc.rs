@@ -67,6 +67,10 @@ impl CellRpcTurn {
         self.step != 0 && self.transaction.can_poll_parked_io()
     }
 
+    pub(crate) fn waiting_on_queries(&self) -> bool {
+        self.step != 0 && self.output.is_none() && self.transaction.waiting_on_queries()
+    }
+
     pub(crate) fn poll_parked_io(&self, cx: &mut Context<'_>) -> Result<bool, ExecutionError> {
         self.transaction.poll_parked_io(cx).map_err(private_failure)
     }
@@ -161,6 +165,7 @@ impl CellPrivateExecutor {
                     domain,
                     deadline,
                     result_limit: self.options.limits.max_result_bytes,
+                    checkpoint_limit: self.options.limits.envelope.max_payload_bytes,
                     fence: self.authority.activation_fence(),
                     binding_source: bindings.and_then(|host| {
                         class.cell_configuration_digest().map(|configuration| {
@@ -242,31 +247,81 @@ impl CellPrivateExecutor {
         // A callback destructor runs with its Storage view uninstalled.
         let dropped = drop_handler(future);
         let cancelled = transaction.cancel_work();
-        let result = result.and_then(|result| {
-            dropped?;
-            cancelled?;
-            self.check_rpc()?;
-            transaction.turn(|tx| {
-                if result.len() > self.options.limits.max_result_bytes {
-                    return Err(CommandFailure::Overloaded.into());
-                }
-                let connection = tx.framework()?;
-                receipts::complete_rpc(
-                    &connection,
-                    &attempt.request,
-                    &self.options.limits,
-                    step,
-                    result,
-                )?;
-                command::check_capacity(self.options.limits, &connection)
+        let failure = result
+            .as_ref()
+            .err()
+            .and_then(|error| {
+                error.downcast_ref::<crate::application::consensus::native_work::Failure>()
             })
-        });
-        self.working
-            .as_mut()
-            .ok_or(ExecutionError::RebuildRequired)?
-            .database_mut()
-            .settle(transaction, result)
-            .map_err(private_failure)?;
+            .map(|failure| (failure.work.clone(), failure.leased_until, failure.at_ms));
+        if let Some((work, leased_until, at_ms)) = failure {
+            let cleanup = dropped.and(cancelled);
+            // Reinstall the connection and roll back only unsynced application
+            // writes. Earlier independently proven checkpoints remain intact.
+            self.working
+                .as_mut()
+                .ok_or(ExecutionError::RebuildRequired)?
+                .database_mut()
+                .abort(transaction)
+                .map_err(private_failure)?;
+            cleanup.map_err(private_failure)?;
+            self.check_rpc()?;
+            if step == 0
+                || attempt.request.operation
+                    != crate::application::consensus::native_work::OPERATION
+            {
+                return Err(ExecutionError::Invalid("unproven native alarm failure"));
+            }
+            let limits = self.options.limits;
+            self.working
+                .as_mut()
+                .ok_or(ExecutionError::RebuildRequired)?
+                .database_mut()
+                .transaction(attempt.inputs, |tx| {
+                    if limits.max_result_bytes < 1 {
+                        return Err(CommandFailure::Overloaded.into());
+                    }
+                    let connection = tx.framework()?;
+                    crate::application::consensus::native_work::retry_failed(
+                        &connection,
+                        &work,
+                        leased_until,
+                        at_ms,
+                        true,
+                    )?;
+                    // This is a completed private maintenance command, not a
+                    // successful application result. Output 2 records failure.
+                    receipts::complete_rpc(&connection, &attempt.request, &limits, step, vec![2])?;
+                    command::check_capacity(limits, &connection)
+                })
+                .map_err(private_failure)?;
+        } else {
+            let result = result.and_then(|result| {
+                dropped?;
+                cancelled?;
+                self.check_rpc()?;
+                transaction.turn(|tx| {
+                    if result.len() > self.options.limits.max_result_bytes {
+                        return Err(CommandFailure::Overloaded.into());
+                    }
+                    let connection = tx.framework()?;
+                    receipts::complete_rpc(
+                        &connection,
+                        &attempt.request,
+                        &self.options.limits,
+                        step,
+                        result,
+                    )?;
+                    command::check_capacity(self.options.limits, &connection)
+                })
+            });
+            self.working
+                .as_mut()
+                .ok_or(ExecutionError::RebuildRequired)?
+                .database_mut()
+                .settle(transaction, result)
+                .map_err(private_failure)?;
+        }
         let outcome = self.capture_stage(
             attempt,
             preparation.ok_or(ExecutionError::Invalid("RPC preparation missing"))?,
@@ -408,6 +463,9 @@ impl CellPrivateExecutor {
             .database_mut()
             .continue_checkpoint(&turn.transaction)
             .map_err(private_failure)?;
+        turn.transaction.mark_quorum_read_base(
+            turn.step != 0 && turn.attempt.request.durability == Durability::Quorum,
+        );
         turn.preparation = Some(StagePreparation {
             sequence,
             log_reservation,

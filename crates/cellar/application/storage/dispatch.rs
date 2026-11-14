@@ -12,6 +12,8 @@ pub(crate) struct RaftDispatchContext {
     pub domain: DomainToken,
     pub deadline: u64,
     pub result_limit: usize,
+    /// The private producer still enforces the complete encoded envelope bound.
+    pub checkpoint_limit: usize,
     pub fence: CellActivationFence,
     pub binding_source: Option<crate::application::cell_bindings::Source>,
 }
@@ -81,6 +83,11 @@ impl RaftDispatch {
             .ok_or(consensus::CommandFailure::UnsupportedCapability)?
             .history
             .clone())
+    }
+
+    pub(crate) fn checkpoint_limit(&self) -> Result<usize> {
+        self.remaining()?;
+        Ok(self.context.checkpoint_limit)
     }
 
     pub(crate) fn result_limit(&self) -> Result<usize> {
@@ -231,7 +238,7 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        self.try_schedule_inner(action, Arc::new(AtomicBool::new(false)))
+        self.try_schedule_inner(action, Arc::new(AtomicBool::new(false)), false)
     }
 
     /// The binding adapter alone owns both its remote I/O and private intent
@@ -248,11 +255,11 @@ impl RaftDispatch {
             authority: self.authority.clone(),
             parked_io: parked_io.clone(),
         };
-        self.try_schedule_inner(move |_| action(io), parked_io)
+        self.try_schedule_inner(move |_| action(io), parked_io, false)
     }
 
-    /// Payload adapters execute only owned byte I/O after source proof. They
-    /// can progress while their writer is parked; they cannot access SQLite or
+    /// Target calls and payload adapters execute owned I/O after source proof.
+    /// They can progress while their writer is parked; they cannot access SQLite or
     /// poll the application continuation until that writer resumes.
     pub(crate) fn schedule_io<T, F, Fut>(self, action: F) -> DispatchCall<T>
     where
@@ -260,7 +267,26 @@ impl RaftDispatch {
         F: FnOnce(Duration) -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        match self.try_schedule_inner(action, Arc::new(AtomicBool::new(true))) {
+        self.schedule_owned_io(action, false)
+    }
+
+    /// Only the host's pure Query adapter may reuse an unchanged source proof.
+    pub(crate) fn schedule_read<T, F, Fut>(self, action: F) -> DispatchCall<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(Duration) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        self.schedule_owned_io(action, true)
+    }
+
+    fn schedule_owned_io<T, F, Fut>(self, action: F, read_only: bool) -> DispatchCall<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(Duration) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        match self.try_schedule_inner(action, Arc::new(AtomicBool::new(true)), read_only) {
             Ok(call) => call,
             Err(error) => DispatchCall {
                 started: Arc::new(AtomicBool::new(false)),
@@ -273,6 +299,7 @@ impl RaftDispatch {
         self,
         action: F,
         parked_io: Arc<AtomicBool>,
+        read_only: bool,
     ) -> Result<DispatchCall<T>>
     where
         T: Send + 'static,
@@ -298,7 +325,11 @@ impl RaftDispatch {
                 let proof = async {
                     slot.admission.clone().await.map_err(anyhow::Error::msg)?;
                     self.remaining()?;
-                    crate::storage::commit_raft_work(&self.authority).await
+                    if read_only {
+                        crate::storage::confirm_raft_read_work(&self.authority).await
+                    } else {
+                        crate::storage::commit_raft_work(&self.authority).await
+                    }
                 }
                 .await;
                 drop(slot);
@@ -333,7 +364,9 @@ impl RaftDispatch {
                 let _ = send.send(result);
                 Ok(())
             });
-            crate::storage::schedule_raft_dispatch_work(&authority, task, external, parked_io)?;
+            crate::storage::schedule_raft_dispatch_work(
+                &authority, task, external, parked_io, read_only,
+            )?;
             Ok(receive)
         })();
         let receive = prepared?;

@@ -47,7 +47,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "immutable-payloads", "queue-primitives"):
+                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "immutable-payloads", "queue-primitives"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -60,7 +60,7 @@ class SqlCampaignTests(unittest.TestCase):
                     self.assertEqual("--nocapture" in argv,
                                      selection in ("rustfs_queue_load_preserves_acknowledged_messages",
                                                    "rustfs_queue_four_in_flight_preserves_acknowledged_messages"))
-                if suite in ("ordinary-kv-bindings", "ordinary-alarms"):
+                if suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem"):
                     self.assertIn("--show-output", argv)
                     self.assertNotIn("--nocapture", argv)
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
@@ -233,6 +233,21 @@ class KvCampaignTests(unittest.TestCase):
 
     def test_kv_refuses_success_with_no_selected_test(self):
         self.campaign("zero", "ordinary-kv-bindings")
+
+
+
+
+class WorkflowCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_workflows_capture_exact_native_and_axum_cases(self):
+        self.campaign(suite="ordinary-workflows")
+
+    def test_workflows_refuse_success_with_no_selected_test(self):
+        self.campaign("zero", "ordinary-workflows")
+
+    def test_workflows_preserve_each_failed_case(self):
+        self.campaign("zero", "ordinary-workflows", keep_going=True)
 
 
 if __name__ == "__main__":

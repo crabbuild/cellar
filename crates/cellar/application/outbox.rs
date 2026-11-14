@@ -83,8 +83,8 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
         let operation = text(selected, "seal_operation")?;
         let incarnation = db
             .system_sql(
-                "SELECT incarnation FROM __sys_event_source WHERE singleton=1",
-                &[],
+                "SELECT incarnation FROM __sys_outbox_lanes WHERE lane=?",
+                &[lane.clone().into()],
             )?
             .remove(0);
         (

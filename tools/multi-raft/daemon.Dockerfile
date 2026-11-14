@@ -13,7 +13,7 @@ COPY tools ./tools
 RUN --mount=type=cache,id=cellar-linux-daemon-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
     find Cargo.toml Cargo.lock crates examples tools vendor -type f -exec touch {} + && \
-    (CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_TERM_COLOR=never \
+    (CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_TERM_COLOR=never \
       cargo test -j "${BUILD_JOBS}" --locked -p cellar --test native_raft_daemon --no-run >/tmp/build.log 2>&1 \
       || (cat /tmp/build.log && exit 1)) && \
     fixture=$(sed -n 's/^ *Executable tests\/native_raft_daemon.rs (\(.*\))$/\1/p' /tmp/build.log) && \

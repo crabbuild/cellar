@@ -89,6 +89,39 @@ fn refused(fixture: &Fixture, cell: &CellHistory, group: GroupHistory, bytes: us
 }
 
 #[tokio::test]
+async fn queued_writer_bank_refusal_preserves_fitting_wait_proof() -> anyhow::Result<()> {
+    let f = Fixture::new(2, 2).await?;
+    let group = group(6)?;
+    let (holder, mut physical) = f.admission.reserve(&cell(group, "a")?, group, 64)?;
+    let failure = f
+        .admission
+        .reserve_queued(&cell(group, "b")?, group, 8)
+        .await
+        .err()
+        .expect("full group bank refused before writer queueing");
+    assert!(matches!(
+        failure.error,
+        ExecutionError::Refused(CommandFailure::Overloaded)
+    ));
+    let capacity = failure.wait.expect("queued path retains bank wait proof");
+    assert_eq!(f.admission.usage()?, (1, 64, 1));
+    {
+        let mut wait = std::pin::pin!(capacity.released());
+        assert!(wait.as_mut().now_or_never().is_none());
+        Bytes::shrink(&mut physical, 56)?;
+        assert!(wait.as_mut().now_or_never().is_some());
+    }
+    let admitted = f
+        .admission
+        .reserve_queued(&cell(group, "b")?, group, 8)
+        .await
+        .map_err(|failure| failure.error)?;
+    assert_eq!(f.admission.usage()?, (2, 64, 2));
+    drop((holder, physical, admitted, capacity));
+    f.close().await
+}
+
+#[tokio::test]
 async fn capacity_wait_wakes_after_shrink_and_last_retained_owner() -> anyhow::Result<()> {
     let f = Fixture::new(4, 4).await?;
     let group = group(6)?;
@@ -315,7 +348,9 @@ async fn writer_release_wakes_waiters_without_raft_apply() -> anyhow::Result<()>
         ))
         .await???;
     let (second, second_bytes) = admission.reserve(&cell, group, 1024)?;
-    assert!(matches!(first.resume(), Err(ExecutionError::Busy)));
+    assert!(std::future::poll_fn(|cx| first.resume(cx))
+        .now_or_never()
+        .is_none());
     drop(second);
     domain
         .run(crate::asyncrt::timeout(
@@ -323,7 +358,7 @@ async fn writer_release_wakes_waiters_without_raft_apply() -> anyhow::Result<()>
             progress.changed(),
         ))
         .await???;
-    first.resume()?;
+    std::future::poll_fn(|cx| first.resume(cx)).await?;
     drop(first);
     domain
         .run(crate::asyncrt::timeout(
@@ -400,6 +435,102 @@ async fn retirement_seals_late_sql_without_refunding_held_or_other_group_work() 
     ));
     drop(unrelated);
     assert!(admission.retire(second)?);
+    drop(admission);
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn queued_writers_precede_callback_resume_and_cancel_without_refunding_physical_work(
+) -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                root.path().join("raft"),
+                NodeId::new([1; 16])?,
+                DiskLineage::new([2; 16])?,
+                ProcessGeneration::new([3; 16])?,
+                LogOpenMode::Create,
+            ),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let admission = Admission::new(
+        CellSqlLimits {
+            workers: 1,
+            queue_per_worker: 4,
+            max_pending_cells: 4,
+            group_pending_cells: 3,
+            node_bytes: 16_384,
+            group_bytes: 8192,
+        },
+        log.claim_sql_pool()?,
+        2,
+        log.performance(),
+    );
+    let group = GroupHistory {
+        cluster: ClusterId::new([4; 16])?,
+        namespace: NamespaceId::new([5; 16])?,
+        group: GroupId::new([6; 16])?,
+        incarnation: IncarnationId::new([7; 16])?,
+    };
+    let cell = CellHistory {
+        cluster: group.cluster,
+        namespace: group.namespace,
+        cell: CellId::new("workflow:one")?,
+        incarnation: group.incarnation,
+    };
+    let (mut callback, physical) = admission.reserve(&cell, group, 1024)?;
+    let mut control = Box::pin(admission.reserve_queued(&cell, group, 1024));
+    assert!(control.as_mut().now_or_never().is_none());
+    assert!(callback.contended());
+    assert_eq!(admission.usage()?, (1, 2048, 2));
+    // Queued requests consume exactly the ordinary item and byte budgets.
+    let mut cancelled = Box::pin(admission.reserve_queued(&cell, group, 1024));
+    assert!(cancelled.as_mut().now_or_never().is_none());
+    assert!(matches!(
+        admission.reserve_read(group, 1024),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    drop(cancelled);
+    assert_eq!(admission.usage()?, (1, 2048, 2));
+    callback.park()?;
+    // A ready callback cannot jump ahead of the control already in the FIFO.
+    let mut resumed = Box::pin(std::future::poll_fn(|cx| callback.resume(cx)));
+    assert!(resumed.as_mut().now_or_never().is_none());
+    assert!(matches!(
+        admission.reserve(&cell, group, 1024),
+        Err(ExecutionError::Busy)
+    ));
+    let (control, control_bytes) = control.await.map_err(|failure| failure.error)?;
+    assert!(resumed.as_mut().now_or_never().is_none());
+    drop(control);
+    resumed.await?;
+    drop(control_bytes);
+    assert_eq!(admission.usage()?, (1, 1024, 1));
+    // Closing wakes a queued writer and refuses late requests; it does not
+    // refund a callback or its retained output before physical ownership ends.
+    let mut waiting = Box::pin(admission.reserve_queued(&cell, group, 1024));
+    assert!(waiting.as_mut().now_or_never().is_none());
+    admission.close();
+    assert!(matches!(
+        waiting.await.map_err(|failure| failure.error),
+        Err(ExecutionError::Refused(CommandFailure::Unavailable))
+    ));
+    assert!(matches!(
+        admission.reserve_read(group, 1024),
+        Err(ExecutionError::Refused(CommandFailure::Unavailable))
+    ));
+    assert_eq!(admission.usage()?, (1, 1024, 1));
+    drop(callback);
+    assert_eq!(admission.usage()?, (0, 1024, 1));
+    assert!(admission.state.lock().unwrap().writers.is_empty());
+    drop(physical);
+    assert_eq!(admission.usage()?, (0, 0, 0));
     drop(admission);
     log.close().await?;
     domain.shutdown().await;

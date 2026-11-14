@@ -17,6 +17,7 @@ enum Origin {
     Operator,
     QueueOperator,
     KvOperator,
+    WorkflowOperator,
     KvPreparation { digest: [u8; 32], length: u64 },
 }
 
@@ -149,6 +150,15 @@ impl RaftCells {
         self.submit_sql(admitted, call_scope, deadline, Origin::KvOperator)
     }
 
+    pub(crate) fn workflow_operator(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+    ) -> HandlerFuture<RpcData> {
+        self.submit_sql(admitted, call_scope, deadline, Origin::WorkflowOperator)
+    }
+
     fn submit_sql(
         &self,
         admitted: crate::outbound_rpc::Admitted,
@@ -214,6 +224,16 @@ impl RaftCells {
                         .core
                         .host
                         .kv_operator_route(&scope, &self.handle.core.log)?
+                }
+                Origin::WorkflowOperator => {
+                    anyhow::ensure!(
+                        method == crate::application::workflow::OPERATOR,
+                        super::super::CommandFailure::UnsupportedCapability
+                    );
+                    self.handle
+                        .core
+                        .host
+                        .workflow_operator_route(&scope, &self.handle.core.log)?
                 }
                 Origin::Operator => {
                     anyhow::ensure!(

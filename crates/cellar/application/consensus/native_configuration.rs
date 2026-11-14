@@ -20,11 +20,22 @@ pub(crate) struct NativeQueueBinding {
     delivery_delay: u32,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NativeWorkflowBinding {
+    pub environment: String,
+    pub workflow: String,
+    pub class: String,
+    #[serde(default)]
+    pub settings: crate::application::workflow::BindingSettings,
+}
+
 /// Provisioning carries the same values as the daemon's deployment. Node-local
 /// identity is deliberately excluded from the namespace's immutable definition.
 #[derive(Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct NativeCellConfiguration {
+    pub(crate) workflow_bindings: Vec<NativeWorkflowBinding>,
     pub(crate) vars: Vec<(String, String)>,
     pub(crate) compat: Compat,
     pub(crate) do_classes: Vec<String>,
@@ -33,6 +44,8 @@ pub(crate) struct NativeCellConfiguration {
     pub(crate) kv_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<NativeQueueBinding>,
     pub(crate) queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
+    pub(crate) crons: Vec<String>,
+    pub(crate) cron_history: Option<crate::application::cron::HistoryConfiguration>,
 }
 
 impl NativeCellConfiguration {
@@ -56,7 +69,16 @@ impl NativeCellConfiguration {
                 .collect(),
             stream_bindings: Vec::new(),
             queue_consumers: self.queue_consumers.clone(),
-            workflow_bindings: Vec::new(),
+            workflow_bindings: self
+                .workflow_bindings
+                .iter()
+                .map(|b| crate::engine_api::WorkflowBinding {
+                    environment: b.environment.clone(),
+                    workflow: b.workflow.clone(),
+                    class: b.class.clone(),
+                    settings: b.settings.clone(),
+                })
+                .collect(),
             vars: self.vars.clone(),
             node: String::new(),
             modules: Vec::new(),
@@ -67,6 +89,7 @@ impl NativeCellConfiguration {
 
 #[derive(Clone)]
 pub(in crate::application) struct AdmittedCellConfiguration {
+    pub(in crate::application) workflow_bindings: Arc<BTreeMap<String, NativeWorkflowBinding>>,
     pub(in crate::application) script: String,
     pub(in crate::application) vars: Arc<BTreeMap<String, String>>,
     pub(in crate::application) compat: Compat,
@@ -89,7 +112,6 @@ impl AdmittedCellConfiguration {
             || !options.modules.is_empty()
             || !options.blob_bindings.is_empty()
             || !options.stream_bindings.is_empty()
-            || !options.workflow_bindings.is_empty()
         {
             return Err(RegistrationError::Invalid(
                 "unimplemented Raft cell bindings",
@@ -134,6 +156,7 @@ impl AdmittedCellConfiguration {
             || options.kv_bindings.len() > 256
             || options.queue_bindings.len() > 256
             || options.queue_consumers.len() > 256
+            || options.workflow_bindings.len() > 256
         {
             return Err(RegistrationError::Limit);
         }
@@ -258,10 +281,46 @@ impl AdmittedCellConfiguration {
                 )
                 .ok_or(RegistrationError::Limit)?;
         }
+        let mut workflow_bindings = BTreeMap::new();
+        let mut workflow_classes = BTreeMap::new();
+        for binding in &options.workflow_bindings {
+            if !valid_name(&binding.environment)
+                || !valid_name(&binding.workflow)
+                || !valid_name(&binding.class)
+                || binding.settings.validate().is_err()
+            {
+                return Err(RegistrationError::Invalid(
+                    "Raft Workflow binding or schedule",
+                ));
+            }
+            let admitted = NativeWorkflowBinding {
+                environment: binding.environment.clone(),
+                workflow: binding.workflow.clone(),
+                class: binding.class.clone(),
+                settings: binding.settings.clone(),
+            };
+            let identity = serde_json::to_vec(&(&admitted.class, &admitted.settings))
+                .map_err(|_| RegistrationError::Invalid("Workflow configuration"))?;
+            if workflow_classes
+                .insert(binding.workflow.clone(), identity.clone())
+                .is_some_and(|old| old != identity)
+                || workflow_bindings
+                    .insert(binding.environment.clone(), admitted)
+                    .is_some()
+            {
+                return Err(RegistrationError::Invalid(
+                    "conflicting Raft Workflow binding",
+                ));
+            }
+            bytes = bytes
+                .checked_add(binding.environment.len() + binding.workflow.len() + identity.len())
+                .ok_or(RegistrationError::Limit)?;
+        }
         if bytes > 64 * 1024 {
             return Err(RegistrationError::Limit);
         }
         Ok(Self {
+            workflow_bindings: Arc::new(workflow_bindings),
             script: options.script_name.clone(),
             vars: Arc::new(vars),
             compat: options.compat,
@@ -307,6 +366,13 @@ impl AdmittedCellConfiguration {
             hash.update(b"kv-bindings-payloads-callbacks-1");
             hash.update(serde_json::to_vec(self.kv_bindings.as_ref()).expect("KV configuration"));
         }
+        if !self.workflow_bindings.is_empty() {
+            hash.update(b"workflow-bindings-quorum-journal-1");
+            hash.update(
+                serde_json::to_vec(self.workflow_bindings.as_ref())
+                    .expect("Workflow configuration"),
+            );
+        }
         hash.finalize().into()
     }
 
@@ -317,10 +383,12 @@ impl AdmittedCellConfiguration {
             || !self.kv_bindings.is_empty()
             || !self.queue_bindings.is_empty()
             || !self.queue_consumers.is_empty()
+            || !self.workflow_bindings.is_empty()
     }
 
     pub(in crate::application) fn options(&self) -> WorkerConfigOptions {
         NativeCellConfiguration {
+            workflow_bindings: self.workflow_bindings.values().cloned().collect(),
             vars: self
                 .vars
                 .iter()
@@ -345,6 +413,8 @@ impl AdmittedCellConfiguration {
                 )
                 .collect(),
             queue_consumers: self.queue_consumers.values().cloned().collect(),
+            crons: Vec::new(),
+            cron_history: None,
             sql_bindings: self
                 .sql_bindings
                 .iter()

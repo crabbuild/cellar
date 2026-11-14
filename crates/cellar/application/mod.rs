@@ -277,8 +277,11 @@ pub struct Registry {
     cells: HashMap<String, Factory>,
     filesystems: HashMap<String, filesystem::Policy>,
     raft_classes: HashMap<String, Arc<consensus::RaftClass>>,
+    raft_primitives: bool,
     raft_configuration: std::sync::OnceLock<RaftConfiguration>,
+    raft_cron: std::sync::OnceLock<Arc<consensus::RaftClass>>,
     workflows: HashMap<String, WorkflowHandler>,
+    workflow_digests: std::collections::BTreeMap<String, [u8; 32]>,
 }
 
 struct RaftConfiguration {
@@ -297,8 +300,11 @@ impl Registry {
             cells: HashMap::new(),
             filesystems: HashMap::new(),
             raft_classes: HashMap::new(),
+            raft_primitives: false,
             raft_configuration: std::sync::OnceLock::new(),
+            raft_cron: std::sync::OnceLock::new(),
             workflows: HashMap::new(),
+            workflow_digests: Default::default(),
         }
     }
 
@@ -421,6 +427,30 @@ impl Registry {
         self.raft_class(class.with_cell_factory(Arc::new(factory))?)
     }
 
+    /// Select shared-group Raft for declared SQL, KV, Queue and cron services
+    /// without requiring an application-owned cell factory. Declare the matching
+    /// namespaces and start their Raft host before serving the application.
+    /// Namespace policy selects the minimum durability; unsupported bindings and
+    /// deployment capabilities refuse admission rather than falling back to Fleet.
+    /// Ordinary Raft cell factories already select these service adapters.
+    pub fn raft_primitives(mut self) -> Result<Self> {
+        anyhow::ensure!(
+            self.raft_configuration.get().is_none() && self.raft_cron.get().is_none(),
+            consensus::RegistrationError::ContractMismatch
+        );
+        self.raft_primitives = true;
+        Ok(self)
+    }
+
+    fn uses_raft_primitives(&self) -> bool {
+        self.raft_primitives
+            || !self.workflow_digests.is_empty()
+            || self
+                .raft_classes
+                .values()
+                .any(|class| class.has_cell_factory())
+    }
+
     pub fn workflow(
         mut self,
         class: impl Into<String>,
@@ -442,6 +472,33 @@ impl Registry {
         self.workflows.insert(class, Arc::new(handler));
         Ok(self)
     }
+
+    /// Register a Workflow's compiled behavior for shared-group Quorum execution.
+    /// The digest must change with its code or replay contract. Definitions with
+    /// different digests cannot share a namespace; migration is not implicit.
+    pub fn raft_workflow(
+        self,
+        class: impl Into<String>,
+        digest: [u8; 32],
+        handler: impl Fn(
+                Context,
+                workflow::Event,
+                workflow::Step,
+            ) -> HandlerFuture<cellar_native::clone::StructuredValue>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Result<Self> {
+        anyhow::ensure!(
+            self.raft_configuration.get().is_none() && self.raft_cron.get().is_none(),
+            consensus::RegistrationError::ContractMismatch
+        );
+        anyhow::ensure!(digest != [0; 32], "Workflow code digest must be nonzero");
+        let class = class.into();
+        let mut registry = self.workflow(class.clone(), handler)?;
+        registry.workflow_digests.insert(class, digest);
+        Ok(registry)
+    }
 }
 
 impl Application for Registry {
@@ -453,10 +510,7 @@ impl Application for Registry {
         &self,
         options: &crate::engine_api::WorkerConfigOptions,
     ) -> Result<()> {
-        let shared = self
-            .raft_classes
-            .values()
-            .any(|class| class.has_cell_factory());
+        let shared = self.uses_raft_primitives();
         for class in self.rpc.classes() {
             anyhow::ensure!(
                 self.cells.contains_key(class),
@@ -476,6 +530,11 @@ impl Application for Registry {
         {
             if shared {
                 if (class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty())
+                    || (class == &crate::deploy::workflow_class(&options.script_name)
+                        && !options.workflow_bindings.is_empty())
+                    || options.workflow_bindings.iter().any(|binding| {
+                        &binding.class == class && self.workflow_digests.contains_key(class)
+                    })
                     || (class == crate::deploy::KV_CLASS && !options.kv_bindings.is_empty())
                     || (class == crate::deploy::QUEUE_CLASS
                         && (!options.queue_bindings.is_empty()
@@ -499,11 +558,7 @@ impl Application for Registry {
                 }
             );
         }
-        if self
-            .raft_classes
-            .values()
-            .any(|class| class.has_cell_factory())
-        {
+        if shared {
             let config = consensus::AdmittedCellConfiguration::from_options(options)?;
             if config.has_cell_bindings() {
                 for class in self.raft_classes.values() {
@@ -534,6 +589,16 @@ impl Application for Registry {
                     Arc::new(consensus::queue_service(&config, self.handler.clone())?),
                 );
             }
+            if !options.workflow_bindings.is_empty() {
+                classes.insert(
+                    crate::deploy::workflow_class(&options.script_name),
+                    Arc::new(consensus::workflow_service(
+                        &config,
+                        self.workflows.clone(),
+                        &self.workflow_digests,
+                    )?),
+                );
+            }
             let installed = self
                 .raft_configuration
                 .get_or_init(|| RaftConfiguration { digest, classes });
@@ -546,11 +611,7 @@ impl Application for Registry {
     }
 
     fn validate_deployment(&self, deployment: &crate::fleet::LoadedDeployment) -> Result<()> {
-        if self
-            .raft_classes
-            .values()
-            .any(|class| class.has_cell_factory())
-        {
+        if self.uses_raft_primitives() {
             anyhow::ensure!(
                 deployment.options.script_name == deployment.script_name
                     && deployment.event_streams.is_empty()
@@ -558,7 +619,6 @@ impl Application for Registry {
                     && deployment.assets.is_none()
                     && deployment.loader_bindings.is_empty()
                     && deployment.services.is_empty()
-                    && deployment.crons.is_empty()
                     && deployment.containers.is_empty()
                     && deployment.fence_image.is_none()
                     && deployment.container_images.is_empty(),
@@ -567,13 +627,55 @@ impl Application for Registry {
                 )
             );
         }
-        self.validate_configuration(&deployment.options)
+        self.validate_configuration(&deployment.options)?;
+        if self.raft_primitives
+            || !self.raft_classes.is_empty()
+            || !self.workflow_digests.is_empty()
+        {
+            if deployment.crons.is_empty()
+                && deployment
+                    .options
+                    .workflow_bindings
+                    .iter()
+                    .all(|binding| binding.settings.schedules.is_empty())
+            {
+                anyhow::ensure!(
+                    self.raft_cron.get().is_none(),
+                    consensus::RegistrationError::ContractMismatch
+                );
+            } else {
+                let config =
+                    consensus::AdmittedCellConfiguration::from_options(&deployment.options)?;
+                let class = Arc::new(consensus::cron_service(
+                    &config,
+                    self.handler.clone(),
+                    deployment.crons.clone(),
+                    cron::HistoryConfiguration {
+                        prefix: deployment.prefix.clone(),
+                        deployment_version: deployment.version.clone(),
+                        schedule_revision: deployment.cron_revision.clone(),
+                    },
+                )?);
+                let digest = class.schema_digest();
+                let installed = self.raft_cron.get_or_init(|| class);
+                anyhow::ensure!(
+                    installed.schema_digest() == digest,
+                    consensus::RegistrationError::ContractMismatch
+                );
+            }
+        }
+        Ok(())
     }
 
     fn resolve_raft_class(
         &self,
         class: &str,
     ) -> std::result::Result<Arc<consensus::RaftClass>, consensus::RegistrationError> {
+        if class == cellar_logic::cron::RESERVED_CLASS {
+            if let Some(class) = self.raft_cron.get() {
+                return Ok(class.clone());
+            }
+        }
         self.raft_configuration
             .get()
             .map_or(&self.raft_classes, |config| &config.classes)
@@ -655,6 +757,10 @@ impl Application for Registry {
 
 #[derive(Default)]
 pub(crate) struct EventState {
+    /// Only the Workflow command driver joins these retained continuations.
+    pub(crate) raft_workflow_turn: bool,
+    pub(crate) raft_retire_after_turn: std::sync::atomic::AtomicBool,
+    pub(crate) workflow_backgrounds: std::sync::atomic::AtomicUsize,
     /// Immutable source declaration, including stateless native invocations.
     /// Global SQL identities can resolve to another co-hosted script.
     pub(crate) raft_sql: bool,
@@ -864,8 +970,46 @@ impl Context {
         &self,
         future: impl Future<Output = Result<()>> + Send + 'static,
     ) -> Result<()> {
-        self.check_turn()?;
-        self.state.background.lock().unwrap().push(Box::pin(future));
+        if self.raft_storage.is_some() {
+            self.check_binding_turn()?;
+            anyhow::ensure!(
+                self.state.raft_workflow_turn,
+                consensus::CommandFailure::UnsupportedCapability
+            );
+            use std::sync::atomic::Ordering;
+            self.state
+                .workflow_backgrounds
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                    if count < 256 {
+                        Some(count + 1)
+                    } else {
+                        None
+                    }
+                })
+                .map_err(|_| consensus::CommandFailure::Overloaded)?;
+
+            struct Pending(std::sync::Weak<EventState>);
+
+            impl Drop for Pending {
+                fn drop(&mut self) {
+                    if let Some(state) = self.0.upgrade() {
+                        state.workflow_backgrounds.fetch_sub(1, Ordering::AcqRel);
+                    }
+                }
+            }
+            let pending = Pending(Arc::downgrade(&self.state));
+            self.state
+                .background
+                .lock()
+                .unwrap()
+                .push(Box::pin(async move {
+                    let _pending = pending;
+                    future.await
+                }));
+        } else {
+            self.check_turn()?;
+            self.state.background.lock().unwrap().push(Box::pin(future));
+        }
         Ok(())
     }
 

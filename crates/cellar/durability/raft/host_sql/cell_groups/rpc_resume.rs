@@ -9,6 +9,11 @@ impl Suspended {
         if self.commits.is_none() || !self.turn.can_park()? {
             return Ok(());
         }
+        // Pure queries need no target writer. Keep the already admitted source
+        // connection between chunk reads, unless another source writer waits.
+        if !self.retention.lease.contended() && self.turn.waiting_on_queries() {
+            return Ok(());
+        }
         let mut executor = self.executor.take().ok_or_else(unavailable)?;
         let fence = executor.rpc_activation_fence();
         if let Err(error) = executor.park_rpc(&mut self.turn) {
@@ -34,12 +39,9 @@ impl Suspended {
         performance: &crate::raft::performance::Registry,
     ) -> Poll<Result<(), ExecutionError>> {
         if self.resuming.is_none() {
-            match self.retention.lease.resume() {
-                Err(ExecutionError::Busy) => {
-                    self.ready.0.store(true, Ordering::Release);
-                    return Poll::Pending;
-                }
-                result => result?,
+            match self.retention.lease.resume(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(result) => result?,
             }
             let commits = self.commits.as_ref().ok_or_else(unavailable)?.clone();
             let cell = self.cell.clone();
@@ -51,34 +53,7 @@ impl Suspended {
                 .clone();
             let domain = domain.clone();
             self.resuming = Some(Box::pin(async move {
-                loop {
-                    if !fence.term_current() {
-                        return Err(unavailable());
-                    }
-                    let now = domain.mono_ms().map_err(|_| unavailable())?;
-                    if now >= commits.deadline {
-                        return Err(crate::raft::execution::authority_failure(
-                            RuntimeError::DeadlineExceeded,
-                        ));
-                    }
-                    match commits
-                        .runtime
-                        .execution_authority(commits.route.history, cell.clone())
-                        .await
-                    {
-                        Ok(authority) if fence.accepts_continuation(&authority) => {
-                            return Ok(authority)
-                        }
-                        Ok(_) => return Err(unavailable()),
-                        Err(RuntimeError::NotReady | RuntimeError::Overloaded) => {
-                            domain
-                                .sleep_until(now.saturating_add(10))
-                                .map_err(|_| unavailable())?
-                                .await;
-                        }
-                        Err(error) => return Err(crate::raft::execution::authority_failure(error)),
-                    }
-                }
+                commits.continuation_authority(&domain, &cell, &fence).await
             }));
         }
         let authority = match self

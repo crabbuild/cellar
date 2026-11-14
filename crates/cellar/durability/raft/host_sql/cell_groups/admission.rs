@@ -6,6 +6,7 @@ use cellar_logic::{
     consensus::{ClusterId, NamespaceId},
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Mutex, Weak};
 
 type LogicalCell = (ClusterId, NamespaceId, CellId);
@@ -79,9 +80,24 @@ pub(super) struct Admission {
 
 #[derive(Default)]
 struct State {
+    closed: bool,
     cells: BTreeSet<LogicalCell>,
+    writers: BTreeMap<LogicalCell, Weak<WriterGate>>,
     groups: BTreeMap<GroupHistory, Weak<Budget>>,
     retired: BTreeSet<GroupHistory>,
+}
+
+struct WriterGate {
+    semaphore: Arc<tokio::sync::Semaphore>,
+    waiting: AtomicUsize,
+}
+
+struct Waiting(Arc<WriterGate>);
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        self.0.waiting.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 pub(super) struct Bytes {
@@ -106,6 +122,14 @@ pub(super) struct CellLease {
     cell: LogicalCell,
     group: GroupHistory,
     held: bool,
+    gate: Arc<WriterGate>,
+    permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    waiting: Option<
+        futures_util::future::BoxFuture<
+            'static,
+            Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError>,
+        >,
+    >,
 }
 
 impl CellLease {
@@ -116,23 +140,59 @@ impl CellLease {
         }
         self.held = false;
         drop(state);
+        self.permit.take();
         self.owner.writers.send_replace(());
         Ok(())
     }
 
-    pub(super) fn resume(&mut self) -> Result<(), ExecutionError> {
-        let mut state = self.owner.state.lock().map_err(|_| unavailable())?;
+    pub(super) fn contended(&self) -> bool {
+        self.gate.waiting.load(Ordering::Acquire) != 0
+    }
+
+    pub(super) fn resume(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), ExecutionError>> {
+        use std::task::Poll;
         if self.held {
-            return Ok(());
+            return Poll::Ready(Ok(()));
         }
-        if state.retired.contains(&self.group) {
-            return Err(unavailable());
+        {
+            let state = self.owner.state.lock().map_err(|_| unavailable())?;
+            if state.closed || state.retired.contains(&self.group) {
+                return Poll::Ready(Err(unavailable()));
+            }
+        }
+        if self.waiting.is_none() {
+            self.gate.waiting.fetch_add(1, Ordering::AcqRel);
+            let waiting = Waiting(self.gate.clone());
+            self.waiting = Some(Box::pin(async move {
+                let semaphore = waiting.0.semaphore.clone();
+                let _waiting = waiting;
+                semaphore.acquire_owned().await
+            }));
+        }
+        let permit = match self
+            .waiting
+            .as_mut()
+            .ok_or_else(unavailable)?
+            .as_mut()
+            .poll(cx)
+        {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(result) => result.map_err(|_| unavailable())?,
+        };
+        self.waiting = None;
+        let mut state = self.owner.state.lock().map_err(|_| unavailable())?;
+        if state.closed || state.retired.contains(&self.group) {
+            return Poll::Ready(Err(unavailable()));
         }
         if !state.cells.insert(self.cell.clone()) {
-            return Err(ExecutionError::Busy);
+            return Poll::Ready(Err(ExecutionError::Invalid("writer gate and lease differ")));
         }
+        self.permit = Some(permit);
         self.held = true;
-        Ok(())
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -144,6 +204,15 @@ impl Drop for CellLease {
                 .state
                 .lock()
                 .is_ok_and(|mut state| state.cells.remove(&self.cell));
+        self.waiting.take();
+        self.permit.take();
+        if let Ok(mut state) = self.owner.state.lock() {
+            if state.writers.get(&self.cell).is_some_and(|gate| {
+                gate.strong_count() == 1 && gate.ptr_eq(&Arc::downgrade(&self.gate))
+            }) {
+                state.writers.remove(&self.cell);
+            }
+        }
         if released {
             self.owner.writers.send_replace(());
         }
@@ -198,9 +267,17 @@ impl Admission {
             .lock()
             .map_err(|_| Failure::terminal(unavailable()))?;
         let key = (cell.cluster, cell.namespace, cell.cell.clone());
-        if state.cells.contains(&key) {
-            return Err(Failure::terminal(ExecutionError::Busy));
-        }
+        let gate = Self::writer(&mut state, &key);
+        let permit = gate
+            .semaphore
+            .clone()
+            .try_acquire_owned()
+            .map_err(|error| {
+                Failure::terminal(match error {
+                    tokio::sync::TryAcquireError::NoPermits => ExecutionError::Busy,
+                    tokio::sync::TryAcquireError::Closed => unavailable(),
+                })
+            })?;
         let bytes = self.reserve_bytes(&mut state, group, bytes)?;
         state.cells.insert(key.clone());
         Ok((
@@ -209,9 +286,72 @@ impl Admission {
                 cell: key,
                 group,
                 held: true,
+                gate,
+                permit: Some(permit),
+                waiting: None,
             },
             bytes,
         ))
+    }
+
+    fn writer(state: &mut State, cell: &LogicalCell) -> Arc<WriterGate> {
+        state.writers.retain(|_, gate| gate.strong_count() != 0);
+        let gate = state
+            .writers
+            .get(cell)
+            .and_then(Weak::upgrade)
+            .unwrap_or_else(|| {
+                Arc::new(WriterGate {
+                    semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+                    waiting: AtomicUsize::new(0),
+                })
+            });
+        state.writers.insert(cell.clone(), Arc::downgrade(&gate));
+        gate
+    }
+
+    /// Byte/item admission bounds every queued writer before it waits. Semaphore
+    /// cancellation removes its FIFO position; idle cells retain no gate.
+    pub async fn reserve_queued(
+        self: &Arc<Self>,
+        cell: &CellHistory,
+        group: GroupHistory,
+        bytes: usize,
+    ) -> Result<(CellLease, Arc<Bytes>), Failure> {
+        let (mut lease, bytes) = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| Failure::terminal(unavailable()))?;
+            let bytes = self.reserve_bytes(&mut state, group, bytes)?;
+            let key = (cell.cluster, cell.namespace, cell.cell.clone());
+            let gate = Self::writer(&mut state, &key);
+            (
+                CellLease {
+                    owner: self.clone(),
+                    cell: key,
+                    group,
+                    held: false,
+                    gate,
+                    permit: None,
+                    waiting: None,
+                },
+                bytes,
+            )
+        };
+        std::future::poll_fn(|cx| lease.resume(cx))
+            .await
+            .map_err(Failure::terminal)?;
+        Ok((lease, bytes))
+    }
+
+    pub fn close(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.closed = true;
+            for gate in state.writers.values().filter_map(Weak::upgrade) {
+                gate.semaphore.close();
+            }
+        }
     }
 
     pub fn reserve_read(
@@ -230,7 +370,7 @@ impl Admission {
         group: GroupHistory,
         bytes: usize,
     ) -> Result<Arc<Bytes>, Failure> {
-        if state.retired.contains(&group) {
+        if state.closed || state.retired.contains(&group) {
             return Err(Failure::terminal(ExecutionError::Refused(
                 CommandFailure::Unavailable,
             )));

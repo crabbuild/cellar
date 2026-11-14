@@ -139,9 +139,9 @@
     },
     "recovery": {
       "path": "tools/multi-raft/daemon.py",
-      "sha256": "418c8b7e36d06ad188cefbb2d4870f7e260fb32a7ed9f3964a7f1f73c99470f0",
-      "line": 370,
-      "excerpt": "def main():\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument(\"--image\", required=True)\n    parser.add_argument(\"--backend\", type=Path, required=True)\n    parser.add_argument(\"--output\", type=Path, required=True)\n    parser.add_argument(\"--colima-home\", type=Path, default=Path.home() / \".colima\",\n                        help=\"explicit home containing the backend's dedicated Colima profile\")"
+      "sha256": "304239802d02260c32f602106b0a8f234ee9b09e6807fc474282844cd1167beb",
+      "line": 371,
+      "excerpt": "def main():\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument(\"--image\", required=True)\n    parser.add_argument(\"--backend\", type=Path, required=True)\n    parser.add_argument(\"--output\", type=Path, required=True)\n    parser.add_argument(\"--node-memory-gib\", type=int, choices=(2, 3), default=3)\n    parser.add_argument(\"--colima-home\", type=Path, default=Path.home() / \".colima\",\n                        help=\"explicit home containing the backend's dedicated Colima profile\")"
     },
     "ci": {
       "path": ".github/workflows/native-sdk.yml",

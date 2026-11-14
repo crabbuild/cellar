@@ -90,7 +90,9 @@ that the request can fit its byte and item ceilings when credit returns. The
 wait retains the existing bounded controller/dispatcher owner, command identity,
 captured inputs, route ticket and original deadline. It reserves no SQL slot and
 starts no callback or new task. Direct SQL pool and response-facing preparation
-APIs continue to return their immediate refusals.
+APIs continue to return bank refusals immediately. Native RPC staging separately
+uses its admitted per-cell writer FIFO; a full bank refuses before it enters
+that FIFO, preserving this same capacity-wait proof for the owned command.
 
 Register the bank notification before rechecking both dimensions. Physical
 completion, output release and capture shrink wake eligible requests; shrinking

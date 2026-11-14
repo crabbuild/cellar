@@ -234,6 +234,17 @@ class ReclamationVocabulary(unittest.TestCase):
         after['operations'][-1]['name'] = 'unknown_purge'
         with self.assertRaises(ValueError): snapshot(after)
 
+    def test_routing_counters_preserve_historical_windows_and_refuse_mixed_windows(self):
+        from raft_metrics import RECOVERY_COUNTERS
+        before = observation()
+        before['counters'] = [row for row in before['counters'] if row['name'] in RECOVERY_COUNTERS]
+        after = copy.deepcopy(before)
+        after['sampled_at_us'] = '2'
+        self.assertEqual(set(delta(before, after)['counters']), set(RECOVERY_COUNTERS))
+        self.assertIn('cell_linearizable_read_barriers', snapshot(observation())['counters'])
+        with self.assertRaises(ValueError):
+            delta(before, observation(stamp=2))
+
 
 if __name__ == '__main__':
     unittest.main()

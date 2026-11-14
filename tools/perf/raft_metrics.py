@@ -138,6 +138,25 @@ COUNTERS = (
     'cell_command_submission_rejections',
     'cell_command_settlement_overloads',
 )
+RECOVERY_COUNTERS = COUNTERS[:COUNTERS.index('cell_command_rpc_attempts')]
+# The main-line archive used these routing counters before the recovery block.
+MAIN_ROUTING_COUNTERS = (
+    'cell_kv_resolved_payload_preparations',
+    'cell_kv_local_payload_preparations',
+    'cell_binding_applied_history_hints',
+    'cell_membership_discovery_owners',
+    'cell_membership_refresh_joins',
+    'cell_linearizable_read_barriers',
+    'cell_linearizable_read_cohort_joins',
+    'cell_command_directory_lookups',
+    'cell_membership_background_observations',
+    'cell_membership_demand_refreshes',
+    'cell_leader_advice_hits',
+    'cell_command_rpc_attempts',
+    'cell_command_leader_probes',
+    'cell_command_pre_admission_refusals',
+    'cell_command_unconfirmed_replies',
+) + RECOVERY_COUNTERS
 LEGACY_OPERATIONS = ('engine_queue', 'engine_file_sync', 'engine_directory_sync', 'engine_persist',
               'sql_queue', 'sql_stage', 'sql_prepare', 'sql_publish', 'sql_query',
               'sql_archive_capture', 'sql_other', 'object_get', 'object_put_create', 'object_put_update',
@@ -173,6 +192,8 @@ SCHEMAS = ((LEGACY_OPERATIONS, LEGACY_COUNTERS, LEGACY_BOUNDS),
            (OPERATIONS[:-3], COUNTERS[:COUNTERS.index('cell_group_ticks_executed')], BOUNDS),
            (OPERATIONS, COUNTERS[:COUNTERS.index('cell_kv_local_payload_preparations')], BOUNDS),
            (OPERATIONS, COUNTERS[:COUNTERS.index('sql_node_admission_refusals')], BOUNDS),
+           (OPERATIONS[:-3], MAIN_ROUTING_COUNTERS, BOUNDS),
+           (OPERATIONS, RECOVERY_COUNTERS, BOUNDS),
            (OPERATIONS, COUNTERS, BOUNDS))
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')
 

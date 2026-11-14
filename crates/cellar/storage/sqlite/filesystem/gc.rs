@@ -10,6 +10,16 @@ impl Database<'_> {
     }
 
     pub(super) fn schedule_gc(&self, scope: &str) -> Result<()> {
+        if scope == super::super::RAFT_STORAGE_SCOPE {
+            if self.pending_gc()? {
+                crate::application::consensus::native_work::arm_maintenance(
+                    self.connection,
+                    "filesystem",
+                    crate::asyncrt::wall_ms().saturating_add(100).max(0),
+                )?;
+            }
+            return Ok(());
+        }
         if self.pending_gc()? {
             // Install once. Ordinary writes cannot postpone already scheduled
             // reclamation or invalidate the identity an admitted job captured.

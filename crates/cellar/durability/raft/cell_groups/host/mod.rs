@@ -246,6 +246,47 @@ impl CellGroupHost {
             .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))
     }
 
+    pub(crate) fn cron_cells(
+        &self,
+    ) -> Result<Vec<(CellHistory, cellar_logic::consensus::ProposalId)>, CellDispatchError> {
+        use sha2::{Digest, Sha256};
+        self.inner.check_lifecycle()?;
+        self.inner
+            .namespaces
+            .iter()
+            .filter_map(|(&(cluster, namespace), binding)| {
+                binding.class.cron_scope().map(|scope| {
+                    let mut hash = Sha256::new();
+                    hash.update(b"cellar-cron-enrollment-1");
+                    hash.update(cluster.bytes());
+                    hash.update(namespace.bytes());
+                    hash.update(binding.class.schema_digest());
+                    hash.update(scope.as_bytes());
+                    let bytes: [u8; 32] = hash.finalize().into();
+
+                    fn invalid<E>(_: E) -> CellDispatchError {
+                        CellDispatchError::Invalid("cron enrollment identity")
+                    }
+                    Ok((
+                        CellHistory {
+                            cluster,
+                            namespace,
+                            cell: cellar_logic::cell_group::CellId::new(scope).map_err(invalid)?,
+                            incarnation: cellar_logic::consensus::IncarnationId::new(
+                                bytes[..16].try_into().map_err(invalid)?,
+                            )
+                            .map_err(invalid)?,
+                        },
+                        cellar_logic::consensus::ProposalId::new(
+                            bytes[16..].try_into().map_err(invalid)?,
+                        )
+                        .map_err(invalid)?,
+                    ))
+                })
+            })
+            .collect()
+    }
+
     pub fn is_closed(&self) -> bool {
         self.inner.closed.load(Ordering::Acquire)
             || self.inner.domain.mono_ms().is_err()

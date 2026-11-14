@@ -55,6 +55,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         additional_namespaces: f.additional_namespaces.clone(),
         application: f.application.clone(),
         configuration: f.configuration.clone(),
+        crons: f.crons.clone(),
         cohosted: f.cohosted.clone(),
         external_http: f.external_http.clone(),
         // A newly registered peer owns independent physical I/O.

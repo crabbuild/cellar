@@ -201,7 +201,10 @@ before rechecking capacity, observe retirement/quarantine without polling SQL
 on controller ticks, and reacquire fresh execution authority before staging.
 Callback/worker failures, private-image reopening and lost replies do not grant
 this wait proof. Oversized requests still refuse. Public phase APIs keep their
-immediate refusal behavior; controller ownership supplies the bounded wait.
+immediate bank-refusal behavior; controller ownership supplies the bounded wait.
+The native RPC writer FIFO first charges the ordinary item/byte banks and then
+waits for writer ownership. It retains the original deadline and refreshes the
+same activation's authority before callback entry.
 
 An unresolved SQL producer can reconcile the original request against the exact
 cell's committed receipt after leadership changes or log compaction. Select the
