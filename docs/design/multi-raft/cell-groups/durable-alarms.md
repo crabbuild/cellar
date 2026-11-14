@@ -97,14 +97,16 @@ format markers remain 1 and no legacy schema reader or migration is installed.
 The public failure/restart fixture fences and joins every old voter, then
 asserts the retry did not run before reopening retained disks. This separates
 pending-work recovery from a retry that raced a sequential shutdown. The
-exhaustion fixture preserves the full ordinary retry schedule. Both native
-selections pass all four image/minimum configurations at `dbc6e979`, together
-with ten owning SQLite tests. Real RustFS failure qualification fails in
-extents/S3 on the final public cancellation deadline after panic backoff is
-observed; three other configurations pass. RustFS Axum and exhaustion remain
-unrun behind that failed gate. See the
-[source-pinned checkpoint](progress.md#cg-17-ordinary-alarm-failure-retries);
-the earlier foundation checkpoint does not qualify this new failure path.
+exhaustion fixture preserves the full ordinary retry schedule. At `9a6055bd`,
+failure/restart passes all 12 native and real-RustFS native/Axum image/minimum
+configurations; full RustFS exhaustion passes four configurations. The fixture
+observes the synchronous return/unwind after the panic hook, matching the
+runtime's caught-failure boundary. Its timing bounds and budgets are unchanged.
+Ten owning SQLite tests and native exhaustion retain their separate passing
+source `dbc6e979`. See the
+[source-pinned checkpoint](progress.md#cg-17-ordinary-alarm-failure-retries).
+Earlier request/callback deadline controls remain unresolved release concerns;
+a passing component run does not erase them or qualify the complete family.
 
 ## Qualification and remaining work
 
@@ -122,8 +124,8 @@ At `d22ef830`, the native and real-RustFS native/Axum alarm selections pass all
 separate Queue enrollment and archive-deadline regression guards; see the
 [source-pinned checkpoint](progress.md#cg-17-ordinary-native-ingress-and-durable-alarms).
 
-Complete RustFS failure/backoff exhaustion qualification, archive outages, movement/wake and
-independent voter/disk-loss qualification remain required. Cron still
+Archive outages, movement/wake and independent voter/disk-loss qualification
+remain required. Cron still
 requires its deployment/startup adapter, persisted occurrence/history authority
 and matching shared alarm projection. Reuse the existing cron state machine;
 do not silently admit unsupported declarations. EventStream and Workflow remain

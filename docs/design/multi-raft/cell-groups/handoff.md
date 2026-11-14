@@ -6,32 +6,40 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current ordinary alarm failure checkpoint
 
-The follow-up to merged PR #166 implements ordinary alarm failure rollback,
-durable exponential backoff/exhaustion and retirement of failed activation
-memory. Runtime source is `79f86a99`; fixture source `dbc6e979` passes ten owning
-SQLite tests and five exact public native tests, including four-image/minimum
-failure/restart configurations and four full-policy exhaustion configurations.
-Every old voter is joined before retained restart, and pending work resumes
-without client traffic. See [current results](progress.md#cg-17-ordinary-alarm-failure-retries).
+Cohort `CG-17-alarm-unwind-9a6055bd-76` is FAILED: six exact selections pass,
+then materialized Queue load fails with an ambiguous producer sequence-7
+deadline. Extents load and ordinary native/Axum plus long-callback Queue are
+unrun. Passing gates are native failure/restart (4/4 configurations), real RustFS
+native/Axum failure/restart (8/8), full RustFS retry exhaustion (4/4)
+and normal native/Axum alarms (8/8). Three Queue disks are retained. Runtime
+failure behavior remains the implementation at `79f86a99`: rollback unsynced
+writes, retain explicit checkpoints, commit fenced retry state and retire failed
+activation memory. See [current results](progress.md#cg-17-ordinary-alarm-failure-retries).
 
-Keep `CG-17-alarm-rustfs-dbc6e979-70` **FAILED**: three configurations pass;
-extents/S3 times out on final public `Cancel`, ingress sequence 11, after panic
-backoff is observed. The result is ambiguous; no cause is established and no
-business mutation may be blindly retried. Axum failure, RustFS exhaustion and
-six further alarm/Queue selections are unrun behind that gate. Three disks,
-logs and frozen artifacts are retained with verified backups. Native cohort 69
-passes; earlier controls 64/65 and the weaker restart fixture 66 retain their
-separate results. The owned RustFS backend and VM are stopped.
+Diagnostics 74/75 showed the observer timestamp preceded the panic hook, whereas
+production starts backoff after catching the unwind. The fixture now observes
+return/unwind with a Drop guard; timing assertions, quotas and original budgets
+are unchanged. Temporary debug logging is removed. Every old voter is joined
+before reopening retained disks, and pending retry resumes without client
+traffic. Owning/native-exhaustion evidence retains its separate source 69.
 
-Start the next investigation at that S3 deadline with the original three-second
-request budget, quotas and exact durability proofs. Add bounded phase evidence
-if necessary; neither extend timeouts nor silently retry an ambiguous command.
-Then finish the blocked RustFS selection and continue cron, Queue lifecycle,
-EventStream and Workflow. Release panic-abort process loss remains separate
-from caught test-profile panics. The framework contract requires a fresh-root
-cutover with compatible definitions, not a schema migration. The follow-up
-starts on `origin/main` at `3d6450d4`, with unchanged qualified runtime inputs.
-CG-17 and combined release remain open: **13/17 tasks, 147/195 accepted cases**.
+Keep cohort 70 FAILED: its extents/S3 final Cancel returned an ambiguous
+DeadlineExceeded. Cohort 74 also misses a callback-checkpoint budget. Their
+causes remain unresolved even though current public cases pass. Never blindly
+retry those mutations or erase failed controls. Setup-only cohort 73 received
+HTTP503 before any Cellar test; subsequent setup requires a complete S3 probe.
+All failed artifacts and disks remain retained; the owned backend/VM are stopped.
+
+Next compare Queue load with the frozen `25d81992` artifact under the same
+owned profile and isolate the execution/retention bottleneck before a runtime
+fix. Its current snapshot does not establish a deadlock. Then finish the unrun
+Queue gates, cron deployment/startup and occurrence/history, broader Queue
+lifecycle, EventStream and Workflow.
+Complete target-S3 and pre-target-checkpoint binding/SQL/KV coverage, remaining
+adapters and combined independent-Linux-voter/load/recovery/release gates.
+Panic-abort process loss and controlled fresh-root contract cutover retain their
+separate qualification requirements. Full acceptance stays **13/17 tasks and
+147/195 cases**; no complete primitive family is accepted.
 
 ## Previous primitive foundation checkpoint
 
