@@ -110,14 +110,34 @@ a passing component run does not erase them or qualify the complete family.
 
 ## Ordinary deployed cron
 
-An application with registered Raft classes can declare ordinary cron expressions
-through its existing deployment configuration. Registration creates a reserved
-`.cron` definition bound to the script, expressions and deployment/history
+Select shared services for a cron-only application with
+`Registry::raft_primitives()`; no application-owned cell class is required:
+
+```rust
+use cellar::sdk::{Output, Registry};
+
+let application = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+    .raft_primitives()?;
+```
+
+Supply ordinary cron expressions through the deployment configuration and handle
+`Invocation::Scheduled` in the application's stateless handler. Existing ordinary
+Raft cell factories already select the same service adapters. An unselected
+Registry retains Fleet behavior; selected unsupported capabilities refuse.
+Registration creates a reserved `.cron` definition bound to the script,
+expressions and deployment/history
 configuration. Provision its matching namespace before managed startup; a missing
 or mismatched namespace refuses startup. Duplicate schedule scopes refuse before
 log opening. Changed/removed declarations refuse instead of silently dropping
-retained obligations. Cron-only stateless admission and the actual daemon/CLI
-path remain public cutover gates.
+retained obligations.
+
+The compiled namespace provision plan selects class `.cron`, supplies matching
+`configuration.crons` and `configuration.cron_history` (prefix, deployment code
+version and schedule revision), and selects `minimum_durability` as `quorum`
+(default) or `s3`. Missing/mismatched metadata and invalid minima refuse. The
+receipt reports the selected minimum; identical provisioning requests reconcile
+the same receipt. Minimum durability governs protected write output, independently
+of read consistency.
 
 One bounded, joined bootstrap owner per node resolves or enrolls the schedule
 using a stable creation identity. A retained history is never reinitialized.
@@ -147,6 +167,17 @@ with distinct disks and one SQL worker each. See the
 for negative controls and complete qualification limits. Workflow-specific
 schedules remain a separate delivery.
 
+At `17846604`, the same eight native/RustFS configurations pass with no registered
+application cell class, alongside explicit selection/refusal and Fleet regression
+checks. At `eddda0f2`, compiled CLI provisioning, first-group operator admission
+and three independent native daemon processes pass four real-RustFS image/minimum
+configurations. Both native and Axum serve linearizable history, all old processes
+join before retained restart, and losing two voters refuses both read paths.
+The fixture follows the existing ordered boot-admission workflow. Concurrent
+startup conflicts in cohort 99 remain retained and unresolved. These are native
+processes on one development host, not independent machines or Linux cgroups.
+See the [service checkpoint](progress.md#cg-17-cron-services-through-the-daemon-and-cli).
+
 ## Qualification and remaining work
 
 The `ordinary-alarms` RustFS suite covers both image forms and Quorum/S3
@@ -165,7 +196,7 @@ separate Queue enrollment and archive-deadline regression guards; see the
 
 Archive outages, movement/wake and independent voter/disk-loss qualification
 remain required. Ordinary cron additionally needs deployment transitions and
-clock discontinuities, public daemon/CLI and cron-only stateless qualification,
-and release process-loss coverage. EventStream and Workflow remain
+clock discontinuities, concurrent managed boot reconciliation and release
+process-loss coverage. EventStream and Workflow remain
 separate deliveries. Full primitive compatibility and the combined release gate
 remain in the [delivery priorities](remaining-work.md#primitive-delivery-priority).

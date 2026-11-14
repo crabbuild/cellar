@@ -27,6 +27,68 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 cron services through the daemon and CLI
+
+Source `17846604` adds `Registry::raft_primitives()` to select shared-group
+SQL, KV, Queue and cron services without registering an unrelated application
+cell. Existing ordinary Raft factories keep their implicit service selection;
+an unselected Registry retains Fleet behavior. Declared unsupported capabilities,
+unknown classes and attempts to change admitted selection refuse. The owning
+declaration test also verifies SQL/KV/Queue service registration, not their entire
+execution/recovery matrix.
+
+Compiled namespace provisioning now accepts `minimum_durability` as `quorum`
+(default) or `s3`, rejects other values and reports the selected policy. Cron
+plans carry the deployed expressions and history metadata; missing metadata
+refuses before provisioning. Namespace minimum durability governs protected
+write output, independently of read consistency.
+
+| Gate | Result |
+| --- | --- |
+| Explicit service selection, ordinary Fleet separation and declaration refusals at `17846604` | **Pass** |
+| Ordinary Fleet cron regression at `17846604` | **Pass** |
+| Cron-only autonomous recovery at `17846604`, without an application cell class | **4/4 native and 4/4 real-RustFS configurations pass** |
+| Compiled CLI provisioning and three independent native daemon voters at `eddda0f2` | **4/4 real-RustFS image/minimum configurations pass** |
+| Optimized builds, captured CLI, strict affected-target Clippy and format/layout/dependencies | **Pass at their recorded sources** |
+
+Cohort `CG-17-cron-daemon-eddda0f2-100` is **PASSED**. Each configuration
+provisions the reserved namespace through the compiled application's CLI, checks
+invalid-plan refusal and byte-identical request replay, then admits capacity and
+creates the first group through the actual operator CLI. Both native and Axum
+serve linearizable history from all three processes. Stop and join every old
+voter while the first handler is pending, reopen all three retained disks, and
+require the exact owed occurrence to complete attempt two. After two voters stop,
+both remaining public read paths must refuse rather than return cached history.
+These reads do not arm or fabricate scheduled work.
+
+Boot admission follows the existing ordered operator workflow. The fixture waits
+for each service's admitted boot before starting the next process; that marker
+grants no quorum or ingress readiness. Keep cohort
+`CG-17-cron-primitives-17846604-99` **FAILED**: its four basic selections pass,
+then concurrent daemon startup returns `FleetCatalogError::Conflict` after
+successful namespace provisioning. Its process root and three disks remain
+retained. Concurrent managed boot admission/reconciliation remains an open
+lifecycle gate; ordered startup does not erase that failure.
+
+Only the daemon fixture changes between `17846604` and `eddda0f2`; the cohort
+records that complete input mapping. Basic cron passes retain their actual source,
+and no failed selection is relabeled. The fixture selects 30-second callback and
+three-second public SDK read budgets, 75/45-second calendar/restart observers and
+the existing 15-second boot observer. Production quotas and original request
+budgets are unchanged. Each daemon uses one SQL worker; the three native processes
+are not separate machines or Linux cgroups. RustFS retains one CPU/two GiB in the
+existing eight-GiB VM. Backend/VM are stopped with objects retained. All 4,955
+tracked inputs match the runtime record; four successful process roots/twelve
+disks and 119 verified evidence backup files remain available.
+
+The public inventory includes the new selector and its reviewed Registry source
+anchor, while retaining `partial` status. Next integrate the Workflow follow-up
+on a qualified combined source and close Queue deadline controls. Cron still needs
+deployment transitions, clock faults, movement/wake, archive-outage and
+independent-voter/disk-loss/release-process qualification. EventStream and remaining
+provider/session/payload adapters and CG-13/15/16 remain open. Acceptance stays
+**13/17 tasks and 147/195 cases**; no complete primitive family is accepted.
+
 ## CG-17 ordinary cron startup and retained recovery
 
 Source `13b93404` delivers ordinary deployed cron schedules through the shared
@@ -80,8 +142,10 @@ This qualifies the basic ordinary cron path, not complete durable-work support.
 Changed/removed cron contracts currently refuse instead of discarding obligations;
 deployment transitions, clock discontinuities, movement/wake, release process
 loss and independent-voter/disk-loss recovery remain gates. Cron-only stateless
-Raft admission without a registered Raft class is not implemented; the actual
-daemon/CLI declaration path is not yet qualified. Workflow-specific schedules
+Raft admission without a registered Raft class was not implemented at this
+checkpoint, and the actual daemon/CLI path was unqualified; the later
+[service selector checkpoint](#cg-17-cron-services-through-the-daemon-and-cli)
+delivers both basic paths. Workflow-specific schedules
 are separate and remain refused in the unintegrated Workflow candidate.
 Queue/cold-S3 deadlines, EventStream, qualified Workflow integration and the
 remaining adapters retain their priority. No full family/task is accepted:

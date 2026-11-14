@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "e58049eb1ee069cb7e0a61ac2b14d5c72f4d164cb3a625c837cb18b14cfe8b4d"
+    "crates/cellar/application/mod.rs": "56d6e2eb7201b5a2fe41d4d2a67be90d5db5f9caeb6a8e20fa1115b4f7d4678c"
   },
   "entries": [
     {
@@ -464,6 +464,7 @@
         "cellar::sdk::RaftClass::cell_rpc",
         "cellar::sdk::RaftClass::query",
         "cellar::sdk::Registry::raft_cell",
+        "cellar::sdk::Registry::raft_primitives",
         "cellar::sdk::CommandContext::sql",
         "cellar::sdk::CommandContext::inputs",
         "cellar::sdk::QueryContext",
@@ -475,6 +476,7 @@
         "cellar::sdk::consensus::RaftApplications::new"
       ],
       "owners": [
+        "crates/cellar/application/mod.rs",
         "crates/cellar/application/consensus/class.rs",
         "crates/cellar/application/consensus/group_client/mod.rs",
         "crates/cellar/application/consensus/native_cell.rs",

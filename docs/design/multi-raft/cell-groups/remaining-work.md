@@ -78,15 +78,23 @@ intermittent archive-deadline failure also remains unexplained.
    entry and autonomous startup. Retained recovery passes four native and four
    real-RustFS configurations; see the
    [cron checkpoint](progress.md#cg-17-ordinary-cron-startup-and-retained-recovery).
-   Finish its cron-only stateless/public daemon/CLI path and deployment transitions;
-   changed/removed schedules currently refuse. Movement/wake, clock changes,
-   independent voter/disk loss and release process loss remain gates.
+   Cron-only selection now passes four native/four RustFS configurations at
+   `17846604`; the compiled CLI and three-process daemon pass four RustFS
+   configurations at `eddda0f2`, including both native/Axum reads, retained restart
+   and quorum refusal. See the
+   [service checkpoint](progress.md#cg-17-cron-services-through-the-daemon-and-cli).
+   Qualification uses ordered boot admissions; cohort 99 retains concurrent
+   startup conflicts. Finish concurrent boot reconciliation and cron deployment
+   transitions; changed/removed schedules currently refuse. Movement/wake, archive
+   outage, clock changes, independent voter/disk loss and release process loss
+   remain gates.
 2. Complete Queue lifecycle/load, EventStream and Workflow execution through
    their public adapters. Queue normal/fault/long-callback/load results retain
    their exact source pins; full-size payload, clock, deployment, movement/wake
    and disk-loss boundaries remain. EventStream needs committed outbox/inbox
-   authority and Workflow its durable execution/replay adapter. Reuse bounded
-   shared owners rather than per-idle-cell tasks.
+   authority and Workflow its qualified combined execution/replay adapter; draft
+   PR [#169](https://github.com/crabbuild/cellar/pull/169) is not integrated here.
+   Reuse bounded shared owners rather than per-idle-cell tasks.
 3. Complete the remaining binding and SQL/KV recovery with independent target-S3 minima,
    interruption before the target checkpoint, unused child sequence sealing,
    concurrent/cross-class creation and interrupted large calls. Add movement,

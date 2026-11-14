@@ -4,7 +4,40 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current ordinary cron checkpoint
+## Current service selector and daemon checkpoint
+
+`Registry::raft_primitives()` at `17846604` admits built-in shared services
+without an application-owned cell class. Ordinary Fleet selection stays explicit;
+unsupported bindings/classes and changes after admission refuse. Compiled namespace
+plans now preserve an explicit Quorum/S3 minimum. Declaration/service registration,
+Fleet cron and four native plus four RustFS cron recovery configurations pass.
+
+Cohort `CG-17-cron-daemon-eddda0f2-100` is **PASSED** in all four real-RustFS
+image/minimum configurations. It uses the compiled provision command and actual
+first-group operator CLI, three independent native daemon voter processes and
+both native/Axum public history reads. All old voters join before retained reopen;
+the original occurrence completes attempt two, and loss of two voters refuses both
+read paths. Only the daemon fixture differs from runtime source `17846604`; input
+equivalence is recorded. The current fixture build, captured CLI, strict Clippy
+and static checks pass. Four successful process roots/twelve disks and 119 backup
+files are verified. Backend/VM are stopped with objects retained. See
+[current results](progress.md#cg-17-cron-services-through-the-daemon-and-cli).
+
+Keep cohort 99 **FAILED** and retain its process root/three disks: concurrent
+daemon startup returned Fleet catalog conflicts. Current qualification uses the
+existing ordered boot-admission workflow; the marker is not a quorum/readiness
+proof. Automatic concurrent boot reconciliation remains open. No timeouts, quotas
+or quorum/retained-restart assertions were relaxed. Voters use one SQL worker per
+native process, not independent machines/Linux cgroups.
+
+Next integrate draft Workflow PR [#169](https://github.com/crabbuild/cellar/pull/169)
+with this newer service selector and run the combined primitive regressions,
+especially Queue and SDK nested calls. Preserve alarm failure/FIFO ownership,
+cron-only selection and explicit namespace minima. Then finish EventStream and
+other adapters, cron deployment/clock/movement/wake and the CG-13/15/16 matrix.
+Inventory remains partial; acceptance stays **13/17 tasks and 147/195 cases**.
+
+## Previous ordinary cron checkpoint
 
 Source `13b93404` implements the reserved ordinary cron service, autonomous
 startup enrollment, backend-aware alarm installation, committed occurrence/history
@@ -27,7 +60,8 @@ disks. Current success establishes the basic ordinary cron path only. The fixtur
 uses a 30-second callback budget and separate RF3 disks/one SQL worker per voter
 in one process; it does not qualify independent Linux voters or release aborts.
 Changed/removed cron contracts refuse. Deployment/clock/movement/wake and disk-loss
-gates, cron-only stateless admission and actual daemon/CLI qualification remain.
+gates remain. The later service checkpoint above delivers cron-only selection and
+the basic daemon/CLI path.
 Workflow-specific schedules remain refused in the separate Workflow candidate.
 
 Next close the Queue/cold target-S3 request failures and integrate the qualified
