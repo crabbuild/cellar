@@ -15,7 +15,7 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
 }
 
 pub(crate) async fn automatic_queries_leave_blocked_local(rooted: bool) -> Result<()> {
-    routed_queries(rooted, 4..5).await
+    routed_queries(rooted, 4..7).await
 }
 
 async fn routed_queries(rooted: bool, modes: std::ops::Range<usize>) -> Result<()> {
@@ -64,7 +64,7 @@ async fn routed_queries(rooted: bool, modes: std::ops::Range<usize>) -> Result<(
         };
         let bounds = CellRoutingLimits {
             timeout: Duration::from_secs(2),
-            max_attempts: if mode == 2 { 1 } else { 4 },
+            max_attempts: if mode == 2 || mode == 5 { 1 } else { 4 },
         };
         for policy in [
             CellQueryRouting::Replicas {
@@ -174,7 +174,7 @@ async fn routed_queries(rooted: bool, modes: std::ops::Range<usize>) -> Result<(
         assert_eq!(fixture.transports[1].usage().query_items, 0);
 
         let (members, fallback, held_node) = match mode {
-            0 | 2 | 4 => (vec![MemberId::new(2)?, MemberId::new(3)?], false, 1),
+            0 | 2 | 4..=6 => (vec![MemberId::new(2)?, MemberId::new(3)?], false, 1),
             1 => (vec![MemberId::new(3)?], true, 2),
             _ => (vec![MemberId::new(1)?], true, 0),
         };
@@ -183,7 +183,7 @@ async fn routed_queries(rooted: bool, modes: std::ops::Range<usize>) -> Result<(
             request(
                 213,
                 b"captured-input",
-                if mode == 4 {
+                if mode >= 4 {
                     CellQueryConsistency::Linearizable
                 } else {
                     CellQueryConsistency::AtLeast(token.clone())
@@ -191,7 +191,9 @@ async fn routed_queries(rooted: bool, modes: std::ops::Range<usize>) -> Result<(
             )?,
             bounds,
             None,
-            if mode == 4 {
+            if mode == 6 {
+                CellQueryRouting::Local
+            } else if mode >= 4 {
                 CellQueryRouting::Automatic
             } else {
                 CellQueryRouting::Replicas {

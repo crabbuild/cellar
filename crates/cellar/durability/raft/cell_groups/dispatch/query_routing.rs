@@ -13,8 +13,9 @@ use std::time::Duration;
 pub enum CellQueryRouting {
     #[default]
     Local,
-    /// Use the local replica when present. On an ingress-only node, try
-    /// the installed trusted group route within the original attempt budget.
+    /// Prefer the active local replica, then try trusted group destinations.
+    /// Every attempt shares the original deadline and attempt budget; a slow
+    /// local reader cannot consume the time reserved for healthy replicas.
     Automatic,
     /// One to eight distinct members; attempt_timeout is positive and no larger
     /// than the original timeout. Missing leader advice never grants authority.

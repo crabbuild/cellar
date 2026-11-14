@@ -295,14 +295,6 @@ async fn workflow(
 }
 
 async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_json::Value> {
-    let started = cellar::asyncrt::mono_ms();
-    let before = (action == "status").then(|| {
-        cluster
-            .hosts
-            .iter()
-            .map(|h| h.performance())
-            .collect::<Vec<_>>()
-    });
     let response = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
@@ -315,14 +307,6 @@ async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_
         .await?;
     let status = response.status();
     let body = response.text().await?;
-    if action == "status"
-        && (!status.is_success() || cellar::asyncrt::mono_ms().saturating_sub(started) > 500)
-    {
-        eprintln!(
-            "[DEBUG-wf-status] {}",
-            json!({"id": id, "elapsed":cellar::asyncrt::mono_ms().saturating_sub(started),"before":before,"after":cluster.hosts.iter().map(|h| h.performance()).collect::<Vec<_>>() })
-        );
-    }
     ensure!(
         status.is_success(),
         "Workflow {action}/{id}: {status} {body}"
@@ -590,7 +574,6 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
                 state(&cluster, "recovery", "complete").await?;
                 ensure!(signals.last.load(Ordering::SeqCst) == 1);
                 for cycle in 0..8 {
-                    eprintln!("[DEBUG-wf-status] retry cycle {cycle}");
                     call(&cluster, "create", "retry").await?;
                     futures_util::future::try_join(
                         state(&cluster, "retry", "complete"),
