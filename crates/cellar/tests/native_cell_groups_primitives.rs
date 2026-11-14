@@ -1908,6 +1908,17 @@ async fn rustfs_axum_sql_bindings_and_operators_use_managed_shared_groups() -> R
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_batch_claim_and_lease_share_one_proof_before_consumer_entry() -> Result<()> {
+    Box::pin(queues::qualify_batch_proof(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit isolated real RustFS configuration"]
+async fn rustfs_queue_batch_claim_and_lease_share_one_proof_before_consumer_entry() -> Result<()> {
+    Box::pin(queues::qualify_batch_proof(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_queue_callbacks_use_shared_quorum() -> Result<()> {
     Box::pin(queues::qualify(false)).await
 }

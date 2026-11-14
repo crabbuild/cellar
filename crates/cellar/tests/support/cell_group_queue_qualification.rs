@@ -6,6 +6,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const FAST: &str = "quorum-fast";
 
+struct Minimums {
+    queue: Durability,
+    dead: Durability,
+}
+
+impl From<Durability> for Minimums {
+    fn from(dead: Durability) -> Self {
+        Self {
+            queue: Durability::Quorum,
+            dead,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Signals {
     deliveries: Mutex<Vec<(String, u16, String)>>,
@@ -44,6 +58,14 @@ impl Signals {
     }
 }
 
+struct ReleaseBatch(Arc<Signals>);
+
+impl Drop for ReleaseBatch {
+    fn drop(&mut self) {
+        self.0.release.notify_one();
+    }
+}
+
 fn counter() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [41; 32])?
         .initializer([42; 32], |_, _| Ok(()))?
@@ -69,7 +91,7 @@ struct Deployments {
     )>,
 }
 
-fn applications(signals: Arc<Signals>, dead_minimum: Durability) -> Result<Deployments> {
+fn applications(signals: Arc<Signals>, minimums: Minimums) -> Result<Deployments> {
     let producer = Arc::new(
         Registry::new(|context, invocation| {
             Box::pin(async move {
@@ -144,6 +166,9 @@ fn applications(signals: Arc<Signals>, dead_minimum: Durability) -> Result<Deplo
                             message.id.clone(),
                         ));
                         signals.changed.notify_waiters();
+                        if text == "batch-proof" {
+                            signals.release.notified().await;
+                        }
                         if text == "late" && message.attempts == 1 {
                             signals
                                 .held
@@ -212,11 +237,11 @@ fn applications(signals: Arc<Signals>, dead_minimum: Durability) -> Result<Deplo
         (producer.resolve_raft_class("Counter")?, Durability::Quorum),
         (
             consumer.resolve_raft_class(cellar::deploy::QUEUE_CLASS)?,
-            Durability::Quorum,
+            minimums.queue,
         ),
         (
             storage.resolve_raft_class(cellar::deploy::QUEUE_CLASS)?,
-            dead_minimum,
+            minimums.dead,
         ),
     ];
     let application = Arc::new(RaftApplications::new(
@@ -250,7 +275,7 @@ impl Scenario {
         callback_ms: u64,
         retention_ms: Option<i64>,
         ordinary_slots: usize,
-        dead_minimum: Durability,
+        minimums: Minimums,
     ) -> Result<Self> {
         let signals = Arc::new(Signals::default());
         let Deployments {
@@ -258,7 +283,7 @@ impl Scenario {
             options,
             definitions,
             cohosted,
-        } = applications(signals.clone(), dead_minimum)?;
+        } = applications(signals.clone(), minimums)?;
         let mut fixture =
             Fixture::with_definition_policies(rooted, definitions, application, store).await?;
         fixture.configuration = Some(options);
@@ -551,7 +576,7 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
             Some(b) => Arc::new(catalog_fault::Store::around(b.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let mut s = Scenario::start(rooted, store, external, 5000, None, 2, Durability::S3).await?;
+        let mut s = Scenario::start(rooted, store, external, 5000, None, 2, Durability::S3.into()).await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome = domain
             .run(async {
@@ -693,7 +718,7 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
             5000,
             Some(500),
             2,
-            Durability::Quorum,
+            Durability::Quorum.into(),
         )
         .await?;
         let domain = s.cluster.fixtures[0].domain.clone();
@@ -744,6 +769,100 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
     Ok(())
 }
 
+pub async fn qualify_batch_proof(real: bool) -> Result<()> {
+    for rooted in [false, true] {
+        for minimum in [Durability::Quorum, Durability::S3] {
+            let label = if minimum == Durability::S3 {
+                "queue-batch-proof-s3"
+            } else {
+                "queue-batch-proof-quorum"
+            };
+            let backend = real
+                .then(|| rustfs::StoreConfig::load(label, rooted))
+                .transpose()?;
+            let store = match &backend {
+                Some(backend) => Arc::new(catalog_fault::Store::around(backend.open(None)?)),
+                None => Arc::new(catalog_fault::Store::default()),
+            };
+            let s = Scenario::start(
+                rooted,
+                store,
+                false,
+                5000,
+                None,
+                2,
+                Minimums {
+                    queue: minimum,
+                    dead: Durability::Quorum,
+                },
+            )
+            .await?;
+            let domain = s.cluster.fixtures[0].domain.clone();
+            let outcome = domain
+                .run(async {
+                    admin(&s.cluster, QUEUE, json!({"op":"pause"})).await?;
+                    send(&s.cluster, QUEUE, &["batch-proof".into()]).await?;
+                    let leader = managed_fixture::leader(&s.cluster.hosts, s.queue).await?;
+                    let group = s.cluster.hosts[leader].group(s.queue)?;
+                    let before = group.status().await?;
+                    let release = ReleaseBatch(s.signals.clone());
+                    admin(&s.cluster, QUEUE, json!({"op":"resume"})).await?;
+                    s.signals.wait("batch-proof", 1, false, TIMEOUT).await?;
+                    let entered = group.status().await?;
+                    ensure!(
+                        before.term == entered.term && before.leader == entered.leader,
+                        "Queue batch proof changed leadership"
+                    );
+                    let commits = entered
+                        .applied
+                        .index
+                        .get()
+                        .checked_sub(before.applied.index.get())
+                        .context("Queue batch proof moved the applied prefix backwards")?;
+                    // Resume is one mutation; the claim and batch lease must
+                    // share the next checkpoint before application entry.
+                    ensure!(
+                        commits == 2,
+                        "Queue consumer entry required {commits} commits after pause; expected resume plus one claim/lease proof"
+                    );
+                    if minimum == Durability::S3 {
+                        ensure!(
+                            group
+                                .archive_status()?
+                                .and_then(|status| status.published)
+                                .is_some_and(|cut| cut.position().index >= entered.applied.index),
+                            "S3 Queue consumer entered before its lease's archive publication"
+                        );
+                    }
+                    // Inspect committed broker state while the consumer is
+                    // held. A proven claim alone cannot substitute for a lease.
+                    let peek = admin(&s.cluster, QUEUE, json!({"op":"peek","limit":10})).await?;
+                    let rows = peek["messages"].as_array().context("Queue lease rows")?;
+                    let delivered = s.signals.deliveries.lock().unwrap()[0].2.clone();
+                    ensure!(
+                        rows.len() == 1
+                            && rows[0]["id"] == delivered
+                            && rows[0]["state"] == "leased"
+                            && rows[0]["lease"]["active"] == true
+                            && rows[0]["lease"]["generation"].as_u64().is_some_and(|n| n > 0),
+                        "Queue consumer lacks its committed batch lease: {peek}"
+                    );
+                    drop(release);
+                    s.signals.wait("batch-proof", 1, true, TIMEOUT).await?;
+                    s.empty(QUEUE).await?;
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await;
+            let retain = !matches!(&outcome, Ok(Ok(())));
+            let cleanup = s.close(retain).await;
+            outcome??;
+            cleanup?;
+            eprintln!("Queue batch proof RustFS={real} extents={rooted} minimum={minimum:?}: PASS");
+        }
+    }
+    Ok(())
+}
+
 pub async fn qualify_long(real: bool) -> Result<()> {
     for rooted in [false, true] {
         let backend = real
@@ -753,7 +872,7 @@ pub async fn qualify_long(real: bool) -> Result<()> {
             Some(b) => Arc::new(catalog_fault::Store::around(b.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let s = Scenario::start(rooted, store, false, 90_000, None, 2, Durability::Quorum).await?;
+        let s = Scenario::start(rooted, store, false, 90_000, None, 2, Durability::Quorum.into()).await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome = domain
             .run(async {
@@ -792,7 +911,7 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             Some(b) => Arc::new(catalog_fault::Store::around(b.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let s = Scenario::start(rooted, store, false, 5000, None, 8, Durability::Quorum).await?;
+        let s = Scenario::start(rooted, store, false, 5000, None, 8, Durability::Quorum.into()).await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome=domain.run(async {
             let store=s.cluster.fixtures[0].store.clone();
