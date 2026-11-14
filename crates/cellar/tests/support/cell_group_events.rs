@@ -254,37 +254,54 @@ async fn read(cluster: &ManagedCluster, node: usize) -> Result<serde_json::Value
 }
 
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
-    qualify_host(real_rustfs, false).await
+    qualify_host(real_rustfs, false, Durability::Quorum).await
 }
 
 pub async fn qualify_axum(real_rustfs: bool) -> Result<()> {
-    qualify_host(real_rustfs, true).await
+    qualify_host(real_rustfs, true, Durability::Quorum).await
 }
 
-async fn qualify_host(real_rustfs: bool, external: bool) -> Result<()> {
+pub async fn qualify_target_s3(external: bool) -> Result<()> {
+    qualify_host(true, external, Durability::S3).await
+}
+
+async fn qualify_host(real_rustfs: bool, external: bool, target_minimum: Durability) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::cell_groups::controller::effects=debug")
         .with_test_writer()
         .try_init();
     for rooted in [false, true] {
-        let label = if external { "events-axum" } else { "events" };
+        let label = match (external, target_minimum) {
+            (false, Durability::Quorum) => "events",
+            (true, Durability::Quorum) => "events-axum",
+            (false, Durability::S3) => "events-target-s3",
+            (true, Durability::S3) => "events-axum-target-s3",
+        };
         let store = Arc::new(if real_rustfs {
             catalog_fault::Store::around(rustfs::store(label, rooted)?)
         } else {
             catalog_fault::Store::default()
         });
         let (application, declared) = application()?;
-        let mut fixture = Fixture::with_namespaces(
-            rooted,
-            &[
-                "Counter",
-                cellar::deploy::EVENT_STREAM_CLASS,
-                cellar::deploy::EVENT_CATALOG_CLASS,
-            ],
-            application,
-            store,
-        )
-        .await?;
+        let definitions = [
+            "Counter",
+            cellar::deploy::EVENT_STREAM_CLASS,
+            cellar::deploy::EVENT_CATALOG_CLASS,
+        ]
+        .into_iter()
+        .map(|name| {
+            Ok((
+                application.resolve_raft_class(name)?,
+                if name == "Counter" {
+                    Durability::Quorum
+                } else {
+                    target_minimum
+                },
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+        let mut fixture =
+            Fixture::with_definition_policies(rooted, definitions, application, store).await?;
         fixture.configuration = Some(declared);
         fixture.event_streams = vec![definition()];
         fixture.sql_workers = 1;

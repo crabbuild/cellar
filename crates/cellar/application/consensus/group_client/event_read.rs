@@ -8,6 +8,7 @@ use super::*;
 use crate::application::HandlerFuture;
 use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
+use cellar_logic::consensus::ProposalId;
 use rand::RngCore as _;
 
 impl RaftCells {

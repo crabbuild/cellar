@@ -407,7 +407,7 @@ impl CellGroupDispatcher {
             .checked_mul(2)
             .and_then(|n| n.checked_add(8192))
             .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
-        let admission = self
+        let permit = self
             .budget
             .acquire(bytes)
             .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
@@ -439,7 +439,7 @@ impl CellGroupDispatcher {
             attempt: None,
             remote_route: None,
             dispatched: false,
-            _admission: Arc::new(admission),
+            _admission: Arc::new(permit),
         })
     }
 }
@@ -759,13 +759,15 @@ impl CellQueryInvocation {
             .query_registered_retained(
                 options,
                 authority,
-                self.dispatcher.class.clone(),
-                self.request.contract.clone(),
-                self.request.input.clone(),
+                crate::raft::host_sql::cell_groups::RegisteredQuery {
+                    class: self.dispatcher.class.clone(),
+                    contract: self.request.contract.clone(),
+                    input: self.request.input.clone(),
+                    admission: self.admission,
+                },
                 Some(crate::raft::host_sql::cell_groups::ReadRetention::new(
                     Arc::new((retention, self._admission.clone())),
                 )),
-                self.admission,
             )
             .await
             .map_err(|error| {

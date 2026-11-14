@@ -114,6 +114,18 @@ async fn rustfs_axum_event_streams_activate_deliver_and_recover_through_shared_q
     Box::pin(events::qualify_axum(true)).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_event_streams_preserve_independent_target_s3_minimum() -> Result<()> {
+    Box::pin(events::qualify_target_s3(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_event_streams_preserve_independent_target_s3_minimum() -> Result<()> {
+    Box::pin(events::qualify_target_s3(true)).await
+}
+
 #[test]
 fn cron_declarations_refuse_changed_or_invalid_contracts() -> Result<()> {
     cron::validate_contracts()

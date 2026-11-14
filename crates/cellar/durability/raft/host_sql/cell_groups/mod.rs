@@ -11,7 +11,7 @@ mod apply;
 pub(in crate::raft::host_sql) use apply::ApplyRequest;
 pub use apply::CellGroupPreparedApply;
 mod query;
-pub(crate) use query::ReadRetention;
+pub(crate) use query::{ReadRetention, RegisteredQuery};
 mod worker;
 pub use query::{CellSqlEffectScan, CellSqlQueryResult, CellSqlReceiptLookup};
 

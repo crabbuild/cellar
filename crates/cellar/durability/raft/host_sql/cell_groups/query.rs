@@ -11,6 +11,13 @@ type VerificationCallback = Box<
     dyn FnOnce(&crate::storage::ImmutableQuery, &CellVersion) -> anyhow::Result<Vec<u8>> + Send,
 >;
 
+pub(crate) struct RegisteredQuery {
+    pub class: Arc<crate::application::consensus::RaftClass>,
+    pub contract: crate::application::consensus::OperationContract,
+    pub input: Vec<u8>,
+    pub admission: crate::application::consensus::QueryAdmission,
+}
+
 enum Callback {
     Effects {
         class: Arc<crate::application::consensus::RaftClass>,
@@ -77,14 +84,11 @@ pub struct CellSqlQueryResult {
     replica: cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory>,
     observation: crate::raft::version::CellVersionObservation,
     _bytes: Arc<Bytes>,
-    _archive: Option<Box<crate::raft::cell_groups::controller::S3OutputProof>>,
+    _archive: Option<Box<crate::raft::cell_groups::S3OutputProof>>,
 }
 
 impl CellSqlQueryResult {
-    pub(crate) fn retain_archive(
-        &mut self,
-        proof: Box<crate::raft::cell_groups::controller::S3OutputProof>,
-    ) {
+    pub(crate) fn retain_archive(&mut self, proof: Box<crate::raft::cell_groups::S3OutputProof>) {
         self._archive = Some(proof);
     }
 
@@ -237,11 +241,13 @@ impl CellGroupSqlPool {
         self.query_registered_retained(
             options,
             authority,
-            class,
-            contract,
-            input,
+            RegisteredQuery {
+                class,
+                contract,
+                input,
+                admission: crate::application::consensus::QueryAdmission::Public,
+            },
             None,
-            crate::application::consensus::QueryAdmission::Public,
         )
         .await
     }
@@ -250,12 +256,15 @@ impl CellGroupSqlPool {
         &self,
         options: CellSqlOptions,
         authority: CellReadAuthority,
-        class: Arc<crate::application::consensus::RaftClass>,
-        mut contract: crate::application::consensus::OperationContract,
-        input: Vec<u8>,
+        request: RegisteredQuery,
         retention: Option<ReadRetention>,
-        admission: crate::application::consensus::QueryAdmission,
     ) -> Result<CellSqlQueryResult, ExecutionError> {
+        let RegisteredQuery {
+            class,
+            mut contract,
+            input,
+            admission,
+        } = request;
         if contract.operation.len() > 128 {
             return Err(ExecutionError::Registration(
                 crate::application::consensus::RegistrationError::Invalid("class/operation name"),
