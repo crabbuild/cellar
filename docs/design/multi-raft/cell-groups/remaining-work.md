@@ -81,6 +81,11 @@ remain FAILED overall. See the [current checkpoint](progress.md#cg-17-immutable-
    retention. Keep original event/lane identities through movement and
    new-incarnation recovery. The [EventStream contract](event-stream-durability.md)
    defines the independent source, destination and output boundaries.
+   First reconcile main `0e925f6b` (PR #172's independently implemented explicit
+   adapter) with this branch's private provenance, named activation and metadata
+   readers. Preserve its delivery/recovery fixes and tests in one implementation;
+   neither branch's evidence qualifies the unbuilt combination. Requalify that
+   combination before updating any release/default-backend gate.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
    and fault oracles, then resolve producer deadlines and the older final-drain
    failures under the unchanged load and budgets. Qualify both image forms.

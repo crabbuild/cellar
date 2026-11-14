@@ -29,6 +29,15 @@ for the next delivery.
 
 ## CG-17 immutable EventStream metadata and merged read progress
 
+After this runtime campaign, fetching origin finds main `0e925f6b`, which merges
+PR #171 and the independently implemented explicit-UUID EventStream adapter in
+PR #172. This branch has not reconciled that overlapping adapter. Preserve its
+delivery/recovery work and this checkpoint's private provenance, named activation
+and immutable readers when unifying them; do not keep two mutation kernels or
+discard newer main changes. The results below qualify `cfe096c9` only, not a
+combined artifact with `0e925f6b`. Reconciliation and fresh qualification are the
+next integration gate before this draft can merge.
+
 Runtime source `cfe096c9` integrates the read-routing/membership follow-up from
 PR [#171](https://github.com/crabbuild/cellar/pull/171) and adds private immutable
 EventStream metadata queries. `__catalogStatus`, `__catalogResolveName`,
@@ -74,6 +83,9 @@ operations intentionally return history, which can precede retirement/revocation
 The locked optimized build, canonical format/layout, dependency/docs checks and
 strict library plus all three affected integration-target Clippy pass. The
 merged read regressions are qualified here rather than relabeled from PR #171.
+All 44 plan and 13 coverage-verifier units pass. Full plan validation still
+refuses the missing historical `CG-01-06-gates-e32115aa-02/CG-01-record.json`;
+these synthetic verifier passes do not replace that evidence.
 Failed build control `CG-17-event-query-c9507412-143` retains its five integration
 compiler errors; the correction compiles at `cfe096c9`. No runtime ran at that
 failed source. Runtime cohorts retain 52 verified evidence files, four frozen

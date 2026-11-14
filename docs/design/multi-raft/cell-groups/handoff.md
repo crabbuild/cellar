@@ -6,6 +6,16 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current immutable EventStream query checkpoint
 
+**Integrate updated main first.** Origin now points to `0e925f6b`: PR #171 is
+merged and PR #172 supplies an overlapping explicit-UUID EventStream adapter,
+including bounded append sizing, live callback/recovery fences and additional
+public recovery tests. The checkout remains on its qualified `cfe096c9` runtime
+plus documentation. Do not blindly choose one side of a merge or retain both
+event mutation kernels. Reconcile main's delivery/recovery work with private
+host-minted provenance, global named activation and immutable metadata reads,
+then qualify the resulting source. Current-main integration is not complete and
+none of the results below qualify that combination.
+
 Runtime `cfe096c9` in draft PR [#170](https://github.com/crabbuild/cellar/pull/170)
 implements the four private metadata readers and integrates PR #171's read
 progress. Real RustFS native and Axum Quorum cases both pass both images,
