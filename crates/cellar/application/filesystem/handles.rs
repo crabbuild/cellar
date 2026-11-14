@@ -193,7 +193,15 @@ impl Descriptor {
                 "filesystem descriptor is closed or expired",
             ));
         }
-        if self.raft.is_some() {
+        if let Some(lifetime) = &self.raft {
+            if !crate::storage::raft_filesystem_lifetime()
+                .is_some_and(|current| Weak::ptr_eq(lifetime, &current))
+            {
+                return Err(Error::new(
+                    Errno::ESTALE,
+                    "descriptor belongs to another invocation",
+                ));
+            }
             fs.scope()?;
             return Ok(());
         }

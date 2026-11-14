@@ -3,10 +3,10 @@
 //! Filesystem isolation, transaction authority and retained RF3 recovery.
 
 use super::*;
-use cellar::sdk::filesystem::{Errno, File, OpenOptions, Policy};
+use cellar::sdk::filesystem::{Errno, File, Filesystem, OpenOptions, Policy};
 
-#[derive(Default)]
 struct Files {
+    fs: Filesystem,
     escaped: Mutex<Option<File>>,
     writes: Arc<AtomicUsize>,
 }
@@ -42,7 +42,7 @@ impl Cell for Files {
                 anyhow::bail!("maintenance entered application code")
             };
             let storage = context.storage()?;
-            let fs = context.fs()?;
+            let fs = self.fs.clone();
             if let Some(old) = self.escaped.lock().unwrap().take() {
                 ensure!(
                     old.fstat().is_err(),
@@ -154,8 +154,9 @@ fn application(writes: Arc<AtomicUsize>) -> Result<Arc<Registry>> {
     Ok(Arc::new(
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
             class,
-            move |_, _| {
+            move |context, _| {
                 Ok(Arc::new(Files {
+                    fs: context.fs()?,
                     escaped: Mutex::new(None),
                     writes: writes.clone(),
                 }))

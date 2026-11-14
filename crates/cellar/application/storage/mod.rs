@@ -537,7 +537,7 @@ impl Storage {
         self.data_scope()
     }
 
-    pub(super) fn cursor_view(&self) -> Result<Self> {
+    fn cursor_view(&self) -> Result<Self> {
         self.data_scope()?;
         let owner = match &self.0 {
             Owner::RaftCommand(authority) => {
@@ -558,7 +558,7 @@ impl Storage {
         Ok(scope)
     }
 
-    pub(super) fn write_scope(&self) -> Result<&str> {
+    fn write_scope(&self) -> Result<&str> {
         let scope = self.data_scope()?;
         anyhow::ensure!(
             !matches!(self.0, Owner::RaftQuery(_)),

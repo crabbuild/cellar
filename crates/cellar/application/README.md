@@ -87,6 +87,8 @@ durability proof. Immutable queries can read that same filesystem through
 `QueryContext::storage().fs()`. Descriptors expire with their invocation and
 cannot enter another transaction. Bounded garbage collection uses the shared
 durable callback scheduler, including after retained restart.
+Filesystem views acquired by the cell constructor can be cached for that
+activation; descriptor checks still require the exact executing invocation.
 
 `Storage::inbox` also accepts records in a Raft command's transaction. Receipt
 deduplication and local business effects commit or roll back together; the

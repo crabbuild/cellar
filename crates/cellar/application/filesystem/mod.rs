@@ -79,10 +79,8 @@ impl Storage {
             declared.policy.validate()?;
             backend::initialize(self.data_scope().map_err(Error::from)?, limits)
                 .map_err(Error::from)?;
-            let mut storage = self.cursor_view().map_err(Error::from)?;
-            storage.1 = self.1.clone();
             Ok(Filesystem {
-                storage,
+                storage: self.clone(),
                 limits,
                 policy: declared.policy,
                 identity: declared.identity,
