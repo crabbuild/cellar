@@ -3,6 +3,8 @@
 //! Cell-history admission and commands on the existing fixed node SQL workers.
 
 mod admission;
+pub(crate) use admission::SqlCapacityWait;
+mod progress;
 mod rpc_cache;
 mod rpc_commit;
 pub(super) use rpc_cache::RpcCache;
@@ -119,14 +121,22 @@ impl CellSqlOptions {
     fn open(
         self,
         authority: CellExecutionAuthority,
+        performance: &crate::raft::performance::Registry,
     ) -> Result<CellPrivateExecutor, ExecutionError> {
-        match self {
+        let result = (|| match self {
             Self::Materialized(o) => CellPrivateExecutor::open_cursor_image(o, authority),
             Self::Extents(o) => CellPrivateExecutor::open_rooted(
                 o.prepare(&authority.cell().version.history)?,
                 authority,
             ),
+        })();
+        if matches!(
+            result,
+            Err(ExecutionError::Refused(CommandFailure::Overloaded))
+        ) {
+            performance.increment(crate::raft::performance::Counter::SqlPrivateOpenRefusals, 1);
         }
+        result
     }
 }
 
@@ -326,6 +336,8 @@ pub(crate) struct CellSqlStageFailure {
     pub before_enqueue: bool,
     /// The writer lease refused before enqueue or application callback entry.
     pub writer_busy: bool,
+    /// Only a received, fitting node/group reservation refusal grants this.
+    pub capacity_wait: Option<SqlCapacityWait>,
 }
 
 impl CellSqlStageFailure {
@@ -335,6 +347,7 @@ impl CellSqlStageFailure {
             unresolved: false,
             before_enqueue: false,
             writer_busy: false,
+            capacity_wait: None,
         }
     }
 
@@ -450,6 +463,7 @@ struct Handle {
     closing: Arc<AtomicBool>,
     stop: Arc<Notify>,
     terminal: Arc<Terminal>,
+    performance: Arc<crate::raft::performance::Registry>,
 }
 
 impl Drop for Handle {
@@ -502,12 +516,18 @@ impl CellGroupSqlPool {
             engine_owner: log.owner(),
             workers,
             resources,
-            admission: Admission::new(limits, lease.clone(), log.limits().max_groups),
+            admission: Admission::new(
+                limits,
+                lease.clone(),
+                log.limits().max_groups,
+                log.performance(),
+            ),
             apply_admission: Budget::new(limits.node_bytes, log.limits().max_groups),
             activations,
             closing: closing.clone(),
             stop: stop.clone(),
             terminal: terminal.clone(),
+            performance: log.performance(),
         });
         let cleanup_domain = domain.clone();
         // Cleanup owns the join handles, so cancelling a close waiter cannot
@@ -608,36 +628,86 @@ impl CellGroupSqlPool {
     }
 
     async fn call(&self, cell: CellHistory, action: worker::Action) -> SqlReply {
-        self.send(cell, action)?.await.map_err(|_| unavailable())?
+        let wait = if action.progress_priority() {
+            self.admit()?;
+            let worker = self.cell_worker(&cell)?;
+            worker.domain.mono_ms().map_err(|_| unavailable())?;
+            let queued = worker
+                .performance
+                .timer(crate::raft::performance::Operation::SqlQueue);
+            let slot = match progress::reserve(&worker.completion_slots, || {
+                worker
+                    .slots
+                    .clone()
+                    .try_acquire_owned()
+                    .map_err(|error| match error {
+                        tokio::sync::TryAcquireError::Closed => unavailable(),
+                        tokio::sync::TryAcquireError::NoPermits => overloaded(),
+                    })
+            })
+            .await
+            {
+                Ok(slot) => slot,
+                Err(error) => {
+                    queued.finish(false);
+                    return Err(error);
+                }
+            };
+            self.enqueue(worker, cell, action, slot, queued)?
+        } else {
+            self.send_ordinary(cell, action)?
+        };
+        wait.await.map_err(|_| unavailable())?
     }
 
-    fn send(
-        &self,
-        cell: CellHistory,
-        action: worker::Action,
-    ) -> Result<oneshot::Receiver<SqlReply>, ExecutionError> {
-        self.admit()?;
-        let hash = cell_image_history_digest(&cell);
+    fn cell_worker(&self, cell: &CellHistory) -> Result<&Worker, ExecutionError> {
+        let hash = cell_image_history_digest(cell);
         let index = u64::from_le_bytes(
             hash[..8]
                 .try_into()
                 .map_err(|_| ExecutionError::Invalid("cell worker key"))?,
         ) % self.inner.workers.len() as u64;
-        let worker = &self.inner.workers[index as usize];
+        Ok(&self.inner.workers[index as usize])
+    }
+
+    fn send_ordinary(
+        &self,
+        cell: CellHistory,
+        action: worker::Action,
+    ) -> Result<oneshot::Receiver<SqlReply>, ExecutionError> {
+        self.admit()?;
+        let worker = self.cell_worker(&cell)?;
         worker.domain.mono_ms().map_err(|_| unavailable())?;
-        let slots = if action.progress_priority() {
-            &worker.completion_slots
-        } else {
-            &worker.slots
-        };
-        let slot = slots
+        let slot = worker
+            .slots
             .clone()
             .try_acquire_owned()
             .map_err(|error| match error {
                 tokio::sync::TryAcquireError::Closed => unavailable(),
-                tokio::sync::TryAcquireError::NoPermits => overloaded(),
+                tokio::sync::TryAcquireError::NoPermits => {
+                    worker.performance.increment(
+                        crate::raft::performance::Counter::SqlWorkerAdmissionRefusals,
+                        1,
+                    );
+                    overloaded()
+                }
             })?;
+        let queued = worker
+            .performance
+            .timer(crate::raft::performance::Operation::SqlQueue);
+        self.enqueue(worker, cell, action, slot, queued)
+    }
+
+    fn enqueue(
+        &self,
+        worker: &Worker,
+        cell: CellHistory,
+        action: worker::Action,
+        slot: tokio::sync::OwnedSemaphorePermit,
+        queued: crate::raft::performance::Timer,
+    ) -> Result<oneshot::Receiver<SqlReply>, ExecutionError> {
         self.admit()?;
+        worker.domain.mono_ms().map_err(|_| unavailable())?;
         let (reply, wait) = oneshot::channel();
         worker
             .sender
@@ -646,9 +716,7 @@ impl CellGroupSqlPool {
                 action,
                 reply,
                 _slot: slot,
-                queued: worker
-                    .performance
-                    .timer(crate::raft::performance::Operation::SqlQueue),
+                queued,
             }))
             .map_err(|_| unavailable())?;
         Ok(wait)
@@ -822,19 +890,43 @@ impl CellGroupSqlPool {
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         let (cell, action) = self
             .stage_request(options, authority, attempt, mode, callback)
-            .await
-            .map_err(CellSqlStageFailure::admission)?;
+            .await?;
         let wait = self
-            .send(cell, action)
-            .map_err(CellSqlStageFailure::known)?;
+            .send_ordinary(cell, action)
+            .map_err(|error| self.stage_failure(error, true))?;
         wait.await
             .map_err(|_| CellSqlStageFailure {
                 error: unavailable(),
                 unresolved: true,
                 before_enqueue: false,
                 writer_busy: false,
+                capacity_wait: None,
             })?
-            .map_err(CellSqlStageFailure::known)
+            .map_err(|error| self.stage_failure(error, false))
+    }
+
+    fn stage_failure(&self, error: ExecutionError, before_enqueue: bool) -> CellSqlStageFailure {
+        if matches!(error, ExecutionError::Refused(CommandFailure::Overloaded)) {
+            self.inner.performance.increment(
+                if before_enqueue {
+                    crate::raft::performance::Counter::SqlStageAdmissionRefusals
+                } else {
+                    crate::raft::performance::Counter::SqlStageExecutionRefusals
+                },
+                1,
+            );
+        }
+        if before_enqueue {
+            CellSqlStageFailure::admission(error)
+        } else {
+            CellSqlStageFailure::known(error)
+        }
+    }
+
+    fn stage_reservation_failure(&self, refusal: admission::Failure) -> CellSqlStageFailure {
+        let mut failure = self.stage_failure(refusal.error, true);
+        failure.capacity_wait = refusal.wait;
+        failure
     }
 
     async fn stage_request(
@@ -844,16 +936,19 @@ impl CellGroupSqlPool {
         attempt: CommandAttempt,
         mode: CellSqlStageMode,
         callback: worker::Callback,
-    ) -> Result<(CellHistory, worker::Action), ExecutionError> {
-        self.admit()?;
+    ) -> Result<(CellHistory, worker::Action), CellSqlStageFailure> {
+        self.admit()
+            .map_err(|error| self.stage_failure(error, true))?;
         if !authority.belongs_to_engine(&self.inner.engine_owner) {
-            return Err(ExecutionError::Invalid("cell SQL engine owner"));
+            return Err(self.stage_failure(ExecutionError::Invalid("cell SQL engine owner"), true));
         }
         if attempt.request.operation.is_empty() || attempt.request.operation.len() > 128 {
-            return Err(ExecutionError::Invalid("command operation"));
+            return Err(self.stage_failure(ExecutionError::Invalid("command operation"), true));
         }
         let limits = options.limits();
-        limits.validate()?;
+        limits
+            .validate()
+            .map_err(|error| self.stage_failure(error, true))?;
         let input_bytes = match &callback {
             worker::Callback::Verification(_) => 0,
             worker::Callback::Registered { input, .. } => input.len(),
@@ -868,7 +963,7 @@ impl CellGroupSqlPool {
             .and_then(|n| n.checked_add(input_bytes))
             .and_then(|n| n.checked_add(limits.max_result_bytes))
             .and_then(|n| n.checked_add(4096))
-            .ok_or_else(overloaded)?;
+            .ok_or_else(|| self.stage_failure(overloaded(), true))?;
         let cell = authority.cell().version.history.clone();
         let group = authority.route().history;
         let (lease, bytes) = if let (
@@ -883,35 +978,46 @@ impl CellGroupSqlPool {
             if class.is_cell_rpc(&attempt.request.operation) {
                 let fence = authority.activation_fence();
                 let domain = self.inner.workers[0].domain.clone();
-                let timeout = domain.sleep_until(deadline).map_err(|_| unavailable())?;
+                let timeout = domain
+                    .sleep_until(deadline)
+                    .map_err(|_| self.stage_failure(unavailable(), true))?;
                 let waiting = async {
                     let reserved = self
                         .inner
                         .admission
                         .reserve_queued(&cell, group, bytes)
-                        .await?;
-                    self.admit()?;
+                        .await
+                        .map_err(|failure| self.stage_reservation_failure(failure))?;
+                    self.admit()
+                        .map_err(|error| self.stage_failure(error, true))?;
                     // The old writer may have proven several roots while this
                     // request waited. Rebase only before any application entry,
                     // keeping the original term/history fence and command ID.
                     let fresh = commits
                         .continuation_authority(&domain, &cell, &fence)
-                        .await?;
+                        .await
+                        .map_err(|error| self.stage_failure(error, true))?;
 
-                    Ok::<_, ExecutionError>((reserved, fresh))
+                    Ok::<_, CellSqlStageFailure>((reserved, fresh))
                 };
                 let (reserved, fresh) = crate::asyncrt::select_biased! {
                     "original SQL writer admission deadline";
-                    _=timeout=>return Err(crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded)),
+                    _=timeout=>return Err(self.stage_failure(crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded), true)),
                     result=waiting=>result?,
                 };
                 authority = fresh;
                 reserved
             } else {
-                self.inner.admission.reserve(&cell, group, bytes)?
+                self.inner
+                    .admission
+                    .reserve_stage(&cell, group, bytes)
+                    .map_err(|failure| self.stage_reservation_failure(failure))?
             }
         } else {
-            self.inner.admission.reserve(&cell, group, bytes)?
+            self.inner
+                .admission
+                .reserve_stage(&cell, group, bytes)
+                .map_err(|failure| self.stage_reservation_failure(failure))?
         };
         Ok((
             cell,
@@ -953,7 +1059,7 @@ impl CellGroupSqlPool {
             .initialize_request(options, authority, attempt, initialize)
             .map_err(CellSqlStageFailure::admission)?;
         let wait = self
-            .send(cell, action)
+            .send_ordinary(cell, action)
             .map_err(CellSqlStageFailure::admission)?;
         wait.await
             .map_err(|_| CellSqlStageFailure {
@@ -961,6 +1067,7 @@ impl CellGroupSqlPool {
                 unresolved: true,
                 before_enqueue: false,
                 writer_busy: false,
+                capacity_wait: None,
             })?
             .map_err(CellSqlStageFailure::known)
     }

@@ -37,6 +37,9 @@ struct Group {
     queued: bool,
     retiring: bool,
     deferred: VecDeque<Request>,
+    // Requests through the last cell read present when collection began.
+    // Later arrivals cannot extend this prefix.
+    read_collection_remaining: usize,
     completion: Option<Request>,
     park_write: Option<Request>,
     // One status per current peer, retaining node-wide hint item/byte admission.
@@ -53,6 +56,22 @@ struct Group {
 }
 
 impl Group {
+    fn pop_deferred(&mut self) -> Option<Request> {
+        let request = self.deferred.pop_front()?;
+        self.read_collection_remaining = self.read_collection_remaining.saturating_sub(1);
+        Some(request)
+    }
+
+    fn collect_queued_reads(&mut self) {
+        self.read_collection_remaining = self
+            .deferred
+            .iter()
+            .rposition(|request| {
+                matches!(&request.command, Command::Read(read) if read.kind.cell_linearizable())
+            })
+            .map_or(0, |position| position + 1);
+    }
+
     fn wake(&mut self, history: GroupHistory, order: &mut VecDeque<GroupHistory>) {
         if !self.queued && (!self.owner.waiting() || self.failed.is_some()) {
             self.queued = true;
@@ -86,6 +105,7 @@ impl Group {
         self.tick = false;
         self.wake_due = false;
         self.snapshot_hints.clear();
+        self.read_collection_remaining = 0;
         for request in self.deferred.drain(..) {
             reply(request, Err(error.clone()));
         }
@@ -261,6 +281,7 @@ impl Worker {
                 queued: false,
                 retiring: false,
                 deferred: VecDeque::new(),
+                read_collection_remaining: 0,
                 completion: None,
                 park_write: None,
                 snapshot_hints: BTreeMap::new(),
@@ -421,11 +442,18 @@ impl Worker {
             return;
         }
         if matches!(request.command, Command::Observe) {
+            let queued_linearizable_reads = group
+                .deferred
+                .iter()
+                .filter(|request| {
+                    matches!(&request.command, Command::Read(read) if read.kind.cell_linearizable())
+                })
+                .count();
             reply(
                 request,
                 group
                     .owner
-                    .observe()
+                    .observe(queued_linearizable_reads)
                     .map(|value| Response::Observation(Box::new(value))),
             );
             return;
@@ -569,7 +597,7 @@ impl Worker {
         group.snapshot_hints.clear();
         self.ticking.remove(&history);
         self.park_deadlines.remove(&history);
-        while let Some(request) = group.deferred.pop_front() {
+        while let Some(request) = group.pop_deferred() {
             reply(request, Err(RuntimeError::NotReady));
         }
         if group.write.is_some()
@@ -600,8 +628,15 @@ impl Worker {
     }
 
     fn tick(&mut self) {
+        use crate::raft::performance::Counter;
+        let performance = self.log.performance();
+        performance.increment(Counter::CellGroupTickRounds, 1);
         for history in &self.ticking {
             if let Some(group) = self.groups.get_mut(history) {
+                performance.increment(Counter::CellGroupTicksRequested, 1);
+                if group.tick {
+                    performance.increment(Counter::CellGroupTicksCoalesced, 1);
+                }
                 group.tick = true;
                 group.wake(*history, &mut self.order);
             }
@@ -656,7 +691,7 @@ impl Worker {
                     .front()
                     .is_some_and(|request| !wakes_parked_group(&request.command, term))
                 {
-                    let Some(request) = group.deferred.pop_front() else {
+                    let Some(request) = group.pop_deferred() else {
                         break;
                     };
                     reply(request, Ok(Response::Unit));
@@ -710,6 +745,7 @@ impl Worker {
                     }
                 }
                 if collect && group.owner.idle() && group.pending.is_none() {
+                    let collecting_reads = group.read_collection_remaining != 0;
                     if group.tick {
                         match group.owner.tick() {
                             Ok(()) => {
@@ -723,7 +759,7 @@ impl Worker {
                             }
                             Err(error) => group.fail(error),
                         }
-                    } else if let Some(request) = group.deferred.pop_front() {
+                    } else if let Some(request) = group.pop_deferred() {
                         let Request {
                             command,
                             reply: answer,
@@ -751,9 +787,12 @@ impl Worker {
                                         now,
                                     );
                                     if coalescible {
+                                        if !collecting_reads {
+                                            group.collect_queued_reads();
+                                        }
                                         // Preserve queue order and the existing
-                                        // 32-item group envelope. Only adjacent,
-                                        // already admitted cell reads may join.
+                                        // 32-item group envelope. Adjacent reads
+                                        // can be collected in the same turn.
                                         for _ in 1..32 {
                                             if !group.deferred.front().is_some_and(|request| {
                                                 matches!(&request.command, Command::Read(read) if read.kind.cell_linearizable())
@@ -764,10 +803,7 @@ impl Worker {
                                                 command: Command::Read(read),
                                                 reply,
                                                 ..
-                                            } = group
-                                                .deferred
-                                                .pop_front()
-                                                .expect("queued cohort read")
+                                            } = group.pop_deferred().expect("queued cohort read")
                                             else {
                                                 unreachable!("checked cohort read");
                                             };
@@ -1225,6 +1261,9 @@ impl Worker {
                                 if term.is_some_and(|observed| observed != status.term) {
                                     return Err(RuntimeError::NotLeader);
                                 }
+                                if term.is_none() && group.read_collection_remaining != 0 {
+                                    return Err(RuntimeError::NotReady);
+                                }
                                 // Raft already retries a leader's heartbeat.
                                 // A follower must resend a lost forwarded request.
                                 if term.is_none()
@@ -1235,7 +1274,10 @@ impl Worker {
                                     {
                                         return Err(RuntimeError::Overloaded);
                                     }
-                                    group.owner.read_forwarded_cell_index(context.to_vec())?;
+                                    group.owner.read_forwarded_cell_index(
+                                        context.to_vec(),
+                                        term.is_none(),
+                                    )?;
                                     // Cohorts initiate after the ordinary group
                                     // turn. Account the actual RawNode entry
                                     // before another group's cohort can enter.

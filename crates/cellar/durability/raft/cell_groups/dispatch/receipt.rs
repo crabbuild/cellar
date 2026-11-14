@@ -233,11 +233,11 @@ impl CellReceiptInvocation {
         self.retry().await
     }
 
-    pub(crate) async fn remote_member(
+    pub(in crate::raft::cell_groups) async fn remote_member(
         &self,
         runtime: &CellGroupRuntime,
         transport: &crate::raft::transport::RaftTransport,
-    ) -> Result<Option<cellar_logic::consensus::MemberId>, CellDispatchError> {
+    ) -> Result<Option<cellar_logic::consensus::MemberId>, MutationSelectionError> {
         super::mutation_route::mutation_peer(
             runtime,
             transport,

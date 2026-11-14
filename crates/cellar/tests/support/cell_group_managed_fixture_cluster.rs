@@ -49,6 +49,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
     Ok(Fixture {
         domain: f.domain.clone(),
         store: Arc::new(fault::Store::around(f.store.clone())),
+        host_store: None,
         catalog: f.catalog.clone(),
         declaration: f.declaration.clone(),
         additional_namespaces: f.additional_namespaces.clone(),
@@ -66,6 +67,9 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         max_pending_transactions: f.max_pending_transactions,
         max_client_identities: f.max_client_identities,
         max_input_bytes: f.max_input_bytes,
+        stale_source_timeout_ms: f.stale_source_timeout_ms,
+        small_segments: f.small_segments,
+        settle_periodic_purges: false,
         payloads: f.payloads,
         image_bytes: f.image_bytes,
         logical_byte_capacity: f.logical_byte_capacity,
@@ -601,14 +605,43 @@ impl ManagedCluster {
             }
         }
         if public_operator {
-            let selected = futures_util::future::try_join_all(hosts.iter().take(3).map(|voter| {
-                voter.start_managed_namespace_first_group(
-                    history.cluster,
-                    history.namespace,
-                    TIMEOUT,
-                )
-            }))
-            .await?;
+            let rooted = f.declaration.namespace.image_storage == RaftImageStorage::Extents;
+            let selected = futures_util::future::try_join_all(
+                hosts.iter().take(3).enumerate().map(|(index, voter)| {
+                    let startup = voter.start_managed_namespace_first_group(
+                        history.cluster,
+                        history.namespace,
+                        TIMEOUT,
+                    );
+                    async move {
+                        startup.await.with_context(|| format!("initial group readiness voter={index}, extents={rooted}, history={history:?}"))
+                    }
+                }),
+            ).await;
+            let selected = match selected {
+                Ok(selected) => selected,
+                Err(error) => {
+                    super::diagnostics::record_parts(
+                        &hosts,
+                        &fixtures,
+                        history,
+                        "initial-group-readiness",
+                    )
+                    .await;
+                    let joined = movement::close(nodes, &hosts).await;
+                    for root in roots {
+                        eprintln!(
+                            "retained initial group readiness disk: {}",
+                            root.keep().display()
+                        );
+                    }
+                    f.domain.shutdown().await;
+                    if let Err(close_error) = joined {
+                        eprintln!("initial group readiness joined shutdown: {close_error:?}");
+                    }
+                    return Err(error);
+                }
+            };
             ensure!(
                 selected.iter().all(|selected| *selected == history),
                 "unexpected managed namespace group"

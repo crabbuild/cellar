@@ -141,6 +141,11 @@ pub(super) async fn concurrent(rooted: bool) -> Result<()> {
             .map_err(anyhow::Error::new)
     })?;
     tokio::time::timeout(Duration::from_secs(5), started).await??;
+    let unpublished_base = fixture.cluster.voters[0]
+        .extents
+        .as_ref()
+        .map(|store| store.usage().map(|usage| (usage.roots, usage.workspaces)))
+        .transpose()?;
     waiter.abort();
     assert!(waiter.await.is_err());
     let mut other = a.clone();
@@ -180,8 +185,55 @@ pub(super) async fn concurrent(rooted: bool) -> Result<()> {
         pool.resolve_enrollment(pa.proposal(), state).await,
         Err(ExecutionError::Uncertain)
     ));
+    // The dispatcher observes state before queueing SQL resolution. Apply can
+    // win that race without changing the route, term or SQL worker health.
+    let stale = fixture.runtimes[0]
+        .enrollment_state(route.history, a.clone())
+        .await?;
+    assert!(stale.record().is_none());
+    stale.check()?;
     submit(&mut fixture, &pool, 0, &a, &pa).await?;
+    let current = fixture.runtimes[0]
+        .enrollment_state(route.history, a.clone())
+        .await?;
+    current.check()?;
+    assert_eq!(current.route(), stale.route());
+    assert_eq!(current.term(), stale.term());
+    assert_eq!(
+        current.record().map(|record| record.creation()),
+        Some(pa.proposal())
+    );
+    assert!(matches!(stale.check(), Err(RuntimeError::NotReady)));
+    let retained = pool.usage()?;
+    let workspaces = fixture.cluster.voters[0]
+        .extents
+        .as_ref()
+        .map(|store| store.usage().map(|usage| usage.workspaces))
+        .transpose()?;
+    let failure = match pool.resolve_enrollment(pa.proposal(), stale).await {
+        Err(error) => error,
+        Ok(_) => anyhow::bail!("stale absence cannot resolve a prepared enrollment"),
+    };
+    assert!(
+        matches!(failure, ExecutionError::Uncertain),
+        "stale enrollment observation must request fresh proof: {failure:?}"
+    );
+    let usage = pool.usage()?;
+    assert!(!usage.closing);
+    assert_eq!(usage.active_cells, 1);
+    assert_eq!(usage.retained_bytes, retained.retained_bytes);
+    assert_eq!(usage.retained_operations, retained.retained_operations);
+    assert_eq!(callbacks.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        fixture.cluster.voters[0]
+            .extents
+            .as_ref()
+            .map(|store| store.usage().map(|usage| usage.workspaces))
+            .transpose()?,
+        workspaces
+    );
     let ra = resolved(&fixture, &pool, 0, &a, pa.proposal()).await?;
+    assert_eq!(ra.record().creation(), pa.proposal());
     let original = ra.record().clone();
     assert_eq!(callbacks.load(Ordering::SeqCst), 1);
     drop(ra);
@@ -335,7 +387,15 @@ pub(super) async fn concurrent(rooted: bool) -> Result<()> {
         .record()
         .is_none());
     drop(pool);
-    fixture.close().await
+    fixture.close().await?;
+    if rooted {
+        assert_eq!(
+            unpublished_base,
+            Some((0, 1)),
+            "a held initializer needs its admitted workspace, not a durable empty base"
+        );
+    }
+    Ok(())
 }
 
 pub(super) async fn recovery(rooted: bool) -> Result<()> {

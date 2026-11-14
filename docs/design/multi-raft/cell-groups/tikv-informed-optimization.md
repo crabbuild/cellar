@@ -248,6 +248,39 @@ lookups share the original absolute deadline and attempt accounting. Coalesced
 refresh has an owned bounded lifetime; one caller cancelling neither frees entered
 work nor cancels other admitted waiters. Closing joins the refresh owner.
 
+Mutation destination selection carries a typed repair outcome before submission.
+Transient readiness, overload and unreachable probes consume the original retry
+budget on the installed cell placement. A repeated wholly unreachable probe plan
+also validates that exact history through the joined membership-discovery owner.
+A retired peer can close its connection before returning a typed refusal; the
+connection error itself does not prove placement drift. Only a trusted directory
+fence changes that retry into interval repair, using the same original tickets
+and deadline. Missing or stale peer observations use the coalesced membership
+refresh. Only a local sealed or replaced route, or the trusted directory fencing
+the selected history, requests cell-placement repair.
+Membership discovery preserves namespace cache entries. Explicit recovery
+discovery still refreshes the affected namespace routes.
+
+Unknown-leader discovery shares one temporary transport-owned operation for an
+exact physical route, configuration generation, logical epoch and birth digest.
+The first caller supplies its finite candidate limit and original deadline;
+joiners retain their own deadlines. Cancelling waiters leaves the physical owner
+charged and running, and transport close joins it. The owner and additional
+waiters borrow the existing control bank, with a quarter-bank metadata sublimit
+and the unchanged transport task limit. When optional coalescing cannot fit,
+the original bounded inline discovery remains available. Completed results leave
+the index before delivery, and route/configuration changes fence completion.
+`cell_leader_probe_owners` and `cell_leader_probe_joins` distinguish shared discovery
+from actual `cell_command_leader_probes`. `cell_leader_probe_finishes` counts
+terminal owners, including failed plans and unpolled drops. A finished result can
+remain retained and charged by a waiter. These cumulative advisory counters do
+not constitute a capacity-release or authority proof. Coalescing covers an
+entered pending plan; subsequent plans still use the original finite invocation
+attempt bank after a completed plan. Ten private ownership cases and the
+existing retry, advice, codec and performance cases passed at source manifest
+`19402216`, together with focused strict Clippy and static checks. Endpoint-only
+repair and the public RO-03 through RO-09 qualification remain open.
+
 ## 6. Targeted range repair without stale resurrection
 
 The current cache's whole-cache invalidation is the safe fallback. Replace it
@@ -396,6 +429,28 @@ completed deletion/close/sync work, with no duplicate credit across purge jobs.
 If the engine cannot provide that evidence yet, retain its byte charge while
 exposing logical removal separately. Do not call reserved image bounds measured
 RSS or actual disk bytes.
+
+The managed `RaftCells::reclaim_raft_segments` turn charges an initial complete
+inventory before its first numbered purge. Later turns compare the retained
+receipt with the previous rooted per-file charges and the current boot's
+complete inventory. Any unproven bytes remain charged. One Fleet CAS installs
+the new floor and advances the receipt number. After uncertainty, retry the
+same number. Only the latest settlement is replayable. A retained successor
+must use the same disk and engine.
+
+The segment-file floor is an additional lower bound for movement, transition
+and recovery admission. Pending reservation claims remain additive. Fleet
+keeps reservation and deployment floors as independent bases.
+
+With `RaftHostOptions::settle_periodic_raft_purges` enabled, the node-owned
+member cleanup worker uses the log's configured purge interval and checks
+Raft Engine's rewrite policy. An eligible turn uses the current boot's rooted
+capacity qualification. The worker retries a locally prepared or completed
+purge at the same number until the catalog confirms it. The existing cleanup
+slot alternates priority between removed-member work and periodic segment work.
+During a catalog outage the opted-in engine retains the pending evidence and
+waits for settlement. Periodic purges outside this mode can leave unattributed
+debt. End-to-end reclamation qualification remains open.
 
 ### 8.3 Crash and retry contract
 

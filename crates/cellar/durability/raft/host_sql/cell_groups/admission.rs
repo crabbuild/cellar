@@ -11,6 +11,63 @@ use std::sync::{Mutex, Weak};
 
 type LogicalCell = (ClusterId, NamespaceId, CellId);
 
+/// A received refusal from one finite admission bank, before SQL enqueue.
+/// This pins only bounded admission metadata; it grants no physical credit.
+pub(crate) struct SqlCapacityWait {
+    bank: Weak<Budget>,
+    bytes: usize,
+}
+
+impl SqlCapacityWait {
+    pub(crate) async fn released(&self) {
+        let Some(bank) = self.bank.upgrade() else {
+            // The old bank has no owner or credit left. The next admission
+            // still checks the current bank and authority under their locks.
+            return;
+        };
+        loop {
+            let mut changed = std::pin::pin!(bank.wake.notified());
+            changed.as_mut().enable();
+            // Register before inspecting both dimensions. Another waiter may
+            // have consumed a stored notification after this refusal, without
+            // consuming all the credit this request can use.
+            let (bytes, items) = bank.usage();
+            let (max_bytes, max_items) = bank.capacity();
+            if items < max_items
+                && bytes
+                    .checked_add(self.bytes)
+                    .is_some_and(|n| n <= max_bytes)
+            {
+                return;
+            }
+            changed.await;
+        }
+    }
+}
+
+pub(super) struct Failure {
+    pub error: ExecutionError,
+    pub wait: Option<SqlCapacityWait>,
+}
+
+impl Failure {
+    fn terminal(error: ExecutionError) -> Self {
+        Self { error, wait: None }
+    }
+
+    fn capacity(bank: &Arc<Budget>, bytes: usize) -> Self {
+        let (max_bytes, max_items) = bank.capacity();
+        Self {
+            error: overloaded(),
+            // A request that cannot fit by itself must refuse immediately.
+            wait: (bytes <= max_bytes && max_items != 0).then(|| SqlCapacityWait {
+                bank: Arc::downgrade(bank),
+                bytes,
+            }),
+        }
+    }
+}
+
 pub(super) struct Admission {
     lease: Arc<crate::raft::storage::SqlPoolLease>,
     node: Arc<Budget>,
@@ -18,6 +75,7 @@ pub(super) struct Admission {
     state: Mutex<State>,
     max_retired_groups: usize,
     writers: tokio::sync::watch::Sender<()>,
+    performance: Arc<crate::raft::performance::Registry>,
 }
 
 #[derive(Default)]
@@ -175,6 +233,7 @@ impl Admission {
         limits: CellSqlLimits,
         lease: Arc<crate::raft::storage::SqlPoolLease>,
         max_retired_groups: usize,
+        performance: Arc<crate::raft::performance::Registry>,
     ) -> Arc<Self> {
         Arc::new(Self {
             lease,
@@ -183,6 +242,7 @@ impl Admission {
             limits,
             state: Mutex::new(State::default()),
             writers: tokio::sync::watch::channel(()).0,
+            performance,
         })
     }
 
@@ -192,16 +252,31 @@ impl Admission {
         group: GroupHistory,
         bytes: usize,
     ) -> Result<(CellLease, Arc<Bytes>), ExecutionError> {
-        let mut state = self.state.lock().map_err(|_| unavailable())?;
+        self.reserve_stage(cell, group, bytes)
+            .map_err(|failure| failure.error)
+    }
+
+    pub(super) fn reserve_stage(
+        self: &Arc<Self>,
+        cell: &CellHistory,
+        group: GroupHistory,
+        bytes: usize,
+    ) -> Result<(CellLease, Arc<Bytes>), Failure> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| Failure::terminal(unavailable()))?;
         let key = (cell.cluster, cell.namespace, cell.cell.clone());
         let gate = Self::writer(&mut state, &key);
         let permit = gate
             .semaphore
             .clone()
             .try_acquire_owned()
-            .map_err(|error| match error {
-                tokio::sync::TryAcquireError::NoPermits => ExecutionError::Busy,
-                tokio::sync::TryAcquireError::Closed => unavailable(),
+            .map_err(|error| {
+                Failure::terminal(match error {
+                    tokio::sync::TryAcquireError::NoPermits => ExecutionError::Busy,
+                    tokio::sync::TryAcquireError::Closed => unavailable(),
+                })
             })?;
         let bytes = self.reserve_bytes(&mut state, group, bytes)?;
         state.cells.insert(key.clone());
@@ -242,9 +317,12 @@ impl Admission {
         cell: &CellHistory,
         group: GroupHistory,
         bytes: usize,
-    ) -> Result<(CellLease, Arc<Bytes>), ExecutionError> {
+    ) -> Result<(CellLease, Arc<Bytes>), Failure> {
         let (mut lease, bytes) = {
-            let mut state = self.state.lock().map_err(|_| unavailable())?;
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| Failure::terminal(unavailable()))?;
             let bytes = self.reserve_bytes(&mut state, group, bytes)?;
             let key = (cell.cluster, cell.namespace, cell.cell.clone());
             let gate = Self::writer(&mut state, &key);
@@ -261,7 +339,9 @@ impl Admission {
                 bytes,
             )
         };
-        std::future::poll_fn(|cx| lease.resume(cx)).await?;
+        std::future::poll_fn(|cx| lease.resume(cx))
+            .await
+            .map_err(Failure::terminal)?;
         Ok((lease, bytes))
     }
 
@@ -281,6 +361,7 @@ impl Admission {
     ) -> Result<Arc<Bytes>, ExecutionError> {
         let mut state = self.state.lock().map_err(|_| unavailable())?;
         self.reserve_bytes(&mut state, group, bytes)
+            .map_err(|failure| failure.error)
     }
 
     fn reserve_bytes(
@@ -288,11 +369,19 @@ impl Admission {
         state: &mut State,
         group: GroupHistory,
         bytes: usize,
-    ) -> Result<Arc<Bytes>, ExecutionError> {
+    ) -> Result<Arc<Bytes>, Failure> {
         if state.closed || state.retired.contains(&group) {
-            return Err(ExecutionError::Refused(CommandFailure::Unavailable));
+            return Err(Failure::terminal(ExecutionError::Refused(
+                CommandFailure::Unavailable,
+            )));
         }
-        let node = self.node.acquire(bytes).ok_or_else(overloaded)?;
+        let node = self.node.acquire(bytes).ok_or_else(|| {
+            self.performance.increment(
+                crate::raft::performance::Counter::SqlNodeAdmissionRefusals,
+                1,
+            );
+            Failure::capacity(&self.node, bytes)
+        })?;
         // Reclaim metadata only, never authority or pending physical ownership.
         state.groups.retain(|_, budget| budget.strong_count() != 0);
         let group_budget = state
@@ -302,7 +391,13 @@ impl Admission {
             .unwrap_or_else(|| {
                 Budget::new(self.limits.group_bytes, self.limits.group_pending_cells)
             });
-        let group_permit = group_budget.acquire(bytes).ok_or_else(overloaded)?;
+        let group_permit = group_budget.acquire(bytes).ok_or_else(|| {
+            self.performance.increment(
+                crate::raft::performance::Counter::SqlGroupAdmissionRefusals,
+                1,
+            );
+            Failure::capacity(&group_budget, bytes)
+        })?;
         state.groups.insert(group, Arc::downgrade(&group_budget));
         Ok(Arc::new(Bytes {
             _lease: self.lease.clone(),
@@ -318,11 +413,18 @@ impl Admission {
         if !state.retired.contains(&group) && state.retired.len() >= self.max_retired_groups {
             return Err(overloaded());
         }
-        state.retired.insert(group);
-        Ok(state
+        let newly_retired = state.retired.insert(group);
+        let drained = state
             .groups
             .get(&group)
-            .is_none_or(|budget| budget.strong_count() == 0))
+            .is_none_or(|budget| budget.strong_count() == 0);
+        drop(state);
+        if newly_retired {
+            // Waiting invocations must recheck authority and release their
+            // metadata pins; retirement does not refund physical credits.
+            self.writers.send_replace(());
+        }
+        Ok(drained)
     }
 
     pub(super) fn release_reclaimed_group(

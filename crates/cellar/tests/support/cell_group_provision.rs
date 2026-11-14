@@ -581,10 +581,11 @@ async fn reopen_and_verify(
             .cell_group(&route.history)?
             .group_manifest()?
             .context("selected marker")?;
-        let page = pages_path(&options.directory, route.history).join(format!(
-            "{}.page",
-            hex::encode(marker.root().digest().context("nonempty root")?)
-        ));
+        let page = manifest_pages::locate(
+            &pages_path(&options.directory, route.history),
+            marker.root().digest().context("nonempty root")?,
+        )?
+        .path;
         let saved = if n == 0 {
             Some(std::fs::read(&page)?)
         } else {

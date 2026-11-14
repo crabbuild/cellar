@@ -157,8 +157,96 @@ Full CG-17 and its independent API/scenario/configuration matrix remain open.
 Queue `max_concurrency` remains a ceiling; this shared owner runs one retained
 callback per broker at a time on each node. Clock/deployment changes, movement,
 wake, all-voter disk loss, full-size payloads and independent Linux voters/load
-need qualification. Ordinary cron now has its
-[basic startup and retained-recovery checkpoint](progress.md#cg-17-ordinary-cron-startup-and-retained-recovery);
-its full lifecycle needs qualification. EventStream, Workflow and other work
-reasons still need their own adapters. Delivery remains at least once, with
-application inbox or external-provider idempotency at the documented business boundary.
+need qualification. Ordinary cron has its
+[basic startup and retained-recovery checkpoint](progress.md#cg-17-ordinary-cron-startup-and-retained-recovery),
+and Workflow has its [shared-group checkpoint](workflow-durability.md). Their
+full lifecycles and the EventStream adapter remain open. Delivery remains at
+least once, with application inbox or external-provider idempotency at the
+documented business boundary.
+
+The pending `queue_four_in_flight_preserves_acknowledged_messages` control
+offers four producer calls concurrently, with at most two per Queue, alongside
+the existing two-in-flight case. It retains the same 512 steady messages,
+16 archive-outage messages, one SQL worker, eight ordinary slots, 128-KiB
+ordinary byte ceiling and two callback slots. The fixture measures active
+producer calls around each send and requires a peak of four. This measures
+offered calls, not simultaneous physical socket transmissions. The RustFS
+runner requires both image observations, the measured peak and the original
+resource envelope before accepting its separate selection. Runner unit tests
+pass; the new native and RustFS controls remain unqualified. Initial archive
+warmup remains in place, so this control does not close cold first-use S3.
+
+At optimized candidate input `4e9139b4`, the original two-call case passes both
+images in 84.456 seconds. The four-call case fails in its materialized image in
+26.398 seconds: an ingress command reports an ambiguous runtime deadline.
+The fixture retains all three voter disks and joins cleanup. Its failure snapshot
+shows one retained callback and SQL operation on the Queue leader, with a
+committed entry waiting to apply and 286 apply retries. This observation does
+not establish the blocking owner or a repair. The case remains failed, and the
+extent image has no result. Failure-only call counters are added for the next
+diagnostic run; successful-load observations remain separate.
+
+At diagnostic input `5b61b5ad`, the four-call case fails again in 25.076
+seconds. Failure counters record an actual peak of four offered calls, two
+failed producers and zero calls still running when their results are collected.
+No compiler or other native-test activity is sampled at the attempt's start.
+The original admission, byte and callback limits are unchanged. This supplies
+a repeatable current-source failure boundary; it does not yet prove which
+checkpoint/apply owner prevents completion or qualify the extent image.
+
+Targeted probes at input `34079f45` reproduce the failure and observe 198
+apply refusals at the single reserved SQL progress slot. The byte-admission
+and worker-result probes do not report those refusals; no checkpoint-wait probe
+fires. These observations identify a contended admission boundary, not the
+complete cause of the public request failure. All temporary probes are removed.
+
+The bounded FIFO candidate published at `2e1852db`, input `7c0585ac`, makes
+apply and SQL completions wait fairly for that existing progress slot. Apply
+waiters retain their existing apply admission; completion waiters borrow an
+ordinary slot while waiting. An idle progress slot remains available with a
+full ordinary queue. Cancellation and shutdown release waiter admission. No
+worker, slot, byte ceiling or request deadline is enlarged.
+
+All six admission unit tests pass, as do formatting, layout and focused strict
+Clippy for the core library and primitive integration target. The original
+two-call load passes both image modes in 78.729 seconds, with 528 unique messages
+per image and measured peak two. The four-call case still fails in its
+materialized image in 26.205 seconds: ingress sequence nine returns an ambiguous
+runtime deadline. Its failure counters confirm peak four, two failed producers
+and zero active calls after joining their results. The extent image has no
+result. FIFO admission therefore does not close the four-call progress gap;
+the regression remains failed and real RustFS qualification remains pending.
+
+The next bounded candidate, compiler input `e716fb93`, also serializes active
+stateless SQL callers per logical target on each node before sequence lookup.
+Each waiter retains existing metadata credit, and the original deadline covers
+its FIFO wait. The registry retains no idle cell owner. Remote contenders still
+require the exact consumed-other proof before selecting another sequence; lost
+responses retain ambiguous mutation outcomes. Three new FIFO/cancellation
+tests, six existing progress-admission tests and ten existing frontend contract
+cases pass, including the original chained KV and long Queue callback controls.
+
+The original two-call Queue case passes both images in 77.796 seconds. The
+first full four-call case fails in 75.761 seconds after its materialized image
+delivers all 528 unique messages: the extent image returns an ambiguous ingress
+deadline at sequence 22. Its measured peak is four, with two failed producers
+and zero active calls after joining. An uninstrumented same-source repeat
+passes both images in 78.888 seconds, delivering 528 unique messages per image
+with measured peak four. Both attempts keep the original limits and deadlines.
+The failed attempt remains failed; these mixed results do not qualify stable
+four-call progress. Separate extent-only diagnostic passes have narrower scope.
+
+These new runs use the native in-memory object store with archive-adapter fault
+injection. Current-source real RustFS, Colima/Linux voters, cold first-use S3
+and the full CG-17 matrix remain unqualified. See the
+[ingress FIFO checkpoint](optimization-progress.md#bounded-stateless-sql-ingress-fifo-follow-up)
+for source guards, component validation and the separate hosted CI failures.
+
+Final input `73c80371` corrects concurrent registry cleanup by releasing each
+strong gate owner under the registry lock. All four ingress-lane tests,
+including concurrent final drops across 4,096 targets, and six existing SQL
+progress admission tests pass, along with the locked build and focused strict
+Clippy. The final Queue rerun refuses at its activity precheck because another
+checkout is compiling. No Queue case executes and the harness record stays
+failed. The `e716fb93` runtime results retain their original source identity;
+the cleanup correction remains without a new full Queue runtime result.

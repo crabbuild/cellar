@@ -5,6 +5,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "cell_group_archive_intents.rs"]
+mod archive_intents;
+pub(super) use archive_intents::persist_archive_intent;
+
 #[path = "raft_catalog_fault.rs"]
 #[allow(dead_code)]
 pub mod catalog_fault;
@@ -557,6 +561,27 @@ impl RuntimeCluster {
         store: Arc<dyn object_store::ObjectStore>,
         filesystem: impl Fn(&Voter) -> Arc<dyn cellar_ltx::FileSystem>,
     ) -> Result<(RangeDirectory, CellGroupBirth)> {
+        self.add_group_in_store_with_storage(
+            number,
+            store,
+            filesystem,
+            RaftImageStorage::Materialized,
+        )
+        .await
+    }
+
+    async fn add_group_in_store_with_storage(
+        &mut self,
+        number: u8,
+        store: Arc<dyn object_store::ObjectStore>,
+        filesystem: impl Fn(&Voter) -> Arc<dyn cellar_ltx::FileSystem>,
+        image_storage: RaftImageStorage,
+    ) -> Result<(RangeDirectory, CellGroupBirth)> {
+        let rooted = image_storage == RaftImageStorage::Extents;
+        anyhow::ensure!(
+            !rooted || self.cluster.voters.iter().all(|v| v.extents.is_some()),
+            "extent groups require the existing node inventory"
+        );
         let scope = GroupHistory {
             cluster: self.cluster.birth.route().history.cluster,
             namespace: NamespaceId::new([number; 16])?,
@@ -565,14 +590,14 @@ impl RuntimeCluster {
         };
         let domain = &self.cluster.domain;
         let catalog = Catalog::new(store, CatalogOptions::default())?;
-        let namespace = domain
-            .run(catalog.open_namespace(NamespaceConfig::new(
-                scope.cluster,
-                scope.namespace,
-                cellar_logic::NamespaceMode::Raft,
-                [6; 32],
-            )))
-            .await??;
+        let mut namespace = NamespaceConfig::new(
+            scope.cluster,
+            scope.namespace,
+            cellar_logic::NamespaceMode::Raft,
+            [6; 32],
+        );
+        namespace.image_storage = image_storage;
+        let namespace = domain.run(catalog.open_namespace(namespace)).await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
         let request = directory.prepare_group_birth(CellGroupBirthSpec {
             history: scope,
@@ -637,7 +662,18 @@ impl RuntimeCluster {
                 owner: None,
                 pages: Some(pages),
                 images,
-                extents: None,
+                // Extent groups share this node's existing physical inventory
+                // and its quota; another group cannot create another bank.
+                extents: if rooted {
+                    Some(
+                        self.cluster.voters[n]
+                            .extents
+                            .clone()
+                            .context("node extent inventory")?,
+                    )
+                } else {
+                    None
+                },
                 tree,
                 gate: self.cluster.voters[n].gate.clone(),
                 paused: false,
@@ -911,19 +947,23 @@ pub(super) use sql::{
     archive_controller_tail_rollover, archived_groups_reclaim_independently,
 };
 #[allow(unused_imports)]
-pub(super) use sql::{archive_controller_publish_store, archive_controller_reconcile_store};
+pub(super) use sql::{
+    archive_controller_publish_store, archive_controller_reconcile_store,
+    archive_controller_reservation_recovery,
+};
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
-    follower_acquires_published_prefix, full_backend_outage, output_during_apply, s3_commands,
-    s3_deadline, s3_enrollment, s3_enrollment_deadline,
-    s3_late_receipt_uses_completed_verification, s3_missing_sibling, s3_namespace_minimum,
-    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
-    s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery, s3_replays_from_peer_archive,
-    s3_response_precedes_hold_retirement,
+    follower_acquires_published_prefix, follower_bootstraps_first_prefix, full_backend_outage,
+    output_during_apply, peer_connection_idle, s3_commands, s3_deadline, s3_enrollment,
+    s3_enrollment_deadline, s3_late_receipt_uses_completed_verification, s3_missing_sibling,
+    s3_namespace_minimum, s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums,
+    s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery,
+    s3_replays_from_peer_archive, s3_response_precedes_hold_retirement,
 };
 pub(super) use sql::{
-    background_admission, command_admission_starts_before_poll, command_waits_for_apply,
+    background_admission, capacity_terminal_refusals, capacity_wait_shutdown,
+    command_admission_starts_before_poll, command_waits_for_apply, command_waits_for_capacity,
     owned_command_failure, owned_commands,
 };
 pub(super) use sql::{
@@ -937,6 +977,14 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
 
 pub(super) async fn sql_pool_admission(rooted: bool) -> Result<()> {
     sql::pool_admission(rooted).await
+}
+
+pub(super) async fn admission_refusal_observations(rooted: bool) -> Result<()> {
+    sql::admission_refusal_observations(rooted).await
+}
+
+pub(super) async fn workspace_refusal_observations() -> Result<()> {
+    sql::workspace_refusal_observations().await
 }
 
 pub(super) async fn reconcile_sql_producers(rooted: bool) -> Result<()> {
@@ -987,7 +1035,8 @@ pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
 }
 
 pub(super) use sql::{
-    enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
+    enrollment_authority_loss_keeps_controller_alive, enrollment_requires_registration,
+    owned_enrollment, owned_enrollment_failure,
 };
 
 pub(super) use sql::{

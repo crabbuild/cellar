@@ -5,7 +5,7 @@
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::*;
 use cellar_javascript::{EventKind, Options, Source};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
@@ -269,7 +269,11 @@ fn exercise(
                     ensure!(request(&client, &address, "alice/tick").await?["count"] == first + 1);
                     if restart { ensure!(request(&client, &address, "alice/read-types").await?["ok"] == true); }
                     for operation in ["types", "sql", "save", "borrow", "bounds", "buffers", "refuse", "crypto", "transactions", "sync-transactions", "callback-quota"] {
-                        ensure!(request(&client, &address, &format!("alice/{operation}")).await?["ok"] == true);
+                        let value = request(&client, &address, &format!("alice/{operation}")).await?;
+                        ensure!(value["ok"] == true);
+                        if operation == "bounds" {
+                            ensure!(value["capacity"] == serde_json::json!(SqlLimits::default().max_open_cursors), "native cursor policy changed: {value}");
+                        }
                     }
                     let before = request(&client, &address, "alice/identity").await?;
                     let mut retired = false;
@@ -401,6 +405,66 @@ fn embedded_workers_storage_and_activation_recovery() -> Result<()> {
 #[test]
 fn node_workers_storage_and_activation_recovery() -> Result<()> {
     qualify(Backend::Node, "storage")
+}
+
+fn adapter_sql_cursor_capacity(backend: Backend) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let capacity = 32;
+    ensure!(capacity < SqlLimits::default().max_open_cursors);
+    run_with_options(
+        backend,
+        "storage",
+        Options {
+            max_batch_operations: capacity,
+            turn_timeout: Duration::from_secs(10),
+            ..Default::default()
+        },
+        |application| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(async {
+                    tokio::time::timeout(Duration::from_secs(75), async {
+                        let (node, address) = native::start_configured(
+                            directory.path(),
+                            application,
+                            |config, _, _| {
+                                config.runtime.handler_budget = Duration::from_secs(15);
+                            },
+                        )
+                        .await?;
+                        let client = reqwest::Client::builder()
+                            .timeout(Duration::from_secs(20))
+                            .build()?;
+                        for _ in 0..2 {
+                            let value = request(&client, &address, "alice/bounds").await?;
+                            ensure!(value["ok"] == true);
+                            ensure!(
+                                value["capacity"] == json!(capacity),
+                                "adapter cursor capacity/release: {value}"
+                            );
+                        }
+                        ensure!(request(&client, &address, "alice/buffers").await?["ok"] == true);
+                        let result = node.shutdown(ShutdownMode::Preserve).await?;
+                        ensure!(matches!(result, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out));
+                        Ok(())
+                    })
+                    .await?
+                })
+        },
+    )
+}
+
+#[cfg(feature = "embed")]
+#[test]
+fn embedded_workers_sql_cursor_adapter_capacity() -> Result<()> {
+    adapter_sql_cursor_capacity(Backend::Embedded)
+}
+
+#[cfg(feature = "node")]
+#[test]
+fn node_workers_sql_cursor_adapter_capacity() -> Result<()> {
+    adapter_sql_cursor_capacity(Backend::Node)
 }
 
 #[cfg(feature = "embed")]

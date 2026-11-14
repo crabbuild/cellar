@@ -121,9 +121,8 @@ pub(crate) async fn s3_enrollment(rooted: bool, store: Arc<dyn ObjectStore>) -> 
         assert_eq!(response.record(), &original);
         assert_eq!(h.archive.tails.usage().operations, 1);
         assert_eq!(h.initializations.load(Ordering::SeqCst), 1);
-        // The original cut is already independently verified. A duplicate
-        // creation shares that admitted proof, without another upload or replay
-        // slot, while both responses keep their own bounded admission.
+        // Replaying this creation shares its live admitted verification. It
+        // must succeed without another immutable upload or verifier workspace.
         h.remote
             .deny_generation_writes
             .store(true, Ordering::Release);
@@ -140,7 +139,49 @@ pub(crate) async fn s3_enrollment(rooted: bool, store: Arc<dyn ObjectStore>) -> 
         drop(response);
         controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 1)).await?;
         assert_eq!(h.archive.tails.usage().operations, 1);
+
+        // Dropping the first consumer cannot free the last consumer's physical
+        // admission. A new command is uncovered by the shared historical proof.
+        h.remote
+            .deny_generation_writes
+            .store(false, Ordering::Release);
+        let calls = h.calls.load(Ordering::SeqCst);
+        let sequence = if minimum == Durability::Quorum { 2 } else { 1 };
+        let mut successor = Box::pin(
+            h.command(
+                sequence,
+                b"after-shared-enrollment",
+                Durability::S3,
+                Duration::from_secs(15),
+            )
+            .await?
+            .response(),
+        );
+        controller::wait_for(async || {
+            Ok(h.controllers[0].usage().retained_s3 == 2
+                && h.calls.load(Ordering::SeqCst) == calls + 1
+                && h.fixture.appliers[&(0, h.route.history)]
+                    .0
+                    .usage()?
+                    .active_cells
+                    == 0)
+        })
+        .await?;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), successor.as_mut())
+                .await
+                .is_err()
+        );
+        assert_eq!(h.archive.tails.usage().operations, 1);
         drop(duplicate);
+        let response = successor.await?;
+        assert_eq!(response.durability(), Durability::S3);
+        let receipt = response.local_receipt().context("successor S3 receipt")?;
+        assert_eq!(receipt.receipt.result(), b"after-shared-enrollment");
+        assert_eq!(receipt.version.sequence.get(), sequence + 1);
+        assert_eq!(h.calls.load(Ordering::SeqCst), calls + 1);
+        assert_eq!(h.initializations.load(Ordering::SeqCst), 1);
+        drop(response);
         controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 0)).await?;
         h.remote
             .deny_generation_writes

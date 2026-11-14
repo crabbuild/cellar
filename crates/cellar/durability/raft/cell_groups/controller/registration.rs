@@ -9,6 +9,10 @@ use crate::raft::transport::{GroupRoute, PhysicalRegistration};
 use cellar_logic::cell_group::GroupHistory;
 use tokio::sync::{mpsc, oneshot};
 
+#[cfg(test)]
+#[path = "registration_tests.rs"]
+mod tests;
+
 #[derive(Clone)]
 enum GroupState {
     Pending,
@@ -235,9 +239,14 @@ impl GroupRoster {
             .contains_key(group))
     }
 
-    pub(super) fn retired(&self, group: &GroupHistory) -> bool {
+    /// Both terminal states have joined their physical consensus owner. Queued
+    /// metadata can still arrive after the controller removes its applier.
+    pub(super) fn detached(&self, group: &GroupHistory) -> bool {
         self.groups.lock().is_ok_and(|groups| {
-            matches!(groups.entries.get(group), Some(GroupState::ParkedRetired))
+            matches!(
+                groups.entries.get(group),
+                Some(GroupState::ParkedRetired | GroupState::ParkedRemoved)
+            )
         })
     }
 

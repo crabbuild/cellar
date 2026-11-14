@@ -23,21 +23,45 @@ mod rustfs;
 
 include!("support/cell_group_engine_fixture.rs");
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn quorum_command_reconnects_after_peer_idle_close() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::peer_connection_idle(rooted, false)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn raft_control_reconnects_after_peer_idle_close() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::peer_connection_idle(rooted, true)).await?;
+    }
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn short_archived_groups_checkpoint_and_recover_independently() -> Result<()> {
-    Box::pin(runtime_fixture::archived_groups_reclaim_independently(
-        Arc::new(object_store::memory::InMemory::new()),
-    ))
-    .await
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archived_groups_reclaim_independently(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_short_archived_groups_checkpoint_and_recover_independently() -> Result<()> {
-    Box::pin(runtime_fixture::archived_groups_reclaim_independently(
-        rustfs::store("concurrent-archive-reclamation", false)?,
-    ))
-    .await
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archived_groups_reclaim_independently(
+            rooted,
+            rustfs::store("concurrent-archive-reclamation", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -84,6 +108,31 @@ async fn rustfs_s3_replays_from_peer_archive_without_new_upload() -> Result<()> 
         Box::pin(runtime_fixture::s3_replays_from_peer_archive(
             rooted,
             rustfs::store("peer-archive", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn follower_archiver_bootstraps_the_first_prefix() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::follower_bootstraps_first_prefix(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_follower_archiver_bootstraps_the_first_prefix() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::follower_bootstraps_first_prefix(
+            rooted,
+            rustfs::store("follower-first-archive-prefix", rooted)?,
         ))
         .await?;
     }
@@ -397,6 +446,32 @@ async fn controller_archive_bounds_hot_cell_replay_work() -> Result<()> {
 async fn controller_archive_reconciles_exact_intent_and_joins_close() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::archive_controller_reconcile(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_archive_reservation_recovers_after_immutable_response_loss() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_reservation_recovery(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_controller_archive_reservation_recovers_after_immutable_response_loss() -> Result<()>
+{
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_reservation_recovery(
+            rooted,
+            rustfs::store("reservation-recovery", rooted)?,
+        ))
+        .await?;
     }
     Ok(())
 }

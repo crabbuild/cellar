@@ -2,7 +2,9 @@
 
 //! Select one destination for a mutation before submission.
 use super::*;
-use crate::raft::transport::{LeaderLookup, RaftTransport, TransportError};
+use crate::raft::group_host::RouterRefreshOutcome;
+use crate::raft::transport::{LeaderLookup, LeaderProbeOutcome, RaftTransport, TransportError};
+use cellar_logic::cell_group::GroupHistory;
 use cellar_logic::consensus::{CommandFailure, MemberId};
 
 /// The controller supplies its minimum retry cadence. Routing distributes the
@@ -51,26 +53,67 @@ fn retry_at(now: u64, deadline: u64, interval_ms: u64, remaining_attempts: usize
         .min(deadline)
 }
 
-#[derive(Default)]
-struct ProbeFailures {
-    discovery: bool,
-    no_leader: bool,
-    overloaded: bool,
+#[derive(Debug)]
+pub(in crate::raft::cell_groups) enum MutationSelectionError {
+    Retry(CellDispatchError),
+    StalePlacement,
+    Terminal(CellDispatchError),
 }
 
-impl ProbeFailures {
-    fn leader_retry(&self) -> Option<CommandFailure> {
-        if self.discovery {
-            None
-        } else if self.no_leader {
-            Some(CommandFailure::NotLeader { leader: None })
-        } else if self.overloaded {
-            Some(CommandFailure::Overloaded)
-        } else {
-            // An empty/unverified member set still needs actual discovery.
-            None
+impl MutationSelectionError {
+    pub(in crate::raft::cell_groups) fn into_dispatch(self) -> CellDispatchError {
+        match self {
+            Self::Retry(error) | Self::Terminal(error) => error,
+            Self::StalePlacement => CellDispatchError::Runtime(RuntimeError::NotFound),
         }
     }
+}
+
+impl From<CellDispatchError> for MutationSelectionError {
+    fn from(error: CellDispatchError) -> Self {
+        Self::Terminal(error)
+    }
+}
+
+fn retry(reason: CommandFailure) -> MutationSelectionError {
+    MutationSelectionError::Retry(CellDispatchError::Execution(ExecutionError::Refused(
+        reason,
+    )))
+}
+
+async fn refresh_membership(
+    transport: &RaftTransport,
+    history: GroupHistory,
+    deadline: u64,
+) -> Result<bool, MutationSelectionError> {
+    match transport.refresh_cell_router(history, deadline).await {
+        Ok(RouterRefreshOutcome::Current) => Ok(true),
+        Ok(RouterRefreshOutcome::StalePlacement) => Err(MutationSelectionError::StalePlacement),
+        // Unmanaged hosts may lack the joined discovery service.
+        Err(RuntimeError::NotFound) => Ok(false),
+        Err(RuntimeError::NotReady) => {
+            tracing::debug!(?history, "mutation membership discovery is not ready");
+            Err(retry(CommandFailure::Unavailable))
+        }
+        Err(RuntimeError::Overloaded) => Err(retry(CommandFailure::Overloaded)),
+        Err(error) => Err(CellDispatchError::Runtime(error).into()),
+    }
+}
+
+async fn refresh_endpoint(
+    transport: &RaftTransport,
+    route: &cellar_logic::cell_group::GroupRoute,
+    node: cellar_logic::consensus::NodeId,
+    deadline: u64,
+) -> Result<(), MutationSelectionError> {
+    transport
+        .refresh_cell_endpoint(route, node, deadline)
+        .await
+        .map_err(|error| match error {
+            RuntimeError::NotReady | RuntimeError::NotFound => retry(CommandFailure::Unavailable),
+            RuntimeError::Overloaded => retry(CommandFailure::Overloaded),
+            error => CellDispatchError::Runtime(error).into(),
+        })
 }
 
 pub(in crate::raft::cell_groups) async fn mutation_peer(
@@ -79,17 +122,26 @@ pub(in crate::raft::cell_groups) async fn mutation_peer(
     session: &CellRoutingSession,
     attempt: &CellRouteAttempt,
     keys: &VersionKeys,
-    domain: &DomainToken,
-) -> Result<Option<MemberId>, CellDispatchError> {
+    _domain: &DomainToken,
+) -> Result<Option<MemberId>, MutationSelectionError> {
     let route = attempt.route();
     let status = match runtime.log().cell_group(&route.history) {
-        Ok(_) => {
+        Ok(group) => {
+            let marker = group
+                .group_manifest()
+                .map_err(|error| CellDispatchError::Runtime(RuntimeError::Storage(error)))?;
+            if marker
+                .as_ref()
+                .is_some_and(|marker| marker.source_seal().is_some() || marker.route() != route)
+            {
+                return Err(MutationSelectionError::StalePlacement);
+            }
             runtime
                 .routing_status(route.history, session.deadline_ms())
                 .await
         }
         Err(crate::raft::storage::LogError::NotFound) => Err(RuntimeError::NotFound),
-        Err(error) => return Err(CellDispatchError::Runtime(RuntimeError::Storage(error))),
+        Err(error) => return Err(CellDispatchError::Runtime(RuntimeError::Storage(error)).into()),
     };
     match status {
         Ok(status) => {
@@ -107,105 +159,125 @@ pub(in crate::raft::cell_groups) async fn mutation_peer(
             }
             return MemberId::new(leader)
                 .map(Some)
-                .map_err(|_| CellDispatchError::Invalid("mutation leader identity"));
+                .map_err(|_| CellDispatchError::Invalid("mutation leader identity").into());
         }
         Err(RuntimeError::NotFound) => (),
-        Err(error) => return Err(CellDispatchError::Runtime(error)),
+        Err(RuntimeError::NotReady) => {
+            tracing::debug!(history = ?route.history, ordinal = attempt.ordinal(), "local mutation routing observation is not ready");
+            return Err(retry(CommandFailure::Unavailable));
+        }
+        Err(RuntimeError::Overloaded) => return Err(retry(CommandFailure::Overloaded)),
+        Err(error) => return Err(CellDispatchError::Runtime(error).into()),
     }
 
-    match transport
-        .cell_command_leader(route)
-        .map_err(CellDispatchError::Transport)?
-    {
-        LeaderLookup::Known(member) => return Ok(Some(member)),
-        LeaderLookup::Unverified | LeaderLookup::Membership => {
-            // Only an unverified/changed configuration needs the trusted member
-            // lookup. Elections with usable advice stay on the installed range.
-            match transport
-                .refresh_managed_router(route.history, session.deadline_ms())
-                .await
-            {
-                Ok(()) | Err(RuntimeError::NotFound) => (),
-                Err(error) => return Err(CellDispatchError::Runtime(error)),
-            }
+    let mut refreshed = match transport.cell_leader(route) {
+        Ok(LeaderLookup::Known(member)) => return Ok(Some(member)),
+        Ok(LeaderLookup::Endpoint(node)) => {
+            refresh_endpoint(transport, route, node, session.deadline_ms()).await?;
+            None
         }
-        LeaderLookup::Unknown => (),
-    }
+        Ok(LeaderLookup::Unverified | LeaderLookup::Membership)
+        | Err(TransportError::StalePeer) => {
+            Some(refresh_membership(transport, route.history, session.deadline_ms()).await?)
+        }
+        Ok(LeaderLookup::Unknown) => None,
+        Err(error) => return Err(CellDispatchError::Transport(error).into()),
+    };
     transport.note_managed_router(route.history);
     let candidates = match transport.cell_query_router_members(route, session.maximum_attempts()) {
         Ok(members) => members,
         Err(TransportError::UnknownGroup) => {
-            match transport
-                .refresh_managed_router(route.history, session.deadline_ms())
-                .await
-            {
-                Ok(()) => transport
-                    .cell_query_router_members(route, session.maximum_attempts())
-                    .map_err(CellDispatchError::Transport)?,
-                Err(RuntimeError::NotFound) => return Ok(None),
-                Err(error) => return Err(CellDispatchError::Runtime(error)),
+            if refreshed.is_none() {
+                refreshed = Some(
+                    refresh_membership(transport, route.history, session.deadline_ms()).await?,
+                );
+            }
+            if refreshed == Some(false) {
+                return Ok(None);
+            }
+            match transport.cell_query_router_members(route, session.maximum_attempts()) {
+                Ok(members) => members,
+                Err(TransportError::UnknownGroup) => {
+                    return Err(retry(CommandFailure::Unavailable))
+                }
+                Err(error) => return Err(CellDispatchError::Transport(error).into()),
             }
         }
-        Err(error) => return Err(CellDispatchError::Transport(error)),
+        Err(error) => return Err(CellDispatchError::Transport(error).into()),
     };
-    let mut failures = ProbeFailures::default();
-    for (index, member) in candidates.iter().enumerate() {
-        session
-            .validate_attempt(attempt)
-            .map_err(CellDispatchError::Routing)?;
-        let now = domain.mono_ms().map_err(|_| closed())?;
-        let remaining = session.deadline_ms().saturating_sub(now);
-        if remaining < 2 {
-            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+    session
+        .validate_attempt(attempt)
+        .map_err(CellDispatchError::Routing)?;
+    let discovered = transport
+        .discover_cell_command_leader(
+            route,
+            &attempt.request().cell,
+            keys.clone(),
+            candidates.len(),
+            session.deadline_ms(),
+        )
+        .await;
+    session
+        .validate_attempt(attempt)
+        .map_err(CellDispatchError::Routing)?;
+    let outcome = match discovered {
+        Ok(outcome) => outcome,
+        Err(error @ (TransportError::StalePeer | TransportError::Refused)) => {
+            match transport.cell_leader(route) {
+                Ok(LeaderLookup::Endpoint(node)) => {
+                    refresh_endpoint(transport, route, node, session.deadline_ms()).await?;
+                    return Err(retry(CommandFailure::Unavailable));
+                }
+                Ok(LeaderLookup::Known(_) | LeaderLookup::Unknown)
+                    if error == TransportError::StalePeer =>
+                {
+                    // The captured discovery generation changed, while this
+                    // exact placement still has verified configuration. Retry
+                    // selection under the original bank rather than broadening
+                    // an endpoint/advice fence into membership discovery.
+                    return Err(retry(CommandFailure::Unavailable));
+                }
+                Ok(_) => (),
+                Err(error) => return Err(CellDispatchError::Transport(error).into()),
+            }
+            match error {
+                TransportError::StalePeer => LeaderProbeOutcome::Membership,
+                error => return Err(CellDispatchError::Transport(error).into()),
+            }
         }
-        // Keep a share of the original deadline for the mutation itself.
-        let deadline = now + (remaining / (candidates.len() - index + 1) as u64).max(1);
-        match transport
-            .probe_cell_command_leader(
-                route,
-                &attempt.request().cell,
-                *member,
-                keys.clone(),
-                deadline,
-            )
-            .await
-        {
-            Ok(true) => return Ok(Some(*member)),
-            Ok(false) => failures.no_leader = true,
-            Err(TransportError::Overloaded) => failures.overloaded = true,
-            Err(
-                TransportError::Io(_)
-                | TransportError::Timeout
-                | TransportError::StalePeer
-                | TransportError::UnknownGroup,
-            ) => failures.discovery = true,
-            Err(error) => return Err(CellDispatchError::Transport(error)),
+        Err(TransportError::UnknownGroup) => LeaderProbeOutcome::Membership,
+        Err(TransportError::Timeout | TransportError::Io(_)) => {
+            return Err(retry(CommandFailure::Unavailable));
         }
-        if let LeaderLookup::Known(leader) = transport
-            .cell_command_leader(route)
-            .map_err(CellDispatchError::Transport)?
-        {
-            return Ok(Some(leader));
+        Err(TransportError::Overloaded) => return Err(retry(CommandFailure::Overloaded)),
+        Err(error) => return Err(CellDispatchError::Transport(error).into()),
+    };
+    tracing::debug!(history = ?route.history, ordinal = attempt.ordinal(), ?outcome, refreshed, "mutation probe plan completed");
+    match outcome {
+        LeaderProbeOutcome::Leader(member) => Ok(Some(member)),
+        LeaderProbeOutcome::Endpoint(node) => {
+            refresh_endpoint(transport, route, node, session.deadline_ms()).await?;
+            Err(retry(CommandFailure::Unavailable))
+        }
+        LeaderProbeOutcome::Retry(reason) => {
+            if reason == CommandFailure::Unavailable && refreshed.is_none() && attempt.ordinal() > 1
+            {
+                // An unbound peer can close its socket before returning a typed
+                // refusal. Repeated connection failures therefore cannot prove
+                // that a cached parent is still selected. Check this exact
+                // history once, without inferring a placement change from I/O.
+                // Only the directory's fenced result requests interval repair.
+                refresh_membership(transport, route.history, session.deadline_ms()).await?;
+            }
+            Err(retry(reason))
+        }
+        LeaderProbeOutcome::Membership => {
+            if refreshed.is_none() {
+                refresh_membership(transport, route.history, session.deadline_ms()).await?;
+            }
+            Err(retry(CommandFailure::Unavailable))
         }
     }
-    if let Some(reason) = failures.leader_retry() {
-        // These are discovery observations before mutation submission. An
-        // election or busy peer alone does not establish stale membership/range.
-        return Err(CellDispatchError::Execution(ExecutionError::Refused(
-            reason,
-        )));
-    }
-    // Every cached candidate failed before submission. Refresh the exact
-    // group's discovery so the caller's next original-session attempt can use
-    // settled replacement voters. No transmitted mutation is replayed here.
-    match transport
-        .refresh_managed_router(route.history, session.deadline_ms())
-        .await
-    {
-        Ok(()) | Err(RuntimeError::NotFound) => (),
-        Err(error) => return Err(CellDispatchError::Runtime(error)),
-    }
-    Err(CellDispatchError::Runtime(RuntimeError::NotReady))
 }
 
 #[cfg(test)]

@@ -30,6 +30,10 @@ pub(crate) use receipts::{
 pub(crate) use remote::{s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[path = "cell_group_connection_idle.rs"]
+mod connection_idle;
+pub(crate) use connection_idle::peer_connection_idle;
+
 struct Harness {
     fixture: RuntimeCluster,
     route: GroupRoute,
@@ -453,6 +457,64 @@ pub(crate) async fn follower_acquires_published_prefix(
     let closed = h.close().await;
     result?;
     closed
+}
+
+pub(crate) async fn follower_bootstraps_first_prefix(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?);
+    let (mut fixture, route, _, _) = Box::pin(registered::setup_store_minimum(
+        rooted,
+        &class,
+        store,
+        Durability::Quorum,
+    ))
+    .await?;
+    let (mut archive, _) =
+        archive_controller::registration_minimum(&fixture, &route, rooted, Durability::Quorum)
+            .await?;
+    archive.publisher = CellGroupArchivePublisher::GroupLeader {
+        retry_interval_ms: 100,
+    };
+    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    let result = async {
+        let before = fixture.runtimes[1].status(route.history).await?;
+        anyhow::ensure!(before.leader == Some(1), "actual follower required");
+        // Only this follower owns an archive registration. A fresh binding
+        // cannot depend on another replica restarting or receiving a command.
+        controllers[1].archive(archive)?.response().await?;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            archive_controller::published(&controllers[1], route.history, before.applied.index),
+        )
+        .await
+        .context("follower did not bootstrap the first archive within five seconds")??;
+        let after = fixture.runtimes[1].status(route.history).await?;
+        anyhow::ensure!(after.leader == Some(1) && after.term == before.term);
+        anyhow::ensure!(controllers[0].archive_status(route.history)?.is_none());
+        anyhow::ensure!(controllers[2].archive_status(route.history)?.is_none());
+        let marker = controllers[1]
+            .archive_status(route.history)?
+            .and_then(|status| status.published)
+            .context("verified follower archive")?;
+        anyhow::ensure!(marker.is_active() && marker.position() == before.applied);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let mut cleanup = Vec::new();
+    for (node, controller) in controllers.iter().enumerate() {
+        if let Err(error) = controller.close().await {
+            cleanup.push(format!("controller {node}: {error}"));
+        }
+    }
+    drop(controllers);
+    if let Err(error) = fixture.close().await {
+        cleanup.push(format!("fixture: {error:#}"));
+    }
+    result.with_context(|| format!("rooted={rooted}; cleanup={cleanup:?}"))?;
+    anyhow::ensure!(cleanup.is_empty(), "joined cleanup failed: {cleanup:?}");
+    Ok(())
 }
 
 pub(crate) async fn archive_progress_wakes_commands(rooted: bool) -> Result<()> {

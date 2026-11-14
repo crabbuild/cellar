@@ -13,7 +13,7 @@ use anyhow::{ensure, Result};
 use cellar_ltx::{
     internal::{
         db::{observe_extents, ExtentObservation},
-        ExtentManifest, ExtentWorkspace, Geometry, ImageBinding, WorkspaceOptions, EXTENT_BYTES,
+        ExtentWorkspace, ImageBinding, WorkspaceOptions,
     },
     Db, TXID,
 };
@@ -47,11 +47,11 @@ impl RootWorking {
         history: [u8; 32],
     ) -> Result<Self> {
         let Images::Extents {
-            store,
             workspace: admission,
             cache_directory,
             cache_pool,
             cache,
+            ..
         } = &options.images
         else {
             anyhow::bail!("extent storage required");
@@ -63,52 +63,43 @@ impl RootWorking {
         let filesystem = options.host.filesystem();
         let path = options.directory.join("working.sqlite");
         crate::raft::working::clean(filesystem.as_ref(), &options.directory, &path)?;
-        let image = match base {
-            Some(image) => image,
-            None => {
-                let manifest = ExtentManifest::new(
-                    ImageBinding {
-                        history,
-                        schema: options.application_digest,
-                        epoch: 1,
-                        txid: 0,
-                        checksum: 0,
-                    },
-                    Geometry::new(0, 0)?,
-                    &[],
-                )?;
-                // This empty base belongs only to the disposable workspace.
-                // Pin before sealing so concurrent collection cannot remove it.
-                let receiving = store.stage_transient_root(manifest.clone())?;
-                let image = store.seal_image_root(manifest, &mut vec![0; EXTENT_BYTES as usize])?;
-                drop(receiving);
-                Arc::new(image)
-            }
+        let empty = ImageBinding {
+            history,
+            schema: options.application_digest,
+            epoch: 1,
+            txid: 0,
+            checksum: 0,
         };
-        ensure!(
-            image.manifest().binding().history == history
-                && image.manifest().binding().schema == options.application_digest,
-            "working extent history/schema differs"
-        );
-        let initial = RootState::of(&image);
+        let initial = match &base {
+            Some(image) => {
+                ensure!(
+                    image.manifest().binding().history == history
+                        && image.manifest().binding().schema == options.application_digest,
+                    "working extent history/schema differs"
+                );
+                RootState::of(image)
+            }
+            None => RootState::empty(empty)?,
+        };
         // Anonymous read-cache files are disposable and never supply recovery
         // authority. Their directory need not survive a crash; immutable image
         // publication still requires the inventory's own persistence barriers.
         filesystem.create_dir_all(cache_directory)?;
-        let workspace = ExtentWorkspace::new(
-            image,
-            WorkspaceOptions {
-                path: path.clone(),
-                sqlite_vfs: options.sqlite_vfs.clone(),
-                filesystem,
-                max_image_bytes: options.limits.max_image_bytes,
-                max_wal_bytes: WAL_BYTES,
-                cache_directory: cache_directory.clone(),
-                scratch: cache_pool.clone(),
-                cache: *cache,
-                retention: Some(admission.retention()),
-            },
-        )?;
+        let workspace_options = WorkspaceOptions {
+            path: path.clone(),
+            sqlite_vfs: options.sqlite_vfs.clone(),
+            filesystem,
+            max_image_bytes: options.limits.max_image_bytes,
+            max_wal_bytes: WAL_BYTES,
+            cache_directory: cache_directory.clone(),
+            scratch: cache_pool.clone(),
+            cache: *cache,
+            retention: Some(admission.retention()),
+        };
+        let workspace = match base {
+            Some(image) => ExtentWorkspace::new(image, workspace_options)?,
+            None => ExtentWorkspace::empty(empty, workspace_options)?,
+        };
         let mut capture =
             Db::open_disposable_with_host(&path, options.host.clone(), Some(workspace.vfs_name()))?;
         // Recycle a quiescent writer at a bounded WAL high-water mark. Do not

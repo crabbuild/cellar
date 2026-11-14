@@ -6,6 +6,7 @@
 mod binding_recovery;
 pub(in crate::raft::cell_groups) mod mutation_route;
 pub(crate) use mutation_route::MutationRouting;
+pub(super) use mutation_route::MutationSelectionError;
 mod query_routing;
 mod receipt;
 pub use query_routing::CellQueryRouting;
@@ -451,8 +452,16 @@ impl CellQueryInvocation {
         Ok((self.request.invocation, deadline, bytes))
     }
 
-    pub(crate) fn bind_remote_route(&mut self, route: RemoteMutationRoute) {
+    pub(crate) fn bind_remote_route(
+        &mut self,
+        route: RemoteMutationRoute,
+        deadline: u64,
+    ) -> Result<(), CellDispatchError> {
+        self.session
+            .constrain_deadline(deadline)
+            .map_err(CellDispatchError::Routing)?;
         self.remote_route = Some(route);
+        Ok(())
     }
 
     pub fn attempt(&self) -> Option<&CellRouteAttempt> {

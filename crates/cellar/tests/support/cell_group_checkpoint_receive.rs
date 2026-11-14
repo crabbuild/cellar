@@ -226,20 +226,22 @@ pub(crate) async fn install_checkpoint(rooted: bool) -> Result<()> {
     fixture.close().await?;
     // Every original engine, runtime, image/page pin and receiver is now gone.
     // Remove the old checkpoint root page, while the later root stays on disk.
-    let checkpoint_path = disk.path().join("node-3/pages").join(format!(
-        "{}.page",
-        hex::encode(cut.root().digest().unwrap())
-    ));
+    let page_directory = disk.path().join("node-3/pages");
+    // Receive packs may also hold pages used by the later root. Independently
+    // repack this closed fixture without changing any page bytes or digests,
+    // so the missing-file fault still damages only the old checkpoint.
+    let checkpoint_path = isolate_checkpoint_root(&page_directory, cut.root().digest().unwrap())?;
     // Independently traverse the page references to prove this fault removes
     // only the old checkpoint, not any dependency of the current applied tree.
     let mut pending_pages = vec![current.root().digest().unwrap()];
     while let Some(digest) = pending_pages.pop() {
         assert_ne!(digest, cut.root().digest().unwrap());
-        let bytes = std::fs::read(
-            disk.path()
-                .join("node-3/pages")
-                .join(format!("{}.page", hex::encode(digest))),
-        )?;
+        assert_ne!(
+            manifest_pages::locate(&page_directory, digest)?.path,
+            checkpoint_path,
+            "physical fault must leave every current-root dependency intact"
+        );
+        let bytes = manifest_pages::read(&page_directory, digest)?;
         let page: serde_json::Value = serde_json::from_slice(&bytes[8..])?;
         for child in ["left", "right"] {
             if !page[child].is_null() {
@@ -493,4 +495,46 @@ pub(crate) async fn refuse_checkpoint() -> Result<()> {
         cluster.close().await?;
     }
     Ok(())
+}
+
+/// On a closed fixture only, isolate one logical frame for a file-loss fault.
+/// Preserve every original page byte/digest, including pages in other roots.
+fn isolate_checkpoint_root(directory: &Path, key: [u8; 32]) -> Result<std::path::PathBuf> {
+    use std::io::Write;
+    let original = manifest_pages::locate(directory, key)?;
+    let original_keys = manifest_pages::keys(&original.path)?;
+    if original_keys.len() == 1 {
+        return Ok(original.path);
+    }
+    let original_pages = original_keys
+        .iter()
+        .map(|key| manifest_pages::read(directory, *key))
+        .collect::<Result<Vec<_>>>()?;
+    let index = original_keys
+        .iter()
+        .position(|k| *k == key)
+        .context("fault frame")?;
+    let mut remaining = original_pages.clone();
+    let selected = remaining.remove(index);
+    for pages in [vec![selected], remaining] {
+        let (name, bytes) = manifest_pages::encode(&pages)?;
+        let mut file = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(directory.join(name))?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+    }
+    std::fs::File::open(directory)?.sync_all()?;
+    std::fs::remove_file(&original.path)?;
+    std::fs::File::open(directory)?.sync_all()?;
+    for (key, expected) in original_keys.into_iter().zip(original_pages) {
+        anyhow::ensure!(
+            manifest_pages::read(directory, key)? == expected,
+            "fixture repack changed a logical page"
+        );
+    }
+    let isolated = manifest_pages::locate(directory, key)?;
+    anyhow::ensure!(manifest_pages::keys(&isolated.path)? == [key]);
+    Ok(isolated.path)
 }

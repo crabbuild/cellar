@@ -431,6 +431,7 @@ impl<F: FileSystem> SinglePipe<F> {
             let remains_capacity = self.capacity.saturating_sub(len);
             let mut recycled_len = self.recycled_files.read().len();
             let mut new_recycled = VecDeque::new();
+            let mut changed_directories = vec![false; self.paths.len()];
             // We don't rename the append file because on some platform it could cause I/O
             // jitters. Instead we best-effort rename them during shutdown to reduce
             // recovery time.
@@ -439,7 +440,6 @@ impl<F: FileSystem> SinglePipe<F> {
                     seq: f.seq,
                     queue: self.queue,
                 };
-                let path = file_id.build_file_path(&self.paths[f.path_id]);
                 // Recycle purged files whose version meets the requirement.
                 if f.format.version.has_log_signing() && recycled_len < remains_capacity {
                     new_recycled.push_back(f);
@@ -448,7 +448,18 @@ impl<F: FileSystem> SinglePipe<F> {
                 }
                 // Remove purged files which are out of capacity and files whose version is
                 // marked not recycled.
+                let path_id = f.path_id;
+                let path = file_id.build_file_path(&self.paths[path_id]);
+                drop(f);
                 self.file_system.delete(path)?;
+                changed_directories[path_id] = true;
+            }
+            // Cellar patch: complete the directory changes before reporting a
+            // successful purge. Recycled files retain their directory entries.
+            for (path, changed) in self.paths.iter().zip(changed_directories) {
+                if changed {
+                    self.file_system.sync_directory(path)?;
+                }
             }
             debug_assert!(recycled_len <= remains_capacity);
             self.recycled_files.write().append(&mut new_recycled);

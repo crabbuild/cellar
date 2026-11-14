@@ -32,10 +32,11 @@ pub struct Reply {
 
 enum Operation {
     Command(i64, CommandOptions),
-    Query(QueryOptions),
+    Query(QueryOptions, Option<ProposalId>),
 }
 
-const READ_HEADERS: [&str; 7] = [
+const READ_HEADERS: [&str; 8] = [
+    "x-query-id",
     "x-read-consistency",
     "x-min-version",
     "x-read-policy",
@@ -295,7 +296,19 @@ impl CounterApi {
                     url.query().is_none(),
                     "query parameters unsupported for GET"
                 );
-                return Ok((cell, contract, Operation::Query(read_options(headers)?)));
+                let invocation = header(headers, "x-query-id")?
+                    .map(|value| -> Result<ProposalId> {
+                        let bytes: [u8; 16] = hex::decode(value)?
+                            .try_into()
+                            .map_err(|_| anyhow::anyhow!("invalid query identity"))?;
+                        Ok(ProposalId::new(bytes)?)
+                    })
+                    .transpose()?;
+                return Ok((
+                    cell,
+                    contract,
+                    Operation::Query(read_options(headers)?, invocation),
+                ));
             }
             ensure!(method == "POST", "use GET or POST");
             for key in READ_HEADERS {
@@ -354,10 +367,13 @@ impl CounterApi {
                 .map_err(|error| {
                     failure_reply(&error.cause, error.ambiguous.then_some(error.command))
                 }),
-            Operation::Query(options) => {
-                let invocation = match self.query_id(&service) {
-                    Ok(invocation) => invocation,
-                    Err(_) => return text(503, "query identity unavailable"),
+            Operation::Query(options, invocation) => {
+                let invocation = match invocation {
+                    Some(invocation) => invocation,
+                    None => match self.query_id(&service) {
+                        Ok(invocation) => invocation,
+                        Err(_) => return text(503, "query identity unavailable"),
+                    },
                 };
                 cell.query(invocation, &contract, vec![], options)
                     .await

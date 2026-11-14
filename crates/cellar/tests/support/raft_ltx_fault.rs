@@ -22,6 +22,11 @@ pub const FAIL_DIRECTORY_SYNC: u8 = 6;
 pub const FAIL_AFTER_FINAL_CREATE: u8 = 7;
 pub const FAIL_REMOVE: u8 = 8;
 pub const AFTER_REMOVE: u8 = 9;
+pub const FAIL_PACK_RENAME_BEFORE: u8 = 11;
+pub const FAIL_PACK_RENAME_AFTER: u8 = 12;
+pub const BEFORE_PACK_RENAME: u8 = 13;
+pub const AFTER_PACK_RENAME: u8 = 14;
+pub const AFTER_PACK_FRAME_WRITE: u8 = 15;
 
 pub struct Faults {
     pub directory: PathBuf,
@@ -156,6 +161,12 @@ impl FaultFileSystem {
 impl HostFileIo for File {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.inner.write_all(bytes)?;
+        if self.path.extension().is_some_and(|s| s == "pending")
+            && bytes.starts_with(b"CLRCGM01")
+            && self.faults.take(AFTER_PACK_FRAME_WRITE)
+        {
+            self.faults.pause()?;
+        }
         if self.image_output && self.faults.take(AFTER_IMAGE_WRITE) {
             self.faults.pause()?;
         }
@@ -362,7 +373,24 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let pack = to.extension().is_some_and(|s| s == "pack");
+        if pack && self.faults.take(BEFORE_PACK_RENAME) {
+            self.faults.pause()?;
+        }
+        if pack && self.faults.take(FAIL_PACK_RENAME_BEFORE) {
+            return Err(io::Error::other(
+                "injected pack rename failure before operation",
+            ));
+        }
         DirectFileSystem.rename(from, to)?;
+        if pack && self.faults.take(AFTER_PACK_RENAME) {
+            self.faults.pause()?;
+        }
+        if pack && self.faults.take(FAIL_PACK_RENAME_AFTER) {
+            return Err(io::Error::other(
+                "ambiguous pack rename failure after operation",
+            ));
+        }
         if to.extension().is_some_and(|p| p == "sqlite") {
             self.faults.image_renames.fetch_add(1, Ordering::AcqRel);
             self.faults.event("rename");

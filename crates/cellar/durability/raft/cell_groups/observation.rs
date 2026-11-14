@@ -26,6 +26,8 @@ pub struct CellGroupObservation {
     pub checkpoint: LogPosition,
     /// Entries retained after the checkpoint; this is not a byte/disk estimate.
     pub retained_entries: usize,
+    /// Linearizable cell reads waiting in this group's actor queue.
+    pub queued_linearizable_reads: usize,
     /// Logical cells in the currently applied manifest, including sealed cells.
     pub cells: u32,
     /// Compaction requires independently verified archive coverage on this log.

@@ -8,6 +8,7 @@ use crate::raft::{
     completion::RuntimeError,
     fleet_catalog::{FleetGroupAuthorization, FleetHostAuthorization},
     member_state::FleetMembershipStatus,
+    performance::Operation,
 };
 use cellar_logic::consensus::{ClusterId, CommandFailure, NamespaceId};
 
@@ -125,52 +126,67 @@ impl RaftCells {
             let (deadline, memory, host, directory, archives) = admitted.map_err(Refused)?;
             let domain = &owner.handle.domain;
             let mut backoff_ms = 25u64;
-            let authorization = loop {
-                owner.startup_live(&host, deadline).map_err(Refused)?;
-                let remaining = owner.startup_remaining(deadline).map_err(Refused)?;
-                let result = domain
-                    .run(host.observe_first_group_archive(
-                        directory.clone(),
-                        archives.clone(),
-                        history,
-                        remaining,
-                    ))
-                    .await
-                    .map_err(|_| Refused(CellGroupControllerError::Closed))?;
-                match result {
-                    Ok(Some(authorization)) => break authorization,
-                    Ok(None) | Err(crate::raft::fleet_catalog::FleetCatalogError::Overloaded) => (),
-                    Err(error) => return Err(Refused(catalog_error(CatalogError::from(error)))),
-                }
-                let now = domain
-                    .mono_ms()
-                    .map_err(|_| Refused(CellGroupControllerError::Closed))?;
-                domain
-                    .sleep_until(deadline.min(now.saturating_add(backoff_ms)))
-                    .map_err(|_| Refused(CellGroupControllerError::Closed))?
-                    .await;
-                backoff_ms = (backoff_ms * 2).min(250);
-            };
+            let performance = owner.handle.core.log.performance();
+            let authorization = performance
+                .measure(Operation::FirstGroupArchive, async {
+                    loop {
+                        owner.startup_live(&host, deadline).map_err(Refused)?;
+                        let remaining = owner.startup_remaining(deadline).map_err(Refused)?;
+                        let result = domain
+                            .run(host.observe_first_group_archive(
+                                directory.clone(),
+                                archives.clone(),
+                                history,
+                                remaining,
+                            ))
+                            .await
+                            .map_err(|_| Refused(CellGroupControllerError::Closed))?;
+                        match result {
+                            Ok(Some(authorization)) => break Ok(authorization),
+                            Ok(None)
+                            | Err(crate::raft::fleet_catalog::FleetCatalogError::Overloaded) => (),
+                            Err(error) => {
+                                return Err(Refused(catalog_error(CatalogError::from(error))))
+                            }
+                        }
+                        let now = domain
+                            .mono_ms()
+                            .map_err(|_| Refused(CellGroupControllerError::Closed))?;
+                        domain
+                            .sleep_until(deadline.min(now.saturating_add(backoff_ms)))
+                            .map_err(|_| Refused(CellGroupControllerError::Closed))?
+                            .await;
+                        backoff_ms = (backoff_ms * 2).min(250);
+                    }
+                })
+                .await?;
             let history = authorization
                 .binding()
                 .scope()
                 .map_err(|e| Refused(catalog_error(CatalogError::Log(e))))?;
             drop(memory);
             let remaining = owner.startup_remaining(deadline).map_err(Refused)?;
-            let attachment = owner
-                .activate_managed_initial_group(authorization, remaining)
+            let attachment = performance
+                .measure(
+                    Operation::FirstGroupAttach,
+                    owner.activate_managed_initial_group(authorization, remaining),
+                )
                 .await?;
             let core = &owner.handle.core;
-            let observed = loop {
-                owner.startup_live(&host, deadline).map_err(Unconfirmed)?;
-                match core.runtime.quorum_membership(history, deadline).await {
-                    Ok(observed) => break observed,
-                    // An election invalidates the in-flight barrier. Start a
-                    // new one under this invocation's original deadline.
-                    Err(RuntimeError::NotLeader) => (),
-                    Err(error) => return Err(Unconfirmed(error.into())),
-                }
-            };
+            let observed = performance
+                .measure(Operation::FirstGroupQuorum, async {
+                    loop {
+                        owner.startup_live(&host, deadline).map_err(Unconfirmed)?;
+                        match core.runtime.quorum_membership(history, deadline).await {
+                            Ok(observed) => break Ok(observed),
+                            // An election invalidates the in-flight barrier. Start a
+                            // new one under this invocation's original deadline.
+                            Err(RuntimeError::NotLeader) => (),
+                            Err(error) => return Err(Unconfirmed(error.into())),
+                        }
+                    }
+                })
+                .await?;
             let remaining = owner.startup_remaining(deadline).map_err(Unconfirmed)?;
             let fresh = owner
                 .handle

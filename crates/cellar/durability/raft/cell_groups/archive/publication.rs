@@ -151,6 +151,17 @@ struct Coverage {
     verified: VerifiedCellGroupArchiveRecovery,
 }
 
+/// Opaque physical-verification identity for scheduling. It grants no
+/// coverage and retains neither the hold nor physical replay admission.
+#[derive(Clone)]
+pub(in crate::raft::cell_groups) struct CoverageIdentity(std::sync::Weak<Coverage>);
+
+impl CoverageIdentity {
+    pub(in crate::raft::cell_groups) fn same_snapshot(&self, other: &Self) -> bool {
+        std::sync::Weak::ptr_eq(&self.0, &other.0)
+    }
+}
+
 #[derive(Clone)]
 pub(in crate::raft::cell_groups) struct CoverageUse {
     hold: CellGroupArchiveHold,
@@ -186,6 +197,10 @@ impl CoverageUse {
 pub struct CellGroupArchiveCoverage(Arc<Coverage>);
 
 impl CellGroupArchiveCoverage {
+    pub(in crate::raft::cell_groups) fn identity(&self) -> CoverageIdentity {
+        CoverageIdentity(Arc::downgrade(&self.0))
+    }
+
     pub(in crate::raft) fn retain_transition_source(mut self) -> Result<Self> {
         Arc::get_mut(&mut self.0)
             .ok_or(CellGroupArchiveError::Busy)?

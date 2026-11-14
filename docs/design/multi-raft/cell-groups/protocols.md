@@ -79,6 +79,13 @@ term on the RawNode owner atomically with proposal admission. A node that loses
 leadership and later regains it must reject retained output from its older term.
 Cancellation retains physical ownership until the callback and cleanup complete.
 
+Resolution revalidates its captured applied observation on the SQL worker.
+If apply has made that observation stale, resolution remains uncertain and
+retains the original producer, log reservation, workspace and logical-name
+admission until fresh proof settles the exact creation. It never replays the
+initializer. Binding refusals remain enforced, and a lost shared SQL worker
+reply retains its joined node shutdown boundary.
+
 Before append, reserve group capacity against applied cells plus accepted pending
 creations, keyed by logical name. Retrying one creation consumes no extra slot.
 Retain bounded leader-local acceptance records independently from Ready/completion
@@ -162,9 +169,10 @@ removed. A replaced discovery view refuses captured requests and late replies;
 removal does not revoke the destination's independently managed namespace grant.
 Grant revocation cancels read waiters without releasing physically entered SQL.
 The public host supplies trusted discovery and explicit permissions. Automatic
-SDK reads use the local replica when present and otherwise try configured members
-within the original budget. Dynamic membership refresh for ingress remains
-integration work.
+SDK reads prefer an observed leader for linearizable queries and a local
+replica for the other modes. Eligible alternatives share the original deadline
+and attempt budget and must prove the same requested consistency. A preferred
+member does not replace the receiving gateway's current catalog check.
 
 Remote commands use the same bounded application RPC lane with a mandatory,
 MAC-bound command purpose and distinct payload/result markers. A read grant or

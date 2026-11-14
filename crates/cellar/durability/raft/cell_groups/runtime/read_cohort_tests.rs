@@ -96,6 +96,27 @@ fn term_configuration_and_group_changes_cannot_join_an_open_cohort() {
 }
 
 #[test]
+fn readiness_wait_keeps_the_cohort_open_until_submission() {
+    let scope = identity(3, 5, 7);
+    let mut cohorts = Cohorts::new(3);
+    let (first, _) = cohorts.join(scope, vec![1], 0).unwrap();
+    // The Raft owner is waiting for current-term durable apply.
+    cohorts.progress(&first, 1, |_, term, _, _| assert!(term.is_none()));
+    let (second, joined) = cohorts.join(scope, vec![2], 2).unwrap();
+    assert!(joined);
+    assert_eq!(first, second);
+
+    let now = super::super::reads::FORWARDED_RETRY_MS + 5;
+    cohorts.progress(&first, now, |_, term, _, retry| {
+        assert!(!retry, "first submission cannot be a retransmission");
+        *term = Some(scope.term);
+    });
+    cohorts.progress(&first, now + 1, |_, _, _, retry| assert!(!retry));
+    let (late, joined) = cohorts.join(scope, vec![3], now + 1).unwrap();
+    assert!(!joined && late != first);
+}
+
+#[test]
 fn original_admission_and_deadlines_bound_shared_members_and_retransmission() {
     let scope = identity(3, 5, 7);
     let mut cohorts = Cohorts::new(2);

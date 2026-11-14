@@ -38,7 +38,7 @@ fn read_definition(
 impl Cluster {
     pub async fn start(rooted: bool, store: Arc<fault::Store>) -> Result<Self> {
         Box::pin(Self::start_configured(
-            rooted, store, None, true, None, None,
+            rooted, store, None, true, None, None, None,
         ))
         .await
     }
@@ -57,6 +57,27 @@ impl Cluster {
             true,
             Some(filesystem),
             Some(on_query),
+            None,
+        ))
+        .await
+    }
+
+    pub async fn start_with_source_age(
+        rooted: bool,
+        store: Arc<fault::Store>,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        on_command: Arc<dyn Fn() + Send + Sync>,
+        on_query: QueryObserver,
+        source_age: Duration,
+    ) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            rooted,
+            store,
+            Some(on_command),
+            true,
+            Some(filesystem),
+            Some(on_query),
+            Some(u64::try_from(source_age.as_millis())?),
         ))
         .await
     }
@@ -71,6 +92,7 @@ impl Cluster {
             store,
             Some(on_command),
             true,
+            None,
             None,
             None,
         ))
@@ -89,6 +111,7 @@ impl Cluster {
             false,
             None,
             None,
+            None,
         ))
         .await
     }
@@ -100,11 +123,14 @@ impl Cluster {
         install_router: bool,
         first_filesystem: Option<Arc<dyn cellar_ltx::FileSystem>>,
         on_query: Option<QueryObserver>,
+        stale_source_timeout_ms: Option<u64>,
     ) -> Result<Self> {
         let class = read_definition(on_command.clone(), on_query.clone())?;
         let mut first = Fixture::with_store(rooted, class, store).await?;
+        first.stale_source_timeout_ms = stale_source_timeout_ms;
         if let Some(filesystem) = first_filesystem {
             first.filesystem = filesystem;
+            first.host_store = Some(Arc::new(fault::Store::around(first.store.clone())));
         }
         let mut apis = Vec::new();
         let mut applications = Vec::new();
@@ -448,5 +474,80 @@ impl Cluster {
         self.start_web().await?;
         self.authorize_commands()?;
         self.authorize_ingress_reads()
+    }
+
+    /// Resume one voter while ingress retains its warm logical routing state.
+    pub async fn restart_voter(&mut self, index: usize, generation: u8) -> Result<()> {
+        self.restart_voter_configured(index, generation, true).await
+    }
+
+    /// Resume without restoring remote write permission during an authority cut.
+    pub async fn restart_voter_without_command_grants(
+        &mut self,
+        index: usize,
+        generation: u8,
+    ) -> Result<()> {
+        self.restart_voter_configured(index, generation, false)
+            .await
+    }
+
+    async fn restart_voter_configured(
+        &mut self,
+        index: usize,
+        generation: u8,
+        command_grants: bool,
+    ) -> Result<()> {
+        ensure!(index < INGRESS);
+        self.stop(index).await?;
+        let fixture = &self.managed.fixtures[index];
+        let node = start_node(
+            self.managed.roots[index].path(),
+            fixture.application.clone(),
+            &fixture.spec.label,
+        )
+        .await?;
+        let started = async {
+            let (mut config, services) = fixture
+                .config(&node, LogOpenMode::Resume, generation)
+                .await?;
+            archives::configure(&mut config);
+            let peer = config.peers[0].clone();
+            let host = node.start_raft_cells(config, services).await?;
+            Ok::<_, anyhow::Error>((peer, host))
+        }
+        .await;
+        let (peer, host) = match started {
+            Ok(started) => started,
+            Err(error) => {
+                node.shutdown(ShutdownMode::Preserve).await?;
+                return Err(error);
+            }
+        };
+        self.managed.peers[index] = peer;
+        self.managed.hosts[index] = host.clone();
+        self.nodes[index] = Some(node);
+        *self.apis[index]
+            .cells
+            .lock()
+            .map_err(|_| anyhow::anyhow!("counter binding poisoned"))? = Some(host.clone());
+        host.start_managed_first_group(self.managed.history, TIMEOUT)
+            .await?;
+        for peer in &self.managed.peers {
+            if command_grants && peer.node != host.identity().node {
+                host.grant_command_origin(NamespaceCommandOrigin {
+                    cluster: self.managed.history.cluster,
+                    namespace: self.managed.history.namespace,
+                    revision: 1,
+                    peer: peer.clone(),
+                })?;
+            }
+        }
+        host.grant_query_origin(NamespaceQueryOrigin {
+            cluster: self.managed.history.cluster,
+            namespace: self.managed.history.namespace,
+            revision: 1,
+            peer: self.managed.peers[INGRESS].clone(),
+        })?;
+        Ok(())
     }
 }

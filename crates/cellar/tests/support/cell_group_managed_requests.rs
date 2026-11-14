@@ -15,6 +15,8 @@ mod optimization;
 #[path = "cell_group_managed_request_parity.rs"]
 mod parity;
 
+pub type RoutingStoreFactory = fn(&str, bool) -> Result<Arc<dyn object_store::ObjectStore>>;
+
 pub async fn cached_leader_direct_write() -> Result<()> {
     optimization::cached_leader_direct_write().await
 }
@@ -31,12 +33,116 @@ pub async fn metadata_outage_on_cached_path() -> Result<()> {
     optimization::metadata_outage_on_cached_path().await
 }
 
+pub async fn unrelated_follower_keeps_leader() -> Result<()> {
+    optimization::unrelated_follower_keeps_leader().await
+}
+
+pub async fn unrelated_follower_keeps_leader_with_store(make: RoutingStoreFactory) -> Result<()> {
+    optimization::unrelated_follower_keeps_leader_with_store(make).await
+}
+
+pub async fn endpoint_refresh_keeps_membership() -> Result<()> {
+    optimization::endpoint_refresh_keeps_membership().await
+}
+
+pub async fn read_first_refreshes_endpoint() -> Result<()> {
+    optimization::read_first_refreshes_endpoint(None).await
+}
+
+pub async fn unrelated_endpoint_keeps_inflight_reply() -> Result<()> {
+    optimization::unrelated_endpoint_keeps_inflight_reply().await
+}
+
+pub async fn unrelated_endpoint_keeps_inflight_reply_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    optimization::unrelated_endpoint_keeps_inflight_reply_with_store(make).await
+}
+
+pub async fn read_first_refreshes_endpoint_with_store(make: RoutingStoreFactory) -> Result<()> {
+    optimization::read_first_refreshes_endpoint(Some(make)).await
+}
+
+pub async fn endpoint_refresh_keeps_membership_with_store(make: RoutingStoreFactory) -> Result<()> {
+    optimization::endpoint_refresh_keeps_membership_with_store(make).await
+}
+
+pub async fn cached_advice_respects_origin_revocation() -> Result<()> {
+    optimization::cached_advice_respects_origin_revocation().await
+}
+
+pub async fn wire_advice_preserves_admission(make: Option<RoutingStoreFactory>) -> Result<()> {
+    optimization::wire_advice_preserves_admission(make).await
+}
+
+pub async fn removed_member_advice_cannot_grant_authority(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    optimization::removed_member_advice_cannot_grant_authority(make).await
+}
+
+pub async fn superseded_boot_advice_cannot_change_route(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    optimization::superseded_boot_advice_cannot_change_route(make).await
+}
+
+pub async fn untrusted_tls_advice_cannot_grant_authority(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    optimization::untrusted_tls_advice_cannot_grant_authority(make).await
+}
+
+pub async fn cached_advice_respects_origin_revocation_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    optimization::cached_advice_respects_origin_revocation_with_store(make).await
+}
+
 pub async fn refresh_storm_is_bounded() -> Result<()> {
     optimization::refresh_storm_is_bounded().await
 }
 
-pub async fn read_cohort_has_fresh_barrier() -> Result<()> {
-    optimization::read_cohort_has_fresh_barrier().await
+pub async fn leader_probe_storm_is_bounded() -> Result<()> {
+    optimization::leader_probe_storm_is_bounded().await
+}
+
+pub async fn recent_source_expiry_keeps_physical_image() -> Result<()> {
+    optimization::recent_source_expiry_keeps_physical_image().await
+}
+
+pub async fn split_repairs_only_overlap() -> Result<()> {
+    optimization::split_repairs_only_overlap().await
+}
+
+pub async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
+    optimization::old_lookup_cannot_resurrect_parent().await
+}
+
+pub async fn membership_refresh_keeps_range() -> Result<()> {
+    optimization::membership_refresh_keeps_range().await
+}
+
+pub async fn split_repairs_only_overlap_with_store(make: RoutingStoreFactory) -> Result<()> {
+    optimization::split_repairs_only_overlap_with_store(make).await
+}
+
+pub async fn old_lookup_cannot_resurrect_parent_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    optimization::old_lookup_cannot_resurrect_parent_with_store(make).await
+}
+
+pub async fn membership_refresh_keeps_range_with_store(make: RoutingStoreFactory) -> Result<()> {
+    optimization::membership_refresh_keeps_range_with_store(make).await
+}
+
+pub async fn read_cohort_has_fresh_barrier(make: Option<RoutingStoreFactory>) -> Result<()> {
+    optimization::read_cohort_has_fresh_barrier(make).await
+}
+
+pub async fn read_preferences_preserve_proof() -> Result<()> {
+    optimization::read_preferences_preserve_proof().await
 }
 
 pub async fn run_native() -> Result<()> {

@@ -36,6 +36,7 @@ impl Suspended {
         cx: &mut Context<'_>,
         domain: &crate::asyncrt::DomainToken,
         now: u64,
+        performance: &crate::raft::performance::Registry,
     ) -> Poll<Result<(), ExecutionError>> {
         if self.resuming.is_none() {
             match self.retention.lease.resume(cx) {
@@ -82,7 +83,7 @@ impl Suspended {
             return Poll::Ready(Err(unavailable()));
         }
         self.activation = Some(activation);
-        let executor = self.options.clone().open(authority)?;
+        let executor = self.options.clone().open(authority, performance)?;
         self.executor = Some(executor);
         // Recheck the original unfinished receipt in the latest image. Neither
         // another client's commit nor a new leader authorizes handler replay.

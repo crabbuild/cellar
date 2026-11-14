@@ -36,6 +36,8 @@ mod bindings;
 mod configuration;
 #[path = "support/cell_group_cron.rs"]
 mod cron;
+#[path = "support/sql_cursor_limits.rs"]
+mod cursor_limits;
 #[path = "support/sql_cursor_rollback.rs"]
 mod cursor_rollback;
 #[path = "support/cell_group_dispatch.rs"]
@@ -53,10 +55,14 @@ mod kv_contract;
 #[path = "support/cell_group_managed_fixture.rs"]
 #[allow(clippy::disallowed_methods)]
 pub mod managed_fixture;
+#[path = "support/cell_group_name_fallback.rs"]
+mod name_fallback;
 #[path = "support/cell_group_named_service.rs"]
 mod named_service;
 #[path = "support/cell_group_names.rs"]
 mod names;
+#[path = "support/cell_group_primitives_perf.rs"]
+mod primitives_perf;
 #[path = "support/cell_group_queue.rs"]
 mod queues;
 #[path = "support/cell_group_rustfs.rs"]
@@ -100,6 +106,24 @@ async fn filesystem_transactions_and_descriptors_recover_through_shared_quorum()
 async fn rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum() -> Result<()>
 {
     filesystem::qualify(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
+async fn rustfs_perf_sql() -> Result<()> {
+    primitives_perf::bindings("sql").await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
+async fn rustfs_perf_kv() -> Result<()> {
+    primitives_perf::bindings("kv").await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
+async fn rustfs_perf_queue() -> Result<()> {
+    queues::qualify_perf().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1512,9 +1536,31 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
             }).await??;
             ensure!(completed.receipt().context("unpolled RPC receipt")?.result() == b"166");
             ensure!(calls.load(Ordering::Acquire) == factories);
+            let replay_deadline = cellar::asyncrt::mono_ms()
+                .checked_add(u64::try_from(TIMEOUT.as_millis())?)
+                .context("unpolled RPC replay deadline")?;
             let replay = cellar::asyncrt::timeout(TIMEOUT, async {
+                // A committed receipt does not prove the original private SQL
+                // producer has physically closed. Wait for this fixture's RF3
+                // cell leases, within the same replay window, before readmitting
+                // the exact ID. Retained receipt buffers need not be released.
+                let mut owner_waits = 0;
                 loop {
-                    match recovered.command(&update, lost_input.clone(), lost_options.clone()).await {
+                    let mut active = 0;
+                    for host in &cluster.hosts {
+                        active += host.resource_usage().sql.context("RPC producer observations")?.active_cells;
+                    }
+                    if active == 0 { break; }
+                    owner_waits += 1;
+                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                }
+                eprintln!("unpolled RPC replay id={:?}: physical cell owners drained, waits={owner_waits}", lost_options.id);
+                loop {
+                    let remaining = replay_deadline.checked_sub(cellar::asyncrt::mono_ms())
+                        .filter(|remaining| *remaining != 0).context("original RPC replay window expired")?;
+                    let mut selected = lost_options.clone();
+                    selected.timeout = Duration::from_millis(remaining);
+                    match recovered.command(&update, lost_input.clone(), selected).await {
                         Ok(receipt) => break Ok::<_, anyhow::Error>(receipt),
                         Err(error) if error.cause.refusal() == Some(&CommandFailure::Overloaded) => (),
                         Err(error) => return Err(error.into()),
@@ -1613,6 +1659,9 @@ async fn run_native_cell_rpc(rooted: bool, store: Arc<catalog_fault::Store>) -> 
         .await
         .context("Raft RPC execution domain")
         .and_then(std::convert::identity);
+    if work.is_err() {
+        managed_fixture::diagnostics::record(&cluster, "ordinary-cell-rpc").await;
+    }
     let joined =
         managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &cluster.hosts)
             .await;
@@ -1774,6 +1823,36 @@ async fn rustfs_ordinary_cell_sdk_dispatch_requires_source_proof() -> Result<()>
                 .with_context(|| {
                     format!("RustFS SDK dispatch extents={rooted} durability={durability:?}")
                 })?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_name_discovery_uses_ready_physical_peers() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            Box::pin(name_fallback::run(
+                rooted,
+                durability,
+                Arc::new(catalog_fault::Store::default()),
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_name_discovery_uses_ready_physical_peers() -> Result<()> {
+    for rooted in [false, true] {
+        for durability in [Durability::Quorum, Durability::S3] {
+            let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+                &format!("name-fallback-{durability:?}"),
+                rooted,
+            )?));
+            Box::pin(name_fallback::run(rooted, durability, store)).await?;
         }
     }
     Ok(())
@@ -1993,7 +2072,13 @@ async fn rustfs_queue_long_callbacks_preserve_progress() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated real RustFS"]
 async fn rustfs_queue_load_preserves_acknowledged_messages() -> Result<()> {
-    Box::pin(queues::qualify_load(true)).await
+    Box::pin(queues::qualify_load(true, 1)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated real RustFS"]
+async fn rustfs_queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load(true, 2)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2003,5 +2088,10 @@ async fn queue_long_callbacks_preserve_progress() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn queue_load_preserves_acknowledged_messages() -> Result<()> {
-    Box::pin(queues::qualify_load(false)).await
+    Box::pin(queues::qualify_load(false, 1)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_four_in_flight_preserves_acknowledged_messages() -> Result<()> {
+    Box::pin(queues::qualify_load(false, 2)).await
 }

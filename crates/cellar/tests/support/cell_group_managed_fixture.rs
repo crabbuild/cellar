@@ -18,6 +18,8 @@ mod archive_verifier;
 pub mod archives;
 #[path = "cell_group_managed_fixture_cluster.rs"]
 mod cluster;
+#[path = "cell_group_managed_diagnostics.rs"]
+pub mod diagnostics;
 pub use crate::catalog_fault as fault;
 #[path = "html.rs"]
 pub mod graph;

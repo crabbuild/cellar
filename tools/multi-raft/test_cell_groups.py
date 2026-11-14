@@ -15,11 +15,15 @@ from unittest.mock import patch
 import cell_groups
 
 
-def queue_observations():
+def queue_observations(per_queue_in_flight=1):
     return [{"extents": extents, "realRustFS": True,
              "steadyMessages": 512, "archiveOutageMessages": 16,
              "uniqueMessageIds": 528, "delivered": 528,
-             "inFlightRequests": 2, "perQueueInFlight": 1,
+             "producers": 4, "queues": 2, "batchMessages": 8,
+             "ordinarySlots": 8, "ordinaryBytes": 131072, "callbackSlots": 2,
+             "inFlightRequests": 2 * per_queue_in_flight,
+             "perQueueInFlight": per_queue_in_flight,
+             "peakInFlightRequests": 2 * per_queue_in_flight,
              "elapsedMs": 1000} for extents in [False, True]]
 
 
@@ -54,8 +58,9 @@ class SqlCampaignTests(unittest.TestCase):
                     )
                 if suite == "queue-primitives":
                     self.assertEqual("--nocapture" in argv,
-                                     selection == "rustfs_queue_load_preserves_acknowledged_messages")
-                if suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows"):
+                                     selection in ("rustfs_queue_load_preserves_acknowledged_messages",
+                                                   "rustfs_queue_four_in_flight_preserves_acknowledged_messages"))
+                if suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem"):
                     self.assertIn("--show-output", argv)
                     self.assertNotIn("--nocapture", argv)
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
@@ -68,9 +73,11 @@ class SqlCampaignTests(unittest.TestCase):
                     retained.write_bytes(b"changed after capture")
                 body = ("test result: ok. 0 passed; 0 failed; 0 ignored;\n" if fault == "zero"
                         else f"test {selection} ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n")
-                if selection == "rustfs_queue_load_preserves_acknowledged_messages":
+                if selection in ("rustfs_queue_load_preserves_acknowledged_messages",
+                                 "rustfs_queue_four_in_flight_preserves_acknowledged_messages"):
+                    per_queue = 2 if "four_in_flight" in selection else 1
                     body = "".join("QUEUE_LOAD " + json.dumps(value) + "\n"
-                                   for value in queue_observations()) + body
+                                   for value in queue_observations(per_queue)) + body
                 return subprocess.CompletedProcess(argv, 0, prefix + body)
 
             def git(argv, **kwargs):
@@ -177,6 +184,30 @@ class QueueCampaignTests(unittest.TestCase):
         observations[1]["uniqueMessageIds"] = 527
         with self.assertRaises(ValueError):
             cell_groups.exact_case_passed(output(observations), case)
+
+    def test_four_in_flight_control_requires_observed_concurrency_and_original_limits(self):
+        case = "rustfs_queue_four_in_flight_preserves_acknowledged_messages"
+
+        def output(values):
+            return (f"test {case} ... "
+                    + "".join("QUEUE_LOAD " + json.dumps(value) + "\n" for value in values)
+                    + "ok\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n")
+
+        self.assertTrue(cell_groups.exact_case_passed(output(queue_observations(2)), case))
+        for key, value in (("peakInFlightRequests", 3), ("inFlightRequests", 2),
+                           ("perQueueInFlight", 1), ("ordinarySlots", 9),
+                           ("ordinaryBytes", 262144), ("callbackSlots", 4),
+                           ("producers", 2), ("queues", 1), ("batchMessages", 4),
+                           ("uniqueMessageIds", 527)):
+            with self.subTest(key=key):
+                observations = queue_observations(2)
+                observations[1][key] = value
+                with self.assertRaises(ValueError):
+                    cell_groups.exact_case_passed(output(observations), case)
+        with self.assertRaises(ValueError):
+            cell_groups.exact_case_passed(output(queue_observations()), case)
+        with self.assertRaises(ValueError):
+            cell_groups.exact_case_passed(output(queue_observations(2)[:1]), case)
 
 
 class KvCampaignTests(unittest.TestCase):

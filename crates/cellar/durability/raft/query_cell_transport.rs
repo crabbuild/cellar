@@ -93,6 +93,7 @@ pub(super) struct SendCellQuery {
     call: CellQueryCall,
     started_at: u64,
     leader_generation: Option<std::sync::Weak<()>>,
+    routing_lifetime: Arc<()>,
     keys: VersionKeys,
     _admission: Arc<Permit>,
     deadline: u64,
@@ -178,7 +179,7 @@ impl RaftTransport {
         let state = &self.handle.0;
         // Discovery never creates a local replica or grants voting authority.
         state.runtime.shared()?;
-        let (view, peer, pool, leader_generation) = {
+        let (view, peer, pool, leader_generation, routing_lifetime) = {
             let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
             state.admit(&registry)?;
             let view = registry
@@ -205,7 +206,10 @@ impl RaftTransport {
                 .ok_or(TransportError::StalePeer)?
                 .clone();
             let leader_generation = registry.leaders.generation(&view);
-            (view, peer, pool, leader_generation)
+            let routing_lifetime = registry
+                .cell_query_lifetime(&view)
+                .ok_or(TransportError::StalePeer)?;
+            (view, peer, pool, leader_generation, routing_lifetime)
         };
         let started_at = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         if started_at >= deadline {
@@ -230,7 +234,7 @@ impl RaftTransport {
             .acquire(charge)
             .ok_or(TransportError::Overloaded)?;
         drop(call.encode(state.options.max_query_request_bytes)?);
-        if !state.current_cell_query_route(&view, &peer) {
+        if !state.current_cell_query_route(&view, &peer, &routing_lifetime) {
             return Err(TransportError::StalePeer);
         }
         let (reply, result) = oneshot::channel();
@@ -244,6 +248,7 @@ impl RaftTransport {
                 call,
                 started_at,
                 leader_generation,
+                routing_lifetime,
                 keys: context.keys,
                 _admission: context.admission,
                 deadline,
@@ -336,7 +341,11 @@ impl State {
                 request.cancel.clone(),
                 None,
                 async {
-                    if !self.current_cell_query_route(&request.route, &request.peer) {
+                    if !self.current_cell_query_route(
+                        &request.route,
+                        &request.peer,
+                        &request.routing_lifetime,
+                    ) {
                         return Err(TransportError::StalePeer);
                     }
                     let remaining = request
@@ -362,7 +371,11 @@ impl State {
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
                         .await?;
-                    if !self.current_cell_query_route(&request.route, &request.peer) {
+                    if !self.current_cell_query_route(
+                        &request.route,
+                        &request.peer,
+                        &request.routing_lifetime,
+                    ) {
                         return Err(TransportError::StalePeer);
                     }
                     let now = u64::try_from(crate::asyncrt::wall_ms())
@@ -473,66 +486,73 @@ impl IncomingCall {
         }
     }
 
-    pub(super) async fn execute(
+    // Keep the protocol dispatcher at one future boundary. Otherwise each
+    // connection task embeds every command/runtime/domain owner type while
+    // proving Send, exceeding the compiler's depth after host composition.
+    pub(super) fn execute<'a>(
         self,
-        state: &State,
-        route: &QueryRoute,
+        state: &'a State,
+        route: &'a QueryRoute,
         deadline: u64,
-    ) -> Result<super::query_replies::Reply, TransportError> {
-        match self {
-            Self::Binding(call) => {
-                state
-                    .execute_binding_retirement(route, call, deadline)
-                    .await
-            }
-            Self::Name(call) => state.execute_cell_name(route, call, deadline).await,
-            Self::Command(call) => state.execute_cell_command(route, call, deadline).await,
-            Self::CommandProbe(call) => {
-                state
-                    .execute_cell_command_probe(route, call, deadline)
-                    .await
-            }
-            Self::Enrollment(call) => state.execute_cell_enrollment(route, call).await,
-            Self::Receipt(call) => state.execute_cell_receipt(route, call).await,
-            Self::Shared(call) => {
-                let (_, target, cell) = route.decode_shared()?;
-                let gateway = state
-                    .cell_query_gateways
-                    .lock()
-                    .map_err(|_| TransportError::Closed)?
-                    .get(&(cell.cluster, cell.namespace))
-                    .and_then(|h| h.upgrade())
-                    .ok_or(TransportError::Refused)?;
-                if !gateway.accepting.load(Ordering::Acquire) {
-                    return Err(TransportError::Refused);
-                }
-                // Queue first: metadata observation cannot renew the query's
-                // captured deadline or delay ownership transfer to its producer.
-                let queued = gateway.enqueue(call, target.scope, cell, route.schema());
-                let leader_hint = if queued.is_ok() {
+    ) -> futures_util::future::BoxFuture<'a, Result<super::query_replies::Reply, TransportError>>
+    {
+        Box::pin(async move {
+            match self {
+                Self::Binding(call) => {
                     state
-                        .runtime
-                        .shared()?
-                        .leader_advice(target.scope, deadline)
+                        .execute_binding_retirement(route, call, deadline)
                         .await
-                        .ok()
-                        .flatten()
-                } else {
-                    None
-                };
-                let result = match queued {
-                    Ok(call) => call.response().await,
-                    Err(error) => Err(error),
                 }
-                .map_err(|e| query_failure(&e));
-                wire::cell::encode_cell_result(
-                    &result,
-                    leader_hint.as_ref(),
-                    state.options.max_query_response_bytes,
-                )
-                .map(super::query_replies::Reply::plain)
+                Self::Name(call) => state.execute_cell_name(route, call, deadline).await,
+                Self::Command(call) => state.execute_cell_command(route, call, deadline).await,
+                Self::CommandProbe(call) => {
+                    state
+                        .execute_cell_command_probe(route, call, deadline)
+                        .await
+                }
+                Self::Enrollment(call) => state.execute_cell_enrollment(route, call).await,
+                Self::Receipt(call) => state.execute_cell_receipt(route, call).await,
+                Self::Shared(call) => {
+                    let (_, target, cell) = route.decode_shared()?;
+                    let gateway = state
+                        .cell_query_gateways
+                        .lock()
+                        .map_err(|_| TransportError::Closed)?
+                        .get(&(cell.cluster, cell.namespace))
+                        .and_then(|h| h.upgrade())
+                        .ok_or(TransportError::Refused)?;
+                    if !gateway.accepting.load(Ordering::Acquire) {
+                        return Err(TransportError::Refused);
+                    }
+                    // Queue first: metadata observation cannot renew the query's
+                    // captured deadline or delay ownership transfer to its producer.
+                    let queued =
+                        gateway.enqueue(call, target.scope, cell, route.schema(), deadline);
+                    let leader_hint = if queued.is_ok() {
+                        state
+                            .runtime
+                            .shared()?
+                            .leader_advice(target.scope, deadline)
+                            .await
+                            .ok()
+                            .flatten()
+                    } else {
+                        None
+                    };
+                    let result = match queued {
+                        Ok(call) => call.response().await,
+                        Err(error) => Err(error),
+                    }
+                    .map_err(|e| query_failure(&e));
+                    wire::cell::encode_cell_result(
+                        &result,
+                        leader_hint.as_ref(),
+                        state.options.max_query_response_bytes,
+                    )
+                    .map(super::query_replies::Reply::plain)
+                }
             }
-        }
+        })
     }
 }
 
@@ -543,6 +563,7 @@ impl Gateway {
         group: GroupHistory,
         cell: CellHistory,
         schema: [u8; 32],
+        deadline: u64,
     ) -> Result<crate::raft::cell_groups::CellQueryCall, Arc<CellDispatchError>> {
         let options = self.storage.for_cell(&cell);
         let queued = (|| {
@@ -555,12 +576,15 @@ impl Gateway {
                 },
                 None,
             )?;
-            query.bind_remote_route(crate::raft::cell_groups::RemoteMutationRoute {
-                group,
-                schema,
-                epoch: call.route_epoch,
-                birth: call.birth_digest,
-            });
+            query.bind_remote_route(
+                crate::raft::cell_groups::RemoteMutationRoute {
+                    group,
+                    schema,
+                    epoch: call.route_epoch,
+                    birth: call.birth_digest,
+                },
+                deadline,
+            )?;
             self.controller.query(query, options)
         })();
         queued.map_err(Arc::new)

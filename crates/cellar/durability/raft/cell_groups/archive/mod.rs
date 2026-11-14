@@ -29,8 +29,8 @@ mod graph;
 mod objects;
 mod publication;
 pub use collection::{CellGroupArchiveCollectionLimits, CellGroupArchiveCollectionReport};
-pub(in crate::raft::cell_groups) use publication::CoverageUse;
 pub use publication::{CellGroupArchiveCoverage, PreparedCellGroupArchivePublication};
+pub(in crate::raft::cell_groups) use publication::{CoverageIdentity, CoverageUse};
 mod upload;
 pub use upload::{
     CellGroupArchiveUpload, CellGroupArchiveUploadLimits, CellGroupArchiveUploadPool,

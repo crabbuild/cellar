@@ -698,6 +698,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/manifest-page-packs.md",
+      "title": "Immutable manifest page packs",
+      "summary": "Candidate page packing, publication barriers, physical accounting and bounded compaction.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/durable-alarms.md",
       "title": "Ordinary durable alarms and native ingress",
       "summary": "Shared-group alarm and stateless named-cell ownership and qualification boundaries.",
@@ -735,6 +746,61 @@
       "path": "design/multi-raft/cell-groups/payload-storage.md",
       "title": "Immutable cell payload storage",
       "summary": "Namespace-bound external payload publication, verified reads and retention before ordinary KV integration.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/primitive-performance-2026-11-14.md",
+      "title": "Local SQL, KV and Queue performance",
+      "summary": "Partial verified windows, resource observations and all six failed RustFS/Colima primitive-image cases.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-comparison-2026-11-14.md",
+      "title": "Three-node primitive durability comparison",
+      "summary": "Separate 1-vCPU/2-GiB nodes, RustFS, 62 verified windows and retained Raft/Fleet Queue failures in the initial disk profile.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-capacity-2026-11-14.md",
+      "title": "Primitive comparison with bounded writer overlap",
+      "summary": "Corrected Raft disk profile, matched Fleet/bucket baselines, throughput/tails and remaining overload/deadline/lease gaps.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-admission-2026-11-14.md",
+      "title": "Three-node primitive refusal diagnosis",
+      "summary": "SQL group admission observations and distinct SQL/KV/Queue deadlines under unchanged constrained resources.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-admission-wait-2026-11-14.md",
+      "title": "Three-node bounded SQL admission wait",
+      "summary": "Received pre-enqueue capacity waits, focused regressions and retained SQL/KV/Queue deadline and lease failures.",
       "roles": [
         "builder",
         "platform",

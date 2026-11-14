@@ -91,11 +91,12 @@ portable proof. A token does not grant access without the bearer credential.
 
 | Header | Value |
 | --- | --- |
+| `x-query-id` | Optional nonzero 16-byte invocation identity in hex, passed unchanged to the SDK; omission generates a fresh process-scoped identity |
 | `x-read-consistency` | `linearizable` (default), `at-least`, or `stale` |
 | `x-min-version` | A returned `version_token`; required for `at-least`, rejected for other modes |
 | `x-read-policy` | Stale reads only: `recent-source` (default) or explicitly `disconnected-historical`, which has no age bound |
 | `x-query-timeout-ms` | Total query budget, 1–5000 ms; default 5000 |
-| `x-query-members` | Up to eight distinct nonzero member IDs in priority order, comma separated without spaces. Omission uses SDK routing, which reads locally when a replica is present |
+| `x-query-members` | Up to eight distinct nonzero member IDs in priority order, comma separated without spaces. Omission uses SDK routing, which prefers an observed leader for linearizable reads and a local replica for other modes |
 | `x-query-attempt-ms` | Requires members; 1–total budget, default the smaller of 250 ms and the total budget |
 | `x-leader-fallback` | Requires members; `true` to try one untried leader hint after candidates, or `false` (default) |
 

@@ -82,9 +82,12 @@ pub(crate) enum Operation {
     ArchivePhysicalAdmission,
     ArchivePhysicalQueue,
     EnginePurge,
+    FirstGroupArchive,
+    FirstGroupAttach,
+    FirstGroupQuorum,
 }
 
-const OPERATIONS: [Operation; 45] = [
+const OPERATIONS: [Operation; 48] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -130,6 +133,9 @@ const OPERATIONS: [Operation; 45] = [
     Operation::ArchivePhysicalAdmission,
     Operation::ArchivePhysicalQueue,
     Operation::EnginePurge,
+    Operation::FirstGroupArchive,
+    Operation::FirstGroupAttach,
+    Operation::FirstGroupQuorum,
 ];
 
 impl Operation {
@@ -180,6 +186,9 @@ impl Operation {
             Self::ArchivePhysicalAdmission => "archive_physical_admission",
             Self::ArchivePhysicalQueue => "archive_physical_queue",
             Self::EnginePurge => "engine_purge",
+            Self::FirstGroupArchive => "first_group_archive",
+            Self::FirstGroupAttach => "first_group_attach",
+            Self::FirstGroupQuorum => "first_group_quorum",
         }
     }
 }
@@ -241,11 +250,33 @@ pub(crate) enum Counter {
     CellReadBarriers,
     CellReadCohortJoins,
     CellBindingAppliedHistoryHints,
+    CellReadCohortsStarted,
+    CellLeaderProbeOwners,
+    CellLeaderProbeJoins,
+    CellLeaderProbeFinishes,
+    CellGroupTickRounds,
+    CellGroupTicksRequested,
+    CellGroupTicksCoalesced,
+    CellGroupTicksExecuted,
+    CellGroupElectionTimeouts,
+    CellGroupTickAdmissionRefusals,
+    CellEndpointRefreshes,
+    CellEndpointDiscoveryOwners,
+    CellEndpointRefreshJoins,
     CellKvLocalPayloadPreparations,
     CellKvResolvedPayloadPreparations,
+    // Node-wide phase observations are not per-command outcome or retry proofs.
+    SqlNodeAdmissionRefusals,
+    SqlGroupAdmissionRefusals,
+    SqlWorkerAdmissionRefusals,
+    SqlStageAdmissionRefusals,
+    SqlStageExecutionRefusals,
+    SqlPrivateOpenRefusals,
+    CellCommandSubmissionRejections,
+    CellCommandSettlementOverloads,
 }
 
-const COUNTERS: [Counter; 57] = [
+const COUNTERS: [Counter; 78] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -301,20 +332,62 @@ const COUNTERS: [Counter; 57] = [
     Counter::CellReadBarriers,
     Counter::CellReadCohortJoins,
     Counter::CellBindingAppliedHistoryHints,
+    Counter::CellReadCohortsStarted,
+    Counter::CellLeaderProbeOwners,
+    Counter::CellLeaderProbeJoins,
+    Counter::CellLeaderProbeFinishes,
+    Counter::CellGroupTickRounds,
+    Counter::CellGroupTicksRequested,
+    Counter::CellGroupTicksCoalesced,
+    Counter::CellGroupTicksExecuted,
+    Counter::CellGroupElectionTimeouts,
+    Counter::CellGroupTickAdmissionRefusals,
+    Counter::CellEndpointRefreshes,
+    Counter::CellEndpointDiscoveryOwners,
+    Counter::CellEndpointRefreshJoins,
     Counter::CellKvLocalPayloadPreparations,
     Counter::CellKvResolvedPayloadPreparations,
+    Counter::SqlNodeAdmissionRefusals,
+    Counter::SqlGroupAdmissionRefusals,
+    Counter::SqlWorkerAdmissionRefusals,
+    Counter::SqlStageAdmissionRefusals,
+    Counter::SqlStageExecutionRefusals,
+    Counter::SqlPrivateOpenRefusals,
+    Counter::CellCommandSubmissionRejections,
+    Counter::CellCommandSettlementOverloads,
 ];
 
 impl Counter {
     fn name(self) -> &'static str {
         match self {
+            Self::SqlNodeAdmissionRefusals => "sql_node_admission_refusals",
+            Self::SqlGroupAdmissionRefusals => "sql_group_admission_refusals",
+            Self::SqlWorkerAdmissionRefusals => "sql_worker_admission_refusals",
+            Self::SqlStageAdmissionRefusals => "sql_stage_admission_refusals",
+            Self::SqlStageExecutionRefusals => "sql_stage_execution_refusals",
+            Self::SqlPrivateOpenRefusals => "sql_private_open_refusals",
+            Self::CellCommandSubmissionRejections => "cell_command_submission_rejections",
+            Self::CellCommandSettlementOverloads => "cell_command_settlement_overloads",
             Self::CellKvResolvedPayloadPreparations => "cell_kv_resolved_payload_preparations",
             Self::CellKvLocalPayloadPreparations => "cell_kv_local_payload_preparations",
             Self::CellBindingAppliedHistoryHints => "cell_binding_applied_history_hints",
+            Self::CellEndpointRefreshes => "cell_endpoint_demand_refreshes",
+            Self::CellEndpointDiscoveryOwners => "cell_endpoint_discovery_owners",
+            Self::CellEndpointRefreshJoins => "cell_endpoint_refresh_joins",
+            Self::CellGroupTickRounds => "cell_group_tick_rounds",
+            Self::CellGroupTicksRequested => "cell_group_ticks_requested",
+            Self::CellGroupTicksCoalesced => "cell_group_ticks_coalesced",
+            Self::CellGroupTicksExecuted => "cell_group_ticks_executed",
+            Self::CellGroupElectionTimeouts => "cell_group_election_timeouts",
+            Self::CellGroupTickAdmissionRefusals => "cell_group_tick_admission_refusals",
+            Self::CellLeaderProbeOwners => "cell_leader_probe_owners",
+            Self::CellLeaderProbeJoins => "cell_leader_probe_joins",
+            Self::CellLeaderProbeFinishes => "cell_leader_probe_finishes",
             Self::CellMembershipDiscoveryOwners => "cell_membership_discovery_owners",
             Self::CellMembershipRefreshJoins => "cell_membership_refresh_joins",
             Self::CellReadBarriers => "cell_linearizable_read_barriers",
             Self::CellReadCohortJoins => "cell_linearizable_read_cohort_joins",
+            Self::CellReadCohortsStarted => "cell_linearizable_read_cohorts_started",
             Self::CellCommandDirectoryLookups => "cell_command_directory_lookups",
             Self::CellMembershipBackgroundObservations => "cell_membership_background_observations",
             Self::CellMembershipRefreshes => "cell_membership_demand_refreshes",
@@ -459,7 +532,6 @@ impl Registry {
 
     /// The timer follows the future's lifetime. Errors count as failures;
     /// cancellation drops the timer as abandoned rather than inventing success.
-    #[cfg(test)]
     pub(crate) async fn measure<T, E>(
         self: &Arc<Self>,
         operation: Operation,

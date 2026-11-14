@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Operation proofs share the archive lane; waiting never owns a SQL producer.
+use super::reuse::{Admission, Eligibility};
 use super::*;
 use crate::raft::budget::Permit;
 use crate::raft::cell_groups::{
@@ -137,6 +138,7 @@ pub(in crate::raft::cell_groups::controller) struct Request {
     reply: oneshot::Sender<std::result::Result<Settled, CellDispatchError>>,
     permit: Arc<Mutex<Permit>>,
     attempted_cut: Option<cellar_logic::consensus::LogIndex>,
+    admission: Option<Admission>,
 }
 
 struct Cancel(Arc<AtomicBool>);
@@ -368,6 +370,7 @@ impl Client {
                 reply,
                 permit,
                 attempted_cut: None,
+                admission: None,
             },
             receiver,
             _cancel: Cancel(cancelled),
@@ -438,6 +441,15 @@ impl Prepared {
 }
 
 impl Request {
+    pub(super) fn admit(&mut self, admission: Admission) {
+        self.admission = Some(admission);
+    }
+
+    pub(super) fn admission(&self) -> Result<Admission> {
+        self.admission
+            .ok_or(Error::Invalid("unadmitted archive request"))
+    }
+
     fn minimum_index(&self) -> Option<cellar_logic::consensus::LogIndex> {
         match &self.output {
             Output::Command(receipt) => Some(receipt.receipt().position.index),
@@ -489,24 +501,33 @@ pub(super) fn prune(requests: &mut Vec<Request>, now: u64) {
     *requests = live;
 }
 
+pub(super) fn oldest_admission(requests: &[Request]) -> Result<Admission> {
+    let mut requests = requests.iter();
+    let mut oldest = requests
+        .next()
+        .ok_or(Error::Invalid("empty archive proof batch"))?
+        .admission()?;
+    for request in requests {
+        oldest = oldest.min(request.admission()?);
+    }
+    Ok(oldest)
+}
+
 pub(super) async fn prove(
     requests: Vec<Request>,
     context: &job::Context,
     registration: &CellGroupArchiveRegistration,
     coverage: &CellGroupArchiveCoverage,
     execution: &ControllerExecution,
+    eligibility: Option<Eligibility>,
 ) -> Vec<Request> {
     let mut waiting = Vec::new();
-    {
-        let mut uses = context.uses.lock().unwrap_or_else(|e| e.into_inner());
-        uses.retain(|usage| usage.live());
-        let retained = coverage.retain_use();
-        // Replaying covered outputs shares the same admitted verification.
-        // One weak entry per admitted verification keeps this index bounded by
-        // verification admission, rather than the number of duplicate calls.
-        if !uses.iter().any(|usage| usage.same_snapshot(&retained)) {
-            uses.push(retained);
+    if let Err(error) = context.uses.track(coverage, eligibility) {
+        let error = Arc::new(error);
+        for request in requests {
+            request.fail(error.clone());
         }
+        return waiting;
     }
     for request in requests {
         let now = execution
@@ -519,6 +540,20 @@ pub(super) async fn prove(
         if request.route != *coverage.marker().route() {
             request.fail(Arc::new(Error::Invalid("S3 output route")));
             continue;
+        }
+        match request
+            .admission()
+            .and_then(|admission| context.uses.allows(coverage, admission))
+        {
+            Ok(true) => (),
+            Ok(false) => {
+                waiting.push(request);
+                continue;
+            }
+            Err(error) => {
+                request.fail(Arc::new(error));
+                continue;
+            }
         }
         if !request.may_reuse(coverage.marker().position().index) {
             waiting.push(request);
@@ -625,6 +660,10 @@ pub(super) async fn prove(
             Err(error) => request.fail(Arc::new(Error::Archive(error))),
             Ok(true) => {
                 if let Err(error) = context.authority.require_current().await {
+                    request.fail(Arc::new(error));
+                    continue;
+                }
+                if let Err(error) = context.uses.prove_output(coverage) {
                     request.fail(Arc::new(error));
                     continue;
                 }

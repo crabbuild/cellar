@@ -301,6 +301,7 @@ deliverable, not those implementation or deployment gates.
 | `baseline.json` | Reviewed Cellar source hashes/excerpts and TiKV investigation pin |
 | `plan.py`, `test_plan.py` | Executable package validator, drift checks, task briefs and negative validation tests |
 | `tikv-informed-optimization.md` | Proposed direct routing, cache repair, physical cleanup and shared-worker optimization packages, building on accepted CG-11/12 foundations |
+| `manifest-page-packs.md` | Candidate immutable manifest packing, publication barriers, physical accounting and bounded compaction |
 
 The complete scope includes managed fleet integration, effect identity preservation
 through split/merge, disaster recovery while a transfer is incomplete, and full

@@ -2,13 +2,35 @@
 
 //! One actual ingress RPC per warm write, with exact SDK and HTTP receipts.
 use super::*;
+use crate::storage_fault;
 use std::sync::atomic::AtomicUsize;
+
+#[path = "cell_group_routing_advice.rs"]
+mod advice;
+
+#[path = "cell_group_routing_authority.rs"]
+mod authority;
 
 #[path = "cell_group_routing_busy.rs"]
 mod busy;
 
+#[path = "cell_group_routing_endpoint.rs"]
+mod endpoint;
+
 #[path = "cell_group_routing_refresh.rs"]
 mod refresh;
+
+#[path = "cell_group_routing_probe.rs"]
+mod probe;
+
+#[path = "cell_group_routing_ranges.rs"]
+mod ranges;
+
+#[path = "cell_group_routing_read_gate.rs"]
+mod read_gate;
+
+#[path = "cell_group_routing_read_preferences.rs"]
+mod read_preferences;
 
 #[path = "cell_group_routing_reads.rs"]
 mod reads;
@@ -58,6 +80,12 @@ pub(super) async fn cached_leader_direct_write() -> Result<()> {
     run(Scenario::Direct).await
 }
 
+pub(super) async fn superseded_boot_advice_cannot_change_route(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    advice::superseded_boot(make).await
+}
+
 pub(super) async fn busy_leader_keeps_placement() -> Result<()> {
     run(Scenario::Busy).await
 }
@@ -70,6 +98,62 @@ pub(super) async fn metadata_outage_on_cached_path() -> Result<()> {
     run(Scenario::MetadataOutage).await
 }
 
+pub(super) async fn unrelated_follower_keeps_leader() -> Result<()> {
+    run(Scenario::EndpointFollower).await
+}
+
+pub(super) async fn unrelated_follower_keeps_leader_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    run_with_store(Scenario::EndpointFollower, Some(make)).await
+}
+
+pub(super) async fn endpoint_refresh_keeps_membership() -> Result<()> {
+    run(Scenario::Endpoint).await
+}
+
+pub(super) async fn read_first_refreshes_endpoint(make: Option<RoutingStoreFactory>) -> Result<()> {
+    endpoint::read_first(make).await
+}
+
+pub(super) async fn unrelated_endpoint_keeps_inflight_reply() -> Result<()> {
+    run(Scenario::EndpointInflight).await
+}
+
+pub(super) async fn unrelated_endpoint_keeps_inflight_reply_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    run_with_store(Scenario::EndpointInflight, Some(make)).await
+}
+
+pub(super) async fn endpoint_refresh_keeps_membership_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    run_with_store(Scenario::Endpoint, Some(make)).await
+}
+
+pub(super) async fn cached_advice_respects_origin_revocation() -> Result<()> {
+    run(Scenario::OriginRevocation).await
+}
+
+pub(super) async fn wire_advice_preserves_admission(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    Box::pin(advice::run(make)).await
+}
+
+pub(super) async fn untrusted_tls_advice_cannot_grant_authority(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    Box::pin(advice::untrusted_tls(make)).await
+}
+
+pub(super) async fn cached_advice_respects_origin_revocation_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    run_with_store(Scenario::OriginRevocation, Some(make)).await
+}
+
 pub(super) async fn refresh_storm_is_bounded() -> Result<()> {
     for axum in [false, true] {
         run(Scenario::Refresh { axum }).await?;
@@ -78,8 +162,54 @@ pub(super) async fn refresh_storm_is_bounded() -> Result<()> {
     Ok(())
 }
 
-pub(super) async fn read_cohort_has_fresh_barrier() -> Result<()> {
-    Box::pin(reads::run()).await
+pub(super) async fn leader_probe_storm_is_bounded() -> Result<()> {
+    Box::pin(probe::run()).await
+}
+
+pub(super) async fn split_repairs_only_overlap() -> Result<()> {
+    Box::pin(ranges::split_repairs_only_overlap(None)).await
+}
+
+pub(super) async fn old_lookup_cannot_resurrect_parent() -> Result<()> {
+    Box::pin(ranges::old_lookup_cannot_resurrect_parent(None)).await
+}
+
+pub(super) async fn membership_refresh_keeps_range() -> Result<()> {
+    Box::pin(ranges::membership_refresh_keeps_range(None)).await
+}
+
+pub(super) async fn removed_member_advice_cannot_grant_authority(
+    make: Option<RoutingStoreFactory>,
+) -> Result<()> {
+    ranges::removed_member_advice_cannot_grant_authority(make).await
+}
+
+pub(super) async fn split_repairs_only_overlap_with_store(make: RoutingStoreFactory) -> Result<()> {
+    Box::pin(ranges::split_repairs_only_overlap(Some(make))).await
+}
+
+pub(super) async fn old_lookup_cannot_resurrect_parent_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    Box::pin(ranges::old_lookup_cannot_resurrect_parent(Some(make))).await
+}
+
+pub(super) async fn membership_refresh_keeps_range_with_store(
+    make: RoutingStoreFactory,
+) -> Result<()> {
+    Box::pin(ranges::membership_refresh_keeps_range(Some(make))).await
+}
+
+pub(super) async fn read_cohort_has_fresh_barrier(make: Option<RoutingStoreFactory>) -> Result<()> {
+    Box::pin(reads::run(make)).await
+}
+
+pub(super) async fn read_preferences_preserve_proof() -> Result<()> {
+    Box::pin(read_preferences::run()).await
+}
+
+pub(super) async fn recent_source_expiry_keeps_physical_image() -> Result<()> {
+    Box::pin(read_preferences::recent_source_expiry_keeps_physical_image()).await
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -88,15 +218,34 @@ enum Scenario {
     Busy,
     Election,
     MetadataOutage,
+    OriginRevocation,
+    Endpoint,
+    EndpointFollower,
+    EndpointInflight,
     Refresh { axum: bool },
     RefreshClose { axum: bool },
 }
 
 async fn run(scenario: Scenario) -> Result<()> {
+    run_with_store(scenario, None).await
+}
+
+async fn run_with_store(scenario: Scenario, make: Option<RoutingStoreFactory>) -> Result<()> {
     for rooted in [false, true] {
         let callbacks = Arc::new(AtomicUsize::new(0));
         let count = callbacks.clone();
-        let store = Arc::new(fault::Store::default());
+        let store = Arc::new(match make {
+            Some(make) => fault::Store::around(make(
+                match scenario {
+                    Scenario::Endpoint => "routing-endpoint-refresh",
+                    Scenario::EndpointFollower => "routing-endpoint-unrelated",
+                    Scenario::EndpointInflight => "routing-endpoint-inflight",
+                    _ => "routing-origin-revocation",
+                },
+                rooted,
+            )?),
+            None => fault::Store::default(),
+        });
         let observer: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
             count.fetch_add(1, Ordering::AcqRel);
         });
@@ -131,7 +280,27 @@ async fn run(scenario: Scenario) -> Result<()> {
             Scenario::MetadataOutage => {
                 Box::pin(exercise(&cluster, &callbacks, Some(&store))).await
             }
+            Scenario::OriginRevocation => {
+                Box::pin(authority::exercise(&cluster, &callbacks, rooted)).await
+            }
+            Scenario::Endpoint => {
+                Box::pin(endpoint::exercise(&mut cluster, &callbacks, rooted)).await
+            }
+            Scenario::EndpointFollower => {
+                Box::pin(endpoint::unrelated_follower_keeps_leader(
+                    &mut cluster,
+                    &callbacks,
+                    rooted,
+                ))
+                .await
+            }
+            Scenario::EndpointInflight => {
+                Box::pin(endpoint::keeps_inflight(&mut cluster, &callbacks, rooted)).await
+            }
         };
+        if result.is_err() {
+            crate::managed_fixture::diagnostics::record(&cluster.managed, "public-routing").await;
+        }
         store
             .deny_routing_metadata_reads
             .store(false, Ordering::Release);

@@ -129,8 +129,10 @@ mod origins;
 mod recovery;
 mod repair;
 mod scoped_dispatch;
+mod segment_reclamation;
 mod services;
 mod sql_ingress;
+mod sql_ingress_lanes;
 mod startup;
 mod stop;
 mod transition;
@@ -164,6 +166,7 @@ struct Core {
     node_profile: Option<crate::raft::inspection::RaftNodeProfile>,
     startup_bounds: crate::raft::host::RaftHostStartupBounds,
     stale_source_timeout_ms: u64,
+    sql_ingress_lanes: Arc<sql_ingress_lanes::Lanes>,
 }
 
 pub(crate) struct Handle {
@@ -270,6 +273,7 @@ impl RaftCells {
             node_profile: options.node_profile.clone(),
             startup_bounds,
             stale_source_timeout_ms: options.stale_source_timeout_ms,
+            sql_ingress_lanes: Arc::default(),
         });
         let service = Self {
             handle: Arc::new(Handle {

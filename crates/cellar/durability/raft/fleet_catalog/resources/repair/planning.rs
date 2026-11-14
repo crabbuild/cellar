@@ -240,7 +240,7 @@ impl Planning<'_, '_> {
                         scope,
                         sequence: cut.revision(),
                         observed_ms,
-                        physical: charged.physical.resources(),
+                        physical: charged.admission_usage(),
                     },
                     reservations: charged.reservations,
                     complete: true,

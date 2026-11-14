@@ -2,6 +2,17 @@
 
 use super::*;
 
+#[path = "cell_group_sql_admission_observations.rs"]
+mod observations;
+
+pub(super) async fn node_and_callback(rooted: bool) -> Result<()> {
+    observations::node_and_callback(rooted).await
+}
+
+pub(super) async fn private_workspace() -> Result<()> {
+    observations::private_workspace().await
+}
+
 pub(super) async fn admission(rooted: bool) -> Result<()> {
     let (mut fixture, route, a, b) = enrolled_sql_cells(rooted).await?;
     let c = history(&route, "sql-c")?;
@@ -128,6 +139,25 @@ pub(super) async fn admission(rooted: bool) -> Result<()> {
             cellar_logic::consensus::CommandFailure::Overloaded
         ))
     ));
+    let observations = fixture.cluster.voters[0].log.performance_snapshot();
+    assert_eq!(
+        observations
+            .counters
+            .iter()
+            .find(|counter| counter.name == "sql_group_admission_refusals")
+            .context("group refusal observation")?
+            .value,
+        1
+    );
+    assert_eq!(
+        observations
+            .counters
+            .iter()
+            .find(|counter| counter.name == "sql_node_admission_refusals")
+            .context("node refusal observation")?
+            .value,
+        0
+    );
     // B completes through the same consensus group while A's physical SQL is held.
     pool.mark_submitted(b.clone(), pb.proposal()).await?;
     pool.mark_submitted(b.clone(), pb.proposal()).await?;

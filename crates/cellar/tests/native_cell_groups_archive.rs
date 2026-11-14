@@ -24,6 +24,8 @@ mod fault;
 mod images;
 #[path = "support/cell_group_archive_isolation.rs"]
 mod isolation_fixture;
+#[path = "support/cell_group_archive_owners.rs"]
+mod owner_fixture;
 #[path = "support/cell_group_archive_publication.rs"]
 mod publication_fixture;
 #[path = "support/cell_group_rustfs.rs"]
@@ -35,7 +37,34 @@ mod tail_fixture;
 #[allow(dead_code, unused_imports)]
 mod runtime_fixture;
 
+use runtime_fixture::persist_archive_intent;
+
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_cancelled_waiter_keeps_physical_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        owner_fixture::cancelled_checkpoint_read(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_archive_cancelled_waiter_keeps_physical_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        owner_fixture::cancelled_checkpoint_read(
+            rooted,
+            rustfs::store("archive-physical-owner", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn group_archive_publication_survives_competing_registry_cas() -> Result<()> {
@@ -507,32 +536,6 @@ async fn new_archive(
     start_upload(cluster, &archive, &label).await
 }
 
-async fn persist_archive_intent<T: serde::Serialize + serde::de::DeserializeOwned>(
-    cluster: &Cluster,
-    intent: &T,
-) -> Result<T> {
-    let bytes = serde_json::to_vec(intent)?;
-    let name = hex::encode(Sha256::digest(&bytes));
-    let directory = cluster._root.path().join("archive-intents");
-    let loaded = cluster
-        .domain
-        .blocking(move || -> Result<Vec<u8>> {
-            use std::io::Write;
-            std::fs::create_dir_all(&directory)?;
-            let path = directory.join(name);
-            let mut file = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&path)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            std::fs::File::open(&directory)?.sync_all()?;
-            Ok(std::fs::read(path)?)
-        })?
-        .await??;
-    Ok(serde_json::from_slice(&loaded)?)
-}
-
 async fn start_upload(
     cluster: &Cluster,
     archive: &CellGroupArchive,
@@ -731,6 +734,23 @@ async fn checkpoint_archive_roundtrip_and_reuse() -> Result<()> {
         assert_eq!(archive.usage().operations, 0);
         assert_eq!(sources.usage().sources, 0);
         assert_eq!(receive_pool.usage().sources, 1);
+        let page_directory = cluster._root.path().join("archive-data/pages");
+        let packs = cluster
+            .domain
+            .blocking(move || -> Result<usize> {
+                let mut packs = 0;
+                for entry in std::fs::read_dir(page_directory)? {
+                    if entry?.path().extension().is_some_and(|ext| ext == "pack") {
+                        packs += 1;
+                    }
+                }
+                Ok(packs)
+            })?
+            .await??;
+        assert_eq!(
+            packs, 1,
+            "a small received checkpoint should share one durable manifest pack"
+        );
         for (cell, wanted) in expected {
             let (_, pin) = verified
                 .checkpoint()
@@ -913,6 +933,63 @@ async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
         assert_eq!(pool.usage().sources, 0);
         store.clear();
         gate.release.notify_one();
+        // One receiver batch cannot fit this page inventory. Refuse before
+        // touching a pack, while retaining a usable destination and refunding
+        // the receiver's existing admission after the failed physical job joins.
+        let limited_directory = cluster._root.path().join("limited-receive-pages");
+        let route = cluster.birth.route().clone();
+        let images = applier.apply_images.clone();
+        let page_directory = limited_directory.clone();
+        let limited_store = cluster
+            .domain
+            .blocking(move || -> Result<CellGroupArchiveStore> {
+                Ok(CellGroupArchiveStore::new(
+                    route,
+                    ManifestPageStore::open(
+                        &page_directory,
+                        Arc::new(DirectFileSystem),
+                        2,
+                        16 * 1024 * 1024,
+                        16,
+                    )?,
+                    images,
+                    ManifestLimits::default(),
+                    GroupEntryLimits::default(),
+                    100,
+                )?)
+            })?
+            .await??;
+        let limited = ArchiveDestination {
+            store: limited_store,
+            images: applier.images.clone(),
+            apply_images: applier.apply_images.clone(),
+        };
+        assert!(matches!(
+            archive
+                .verify_checkpoint(
+                    &cluster.domain,
+                    &reference,
+                    receiver(&pool, &limited, &cluster)?,
+                )
+                .await,
+            Err(CellGroupArchiveError::Checkpoint(
+                CellGroupCheckpointError::Manifest(ManifestError::Limit)
+            ))
+        ));
+        assert_eq!(pool.usage().sources, 0);
+        let retry = receiver(&pool, &limited, &cluster)?;
+        drop(retry);
+        assert_eq!(pool.usage().sources, 0);
+        assert_eq!(pool.usage().retained_bytes, 0);
+        cluster
+            .domain
+            .blocking(move || -> Result<()> {
+                for entry in std::fs::read_dir(limited_directory)? {
+                    assert_eq!(entry?.file_name(), "LOCK", "quota refusal wrote a pack");
+                }
+                Ok(())
+            })?
+            .await??;
         cluster.close().await?;
     }
     Ok(())

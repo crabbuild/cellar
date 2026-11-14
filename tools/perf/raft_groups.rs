@@ -23,28 +23,62 @@ pub struct Layout {
     pub groups: Vec<Group>,
     assignment: Vec<usize>,
     ordered_cells: Vec<usize>,
+    cells: Option<Vec<CellId>>,
 }
 
 impl Layout {
     pub fn new(total: usize, occupancy: usize, class: &str, generation: u8) -> Result<Self> {
         ensure!((1..=1_000_000).contains(&total), "invalid cell population");
         ensure!(
+            matches!(class, "Counter" | "Workload"),
+            "invalid population class"
+        );
+        Self::partition(total, occupancy, class, generation, None)
+    }
+
+    /// Partition actual public-binding identities, using the production routing
+    /// preimage rather than substituting benchmark counter names.
+    pub fn from_cells(
+        cells: Vec<CellId>,
+        occupancy: usize,
+        class: &str,
+        generation: u8,
+    ) -> Result<Self> {
+        Self::partition(cells.len(), occupancy, class, generation, Some(cells))
+    }
+
+    fn partition(
+        total: usize,
+        occupancy: usize,
+        class: &str,
+        generation: u8,
+        cells: Option<Vec<CellId>>,
+    ) -> Result<Self> {
+        ensure!((1..=1_000_000).contains(&total), "invalid cell population");
+        ensure!(
             (1..=MAX_OCCUPANCY).contains(&occupancy),
             "invalid group occupancy"
         );
         ensure!(
-            matches!(class, "Counter" | "Workload") && generation <= 1,
+            !class.is_empty() && generation <= 1,
             "invalid population history"
         );
         let namespace = NamespaceId::new([2; 16])?;
         let mut keys = (0..total)
             .map(|ordinal| -> Result<_> {
-                let cell = CellId::new(format!("{class}:{ordinal}"))?;
+                let cell = match &cells {
+                    Some(cells) => cells[ordinal].clone(),
+                    None => CellId::new(format!("{class}:{ordinal}"))?,
+                };
                 let digest = Sha256::digest(cell.routing_preimage(namespace)).into();
                 Ok((CellKey::from_digest(digest, cell), ordinal))
             })
             .collect::<Result<Vec<_>>>()?;
         keys.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        ensure!(
+            keys.windows(2).all(|pair| pair[0].0 != pair[1].0),
+            "duplicate cell identity"
+        );
         let mut assignment = vec![0; total];
         let mut groups = Vec::new();
         for (ordinal, chunk) in keys.chunks(occupancy).enumerate() {
@@ -75,6 +109,7 @@ impl Layout {
             groups,
             assignment,
             ordered_cells: keys.into_iter().map(|(_, cell)| cell).collect(),
+            cells,
         })
     }
 
@@ -98,7 +133,10 @@ impl Layout {
         Ok(CellHistory {
             cluster: ClusterId::new([1; 16])?,
             namespace: NamespaceId::new([2; 16])?,
-            cell: CellId::new(format!("{}:{cell}", self.class))?,
+            cell: match &self.cells {
+                Some(cells) => cells[cell].clone(),
+                None => CellId::new(format!("{}:{cell}", self.class))?,
+            },
             incarnation: IncarnationId::new([4 + self.generation; 16])?,
         })
     }

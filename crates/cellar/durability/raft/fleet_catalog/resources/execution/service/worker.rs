@@ -18,6 +18,7 @@ pub(crate) struct MovementServiceWork {
     member_cleanup: bool,
     member_cleanup_only: bool,
     cleanup_cursor: usize,
+    periodic_purge: Option<PeriodicPurge>,
     node_stop: Option<watch::Receiver<bool>>,
     topology: Option<super::topology::TopologyService>,
     automatic: Option<(
@@ -31,6 +32,12 @@ pub(crate) struct MovementServiceWork {
     _registration: Option<ControlServiceLease>,
     _node_owned_stop: Option<watch::Sender<bool>>,
     _completion: ControlServiceCompletion,
+}
+
+struct PeriodicPurge {
+    authority: FleetHostAuthorization,
+    settled: u64,
+    first: bool,
 }
 
 impl MovementServiceWork {
@@ -55,6 +62,7 @@ impl MovementServiceWork {
             member_cleanup,
             member_cleanup_only: false,
             cleanup_cursor: 0,
+            periodic_purge: None,
             node_stop: None,
             topology: None,
             automatic: None,
@@ -131,9 +139,15 @@ impl MovementServiceWork {
         {
             return Err(FleetCatalogError::Closed);
         }
+        let periodic = self.member_cleanup && self.observer.settles_periodic_raft_purges();
+        let segment_bytes = if periodic {
+            crate::raft::physical_inventory::SEGMENT_SETTLEMENT_BYTES
+        } else {
+            0
+        };
         let registration = self.observer.register_control_service(
             ControlServiceKind::Movement,
-            self.options.control_reservation_bytes(),
+            self.options.control_reservation_bytes() + segment_bytes,
         )?;
         // Use the enrolled node's installed client, never a caller's alternate
         // backend with the same descriptive fleet identity. Periodic I/O has a
@@ -142,6 +156,15 @@ impl MovementServiceWork {
         self.catalog = host
             .catalog
             .owned_client(self.observer.handle.domain.clone());
+        if periodic {
+            let mut authority = host.clone();
+            authority.catalog = self.catalog.clone();
+            self.periodic_purge = Some(PeriodicPurge {
+                authority,
+                settled: 0,
+                first: false,
+            });
+        }
         let configured_automatic = self.automatic.is_some();
         if let Some((options, namespaces)) = self.automatic.take() {
             let evidence = Arc::new(super::automatic::Evidence {
@@ -319,7 +342,7 @@ impl MovementServiceWork {
             self.automatic_startup_boot = None;
         }
         if self.member_cleanup_only {
-            return self.cleanup_round(&cut, &deadline).await.map(|_| ());
+            return self.reclamation_round(&cut, &deadline).await.map(|_| ());
         }
         let pending = self
             .catalog
@@ -415,7 +438,7 @@ impl MovementServiceWork {
                 }
             }
         } else {
-            if self.member_cleanup && self.cleanup_round(&cut, &deadline).await? {
+            if self.member_cleanup && self.reclamation_round(&cut, &deadline).await? {
                 return Ok(());
             }
             // Due admitted effects always run first. A retry/backoff window
@@ -476,6 +499,45 @@ impl MovementServiceWork {
         }
         self.publish_work();
         Ok(())
+    }
+
+    async fn reclamation_round(
+        &mut self,
+        cut: &FleetSnapshot,
+        deadline: &Deadline<'_>,
+    ) -> Result<bool> {
+        let periodic_first = self.periodic_purge.as_mut().is_some_and(|periodic| {
+            let first = periodic.first;
+            periodic.first = !first;
+            first
+        });
+        if periodic_first && self.purge_round(deadline).await? {
+            return Ok(true);
+        }
+        if self.cleanup_round(cut, deadline).await? {
+            return Ok(true);
+        }
+        if periodic_first {
+            return Ok(false);
+        }
+        self.purge_round(deadline).await
+    }
+
+    async fn purge_round(&mut self, deadline: &Deadline<'_>) -> Result<bool> {
+        let Some(periodic) = self.periodic_purge.as_mut() else {
+            return Ok(false);
+        };
+        let settled = self
+            .observer
+            .settle_periodic_raft_purge(
+                &periodic.authority,
+                periodic.settled,
+                deadline.remaining()?,
+            )
+            .await?;
+        let changed = settled > periodic.settled;
+        periodic.settled = settled;
+        Ok(changed)
     }
 
     async fn cleanup_round(

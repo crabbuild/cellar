@@ -130,18 +130,21 @@ pub(in crate::raft::host_sql) struct Cells {
     suspended: VecDeque<rpc::Suspended>,
     activations: Arc<RpcCache>,
     wake: Arc<crate::raft::host_sql::WorkerWake>,
+    performance: Arc<crate::raft::performance::Registry>,
 }
 
 impl Cells {
     pub(in crate::raft::host_sql) fn new(
         activations: Arc<RpcCache>,
         wake: Arc<crate::raft::host_sql::WorkerWake>,
+        performance: Arc<crate::raft::performance::Registry>,
     ) -> Self {
         Self {
             pending: BTreeMap::new(),
             suspended: VecDeque::new(),
             activations,
             wake,
+            performance,
         }
     }
 
@@ -238,7 +241,7 @@ impl Cells {
                 }
                 let allow_new = mode.allows_new();
                 let max_result = options.limits().max_result_bytes;
-                let mut executor = options.open(authority)?;
+                let mut executor = options.open(authority, &self.performance)?;
                 let result = match callback {
                     Callback::Verification(callback) => {
                         executor.stage(attempt, allow_new, callback)

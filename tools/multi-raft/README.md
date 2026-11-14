@@ -56,6 +56,25 @@ preparations retain their environment record for diagnosis. A separate cleanup
 step can remove the exact recorded resources after their data is no longer
 needed; never use a global Docker prune or delete a Colima profile as cleanup.
 
+## Archive physical readers after caller cancellation
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite archive-owners \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-archive-owners-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+This component case holds a real immutable image/extent filesystem read during
+checkpoint upload, then drops its caller. Both image modes advance the populated
+cells through Raft/apply and attempt physical collection. Source and archive
+admission, the old root and the exact image bytes must remain while the file read
+is held. Once the physical reader exits, admission releases, the obsolete files
+become collectible and a fresh upload independently verifies the live checkpoint.
+The runner requires both complete hash/owner ledgers. This candidate needs its own
+native and RustFS runtime evidence; Fleet credit settlement, other RL-02 owners,
+constrained voter processes and full CG/OPT qualification remain open.
+
 ## Primitive compatibility evidence
 
 CG17-01's [coverage contract](../../docs/design/multi-raft/cell-groups/qualification.md#machine-readable-inventory-and-acceptance-evidence)
@@ -153,6 +172,198 @@ committed async root; it reads that root's inserted key without a retained snaps
 The runner retains source, executable and log hashes. It does not accept the
 complete CG-17 primitive matrix or qualify declared bindings, other automatic
 output/dispatch gates, independent voter processes or disk loss.
+
+The scoped declared-binding and interrupted-call recovery cases have a separate
+suite:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite named-bindings --keep-going \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-named-bindings-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Each process must complete materialized and extent images with Quorum and S3
+source durability. The runner requires four distinct case-specific profiles,
+retains `*-binding-evidence.json` and keeps the campaign failed after any case
+failure. The target minimum is Quorum. This suite does not qualify a target S3
+minimum, cross-class/concurrent creation, movement, disaster or the full HTTP/RPC
+primitive family. Both `named-bindings` and `ordinary-primitives` accept
+`--keep-going`; managed process/fault suites remain fail-fast.
+
+## Membership and split routing repair
+
+Run the public range-repair cases against the same owned backend:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-range-repairs \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-range-repairs-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Three exact cases cover fourteen fresh seven-node fixtures across both image
+modes. Membership replacement and delayed split lookup each exercise SDK,
+native HTTP and Axum. The overlap case checks all three callers within each
+image mode. Each scenario has its own object prefix and retains the original
+two-history, byte and request-time limits. Membership repair keeps the range
+cached, rejects removed replica service and preserves independently authorized
+ingress forwarding. Split repair preserves unrelated routes and original S3
+receipts. The delayed lookup crosses an actual publication while fresh Quorum
+work selects the child, then refuses stale completion without another RPC.
+
+The runner retains source, test executable and operator CLI hashes. The fixtures
+invoke the recorded Cargo CLI. It
+captures passing-case output and verifies complete caller/image-mode coverage
+in structured ledgers. Source capture includes compiled example modules for
+every suite. These entry points do not by themselves establish a passing run,
+peer/boot wire authority,
+recovery publication, constrained voter processes or measured performance.
+
+RustFS suites use the [native CI test profile](../../.github/workflows/native-sdk.yml):
+optimization level one with debug assertions and overflow checks, no debug
+symbols, and one Cargo build job. The record captures those explicit settings.
+
+## Cached advice and command-origin revocation
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-authority \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-authority-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Two fresh RF3/ingress fixtures cover SDK, native HTTP and Axum in both image
+modes. Each interaction warms direct advice, revokes write permission on every
+voter, and verifies one cached attempt with no SQL staging or callback entry.
+Transport closure preserves the original command's ambiguity and typed cause;
+the fixture's observations cannot supply a non-commit proof to the client.
+Independent read permission remains usable. Stale grants and an unverified
+process cannot restore permission. A newer valid grant reuses the refused
+command ID with S3 proof and exact receipt replay, preserving the original
+limits. Six structured records retain identities, routing/outcome counters,
+owner observations and receipts. The runner requires exact test execution and
+complete evidence, and invokes its retained Cargo operator CLI.
+
+These entry points need their own runtime evidence. They do not close forged
+or conflicting-term advice, restarted endpoint wire cuts, full RO-03, constrained
+voter-process or performance qualification.
+
+## Faulty wire advice and untrusted TLS
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-advice \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-advice-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Two cases cover SDK, native HTTP and Axum in both image modes. The first retains
+60 observations of ten command/reply faults. The second joins the cached trusted
+connection before presenting an untrusted certificate at the same enrolled
+endpoint. It requires an actual `UnknownCA` alert and no RPC decoding, SQL entry
+or new non-commit proof. Restoring trust and permission must replay the original
+command exactly once with S3 durability.
+
+The runner checks complete caller/image coverage, physical identities, captured
+wire headers and bodies, response correlation and authenticators, original input
+and deadline preservation, routing/refusal counters and receipt observations.
+Native fixtures own TLS authentication and receipt verification. Evidence retains
+message authenticators and the public certificate fingerprint; it excludes keys
+and TLS exporters. These entry points need their own current-source runtime
+evidence. Removed-member and superseded-boot cuts, constrained voter processes
+and full RO-03/CG/OPT acceptance remain open.
+
+## Superseded boot advice
+
+The separate `routing-boot` suite holds the last byte of an authenticated
+command reply while its actual issuer restarts from retained storage. Each
+caller/image pair starts a fresh fixture. The replacement starts without remote
+command grants. Public inspection must verify a successor physical boot on the
+same engine and install its current endpoint; a real owner query then warms
+routing before the old reply is released. The ledger records the actual old
+writer outcome and requires the first recovered command and exact replay to use
+one cached RPC each. A closed old socket is recorded as a refused tail, without
+claiming that the client decoded it. Run it with
+`cell_groups.py --suite routing-boot` and the same explicit backend, output and
+checkout-private target arguments. This candidate still needs its own runtime
+evidence; removed-member and full RO-03 acceptance remain open.
+
+## Removed-member wire advice
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-removed \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-removed-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Six fresh caller/image fixtures replace a real voter through the existing
+eight-turn movement protocol and verify its retired physical inventory. A
+leadership handoff to the new voter, receipt replay and a query served by that
+voter establish current client membership. A different, still-current issuer
+sends authenticated advice naming that removed
+member under the current committed configuration. Revoked write permission must
+prevent SQL and callback entry. One membership refresh preserves the range and
+the authenticated pre-admission non-commit proof. Restored permission reuses the
+original command identity with exact S3 receipts and one callback.
+Both replay tokens must authenticate the exact version and witness; their
+per-reply issue and expiry timestamps may differ.
+
+The ledger requires both voter sets, an advanced configuration revision, the
+removed replica's role, complete wire framing, refusal and routing counters,
+unchanged directory and exact receipt observations. Native fixtures own TLS,
+membership/inventory authentication and receipt verification. These entry points
+need their own runtime evidence; constrained Linux and full RO-03/CG/OPT
+acceptance remain open.
+
+## Public read cohorts
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-read-cohorts \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-read-cohorts-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+The RO-11 fixture uses SDK, native HTTP and Axum queries with real RustFS and
+separate full/configuration prefixes in both image modes. Persistence and apply
+holds distinguish prequeued reads, late arrivals and an already pending follower
+barrier. Higher terms and same-term membership changes refuse old-generation
+queries without callbacks. Fresh queries retain each caller's ingress after the
+configuration cut. Cancelled callers retain physical image owners until work
+joins. Original five-second windows and the two-request admission remain.
+
+The ledger requires all four joined fixtures and their complete request,
+disposition, exact S3 receipt, barrier and physical-owner histories. Native
+in-memory evidence must be explicitly scoped and cannot satisfy the RustFS
+entry point. Running this suite does not qualify constrained node-container
+cuts or the complete RO/CG/OPT release gates.
+
+## Endpoint repair and held replies
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite routing-endpoint \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-routing-endpoint-001 \
+  --target-directory /absolute/checkout-private/target
+```
+
+Four cases cover SDK, native HTTP and Axum in both image modes. A selected
+voter restart repairs only its authenticated endpoint. An unrelated follower
+with unavailable endpoint metadata leaves the healthy leader usable. Read-first
+Strong and AtLeast queries repair their selected endpoint while preserving
+barrier, callback and original-budget requirements. The held-reply case blocks
+a real group-archive PUT while another follower's new NodeView is accepted;
+the unchanged leader's S3 reply and exact receipt replay must remain valid.
+
+The runner requires all thirty observations, including both consistency modes
+for each read caller/image pair. It rejects duplicates, missing coverage,
+placement repair, extra work, changed directory cuts, invalid boot evidence,
+callback duplication and durability downgrades. The native fixtures verify
+receipt/version proofs and physical owner drainage. These entry points require
+their own current-source runtime evidence. Voters are host-native processes;
+constrained Linux, forged advice and complete RO-03 remain separate gates.
 
 ## Shared cell-group managed ingress checks
 
@@ -387,7 +598,7 @@ python3 tools/multi-raft/cell_groups.py \
 
 The runner verifies the backend's ownership label, image, running state, endpoint
 and actual resource limits, then makes seven signed S3 probes in a new bucket.
-It runs twenty exact ignored RustFS cases, each in materialized and extent modes:
+It runs twenty-three exact ignored RustFS cases, each in materialized and extent modes:
 archive-gated local compaction with independent sibling checkpoint progress,
 stable publication with continuing quorum, uncertain-publication reconciliation
 with joined close, refusal of unproved S3 responses, positive local command S3
@@ -403,12 +614,41 @@ objects, conditional registry updates and independent recovery use the actual
 S3 client. Fault injection surrounds that client; lost publication responses are
 injected after the real conditional write commits. No memory fallback exists.
 
+The three-group archive fairness case checks both physical image forms against
+one checkpoint slot. Extent groups share each node's existing extent inventory.
+Its completed profile evidence follows joined runtime close and exact image
+replay, foreign-hold refusal, corrupt-tail refusal and sibling isolation checks.
+The runner requires one valid record for each image form before accepting that
+case and retains them in `*-fairness-evidence.json`. The summary reports the
+number of executed cases; it does not assign an unchecked mode count to every
+suite entry.
+
+The archive suite also selects the follower-prefix case in both image forms.
+While a leader's newer publication is held, a follower independently verifies
+the older published prefix with new image uploads refused. That prefix cannot
+prove a result from the unpublished tail.
+
+`--suite archive-reservation` selects the durable-reservation recovery case.
+An accepted immutable PUT loses its response and subsequent reads fail. After
+the original controllers, SQL workers and Raft runtimes join, a fresh archive
+domain reopens the registry and reconstructs the exact ticket from its persisted
+reservation intent. An unrelated registry revision and collection cannot replace
+that ticket or delete its partial upload. The selected local root and complete
+SQLite archive are independently verified before publication. This is an
+archive-owner handoff; full node/process restart and power-loss remain separate
+gates. The same case is also required by the default archive suite.
+
 The refusal case verifies that an unbound dispatcher cannot claim S3 durability,
 including a namespace minimum. The positive command cases use an explicit
 controller binding, exact receipts from later archived images, retained proof
 admission and fresh routing/leader checks. Enrollment cases preserve the original
 creation after later mutations, honor namespace minimums, retain output proofs and
-retry without rerunning initialization. Receipt lookup preserves ambiguous absence,
+retry without rerunning initialization. Covered creation retries share one live
+verification, while its final consumer blocks an uncovered successor. Remote
+commands distinguish authenticated rejection before admission from an earlier
+lost admitted reply using one original invocation across retries. The outage case
+separately checks cold-ingress refusal and selected-destination Quorum progress
+within its unchanged retention ceiling. Receipt lookup preserves ambiguous absence,
 returns the actual later archived observation, reserves result bytes before fetch,
 and tests stored-minimum S3 delivery with a provider-configured TLS gateway.
 A bounded sequence of exact retries fills reduced real socket buffers without

@@ -10,6 +10,7 @@ use crate::application::consensus::group_protocol::{
 use crate::raft::cell_groups::{
     cell_image_history_digest, CellEnrollmentAuthority, CellEnrollmentState, EnrollmentRecord,
 };
+use crate::raft::completion::RuntimeError;
 
 pub struct CellEnrollmentAttempt {
     pub creation: ProposalId,
@@ -213,6 +214,7 @@ impl CellPrivateEnrollment {
     /// The immutable creation record survives later cell mutations and original
     /// log compaction. Absence/conflict retires an old producer only behind a
     /// strictly newer applied term. No callback or initial-image replay occurs.
+    /// A stale applied observation retains the producer for fresh resolution.
     pub fn resolve(
         &mut self,
         creation: ProposalId,
@@ -222,7 +224,13 @@ impl CellPrivateEnrollment {
         if pending.record.creation() != creation || !self.authority.state().same_binding(&state) {
             return Err(ExecutionError::Invalid("enrollment resolution binding"));
         }
-        state.check().map_err(authority_failure)?;
+        // Apply can advance after this observation is queued for SQL resolution.
+        // Retain the producer for fresh proof; a stale observation does not
+        // establish that the shared SQL worker lost its reply.
+        state.check().map_err(|error| match error {
+            RuntimeError::NotReady => ExecutionError::Uncertain,
+            error => authority_failure(error),
+        })?;
         let outcome = match state.record() {
             Some(record) if record == &pending.record => {
                 CellEnrollmentResolution::Committed(Box::new(record.clone()))

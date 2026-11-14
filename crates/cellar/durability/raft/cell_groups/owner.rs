@@ -884,7 +884,10 @@ impl CellGroupOwner {
         }
     }
 
-    pub(super) fn observe(&self) -> Result<super::CellGroupObservation, RuntimeError> {
+    pub(super) fn observe(
+        &self,
+        queued_linearizable_reads: usize,
+    ) -> Result<super::CellGroupObservation, RuntimeError> {
         use crate::application::consensus::RaftReplicaRole;
         self.live()?;
         let cache = self.group.read()?;
@@ -917,6 +920,7 @@ impl CellGroupOwner {
                 index: LogIndex::new(checkpoint.index),
             },
             retained_entries: cache.entries.len(),
+            queued_linearizable_reads,
             cells: self.current.marker().root().cells(),
             archive_required: cache.archive_required,
         })
@@ -1588,6 +1592,7 @@ impl CellGroupOwner {
     }
 
     pub fn tick(&mut self) -> Result<(), RuntimeError> {
+        use crate::raft::performance::Counter;
         self.live()?;
         if self.parked.is_some() {
             return Ok(());
@@ -1602,10 +1607,28 @@ impl CellGroupOwner {
         let admission = if self.node.raft.state == StateRole::Leader {
             Default::default()
         } else {
-            self.log_admission
-                .election(&self.group, &self.node, Default::default())?
+            match self
+                .log_admission
+                .election(&self.group, &self.node, Default::default())
+            {
+                Ok(admission) => admission,
+                Err(error) => {
+                    if matches!(error, RuntimeError::Overloaded) {
+                        self.log
+                            .performance()
+                            .increment(Counter::CellGroupTickAdmissionRefusals, 1);
+                    }
+                    return Err(error);
+                }
+            }
         };
-        self.node.tick();
+        let election_tick = self.node.raft.state != StateRole::Leader;
+        let ready = self.node.tick();
+        let performance = self.log.performance();
+        performance.increment(Counter::CellGroupTicksExecuted, 1);
+        if election_tick && ready {
+            performance.increment(Counter::CellGroupElectionTimeouts, 1);
+        }
         self.refresh_execution_fence();
         self.finish_log_admission(admission)?;
         Ok(())
@@ -2115,6 +2138,7 @@ impl CellGroupOwner {
     pub(super) fn read_forwarded_cell_index(
         &mut self,
         context: Vec<u8>,
+        first_submission: bool,
     ) -> Result<(), RuntimeError> {
         if super::runtime::reads::cell_origin(&context) != Some(self.membership_read_origin()) {
             return Err(RuntimeError::Invalid("cell read origin".into()));
@@ -2128,9 +2152,12 @@ impl CellGroupOwner {
             return Err(RuntimeError::Overloaded);
         }
         self.node.read_index(context);
-        self.log
-            .performance()
-            .increment(crate::raft::performance::Counter::CellReadBarriers, 1);
+        use crate::raft::performance::Counter;
+        let performance = self.log.performance();
+        performance.increment(Counter::CellReadBarriers, 1);
+        if first_submission {
+            performance.increment(Counter::CellReadCohortsStarted, 1);
+        }
         Ok(())
     }
 

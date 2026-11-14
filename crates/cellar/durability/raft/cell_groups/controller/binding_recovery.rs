@@ -3,6 +3,7 @@
 //! Bounded maintenance on an exact target history, never business redispatch.
 
 use super::*;
+use crate::raft::cell_groups::dispatch::mutation_route::MutationSelectionError;
 use crate::raft::cell_groups::{
     CellCommandRequest, CellCommandResponse, CellDispatchError, CellGroupDispatcher,
     CellReadConsistency, CellRoutingLimits, CellSqlOptions,
@@ -63,7 +64,17 @@ impl CellGroupController {
                     )
                     .await
                     .map(drop),
-                Err(error) => Err(error),
+                Err(MutationSelectionError::StalePlacement)
+                    if usize::from(attempt.ordinal()) < session.maximum_attempts() =>
+                {
+                    attempt = session
+                        .refresh(&attempt)
+                        .await
+                        .map_err(CellDispatchError::Routing)?;
+                    continue;
+                }
+                Err(MutationSelectionError::Terminal(error)) => return Err(error),
+                Err(error) => Err(error.into_dispatch()),
             };
             match result {
                 Ok(()) => return Ok(()),

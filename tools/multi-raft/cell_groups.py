@@ -22,35 +22,168 @@ import time
 from local import command
 from store_probe import probe
 from backend_control import BackendControl
+from routing_endpoint_evidence import endpoint_observations
+from routing_advice_evidence import advice_observations
+from archive_owner_evidence import CASE as ARCHIVE_OWNER_CASE, observations as archive_owner_observations
+from read_cohort_evidence import CASE as READ_COHORT_CASE, observations as read_cohort_observations
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
+ARCHIVE_FAIRNESS_CASE = "rustfs_short_archived_groups_checkpoint_and_recover_independently"
+NAMED_BINDING_CASES = {
+    "rustfs_ordinary_named_cell_bindings_use_shared_group_quorum": False,
+    "rustfs_interrupted_named_bindings_recover_after_retained_restart": True,
+}
 CASES = (
     "rustfs_quorum_continues_bounded_s3_outage",
     "rustfs_group_archive_requires_all_dependencies",
     "rustfs_group_reclaim_restart_keeps_history",
     "rustfs_archive_coverage_gates_local_compaction",
-    "rustfs_short_archived_groups_checkpoint_and_recover_independently",
+    ARCHIVE_FAIRNESS_CASE,
     "rustfs_s3_remote_outputs_preserve_durability_and_creation",
     "rustfs_s3_remote_deadlines_preserve_ambiguity_and_callbacks",
     "rustfs_s3_remote_slow_delivery_retains_proofs_and_bounds",
     "rustfs_controller_archive_publishes_stable_cuts",
     "rustfs_controller_archive_reconciles_exact_intent_and_joins_close",
+    "rustfs_controller_archive_reservation_recovers_after_immutable_response_loss",
     "rustfs_unproved_s3_responses_refuse",
     "rustfs_s3_commands_require_exact_archived_results",
     "rustfs_s3_replays_from_peer_archive_without_new_upload",
+    "rustfs_follower_archiver_verifies_a_published_prefix_without_upload",
+    "rustfs_follower_archiver_bootstraps_the_first_prefix",
     "rustfs_s3_command_deadlines_do_not_quarantine_committed_sql",
     "rustfs_s3_command_requires_the_sibling_archive_dependencies",
     "rustfs_s3_namespace_minimum_cannot_be_downgraded",
     "rustfs_s3_enrollment_requires_the_original_archived_creation",
     "rustfs_s3_enrollment_deadlines_preserve_resolved_ownership",
     "rustfs_s3_receipt_lookup_tracks_archived_observations",
+    "rustfs_late_s3_receipt_reuses_completed_background_verification",
     "rustfs_s3_receipt_lookup_honors_namespace_and_stored_minimums",
     "rustfs_s3_receipt_lookup_preserves_typed_failures_and_result_admission",
     "rustfs_s3_receipt_lookup_deadlines_refund_read_admission",
 )
 
 SUITES = {
+    "routing-read-cohorts": (
+        "native_cell_groups_routing_optimization",
+        (READ_COHORT_CASE,),
+        "public fresh ReadIndex cohorts, late arrivals and physical image ownership",
+        "Both image modes use separate complete and configuration fixtures with real RustFS. "
+        "SDK/native HTTP/Axum reads retain original identities, five-second deadlines and "
+        "the two-request bound. Actual persistence/apply holds distinguish prequeued, late "
+        "and pending follower barriers; higher term and same-term membership cuts refuse "
+        "without query callbacks. Cancellation retains physical image owners until joined. "
+        "All four fixtures and their exact request, receipt and owner histories must complete. "
+        "Constrained node-container cuts and complete RO/CG/OPT acceptance remain separate gates.",
+    ),
+    "archive-owners": (
+        "native_cell_groups_archive",
+        (ARCHIVE_OWNER_CASE,),
+        "cancelled archive waiters retain actual physical checkpoint readers",
+        "Both image modes hold a real filesystem image/extent read, drop the archive caller, "
+        "advance all populated cells through Raft/apply and collect obsolete payloads. The physical "
+        "reader retains source/archive admission and the old page/image bytes until it exits. "
+        "After release, collection removes the old closure and a fresh upload independently verifies "
+        "the live checkpoint. This is a host-native component boundary with real RustFS, not full "
+        "RL-02/Fleet capacity settlement, constrained-voter or CG/OPT acceptance.",
+    ),
+    "routing-removed": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_removed_member_advice_cannot_grant_authority",),
+        "current authenticated advice cannot restore an actually removed voter",
+        "Six fresh SDK/nativeHTTP/Axum image configurations perform a real voter replacement using "
+        "the existing eight-turn admission, settlement and physical-retirement proof. Handoff, receipt "
+        "replay and a query on the new voter establish current client membership before a different "
+        "still-current issuer then sends authenticated advice naming the removed member under the "
+        "current configuration. One targeted membership repair preserves the range and the complete "
+        "pre-admission non-commit proof, with no SQL/callback entry. Restored permission replays the "
+        "same command once with exact S3 receipts. Original five-second windows, resource limits "
+        "and native host ownership remain. Constrained Linux and full RO-03/CG/OPT acceptance stay open.",
+    ),
+    "routing-boot": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_superseded_boot_advice_cannot_change_route",),
+        "a real issuer restart fences a held old-boot reply",
+        "Fresh SDK, native HTTP and Axum fixtures in both image modes hold the final byte of an "
+        "authenticated command reply while the issuer resumes retained storage under a new physical "
+        "boot. Remote writes remain disabled during startup. Public inspection installs the current "
+        "boot and a genuine owner query warms routing before release. The ledger records whether "
+        "the old socket writes its tail or is fenced, then requires unchanged refusal/SQL/callback "
+        "counts, original ambiguous identity, exact S3 recovery and one cached RPC for both the "
+        "first recovery and replay. Original five-second windows remain; removed-member wire cuts, "
+        "constrained voters and full RO-03/CG/OPT qualification remain open.",
+    ),
+    "routing-advice": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_wire_advice_preserves_admission", "rustfs_untrusted_tls_advice_cannot_grant_authority"),
+        "faulty wire advice and untrusted TLS cannot authorize a command",
+        "SDK, native HTTP and Axum in both image modes. Ten independently retained command/reply "
+        "faults preserve original identities and inputs, no SQL/callback entry under revoked "
+        "permission and once-only S3 replay. A separately rejected certificate cannot reach RPC "
+        "decoding or become pre-admission proof; its cached trusted socket is joined first. "
+        "The ledger requires all 60 wire observations and all six certificate observations. "
+        "Keys and TLS exporters are excluded from evidence; retained authenticators are message tags. Original "
+        "five-second windows and parent limits remain. Removed-member and superseded-boot wire "
+        "cuts, constrained voters and full RO-03/CG/OPT acceptance remain separate gates.",
+    ),
+    "routing-endpoint": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_endpoint_refresh_keeps_membership", "rustfs_unrelated_follower_keeps_leader",
+         "rustfs_read_first_refreshes_endpoint", "rustfs_unrelated_endpoint_keeps_inflight_reply"),
+        "authenticated boot changes repair physical endpoints without membership or range repair",
+        "Four public cases cover SDK, native HTTP and Axum in both image modes. "
+        "A retained-disk voter restart keeps ingress warm. Endpoint metadata is denied until "
+        "the original command selects bounded endpoint discovery, with no SQL/callback entry. "
+        "Verified new boot metadata restores one application RPC, exact S3 receipts and replay, "
+        "unchanged directory/membership and no ingress replicas. An unrelated restarted follower "
+        "keeps its endpoint metadata unavailable while the healthy leader serves all three callers. "
+        "Read-first Strong/AtLeast queries repair only their selected endpoint. A held real "
+        "group-archive PUT keeps an S3 command entered while unrelated endpoint metadata changes; "
+        "the unchanged leader's reply and exact receipt replay remain valid. Original deadlines "
+        "and parent budgets apply. Forged advice and full RO-03 remain separate gates.",
+    ),
+    "routing-authority": (
+        "native_cell_groups_routing_optimization",
+        ("rustfs_cached_advice_respects_origin_revocation",),
+        "cached leader advice respects current namespace command-origin permission",
+        "Two fresh RF3/ingress fixtures cover SDK, native HTTP and Axum in both image modes. "
+        "A warm direct route cannot bypass receiver-side origin revocation; denied calls enter "
+        "neither SQL staging nor application callbacks. Independent read permission remains usable. "
+        "Stale grant revisions and an unverified process refuse; a newer valid grant restores the "
+        "same original command ID with exact S3 receipts and no duplicate callback. Original "
+        "deadlines and resource limits apply. Forged/lower/conflicting-term advice, restarted "
+        "endpoint wire cuts, constrained voter processes and full RO-03 remain separate gates.",
+    ),
+    "routing-range-repairs": (
+        "native_cell_groups_routing_optimization",
+        (
+            "rustfs_membership_refresh_keeps_range",
+            "rustfs_split_repairs_only_overlap",
+            "rustfs_old_lookup_cannot_resurrect_parent",
+        ),
+        "public membership and split repair with original identities and S3 receipts",
+        "Both image modes, seven host-native TLS nodes and the original two-history/byte limits. "
+        "Membership replacement and delayed split lookup each run through SDK, native HTTP and Axum "
+        "with separate object prefixes. A new-voter leader forces demand membership repair while "
+        "the cell range stays unchanged. Removed replicas refuse local SQL and explicit targeting; "
+        "their independently granted ingress may still forward remotely. Split repair preserves "
+        "unrelated cached ranges, historical witnesses and exact S3 command receipts. Real physical "
+        "metadata gates use the original five-second call windows. Peer/boot wire authority cuts, "
+        "recovery publication, process crashes, measured load and complete optimization acceptance "
+        "remain separate gates.",
+    ),
+    "named-bindings": (
+        "native_cell_groups_primitives",
+        tuple(NAMED_BINDING_CASES),
+        "ordinary named calls and autonomous interrupted-call recovery on shared RF3",
+        "Both image modes and Quorum/S3 source durability with a Quorum target minimum. "
+        "The ordinary case checks exact calls, structured values, cancellation, recursive "
+        "cursors and retained restart. Recovery joins the interrupted producer, restarts "
+        "retained RF3, waits for autonomous settlement, preserves the parent's unknown "
+        "result and target value, and advances the sealed target sequence. Each case "
+        "must emit all four completed configurations. Target S3 minimum, cross-class "
+        "selection, concurrent creation, movement/disaster and full CG-17 remain open.",
+    ),
     "ordinary-workflows": (
         "native_cell_groups_primitives",
         ("rustfs_ordinary_workflows_use_shared_quorum",
@@ -137,6 +270,7 @@ SUITES = {
         "native_cell_groups_primitives",
         (
             "rustfs_queue_load_preserves_acknowledged_messages",
+            "rustfs_queue_four_in_flight_preserves_acknowledged_messages",
             "rustfs_queue_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_axum_cross_deployment_faults_preserve_quorum",
             "rustfs_queue_long_callbacks_preserve_progress",
@@ -150,7 +284,7 @@ SUITES = {
         "archive-write refusal, joined retained restart and autonomous interrupted-consumer recovery, "
         "leader transfer and quorum-loss refusal. Separate producer, consumer and DLQ deployments, "
         "partial retry, stale handlers, active purge, expired enqueue replay, cross-group S3 DLQ "
-        "reply loss, 65-second callbacks and concurrent two-queue load are checked. "
+        "reply loss, 65-second callbacks and two Queues with two or four requests in flight are checked. "
         "Voters share the host process; complete CG-17 conformance, deployment removal, "
         "clock discontinuities, independent Linux voter limits and disk-loss recovery remain separate gates.",
     ),
@@ -423,6 +557,18 @@ SUITES = {
         "Global physical disk bounds, process-kill restart, fencing/DR and sustained performance "
         "remain separate gates.",
     ),
+    "archive-reservation": (
+        TARGET,
+        ("rustfs_controller_archive_reservation_recovers_after_immutable_response_loss",),
+        "durable reservation intent recovers an upload after an accepted immutable PUT loses its response",
+        "Both image modes use real host-native RF3 engines and conditional RustFS I/O. "
+        "The original controllers, SQL workers and Raft runtimes join before an independent "
+        "archive domain reopens the registry. The persisted selected root is independently "
+        "recovered; exact ticket replay crosses an unrelated registry revision without another "
+        "allocation. Collection preserves partial uploaded data and complete SQLite verification "
+        "precedes publication. This archive-owner handoff is not a full node/process restart, "
+        "power-loss or constrained-voter performance qualification.",
+    ),
     "archive-publication-race": (
         "native_cell_groups_archive",
         ("rustfs_group_archive_publication_survives_competing_registry_cas",),
@@ -608,6 +754,162 @@ SUITES = {
     ),
 }
 
+ROUTING_SUITES = ("routing-range-repairs", "routing-authority", "routing-endpoint", "routing-advice", "routing-boot", "routing-removed", "routing-read-cohorts")
+
+
+def named_binding_observations(output, case):
+    """Require the exact case's four completed image/source-policy profiles."""
+    if case not in NAMED_BINDING_CASES:
+        raise ValueError("unknown named binding evidence case")
+    expected = NAMED_BINDING_CASES[case]
+    rows = []
+    prefix = "named binding configuration "
+    for line in output.splitlines():
+        if prefix not in line:
+            continue
+        payload = line.split(prefix, 1)[1]
+        match = re.fullmatch(
+            r"recovery=(false|true) extents=(false|true) source=(Quorum|S3): PASS", payload,
+        )
+        if match is None or (match[1] == "true") != expected:
+            raise ValueError("incomplete or foreign named binding profile")
+        rows.append({"recovery": expected, "extents": match[2] == "true",
+                     "source_durability": match[3], "outcome": "PASS"})
+    if (len(rows) != 4 or {(row["extents"], row["source_durability"]) for row in rows}
+            != {(mode, policy) for mode in (False, True) for policy in ("Quorum", "S3")}):
+        raise ValueError("incomplete named binding image/source-policy evidence")
+    return rows
+
+
+def archive_fairness_observations(output, case):
+    """Require the joined, independently verified profile for both image forms."""
+    if case != ARCHIVE_FAIRNESS_CASE:
+        raise ValueError("unknown archive fairness evidence case")
+    prefix = "ARCHIVE_FAIRNESS_EVIDENCE "
+    rows = []
+    for line in output.splitlines():
+        if prefix in line:
+            payload = line.split(prefix, 1)[1]
+            if len(payload) > 8192:
+                raise ValueError("oversized archive fairness evidence")
+            rows.append(json.loads(payload))
+    counters = {"schema": 1, "groups": 3, "restored_images": 14,
+                "checkpoint_limit": 1, "tail_operations_after_close": 0}
+    proofs = ("runtime_joined", "foreign_hold_refused", "corrupt_tail_refused",
+              "healthy_sibling_unchanged", "repaired_tail_same")
+    if (len(rows) != 2
+            or any(not isinstance(row, dict)
+                   or row.get("case") != case.removeprefix("rustfs_")
+                   or type(row.get("extents")) is not bool
+                   or "shared_extent_roots_min" not in row
+                   or (row["extents"] and (type(row.get("shared_extent_roots_min")) is not int
+                                           or row["shared_extent_roots_min"] < 14))
+                   or (not row["extents"] and row.get("shared_extent_roots_min") is not None)
+                   or any(type(row.get(key)) is not int or row[key] != expected
+                          for key, expected in counters.items())
+                   or any(row.get(key) is not True for key in proofs) for row in rows)
+            or {row["extents"] for row in rows} != {False, True}):
+        raise ValueError("incomplete archive fairness image/owner evidence")
+    return rows
+
+
+def routing_observations(output, case):
+    """Require complete caller/mode output; native cases enforce receipt oracles."""
+    if case == READ_COHORT_CASE:
+        return read_cohort_observations(output, case)
+    if case in SUITES["routing-advice"][1] + SUITES["routing-boot"][1] + SUITES["routing-removed"][1]:
+        return advice_observations(output, case)
+    if case in ("rustfs_read_first_refreshes_endpoint", "rustfs_unrelated_endpoint_keeps_inflight_reply"):
+        return endpoint_observations(output, case)
+    if case not in SUITES["routing-range-repairs"][1] + SUITES["routing-authority"][1] + SUITES["routing-endpoint"][1]:
+        raise ValueError("unknown routing evidence case")
+    membership = case == "rustfs_membership_refresh_keeps_range"
+    authority = case == "rustfs_cached_advice_respects_origin_revocation"
+    endpoint = case in SUITES["routing-endpoint"][1]
+    repairing_leader = case == "rustfs_endpoint_refresh_keeps_membership"
+    prefix = ("MEMBERSHIP_ROUTING_EVIDENCE " if membership else
+              "AUTHORITY_ROUTING_EVIDENCE " if authority else
+              "ENDPOINT_ROUTING_EVIDENCE " if endpoint else "RANGE_ROUTING_EVIDENCE ")
+    rows = [json.loads(line.split(prefix, 1)[1])
+            for line in output.splitlines() if prefix in line]
+    callers = ("SdkNativeAxum",) if case == "rustfs_split_repairs_only_overlap" else ("Sdk", "Native", "Axum")
+    events = ("warm", "membership_repaired", "fences_and_receipts_verified") if membership else ("verified",)
+    expected = {(caller, mode, event) for caller in callers for mode in (False, True) for event in events}
+    if (len(rows) != len(expected)
+            or any(not isinstance(row, dict) or type(row.get("schema")) is not int or row.get("schema") != 1
+                   or type(row.get("extents")) is not bool
+                   or row.get("case") != case.removeprefix("rustfs_") for row in rows)
+            or {(row.get("caller"), row.get("extents"), row.get("event")) for row in rows} != expected):
+        raise ValueError("incomplete routing caller/image-mode evidence")
+    if authority:
+        for row in rows:
+            before = row.get("callbacks_before")
+            stages = row.get("sql_stages_before")
+            routing = (row.get("routing_before"), row.get("routing_after_refusal"))
+            if (type(before) is not int or not 1 <= before < 2**63 - 1
+                    or type(stages) is not int or not 0 <= stages < 2**64
+                    or type(row.get("callbacks_after_refusal")) is not int
+                    or row["callbacks_after_refusal"] != before
+                    or type(row.get("callbacks_after")) is not int
+                    or row["callbacks_after"] != before + 1
+                    or type(row.get("sql_stages_after_refusal")) is not int
+                    or row["sql_stages_after_refusal"] != stages
+                    or row.get("required") != "S3" or row.get("achieved") != "S3"
+                    or row.get("ambiguous") is not True
+                    or any(type(row.get(name)) is not int or row[name] not in (0, 1)
+                           for name in ("proven_rejections", "unconfirmed_replies"))
+                    or row["proven_rejections"] + row["unconfirmed_replies"] > 1
+                    or row.get("result_be") != (before + 1).to_bytes(8, "big").hex()
+                    or any(not isinstance(row.get(field), str) or not row[field]
+                           for field in ("command", "group", "origin", "version", "witness"))
+                    or (row.get("sdk_ambiguous") is not True if row["caller"] == "Sdk"
+                        else row.get("sdk_ambiguous") is not None)
+                    or any(not isinstance(values, list) or len(values) != 6
+                           or any(type(value) is not int or not 0 <= value < 2**64 for value in values)
+                           for values in routing)):
+                raise ValueError("invalid revoked-origin receipt/owner evidence")
+            if [after - before for before, after in zip(routing[0][:5], routing[1][:5])] != [1, 0, 0, 0, 1]:
+                raise ValueError("revoked origin did not use one cached direct attempt")
+    if endpoint:
+        for row in rows:
+            before = row.get("callbacks_before")
+            stages = row.get("sql_stages_before")
+            routing = (row.get("routing_before"), row.get("routing_after"))
+            valid_stages = (type(stages) is int and 0 <= stages < 2**64
+                            and type(row.get("sql_stages_at_release")) is int
+                            and row["sql_stages_at_release"] == stages) if repairing_leader else (
+                                stages is None and row.get("sql_stages_at_release") is None
+                                and row.get("metadata_released") is False)
+            if (type(before) is not int or not 1 <= before < 2**63 - 1
+                    or type(row.get("callbacks_after")) is not int
+                    or row["callbacks_after"] != before + 1
+                    or not valid_stages
+                    or row.get("required") != "S3" or row.get("achieved") != "S3"
+                    or row.get("result_be") != (before + 1).to_bytes(8, "big").hex()
+                    or type(row.get("retry_until_ms")) is not int
+                    or not 0 < row["retry_until_ms"] < 2**64
+                    or any(not isinstance(row.get(field), str) or not row[field]
+                           for field in ("command", "route", "membership_revision", "version", "witness"))
+                    or any(not isinstance(row.get(field), str)
+                           or not re.fullmatch(r"[0-9a-f]{32}", row[field])
+                           for field in ("node", "disk", "old_process", "current_process"))
+                    or row["old_process"] == row["current_process"]
+                    or any(not isinstance(row.get(field), str)
+                           or not re.fullmatch(r"[0-9a-f]{64}", row[field])
+                           for field in ("directory_before", "directory_after"))
+                    or row["directory_before"] != row["directory_after"]
+                    or any(not isinstance(values, list) or len(values) != 7
+                           or any(type(value) is not int or not 0 <= value < 2**64 for value in values)
+                           for values in routing)):
+                raise ValueError("invalid endpoint boot/receipt/owner evidence")
+            delta = [after - before for before, after in zip(*routing)]
+            if (any(value < 0 for value in delta) or delta[0] != 1
+                    or not 1 <= delta[1] <= 4 or delta[2:4] != [0, 0]
+                    or (not 1 <= delta[4] <= 4 or not 1 <= delta[5] <= 4
+                        or delta[6] > delta[4] if repairing_leader else delta[4:] != [0, 0, 0])):
+                raise ValueError("endpoint refresh changed placement or exceeded original attempts")
+    return rows, len(callers) * 2
+
 
 def exact_case_passed(output, case):
     """Keep exact selection strict when validated observations interrupt libtest."""
@@ -619,18 +921,31 @@ def exact_case_passed(output, case):
         output = re.sub(pattern, "", output)
     pattern = r"QUEUE_LOAD (\{[^\n]+\})\n"
     observations = [json.loads(value) for value in re.findall(pattern, output)]
-    if case == "rustfs_queue_load_preserves_acknowledged_messages" and not observations:
+    queue_load_limits = {
+        "rustfs_queue_load_preserves_acknowledged_messages": (2, 1),
+        "rustfs_queue_four_in_flight_preserves_acknowledged_messages": (4, 2),
+    }
+    load_limits = queue_load_limits.get(case)
+    if load_limits and not observations:
         raise ValueError("missing Queue load observations")
     if observations:
-        if (case != "rustfs_queue_load_preserves_acknowledged_messages"
+        if (not load_limits
                 or [value.get("extents") for value in observations] != [False, True]
                 or any(not value.get("realRustFS")
                        or value.get("steadyMessages") != 512
                        or value.get("archiveOutageMessages") != 16
                        or value.get("uniqueMessageIds") != 528
                        or value.get("delivered", 0) < 528
-                       or value.get("inFlightRequests") != 2
-                       or value.get("perQueueInFlight") != 1
+                       or value.get("inFlightRequests") != load_limits[0]
+                       or value.get("perQueueInFlight") != load_limits[1]
+                       or (load_limits[0] == 4 and (
+                           value.get("peakInFlightRequests") != 4
+                           or value.get("producers") != 4
+                           or value.get("queues") != 2
+                           or value.get("batchMessages") != 8
+                           or value.get("ordinarySlots") != 8
+                           or value.get("ordinaryBytes") != 131072
+                           or value.get("callbackSlots") != 2))
                        or value.get("elapsedMs", 0) <= 0
                        for value in observations)):
             raise ValueError("incomplete or invalid Queue load observations")
@@ -648,14 +963,15 @@ def sha(path):
 
 
 def sources(suite):
+    if suite not in SUITES:
+        raise ValueError("unknown qualification suite")
     result = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
     return [
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
-        if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-scheduler-fanout", "managed-disjoint-partitions", "managed-automatic-repair", "managed-automatic-topology", "managed-automatic-partitions", "managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss", "managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry")
-                         and name == "examples/raft-counter/counter.rs"))
+        # Public fixtures compile example modules too. Capture every tracked
+        # example rather than maintaining a suite-specific list of includes.
+        if name and not name.startswith(("docs/", "plans/", "packages/"))
         and (ROOT / name).is_file()
     ]
 
@@ -704,8 +1020,12 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem", "queue-primitives"):
-        parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV, alarm, Workflow, filesystem or Queue suite")
+    if args.keep_going and args.suite not in (
+        "ordinary-primitives", "named-bindings", "ordinary-sql-bindings",
+        "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows",
+        "ordinary-filesystem", "queue-primitives"
+    ):
+        parser.error("--keep-going requires a process-isolated ordinary primitive, named binding, SQL, KV, alarm, Workflow, filesystem or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -745,6 +1065,8 @@ def main():
         for key in list(env):
             if key.startswith(("AWS_", "CELLAR_CELL_GROUPS_RUSTFS_")):
                 del env[key]
+        # The recorded Cargo CLI must be the one the operator fixture invokes.
+        env.pop("CELLAR_RAFT_OPERATOR_CLI", None)
         env.update(
             AWS_ACCESS_KEY_ID=credentials["RUSTFS_ACCESS_KEY"],
             AWS_SECRET_ACCESS_KEY=credentials["RUSTFS_SECRET_KEY"],
@@ -754,11 +1076,19 @@ def main():
             CELLAR_CELL_GROUPS_RUSTFS_PREFIX=prefix,
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
+            CARGO_PROFILE_TEST_OPT_LEVEL="1",
+            CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
+            CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true",
+            CARGO_BUILD_JOBS="1", CARGO_TERM_COLOR="never",
         )
+        record["cargo_environment"] = {
+            key: env[key] for key in (
+                "CARGO_TARGET_DIR", "CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG",
+                "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
+                "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_BUILD_JOBS", "CARGO_TERM_COLOR",
+            )
+        }
         if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem", "immutable-payloads", "queue-primitives"):
-            env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
-                       CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
-                       CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
             record["test_profile"] = {key: env[key] for key in (
                 "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
@@ -771,7 +1101,12 @@ def main():
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
-            if selection == "rustfs_queue_load_preserves_acknowledged_messages":
+            if number and (args.suite in ROUTING_SUITES
+                           or selection in (ARCHIVE_FAIRNESS_CASE, ARCHIVE_OWNER_CASE)
+                           or selection in NAMED_BINDING_CASES):
+                argv.append("--show-output")
+            if (selection in ("rustfs_queue_load_preserves_acknowledged_messages",
+                              "rustfs_queue_four_in_flight_preserves_acknowledged_messages")):
                 argv.append("--nocapture")
             elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
@@ -807,7 +1142,10 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle", "ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives") and result.returncode == 0:
+            if args.suite in (
+                "managed-ingress", "managed-lifecycle", "ordinary-sql-bindings",
+                "ordinary-kv-bindings", "queue-primitives", *ROUTING_SUITES
+            ) and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")
@@ -818,6 +1156,7 @@ def main():
                     record["operator_cli"] = {"path": operator_cli.name, "sha256": cli_hash}
                 if cli_hash != record["operator_cli"]["sha256"] or sha(operator_cli) != cli_hash:
                     raise RuntimeError("managed operator CLI changed during qualification")
+                env["CELLAR_RAFT_OPERATOR_CLI"] = str(operator_cli)
                 if args.suite == "ordinary-sql-bindings":
                     env["CELLAR_CELL_GROUPS_SQL_CLI"] = str(operator_cli)
                 if args.suite == "queue-primitives":
@@ -854,7 +1193,48 @@ def main():
                 for case in cases:
                     if not re.search(rf"^{re.escape(case)}: test$", output, re.M):
                         raise RuntimeError("missing exact RustFS test in executable inventory")
-            else:
+            if args.suite in ROUTING_SUITES and number:
+                rows, scenarios = routing_observations(output, selection)
+                ledger = out / f"{number:02}-routing-evidence.json"
+                ledger.write_text(json.dumps(rows, indent=2) + "\n")
+                record.setdefault("routing_evidence", []).append({
+                    "case": selection, "path": ledger.name, "sha256": sha(ledger),
+                    "records": len(rows), "scenarios": scenarios,
+                })
+            if number and selection == ARCHIVE_OWNER_CASE:
+                rows = archive_owner_observations(output, selection)
+                ledger = out / f"{number:02}-physical-owner-evidence.json"
+                ledger.write_text(json.dumps(rows, indent=2) + "\n")
+                record.setdefault("archive_owner_evidence", []).append({
+                    "case": selection, "path": ledger.name, "sha256": sha(ledger), "records": len(rows),
+                })
+            if number and selection == ARCHIVE_FAIRNESS_CASE:
+                rows = archive_fairness_observations(output, selection)
+                ledger = out / f"{number:02}-fairness-evidence.json"
+                ledger.write_text(json.dumps(rows, indent=2) + "\n")
+                record.setdefault("archive_fairness_evidence", []).append({
+                    "case": selection, "path": ledger.name, "sha256": sha(ledger), "records": len(rows),
+                })
+            if number and selection in NAMED_BINDING_CASES:
+                try:
+                    rows = named_binding_observations(output, selection)
+                except ValueError as error:
+                    record["failed_cases"].append(selection)
+                    record.setdefault("evidence_failures", []).append({
+                        "case": selection, "reason": str(error),
+                    })
+                    save()
+                    if not args.keep_going:
+                        raise
+                    print(f"FAIL {selection}: incomplete binding evidence; continuing independent cases",
+                          flush=True)
+                    continue
+                ledger = out / f"{number:02}-binding-evidence.json"
+                ledger.write_text(json.dumps(rows, indent=2) + "\n")
+                record.setdefault("named_binding_evidence", []).append({
+                    "case": selection, "path": ledger.name, "sha256": sha(ledger), "records": len(rows),
+                })
+            if number:
                 record["passed_cases"].append(selection)
             print(f"PASS {selection}", flush=True)
         if sources(args.suite) != record["source_inputs"]:

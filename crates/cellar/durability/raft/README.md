@@ -387,6 +387,23 @@ configuration and snapshot records survive engine rewrites. Engine compaction
 hints never authorize deleting a group's logical prefix; unresolved hints receive
 later bounded-rate passes even without new writes. An I/O failure closes and
 joins storage. `engine_purge` reports physical maintenance duration and outcomes.
+Purge syncs each directory changed by segment deletion before returning success.
+Fleet capacity accounting still requires a separate receipt tied to the charged
+files and a complete inventory.
+
+Managed nodes can set `RaftHostOptions::settle_periodic_raft_purges` alongside
+`member_cleanup` to settle periodic purges against the Fleet ledger. The
+cleanup worker shares its existing service slot with removed-member work and
+honors `ReplicaLogOptions::purge_interval_ms`. A failed catalog write leaves
+the numbered local receipt available for retry. An opted-in node needs Fleet
+catalog access to resume periodic reclamation.
+The verification API captures append and rewrite file identities and lengths on
+the storage worker. It checks the directory against both active queue spans and
+binds the result to the current node, disk, engine, process, and durable sequence.
+A numbered segment purge syncs that inventory before attempting deletion, then
+syncs and reconciles the directory and records the exact removed files at a
+second durable sequence. The current number can be resumed or replayed after
+restart. Its stored receipt remains available until the next number is selected.
 The file-size and purge thresholds are soft engine watermarks, not a disk quota.
 
 Every newly created engine persists a nonzero `EngineInstanceId` in both its
@@ -993,6 +1010,24 @@ random source. Limits bound queued work, outbox events and retained apply work;
 complete resident-memory and scale qualification remains in the resource and
 qualification packages of the delivery plan.
 
+Shared cell-group tick observations distinguish scheduler dispatch from actual
+consensus entry. `cell_group_tick_rounds` counts timer or explicit tick turns,
+including turns with no ticking groups. `cell_group_ticks_requested` counts their
+ticking replicas, and `cell_group_ticks_coalesced` counts requests already pending.
+`cell_group_ticks_executed` counts actual RawNode ticks after Ready work drains and
+log admission permits progress. `cell_group_election_timeouts` counts nonleader
+ticks that trigger election work; it does not count successful elections.
+`cell_group_tick_admission_refusals` counts ticks refused by election log admission.
+These cumulative node totals retain fixed dimensions and supply no progress or
+capacity guarantee for an individual group.
+
+Managed first-group readiness records `first_group_archive`, `first_group_attach`
+and `first_group_quorum` duration/outcome observations. They cover archive
+authorization, durable local attachment and fresh quorum establishment within the
+existing startup deadline. Cancelled phase futures count as abandoned; returned
+errors count as failed. Successful attachment still requires fresh quorum and
+final catalog revalidation before readiness can succeed.
+
 `RaftTransport` runs on that runtime's execution domain. One persistent TLS
 connection per peer and traffic class multiplexes every registered group;
 separate control/data listeners, workers and byte/item banks reserve control
@@ -1002,6 +1037,12 @@ bounded header has authenticated and matched an explicitly installed route,
 local member identity and durable configuration. Unknown groups never create
 storage or fetch a bucket object. Each physical peer has separate incoming and
 outgoing banks, so full outbound queues cannot consume inbound response capacity.
+
+Between exchanges, a sender retires a cached connection when the preceding
+exchange's original I/O window has elapsed. A late reply cannot extend that
+reuse window. The next frame opens a fresh connection within its existing I/O
+bound, avoiding reuse after the peer's idle timeout. This never retransmits a
+failed or uncertain frame; its original delivery result remains unchanged.
 
 Control transmission holds at most sixteen selected frames and refills a slot as
 soon as its FIFO authenticated reply and physical write finish. A later held

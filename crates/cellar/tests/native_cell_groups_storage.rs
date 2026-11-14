@@ -8,6 +8,12 @@
 #[allow(dead_code)]
 mod images;
 
+#[path = "support/manifest_pack_fixture.rs"]
+mod manifest_pages;
+
+#[path = "support/manifest_pack_contracts.rs"]
+mod pack_contracts;
+
 #[path = "support/raft_ltx_fault.rs"]
 #[allow(dead_code)]
 mod faults;
@@ -175,7 +181,6 @@ fn manifest_updates_only_changed_path() -> Result<()> {
         assert_eq!(images::read(&pin)?, bytes);
         let value = leaf(id, &pin, 1, u64::from(id));
         faults.events.lock().unwrap().clear();
-        let written = pages.usage().written_pages;
         root = tree.update(&mut pages, root, value.clone(), None)?;
         let events = faults.events.lock().unwrap();
         assert_eq!(events.last(), Some(&"directory-sync"));
@@ -190,9 +195,9 @@ fn manifest_updates_only_changed_path() -> Result<()> {
             events
                 .iter()
                 .filter(|event| **event == "image-sync")
-                .count() as u64,
-            pages.usage().written_pages - written,
-            "each new AVL page needs its own file barrier before the directory barrier"
+                .count(),
+            1,
+            "one immutable manifest update must share one file barrier"
         );
         drop(events);
         cells.insert(value.version.history.cell.clone(), (value, pin));
@@ -298,10 +303,7 @@ fn manifest_rejects_conflicts_bounds_and_missing_pages() -> Result<()> {
     assert!(ManifestTree::new(other, ManifestLimits::default())?
         .get(&pages, root, &value.version.history.cell)
         .is_err());
-    let path = temp
-        .path()
-        .join("pages")
-        .join(format!("{}.page", hex::encode(root.digest().unwrap())));
+    let path = manifest_pages::locate(&temp.path().join("pages"), root.digest().unwrap())?.path;
     let original = std::fs::read(&path)?;
     std::fs::write(&path, vec![0; 16 * 1024 + 1])?;
     assert!(tree.get(&pages, root, &value.version.history.cell).is_err());
@@ -485,9 +487,25 @@ fn manifest_update_batch_failures_quarantine_owner() -> Result<()> {
         }
         let sealed = faults.image_seals.lock().unwrap().len() - sealed;
         if failure == "quota" {
-            assert_eq!(sealed, 1, "quota refusal must follow one pending page");
+            assert_eq!(
+                sealed, 0,
+                "partial pending update must not complete a file barrier"
+            );
+            assert!(
+                std::fs::read_dir(&directory)?.any(|entry| {
+                    entry
+                        .unwrap()
+                        .path()
+                        .extension()
+                        .is_some_and(|s| s == "pending")
+                }),
+                "quota refusal must retain its charged incomplete write"
+            );
         } else {
-            assert!(sealed > 1, "fault must follow multiple page-file barriers");
+            assert_eq!(
+                sealed, 1,
+                "fault must follow the complete update's single file barrier"
+            );
         }
         assert!(matches!(
             tree.get(&pages, selected, &CellId::new("cell-1").unwrap()),
@@ -542,6 +560,7 @@ async fn warm_manifest_preparations_revalidate_pages_and_reuse_completed_barrier
     let value = leaf(1, &pin, 1, 2);
     let root = tree.update(&mut pages, ManifestRoot::default(), value.clone(), None)?;
     let before = faults.image_seals.lock().unwrap().len();
+    let directories = faults.synced_paths.lock().unwrap().len();
     let reads = faults.reads.load(Ordering::Acquire);
     let first = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
         Ok(CellImagePin::Materialized(pin.clone()))
@@ -555,6 +574,11 @@ async fn warm_manifest_preparations_revalidate_pages_and_reuse_completed_barrier
         before,
         "already durable page was flushed again"
     );
+    assert_eq!(
+        faults.synced_paths.lock().unwrap().len(),
+        directories,
+        "already durable page directory was flushed again"
+    );
     let directories = faults.synced_paths.lock().unwrap().len();
     assert_eq!(
         tree.update(&mut pages, ManifestRoot::default(), value.clone(), None)?,
@@ -563,10 +587,11 @@ async fn warm_manifest_preparations_revalidate_pages_and_reuse_completed_barrier
     assert_eq!(faults.image_seals.lock().unwrap().len(), before);
     assert_eq!(faults.synced_paths.lock().unwrap().len(), directories);
 
-    let path = faults.image_seals.lock().unwrap()[0].clone();
+    let frame = manifest_pages::locate(&directory, root.digest().unwrap())?;
+    let path = frame.path;
     let original = std::fs::read(&path)?;
     let mut corrupt = original.clone();
-    corrupt[0] ^= 0x80;
+    corrupt[frame.offset] ^= 0x80;
     std::fs::write(&path, corrupt)?;
     assert!(
         tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
@@ -611,14 +636,22 @@ async fn warm_manifest_preparations_revalidate_pages_and_reuse_completed_barrier
     ));
     drop(pages);
     let mut pages = open()?;
+    let directories = faults.synced_paths.lock().unwrap().len();
     let recovered = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
         Ok(CellImagePin::Materialized(pin.clone()))
     })?;
+    assert_eq!(
+        faults.synced_paths.lock().unwrap().len(),
+        directories + 1,
+        "cold preparation must complete its page directory barrier exactly once"
+    );
     let before = faults.image_seals.lock().unwrap().len();
+    let directories = faults.synced_paths.lock().unwrap().len();
     let again = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
         Ok(CellImagePin::Materialized(pin.clone()))
     })?;
     assert_eq!(faults.image_seals.lock().unwrap().len(), before);
+    assert_eq!(faults.synced_paths.lock().unwrap().len(), directories);
     drop(again);
     drop(recovered);
     drop(pages);
@@ -1177,12 +1210,22 @@ async fn incremental_enrollment_preserves_rotated_subtrees() -> Result<()> {
 
 fn collect_pages(pages: &mut ManifestPageStore) -> Result<usize> {
     let mut deleted = 0;
+    let mut wraps = 0;
+    let mut progress = false;
     for _ in 0..257 {
         let report = pages.reclaim(16)?;
         assert!(report.scanned <= 16);
         deleted += report.pages;
+        progress |= report.files != 0;
         if report.scanned < 16 {
-            return Ok(deleted);
+            wraps += 1;
+            // The initial cursor can begin halfway through an inventory.
+            // Compaction also creates keys before that cursor. Require a full
+            // quiet pass after the first wrap, retaining the fixed work bound.
+            if wraps >= 2 && !progress {
+                return Ok(deleted);
+            }
+            progress = false;
         }
     }
     anyhow::bail!("bounded fixture inventory did not finish scanning")

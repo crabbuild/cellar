@@ -44,12 +44,39 @@ Raft metrics endpoint. The [operations contract](design/multi-raft/operations-de
 defines the measurements, sampling failures and byte exclusions. These are
 owner observations, not command receipts or physical-device I/O accounting.
 
-`cell_linearizable_read_barriers` counts actual cell ReadIndex submissions to
-the local Raft owner, including forwarded retries. `cell_linearizable_read_cohort_joins`
-counts reads that joined a still-uninitiated cohort. Each read retains its own
-deadline and image pin; these counters do not establish quorum freshness or a
-reusable leadership lease. Low-traffic or intervening control work can require
-one barrier per read.
+`cell_linearizable_read_barriers` counts cell ReadIndex submissions to the
+local Raft owner, including forwarded retries.
+`cell_linearizable_read_cohorts_started` counts the first submission for each
+cohort. `cell_linearizable_read_cohort_joins` counts reads added before that
+first submission. Each read retains its own deadline and image pin. A local
+group observation reports linearizable reads waiting in the actor queue.
+
+`cell_endpoint_demand_refreshes` counts selected-node endpoint repair requests.
+`cell_endpoint_discovery_owners` counts admitted discovery owners, and
+`cell_endpoint_refresh_joins` counts callers joining the same authenticated
+boot observation. These are separate from range/membership refresh and leader
+probe counters. They report bounded routing work; endpoint metadata grants no
+membership, application permission or durability proof.
+
+SQL refusal counters identify pressure at fixed admission boundaries.
+`sql_node_admission_refusals` and `sql_group_admission_refusals` count failed
+item/byte reservations; `sql_worker_admission_refusals` counts a full ordinary
+worker queue. The reserved progress lane is outside that last counter.
+`sql_stage_admission_refusals` counts overloaded staging requests refused before
+enqueue. `sql_stage_execution_refusals` counts overloaded replies received from
+the worker, including private-image opening failures and callback failures;
+it does not prove that a callback ran. Oversized compiled input refused before
+staging is outside these stage counters.
+
+`sql_private_open_refusals` counts overloaded private-image opening, including
+continuation reopening after earlier callback work.
+`cell_command_submission_rejections` counts rejected command submissions;
+`cell_command_settlement_overloads` counts overloaded settlement refusals.
+Counters overlap and describe node-wide observations, not per-command outcomes.
+An owned command can wait and make another reservation attempt after a received
+capacity refusal; a refused stage attempt does not mean its public call failed.
+They do not authorize retries, establish that a mutation did not commit, or
+replace the original command identity, deadline and receipt reconciliation.
 
 ## Event-delivery observations
 

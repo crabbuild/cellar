@@ -35,10 +35,14 @@ def rows(stamp, node_count=3):
 class Measurements(unittest.TestCase):
     def test_metric_contract_matches_the_native_owner(self):
         rust = (Path(__file__).resolve().parents[2] / 'crates/cellar/durability/raft/performance.rs').read_text()
-        operations = rust.split('impl Operation {', 1)[1].split('#[derive', 1)[0]
-        counters = rust.split('impl Counter {', 1)[1].split('#[derive', 1)[0]
-        self.assertEqual(OPERATIONS, tuple(re.findall(r'"([a-z_]+)"', operations)))
-        self.assertEqual(COUNTERS, tuple(re.findall(r'"([a-z_]+)"', counters)))
+        def native_names(kind):
+            names = dict(re.findall(r'Self::(\w+) =>\s*(?:\{\s*)?"([a-z_]+)"',
+                                    rust.split(f'impl {kind} {{', 1)[1].split('#[derive', 1)[0]))
+            variants = re.findall(rf'{kind}::(\w+)',
+                                  rust.split(f'const {kind.upper()}S:', 1)[1].split('];', 1)[0])
+            return tuple(names[variant] for variant in variants)
+        self.assertEqual(OPERATIONS, native_names('Operation'))
+        self.assertEqual(COUNTERS, native_names('Counter'))
         bounds = rust.split('const BOUNDS_US:', 1)[1].split('= [', 1)[1].split('];', 1)[0]
         values = [value.strip().replace('_', '') for value in bounds.split(',') if value.strip()]
         self.assertEqual(BOUNDS, tuple(None if value == 'u64::MAX' else int(value) for value in values))
@@ -164,6 +168,46 @@ class Measurements(unittest.TestCase):
 
 
 class ReclamationVocabulary(unittest.TestCase):
+    def test_primitive_snapshots_preserve_complete_historical_counter_inventories(self):
+        for boundary in ('cell_kv_local_payload_preparations', 'sql_node_admission_refusals'):
+            raw = observation()
+            raw['counters'] = raw['counters'][:COUNTERS.index(boundary)]
+            later = copy.deepcopy(raw)
+            later['sampled_at_us'] = '2'
+            later['counters'][-1]['value'] = '3'
+            result = delta(raw, later)
+            self.assertEqual(result['counters'][raw['counters'][-1]['name']], 3)
+            self.assertNotIn('sql_node_admission_refusals', result['counters'])
+            with self.assertRaises(ValueError):
+                delta(raw, observation(stamp=2))
+            raw['counters'].pop()
+            with self.assertRaises(ValueError):
+                snapshot(raw)
+        for missing in range(1, 8):
+            raw = observation()
+            raw['counters'] = raw['counters'][:-missing]
+            with self.assertRaises(ValueError):
+                snapshot(raw)
+
+    def test_retained_routing_windows_keep_their_complete_source_vocabulary(self):
+        for counter_count in (COUNTERS.index('cell_command_rpc_attempts'),
+                              COUNTERS.index('cell_group_ticks_executed')):
+            raw = observation()
+            raw['operations'] = raw['operations'][:-3]
+            raw['counters'] = raw['counters'][:counter_count]
+            later = copy.deepcopy(raw)
+            later['sampled_at_us'] = '2'
+            later['counters'][-1]['value'] = '3'
+            result = delta(raw, later)
+            self.assertEqual(result['counters'][raw['counters'][-1]['name']], 3)
+            self.assertNotIn('first_group_quorum', result['operations'])
+            self.assertNotIn('cell_group_ticks_executed', result['counters'])
+            with self.assertRaises(ValueError):
+                delta(raw, observation(stamp=2))
+            raw['counters'].pop()
+            with self.assertRaises(ValueError):
+                snapshot(raw)
+
     def extended(self, purge):
         from raft_metrics import ARCHIVE_COUNTERS, ARCHIVE_OPERATIONS, LEGACY_BOUNDS
         raw = observation(); template = copy.deepcopy(raw['operations'][0])

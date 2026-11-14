@@ -29,6 +29,26 @@ async fn command_readiness_wait_keeps_original_deadline() -> Result<()> {
     Box::pin(runtime_fixture::command_waits_for_apply(true)).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn command_waits_for_sql_capacity_before_callback_entry() -> Result<()> {
+    Box::pin(runtime_fixture::command_waits_for_capacity(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn command_sql_capacity_wait_keeps_original_deadline() -> Result<()> {
+    Box::pin(runtime_fixture::command_waits_for_capacity(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn command_sql_capacity_wait_shutdown_joins_held_worker() -> Result<()> {
+    Box::pin(runtime_fixture::capacity_wait_shutdown()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn command_sql_capacity_wait_refuses_oversize_and_entered_errors() -> Result<()> {
+    Box::pin(runtime_fixture::capacity_terminal_refusals()).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn background_sql_admits_one_pending_command() -> Result<()> {
     Box::pin(runtime_fixture::background_admission(false)).await
@@ -546,6 +566,19 @@ async fn rooted_shared_group_fair_admission() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn sql_admission_refusal_observations_preserve_execution_boundary() -> Result<()> {
+    for rooted in [false, true] {
+        runtime_fixture::admission_refusal_observations(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn sql_workspace_refusal_observations_preserve_execution_boundary() -> Result<()> {
+    runtime_fixture::workspace_refusal_observations().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn cell_sql_reconciles_after_leadership_change() -> Result<()> {
     runtime_fixture::reconcile_sql_producers(false).await
 }
@@ -563,6 +596,11 @@ async fn cell_sql_reconciles_expired_and_conflicting_receipts() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn rooted_cell_sql_reconciles_expired_and_conflicting_receipts() -> Result<()> {
     runtime_fixture::reconcile_sql_refusals(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn enrollment_authority_loss_keeps_controller_alive() -> Result<()> {
+    Box::pin(runtime_fixture::enrollment_authority_loss_keeps_controller_alive()).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]

@@ -5,6 +5,27 @@ use std::collections::BTreeMap;
 
 pub type SqlRow = BTreeMap<String, SqlValue>;
 
+/// A cursor request refused before preparing or stepping any of its SQL.
+/// This proves nothing about earlier operations in the enclosing invocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SqlCursorRefusal {
+    /// The executing view already retains its permitted live statements.
+    CountLimit,
+    /// The SQL text alone exceeds the statement byte policy.
+    StatementByteLimit,
+}
+
+impl std::fmt::Display for SqlCursorRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::CountLimit => "SQL cursor count limit exceeded",
+            Self::StatementByteLimit => "SQL cursor statement byte limit exceeded",
+        })
+    }
+}
+
+impl std::error::Error for SqlCursorRefusal {}
+
 /// An owned cursor token, never a SQLite pointer. Each step requires the
 /// original activation, Raft invocation or committed query installed by its driver.
 pub struct SqlCursor {
@@ -33,8 +54,7 @@ impl SqlCursor {
             })
             .collect();
         let (id, columns, prefetched, rows_written, _) =
-            crate::storage::sql_cursor_start_values(scope, query, &bindings)
-                .map_err(anyhow::Error::msg)?;
+            crate::storage::sql_cursor_start_values(scope, query, &bindings)?;
         let rows_read = u64::from(prefetched.is_some());
         let raft_lifetime = if matches!(storage.0, Owner::Native(_)) || id == 0 {
             None
