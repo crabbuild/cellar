@@ -239,7 +239,7 @@ impl CellCommandInvocation {
         // Unlike the response-facing phase API, do not drop this SQL waiter at
         // the response deadline. It carries the exact preparation or refusal.
         match self
-            .prepare_when_applied(&attempt, runtime, sql, options, progress)
+            .prepare_when_applied(&attempt, runtime, sql, options, roster, progress)
             .await
         {
             Ok(CellCommandPreparation::Committed(response)) => return Ok(response),
@@ -353,6 +353,7 @@ impl CellCommandInvocation {
         runtime: &CellGroupRuntime,
         sql: &CellGroupSqlPool,
         options: CellSqlOptions,
+        roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
     ) -> Result<CellCommandPreparation, CellDispatchError> {
         let mut observed_cut = None;
@@ -369,8 +370,13 @@ impl CellCommandInvocation {
                 .prepare_at(attempt, runtime, sql, options.clone())
                 .await
             {
-                Err(CellDispatchError::Execution(ExecutionError::Busy))
-                    if self.writer_wait && self.origin.is_none() && self.output.is_none() =>
+                Err(
+                    error @ CellDispatchError::Execution(
+                        ExecutionError::Busy | ExecutionError::Refused(CommandFailure::Overloaded),
+                    ),
+                ) if (self.writer_wait || self.capacity_wait.is_some())
+                    && self.origin.is_none()
+                    && self.output.is_none() =>
                 {
                     if self.system
                         && matches!(
@@ -384,26 +390,31 @@ impl CellCommandInvocation {
                         // state on its next turn. Release this command slot
                         // instead of waiting beside the live foreground writer.
                         // No initializer or mutation entered this refusal.
-                        return Err(CellDispatchError::Execution(ExecutionError::Busy));
+                        return Err(error);
                     }
-                    // A received pre-enqueue lease refusal proves that no
-                    // callback or producer entered. Wait for the holder to park
-                    // or finish, then acquire fresh authority under this same
+                    // A received lease/bank refusal proves that no callback or
+                    // producer entered. Wait for the holder to park/finish or
+                    // budget credits to return. Fresh authority uses the same
                     // request ID, inputs, route ticket and original deadline.
                     // Worker/callback errors never acquire this retry proof.
-                    let timer = self
-                        .dispatcher
-                        .domain
-                        .sleep_until(self.session.deadline_ms())
-                        .map_err(|_| closed())?;
-                    crate::asyncrt::select! {
-                        result = progress.changed() => result.map_err(|_| closed())?,
-                        result = writers.changed() => result.map_err(|_| closed())?,
-                        _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+                    if let Some(wait) = &self.capacity_wait {
+                        self.wait_for_capacity(wait, attempt, roster, progress, &mut writers)
+                            .await?;
+                    } else {
+                        let timer = self
+                            .dispatcher
+                            .domain
+                            .sleep_until(self.session.deadline_ms())
+                            .map_err(|_| closed())?;
+                        crate::asyncrt::select! {
+                            result = progress.changed() => result.map_err(|_| closed())?,
+                            result = writers.changed() => result.map_err(|_| closed())?,
+                            _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+                        }
                     }
                 }
                 Err(CellDispatchError::Runtime(RuntimeError::NotReady))
-                    if (!self.ambiguous || self.writer_wait)
+                    if (!self.ambiguous || self.writer_wait || self.capacity_wait.is_some())
                         && self.origin.is_none()
                         && self.output.is_none() =>
                 {
@@ -445,6 +456,39 @@ impl CellCommandInvocation {
                     }
                 }
                 result => return result,
+            }
+        }
+    }
+
+    async fn wait_for_capacity(
+        &self,
+        capacity: &SqlCapacityWait,
+        attempt: &CellRouteAttempt,
+        roster: &crate::raft::cell_groups::controller::GroupRoster,
+        progress: &mut watch::Receiver<()>,
+        writers: &mut watch::Receiver<()>,
+    ) -> Result<(), CellDispatchError> {
+        let mut released = std::pin::pin!(capacity.released());
+        let mut timer = std::pin::pin!(self
+            .dispatcher
+            .domain
+            .sleep_until(self.session.deadline_ms())
+            .map_err(|_| closed())?);
+        loop {
+            if !roster
+                .contains(&attempt.route().history)
+                .map_err(CellDispatchError::Runtime)?
+            {
+                return Err(CellDispatchError::Runtime(RuntimeError::NotFound));
+            }
+            // Controller retry ticks are lifecycle observations, not returned
+            // SQL credit. Keep this registered budget waiter across those wakes
+            // rather than repeatedly reserving and refusing the same request.
+            crate::asyncrt::select! {
+                _ = &mut released => return Ok(()),
+                result = progress.changed() => result.map_err(|_| closed())?,
+                result = writers.changed() => result.map_err(|_| closed())?,
+                _ = &mut timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
             }
         }
     }

@@ -4008,3 +4008,64 @@ refusing partial inventories and within-run schema changes. These are archive
 evidence readers, not runtime legacy-format support. No OPT/CG gate is accepted.
 Bounded group admission progress, independent deadline diagnosis and original-ID
 reconciliation remain required before another complete qualification campaign.
+
+## Bounded SQL admission wait, 2026-11-14 UTC
+
+The [bounded-wait implementation and three-node evidence](three-node-primitive-admission-wait-2026-11-14.md)
+close one received refusal boundary. An owned command retains its finite
+invocation, original identity/inputs/clock/randomness, route ticket and deadline
+while waiting for a fitting node/group SQL reservation before enqueue. It holds
+no SQL slot or physical reservation. Registered credit notifications recheck
+bytes and items; controller ticks observe lifecycle without polling a full bank.
+Fresh staging revalidates authority. Oversized requests, worker admission,
+entered callbacks, private/continuation opening and lost replies grant no new
+replay permission. Retirement wakes lifecycle checks without refunding live
+physical credits; maintenance claim/settle/seal still releases its command slot.
+
+Real three-voter group-byte and node-item controls fail on the earlier code with
+immediate overload and pass with bounded waiting. Four new integration controls
+cover credit return, once-only callback/receipt replay, original expiry, joined
+shutdown and terminal refusals in both image modes. Six new admission tests cover
+byte shrink, item ownership, retained clones, consumed signals, fitting peers
+and retirement. Forty-one focused Rust tests pass, alongside strict affected
+Clippy, formatting/layout (2,292 files), native dependencies and 332 Python
+performance tests with one existing optional skip. The SDK source-proof control
+covers both image modes and quorum/S3; this is not a complete qualification run.
+
+Immutable image `976eda7e`, compiler inputs `92d406c1`, measures all three public
+bindings on the unchanged separately constrained RF3 topology. Nine of 20 timed
+windows verify, three fail and eight remain unmeasured; seven of 12 warmups
+verify and five remain unmeasured. All three cases remain failed. Nineteen
+emitted windows retain seven request deadlines and zero public overloads. SQL
+verifies five timed windows before a second-repetition 16-client read fails;
+KV verifies four before its second-repetition 16-client write fails with two
+deadlines and readback mismatch. Queue verifies 200 warmup messages, then its
+timed four-client window has two deadlines and a delivery-set mismatch.
+
+SQL/Queue complete node snapshots observe four/eight group admission refusals
+and overlapping stage counts. They include node-wide maintenance and do not
+establish every attempted command's result. KV end observations are unavailable
+on all three nodes and its counter deltas stay unknown. All three KV nodes
+subsequently self-fence with `NodeLeaseExpired`; the lease warnings and fences
+occur after load exit, so they explain missing final snapshots without proving
+the cause of the earlier request failures. Five-second lease/operation windows
+and all resource/admission banks remain unchanged.
+
+Queue observes all 664 acknowledged IDs and 16 IDs matching both unconfirmed
+attempted batches, with zero reported backlog/DLQ. The failed row lacks a complete
+observed body-hash map, so only ID reconciliation follows. Original uncertain
+identities remain retained without fresh-ID retries. Three KV nodes exit one;
+the other six nodes and all stores exit zero. No container OOM/restart is observed.
+All failed disks/logs remain retained, source/engine guards pass and the original
+RustFS service is restored and ready. SQL failure-snapshot/index recovery is
+exercised; KV's missing-node errors stay explicit in the retained evidence.
+
+The unchanged load bytes/profile and additional verified windows do not establish
+isolated speedup on this shared host. The earlier selected cross-mode comparison
+remains five complete cases and 75 verified timed windows out of 120. No full
+Raft primitive matrix or OPT/CG gate is accepted. Next work is constrained
+node-lease renewal progress, independent deadline/writer/proof-wait diagnosis,
+original-identity reconciliation and sustainable complete-root reclamation.
+Authority expiry/revocation, physical retirement/once-only Fleet settlement,
+provider recovery, independent domains and missing historical evidence remain
+required.

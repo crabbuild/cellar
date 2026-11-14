@@ -10,6 +10,63 @@ use std::sync::{Mutex, Weak};
 
 type LogicalCell = (ClusterId, NamespaceId, CellId);
 
+/// A received refusal from one finite admission bank, before SQL enqueue.
+/// This pins only bounded admission metadata; it grants no physical credit.
+pub(crate) struct SqlCapacityWait {
+    bank: Weak<Budget>,
+    bytes: usize,
+}
+
+impl SqlCapacityWait {
+    pub(crate) async fn released(&self) {
+        let Some(bank) = self.bank.upgrade() else {
+            // The old bank has no owner or credit left. The next admission
+            // still checks the current bank and authority under their locks.
+            return;
+        };
+        loop {
+            let mut changed = std::pin::pin!(bank.wake.notified());
+            changed.as_mut().enable();
+            // Register before inspecting both dimensions. Another waiter may
+            // have consumed a stored notification after this refusal, without
+            // consuming all the credit this request can use.
+            let (bytes, items) = bank.usage();
+            let (max_bytes, max_items) = bank.capacity();
+            if items < max_items
+                && bytes
+                    .checked_add(self.bytes)
+                    .is_some_and(|n| n <= max_bytes)
+            {
+                return;
+            }
+            changed.await;
+        }
+    }
+}
+
+pub(super) struct Failure {
+    pub error: ExecutionError,
+    pub wait: Option<SqlCapacityWait>,
+}
+
+impl Failure {
+    fn terminal(error: ExecutionError) -> Self {
+        Self { error, wait: None }
+    }
+
+    fn capacity(bank: &Arc<Budget>, bytes: usize) -> Self {
+        let (max_bytes, max_items) = bank.capacity();
+        Self {
+            error: overloaded(),
+            // A request that cannot fit by itself must refuse immediately.
+            wait: (bytes <= max_bytes && max_items != 0).then(|| SqlCapacityWait {
+                bank: Arc::downgrade(bank),
+                bytes,
+            }),
+        }
+    }
+}
+
 pub(super) struct Admission {
     lease: Arc<crate::raft::storage::SqlPoolLease>,
     node: Arc<Budget>,
@@ -126,10 +183,23 @@ impl Admission {
         group: GroupHistory,
         bytes: usize,
     ) -> Result<(CellLease, Arc<Bytes>), ExecutionError> {
-        let mut state = self.state.lock().map_err(|_| unavailable())?;
+        self.reserve_stage(cell, group, bytes)
+            .map_err(|failure| failure.error)
+    }
+
+    pub(super) fn reserve_stage(
+        self: &Arc<Self>,
+        cell: &CellHistory,
+        group: GroupHistory,
+        bytes: usize,
+    ) -> Result<(CellLease, Arc<Bytes>), Failure> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| Failure::terminal(unavailable()))?;
         let key = (cell.cluster, cell.namespace, cell.cell.clone());
         if state.cells.contains(&key) {
-            return Err(ExecutionError::Busy);
+            return Err(Failure::terminal(ExecutionError::Busy));
         }
         let bytes = self.reserve_bytes(&mut state, group, bytes)?;
         state.cells.insert(key.clone());
@@ -151,6 +221,7 @@ impl Admission {
     ) -> Result<Arc<Bytes>, ExecutionError> {
         let mut state = self.state.lock().map_err(|_| unavailable())?;
         self.reserve_bytes(&mut state, group, bytes)
+            .map_err(|failure| failure.error)
     }
 
     fn reserve_bytes(
@@ -158,16 +229,18 @@ impl Admission {
         state: &mut State,
         group: GroupHistory,
         bytes: usize,
-    ) -> Result<Arc<Bytes>, ExecutionError> {
+    ) -> Result<Arc<Bytes>, Failure> {
         if state.retired.contains(&group) {
-            return Err(ExecutionError::Refused(CommandFailure::Unavailable));
+            return Err(Failure::terminal(ExecutionError::Refused(
+                CommandFailure::Unavailable,
+            )));
         }
         let node = self.node.acquire(bytes).ok_or_else(|| {
             self.performance.increment(
                 crate::raft::performance::Counter::SqlNodeAdmissionRefusals,
                 1,
             );
-            overloaded()
+            Failure::capacity(&self.node, bytes)
         })?;
         // Reclaim metadata only, never authority or pending physical ownership.
         state.groups.retain(|_, budget| budget.strong_count() != 0);
@@ -183,7 +256,7 @@ impl Admission {
                 crate::raft::performance::Counter::SqlGroupAdmissionRefusals,
                 1,
             );
-            overloaded()
+            Failure::capacity(&group_budget, bytes)
         })?;
         state.groups.insert(group, Arc::downgrade(&group_budget));
         Ok(Arc::new(Bytes {
@@ -200,11 +273,18 @@ impl Admission {
         if !state.retired.contains(&group) && state.retired.len() >= self.max_retired_groups {
             return Err(overloaded());
         }
-        state.retired.insert(group);
-        Ok(state
+        let newly_retired = state.retired.insert(group);
+        let drained = state
             .groups
             .get(&group)
-            .is_none_or(|budget| budget.strong_count() == 0))
+            .is_none_or(|budget| budget.strong_count() == 0);
+        drop(state);
+        if newly_retired {
+            // Waiting invocations must recheck authority and release their
+            // metadata pins; retirement does not refund physical credits.
+            self.writers.send_replace(());
+        }
+        Ok(drained)
     }
 
     pub(super) fn release_reclaimed_group(
@@ -232,160 +312,5 @@ impl Admission {
 }
 
 #[cfg(all(test, not(cellar_internal_tests)))]
-mod tests {
-    use super::*;
-    use crate::raft::{
-        options::{LogOpenMode, ReplicaLogOptions},
-        storage::ReplicaLog,
-    };
-    use cellar_logic::consensus::{DiskLineage, GroupId, IncarnationId, NodeId, ProcessGeneration};
-
-    #[tokio::test]
-    #[allow(clippy::disallowed_methods)]
-    async fn writer_release_wakes_waiters_without_raft_apply() -> anyhow::Result<()> {
-        let root = tempfile::tempdir()?;
-        let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
-        let log = domain
-            .run(ReplicaLog::open(
-                ReplicaLogOptions::new(
-                    root.path().join("raft"),
-                    NodeId::new([1; 16])?,
-                    DiskLineage::new([2; 16])?,
-                    ProcessGeneration::new([3; 16])?,
-                    LogOpenMode::Create,
-                ),
-                Arc::new(cellar_ltx::DirectFileSystem),
-            ))
-            .await??;
-        let group = GroupHistory {
-            cluster: ClusterId::new([4; 16])?,
-            namespace: NamespaceId::new([5; 16])?,
-            group: GroupId::new([6; 16])?,
-            incarnation: IncarnationId::new([7; 16])?,
-        };
-        let cell = CellHistory {
-            cluster: group.cluster,
-            namespace: group.namespace,
-            cell: cellar_logic::cell_group::CellId::new("writer")?,
-            incarnation: group.incarnation,
-        };
-        let admission = Admission::new(
-            CellSqlLimits {
-                workers: 1,
-                queue_per_worker: 4,
-                max_pending_cells: 4,
-                group_pending_cells: 4,
-                node_bytes: 16_384,
-                group_bytes: 8192,
-            },
-            log.claim_sql_pool()?,
-            2,
-            log.performance(),
-        );
-        let mut progress = admission.writer_progress();
-        let (mut first, first_bytes) = admission.reserve(&cell, group, 1024)?;
-        assert!(matches!(
-            admission.reserve(&cell, group, 1024),
-            Err(ExecutionError::Busy)
-        ));
-        // No group exists and no Raft apply can wake this waiter. Parking must
-        // publish local progress even while the original physical bytes stay held.
-        first.park()?;
-        domain
-            .run(crate::asyncrt::timeout(
-                std::time::Duration::from_secs(1),
-                progress.changed(),
-            ))
-            .await???;
-        let (second, second_bytes) = admission.reserve(&cell, group, 1024)?;
-        assert!(matches!(first.resume(), Err(ExecutionError::Busy)));
-        drop(second);
-        domain
-            .run(crate::asyncrt::timeout(
-                std::time::Duration::from_secs(1),
-                progress.changed(),
-            ))
-            .await???;
-        first.resume()?;
-        drop(first);
-        domain
-            .run(crate::asyncrt::timeout(
-                std::time::Duration::from_secs(1),
-                progress.changed(),
-            ))
-            .await???;
-        assert_eq!(admission.usage()?.0, 0);
-        assert_eq!(
-            admission.usage()?.2,
-            2,
-            "physical ownership must stay charged after writer release"
-        );
-        drop((first_bytes, second_bytes, admission));
-        log.close().await?;
-        domain.shutdown().await;
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[allow(clippy::disallowed_methods)]
-    async fn retirement_seals_late_sql_without_refunding_held_or_other_group_work(
-    ) -> anyhow::Result<()> {
-        let root = tempfile::tempdir()?;
-        let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
-        let log = domain
-            .run(ReplicaLog::open(
-                ReplicaLogOptions::new(
-                    root.path().join("raft"),
-                    NodeId::new([1; 16])?,
-                    DiskLineage::new([2; 16])?,
-                    ProcessGeneration::new([3; 16])?,
-                    LogOpenMode::Create,
-                ),
-                Arc::new(cellar_ltx::DirectFileSystem),
-            ))
-            .await??;
-        let limits = CellSqlLimits {
-            workers: 1,
-            queue_per_worker: 4,
-            max_pending_cells: 4,
-            group_pending_cells: 2,
-            node_bytes: 16_384,
-            group_bytes: 8192,
-        };
-        let admission = Admission::new(limits, log.claim_sql_pool()?, 2, log.performance());
-        let history = |id| -> anyhow::Result<GroupHistory> {
-            Ok(GroupHistory {
-                cluster: ClusterId::new([4; 16])?,
-                namespace: NamespaceId::new([5; 16])?,
-                group: GroupId::new([id; 16])?,
-                incarnation: IncarnationId::new([id; 16])?,
-            })
-        };
-        let first = history(6)?;
-        let second = history(7)?;
-        let response = admission.reserve_read(first, 1024)?;
-        let physical = response.clone();
-        assert!(!admission.retire(first)?);
-        drop(response);
-        assert!(!admission.retire(first)?);
-        assert!(matches!(
-            admission.reserve_read(first, 1024),
-            Err(ExecutionError::Refused(CommandFailure::Unavailable))
-        ));
-        let unrelated = admission.reserve_read(second, 1024)?;
-        drop(physical);
-        assert!(admission.retire(first)?);
-        assert_eq!(admission.usage()?.2, 1);
-        assert!(!admission.retire(second)?);
-        assert!(matches!(
-            admission.retire(history(8)?),
-            Err(ExecutionError::Refused(CommandFailure::Overloaded))
-        ));
-        drop(unrelated);
-        assert!(admission.retire(second)?);
-        drop(admission);
-        log.close().await?;
-        domain.shutdown().await;
-        Ok(())
-    }
-}
+#[path = "admission_tests.rs"]
+mod tests;

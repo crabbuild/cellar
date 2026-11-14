@@ -193,6 +193,16 @@ may finish out of order but cannot advance a hole in the durable applied prefix.
 Retain exact term/index proof for each pending output; an unrelated cell's progress
 cannot settle it. Storage sync failure quarantines the owning engine as today.
 
+An owned command refused by a full node/group SQL bank before enqueue can wait
+for actual item/byte credit if that request can fit alone. Keep its bounded
+invocation owner, identity, captured inputs, route ticket and original deadline;
+the wait is neither a SQL reservation nor a new producer. Register notification
+before rechecking capacity, observe retirement/quarantine without polling SQL
+on controller ticks, and reacquire fresh execution authority before staging.
+Callback/worker failures, private-image reopening and lost replies do not grant
+this wait proof. Oversized requests still refuse. Public phase APIs keep their
+immediate refusal behavior; controller ownership supplies the bounded wait.
+
 An unresolved SQL producer can reconcile the original request against the exact
 cell's committed receipt after leadership changes or log compaction. Select the
 cell pin from a verified durable current-term applied root; follower inspection

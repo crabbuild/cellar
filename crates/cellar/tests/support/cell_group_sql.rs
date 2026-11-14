@@ -595,7 +595,8 @@ pub(crate) use controller::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
 pub(crate) use controller_commands::{
-    background_admission, command_admission_starts_before_poll, command_waits_for_apply,
+    background_admission, capacity_terminal_refusals, capacity_wait_shutdown,
+    command_admission_starts_before_poll, command_waits_for_apply, command_waits_for_capacity,
     owned_command_failure, owned_commands,
 };
 

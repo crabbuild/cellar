@@ -82,6 +82,30 @@ Native effect routing stores weak endpoint hints. Actual delivery upgrades a liv
 - A cancelled, unsubmitted waiter is discarded without invoking its callback.
 - Queue admission is not a commit or durability acknowledgement.
 
+## Shared-group SQL capacity waits
+
+Controller-owned cell commands may wait after a received node/group reservation
+refusal before SQL enqueue. The refusal must identify the full bank and prove
+that the request can fit its byte and item ceilings when credit returns. The
+wait retains the existing bounded controller/dispatcher owner, command identity,
+captured inputs, route ticket and original deadline. It reserves no SQL slot and
+starts no callback or new task. Direct SQL pool and response-facing preparation
+APIs continue to return their immediate refusals.
+
+Register the bank notification before rechecking both dimensions. Physical
+completion, output release and capture shrink wake eligible requests; shrinking
+bytes alone cannot free an occupied item slot. Controller ticks only check the
+group's retirement/quarantine state while capacity remains full. Before retrying
+staging, reacquire actual execution authority under the original request budget.
+Retirement wakes waiting owners without refunding live physical work. Weak wait
+proofs do not keep a retired bank alive after its active waiter has left.
+
+Requests that cannot fit alone, ordinary-worker queue errors, received callback
+or private-image errors and lost replies grant no capacity-wait proof. Retain
+their existing refusal or exact-producer reconciliation rules. Reserved apply,
+election and control capacity stays independent. Claim/settle/seal maintenance
+releases its command slot on these refusals for its existing durable scheduler.
+
 ## Physical query-reader admission
 
 - `RaftHostOptions.max_query_pins` bounds simultaneous SDK query-reader reservations across the node's SQL workers (1 through 16, default 16).

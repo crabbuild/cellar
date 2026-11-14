@@ -3,6 +3,7 @@
 //! Cell-history admission and commands on the existing fixed node SQL workers.
 
 mod admission;
+pub(crate) use admission::SqlCapacityWait;
 mod progress;
 mod rpc_cache;
 mod rpc_commit;
@@ -335,6 +336,8 @@ pub(crate) struct CellSqlStageFailure {
     pub before_enqueue: bool,
     /// The writer lease refused before enqueue or application callback entry.
     pub writer_busy: bool,
+    /// Only a received, fitting node/group reservation refusal grants this.
+    pub capacity_wait: Option<SqlCapacityWait>,
 }
 
 impl CellSqlStageFailure {
@@ -344,6 +347,7 @@ impl CellSqlStageFailure {
             unresolved: false,
             before_enqueue: false,
             writer_busy: false,
+            capacity_wait: None,
         }
     }
 
@@ -884,9 +888,7 @@ impl CellGroupSqlPool {
         mode: CellSqlStageMode,
         callback: worker::Callback,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
-        let (cell, action) = self
-            .stage_request(options, authority, attempt, mode, callback)
-            .map_err(|error| self.stage_failure(error, true))?;
+        let (cell, action) = self.stage_request(options, authority, attempt, mode, callback)?;
         let wait = self
             .send_ordinary(cell, action)
             .map_err(|error| self.stage_failure(error, true))?;
@@ -896,6 +898,7 @@ impl CellGroupSqlPool {
                 unresolved: true,
                 before_enqueue: false,
                 writer_busy: false,
+                capacity_wait: None,
             })?
             .map_err(|error| self.stage_failure(error, false))
     }
@@ -925,16 +928,19 @@ impl CellGroupSqlPool {
         attempt: CommandAttempt,
         mode: CellSqlStageMode,
         callback: worker::Callback,
-    ) -> Result<(CellHistory, worker::Action), ExecutionError> {
-        self.admit()?;
+    ) -> Result<(CellHistory, worker::Action), CellSqlStageFailure> {
+        self.admit()
+            .map_err(|error| self.stage_failure(error, true))?;
         if !authority.belongs_to_engine(&self.inner.engine_owner) {
-            return Err(ExecutionError::Invalid("cell SQL engine owner"));
+            return Err(self.stage_failure(ExecutionError::Invalid("cell SQL engine owner"), true));
         }
         if attempt.request.operation.is_empty() || attempt.request.operation.len() > 128 {
-            return Err(ExecutionError::Invalid("command operation"));
+            return Err(self.stage_failure(ExecutionError::Invalid("command operation"), true));
         }
         let limits = options.limits();
-        limits.validate()?;
+        limits
+            .validate()
+            .map_err(|error| self.stage_failure(error, true))?;
         let input_bytes = match &callback {
             worker::Callback::Verification(_) => 0,
             worker::Callback::Registered { input, .. } => input.len(),
@@ -949,12 +955,17 @@ impl CellGroupSqlPool {
             .and_then(|n| n.checked_add(input_bytes))
             .and_then(|n| n.checked_add(limits.max_result_bytes))
             .and_then(|n| n.checked_add(4096))
-            .ok_or_else(overloaded)?;
+            .ok_or_else(|| self.stage_failure(overloaded(), true))?;
         let cell = authority.cell().version.history.clone();
-        let (lease, bytes) =
-            self.inner
-                .admission
-                .reserve(&cell, authority.route().history, bytes)?;
+        let (lease, bytes) = self
+            .inner
+            .admission
+            .reserve_stage(&cell, authority.route().history, bytes)
+            .map_err(|refusal| {
+                let mut failure = self.stage_failure(refusal.error, true);
+                failure.capacity_wait = refusal.wait;
+                failure
+            })?;
         Ok((
             cell,
             worker::Action::Stage(Box::new(worker::Stage {
@@ -1003,6 +1014,7 @@ impl CellGroupSqlPool {
                 unresolved: true,
                 before_enqueue: false,
                 writer_busy: false,
+                capacity_wait: None,
             })?
             .map_err(CellSqlStageFailure::known)
     }

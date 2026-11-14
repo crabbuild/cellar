@@ -962,7 +962,8 @@ pub(super) use sql::{
     s3_replays_from_peer_archive, s3_response_precedes_hold_retirement,
 };
 pub(super) use sql::{
-    background_admission, command_admission_starts_before_poll, command_waits_for_apply,
+    background_admission, capacity_terminal_refusals, capacity_wait_shutdown,
+    command_admission_starts_before_poll, command_waits_for_apply, command_waits_for_capacity,
     owned_command_failure, owned_commands,
 };
 pub(super) use sql::{

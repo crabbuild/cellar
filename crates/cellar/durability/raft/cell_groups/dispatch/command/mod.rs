@@ -9,6 +9,7 @@ use output::PendingOutput;
 
 use super::*;
 use crate::application::consensus::command_request_digest;
+use crate::raft::host_sql::cell_groups::SqlCapacityWait;
 use crate::raft::{
     cell_groups::CellSqlStageMode,
     execution::{CommandAttempt, CommandRequest},
@@ -142,6 +143,7 @@ pub struct CellCommandInvocation {
     dispatched: bool,
     ambiguous: bool,
     writer_wait: bool,
+    capacity_wait: Option<SqlCapacityWait>,
     origin: Option<Origin>,
     output: Option<PendingOutput>,
     remote_route: Option<super::RemoteMutationRoute>,
@@ -406,6 +408,7 @@ impl PendingCellCommand {
             dispatched: false,
             ambiguous: false,
             writer_wait: false,
+            capacity_wait: None,
             origin: None,
             output: None,
             remote_route: None,
@@ -592,6 +595,7 @@ impl CellCommandInvocation {
         let proposal = proposal.map_err(|_| CellDispatchError::Invalid("proposal ID"))?;
         let preview = preview.map_err(|_| CellDispatchError::Invalid("preview ID"))?;
         self.writer_wait = false;
+        self.capacity_wait = None;
         self.session
             .mark_submitted(attempt)
             .map_err(CellDispatchError::Routing)?;
@@ -663,6 +667,7 @@ impl CellCommandInvocation {
             Ok(outcome) => self.preparation(outcome).await,
             Err(failure) => {
                 self.writer_wait = failure.writer_busy;
+                self.capacity_wait = failure.capacity_wait;
                 // Admission refusals and received Stage errors completed without
                 // installing this producer. Lost replies retain the exact origin.
                 if !failure.unresolved {

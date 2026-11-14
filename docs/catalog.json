@@ -786,6 +786,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-admission-wait-2026-11-14.md",
+      "title": "Three-node bounded SQL admission wait",
+      "summary": "Received pre-enqueue capacity waits, focused regressions and retained SQL/KV/Queue deadline and lease failures.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/progress.md",
       "title": "Cell-group implementation progress",
       "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",

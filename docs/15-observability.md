@@ -73,6 +73,8 @@ continuation reopening after earlier callback work.
 `cell_command_submission_rejections` counts rejected command submissions;
 `cell_command_settlement_overloads` counts overloaded settlement refusals.
 Counters overlap and describe node-wide observations, not per-command outcomes.
+An owned command can wait and make another reservation attempt after a received
+capacity refusal; a refused stage attempt does not mean its public call failed.
 They do not authorize retries, establish that a mutation did not commit, or
 replace the original command identity, deadline and receipt reconciliation.
 
