@@ -55,6 +55,8 @@ mod name_fallback;
 mod named_service;
 #[path = "support/cell_group_names.rs"]
 mod names;
+#[path = "support/cell_group_primitives_perf.rs"]
+mod primitives_perf;
 #[path = "support/cell_group_queue.rs"]
 mod queues;
 #[path = "support/cell_group_rustfs.rs"]
@@ -67,6 +69,24 @@ mod sql_cursors;
 mod sql_exec_batches;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
+async fn rustfs_perf_sql() -> Result<()> {
+    primitives_perf::bindings("sql").await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
+async fn rustfs_perf_kv() -> Result<()> {
+    primitives_perf::bindings("kv").await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual timed workload; requires explicit owned RustFS and performance settings"]
+async fn rustfs_perf_queue() -> Result<()> {
+    queues::qualify_perf().await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_alarms_recover_through_shared_quorum() -> Result<()> {

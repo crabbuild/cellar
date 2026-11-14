@@ -7,6 +7,77 @@ use std::sync::atomic::AtomicUsize;
 
 const FAST: &str = "quorum-fast";
 
+/// Timed healthy traffic, separate from the unchanged fault/load qualification.
+pub async fn qualify_perf() -> Result<()> {
+    use crate::primitives_perf::{emit, request, window, Settings};
+    let settings = Settings::load()?;
+    let backend = rustfs::StoreConfig::load("perf-queue", settings.rooted)?;
+    let store = Arc::new(catalog_fault::Store::around(backend.open(None)?));
+    let s = Scenario::start(
+        settings.rooted,
+        store,
+        false,
+        5000,
+        None,
+        8,
+        Durability::Quorum,
+    )
+    .await?;
+    let domain = s.cluster.fixtures[0].domain.clone();
+    let outcome = domain.run(async {
+        let client = reqwest::Client::builder().no_proxy().timeout(TIMEOUT + Duration::from_secs(1)).build()?;
+        let base = format!("http://{}",s.cluster.nodes[0].info().public_address);
+        let payload = "x".repeat(256);
+        let mut failed = false;
+        for (repeat,concurrency) in settings.matrix() {
+            for (phase,seconds) in [("warmup",2),("enqueue",settings.seconds)] {
+                let prefix = format!("perf-{repeat}-{concurrency}-{phase}-");
+                let started = std::time::Instant::now();
+                let mut result = window(seconds,concurrency,|worker,sequence| {
+                    let client = &client; let base = &base; let prefix = &prefix; let payload = &payload;
+                    async move {
+                        let values: Vec<_> = (0..8).map(|item|format!("{prefix}{worker}-{sequence}-{item}-{payload}")).collect();
+                        let endpoint = if worker % 2 == 0 { "queue" } else { "fast" };
+                        ensure!(request(client,&format!("{base}/{endpoint}"),json!(values)).await? == json!(true));
+                        Ok(())
+                    }
+                }).await;
+                let expected: BTreeSet<_> = result.successes.iter().enumerate().flat_map(|(worker,count)| {
+                    let prefix = &prefix; let payload = &payload;
+                    (1..=*count).flat_map(move |sequence|(0..8).map(move |item|format!("{prefix}{worker}-{sequence}-{item}-{payload}")))
+                }).collect();
+                let verification = async {
+                    s.empty(QUEUE).await?;
+                    s.empty(FAST).await?;
+                    let completed = s.signals.completed.lock().unwrap();
+                    let actual: BTreeSet<_> = completed.iter().filter(|body|body.starts_with(&prefix)).cloned().collect();
+                    ensure!(actual == expected,"Queue acknowledgements and consumer completions differ: expected={} actual={}",expected.len(),actual.len());
+                    let delivered = s.signals.deliveries.lock().unwrap();
+                    let ids: BTreeSet<_> = delivered.iter().filter(|(body,_,_)|body.starts_with(&prefix)).map(|(_,_,id)|id).collect();
+                    ensure!(ids.len() == expected.len(),"Queue message identity count differs");
+                    ensure!(result.errors == 0,"enqueue request errors");
+                    Ok(())
+                }.await;
+                let drained = started.elapsed().as_secs_f64();
+                result.report["batchMessages"] = json!(8);
+                result.report["acknowledgedMessages"] = json!(expected.len());
+                result.report["enqueueMessagesPerSecond"] = json!(expected.len() as f64 / result.report["elapsedSeconds"].as_f64().context("measured elapsed seconds")?);
+                result.report["enqueueAndDrainSeconds"] = json!(drained);
+                result.report["verifiedMessagesPerSecondIncludingDrain"] = if verification.is_ok() {json!(expected.len() as f64 / drained)}else{json!(null)};
+                let resources = json!(s.cluster.hosts.iter().map(|host|json!({"usage":host.resource_usage(),"performance":host.performance()})).collect::<Vec<_>>());
+                emit("queue",&settings,repeat,phase,&result,&verification,resources);
+                if verification.is_err() { failed = true; break; }
+            }
+        }
+        ensure!(!failed,"one or more Queue measured windows failed");
+        Ok::<_,anyhow::Error>(())
+    }).await;
+    let retain = !matches!(&outcome, Ok(Ok(())));
+    s.close(retain).await?;
+    outcome??;
+    Ok(())
+}
+
 #[derive(Default)]
 struct Signals {
     deliveries: Mutex<Vec<(String, u16, String)>>,
