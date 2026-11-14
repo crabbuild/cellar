@@ -606,7 +606,7 @@ async fn run(
                     dispatch.remaining_timeout()?,
                 )
                 .await;
-            let overloaded = result
+            let not_admitted = result
                 .as_ref()
                 .err()
                 .and_then(|cause| cause.downcast_ref::<Arc<CellEnrollmentError>>())
@@ -614,13 +614,17 @@ async fn run(
                     !error.ambiguous
                         && matches!(
                             error.cause.as_ref(),
-                            CellDispatchError::Runtime(RuntimeError::Overloaded)
+                            CellDispatchError::Runtime(
+                                RuntimeError::Overloaded
+                                    | RuntimeError::NotLeader
+                                    | RuntimeError::NotReady
+                            )
                         )
                 });
-            if !overloaded {
+            if !not_admitted {
                 break result;
             }
-            // A local overload proved no initializer entered. Retain the
+            // A known admission refusal proves no initializer entered. Retain the
             // durable source intent, candidate and creation ID. Unknown or
             // transmitted enrollments never enter this wait.
             if !noted {
@@ -665,7 +669,7 @@ async fn run(
                 options.clone(),
             )
             .await;
-        let overloaded = result
+        let not_admitted = result
             .as_ref()
             .err()
             .and_then(|cause| cause.downcast_ref::<Arc<CellCommandError>>())
@@ -673,10 +677,14 @@ async fn run(
                 !error.ambiguous
                     && matches!(
                         error.cause.as_ref(),
-                        CellDispatchError::Runtime(RuntimeError::Overloaded)
+                        CellDispatchError::Runtime(
+                            RuntimeError::Overloaded
+                                | RuntimeError::NotLeader
+                                | RuntimeError::NotReady
+                        )
                     )
             });
-        if !overloaded {
+        if !not_admitted {
             break result;
         }
         // Only a refusal before admission may retry. Preserve the complete

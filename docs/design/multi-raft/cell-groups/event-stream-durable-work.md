@@ -45,7 +45,10 @@ The adapter carries framework-minted authority outside application RPC arguments
 Ordinary `Context::rpc_cell` calls cannot supply it. Child calls use the existing
 durable source journal: prove the exact source intent before dispatch, prove the
 target command using its own namespace minimum, then settle the source. Lost
-responses retain ambiguity and stable producer sequence identities. Source
+responses retain ambiguity and stable producer sequence identities. Known
+non-admission overload, leadership and readiness refusals wait within the
+original deadline, preserving candidate, creation ID, child ID, input and
+minimum. Ambiguous attempts never take that retry path. Source
 cleanup accepts only the validated contiguous destination watermark.
 
 Retained child retirement can discover the current incarnation when another
