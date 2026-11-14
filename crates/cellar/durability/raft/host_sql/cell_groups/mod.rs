@@ -900,6 +900,8 @@ impl CellGroupSqlPool {
                         .await
                         .map_err(crate::raft::execution::authority_failure)?;
                     if !fence.accepts_continuation(&fresh) {
+                        tracing::warn!(target: "cellar::debug_fifo_84", term_current = fence.term_current(), fresh_check = ?fresh.check(), cell = ?fresh.cell().version,
+                            "[DEBUG-fifo-84] queued writer authority refused");
                         return Err(unavailable());
                     }
                     Ok::<_, ExecutionError>((reserved, fresh))

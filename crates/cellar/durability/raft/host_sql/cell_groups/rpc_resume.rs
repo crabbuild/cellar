@@ -65,7 +65,11 @@ impl Suspended {
                         Ok(authority) if fence.accepts_continuation(&authority) => {
                             return Ok(authority)
                         }
-                        Ok(_) => return Err(unavailable()),
+                        Ok(authority) => {
+                            tracing::warn!(target: "cellar::debug_fifo_84", term_current = fence.term_current(), fresh_check = ?authority.check(), cell = ?authority.cell().version,
+                                "[DEBUG-fifo-84] continuation authority refused");
+                            return Err(unavailable());
+                        }
                         Err(RuntimeError::NotReady | RuntimeError::Overloaded) => {
                             domain
                                 .sleep_until(now.saturating_add(10))
@@ -100,6 +104,8 @@ impl Suspended {
             .as_ref()
             .is_some_and(|value| Arc::ptr_eq(&value.resources(), &prior))
         {
+            tracing::warn!(target: "cellar::debug_fifo_84", prior_retired = prior.retired.load(Ordering::Acquire), cached_live = activation.activation.as_ref().is_some_and(|value| value.live()),
+                "[DEBUG-fifo-84] continuation activation changed");
             cache.put(self.cell.clone(), activation, now)?;
             return Poll::Ready(Err(unavailable()));
         }
