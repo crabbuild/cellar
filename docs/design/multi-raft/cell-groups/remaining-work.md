@@ -56,13 +56,14 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-1. **Qualify EventStream end to end.** The authenticated target adapter adds
-   compiled resource bootstrap, ordinary publication, subscriptions and autonomous
-   outbox/inbox recovery. Its final native/Axum and real-RustFS qualification is
-   pending. Preserve original event/lane identities and independent source and
-   destination proofs. Named selectors, operator inventory/retirement proof,
-   movement/wake, sustained load and all-voter disk loss remain separate gates.
-   See the [adapter contract](event-stream-durable-work.md) and
+1. **Broaden EventStream qualification and adapters.** The authenticated
+   explicit-UUID adapter passes native/Axum and real-RustFS cases in both image
+   forms, including publication, autonomous outbox recovery and inbox-protected
+   subscriptions. Preserve independent source and destination proofs. Named
+   selectors, operator inventory/retirement proof, cross-deployment grant changes,
+   movement/wake, sustained load, independent voter limits and all-voter disk
+   loss remain separate gates. See the [qualification record](progress.md#cg-17-eventstream-publishing-subscriptions-and-outbox),
+   [adapter contract](event-stream-durable-work.md) and
    [source journal contract](event-stream-durability.md).
 
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
