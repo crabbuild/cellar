@@ -764,6 +764,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-capacity-2026-11-14.md",
+      "title": "Primitive comparison with bounded writer overlap",
+      "summary": "Corrected Raft disk profile, matched Fleet/bucket baselines, throughput/tails and remaining overload/deadline/lease gaps.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/progress.md",
       "title": "Cell-group implementation progress",
       "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",

@@ -3924,3 +3924,48 @@ population or separate-process capacity claims. Admission, lease and deadline
 limits were not enlarged to obtain these observations. Subsequent benchmark
 clock/reporting corrections leave production Rust unchanged and do not
 retroactively qualify the measured source.
+
+
+## Separately constrained primitive comparison, 2026-11-14 UTC
+
+The [initial three-node experiment](three-node-primitive-comparison-2026-11-14.md)
+and [bounded-writer follow-up](three-node-primitive-capacity-2026-11-14.md) measure
+all three public SQL/KV/Queue APIs with three independent one-vCPU/2-GiB nodes,
+a separate capped client and shared local RustFS. SQL/KV use three RF3 groups of
+eight cells; Queue uses three RF3 groups of 16 including declared DLQs. Serving
+leaders are balanced across nodes and complete physical enrollment is checked.
+
+The initial profile at `fdbe6961` verifies 62 of 120 timed windows. Its five
+complete cases are Fleet/bucket SQL/KV and bucket Queue; all Raft cases fail
+at concurrency-four warmup or Queue concurrency-one warmup. A real extent-store
+control confirms the fixture's 784-MiB disk bank cannot admit two 592-MiB private
+workspaces. The corrected profile at `d09569df` explicitly admits eight writer
+workspaces in a 4,928-MiB disk bank; the owned VM disk grows from 100 to 160 GiB.
+Node CPU/RAM, five-second deadlines/leases, image/manifest banks and SQL worker
+count remain unchanged. This is a benchmark configuration correction, not a
+production admission, fairness or collection fix.
+
+All six corrected Raft smoke cases pass at concurrency one/four. The subsequent
+30-second, two-repetition plan verifies 21 of 60 Raft timed windows, fails three
+and does not reach 36; no full Raft case completes. SQL/KV have verified
+one/four-client windows; Queue has verified one-client enqueue, delivery and
+settlement windows in both Raft durability modes. Raft overloads/deadlines at
+higher concurrency remain required work. Unconfirmed SQL updates can later
+replace earlier values, so a readback mismatch after uncertainty is not a
+corruption or lost-acknowledgement finding.
+
+The selected cross-mode comparison uses corrected Raft and the original
+Fleet/bucket baselines: 75 of 120 timed windows verify, four fail and 41 remain
+unmeasured; five of 12 cases complete. Fleet Queue separately fences with
+`NodeLeaseExpired` during verification after 415 acknowledged timed batches.
+Its timed delivery/settlement window remains unqualified. All failed cases,
+original identities, raw latency samples, logs and disks remain retained. The
+original RustFS service is restored after measurement.
+
+Rates and percentiles describe these source-bound local windows and differing
+acknowledgement/read implementations. Optimized `lab` uses size optimization;
+shared-host activity and the distinct disk profiles preclude isolated speedup
+or production-capacity claims. No OPT/CG gate or historical failure is reset.
+Next priorities remain bounded admission/progress, Fleet lease-renewal progress,
+original-identity reconciliation, sustainable complete-root manifest reclamation
+and the remaining independent-domain/authority/retirement/provider gates.

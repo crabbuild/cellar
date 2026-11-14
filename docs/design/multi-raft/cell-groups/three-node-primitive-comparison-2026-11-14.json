@@ -72,7 +72,51 @@
     "elapsed_seconds": 77.73678545816801,
     "driver_reaped_exit_code": 0,
     "production_inputs_unchanged": true,
-    "source_input_count": 3391
+    "source_input_count": 3391,
+    "artifact_profiles": [
+      {
+        "name": "cellar",
+        "kind": [
+          "lib"
+        ],
+        "fresh": true,
+        "profile": {
+          "opt_level": "s",
+          "debuginfo": "line-tables-only",
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        }
+      },
+      {
+        "name": "cellar-perf-baseline",
+        "kind": [
+          "bin"
+        ],
+        "fresh": true,
+        "profile": {
+          "opt_level": "s",
+          "debuginfo": "line-tables-only",
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        }
+      },
+      {
+        "name": "cellar-perf-raft",
+        "kind": [
+          "bin"
+        ],
+        "fresh": true,
+        "profile": {
+          "opt_level": "s",
+          "debuginfo": "line-tables-only",
+          "debug_assertions": false,
+          "overflow_checks": false,
+          "test": false
+        }
+      }
+    ]
   },
   "host_activity": {
     "capacity": {
