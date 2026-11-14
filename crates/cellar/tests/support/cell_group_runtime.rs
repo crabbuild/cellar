@@ -1030,7 +1030,8 @@ pub(super) use sql::{
 
 pub(super) use sql::{
     membership_delivery_fence, membership_lifecycle, membership_physical_delivery_fence,
-    membership_quorum_floor, membership_quorum_followers, membership_sync,
+    membership_quorum_floor, membership_quorum_followers,
+    membership_read_retries_without_unrelated_work, membership_sync,
 };
 
 pub(super) use sql::{seed_minority, seed_source};

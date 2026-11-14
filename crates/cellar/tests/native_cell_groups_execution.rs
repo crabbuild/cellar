@@ -243,6 +243,11 @@ async fn membership_follower_quorum_preserves_group_root_without_leader_authorit
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_read_retries_without_unrelated_work() -> Result<()> {
+    Box::pin(runtime_fixture::membership_read_retries_without_unrelated_work()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_controller_compacts_materialized_groups_during_writes() -> Result<()> {
     runtime_fixture::automatic_checkpoints(false, false).await
 }

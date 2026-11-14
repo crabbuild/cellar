@@ -675,7 +675,8 @@ pub(crate) use checkpoint_fairness::concurrent_checkpoints;
 mod membership;
 pub(crate) use membership::{
     membership_delivery_fence, membership_lifecycle, membership_physical_delivery_fence,
-    membership_quorum_floor, membership_quorum_followers, membership_sync,
+    membership_quorum_floor, membership_quorum_followers,
+    membership_read_retries_without_unrelated_work, membership_sync,
 };
 
 #[path = "cell_group_seed.rs"]
