@@ -417,30 +417,6 @@ impl Step {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn raft_stream_chunks_fit_the_complete_reply_codec() -> Result<()> {
-        for limit in [1024, 4096, 64 << 10, 1 << 20] {
-            let size = raft_chunk_limit(limit)?;
-            let encoded = |size| {
-                crate::application::consensus::native_rpc::encode_response(
-                    &crate::application::encode_rpc(&value(vec![255; size]))?,
-                )
-            };
-            assert!(size <= CHUNK_BYTES);
-            assert!(encoded(size)?.len() <= limit);
-            if size < CHUNK_BYTES {
-                assert!(encoded(size + 1)?.len() > limit);
-            }
-        }
-        assert!(raft_chunk_limit(1).is_err());
-        Ok(())
-    }
-}
-
 async fn cleanup(shared: &Shared, id: &str) -> Result<()> {
     loop {
         let entries = shared
@@ -571,5 +547,29 @@ pub(super) fn control(
         );
         read(storage, &chunk_key(&id, index as u64))?
             .ok_or_else(|| error("missing workflow stream chunk"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raft_stream_chunks_fit_the_complete_reply_codec() -> Result<()> {
+        for limit in [1024, 4096, 64 << 10, 1 << 20] {
+            let size = raft_chunk_limit(limit)?;
+            let encoded = |size| {
+                crate::application::consensus::native_rpc::encode_response(
+                    &crate::application::encode_rpc(&value(vec![255; size]))?,
+                )
+            };
+            assert!(size <= CHUNK_BYTES);
+            assert!(encoded(size)?.len() <= limit);
+            if size < CHUNK_BYTES {
+                assert!(encoded(size + 1)?.len() > limit);
+            }
+        }
+        assert!(raft_chunk_limit(1).is_err());
+        Ok(())
     }
 }

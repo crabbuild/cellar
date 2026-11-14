@@ -4,7 +4,23 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current combined primitive checkpoint
+## Current EventStream source checkpoint
+
+Source `6282bb46` adds the source journal, namespace-qualified producer identity,
+per-lane fresh-history preservation and shared framework work. Forty owning units
+and six existing Fleet conformance tests pass. Its overall cohort remains FAILED
+by strict unit-test Clippy: Workflow stream tests precede production items. The
+follow-up relocates that unchanged test module; retain the failed record and
+record the new lint result. See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
+
+The authenticated target adapter is being implemented separately in the attached
+`codex/cg17-event-target` checkout, based on `6282bb46`. It is not qualified or
+part of the published PR yet. It introduces private Event admission, request
+provenance and an authenticated transport purpose; finish its source binding,
+resource bootstrap and public API path before removing declaration refusals.
+Do not relabel source/Fleet tests as shared-group EventStream acceptance.
+
+## Previous combined primitive checkpoint
 
 Runtime source `c13a4745` integrates filesystem/inbox with Workflow, ordinary
 cron and exact alarm/maintenance lease fencing. Filesystem public recovery passes

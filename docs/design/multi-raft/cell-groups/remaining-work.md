@@ -50,6 +50,12 @@ their original request budgets before final drain. An initial RustFS proof run
 also fails managed trust-refresh startup; the later pass does not explain it.
 See the [current qualification](progress.md#cg-17-combined-filesystem-and-queue-proof-qualification).
 
+At source `6282bb46`, the EventStream source journal and shared work bridge pass
+40 owning units and six Fleet conformance tests. Strict unit-test Clippy still
+fails Workflow test placement; the follow-up relocates that unchanged module.
+This does not qualify the authenticated destination or public EventStream path.
+See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
+
 1. **Deliver EventStream end to end.** Implement ordinary publication and
    subscription routing, committed outbox discovery, destination authority,
    receipt/acknowledgement settlement and autonomous interrupted delivery

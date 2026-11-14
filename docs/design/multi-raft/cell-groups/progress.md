@@ -27,6 +27,46 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 EventStream source journal and shared work
+
+Runtime source `6282bb465a64d3b16bde41458c558f11065d476e` implements the
+EventStream source foundation. Business state, encoded events, sequence allocation
+and delivery discovery share rollback. Source ownership binds cluster, namespace
+and logical cell; per-lane incarnations retain old event bytes and pending seals
+when a fresh history opens a new producer lane. Framework work retains exact
+generations and leases through the bounded shared callback owner. The command
+SQL authorizer stays installed. See the [contract](event-stream-durability.md).
+
+Cohort `CG-17-event-source-6282bb46-119` passes all **40 selected owning units and
+six Fleet conformance tests**. New cases check rollback, stale Storage refusal,
+retained reopening, namespace-qualified identities, fresh-history lane/byte/seal
+preservation and retry-refusal rollback without a callback owner. Ordinary Fleet
+outbox, EventStream, filesystem and Workflow behavior also passes. Five frozen
+executables, all tracked input hashes and 35 hash-verified evidence files are
+retained on the workspace volume.
+
+The cohort remains **FAILED overall**: strict unit-test Clippy finds an existing
+Workflow stream test module before later production items. The follow-up moves
+that unchanged module after production definitions; its own lint result must be
+recorded before treating the build gate as closed. Build, format/layout,
+dependency/docs checks and all 44 plan/13 coverage-verifier units pass at the
+runtime source. No ignored tests or relaxed assertions are counted.
+
+The earlier `03e9072f` control remains FAILED with 27 verified evidence files.
+It records the redundant closure and catalog omission, the missing callback
+capability in the fresh-history test fixture, and a real Fleet typed-error
+regression. The corrected runtime restores `Forbidden`/foreign-source
+`InvalidRequest`, retains refusal rollback and passes those original assertions.
+Failed Fleet temporary-database retention was not established.
+
+This is private Raft SQLite source/work coverage plus ordinary Fleet regressions.
+It is **not RF3/RustFS EventStream qualification**. Public stream declarations
+and Raft event RPC still refuse. Next connect private authenticated destination
+admission, service/resource bootstrap and generation-local named resolution,
+then ordinary publication, subscriptions and autonomous interrupted delivery.
+Queue load/startup failures and CG-13/15/16 remain open. Acceptance stays
+**13/17 tasks and 147/195 cases**, with no complete primitive family accepted.
+
 ## CG-17 combined filesystem and Queue proof qualification
 
 Qualified runtime source: `c13a47453e79559533d408d8c87aff12f94b70a4`.
