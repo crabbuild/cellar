@@ -64,14 +64,23 @@ native live-binding configurations. Keep all failed controls and disks; a newer
 pass cannot erase them or establish a capacity-deadlock cause. The older
 intermittent archive-deadline failure also remains unexplained.
 
-1. Close current Queue load: materialized producer sequence 7 returns an
-   ambiguous deadline at `9a6055bd`; extents load and three Queue regressions
-   remain unrun. Compare the frozen `25d81992` control under equal conditions,
-   isolate the execution/retention path and fix it without raised budgets or
-   blind retries. The snapshot alone does not prove deadlock. Ordinary alarm
-   failure/restart and full RustFS exhaustion pass their scoped gates. Then
-   connect cron startup, occurrence identity/history and shared alarm projection,
-   with movement/wake, deployment/clock changes and release-profile process loss.
+1. Close Queue and cold S3-minimum admission deadlines. Source `15b9bf46`
+   fixes the confirmed queued-writer `NotReady` refusal with a bounded authority
+   wait, retaining FIFO/physical admission and original fences. Deadline guards,
+   four interleaving configurations and both ordinary RPC images pass. Native
+   load instead fails during cold DLQ onboarding; ordinary Queue fails on parent
+   sequence 2. Real RustFS load is unrun on this source. The equal-profile frozen
+   control comparison also failed both old and candidate executables. Preserve
+   these separate failures; neither a deadlock nor an alarm-only cause is proven.
+   See the [current writer checkpoint](progress.md#cg-17-fifo-writers-and-authority-readiness).
+   Source `13b93404` now delivers the reserved ordinary cron service,
+   backend-aware alarm installation, committed occurrence/history before handler
+   entry and autonomous startup. Retained recovery passes four native and four
+   real-RustFS configurations; see the
+   [cron checkpoint](progress.md#cg-17-ordinary-cron-startup-and-retained-recovery).
+   Finish its cron-only stateless/public daemon/CLI path and deployment transitions;
+   changed/removed schedules currently refuse. Movement/wake, clock changes,
+   independent voter/disk loss and release process loss remain gates.
 2. Complete the Workflow ownership/kernel units and qualify the follow-up, then
    complete Queue lifecycle/load and EventStream execution through their public
    adapters. Workflow source `50002981` passes native RF3 in both images and

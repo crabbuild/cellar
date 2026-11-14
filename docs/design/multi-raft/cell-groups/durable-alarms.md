@@ -1,8 +1,8 @@
 <!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
 
-# Ordinary durable alarms and native ingress
+# Ordinary durable alarms, cron and native ingress
 
-Purpose: Define shared-group alarm and stateless named-cell ownership and qualification boundaries.
+Purpose: Define shared-group alarm, cron and stateless named-cell ownership and qualification boundaries.
 
 Register an ordinary factory with `Registry::raft_cell` and enable
 `RaftClass::durable_callbacks`. The ordinary `Storage::set_alarm`, `get_alarm`
@@ -108,6 +108,45 @@ source `dbc6e979`. See the
 Earlier request/callback deadline controls remain unresolved release concerns;
 a passing component run does not erase them or qualify the complete family.
 
+## Ordinary deployed cron
+
+An application with registered Raft classes can declare ordinary cron expressions
+through its existing deployment configuration. Registration creates a reserved
+`.cron` definition bound to the script, expressions and deployment/history
+configuration. Provision its matching namespace before managed startup; a missing
+or mismatched namespace refuses startup. Duplicate schedule scopes refuse before
+log opening. Changed/removed declarations refuse instead of silently dropping
+retained obligations. Cron-only stateless admission and the actual daemon/CLI
+path remain public cutover gates.
+
+One bounded, joined bootstrap owner per node resolves or enrolls the schedule
+using a stable creation identity. A retained history is never reinitialized.
+The committed alarm projection drives ordinary discovery and callback leases;
+there is no per-idle-cell cron task. Installation checks include a claimed alarm
+even when the application-facing `get_alarm` hides that active generation.
+
+The existing cron state machine persists its owed occurrence, attempt and history
+through `Storage::sync` before invoking the stateless scheduled handler. It also
+checkpoints each expression's settlement before continuing. Retained restart
+resumes the same occurrence and preserves ordinary retry/no-retry semantics,
+declared variables and Context retirement. External side effects remain at least
+once and require their own idempotency contract.
+
+Signed cron history inspection resolves the configured namespace and reads a
+linearizable pinned image within the original request budget. Trusted framework
+reads use read authority and reject non-read-only statements before stepping;
+ordinary SQL still cannot access framework tables or mutate through query Storage.
+
+At `13b93404`, basic autonomous cron and all-voter joined retained restart pass
+four native and four real-RustFS image/minimum configurations. Declaration
+refusals, framework read mutation/privacy guards and ordinary Fleet cron also
+pass. The fixture explicitly selects a 30-second callback budget; public request
+budgets and production quotas are unchanged. Its RF3 voters share one process
+with distinct disks and one SQL worker each. See the
+[source-pinned checkpoint](progress.md#cg-17-ordinary-cron-startup-and-retained-recovery)
+for negative controls and complete qualification limits. Workflow-specific
+schedules remain a separate delivery.
+
 ## Qualification and remaining work
 
 The `ordinary-alarms` RustFS suite covers both image forms and Quorum/S3
@@ -125,9 +164,8 @@ separate Queue enrollment and archive-deadline regression guards; see the
 [source-pinned checkpoint](progress.md#cg-17-ordinary-native-ingress-and-durable-alarms).
 
 Archive outages, movement/wake and independent voter/disk-loss qualification
-remain required. Cron still
-requires its deployment/startup adapter, persisted occurrence/history authority
-and matching shared alarm projection. Reuse the existing cron state machine;
-do not silently admit unsupported declarations. EventStream and Workflow remain
+remain required. Ordinary cron additionally needs deployment transitions and
+clock discontinuities, public daemon/CLI and cron-only stateless qualification,
+and release process-loss coverage. EventStream and Workflow remain
 separate deliveries. Full primitive compatibility and the combined release gate
 remain in the [delivery priorities](remaining-work.md#primitive-delivery-priority).

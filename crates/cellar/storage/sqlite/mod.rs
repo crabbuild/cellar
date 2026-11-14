@@ -3742,43 +3742,71 @@ pub(crate) fn system_sql(
     query: &str,
     bindings: &[cellar_native::sql::Value],
 ) -> anyhow::Result<Vec<crate::application::storage::SqlRow>> {
+    with_application_storage_write(scope, |connection| {
+        system_sql_rows(connection, query, bindings, false)
+    })
+}
+
+/// Read trusted framework state without acquiring command write authority.
+/// Immutable queries retain their authorizer; command reads additionally check
+/// the prepared statement before stepping it. Neither path admits mutations.
+pub(crate) fn system_sql_read(
+    scope: &str,
+    query: &str,
+    bindings: &[cellar_native::sql::Value],
+) -> anyhow::Result<Vec<crate::application::storage::SqlRow>> {
+    require_sql_healthy(scope).map_err(anyhow::Error::msg)?;
+    with(scope, |connection| {
+        system_sql_rows(connection, query, bindings, true)
+    })
+    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
+}
+
+fn system_sql_rows(
+    connection: &Connection,
+    query: &str,
+    bindings: &[cellar_native::sql::Value],
+    read_only: bool,
+) -> anyhow::Result<Vec<crate::application::storage::SqlRow>> {
     use cellar_native::sql::Value;
     use rusqlite::types::{Value as SqliteValue, ValueRef};
-    with_application_storage_write(scope, |connection| {
-        as_framework_sql(|| {
-            let bindings = bindings.iter().map(|value| match value {
-                Value::Null => SqliteValue::Null,
-                Value::Integer(value) => SqliteValue::Integer(*value),
-                Value::Real(value) => SqliteValue::Real(*value),
-                Value::Text(value) => SqliteValue::Text(value.clone()),
-                Value::Blob(value) => SqliteValue::Blob(value.clone()),
-            });
-            let mut statement = connection.prepare_cached(query)?;
-            let columns: Vec<String> = statement
-                .column_names()
-                .iter()
-                .map(|name| name.to_string())
-                .collect();
-            let mut rows = statement.query(rusqlite::params_from_iter(bindings))?;
-            let mut result = Vec::new();
-            while let Some(row) = rows.next()? {
-                let mut values = crate::application::storage::SqlRow::new();
-                for (index, column) in columns.iter().enumerate() {
-                    let value = match row.get_ref(index)? {
-                        ValueRef::Null => Value::Null,
-                        ValueRef::Integer(value) => Value::Integer(value),
-                        ValueRef::Real(value) => Value::Real(value),
-                        ValueRef::Text(value) => {
-                            Value::Text(String::from_utf8_lossy(value).into_owned())
-                        }
-                        ValueRef::Blob(value) => Value::Blob(value.to_vec()),
-                    };
-                    values.insert(column.clone(), value);
-                }
-                result.push(values);
+    as_framework_sql(|| {
+        let bindings = bindings.iter().map(|value| match value {
+            Value::Null => SqliteValue::Null,
+            Value::Integer(value) => SqliteValue::Integer(*value),
+            Value::Real(value) => SqliteValue::Real(*value),
+            Value::Text(value) => SqliteValue::Text(value.clone()),
+            Value::Blob(value) => SqliteValue::Blob(value.clone()),
+        });
+        let mut statement = connection.prepare_cached(query)?;
+        anyhow::ensure!(
+            !read_only || statement.readonly() && statement.column_count() > 0,
+            "framework read requires a read-only query"
+        );
+        let columns: Vec<String> = statement
+            .column_names()
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+        let mut rows = statement.query(rusqlite::params_from_iter(bindings))?;
+        let mut result = Vec::new();
+        while let Some(row) = rows.next()? {
+            let mut values = crate::application::storage::SqlRow::new();
+            for (index, column) in columns.iter().enumerate() {
+                let value = match row.get_ref(index)? {
+                    ValueRef::Null => Value::Null,
+                    ValueRef::Integer(value) => Value::Integer(value),
+                    ValueRef::Real(value) => Value::Real(value),
+                    ValueRef::Text(value) => {
+                        Value::Text(String::from_utf8_lossy(value).into_owned())
+                    }
+                    ValueRef::Blob(value) => Value::Blob(value.to_vec()),
+                };
+                values.insert(column.clone(), value);
             }
-            Ok(result)
-        })
+            result.push(values);
+        }
+        Ok(result)
     })
 }
 
@@ -4778,6 +4806,17 @@ pub(crate) fn raft_visible_alarm() -> anyhow::Result<Option<i64>> {
 }
 
 /// Fixed framework work metadata under the currently installed private command.
+pub(crate) fn raft_alarm_installed() -> anyhow::Result<bool> {
+    with(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| {
+            crate::application::consensus::native_work::get(connection, "alarm")
+                .map(|alarm| alarm.is_some())
+        })
+    })
+    .ok_or_else(|| anyhow::anyhow!("no Raft alarm storage"))?
+}
+
+/// Fixed framework work metadata under the currently installed private command.
 pub(crate) fn raft_native_work<T>(
     callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
@@ -4789,6 +4828,49 @@ pub(crate) fn raft_native_work<T>(
 #[cfg(test)]
 mod system_schema_tests {
     use super::*;
+
+    #[test]
+    fn framework_reads_refuse_mutations_and_keep_user_authorization() -> anyhow::Result<()> {
+        let cells = Cells::default();
+        let _installed = cells.install();
+        let directory = tempfile::tempdir()?;
+        let scope = "Schema:framework-read";
+        open(
+            scope,
+            directory.path().join("cell.sqlite").to_str().unwrap(),
+        )?;
+        put_json(scope, "retained", &serde_json::json!(42))?;
+        let query = "SELECT v FROM __sys_cell_kv WHERE scope=? AND k=?";
+        let bindings = [scope.into(), "retained".into()];
+        assert_eq!(
+            system_sql_read(scope, query, &bindings)?[0]["v"],
+            cellar_native::sql::Value::Text("42".into())
+        );
+        for mutation in [
+            "DELETE FROM __sys_cell_kv RETURNING v",
+            "UPDATE __sys_cell_kv SET v='0' RETURNING v",
+            "DROP TABLE __sys_cell_kv",
+            "CREATE TABLE __sys_read_side_effect(n)",
+            "BEGIN",
+            "PRAGMA user_version=99",
+        ] {
+            assert!(
+                system_sql_read(scope, mutation, &[]).is_err(),
+                "read ran {mutation}"
+            );
+        }
+        assert!(
+            matches!(get_stored(scope, "retained")?, Some(StoredValue::Json(value)) if value == "42")
+        );
+        assert!(with(scope, Connection::is_autocommit).unwrap());
+        assert!(system_sql_read(scope, "SELECT * FROM __sys_read_side_effect", &[]).is_err());
+        let user_bindings = [serde_json::json!(scope), serde_json::json!("retained")];
+        assert!(sql_exec(scope, query, &user_bindings).is_err());
+        assert!(sql_cursor_start(scope, query, &user_bindings).is_err());
+        assert!(!USER_SQL.with(std::cell::Cell::get));
+        close(scope);
+        Ok(())
+    }
 
     #[test]
     fn reserved_schema_and_replication_survive_storage_reset_and_reopen() -> anyhow::Result<()> {

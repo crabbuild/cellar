@@ -54,7 +54,7 @@ pub(super) fn finish(storage: &Storage, id: i64, mut document: Value) -> Result<
 pub(super) fn page(storage: &Storage, query: Query) -> Result<Value> {
     query.validate()?;
     let exists = !storage
-        .system_sql(
+        .system_sql_read(
             "SELECT 1 FROM sqlite_schema WHERE name='__sys_cron_executions'",
             &[],
         )?
@@ -73,7 +73,7 @@ pub(super) fn page(storage: &Storage, query: Query) -> Result<Value> {
         .expression
         .map(SqlValue::Text)
         .unwrap_or(SqlValue::Null);
-    let rows = storage.system_sql(
+    let rows = storage.system_sql_read(
         "SELECT id,document FROM __sys_cron_executions WHERE (? IS NULL OR id<?) AND (? IS NULL OR expression=?) ORDER BY id DESC LIMIT ?",
         &[before.clone(), before, expression.clone(), expression, (i64::from(query.limit) + 1).into()],
     )?;

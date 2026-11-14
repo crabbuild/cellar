@@ -943,10 +943,31 @@ async fn arm_cron_schedule(app: AppHandle, cell: String) -> anyhow::Result<()> {
 /// node -- the same arbiter that makes an alarm fire once per fleet makes a
 /// cron trigger fire once too. Boot and adoption both come through here, so
 /// a schedule change arrives with the deployment that carries it.
+fn uses_raft_cron(app: &AppHandle, cell: &str) -> bool {
+    app.runtime.as_ref().is_some_and(|runtime| {
+        runtime
+            .generation()
+            .native_applications
+            .values()
+            .any(|application| {
+                application
+                    .resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)
+                    .ok()
+                    .and_then(|class| class.cron_scope())
+                    .as_deref()
+                    == Some(cell)
+            })
+    })
+}
+
 fn spawn_cron_arm(app: AppHandle) {
     let Some(cell) = app.runtime.as_ref().and_then(|runtime| runtime.cron_cell()) else {
         return;
     };
+    if uses_raft_cron(&app, &cell) {
+        // The joined Raft bootstrap enrolls and arms its shared scheduling cell.
+        return;
+    }
     crate::asyncrt::spawn(async move {
         // Routing needs node authority, exactly as the wake scan does.
         let deadline = Instant::now() + std::time::Duration::from_secs(30);
