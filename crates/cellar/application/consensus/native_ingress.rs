@@ -16,7 +16,7 @@ pub(crate) fn rpc(
     args: RpcData,
     call_scope: CallScope,
 ) -> HandlerFuture<RpcData> {
-    submit(context, scope, name, method, args, call_scope, false)
+    submit(context, scope, name, method, args, call_scope, Purpose::Rpc)
 }
 
 pub(crate) fn resource_rpc(
@@ -27,7 +27,41 @@ pub(crate) fn resource_rpc(
     args: RpcData,
     call_scope: CallScope,
 ) -> HandlerFuture<RpcData> {
-    submit(context, scope, name, method, args, call_scope, true)
+    submit(
+        context,
+        scope,
+        name,
+        method,
+        args,
+        call_scope,
+        Purpose::Resource,
+    )
+}
+
+pub(crate) fn event_rpc(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    call_scope: CallScope,
+    authority: crate::application::event_stream::Authority,
+) -> HandlerFuture<RpcData> {
+    submit(
+        context,
+        scope,
+        name,
+        method,
+        args,
+        call_scope,
+        Purpose::Event(Box::new(authority)),
+    )
+}
+
+enum Purpose {
+    Rpc,
+    Resource,
+    Event(Box<crate::application::event_stream::Authority>),
 }
 
 fn submit(
@@ -37,8 +71,13 @@ fn submit(
     method: String,
     args: RpcData,
     call_scope: CallScope,
-    resource: bool,
+    purpose: Purpose,
 ) -> HandlerFuture<RpcData> {
+    let resource = matches!(&purpose, Purpose::Resource);
+    let authority = match purpose {
+        Purpose::Event(authority) => Some(*authority),
+        _ => None,
+    };
     let prepared = (|| -> Result<_> {
         context.check_turn()?;
         anyhow::ensure!(
@@ -62,7 +101,17 @@ fn submit(
                 .copied()
         });
         anyhow::ensure!(
-            native.is_some()
+            authority.as_ref().is_some_and(|authority| {
+                crate::application::event_stream::validate_target(&scope, authority).is_ok()
+                    && authority.validate_operator_target(&scope, &method).is_ok()
+                    && context.worker_config.stream_bindings.iter().any(|binding| {
+                        binding.explicit().is_ok_and(|binding| {
+                            binding.principal == authority.principal
+                                && binding.grant == authority.grant
+                                && binding.resource.same_identity(&authority.resource)
+                        })
+                    })
+            }) || native.is_some()
                 || context.sql_bindings.values().any(|database| {
                     crate::engine_api::sql_cell_scope(database) == scope
                         && name.as_deref() == Some(database.as_str())
@@ -116,6 +165,9 @@ fn submit(
         admitted.reservation = admitted
             .reservation
             .with_reply_limit(call_scope.reply_limit());
+        if let Some(authority) = authority {
+            return Ok(owner.event_ingress(admitted, call_scope, deadline, authority));
+        }
         Ok(match native {
             Some(configuration) if read => {
                 owner.workflow_read(admitted, call_scope, deadline, configuration)

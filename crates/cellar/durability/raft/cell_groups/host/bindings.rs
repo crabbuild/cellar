@@ -222,7 +222,9 @@ impl CellGroupHost {
                 ),
             ));
         }
-        let (target_key, target) = if class == crate::deploy::QUEUE_CLASS {
+        let (target_key, target) = if crate::application::event_stream::is_event_scope(scope) {
+            select_event(&self.inner.namespaces, Some(source.cluster), scope)?
+        } else if class == crate::deploy::QUEUE_CLASS {
             select_queue(&self.inner.namespaces, Some(source.cluster), scope)?
         } else {
             select(&self.inner.namespaces, key, configuration, class)?
@@ -310,6 +312,12 @@ impl CellGroupHost {
             .split_once(':')
             .map(|(class, _)| class)
             .ok_or(CellDispatchError::Invalid("builtin binding scope"))?;
+        if crate::application::event_stream::is_event_scope(scope) {
+            let (key, target) = select_event(&self.inner.namespaces, None, scope)?;
+            let mut route = route(key, target, scope, method, Access::Binding)?;
+            route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
+            return Ok(route);
+        }
         if class == crate::deploy::SQL_CLASS {
             return self.sql_route(scope, method, log, Access::Binding);
         }
@@ -517,7 +525,19 @@ pub(super) fn validate(
             continue;
         };
         for class in source.class.cell_binding_classes().into_iter().flatten() {
-            if class == crate::deploy::QUEUE_CLASS {
+            if class == crate::deploy::EVENT_STREAM_CLASS
+                || class == crate::deploy::EVENT_CATALOG_CLASS
+            {
+                for scope in source
+                    .class
+                    .cell_event_scopes()
+                    .into_iter()
+                    .flatten()
+                    .filter(|scope| scope.split_once(':').is_some_and(|(c, _)| c == class))
+                {
+                    select_event(namespaces, Some(key.0), scope)?;
+                }
+            } else if class == crate::deploy::QUEUE_CLASS {
                 for scope in source.class.cell_queue_scopes().into_iter().flatten() {
                     select_queue(namespaces, Some(key.0), scope)?;
                 }
@@ -527,6 +547,32 @@ pub(super) fn validate(
         }
     }
     Ok(())
+}
+
+fn select_event<'a>(
+    namespaces: &'a BTreeMap<(ClusterId, NamespaceId), Arc<Binding>>,
+    cluster: Option<ClusterId>,
+    scope: &str,
+) -> Result<((ClusterId, NamespaceId), &'a Binding), CellDispatchError> {
+    let class = scope
+        .split_once(':')
+        .ok_or(CellDispatchError::Invalid("event scope"))?
+        .0;
+    let mut owners = namespaces.iter().filter(|(key, binding)| {
+        cluster.is_none_or(|cluster| key.0 == cluster)
+            && binding.class.name() == class
+            && binding
+                .class
+                .cell_event_scopes()
+                .is_some_and(|scopes| scopes.contains(scope))
+    });
+    let (key, binding) = owners
+        .next()
+        .ok_or(CellDispatchError::Invalid("event owner missing"))?;
+    if owners.next().is_some() {
+        return Err(CellDispatchError::Invalid("event owner ambiguous"));
+    }
+    Ok((*key, binding.as_ref()))
 }
 
 /// Namespace declarations are the durable ownership catalogue. Loading another

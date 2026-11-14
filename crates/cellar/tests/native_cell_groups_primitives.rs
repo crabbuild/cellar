@@ -42,6 +42,8 @@ mod cursor_rollback;
 mod dispatch;
 #[path = "support/cell_group_erase.rs"]
 mod erase;
+#[path = "support/cell_group_event_stream.rs"]
+mod event_streams;
 #[path = "support/cell_group_filesystem.rs"]
 mod filesystem;
 #[path = "support/cell_group_interleaving.rs"]
@@ -74,6 +76,11 @@ mod workflow_contract;
 #[path = "support/cell_group_workflow.rs"]
 mod workflows;
 
+#[test]
+fn event_stream_registration_requires_resolved_host_owned_declarations() -> Result<()> {
+    event_streams::registration()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(false)).await
@@ -88,6 +95,31 @@ fn cron_declarations_refuse_changed_or_invalid_contracts() -> Result<()> {
 #[ignore = "requires the owned RustFS qualification backend"]
 async fn rustfs_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn event_stream_publication_subscriptions_and_outbox_recover_through_quorum() -> Result<()> {
+    event_streams::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_event_stream_publication_subscriptions_and_outbox_recover_through_quorum(
+) -> Result<()> {
+    event_streams::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_event_stream_publication_subscriptions_and_outbox_recover_through_quorum(
+) -> Result<()> {
+    event_streams::qualify(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_event_stream_publication_subscriptions_and_outbox_recover_through_quorum(
+) -> Result<()> {
+    event_streams::qualify(true, true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -800,6 +800,9 @@ impl CommandDatabase {
             );
         }
         super::filesystem::validate_raft_existing(&connection)?;
+        super::outbox::validate_raft_existing(&connection)?;
+        super::event_schema::stream_state(&connection)?;
+        super::event_schema::check_version(&connection, "__sys_event_catalog_schema")?;
         capacity::initialize(&connection)?;
         connection.authorizer(Some(authorize_command))?;
         Ok(Self {

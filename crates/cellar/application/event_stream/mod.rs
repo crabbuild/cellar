@@ -39,6 +39,7 @@ mod lifecycle;
 mod lifecycle_store;
 pub(crate) mod name_resolution;
 mod producer;
+pub(crate) mod raft;
 pub(crate) mod readiness;
 mod retirement;
 pub(crate) mod retirement_proof;
@@ -340,7 +341,7 @@ impl<E> Stream<E> {
 
 impl Context {
     pub fn stream<E: Event>(&self, name: &str) -> Result<Stream<E>> {
-        self.check_turn()?;
+        self.check_binding_turn()?;
         let binding = self
             .worker_config
             .stream_bindings

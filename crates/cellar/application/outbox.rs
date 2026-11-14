@@ -26,20 +26,20 @@ fn number(row: &SqlRow, column: &str) -> Result<i64> {
 }
 
 pub(crate) async fn dispatch(context: Context, installation: Installation) -> Result<Output> {
-    context.check_turn()?;
+    context.check_binding_turn()?;
     let db = context.storage()?;
     let now = crate::asyncrt::wall_ms();
     if db.work_installation(Reason::Outbox)? != Some(installation) {
         return Ok(Output::Done);
     }
     db.ensure_outbox_schema()?;
-    if crate::runtime::source_destruction::pending(&db)? {
+    if !db.is_raft() && crate::runtime::source_destruction::pending(&db)? {
         let result = async {
             crate::runtime::source_destruction::verify(&context).await?;
             crate::runtime::source_destruction::clean(&context).await
         }
         .await;
-        context.check_turn()?;
+        context.check_binding_turn()?;
         if result.is_err() || crate::runtime::source_destruction::pending(&db)? {
             crate::runtime::source_destruction::schedule(
                 &db,
@@ -95,7 +95,16 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
             Some(operation),
         )
     } else {
-        let (records, last) = append_batch(&db, &lane, limits)?;
+        let bound = if db.is_raft() {
+            Some((
+                binding.clone(),
+                context.identity().unwrap().scope.clone(),
+                event_stream::raft::append_limit(&binding)?,
+            ))
+        } else {
+            None
+        };
+        let (records, last) = append_batch(&db, &lane, limits, bound.as_ref())?;
         (
             "__streamAppend",
             json!([{"protocol":1,"binding":binding,"lane":lane,"records":records}]),
@@ -123,8 +132,11 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
         tx.schedule_work(Reason::Outbox, retry)
     })?;
     // Discovery must precede transmission as well as the normal data/ownership
-    // proof. The saved retry deadline remains armed while the RPC is pending.
-    db.sync().await?;
+    // proof. Shared child dispatch proves the saved retry deadline together
+    // with its exact journaled intent; legacy dispatch needs this checkpoint.
+    if !db.is_raft() {
+        db.sync().await?;
+    }
     let authority = event_stream::authority::Authority::delivery(&context, &binding)?;
     let services = context.io.host_services();
     let metric_timer = services.events().metrics.timer(
@@ -141,7 +153,7 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
     )
     .await;
     metric_timer.finish(result.is_ok());
-    context.check_turn()?;
+    context.check_binding_turn()?;
     let current = db.system_sql(
         "SELECT dispatch_generation FROM __sys_outbox_lanes WHERE lane=?",
         &[lane.clone().into()],
@@ -272,6 +284,7 @@ fn append_batch(
     db: &super::Storage,
     lane: &str,
     limits: cellar_logic::event_stream::Limits,
+    bound: Option<&(Binding, String, usize)>,
 ) -> Result<(Vec<String>, i64)> {
     let caps = db.system_sql(
         "SELECT bytes,records FROM __sys_outbox_batch_limits WHERE lane=?",
@@ -328,8 +341,18 @@ fn append_batch(
             envelope.sequence == number(&candidate, "sequence")?,
             "outbox envelope sequence does not match its row"
         );
-        last = Some(envelope.sequence);
         records.push(base64::engine::general_purpose::STANDARD.encode(bytes));
+        if let Some((binding, source, maximum)) = bound {
+            if !event_stream::raft::append_fits(binding, source, lane, &records, *maximum)? {
+                records.pop();
+                anyhow::ensure!(
+                    !records.is_empty(),
+                    "retained event exceeds destination command capacity"
+                );
+                break;
+            }
+        }
+        last = Some(envelope.sequence);
         size = next_size;
     }
     anyhow::ensure!(!records.is_empty(), "outbox lane has no pending prefix");

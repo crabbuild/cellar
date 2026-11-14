@@ -66,6 +66,14 @@ impl Drop for Pending {
 pub(super) async fn activate(app: AppHandle, generation: &Generation) -> Result<()> {
     generation.begin_event_activation();
     if generation.event_streams().is_empty() && generation.event_bindings().is_empty() {
+        generation.event_readiness.pin(
+            generation
+                .raft_event_bindings()
+                .iter()
+                .map(|binding| binding.explicit())
+                .collect::<Result<Vec<_>>>()?,
+        )?;
+        generation.event_readiness.finish(Ok(()));
         return Ok(());
     }
     let mut pending = Pending(Some(generation.event_readiness.clone()));
@@ -206,7 +214,11 @@ async fn activate_inner(app: &AppHandle, generation: &Generation) -> Result<()> 
             "event resource does not match the current deployment definition"
         );
     }
-    let mut activated = Vec::new();
+    let mut activated = generation
+        .raft_event_bindings()
+        .iter()
+        .map(|binding| binding.explicit())
+        .collect::<Result<Vec<_>>>()?;
     for declaration in generation.event_bindings() {
         let binding = if declaration.resource.id.is_some() {
             declaration.explicit()?

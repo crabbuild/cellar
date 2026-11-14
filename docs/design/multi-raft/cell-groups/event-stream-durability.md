@@ -4,10 +4,12 @@
 
 Purpose: Define the source journal, callback ownership and remaining public EventStream adapters.
 
-This is part of CG17-04 through CG17-08. Public shared-group EventStream
-registration remains refused until authenticated target RPC, service registration
-and resource activation are connected. The source implementation alone does not
-establish end-to-end publication or subscription.
+This is part of CG17-04 through CG17-08. The
+[public EventStream adapter](event-stream-durable-work.md) connects these source
+primitives to authenticated target RPC, resource ownership and subscriptions.
+The source implementation alone does not establish end-to-end qualification;
+the [progress record](progress.md#cg-17-eventstream-publishing-subscriptions-and-outbox)
+tracks that adapter's executed checks.
 
 ## Source state and identity
 

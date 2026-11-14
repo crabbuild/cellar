@@ -238,7 +238,7 @@ async fn retire(context: &Context, body: &Value) -> Result<Value> {
             ));
         }
     }
-    context.check_turn()?;
+    context.check_binding_turn()?;
     db.tx(|tx| {
         if let Some(prior) = receipt(tx, &request.operation)? {
             validate_receipt(&prior, &caller, "retire", Some(&digest))?;
@@ -274,7 +274,32 @@ fn retirement_status(context: &Context, body: &Value) -> Result<Value> {
 fn configuration_status(context: &Context) -> Result<Value> {
     let caller = store::authority(context, Action::Configure)?;
     let db = context.storage()?;
-    status(&authorize_resource(&db, &caller, Action::Configure)?)
+    let row = db
+        .system_sql(
+            "SELECT * FROM __sys_event_catalog WHERE id=?",
+            &[caller.resource.id.clone().into()],
+        )?
+        .into_iter()
+        .next()
+        .ok_or_else(|| error(ErrorCode::NotInitialized, "catalog resource missing"))?;
+    let definition = match row.get("definition") {
+        Some(SqlValue::Text(encoded)) => encoded.clone(),
+        _ => {
+            // The existing intent was installed by trusted provisioning. Reading
+            // its status grants no authority to create or replace that intent.
+            let original: Authority =
+                serde_json::from_str(&store::text(&row, "pending_authority")?)?;
+            original.require_provisioning()?;
+            store::text(&row, "pending_definition")?
+        }
+    };
+    store::authorize(
+        &serde_json::from_str(&definition)?,
+        &caller,
+        Action::Configure,
+        None,
+    )?;
+    status(&row)
 }
 
 fn resolve(context: &Context) -> Result<Value> {
@@ -338,7 +363,12 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
             &[crate::asyncrt::wall_ms().saturating_add(1000).into(),id.into(),operation.clone().into()])?;
         schedule(tx)
     })?;
-    db.sync().await?;
+    // Shared child dispatch proves this retry deadline together with its exact
+    // journaled intent before any target I/O. Legacy dispatch needs an explicit
+    // source checkpoint here.
+    if !db.is_raft() {
+        db.sync().await?;
+    }
     let (method, args) = if retiring {
         let request: super::Retirement =
             serde_json::from_str(&store::text(&row, "pending_retirement")?)?;
@@ -363,7 +393,7 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
         args,
     )
     .await;
-    context.check_turn()?;
+    context.check_binding_turn()?;
     match result {
         Ok(reply) => {
             if reply["resource"].as_str() != Some(definition.resource.id.as_str())
@@ -421,6 +451,34 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
         }
     }
     operation_result(&db, id, &operation)
+}
+
+/// Install only a compiled resource intent. Its active receipt still waits for
+/// an independently proven partition command in the ordinary reconciler.
+pub(crate) fn provision(context: &Context, definition: &Definition, operation: &str) -> Result<()> {
+    let db = context.storage()?;
+    open(&db)?;
+    if !db
+        .system_sql(
+            "SELECT id FROM __sys_event_catalog WHERE id=?",
+            &[definition.resource.id.clone().into()],
+        )?
+        .is_empty()
+    {
+        return Ok(());
+    }
+    let caller = store::authority(context, Action::Configure)?;
+    caller.require_provisioning()?;
+    store::authorize(definition, &caller, Action::Configure, None)?;
+    let encoded = serde_json::to_string(definition)?;
+    use sha2::{Digest, Sha256};
+    let digest = hex::encode(Sha256::digest(encoded.as_bytes()));
+    let authority = serde_json::to_string(&caller)?;
+    db.tx(|tx| {
+        tx.system_sql("INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,desired_revision,pending_definition,pending_authority,operation,digest,operation_authority,retry_at_ms) VALUES(?,?,'creating',?,?,?,?,?,?,?,?,?,?)",&[definition.resource.id.clone().into(),definition.resource.name.clone().into(),definition.resource.tenant.clone().into(),definition.resource.application.clone().into(),definition.resource.family.clone().into(),definition.revision.into(),encoded.clone().into(),authority.clone().into(),operation.into(),digest.clone().into(),authority.clone().into(),crate::asyncrt::wall_ms().into()])?;
+        insert_receipt(tx,&caller,operation,"configure",&digest)?;
+        schedule(tx)
+    })
 }
 
 async fn configure(context: &Context, body: &Value) -> Result<Value> {

@@ -56,15 +56,16 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-1. **Deliver EventStream end to end.** Implement ordinary publication and
-   subscription routing, committed outbox discovery, destination authority,
-   receipt/acknowledgement settlement and autonomous interrupted delivery
-   recovery. The integrated inbox bridge alone is insufficient. Keep original
-   event/lane identities through movement and new-incarnation recovery; never
-   treat a source commit as destination acceptance.
-   The source journal, per-lane identity and shared work bridge are described in
-   the [EventStream contract](event-stream-durability.md). Public activation still
-   requires the authenticated target path and resource bootstrap.
+1. **Broaden EventStream qualification and adapters.** The authenticated
+   explicit-UUID adapter passes native/Axum and real-RustFS cases in both image
+   forms, including publication, autonomous outbox recovery and inbox-protected
+   subscriptions. Preserve independent source and destination proofs. Named
+   selectors, operator inventory/retirement proof, cross-deployment grant changes,
+   movement/wake, sustained load, independent voter limits and all-voter disk
+   loss remain separate gates. See the [qualification record](progress.md#cg-17-eventstream-publishing-subscriptions-and-outbox),
+   [adapter contract](event-stream-durable-work.md) and
+   [source journal contract](event-stream-durability.md).
+
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
    and fault oracles, then resolve producer deadlines and the older final-drain
    failures under the unchanged load and budgets. Qualify both image forms.

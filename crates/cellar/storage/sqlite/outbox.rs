@@ -68,6 +68,13 @@ pub(super) fn restore_schema(connection: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub(super) fn validate_raft_existing(connection: &Connection) -> anyhow::Result<()> {
+    if check_schema(connection)? {
+        validate_retained(connection)?;
+    }
+    Ok(())
+}
+
 fn open_schema(connection: &Connection) -> anyhow::Result<()> {
     SCHEMA.open(connection)
 }
@@ -212,6 +219,20 @@ fn emit_with_history(
     anyhow::ensure!(now_ms >= 0, "event creation time must be nonnegative");
     let source = history.map_or(scope, |history| history.cell.as_str());
     let expected_owner = source_owner(source, history);
+    // Ordinary SDK sources carry route metadata. Raw internal command tests
+    // exercise the source primitive before a destination adapter is installed.
+    let input_limit = if history.is_some() {
+        crate::storage::capture_raft_dispatch()?
+            .map(|dispatch| {
+                dispatch.event_wire_limit(
+                    &crate::application::event_stream::cell_scope(&binding.resource)?,
+                    "__streamAppend",
+                )
+            })
+            .transpose()?
+    } else {
+        None
+    };
     let raft = command::with(|_| ()).is_some();
     anyhow::ensure!(
         raft == history.is_some(),
@@ -355,6 +376,23 @@ fn emit_with_history(
                 // Apply the same JSON recursion/shape bound as destination
                 // decoding before accepting a durable delivery obligation.
                 let _: Envelope = serde_json::from_slice(&bytes)?;
+                if let Some(input_limit) = input_limit {
+                    use base64::Engine;
+                    let record = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    if !crate::application::event_stream::raft::append_fits(
+                        binding,
+                        source,
+                        &lane,
+                        &[record],
+                        input_limit,
+                    )? {
+                        return Err(DeliveryError::new(
+                            ErrorCode::PayloadTooLarge,
+                            "event exceeds destination command capacity",
+                        )
+                        .into());
+                    }
+                }
                 let size = i64::try_from(bytes.len())?;
                 let (count, stored_bytes): (i64, i64) = connection.query_row(
                     "SELECT rows,bytes FROM __sys_outbox_stats WHERE singleton=1",
