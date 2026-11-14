@@ -6,7 +6,9 @@ use super::*;
 
 impl Suspended {
     pub(super) fn try_park(&mut self, cache: &RpcCache, now: u64) -> Result<(), ExecutionError> {
-        if self.commits.is_none() || !self.turn.can_park()? {
+        let can_park = self.commits.is_some() && self.turn.can_park()?;
+        tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?self.cell, can_park, commits = self.commits.is_some(), "park-check");
+        if self.commits.is_none() || !can_park {
             return Ok(());
         }
         let mut executor = self.executor.take().ok_or_else(unavailable)?;
@@ -22,6 +24,7 @@ impl Suspended {
         activation.fence = fence;
         cache.put(self.cell.clone(), activation.clone(), now)?;
         self.retention.lease.park()?;
+        tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?self.cell, "parked");
         Ok(())
     }
 
@@ -34,7 +37,10 @@ impl Suspended {
     ) -> Poll<Result<(), ExecutionError>> {
         if self.resuming.is_none() {
             match self.retention.lease.resume(cx) {
-                Poll::Pending => return Poll::Pending,
+                Poll::Pending => {
+                    tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?self.cell, "writer-pending");
+                    return Poll::Pending;
+                }
                 Poll::Ready(result) => result?,
             }
             let commits = self.commits.as_ref().ok_or_else(unavailable)?.clone();
@@ -57,7 +63,10 @@ impl Suspended {
             .as_mut()
             .poll(cx)
         {
-            Poll::Pending => return Poll::Pending,
+            Poll::Pending => {
+                tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?self.cell, "authority-pending");
+                return Poll::Pending;
+            }
             Poll::Ready(result) => result?,
         };
         self.resuming = None;
@@ -85,6 +94,7 @@ impl Suspended {
             .as_mut()
             .ok_or_else(unavailable)?
             .resume_rpc(&mut self.turn)?;
+        tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?self.cell, "resumed");
         Poll::Ready(Ok(()))
     }
 }

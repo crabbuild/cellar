@@ -96,6 +96,7 @@ impl Suspended {
         ))?;
         let executor = self.executor.as_mut().ok_or_else(unavailable)?;
         let prepared = executor.stage_rpc_checkpoint(&mut self.turn)?;
+        tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?self.cell, "checkpoint-submit");
         let expected = executor.rpc_checkpoint_version()?;
         executor.mark_submitted(prepared.proposal())?;
         let phase = CheckpointPhase::Applying(Box::pin(wait_checkpoint(
@@ -151,6 +152,7 @@ impl Suspended {
                         .finish_rpc_checkpoint(*execution, *proof)
                     {
                         Ok(receipt) => {
+                            tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?self.cell, "checkpoint-applied");
                             self.check(domain.mono_ms().map_err(|_| unavailable())?)?;
                             if receipt.receipt.minimum_durability()
                                 == cellar_logic::consensus::Durability::S3
@@ -226,6 +228,7 @@ impl Suspended {
             .ok_or_else(unavailable)?
             .continue_rpc_checkpoint(&mut self.turn)?;
         let _ = checkpoint.reply.send(Ok(()));
+        tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?self.cell, "checkpoint-complete");
         self.ready.0.store(true, Ordering::Release);
         Poll::Ready(Ok(()))
     }
@@ -489,6 +492,7 @@ impl Cells {
                 continue;
             }
             let timer = performance.timer(crate::raft::performance::Operation::SqlStage);
+            tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?rpc.cell, checkpoint = rpc.checkpoint.is_some(), writer = rpc.executor.is_some(), io = rpc.turn.can_poll_parked_io(), contended = rpc.retention.lease.contended(), "poll");
             let waker = Waker::from(rpc.ready.clone());
             let mut cx = Context::from_waker(&waker);
             if let Err(error) = admitted {
@@ -510,6 +514,7 @@ impl Cells {
             if rpc.executor.is_none() && rpc.turn.can_poll_parked_io() {
                 match rpc.turn.poll_parked_io(&mut cx) {
                     Ok(true) => {
+                        tracing::debug!(target: "cellar::raft::rpc_progress", cell = ?rpc.cell, "io-pending");
                         self.suspended.push_back(rpc);
                         timer.finish(true);
                         return true;
