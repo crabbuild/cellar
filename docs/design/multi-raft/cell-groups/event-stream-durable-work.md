@@ -68,7 +68,11 @@ The bounded shared scheduler discovers outbox, stream maintenance and catalog
 reconciliation through their fixed native work reasons. Claiming a reason commits
 a generation-fenced lease before entering the callback. Completion removes only
 its claimed generation and lease. Replaced deadlines survive completion and
-retained restart. Idle cells do not acquire individual background tasks. The
+retained restart. Idle cells do not acquire individual background tasks.
+The SQL owner omits retirement from discovery while a same-cell private frame
+is still live or parked, because its claim would refuse `Busy`. Runnable native
+callbacks remain discoverable. This hint grants no retirement authority; the
+claim keeps its mandatory joined-frame check. The
 [source journal contract](event-stream-durability.md) describes logical source
 ownership and per-lane incarnation handling.
 

@@ -33,6 +33,7 @@ fn scan_operation(operation: Value) -> Result<()> {
         &history,
         &RaftClass::new("Counter", 1, [4; 32])?,
         1,
+        true,
         memory.acquire(64 * 1024).unwrap(),
     );
     match result {

@@ -202,7 +202,7 @@ impl Cell for Caller {
                     if args["ack"].as_bool() == Some(true) {
                         batch.ack(&context).await?;
                     }
-                    json!({"receipt":receipt,"effects":storage.get_json("effects")?,"records":batch.records.iter().map(|r|&r.event).collect::<Vec<_>>()})
+                    json!({"receipt":receipt,"expires_ms":batch.expires_at_ms,"effects":storage.get_json("effects")?,"records":batch.records.iter().map(|r|&r.event).collect::<Vec<_>>()})
                 }
                 "Ack" => {
                     let receipt = events::Receipt::decode(args.as_str().context("receipt")?)?;
@@ -213,14 +213,17 @@ impl Cell for Caller {
                         .await
                     {
                         Ok(outcome) => json!(format!("{outcome:?}")),
-                        Err(error)
-                            if error.downcast_ref::<events::DeliveryError>().is_some_and(
-                                |error| error.code == events::ErrorCode::LeaseExpired,
-                            ) =>
-                        {
-                            json!("LeaseExpired")
+                        Err(error) => {
+                            let Some(delivery) = error.downcast_ref::<events::DeliveryError>()
+                            else {
+                                return Err(error);
+                            };
+                            match delivery.code {
+                                events::ErrorCode::LeaseExpired
+                                | events::ErrorCode::StaleReceipt => json!(delivery.code.as_str()),
+                                _ => return Err(error),
+                            }
                         }
-                        Err(error) => return Err(error),
                     }
                 }
                 "Extend" => {
@@ -817,10 +820,13 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
                 let mut ack = call(
                     &cluster, &sink, &mut sequence, "Ack", first["receipt"].clone(),
                 ).await?;
-                if serde_json::from_slice::<String>(&ack.result)? == "LeaseExpired" {
+                if matches!(serde_json::from_slice::<String>(&ack.result)?.as_str(), "LeaseExpired" | "StaleReceipt") {
+                    ensure!(cellar::asyncrt::wall_ms() >= first["expires_ms"].as_i64().context("original lease expiry")?,
+                        "a live receipt became stale across restart");
                     let status = call(&cluster, &sink, &mut sequence, "Status", json!(null)).await?;
-                    ensure!(serde_json::from_slice::<serde_json::Value>(&status.result)?["checkpoint"] == "0",
-                        "expired acknowledgement advanced the checkpoint");
+                    let status: serde_json::Value = serde_json::from_slice(&status.result)?;
+                    ensure!(status["checkpoint"] == "0" && status["identity"] == lease["identity"],
+                        "expired acknowledgement advanced the checkpoint or changed subscription identity");
                     let recovered = call(&cluster, &sink, &mut sequence, "Consume",
                         json!({"fetch":"07070707070707070707070707070707","ack":false})).await?;
                     let recovered: serde_json::Value = serde_json::from_slice(&recovered.result)?;
