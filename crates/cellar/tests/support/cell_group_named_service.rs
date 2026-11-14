@@ -34,11 +34,18 @@ pub async fn activate_namespace(
     let standby = fixture
         .catalog
         .observe_managed_standby(&adapter, declaration, DirectoryLimits::default(), TIMEOUT)
-        .await?;
+        .await
+        .context("observe additional namespace standby")?;
+    // Fleet group IDs are permanent across namespaces. A second primitive
+    // service needs its own ID even though its logical history also names a
+    // different namespace.
+    let group = 181u8
+        .checked_add(u8::try_from(index)?)
+        .context("additional namespace group identity")?;
     let history = GroupHistory {
         cluster: declaration.namespace.cluster,
         namespace: declaration.namespace.namespace,
-        group: GroupId::new([181; 16])?,
+        group: GroupId::new([group; 16])?,
         incarnation: IncarnationId::new([182; 16])?,
     };
     let cut = fixture.catalog.read(TIMEOUT).await?;
@@ -73,7 +80,8 @@ pub async fn activate_namespace(
             DirectoryLimits::default(),
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("reserve additional namespace group")?;
     let cut = fixture.catalog.read(TIMEOUT).await?;
     let authorization = fixture
         .catalog
@@ -85,7 +93,8 @@ pub async fn activate_namespace(
             ),
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("publish additional namespace group")?;
     let mut database_fixture = fixture.clone();
     database_fixture.declaration = declaration.clone();
     let intent_root = cluster.roots[0].path().join(archive_name);
