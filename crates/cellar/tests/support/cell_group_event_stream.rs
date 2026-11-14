@@ -448,7 +448,13 @@ async fn call_options(
                         ));
                     }
                 }
-                if readonly && cellar::asyncrt::mono_ms() < recovery_deadline {
+                if readonly
+                    && matches!(
+                        error.cause.as_ref(),
+                        CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
+                    )
+                    && cellar::asyncrt::mono_ms() < recovery_deadline
+                {
                     // These handlers only observe business state. An unresolved
                     // read may be replaced; mutation handlers never take this path.
                     eprintln!(
