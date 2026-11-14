@@ -2,6 +2,8 @@
 
 # Three-node primitive comparison, initial disk profile, 2026-11-14 UTC
 
+Purpose: Separate 1-vCPU/2-GiB nodes, RustFS, 62 verified windows and retained Raft/Fleet Queue failures in the initial disk profile.
+
 The requested local comparison ran all 12 workload/durability cases on three separate **1-vCPU, 2-GiB node containers** with shared RustFS. 5 cases completed their full matrix; 7 failed. Of 120 planned timed windows, 62 verified, 1 failed and 57 were not reached after earlier failures. Of 72 warmups, 35 verified, 6 failed and 31 were not reached.
 
 These are measured public SDK operations, including SQL/KV value readback and Queue callback/body/settlement verification. Failed and incomplete cases do not establish stable capacity. There is no production readiness or OPT/CG gate acceptance from this experiment.

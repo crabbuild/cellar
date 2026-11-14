@@ -2,6 +2,8 @@
 
 # Three-node SQL, KV and Queue comparison with bounded writer overlap
 
+Purpose: Corrected Raft disk profile, matched Fleet/bucket baselines, throughput/tails and remaining overload/deadline/lease gaps.
+
 The corrected disk profile measured all six Raft workload/durability cases on three independent **1-vCPU, 2-GiB nodes** with shared local RustFS. 0 of six Raft cases completed their full matrix. Of 60 planned timed Raft windows, 21 verified, 3 failed and 36 were not reached.
 
 The comparison below uses these Raft observations and the Fleet/bucket baselines from the [initial experiment](three-node-primitive-comparison-2026-11-14.md). Across the selected 12 cases, 5 completed their matrix; 75 of 120 timed windows verified, 4 failed and 41 were not reached. Partial verified windows remain observations, not stable capacity or a completed matrix.

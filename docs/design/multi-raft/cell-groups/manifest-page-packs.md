@@ -2,6 +2,8 @@
 
 # Immutable manifest page packs
 
+Purpose: Candidate page packing, publication barriers, physical accounting and bounded compaction.
+
 This candidate implements the persistence-amplification part of OPT-06. The
 authenticated AVL tree and persistent root pins already make updates proportional
 to the changed path. The remaining local amplification was one file barrier per

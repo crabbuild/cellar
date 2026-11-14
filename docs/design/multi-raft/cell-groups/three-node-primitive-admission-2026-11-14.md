@@ -2,6 +2,8 @@
 
 # Three-node primitive refusal diagnosis
 
+Purpose: SQL group admission observations and distinct SQL/KV/Queue deadlines under unchanged constrained resources.
+
 The instrumented SQL/KV/Queue probe fails all three cases. Three of 20 planned
 30-second operation windows verify, one fails and 16 remain unmeasured. Two of
 12 warmups verify, two fail and eight remain unmeasured. Eight emitted windows

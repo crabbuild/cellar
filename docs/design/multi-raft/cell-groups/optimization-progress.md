@@ -4069,3 +4069,45 @@ original-identity reconciliation and sustainable complete-root reclamation.
 Authority expiry/revocation, physical retirement/once-only Fleet settlement,
 provider recovery, independent domains and missing historical evidence remain
 required.
+
+## Main-168 integration and primitive re-verification, 2026-11-14 UTC
+
+Origin/main `50b927d9` is merged at `a16bbdc6`; source `c5444fd2` composes main's
+queued writers and primitive execution with bounded capacity waiting, routing
+and packing. The old Queue performance helper converts into main's `Minimums`
+contract. Opt-in lease tracing adds no deadline, resource or retry permission.
+
+The [updated-main report](three-node-primitive-main-168-2026-11-14.md),
+[observations](three-node-primitive-main-168-2026-11-14.json) and
+[raw evidence](three-node-primitive-main-168-2026-11-14.raw.json.gz) retain the
+complete re-verification. Compilation/strict Clippy, format/layout (2,306 Rust
+files), native dependencies and Python/documentation checks pass. There are 109
+distinct libtest passes, while the complete primitive target fails eight cases
+and explicitly ignores 38. Workflow compatibility and the custom three-process
+TLS daemon pass; the wrapper's mistaken libtest-footer expectation for the
+harness-free daemon is separately assessed without erasing real failures.
+
+All twelve separately constrained RustFS/Colima cases are attempted. Only KV
+Fleet and KV bucket complete both repetitions at c1/4/16. Of 120 timed windows,
+49 verify, seven fail and 64 remain unmeasured; of 72 warmups, 34 verify, three
+fail and 35 remain unmeasured. All 93 emitted windows retain 33 request errors. Three SQL baseline
+nodes exit with `NodeLeaseExpired`; their exact fence event timing is unknown.
+All Raft cases retain complete end observations. Group refusals increment once
+for SQL quorum and nine times for KV quorum, with overlapping staging counts;
+other selected phases do not explain every deadline. The failed Queue bucket window has 40 unobserved ACK
+IDs and reported backlog 40. Other Queue failures observe extra IDs matching
+unconfirmed batches, without a complete exported body-hash map. No data-loss,
+body/settlement or complete Raft-matrix qualification follows.
+
+All 60 measured containers stop with no observed OOM/restarts. Failed resources
+remain retained, owners are joined and the original RustFS is restored/readied
+at HTTP 200. Manifest `b417c200`/image `630bbfa5` remain immutable; 3,350 tracked
+inputs match the published source and 60 ignored generated optional-JavaScript
+assets are separately hash-bound. Earlier measurements retain their earlier
+source scope. Next work is deadline/readiness/writer/proof-wait progress,
+constrained SQL-baseline lease renewals and Queue drain progress at unchanged
+limits. Complete-root reclamation, authority, physical retirement/once-only
+Fleet settlement, provider/independent-domain and historical-evidence gates
+remain open; no OPT/CG acceptance is promoted.
+The full plan CLI preflight still fails on the missing historical CG-01 record;
+plan unit-test passes do not waive that evidence gate.

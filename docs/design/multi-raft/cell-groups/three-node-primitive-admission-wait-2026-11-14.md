@@ -2,6 +2,8 @@
 
 # Three-node bounded SQL admission wait
 
+Purpose: Received pre-enqueue capacity waits, focused regressions and retained SQL/KV/Queue deadline and lease failures.
+
 The bounded admission change passes its focused native regressions, but all
 three SQL/KV/Queue runtime cases still fail. Nine of 20 planned timed windows
 verify, three fail and eight remain unmeasured. Seven of 12 warmups verify and

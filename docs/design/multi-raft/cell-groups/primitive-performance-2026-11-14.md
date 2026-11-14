@@ -2,6 +2,8 @@
 
 # Local SQL, KV and Queue measurements, 2026-11-14 UTC
 
+Purpose: Partial verified windows, resource observations and all six failed RustFS/Colima primitive-image cases.
+
 The real RustFS/Colima experiment failed qualification in all six primitive/image
 cases. Nine of 40 planned timed windows completed for 30 seconds with zero request
 errors and successful value/message verification. Seven timed windows failed;
