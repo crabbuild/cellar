@@ -4,7 +4,36 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current primitive foundation checkpoint
+## Current ordinary alarm failure checkpoint
+
+The follow-up to merged PR #166 implements ordinary alarm failure rollback,
+durable exponential backoff/exhaustion and retirement of failed activation
+memory. Runtime source is `79f86a99`; fixture source `dbc6e979` passes ten owning
+SQLite tests and five exact public native tests, including four-image/minimum
+failure/restart configurations and four full-policy exhaustion configurations.
+Every old voter is joined before retained restart, and pending work resumes
+without client traffic. See [current results](progress.md#cg-17-ordinary-alarm-failure-retries).
+
+Keep `CG-17-alarm-rustfs-dbc6e979-70` **FAILED**: three configurations pass;
+extents/S3 times out on final public `Cancel`, ingress sequence 11, after panic
+backoff is observed. The result is ambiguous; no cause is established and no
+business mutation may be blindly retried. Axum failure, RustFS exhaustion and
+six further alarm/Queue selections are unrun behind that gate. Three disks,
+logs and frozen artifacts are retained with verified backups. Native cohort 69
+passes; earlier controls 64/65 and the weaker restart fixture 66 retain their
+separate results. The owned RustFS backend and VM are stopped.
+
+Start the next investigation at that S3 deadline with the original three-second
+request budget, quotas and exact durability proofs. Add bounded phase evidence
+if necessary; neither extend timeouts nor silently retry an ambiguous command.
+Then finish the blocked RustFS selection and continue cron, Queue lifecycle,
+EventStream and Workflow. Release panic-abort process loss remains separate
+from caught test-profile panics. The framework contract requires a fresh-root
+cutover with compatible definitions, not a schema migration. The follow-up
+starts on `origin/main` at `3d6450d4`, with unchanged qualified runtime inputs.
+CG-17 and combined release remain open: **13/17 tasks, 147/195 accepted cases**.
+
+## Previous primitive foundation checkpoint
 
 Source `25d81992` adds writer-release wakeups and yields private binding
 maintenance only after proven SQL refusal before enqueue. Original deadlines,

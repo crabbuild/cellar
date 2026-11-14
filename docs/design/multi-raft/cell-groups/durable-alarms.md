@@ -97,9 +97,14 @@ format markers remain 1 and no legacy schema reader or migration is installed.
 The public failure/restart fixture fences and joins every old voter, then
 asserts the retry did not run before reopening retained disks. This separates
 pending-work recovery from a retry that raced a sequential shutdown. The
-exhaustion fixture preserves the full ordinary retry schedule. Their
-qualification is pending; the earlier foundation checkpoint does not qualify
-this new failure path.
+exhaustion fixture preserves the full ordinary retry schedule. Both native
+selections pass all four image/minimum configurations at `dbc6e979`, together
+with ten owning SQLite tests. Real RustFS failure qualification fails in
+extents/S3 on the final public cancellation deadline after panic backoff is
+observed; three other configurations pass. RustFS Axum and exhaustion remain
+unrun behind that failed gate. See the
+[source-pinned checkpoint](progress.md#cg-17-ordinary-alarm-failure-retries);
+the earlier foundation checkpoint does not qualify this new failure path.
 
 ## Qualification and remaining work
 
@@ -117,7 +122,7 @@ At `d22ef830`, the native and real-RustFS native/Axum alarm selections pass all
 separate Queue enrollment and archive-deadline regression guards; see the
 [source-pinned checkpoint](progress.md#cg-17-ordinary-native-ingress-and-durable-alarms).
 
-Failure/backoff exhaustion qualification, archive outages, movement/wake and
+Complete RustFS failure/backoff exhaustion qualification, archive outages, movement/wake and
 independent voter/disk-loss qualification remain required. Cron still
 requires its deployment/startup adapter, persisted occurrence/history authority
 and matching shared alarm projection. Reuse the existing cron state machine;

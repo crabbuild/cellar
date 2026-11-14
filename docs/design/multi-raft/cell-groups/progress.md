@@ -27,6 +27,59 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 ordinary alarm failure retries
+
+Runtime source `79f86a99`, qualified with fixture source `dbc6e979`, adds known
+ordinary-alarm failure settlement. Returned errors and caught unwind panics
+roll back unsynced application writes while preserving explicit checkpoints.
+The SQL owner commits generation/attempt/lease/claim-phase-fenced retry state
+through the existing quorum/S3 pipeline. Failed activations are retired rather
+than recached. The existing pure policy supplies two-second exponential backoff
+and six retries; interrupted or unknown work retains its claim lease instead
+of fabricating a known failure. See the [alarm contract](durable-alarms.md).
+
+| Gate at `dbc6e979` | Result |
+| --- | --- |
+| Owning SQLite installation, stale settlement and retry policy tests | **10/10 pass** |
+| Public native failure rollback/backoff, pending retained restart, replacement/cancellation and failed-memory retirement | **4/4 configurations pass** |
+| Full native retry exhaustion, without shortening the policy | **4/4 configurations pass** |
+| Native normal alarms, ordinary Queue and 65-second Queue callback regressions | **Three exact tests pass** |
+| Real RustFS failure/restart selection | **FAILED: 3/4 configurations pass** |
+| Remaining RustFS Axum/exhaustion/alarm/Queue selections | **Unrun after the failed gate** |
+| Strict affected-target Clippy, format/layout, dependency/docs checks and 44 plan plus 16 runner tests | **Pass** |
+
+The failed RustFS configuration is extents with an S3 namespace minimum. After
+observing the panic backoff, its final public `Cancel` command, ingress sequence
+11, returns an ambiguous `Runtime(DeadlineExceeded)` within the unchanged
+three-second request budget. Its cause is unresolved. The pass of the other
+three configurations does not accept the exact test or the complete feature.
+Keep `CG-17-alarm-rustfs-dbc6e979-70` **FAILED**, with all three voter disks;
+the eight subsequent exact selections remain explicitly unrun.
+
+The native cohort `CG-17-alarm-pending-dbc6e979-69` passes ten owning tests and
+five public exact tests. Its restart oracle joins every old voter and proves
+the retry has not entered before reopening any retained disk, then observes
+autonomous execution without client traffic. Initial control 64 fails all four
+configurations on the unchanged lease-only implementation. Control 65 fails
+post-restart S3 ingress without refreshed namespace grants; corrected fixture
+66 passes but lacks the stronger pending-retry oracle. Those separate pins and
+failures are retained. Evidence/log/frozen-artifact backups are hash-verified.
+
+The tests unwind panics; shipped release builds abort, so release panics remain
+process loss recovered through retained claim leases, not counted errors.
+The private framework contract changes require fresh compatible namespaces and
+matching voters; markers remain 1 with no legacy schema reader. The follow-up
+starts from merged PR #166 on `origin/main` (`3d6450d4`); its source inputs match
+the frozen `dbc6e979` artifact apart from the recorded documentation follow-up.
+The owned RustFS backend and VM are stopped with objects retained. RF3 voters
+share a native process and separate disks; independent Linux failure domains
+remain unqualified. Full-plan acceptance remains **13/17 tasks and 147/195
+cases**, with no complete primitive family accepted.
+
+Next diagnose the S3 cancellation deadline and finish this RustFS gate before
+cron occurrence/startup integration, broader Queue lifecycle, EventStream and
+Workflow. Combined recovery/release qualification still gates full support.
+
 ## CG-17 binding deadlines and archive tails
 
 Source `25d81992` keeps foreground requests on their original identity, inputs,
