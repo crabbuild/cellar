@@ -1323,7 +1323,19 @@ impl Worker {
                                 || retry
                                     && status.leader != Some(group.owner.membership_read_origin())
                             {
+                                if term.is_none() && self.reads >= self.options.max_pending_reads {
+                                    return Err(RuntimeError::Overloaded);
+                                }
                                 group.owner.read_membership_index(context.to_vec())?;
+                                // Deferred discovery and forwarded retries run
+                                // after the group's ordinary turn, just like
+                                // cell read cohorts. Account and schedule their
+                                // new RawNode work without waiting for a tick,
+                                // unrelated write or another inbound packet.
+                                let reads = group.owner.usage().2;
+                                self.reads = self.reads - group.usage.2 + reads;
+                                group.usage.2 = reads;
+                                group.wake(history, &mut self.order);
                                 *term = Some(status.term);
                                 return Err(RuntimeError::NotReady);
                             }

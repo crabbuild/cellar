@@ -686,6 +686,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/event-stream-durable-work.md",
+      "title": "EventStream durable work on shared groups",
+      "summary": "Describe the shared-group adapter for publication, subscriptions and transactional outbox delivery.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/handoff.md",
       "title": "Cell-group implementation handoff",
       "summary": "Current implementation checkpoint, evidence transfer and next executor steps.",

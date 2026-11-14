@@ -64,6 +64,7 @@ fn scan_connection(
     class: &RaftClass,
     now: u64,
     previous: Option<&str>,
+    binding_ready: bool,
     reservation: Permit,
 ) -> Result<EffectScan> {
     let next = next_command(connection, scope)?;
@@ -101,7 +102,10 @@ fn scan_connection(
         )
     };
     let binding = || -> Result<Option<DueEffect>> {
-        if !class.has_binding_maintenance() {
+        // The SQL owner has already observed that a live/parked private frame
+        // would refuse retirement. Leave that obligation intact and discover
+        // runnable work instead; the claim still rechecks exclusion at entry.
+        if !binding_ready || !class.has_binding_maintenance() {
             return Ok(None);
         }
         let pending = crate::storage::raft_binding_recovery::due(connection, now)?;
@@ -167,6 +171,7 @@ pub(crate) fn scan_connection_fair(
     scope: &cellar_logic::cell_group::CellHistory,
     class: &RaftClass,
     now: u64,
+    binding_ready: bool,
     reservation: Permit,
 ) -> Result<EffectScan> {
     let client = super::system_client(scope)?;
@@ -180,6 +185,7 @@ pub(crate) fn scan_connection_fair(
         class,
         now,
         previous.as_deref(),
+        binding_ready,
         reservation,
     )
 }

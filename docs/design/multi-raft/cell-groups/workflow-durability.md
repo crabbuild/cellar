@@ -75,6 +75,17 @@ Public cold discovery uses the ordinary name resolver; a source binding uses
 the resolver protected by its source-proof permit. Typed read-only `NotReady`
 and `Overloaded` admission failures wait with bounded backoff within the original
 deadline. Fencing, terminal and untyped failures are returned.
+Automatic routing prefers an active local replica and reserves time for trusted
+peers within the same deadline and attempt bank. A voter uses its physical peer
+view; ingress-only nodes use their router view. Destinations independently enforce
+linearizability, version minima and current membership. Expired physical SQL
+retains its admission until joined; explicit local reads remain local. Cached
+peers are tried before rooted discovery, so a local stall alone does not require
+object-store access. The blocked-local regression and public status-pressure
+campaign are recorded in progress.md. Deferred name/membership ReadIndex
+requests and forwarded retries enqueue their actual Raft owner immediately,
+under the existing read bank; they do not depend on a later heartbeat or
+unrelated write to transmit their quorum request.
 Stateful reads prove preceding source writes using the existing owned I/O driver.
 After the host applies a Quorum checkpoint, pure reads may reuse that proof only
 while the same invocation's private image has no subsequent writes, application
@@ -131,6 +142,21 @@ At `88f48cd4`, autonomous scheduled creation and retained-step reuse pass both
 native image modes and all four real RustFS native/Axum configurations. The
 combined campaign remains failed by an ordinary native status deadline; these
 schedule passes do not qualify full Workflow support.
+
+At `54a8379d`, the expanded clean RustFS campaign passes five cases in both
+image modes: ordinary native/Axum execution, autonomous native/Axum schedules,
+and repeated concurrent status/delete/recreate plus streamed completion. Twelve
+selected routing, membership, SDK source-proof, stream-control and Fleet checks
+also pass. Voter temp directories use the recorded checkout-owned workspace
+volume; the original request/callback budgets and quotas remain. RF3 voters
+share one process, with one SQL worker per voter; RustFS retains one CPU/two GiB.
+
+Earlier default-system-temp campaigns still fail creation/enrollment deadlines.
+Their source, binaries, logs and disks are retained. The storage-volume comparison
+does not prove the cause or qualify a release across arbitrary storage profiles.
+See [the read-deadline checkpoint](progress.md#cg-17-workflow-native-read-progress)
+for the exact passing profile and failed controls. This closes the scoped MVP
+read-liveness qualification, not the complete Workflow family matrix.
 
 Full-size params/results, longer
 continuous callbacks, provider I/O, clock faults, deployment changes,

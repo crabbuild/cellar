@@ -184,18 +184,35 @@ SUITES = {
         "must emit all four completed configurations. Target S3 minimum, cross-class "
         "selection, concurrent creation, movement/disaster and full CG-17 remain open.",
     ),
+    "ordinary-event-stream": (
+        "native_cell_groups_primitives",
+        ("rustfs_event_stream_publication_subscriptions_and_outbox_recover_through_quorum",
+         "rustfs_axum_event_stream_publication_subscriptions_and_outbox_recover_through_quorum"),
+        "EventStream publishing, leased subscriptions and autonomous outbox/inbox recovery",
+        "Materialized and extent images, Quorum source commands and S3 destination minima, "
+        "atomic business/outbox rollback, bounded wire admission, distinct logical source lanes, "
+        "blocked destination archive followed by retained restart, inbox deduplication, "
+        "lease replay/retry/extension, acknowledgement replay, pause/resume, terminal seals, "
+        "native HTTP/Axum reads and empty polling, and quorum refusal. Three host-native TLS "
+        "voters share a process. No operator CLI, name-only selectors, cross-deployment "
+        "grant changes, movement/wake, independent voter limits, sustained load or "
+        "all-voter disk loss is qualified by this suite.",
+    ),
     "ordinary-workflows": (
         "native_cell_groups_primitives",
         ("rustfs_ordinary_workflows_use_shared_quorum",
          "rustfs_axum_workflows_use_shared_quorum",
          "rustfs_scheduled_workflows_use_shared_quorum",
-         "rustfs_axum_scheduled_workflows_use_shared_quorum"),
+         "rustfs_axum_scheduled_workflows_use_shared_quorum",
+         "rustfs_workflow_status_reads_progress_during_checkpoints_and_restart"),
         "ordinary Workflow SDK/native/Axum execution over shared RF3 with real RustFS",
         "Both image forms with one SQL worker per node. Retained restart, durable "
         "step replay, retries, timeout continuations, compensation, stateless/stateful "
         "pinned stream reads with unchanged target version, signed operator fences, controls, "
         "archive PUT refusal and quorum refusal are checked. Workflow-only schedules "
         "autonomously create instances and retain their completed steps across restart. "
+        "Eight retry/delete/recreate cycles after restart retain two concurrent status "
+        "readers, followed by stream completion, within the original budgets. "
         "RF3 voters share a host process. No operator CLI, full-size boundary, clock faults, movement/wake, "
         "independent voter limits or disk-loss recovery is qualified by this suite.",
     ),
@@ -1023,9 +1040,9 @@ def main():
     if args.keep_going and args.suite not in (
         "ordinary-primitives", "named-bindings", "ordinary-sql-bindings",
         "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows",
-        "ordinary-filesystem", "queue-primitives"
+        "ordinary-event-stream", "ordinary-filesystem", "queue-primitives"
     ):
-        parser.error("--keep-going requires a process-isolated ordinary primitive, named binding, SQL, KV, alarm, Workflow, filesystem or Queue suite")
+        parser.error("--keep-going requires a process-isolated ordinary primitive, named binding, SQL, KV, alarm, Workflow, EventStream, filesystem or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -1088,12 +1105,12 @@ def main():
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_BUILD_JOBS", "CARGO_TERM_COLOR",
             )
         }
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "ordinary-filesystem", "immutable-payloads", "queue-primitives"):
             record["test_profile"] = {key: env[key] for key in (
                 "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
-        if args.suite == "ordinary-filesystem":
+        if args.suite in ("ordinary-filesystem", "ordinary-event-stream"):
             # Large coroutine layouts make incremental cache serialization a
             # poor fit for the constrained local qualification machine.
             env.update(CARGO_INCREMENTAL="0", CARGO_BUILD_JOBS="1")
@@ -1108,7 +1125,7 @@ def main():
             if (selection in ("rustfs_queue_load_preserves_acknowledged_messages",
                               "rustfs_queue_four_in_flight_preserves_acknowledged_messages")):
                 argv.append("--nocapture")
-            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem") and number != 0:
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "ordinary-filesystem") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

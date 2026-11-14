@@ -686,7 +686,8 @@ pub(crate) use checkpoint_fairness::concurrent_checkpoints;
 mod membership;
 pub(crate) use membership::{
     membership_delivery_fence, membership_lifecycle, membership_physical_delivery_fence,
-    membership_quorum_floor, membership_quorum_followers, membership_sync,
+    membership_quorum_floor, membership_quorum_followers,
+    membership_read_retries_without_unrelated_work, membership_sync,
 };
 
 #[path = "cell_group_seed.rs"]
@@ -737,4 +738,4 @@ pub(crate) use namespace_host::{
 
 #[path = "cell_group_query_routing.rs"]
 mod query_routing;
-pub(crate) use query_routing::controller_routed_queries;
+pub(crate) use query_routing::{automatic_queries_leave_blocked_local, controller_routed_queries};

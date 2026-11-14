@@ -173,7 +173,11 @@ impl Destination<'_> {
         }
     }
 
-    fn limit_automatic_attempt(&self, invocation: &mut CellQueryInvocation) -> Result<(), Error> {
+    fn limit_automatic_attempt(
+        &self,
+        invocation: &mut CellQueryInvocation,
+        remaining_members: usize,
+    ) -> Result<(), Error> {
         let ordinal = usize::from(
             invocation
                 .attempt()
@@ -186,7 +190,12 @@ impl Destination<'_> {
             .mono_ms()
             .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
         let remaining = invocation.deadline_ms().saturating_sub(now);
-        let tickets = invocation.maximum_attempts().saturating_sub(ordinal) + 1;
+        // Reserve time for the actual untried trusted destinations, bounded by
+        // this invocation's remaining tickets. One local-only candidate receives
+        // the whole remaining budget; timeout never refunds entered SQL work.
+        let tickets = (invocation.maximum_attempts().saturating_sub(ordinal) + 1)
+            .min(remaining_members)
+            .max(1);
         invocation.limit_attempt(Duration::from_millis((remaining / tickets as u64).max(1)))
     }
 
@@ -202,7 +211,7 @@ impl Destination<'_> {
             let attempt = invocation
                 .attempt()
                 .ok_or(Error::Invalid("missing route"))?;
-            let route = attempt.route();
+            let route = attempt.route().clone();
             let history = route.history;
             let ordinal = usize::from(attempt.ordinal());
             if previous != Some(history) {
@@ -221,7 +230,7 @@ impl Destination<'_> {
                 {
                     self.local_members(
                         invocation,
-                        route,
+                        &route,
                         group.identity().member,
                         !tried_members.is_empty(),
                     )
@@ -230,7 +239,7 @@ impl Destination<'_> {
                 }
                 Ok(_) | Err(LogError::NotFound) => self
                     .router_members(
-                        route,
+                        &route,
                         invocation.maximum_attempts(),
                         invocation.deadline_ms(),
                         invocation.prefers_leader(),
@@ -245,6 +254,10 @@ impl Destination<'_> {
                 Ok((members, router)) if !members.is_empty() => {
                     // Advice can reorder this snapshot between tickets. Track
                     // identities rather than an index that could skip a peer.
+                    let remaining_members = members
+                        .iter()
+                        .filter(|member| !tried_members.contains(*member))
+                        .count();
                     let member = members
                         .iter()
                         .copied()
@@ -255,7 +268,7 @@ impl Destination<'_> {
                     }
                     cached_remaining = members.iter().any(|member| !tried_members.contains(member));
                     exhausted_router = router && !cached_remaining;
-                    self.limit_automatic_attempt(invocation)?;
+                    self.limit_automatic_attempt(invocation, remaining_members)?;
                     self.attempt(invocation, member, options.clone(), permit.clone())
                         .await
                 }

@@ -9,6 +9,56 @@ use raft::{
     Storage,
 };
 
+pub(crate) async fn membership_read_retries_without_unrelated_work() -> Result<()> {
+    use futures_util::FutureExt as _;
+    for rooted in [false, true] {
+        let class = RaftClass::new("Counter", 1, [81; 32])?;
+        let (mut fixture, route, _, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        // These runtimes have no automatic ticks. A lost forwarded name/read
+        // barrier must retry without a heartbeat, status call or new write
+        // accidentally waking the group's pending RawNode work.
+        let runtime = fixture.runtimes[1].clone();
+        let deadline = fixture
+            .cluster
+            .domain
+            .run(async { cellar::asyncrt::mono_ms() + 2500 })
+            .await?;
+        let mut read = Box::pin(runtime.quorum_membership(route.history, deadline));
+        let mut dropped = false;
+        let observed = loop {
+            if let Some(result) = read.as_mut().now_or_never() {
+                break result?;
+            }
+            fixture
+                .pump_with_network(&[], &mut BTreeMap::new(), |history, message| {
+                    if !dropped
+                        && history == route.history
+                        && message.from == 2
+                        && message.get_msg_type() == MessageType::MsgReadIndex
+                    {
+                        dropped = true;
+                        return false;
+                    }
+                    true
+                })
+                .await?;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        };
+        assert!(
+            dropped,
+            "the original forwarded request must actually be lost"
+        );
+        assert_eq!(observed.replica().member.get(), 2);
+        assert_eq!(observed.root().route(), &route);
+        assert!(observed.root().position().index >= observed.barrier().index);
+        assert!(!observed.status().ready);
+        drop(observed);
+        drop(read);
+        fixture.close().await?;
+    }
+    Ok(())
+}
+
 pub(super) fn change(
     member: u64,
     kind: ConfChangeType,

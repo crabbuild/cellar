@@ -718,13 +718,18 @@ pub(crate) fn budgets(body: &Value) -> Result<(usize, usize)> {
         None => 100,
     }
     .min(limits.batch_records() as u64) as usize;
-    let budget = match body.get("max_bytes") {
+    let mut budget = match body.get("max_bytes") {
         Some(value) => value
             .as_u64()
             .ok_or_else(|| error(ErrorCode::InvalidRequest, "invalid byte budget"))?,
         None => limits.batch_bytes() as u64,
     }
     .min(limits.batch_bytes() as u64) as usize;
+    if let Some(dispatch) = crate::storage::capture_raft_dispatch()? {
+        // Base64, structured-value framing, cursors and lease receipts must fit
+        // the owning command's retained reply as well as the caller's budget.
+        budget = budget.min(dispatch.result_limit()?.saturating_sub(4096) / 4 * 3);
+    }
     if count == 0 || budget == 0 {
         return Err(error(
             ErrorCode::InvalidRequest,

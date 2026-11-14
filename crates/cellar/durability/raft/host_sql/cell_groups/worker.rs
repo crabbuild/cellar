@@ -189,7 +189,12 @@ impl Cells {
                         timer.finish(self.start_rpc(cell, *stage, reply, max, domain, now));
                         return;
                     }
-                    Action::Query(query) => super::query::run(*query, domain),
+                    Action::Query(query) => {
+                        // Retirement requires every same-cell private frame to
+                        // join. Its discovery must not mask runnable callbacks.
+                        let binding_ready = !self.suspended.iter().any(|rpc| rpc.belongs_to(&cell));
+                        super::query::run(*query, domain, binding_ready)
+                    }
                     action => self.run(cell, action, max, now),
                 }
             }

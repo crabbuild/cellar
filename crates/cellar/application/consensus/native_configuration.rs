@@ -43,6 +43,7 @@ pub(crate) struct NativeCellConfiguration {
     pub(crate) sql_bindings: Vec<(String, String)>,
     pub(crate) kv_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<NativeQueueBinding>,
+    pub(crate) stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub(crate) queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
     pub(crate) crons: Vec<String>,
     pub(crate) cron_history: Option<crate::application::cron::HistoryConfiguration>,
@@ -67,7 +68,7 @@ impl NativeCellConfiguration {
                     delivery_delay: b.delivery_delay,
                 })
                 .collect(),
-            stream_bindings: Vec::new(),
+            stream_bindings: self.stream_bindings.clone(),
             queue_consumers: self.queue_consumers.clone(),
             workflow_bindings: self
                 .workflow_bindings
@@ -98,6 +99,8 @@ pub(in crate::application) struct AdmittedCellConfiguration {
     pub(in crate::application) sql_bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) kv_bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) queue_bindings: Arc<BTreeMap<String, (String, u32)>>,
+    pub(in crate::application) stream_bindings:
+        Arc<BTreeMap<String, crate::application::event_stream::BindingConfig>>,
     pub(in crate::application) queue_consumers:
         Arc<BTreeMap<String, crate::protocol::QueueConsumerConfig>>,
 }
@@ -111,7 +114,6 @@ impl AdmittedCellConfiguration {
         if !options.src.is_empty()
             || !options.modules.is_empty()
             || !options.blob_bindings.is_empty()
-            || !options.stream_bindings.is_empty()
         {
             return Err(RegistrationError::Invalid(
                 "unimplemented Raft cell bindings",
@@ -156,6 +158,7 @@ impl AdmittedCellConfiguration {
             || options.kv_bindings.len() > 256
             || options.queue_bindings.len() > 256
             || options.queue_consumers.len() > 256
+            || options.stream_bindings.len() > 256
             || options.workflow_bindings.len() > 256
         {
             return Err(RegistrationError::Limit);
@@ -245,6 +248,32 @@ impl AdmittedCellConfiguration {
                 .checked_add(binding.environment.len() + binding.queue.len() + 4)
                 .ok_or(RegistrationError::Limit)?;
         }
+        let mut stream_bindings = BTreeMap::new();
+        for binding in &options.stream_bindings {
+            binding
+                .validate()
+                .map_err(|_| RegistrationError::Invalid("Raft stream binding"))?;
+            // Name resolution must finish before immutable namespace admission.
+            binding
+                .explicit()
+                .map_err(|_| RegistrationError::Invalid("unresolved Raft stream binding"))?;
+            if binding.principal != options.script_name
+                || stream_bindings
+                    .insert(binding.environment.clone(), binding.clone())
+                    .is_some()
+            {
+                return Err(RegistrationError::Invalid(
+                    "Raft stream principal or duplicate binding",
+                ));
+            }
+            bytes = bytes
+                .checked_add(
+                    serde_json::to_vec(binding)
+                        .map_err(|_| RegistrationError::Invalid("Raft stream binding"))?
+                        .len(),
+                )
+                .ok_or(RegistrationError::Limit)?;
+        }
         let mut queue_consumers = BTreeMap::new();
         for consumer in &options.queue_consumers {
             let config = cellar_logic::queue::QueueConfig {
@@ -329,6 +358,7 @@ impl AdmittedCellConfiguration {
             sql_bindings: Arc::new(sql_bindings),
             kv_bindings: Arc::new(kv_bindings),
             queue_bindings: Arc::new(queue_bindings),
+            stream_bindings: Arc::new(stream_bindings),
             queue_consumers: Arc::new(queue_consumers),
         })
     }
@@ -362,6 +392,12 @@ impl AdmittedCellConfiguration {
                     .expect("Queue configuration"),
             );
         }
+        if !self.stream_bindings.is_empty() {
+            hash.update(b"event-stream-bindings-work-1");
+            hash.update(
+                serde_json::to_vec(self.stream_bindings.as_ref()).expect("stream configuration"),
+            );
+        }
         if !self.kv_bindings.is_empty() {
             hash.update(b"kv-bindings-payloads-callbacks-1");
             hash.update(serde_json::to_vec(self.kv_bindings.as_ref()).expect("KV configuration"));
@@ -383,6 +419,7 @@ impl AdmittedCellConfiguration {
             || !self.kv_bindings.is_empty()
             || !self.queue_bindings.is_empty()
             || !self.queue_consumers.is_empty()
+            || !self.stream_bindings.is_empty()
             || !self.workflow_bindings.is_empty()
     }
 
@@ -413,6 +450,7 @@ impl AdmittedCellConfiguration {
                 )
                 .collect(),
             queue_consumers: self.queue_consumers.values().cloned().collect(),
+            stream_bindings: self.stream_bindings.values().cloned().collect(),
             crons: Vec::new(),
             cron_history: None,
             sql_bindings: self

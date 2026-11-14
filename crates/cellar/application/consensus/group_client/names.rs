@@ -294,10 +294,15 @@ impl Resolution {
                 Err(error)
                     if name_retryable(&error) && attempt.ordinal() < self.options.max_attempts =>
                 {
-                    attempt = session
-                        .refresh(&attempt)
-                        .await
-                        .map_err(CellDispatchError::Routing)?;
+                    attempt = if next < members.len() {
+                        // A replica refusal does not invalidate the verified
+                        // range. Keep cached peers available during an archive
+                        // outage, under the same deadline and attempt bank.
+                        session.retry(&attempt).await
+                    } else {
+                        session.refresh(&attempt).await
+                    }
+                    .map_err(CellDispatchError::Routing)?;
                 }
                 Err(error) => return Err(error),
             }

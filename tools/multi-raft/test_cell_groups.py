@@ -47,7 +47,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "immutable-payloads", "queue-primitives"):
+                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "immutable-payloads", "queue-primitives"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -151,6 +151,19 @@ class AlarmCampaignTests(unittest.TestCase):
 
     def test_alarms_collect_independent_cases_without_waiving_failures(self):
         self.campaign("zero", "ordinary-alarms", keep_going=True)
+
+
+class EventStreamCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_events_capture_native_and_axum_cases(self):
+        self.campaign(suite="ordinary-event-stream")
+
+    def test_events_refuse_success_with_no_selected_test(self):
+        self.campaign("zero", "ordinary-event-stream")
+
+    def test_events_collect_independent_cases_without_waiving_failures(self):
+        self.campaign("zero", "ordinary-event-stream", keep_going=True)
 
 
 class QueueCampaignTests(unittest.TestCase):

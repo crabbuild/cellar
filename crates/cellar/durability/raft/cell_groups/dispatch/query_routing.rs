@@ -15,6 +15,8 @@ pub enum CellQueryRouting {
     Local,
     /// Prefer an observed leader for linearizable reads and a local replica
     /// for other modes. Eligible fallbacks share the original attempt budget.
+    /// Reserve time for untried trusted replicas after a slow selected reader;
+    /// a sole local candidate receives the remaining invocation budget.
     Automatic,
     /// One to eight distinct members; attempt_timeout is positive and no larger
     /// than the original timeout. Missing leader advice never grants authority.

@@ -421,6 +421,18 @@ pub(crate) fn rpc(
     if read_resource(&scope, &method) {
         return rpc_read(context, scope, name, method, args, call_scope, true);
     }
+    rpc_authorized(context, scope, name, method, args, call_scope, None)
+}
+
+pub(crate) fn rpc_authorized(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    call_scope: crate::host_rpc::CallScope,
+    event_authority: Option<super::event_stream::Authority>,
+) -> HandlerFuture<RpcData> {
     let signal = call_scope.signal.clone();
     let prepared = (|| -> Result<_> {
         context.check_binding_turn()?;
@@ -471,11 +483,23 @@ pub(crate) fn rpc(
             .and_then(|n| n.checked_add(8192))
             .ok_or(CommandFailure::Overloaded)?;
         let lease = source.host.admit(source.group, bytes)?;
-        let input = super::consensus::native_rpc::encode_request(
-            name.as_deref(),
-            &args,
-            route.max_input_bytes,
-        )?;
+        let input = if let Some(authority) = &event_authority {
+            super::event_stream::validate_target(&scope, authority)?;
+            authority.validate_operator_target(&scope, &method)?;
+            super::consensus::native_rpc::encode_event_request(
+                name.as_deref(),
+                &args,
+                authority,
+                None,
+                route.max_input_bytes,
+            )?
+        } else {
+            super::consensus::native_rpc::encode_request(
+                name.as_deref(),
+                &args,
+                route.max_input_bytes,
+            )?
+        };
         anyhow::ensure!(
             source
                 .retry_until_ms
@@ -582,7 +606,7 @@ async fn run(
                     dispatch.remaining_timeout()?,
                 )
                 .await;
-            let overloaded = result
+            let not_admitted = result
                 .as_ref()
                 .err()
                 .and_then(|cause| cause.downcast_ref::<Arc<CellEnrollmentError>>())
@@ -590,13 +614,17 @@ async fn run(
                     !error.ambiguous
                         && matches!(
                             error.cause.as_ref(),
-                            CellDispatchError::Runtime(RuntimeError::Overloaded)
+                            CellDispatchError::Runtime(
+                                RuntimeError::Overloaded
+                                    | RuntimeError::NotLeader
+                                    | RuntimeError::NotReady
+                            )
                         )
                 });
-            if !overloaded {
+            if !not_admitted {
                 break result;
             }
-            // A local overload proved no initializer entered. Retain the
+            // A known admission refusal proves no initializer entered. Retain the
             // durable source intent, candidate and creation ID. Unknown or
             // transmitted enrollments never enter this wait.
             if !noted {
@@ -641,7 +669,7 @@ async fn run(
                 options.clone(),
             )
             .await;
-        let overloaded = result
+        let not_admitted = result
             .as_ref()
             .err()
             .and_then(|cause| cause.downcast_ref::<Arc<CellCommandError>>())
@@ -649,10 +677,14 @@ async fn run(
                 !error.ambiguous
                     && matches!(
                         error.cause.as_ref(),
-                        CellDispatchError::Runtime(RuntimeError::Overloaded)
+                        CellDispatchError::Runtime(
+                            RuntimeError::Overloaded
+                                | RuntimeError::NotLeader
+                                | RuntimeError::NotReady
+                        )
                     )
             });
-        if !overloaded {
+        if !not_admitted {
             break result;
         }
         // Only a refusal before admission may retry. Preserve the complete

@@ -27,8 +27,9 @@ qualify any CG-17 primitive runtime case or establish a measured speedup.
 ## Current boundary
 
 Implementation starts from `d0c2873f` (the shared cell-group runtime merged into
-`origin/main`). OPT-01 and OPT-02 are in progress. None of OPT-01 through OPT-08 is accepted
-as complete by this record.
+`origin/main`). Deliveries now span routing, read preferences/cohorts, bounded
+execution, archive/lifecycle ownership and persistence work. None of OPT-01
+through OPT-08 is accepted as complete by this record.
 
 The first change implements the command outcome and authenticated advice
 foundation:
@@ -77,6 +78,40 @@ and its named RO/RL cases remain the acceptance contract:
 | OPT-06 | Measured scheduling fairness, batching and queue isolation; RL-07 |
 | OPT-07 | Optimized wake/transition/recovery routing; RL-08 and retained CG-13 gates |
 | OPT-08 | Combined-source full primitive, backend-fault, crash and performance qualification; selected local RustFS/daemon checks pass below |
+
+### Priorities for completing the optimization
+
+The latest complete twelve-case comparison is the
+[main-168 campaign](three-node-primitive-main-168-2026-11-14.md), with eight native
+primitive failures and ten failed comparison cases. Main subsequently advances
+to `0e925f6b`: Workflow quorum-read progress (#171) and shared-group EventStream
+delivery (#172). Integration and validation of that combined source are underway;
+the earlier results do not establish its pass or failure.
+
+Direct routing, targeted cache repair, consistency-aware read selection and
+bounded shared workers already exist. Completion requires the following delivery
+and evidence, under the design's original limits and acceptance oracles:
+
+| Priority | Gap | Evidence required to close it |
+| --- | --- | --- |
+| P0 | Public SQL/KV/Queue reliability | Complete the source-matched native/SDK/native HTTP/Axum controls and all requested three-node C1/4/16 windows. Account for every acknowledged and unconfirmed identity; verify Queue bodies, settlement and drain, including the earlier bucket backlog. Fix remaining failures without increasing deadlines or admission limits. |
+| P0 | Original-deadline progress | Show bounded routing/readiness, writer admission, SQL preparation, ReadIndex and output-proof progress. Slow callbacks and archive work must leave control/election progress available; expired waiters must retain their actual physical owners until completion. |
+| P1 | Persistence and archive amplification | Measure image/manifest file and directory syncs, engine batch bytes/groups, independent archive replay and queue waits. Compare matched before/after throughput, p50/p95/p99, errors and resources; accept a tuning change only with its correctness controls. Sparse traffic must not wait to fill a batch. |
+| P1 | Sustainable physical capacity and movement | Complete shared-file/segment release and once-only accounting, followed by repeated split/move/merge under the original bounds. Retained readers, snapshots, archive/transfer work and uncertain completions must protect bytes; credit follows synced deletion and joined owners. Preserve placement reserve and failure-domain checks. |
+| P1 | Authority and read-consistency fault coverage | Complete the remaining RO-03/04/07/08/10 cuts for current membership, boot, revocation/expiry, ambiguous commands and partitioned reads. Advice cannot authorize execution; fresh ReadIndex cohorts, exact tokens and image pins remain required. |
+| P2 | Wake/recovery and combined qualification | Exercise optimized routes through park/wake, interrupted movement, retained restart and fenced all-disk-loss recovery. Run the complete primitive/backend/crash/feature-mode/daemon suite on one combined source and restore legitimate missing historical evidence. A single Colima VM does not establish independent physical failure domains. |
+
+The current persistence candidate, `97b805f3`, shares a final inventory-directory
+barrier across a bounded image update while retaining every file sync and full
+destination verification. File-only observations cannot supply a closure seal;
+ordinary readers establish their own barriers, and a failed shared barrier
+quarantines mutation without refunding charges. At its pre-172 source checkpoint,
+103 extent/store/cache/workspace tests, strict owning-crate Clippy, 27 host-image
+controls and 28 archive-controller controls pass. Existing ignores remain explicit.
+The superseded native remainder and Linux build are deliberately canceled when
+the new main is observed. No throughput or latency gain is measured or claimed
+at this checkpoint. The final comparison must isolate this change against the
+same integrated main, rather than attributing upstream progress fixes to it.
 
 ## Direct-routing candidate
 

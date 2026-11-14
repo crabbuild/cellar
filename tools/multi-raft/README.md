@@ -365,6 +365,32 @@ receipt/version proofs and physical owner drainage. These entry points require
 their own current-source runtime evidence. Voters are host-native processes;
 constrained Linux, forged advice and complete RO-03 remain separate gates.
 
+## EventStream publishing, subscriptions and outbox
+
+The shared-group [EventStream adapter](../../docs/design/multi-raft/cell-groups/event-stream-durable-work.md)
+has a source-pinned native HTTP/Axum campaign:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite ordinary-event-stream \
+  --backend /tmp/cellar-raft-local-001 \
+  --target-directory "$HOME/Workspace/crabbuild-target/cellar-MY-CHECKOUT" \
+  --output /tmp/cellar-raft-events-001 --keep-going
+```
+
+Commit source changes before starting. Both exact cases exercise materialized
+and extent images, independent source/destination durability, rollback and wire
+admission, blocked destination archive, retained restart, outbox settlement,
+inbox deduplication, lease replay/retry/extension, acknowledgement replay,
+pause/resume and terminal seals. Public reads and empty subscription polling
+run through native HTTP and Axum. Success requires each selected test's exact
+libtest result; a failed case keeps the campaign failed.
+
+Three TLS voters share one native process. The owned RustFS container has
+1-vCPU/2-GiB limits, but this suite does not measure independent voter cgroups.
+The constrained Linux daemon campaign below records those separately. Named
+selectors, operator CLI, movement/wake, sustained load and all-voter disk loss
+remain separate gates. No full CG-17 acceptance is implied.
+
 ## Shared cell-group managed ingress checks
 
 Use the same owned loopback RustFS backend and a fresh output directory.

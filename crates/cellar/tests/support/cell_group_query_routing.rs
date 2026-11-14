@@ -11,7 +11,15 @@ use std::sync::{
 };
 
 pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
-    for mode in 0..4 {
+    routed_queries(rooted, 0..4).await
+}
+
+pub(crate) async fn automatic_queries_leave_blocked_local(rooted: bool) -> Result<()> {
+    routed_queries(rooted, 4..7).await
+}
+
+async fn routed_queries(rooted: bool, modes: std::ops::Range<usize>) -> Result<()> {
+    for mode in modes {
         let (entered, started) = tokio::sync::oneshot::channel();
         let entered = Mutex::new(Some(entered));
         let (release, held) = std::sync::mpsc::sync_channel(1);
@@ -42,10 +50,20 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
             },
         )?);
         let (mut fixture, route, a, b) = Box::pin(registered::setup(rooted, &class)).await?;
+        // Automatic Strong prefers the observed leader. Start those cuts on
+        // that leader so their first blocked callback still exercises local
+        // physical retention and a healthy remote fallback, as intended.
+        let caller = if mode >= 4 { 0 } else { 1 };
+        if mode >= 4 {
+            assert_eq!(
+                fixture.runtimes[caller].status(route.history).await?.leader,
+                Some(1)
+            );
+        }
         let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
         let owners = gateways(&fixture, &controllers, class.clone()).await?;
         let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
-        let options = fixture.cell_options_at(&a, 1).await?;
+        let options = fixture.cell_options_at(&a, caller).await?;
         let request = |tag, input: &[u8], consistency| -> Result<CellQueryRequest> {
             Ok(CellQueryRequest {
                 invocation: ProposalId::new([tag; 16])?,
@@ -56,7 +74,7 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
         };
         let bounds = CellRoutingLimits {
             timeout: Duration::from_secs(2),
-            max_attempts: if mode == 2 { 1 } else { 4 },
+            max_attempts: if mode == 2 || mode == 5 { 1 } else { 4 },
         };
         for policy in [
             CellQueryRouting::Replicas {
@@ -104,7 +122,7 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
                 leader_fallback: false,
             },
         )?;
-        let warm = controllers[1]
+        let warm = controllers[caller]
             .query(warm, options.clone())?
             .response()
             .await?;
@@ -119,12 +137,12 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
                 .identity()
                 .node_identity()
         );
-        assert_eq!(fixture.transports[1].usage().query_items, 1);
+        assert_eq!(fixture.transports[caller].usage().query_items, 1);
         drop(warm);
         wait_for(async || {
-            Ok(fixture.transports[1].usage().query_items == 0
+            Ok(fixture.transports[caller].usage().query_items == 0
                 && dispatch.usage() == (0, 0)
-                && controllers[1].usage().retained_commands == 0)
+                && controllers[caller].usage().retained_commands == 0)
         })
         .await?;
 
@@ -146,7 +164,7 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
             },
         )?;
         assert!(matches!(
-            controllers[1]
+            controllers[caller]
                 .query(invalid, options.clone())?
                 .response()
                 .await
@@ -159,15 +177,16 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
         // Delivery may wake this task before the sending producer has returned.
         // Observe its joined cleanup; the reply itself is not release authority.
         wait_for(async || {
-            Ok(dispatch.usage() == (0, 0) && controllers[1].usage().retained_commands == 0)
+            Ok(dispatch.usage() == (0, 0) && controllers[caller].usage().retained_commands == 0)
         })
         .await?;
         assert_eq!(dispatch.usage(), (0, 0));
-        assert_eq!(fixture.transports[1].usage().query_items, 0);
+        assert_eq!(fixture.transports[caller].usage().query_items, 0);
 
         let (members, fallback, held_node) = match mode {
             0 | 2 => (vec![MemberId::new(2)?, MemberId::new(3)?], false, 1),
             1 => (vec![MemberId::new(3)?], true, 2),
+            4..=6 => (vec![MemberId::new(2)?, MemberId::new(3)?], false, caller),
             _ => (vec![MemberId::new(1)?], true, 0),
         };
         let routed = dispatch.query_routed(
@@ -175,24 +194,38 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
             request(
                 213,
                 b"captured-input",
-                CellQueryConsistency::AtLeast(token.clone()),
+                if mode >= 4 {
+                    CellQueryConsistency::Linearizable
+                } else {
+                    CellQueryConsistency::AtLeast(token.clone())
+                },
             )?,
             bounds,
             None,
-            CellQueryRouting::Replicas {
-                members,
-                attempt_timeout: Duration::from_millis(180),
-                leader_fallback: fallback,
+            if mode == 6 {
+                CellQueryRouting::Local
+            } else if mode >= 4 {
+                CellQueryRouting::Automatic
+            } else {
+                CellQueryRouting::Replicas {
+                    members,
+                    attempt_timeout: Duration::from_millis(180),
+                    leader_fallback: fallback,
+                }
             },
         )?;
-        let response = controllers[1].query(routed, options.clone())?;
+        let response = controllers[caller].query(routed, options.clone())?;
         tokio::time::timeout(Duration::from_secs(5), started).await??;
         let response = response.response().await;
-        if mode < 2 {
+        if mode < 2 || mode == 4 {
             let response = response?;
             assert_eq!(response.result(), 0i64.to_be_bytes());
             assert_eq!(response.observation(), &observed);
-            let member = if mode == 0 { 3 } else { 1 };
+            let member = match mode {
+                0 => 3,
+                4 => 2,
+                _ => 1,
+            };
             assert_eq!(response.replica().member, MemberId::new(member)?);
             assert_eq!(
                 response.replica().node_identity(),
@@ -232,7 +265,7 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
         let held_pool = fixture.appliers[&(held_node, route.history)].0.clone();
         assert_eq!(held_pool.usage()?.retained_operations, 1);
         assert_eq!(controllers[held_node].usage().retained_commands, 1);
-        if held_node == 1 {
+        if held_node == caller {
             assert_eq!(
                 dispatch.usage().1,
                 1,
@@ -245,7 +278,7 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
             Ok(held_pool.usage()?.retained_operations == 0
                 && controllers[held_node].usage().retained_commands == 0
                 && dispatch.usage() == (0, 0)
-                && fixture.transports[1].usage().query_items == 0)
+                && fixture.transports[caller].usage().query_items == 0)
         })
         .await?;
         // A correctly signed token for the other cell cannot be retried into A.
@@ -262,8 +295,8 @@ pub(crate) async fn controller_routed_queries(rooted: bool) -> Result<()> {
             },
         )?;
         assert!(matches!(
-            controllers[1]
-                .query(wrong, fixture.cell_options_at(&b, 1).await?)?
+            controllers[caller]
+                .query(wrong, fixture.cell_options_at(&b, caller).await?)?
                 .response()
                 .await
                 .err()

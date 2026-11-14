@@ -92,10 +92,15 @@ activation; descriptor checks still require the exact executing invocation.
 
 `Storage::inbox` also accepts records in a Raft command's transaction. Receipt
 deduplication and local business effects commit or roll back together; the
-command's required proof must precede external acknowledgement. This does not
-enable the ordinary EventStream publisher, subscription transport or autonomous
-outbox adapter on shared groups; those still require their separate authority
-and recovery integration.
+command's required proof must precede external acknowledgement.
+
+`Registry::raft_event_stream(Definition)` compiles trusted resource ownership and
+exports managed broker/catalog classes. Explicit UUID bindings enable the usual
+`Context::stream`, transactional `emit`, leased subscriptions and autonomous
+outbox delivery. The source obligation and destination acceptance retain
+independent durability proofs. Inbox effects must be synced before ack. See
+[EventStream durable work](../../../docs/design/multi-raft/cell-groups/event-stream-durable-work.md)
+for namespace admission, authority, bounded work and current qualification limits.
 
 `QueryContext::storage()` reads SQL and KV from the immutable image selected
 by the query's consistency policy. The view and the returned query version

@@ -56,15 +56,16 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-1. **Deliver EventStream end to end.** Implement ordinary publication and
-   subscription routing, committed outbox discovery, destination authority,
-   receipt/acknowledgement settlement and autonomous interrupted delivery
-   recovery. The integrated inbox bridge alone is insufficient. Keep original
-   event/lane identities through movement and new-incarnation recovery; never
-   treat a source commit as destination acceptance.
-   The source journal, per-lane identity and shared work bridge are described in
-   the [EventStream contract](event-stream-durability.md). Public activation still
-   requires the authenticated target path and resource bootstrap.
+1. **Broaden EventStream qualification and adapters.** The authenticated
+   explicit-UUID adapter passes native/Axum and real-RustFS cases in both image
+   forms, including publication, autonomous outbox recovery and inbox-protected
+   subscriptions. Preserve independent source and destination proofs. Named
+   selectors, operator inventory/retirement proof, cross-deployment grant changes,
+   movement/wake, sustained load, independent voter limits and all-voter disk
+   loss remain separate gates. See the [qualification record](progress.md#cg-17-eventstream-publishing-subscriptions-and-outbox),
+   [adapter contract](event-stream-durable-work.md) and
+   [source journal contract](event-stream-durability.md).
+
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
    and fault oracles, then resolve producer deadlines and the older final-drain
    failures under the unchanged load and budgets. Qualify both image forms.
@@ -77,8 +78,16 @@ See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-sha
    sessions, KV TTL/revision, schedule deployment changes, clock discontinuities,
    long continuous callbacks, movement/wake and cold-start contention. Ordinary
    and scheduled Workflow passed all eight real-RustFS native/Axum configurations
-   at `7e4347e9`; this does not accept its complete family matrix. Reuse bounded
-   shared owners rather than per-idle-cell tasks.
+   at `7e4347e9`; this does not accept its complete family matrix. The
+   [read-deadline follow-up](progress.md#cg-17-workflow-native-read-progress)
+   at `54a8379d` fixes blocked-local replica routing and unscheduled membership
+   read retries. Twelve selected checks pass on the recorded workspace voter
+   volume, and the clean expanded RustFS campaign passes all five cases in both
+   image modes (10/10 configurations), including native/Axum, schedules and
+   repeated concurrent status/recreation. Preserve the failed default-temp
+   creation/enrollment controls and keep their cause open; independent-voter,
+   full-size, long-callback and combined lifecycle/recovery gates remain. Reuse
+   bounded shared owners rather than per-idle-cell tasks.
 4. **Finish payload and provider adapters.** Complete Blob/external payload
    publication, actual-byte recovery verification and root-aware collection that
    protects retained images, readers, pending uploads and interrupted turns.

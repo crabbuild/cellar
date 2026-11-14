@@ -1079,7 +1079,8 @@ pub(super) use sql::{
 
 pub(super) use sql::{
     membership_delivery_fence, membership_lifecycle, membership_physical_delivery_fence,
-    membership_quorum_floor, membership_quorum_followers, membership_sync,
+    membership_quorum_floor, membership_quorum_followers,
+    membership_read_retries_without_unrelated_work, membership_sync,
 };
 
 pub(super) use sql::{seed_minority, seed_source};
@@ -1106,3 +1107,5 @@ pub(super) use sql::physical_log_reclamation;
 pub(super) use sql::{host_many_cells, host_query_shutdown, host_registration_and_deadline};
 
 pub(super) use sql::controller_routed_queries;
+
+pub(super) use sql::automatic_queries_leave_blocked_local;
