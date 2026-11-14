@@ -1,11 +1,11 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Activation metadata uses immutable strong reads, without enrollment or a
+//! Event metadata uses immutable strong reads, without enrollment or a
 //! command sequence. All discovery, archive proof and output share one deadline.
 
 use super::super::{native_event_rpc, native_rpc, CommandFailure, QueryAdmission};
 use super::*;
-use crate::application::HandlerFuture;
+use crate::application::{cell_bindings::Route, HandlerFuture};
 use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
 use cellar_logic::consensus::ProposalId;
@@ -53,19 +53,67 @@ impl RaftCells {
                 &admitted.args,
                 route.max_input_bytes,
             )?;
-            let mut id = [0; 16];
-            crate::asyncrt::rng("event-metadata-read").fill_bytes(&mut id);
-            Ok((
-                route,
-                input,
-                ProposalId::new(id)?,
-                admitted.reservation,
-                memory,
-            ))
+            Ok((route, input, admitted.reservation, memory))
         })();
         let owner = self.internal_observer();
         Box::pin(async move {
-            let (route, input, invocation, reservation, memory) = prepared?;
+            let (route, input, reservation, memory) = prepared?;
+            let operation = owner.query_event_resource(route, input, deadline, false);
+            let result = crate::runtime::cancellation::receive(
+                call_scope.parent_cancellation.as_ref(),
+                call_scope.signal.as_ref(),
+                operation,
+            )
+            .await?;
+            let RpcData::Structured(bytes) = result else {
+                anyhow::bail!(CommandFailure::CorruptState);
+            };
+            if let Some(limit) = call_scope.reply_limit() {
+                anyhow::ensure!(
+                    bytes.len() <= limit,
+                    crate::application::rpc::Failure::new(
+                        crate::application::rpc::Code::InvalidResponse
+                    )
+                );
+            }
+            let retained =
+                crate::rpc_reservation::Reservation::shared(Arc::new((reservation, memory)));
+            Ok(RpcData::Structured(retained.retain_bytes(bytes)))
+        })
+    }
+
+    /// Source callers enter through their owned read dispatch, after proving
+    /// preceding writes. Neither source nor target acquires a mutation identity.
+    pub(super) fn query_event_resource(
+        &self,
+        route: Route,
+        input: Vec<u8>,
+        deadline: u64,
+        source_proven: bool,
+    ) -> HandlerFuture<RpcData> {
+        let prepared = (|| -> anyhow::Result<_> {
+            self.check_open()?;
+            let class = route
+                .cell
+                .as_str()
+                .split_once(':')
+                .ok_or(CommandFailure::UnsupportedCapability)?
+                .0;
+            anyhow::ensure!(
+                route.admission == super::super::CommandAdmission::Event
+                    && route.contract == super::super::native_event_query::contract(class),
+                CommandFailure::UnsupportedCapability
+            );
+            if source_proven {
+                super::super::require_framework_dispatch()?;
+            }
+            let mut id = [0; 16];
+            crate::asyncrt::rng("event-metadata-read").fill_bytes(&mut id);
+            Ok(ProposalId::new(id)?)
+        })();
+        let owner = self.internal_observer();
+        Box::pin(async move {
+            let invocation = prepared?;
             let remaining = || -> anyhow::Result<Duration> {
                 owner.check_open()?;
                 Ok(Duration::from_millis(
@@ -78,18 +126,32 @@ impl RaftCells {
             let operation = async {
                 let history = match route.history_hint {
                     Some(history) => history,
-                    None => owner
-                        .resolve_cell_history(
-                            route.cluster,
-                            route.namespace,
-                            route.cell,
-                            QueryOptions {
-                                timeout: remaining()?,
-                                ..Default::default()
-                            },
-                        )
-                        .await?
-                        .ok_or(RuntimeError::NotFound)?,
+                    None => {
+                        let options = QueryOptions {
+                            timeout: remaining()?,
+                            ..Default::default()
+                        };
+                        let found = if source_proven {
+                            owner
+                                .resolve_cell_history_direct(
+                                    route.cluster,
+                                    route.namespace,
+                                    route.cell,
+                                    options,
+                                )
+                                .await
+                        } else {
+                            owner
+                                .resolve_cell_history(
+                                    route.cluster,
+                                    route.namespace,
+                                    route.cell,
+                                    options,
+                                )
+                                .await
+                        };
+                        found?.ok_or(RuntimeError::NotFound)?
+                    }
                 };
                 let response = owner
                     .handle
@@ -121,26 +183,9 @@ impl RaftCells {
                 let RpcData::Structured(bytes) = result else {
                     anyhow::bail!(CommandFailure::CorruptState);
                 };
-                if let Some(limit) = call_scope.reply_limit() {
-                    anyhow::ensure!(
-                        bytes.len() <= limit,
-                        crate::application::rpc::Failure::new(
-                            crate::application::rpc::Code::InvalidResponse
-                        )
-                    );
-                }
-                let retained = crate::rpc_reservation::Reservation::shared(Arc::new((
-                    reservation,
-                    memory,
-                    response,
-                )));
+                let retained = crate::rpc_reservation::Reservation::shared(Arc::new(response));
                 Ok(RpcData::Structured(retained.retain_bytes(bytes)))
             };
-            let operation = crate::runtime::cancellation::receive(
-                call_scope.parent_cancellation.as_ref(),
-                call_scope.signal.as_ref(),
-                operation,
-            );
             let timer = owner.handle.domain.sleep_until(deadline)?;
             crate::asyncrt::select_biased! { "original EventStream metadata deadline";
                 _ = timer => Err(anyhow::Error::from(RuntimeError::DeadlineExceeded)),

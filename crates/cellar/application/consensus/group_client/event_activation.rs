@@ -57,6 +57,10 @@ struct ActivationHost {
 }
 
 impl event_stream::activation::Host for ActivationHost {
+    fn immutable_metadata(&self, _principal: &str) -> bool {
+        true
+    }
+
     fn rpc(
         &self,
         _principal: &str,

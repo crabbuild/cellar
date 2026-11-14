@@ -244,6 +244,10 @@ struct ActivationHost {
 }
 
 impl event_stream::activation::Host for ActivationHost {
+    fn immutable_metadata(&self, principal: &str) -> bool {
+        self.shared.contains(principal)
+    }
+
     fn rpc(
         &self,
         principal: &str,

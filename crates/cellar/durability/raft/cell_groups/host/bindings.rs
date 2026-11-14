@@ -52,7 +52,16 @@ impl CellGroupHost {
                 RegistrationError::ContractMismatch,
             ));
         }
-        self.select_event_route(Some(source.cluster), scope, method, authority, log)
+        let mut selected =
+            self.select_event_route(Some(source.cluster), scope, method, authority, log)?;
+        if crate::application::consensus::native_event_query::is_metadata(method) {
+            let class = scope
+                .split_once(':')
+                .ok_or(CellDispatchError::Invalid("event metadata scope"))?
+                .0;
+            selected.contract = crate::application::consensus::native_event_query::contract(class);
+        }
+        Ok(selected)
     }
 
     pub(crate) fn event_ingress_route(

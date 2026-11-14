@@ -298,7 +298,7 @@ pub(super) fn configuration_status_read(db: &Storage, caller: &Authority) -> Res
     };
     store::authorize(
         &serde_json::from_str(&definition)?,
-        &caller,
+        caller,
         Action::Configure,
         None,
     )?;

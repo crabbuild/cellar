@@ -155,7 +155,19 @@ impl Host for BindingHost {
     fn query(&self, route: Route, input: Vec<u8>, timeout: Duration) -> HandlerFuture<RpcData> {
         let prepared = require_framework_dispatch()
             .and_then(|()| self.owner())
-            .map(|owner| owner.query_workflow_resource(route, input, timeout, true));
+            .and_then(|owner| {
+                if route.admission == super::super::CommandAdmission::Event {
+                    let deadline = owner
+                        .handle
+                        .domain
+                        .mono_ms()?
+                        .checked_add(u64::try_from(timeout.as_millis())?)
+                        .ok_or(RuntimeError::DeadlineExceeded)?;
+                    Ok(owner.query_event_resource(route, input, deadline, true))
+                } else {
+                    Ok(owner.query_workflow_resource(route, input, timeout, true))
+                }
+            });
         Box::pin(async move { prepared?.await })
     }
 

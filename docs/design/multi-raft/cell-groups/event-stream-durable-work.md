@@ -24,8 +24,15 @@ after provisioning the required groups; the daemon uses its startup hook.
 
 The merged candidate uses one private authenticated event command/query path.
 Ordinary RPC bytes and public command discovery cannot supply event provenance.
-Pure metadata reads use pinned linearizable images, with separate archive
-coverage at an S3 minimum. Clocks, leases and mutations retain their command
+Pure metadata reads use pinned linearizable images for activation and stateful
+callers, with separate archive coverage at an S3 minimum. Stateful callers prove
+preceding source writes before dispatch; metadata reads do not allocate child
+mutation identities or initialize target cells. Retained shared-group activation
+skips configuration only after a fresh authorized catalog read proves the exact
+active definition. Missing configuration follows the normal creation path;
+unavailability, revocation and unknown outcomes refuse activation. Catalog and
+partition resolution still check their current resource identities and grants.
+Clocks, leases and mutations retain their command
 receipts. Configuration checks the actual compiled envelope against the host
 profile; append batching intersects that profile with policy limits and image
 capture still gates source output. No capacity limit is raised automatically.

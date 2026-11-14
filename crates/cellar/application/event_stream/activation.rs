@@ -10,6 +10,12 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 pub(crate) trait Host {
+    /// Shared-group hosts can inspect the current catalog through a private
+    /// immutable reader. Fleet activation retains its existing command flow.
+    fn immutable_metadata(&self, _principal: &str) -> bool {
+        false
+    }
+
     fn rpc(
         &self,
         principal: &str,
@@ -33,6 +39,37 @@ fn rpc(
     host.rpc(principal, authority.into(), scope, name, method, args)
 }
 
+fn matches_definition(current: &Value, definition: &Definition, digest: &str) -> bool {
+    current["state"].as_str() == Some("active")
+        && current["resource"].as_str() == Some(definition.resource.id.as_str())
+        && current["accepted_revision"].as_str() == Some(definition.revision.to_string().as_str())
+        && current["accepted_digest"].as_str() == Some(digest)
+}
+
+fn missing_configuration(error: &anyhow::Error) -> bool {
+    use crate::application::consensus::CellDispatchError;
+    use crate::raft::completion::RuntimeError;
+    error
+        .downcast_ref::<super::DeliveryError>()
+        .is_some_and(|error| error.code == super::ErrorCode::NotInitialized)
+        || matches!(
+            error.downcast_ref::<RuntimeError>(),
+            Some(RuntimeError::NotFound)
+        )
+        || matches!(
+            error.downcast_ref::<CellDispatchError>(),
+            Some(CellDispatchError::Runtime(RuntimeError::NotFound))
+        )
+        || error
+            .downcast_ref::<std::sync::Arc<CellDispatchError>>()
+            .is_some_and(|error| {
+                matches!(
+                    error.as_ref(),
+                    CellDispatchError::Runtime(RuntimeError::NotFound)
+                )
+            })
+}
+
 pub(crate) async fn configure(
     host: &impl Host,
     definitions: &[(String, Definition)],
@@ -44,6 +81,27 @@ pub(crate) async fn configure(
         let digest = hex::encode(Sha256::digest(&bytes));
         let operation = event_stream::raft::operation(script, definition)?;
         let authority = Authority::deployment(script, definition)?;
+        if host.immutable_metadata(script) {
+            match rpc(
+                host,
+                script,
+                authority.clone(),
+                event_stream::catalog_scope(&definition.resource)?,
+                event_stream::catalog_name(&definition.resource)?,
+                "__catalogStatus",
+                json!([{}]),
+            )
+            .await
+            {
+                // This is a fresh, authorized, linearizable observation with
+                // the target's independent minimum proof, never a historical
+                // configuration receipt. Retained activation needs no mutation.
+                Ok(current) if matches_definition(&current, definition, &digest) => continue,
+                Ok(_) => (),
+                Err(error) if missing_configuration(&error) => (),
+                Err(error) => return Err(error),
+            }
+        }
         let configured = rpc(host, script, authority.clone(), event_stream::catalog_scope(&definition.resource)?, event_stream::catalog_name(&definition.resource)?,
             "__catalogConfigure", json!([{"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(bytes)}])).await?;
         anyhow::ensure!(
@@ -64,11 +122,7 @@ pub(crate) async fn configure(
         )
         .await?;
         anyhow::ensure!(
-            current["state"].as_str() == Some("active")
-                && current["resource"].as_str() == Some(definition.resource.id.as_str())
-                && current["accepted_revision"].as_str()
-                    == Some(definition.revision.to_string().as_str())
-                && current["accepted_digest"].as_str() == Some(digest.as_str()),
+            matches_definition(&current, definition, &digest),
             "event resource does not match the current deployment definition"
         );
     }
@@ -127,4 +181,35 @@ pub(crate) async fn configure(
         activated.push(binding);
     }
     Ok(activated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::application::consensus::CellDispatchError;
+    use crate::raft::completion::RuntimeError;
+
+    #[test]
+    fn configuration_probe_does_not_hide_authority_availability_or_unknown_outcomes() {
+        for error in [
+            anyhow::Error::from(RuntimeError::NotFound),
+            anyhow::Error::from(CellDispatchError::Runtime(RuntimeError::NotFound)),
+            anyhow::Error::from(std::sync::Arc::new(CellDispatchError::Runtime(
+                RuntimeError::NotFound,
+            ))),
+            super::super::error::error(super::super::ErrorCode::NotInitialized, "absent"),
+        ] {
+            assert!(missing_configuration(&error.context("current catalog")));
+        }
+        for error in [
+            anyhow::Error::from(RuntimeError::DeadlineExceeded),
+            anyhow::Error::from(RuntimeError::NotReady),
+            super::super::error::error(super::super::ErrorCode::Forbidden, "revoked"),
+            super::super::error::error(super::super::ErrorCode::Unavailable, "no quorum"),
+            super::super::error::error(super::super::ErrorCode::Ambiguous, "unknown"),
+            super::super::error::error(super::super::ErrorCode::DestinationDeleted, "retired"),
+        ] {
+            assert!(!missing_configuration(&error.context("current catalog")));
+        }
+    }
 }
