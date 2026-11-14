@@ -250,7 +250,7 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                 let leader = managed_fixture::leader(&cluster.hosts, group).await?;
                 let scope = cellar_native::cell_id::Namespace::new(
                     "Counter",
-                    cellar::engine_api::namespace_key(SCRIPT, "Counter"),
+                    format!("cells:v1:{}:{SCRIPT}:Counter", SCRIPT.len()),
                 )
                 .id_from_name("producer")
                 .scope();
