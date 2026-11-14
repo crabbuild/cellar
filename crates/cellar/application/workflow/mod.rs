@@ -36,7 +36,24 @@ mod replay;
 mod rollback;
 mod steps;
 mod stream;
+mod turn;
 mod types;
+pub(crate) use turn::join_turn;
+
+/// Only these value-only resource reads can enter the pinned query adapter.
+pub(crate) fn read_operation(method: &str) -> Option<&'static str> {
+    match method {
+        "__wfStatus" => Some("__wfReadStatus"),
+        "__wfHistory" => Some("__wfReadHistory"),
+        "__wfStreamOpen" => Some("__wfReadStreamOpen"),
+        "__wfStreamRead" => Some("__wfReadStreamChunk"),
+        _ => None,
+    }
+}
+
+pub(crate) use stream::read_query;
+
+pub(crate) const OPERATOR: &str = "__wfOperator";
 
 pub use batch::{BatchCreateError, BatchCreateOptions, BatchCreateResult};
 pub(crate) use cell::create_cell;
@@ -372,7 +389,7 @@ impl Instance {
         argument: Option<StructuredValue>,
         continuation: bool,
     ) -> Result<StructuredValue> {
-        context.check_turn()?;
+        context.check_binding_turn()?;
         let arguments = StructuredValue::array(argument)?;
         let name = Some(format!("{}/{}", self.workflow.name, self.id));
         let args = encode_rpc(&arguments)?;

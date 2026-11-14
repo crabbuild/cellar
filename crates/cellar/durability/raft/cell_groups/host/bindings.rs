@@ -11,6 +11,7 @@ enum Access {
     SqlOperator,
     QueueOperator,
     KvOperator,
+    WorkflowOperator,
 }
 
 impl CellGroupHost {
@@ -265,6 +266,38 @@ impl CellGroupHost {
         Ok(selected)
     }
 
+    /// Reuse the exact binding/configuration authorization before selecting a
+    /// pure resource query. No constructor or enrollment may run on this path.
+    pub(crate) fn workflow_read_route(
+        &self,
+        source: Option<&CellHistory>,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        let operation = crate::application::workflow::read_operation(method)
+            .ok_or(CellDispatchError::Invalid("Workflow read operation"))?;
+        let mut selected = match source {
+            Some(source) => self.binding_route(source, configuration, scope, method, log)?,
+            None => self.native_ingress_route(configuration, scope, method, log)?,
+        };
+        let target = self
+            .inner
+            .namespaces
+            .get(&(selected.cluster, selected.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        if !crate::deploy::is_workflow_class(target.class.name()) {
+            return Err(CellDispatchError::Invalid("Workflow read class"));
+        }
+        selected.contract = target
+            .class
+            .contract(operation)
+            .filter(|contract| contract.kind == crate::application::consensus::OperationKind::Query)
+            .ok_or(CellDispatchError::Invalid("Workflow query contract"))?;
+        Ok(selected)
+    }
+
     /// Stateless SQL has no source namespace. A global database identity must
     /// select exactly one loaded SQL service; multiple clusters are ambiguous.
     pub(crate) fn sql_ingress_route(
@@ -300,6 +333,43 @@ impl CellGroupHost {
             log,
             Access::QueueOperator,
         )
+    }
+
+    pub(crate) fn workflow_operator_route(
+        &self,
+        scope: &str,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let class = scope
+            .split_once(':')
+            .map(|(class, _)| class)
+            .filter(|class| crate::deploy::is_workflow_class(class))
+            .ok_or(CellDispatchError::Invalid("Workflow operator scope"))?;
+        let mut candidates = self
+            .inner
+            .namespaces
+            .iter()
+            .filter(|(_, b)| b.class.name() == class);
+        let (key, target) = candidates
+            .next()
+            .ok_or(CellDispatchError::Invalid("Workflow namespace is missing"))?;
+        if candidates.next().is_some() {
+            return Err(CellDispatchError::Invalid(
+                "Workflow namespace is ambiguous",
+            ));
+        }
+        let mut selected = route(
+            *key,
+            target,
+            scope,
+            crate::application::workflow::OPERATOR,
+            Access::WorkflowOperator,
+        )?;
+        selected.history_hint = target
+            .dispatcher
+            .applied_history_hint(log, &selected.cell)?;
+        Ok(selected)
     }
 
     pub(crate) fn kv_operator_route(
@@ -415,6 +485,7 @@ fn route(
         Access::SqlOperator => target.class.sql_operator_contract(),
         Access::QueueOperator => target.class.queue_operator_contract(),
         Access::KvOperator => target.class.kv_operator_contract(),
+        Access::WorkflowOperator => target.class.workflow_operator_contract(),
     }
     .ok_or_else(|| {
         CellDispatchError::Registration(RegistrationError::UnknownOperation(method.into()))

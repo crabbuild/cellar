@@ -438,6 +438,20 @@ impl RaftClass {
         )
     }
 
+    pub(super) fn workflow_service(
+        script: &str,
+        compiled: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
+        let mut digest = Sha256::new();
+        digest.update(b"cellar-raft-workflow-quorum-journal-service-1");
+        digest.update(compiled);
+        Self::definition(
+            crate::deploy::workflow_class(script),
+            1,
+            digest.finalize().into(),
+        )
+    }
+
     fn definition(
         name: String,
         schema_version: u32,
@@ -815,6 +829,8 @@ impl RaftClass {
                 && operation == crate::application::queue::OPERATOR)
             || (self.name == crate::deploy::KV_CLASS
                 && operation == crate::application::kv::OPERATOR)
+            || (crate::deploy::is_workflow_class(&self.name)
+                && operation == crate::application::workflow::OPERATOR)
         {
             return None;
         }
@@ -837,6 +853,12 @@ impl RaftClass {
     pub(crate) fn queue_operator_contract(&self) -> Option<OperationContract> {
         (self.name == crate::deploy::QUEUE_CLASS)
             .then(|| self.contract(crate::application::queue::OPERATOR))
+            .flatten()
+    }
+
+    pub(crate) fn workflow_operator_contract(&self) -> Option<OperationContract> {
+        crate::deploy::is_workflow_class(&self.name)
+            .then(|| self.contract(crate::application::workflow::OPERATOR))
             .flatten()
     }
 

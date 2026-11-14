@@ -132,6 +132,7 @@ mod sql_ingress;
 mod startup;
 mod stop;
 mod transition;
+mod workflow_read;
 pub use membership::CellGroupControlError;
 pub(crate) use services::{ControlServiceCompletion, ControlServiceKind, ControlServiceLease};
 pub use startup::CellGroupStartupError;

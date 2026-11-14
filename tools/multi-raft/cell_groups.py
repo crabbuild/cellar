@@ -51,6 +51,18 @@ CASES = (
 )
 
 SUITES = {
+    "ordinary-workflows": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_workflows_use_shared_quorum",
+         "rustfs_axum_workflows_use_shared_quorum"),
+        "ordinary Workflow SDK/native/Axum execution over shared RF3 with real RustFS",
+        "Both image forms with one SQL worker per node. Retained restart, durable "
+        "step replay, retries, timeout continuations, compensation, stateless/stateful "
+        "pinned stream reads with unchanged target version, signed operator fences, controls, "
+        "archive PUT refusal and quorum refusal are checked. RF3 voters share a host "
+        "process. No operator CLI, full-size boundary, cron, clock faults, movement/wake, "
+        "independent voter limits or disk-loss recovery is qualified by this suite.",
+    ),
     "ordinary-alarms": (
         "native_cell_groups_primitives",
         ("rustfs_ordinary_alarms_recover_through_shared_quorum",
@@ -678,8 +690,8 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "queue-primitives"):
-        parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV or Queue suite")
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "queue-primitives"):
+        parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV, alarm, Workflow or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -729,7 +741,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -742,7 +754,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms") and number != 0:
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

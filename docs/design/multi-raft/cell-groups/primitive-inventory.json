@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "e58049eb1ee069cb7e0a61ac2b14d5c72f4d164cb3a625c837cb18b14cfe8b4d"
+    "crates/cellar/application/mod.rs": "e5c499dd43d1b591a8071e4744bb06fe97c547d889d811dbf274c973720cc817"
   },
   "entries": [
     {
@@ -286,6 +286,7 @@
       "id": "workflow",
       "family": "workflow",
       "symbols": [
+        "cellar::sdk::Registry::raft_workflow",
         "cellar::sdk::Context::workflow",
         "cellar::sdk::workflow::Workflow",
         "cellar::sdk::workflow::Workflow::create",
@@ -301,7 +302,10 @@
         "crates/cellar/application/workflow/mod.rs",
         "crates/cellar/application/workflow/replay.rs",
         "crates/cellar/application/workflow/rollback.rs",
-        "crates/cellar/application/workflow/stream.rs"
+        "crates/cellar/application/workflow/stream.rs",
+        "crates/cellar/application/consensus/native_workflow.rs",
+        "crates/cellar/application/workflow/turn.rs",
+        "crates/cellar/application/consensus/group_client/workflow_read.rs"
       ],
       "schemas": [
         "Definitions, journals, outputs and compensation"

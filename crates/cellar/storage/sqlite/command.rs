@@ -107,6 +107,9 @@ struct CommandFrame {
     dispatch: OnceCell<RaftDispatchContext>,
     binding_serial: Cell<u64>,
     parked_io: Cell<bool>,
+    // Minted only by the SQL owner after a Quorum checkpoint is applied. A
+    // read may reuse this proof while its private image remains unchanged.
+    quorum_read_base: Cell<Option<(u64, i64)>>,
     // Invocation-local, so cached constructor Storage follows the current
     // callback without hiding another command's or immutable reader's alarm.
     native_alarm: Cell<Option<[u8; 16]>>,
@@ -166,6 +169,12 @@ pub(crate) struct ActiveCommand {
 }
 
 impl ActiveCommand {
+    pub(crate) fn mark_quorum_read_base(&self, proven: bool) {
+        self.frame
+            .quorum_read_base
+            .set(proven.then(|| *self.baseline.borrow()));
+    }
+
     fn install(&self) -> Result<InstalledCommand> {
         CURRENT_COMMAND.with(|current| {
             let mut current = current.borrow_mut();
@@ -284,7 +293,9 @@ impl ActiveCommand {
     }
 
     pub(crate) fn can_park(&self) -> Result<bool> {
-        self.frame.cursors.publishable()?;
+        if !self.frame.cursors.parkable()? {
+            return Ok(false);
+        }
         let work = self.frame.work.borrow();
         // Only a host-owned SDK task that has already proven its source root
         // can wait without SQLite. Transaction/sync tasks keep their writer.
@@ -315,14 +326,7 @@ impl ActiveCommand {
         // image. Preserve application objects by keeping their writer installed.
         // The sole exception is our protected dbstat module: open() recreates
         // it before installing the authorizer, and applications cannot alter it.
-        super::as_framework_sql(|| {
-            connection.query_row(
-                "SELECT NOT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE name!='__sys_raft_capacity')",
-                [],
-                |row| row.get(0),
-            )
-        })
-        .map_err(Into::into)
+        without_application_temps(&connection)
     }
 
     pub(crate) fn close_parked(self) -> Result<()> {
@@ -372,6 +376,17 @@ fn command_marker(connection: &Connection) -> Result<(u64, i64)> {
         connection.query_row("PRAGMA main.schema_version", [], |row| row.get(0))
     })?;
     Ok((connection.total_changes(), schema))
+}
+
+fn without_application_temps(connection: &Connection) -> Result<bool> {
+    super::as_framework_sql(|| {
+        connection.query_row(
+            "SELECT NOT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE name!='__sys_raft_capacity')",
+            [],
+            |row| row.get(0),
+        )
+    })
+    .map_err(Into::into)
 }
 
 pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
@@ -636,6 +651,41 @@ pub(crate) fn commit_work(resources: &RaftStorageAuthority) -> HandlerFuture<()>
     })
 }
 
+/// A pure remote query needs proof of preceding source writes, not a new
+/// source mutation of its own. S3 turns, new roots, live write cursors and
+/// connection-local state retain the ordinary checkpoint path.
+pub(crate) fn confirm_read_work(resources: &RaftStorageAuthority) -> HandlerFuture<()> {
+    let clean = (|| -> Result<bool> {
+        require_storage(resources, true)?;
+        CURRENT_COMMAND.with(|current| {
+            let current = current.borrow();
+            let frame = current.as_ref().context("missing read source command")?;
+            ensure!(
+                frame
+                    .dispatch
+                    .get()
+                    .is_some_and(|dispatch| dispatch.fence.continuation_current()),
+                crate::application::consensus::CommandFailure::Unavailable
+            );
+            let Some(base) = frame.quorum_read_base.get() else {
+                return Ok(false);
+            };
+            if !frame.cursors.parkable()?
+                || !resources.resources.raft_can_park()
+                || frame.work.borrow().checkpoint.is_some()
+            {
+                return Ok(false);
+            }
+            let connection = frame.connection()?;
+            Ok(command_marker(&connection)? == base && without_application_temps(&connection)?)
+        })
+    })();
+    match clean {
+        Ok(false) => commit_work(resources),
+        result => Box::pin(async move { result.map(|_| ()) }),
+    }
+}
+
 pub(super) fn failure() -> Option<String> {
     CURRENT_COMMAND.with(|current| current.borrow().as_ref()?.failure.borrow().clone())
 }
@@ -785,6 +835,7 @@ impl CommandDatabase {
                 dispatch: OnceCell::new(),
                 binding_serial: Cell::new(0),
                 parked_io: Cell::new(false),
+                quorum_read_base: Cell::new(None),
                 native_alarm: Cell::new(None),
             }),
             inputs,

@@ -247,7 +247,7 @@ impl NativeWorker {
             .iter()
             .chain(config.bindings.iter().map(|(_, class)| class))
         {
-            if crate::deploy::is_reserved_class(class) {
+            if crate::deploy::is_reserved_class(class) && !crate::deploy::is_workflow_class(class) {
                 continue;
             }
             if let Ok(definition) = application.resolve_raft_class(class) {
@@ -2150,6 +2150,30 @@ pub(crate) fn rpc_cell_resource(
     method: String,
     args: RpcData,
 ) -> HandlerFuture<RpcData> {
+    let call_scope = crate::host_rpc::CallScope::in_context(
+        context,
+        context.io.rpc_deadline_ms.get().copied(),
+        None,
+    );
+    if context.raft_storage.is_some() {
+        return crate::application::cell_bindings::resource_rpc(
+            context, scope, name, method, args, call_scope,
+        );
+    }
+    if context
+        .state
+        .raft_cell_classes
+        .as_ref()
+        .is_some_and(|classes| {
+            scope
+                .split_once(':')
+                .is_some_and(|(class, _)| classes.contains_key(class))
+        })
+    {
+        return crate::application::consensus::native_ingress::resource_rpc(
+            context, scope, name, method, args, call_scope,
+        );
+    }
     if let Err(error) = context.check_turn() {
         return Box::pin(async move { Err(error) });
     }

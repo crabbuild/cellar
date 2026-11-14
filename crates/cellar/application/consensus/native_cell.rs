@@ -244,6 +244,9 @@ impl NativeCellFactory {
         if !options.queue_bindings.is_empty() || !options.queue_consumers.is_empty() {
             binding_classes.insert(crate::deploy::QUEUE_CLASS.into());
         }
+        if !options.workflow_bindings.is_empty() {
+            binding_classes.insert(crate::deploy::workflow_class(&options.script_name));
+        }
         let queue_scopes = options
             .queue_bindings
             .iter()
@@ -385,6 +388,7 @@ impl NativeCellFactory {
             || !self.config.kv_bindings.is_empty()
             || !self.config.queue_bindings.is_empty()
             || !self.config.queue_consumers.is_empty()
+            || !self.config.workflow_bindings.is_empty()
         {
             crate::storage::raft_bindings::install(&*transaction.framework()?)?;
         }
@@ -432,12 +436,20 @@ impl NativeCellFactory {
             .ok_or(CommandFailure::Unavailable)?
             .clone();
         let storage = context.storage()?;
-        Ok(Box::pin(async move {
+        let state = context.state.clone();
+        let workflow = crate::deploy::is_workflow_class(&self.class);
+        let retire = workflow.then(|| (instance.resources(), state.clone()));
+        let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
             if let Some(work) = work {
                 // No callback entry until the exact claim survives quorum (and
                 // any stronger namespace minimum). A crash retains retry work.
                 storage.sync().await?;
-                let result = instance.0.invoke(context, invocation)?.await?;
+                let future = instance.0.invoke(context, invocation)?;
+                let result = if workflow {
+                    crate::application::workflow::join_turn(future, state, storage.clone()).await?
+                } else {
+                    future.await?
+                };
                 anyhow::ensure!(
                     matches!(result, Output::Done),
                     CommandFailure::UnsupportedCapability
@@ -445,7 +457,13 @@ impl NativeCellFactory {
                 crate::storage::raft_native_work(|db| super::native_work::complete(db, &work))?;
                 return Ok(vec![1]);
             }
-            let Output::Rpc(result) = instance.0.invoke(context, invocation)?.await? else {
+            let future = instance.0.invoke(context, invocation)?;
+            let output = if workflow {
+                crate::application::workflow::join_turn(future, state, storage.clone()).await?
+            } else {
+                future.await?
+            };
+            let Output::Rpc(result) = output else {
                 anyhow::bail!(CommandFailure::UnsupportedCapability);
             };
             if owned_wire {
@@ -457,7 +475,15 @@ impl NativeCellFactory {
                 serde_json::from_str::<serde::de::IgnoredAny>(&result)?;
                 Ok(result.into_bytes())
             }
-        }))
+        });
+        Ok(match retire {
+            Some((resources, state)) => Box::pin(WorkflowTurn {
+                future,
+                resources,
+                state,
+            }),
+            None => future,
+        })
     }
 
     fn context(
@@ -481,7 +507,10 @@ impl NativeCellFactory {
             name_authority: None,
             catalog_authority: None,
             io: crate::host_io::IoContext::new(),
-            state: Arc::new(EventState::default()),
+            state: Arc::new(EventState {
+                raft_workflow_turn: crate::deploy::is_workflow_class(&self.class),
+                ..Default::default()
+            }),
             identity: Some(identity),
             facet: None,
             trace: None,
@@ -504,7 +533,22 @@ impl NativeCellFactory {
                     })
                     .collect(),
             ),
-            workflow_bindings: Arc::default(),
+            workflow_bindings: Arc::new(
+                self.config
+                    .workflow_bindings
+                    .iter()
+                    .map(|b| {
+                        (
+                            b.environment.clone(),
+                            crate::application::workflow::Workflow::new(
+                                &self.config.script_name,
+                                &b.workflow,
+                            )
+                            .with_settings(b.settings.clone()),
+                        )
+                    })
+                    .collect(),
+            ),
             blob_bindings: Arc::default(),
             asset_binding: None,
             queue_config: if self.class == crate::deploy::QUEUE_CLASS {
@@ -519,5 +563,95 @@ impl NativeCellFactory {
             loader_owner: None,
             loaded_environment: None,
         })
+    }
+}
+
+/// Own even unpolled continuations through cancellation and callback panics.
+/// A successful delete also retires after the executor checked the invocation
+/// result: retiring inside the handler would invalidate its own final proof.
+/// Recreation then requires a fresh activation and resource identity.
+struct WorkflowTurn {
+    future: HandlerFuture<Vec<u8>>,
+    resources: Arc<crate::application::storage::Resources>,
+    state: Arc<EventState>,
+}
+
+impl std::future::Future for WorkflowTurn {
+    type Output = Result<Vec<u8>>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        self.future.as_mut().poll(cx)
+    }
+}
+
+impl Drop for WorkflowTurn {
+    fn drop(&mut self) {
+        // A queued callback may capture Context and therefore EventState itself.
+        // Break that cycle even if cancellation/panic prevents the turn driver
+        // from moving it into its polled background set. Drop outside the lock.
+        let pending = std::mem::take(
+            &mut *self
+                .state
+                .background
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        drop(pending);
+        if self
+            .state
+            .raft_retire_after_turn
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            self.resources
+                .retired
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workflow_turn_cancellation_releases_queued_context_cycle() {
+        let state = Arc::new(EventState::default());
+        let weak = Arc::downgrade(&state);
+        let retained = state.clone();
+        state.background.lock().unwrap().push(Box::pin(async move {
+            let _context = retained;
+            std::future::pending::<()>().await;
+            Ok(())
+        }));
+        let resources = Arc::new(crate::application::storage::Resources::default());
+        let turn = WorkflowTurn {
+            state,
+            resources: resources.clone(),
+            future: Box::pin(std::future::pending()),
+        };
+        drop(turn);
+        assert!(
+            weak.upgrade().is_none(),
+            "cancelled callback retained its Context cycle"
+        );
+        assert!(!resources.retired.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[test]
+    fn workflow_turn_retires_only_after_a_valid_delete() {
+        let state = Arc::new(EventState::default());
+        state
+            .raft_retire_after_turn
+            .store(true, std::sync::atomic::Ordering::Release);
+        let resources = Arc::new(crate::application::storage::Resources::default());
+        drop(WorkflowTurn {
+            state,
+            resources: resources.clone(),
+            future: Box::pin(std::future::pending()),
+        });
+        assert!(resources.retired.load(std::sync::atomic::Ordering::Acquire));
     }
 }

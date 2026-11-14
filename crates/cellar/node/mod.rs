@@ -82,6 +82,7 @@ mod sql_operator;
 mod state_sampling;
 mod stream_operator;
 mod wake_discovery;
+mod workflow_operator;
 #[cfg(not(cellar_internal_tests))]
 pub use embedded::*;
 #[cfg(not(cellar_internal_tests))]
@@ -3681,6 +3682,23 @@ async fn handle_internal(
                 .is_some_and(|(class, _)| class == crate::deploy::SQL_CLASS)
             {
                 if let Some(reply) = sql_operator::dispatch_authenticated(
+                    &app,
+                    &method,
+                    &scope,
+                    name.as_deref(),
+                    &body,
+                    deadline,
+                )
+                .await
+                {
+                    return Ok(peer_response(reply));
+                }
+            }
+            if scope
+                .split_once(':')
+                .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
+            {
+                if let Some(reply) = workflow_operator::dispatch_authenticated(
                     &app,
                     &method,
                     &scope,

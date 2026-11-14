@@ -111,6 +111,99 @@ open. Next implement ordinary alarm failure rollback, persisted backoff and
 exhaustion, then cron, broader Queue, EventStream and Workflow execution;
 remaining adapters and combined recovery still gate full support.
 
+## CG-17 Workflow implementation candidate
+
+The Workflow candidate adds `Registry::raft_workflow`, immutable compiled handler
+identities, ordinary native/Axum binding routing and the existing native journal
+engine over shared-group commands. Running step records and completed results
+cross Quorum checkpoints before callback/dependent-step entry. Timeout
+continuations remain physically joined and deletion retires the old activation.
+See the [Workflow contract](workflow-durability.md).
+
+Competing cell RPCs now have bounded FIFO writer admission; cancellation keeps
+the original deadline and retained physical work stays charged while parked.
+The candidate is being integrated with the published PR foundation's local
+writer-release notifications, maintenance yielding and bounded archive replay.
+
+**Workflow is not qualified yet.** The exact optimized source `e2c8307e`
+gets past the earlier status-request refusals, but its full materialized fixture
+fails because the large stream does not reach `waiting` within the original
+30-second state limit. The focused stream/control test and the frozen native
+Fleet Workflow regression pass. Preserve the failed exact-source record,
+resource snapshots, both binaries, logs and three voter disks under
+`CG-17-workflow-merged-e2c8307e-01`. Available immutable image scans observe an
+incomplete chunk prefix; they are explicitly not selected-manifest authority.
+The callback quota is empty at the failure snapshot; no expiry cause is claimed
+from that observation alone.
+
+Source `13e1d946` batches stream capture into bounded proofs up to 256 KiB,
+reduced with the actual admitted envelope and metadata headroom. It flushes
+before waiting for another producer item. Original deadlines, quotas, chunk
+contents, generation checks and final manifest/result proofs remain. Its exact optimized rerun reaches `waiting`, then fails the original six-second
+public stream-download client limit. Preserve `CG-17-workflow-merged-13e1d946-01`
+with its executable, log and three voter disks. The focused control still passes.
+
+Source `345cb110` replaces stream-open/chunk commands with private compiled
+linearizable queries over pinned images. Both stateless and stateful callers
+retain authorization, the original deadline and byte admission; stateful reads
+prove preceding source writes. Chunk continuations retain resource admission
+without another subrequest. The fixture adds a stateful download, unchanged
+target-cell-version assertion and quorum-loss read refusal. Strict affected
+Clippy passes at that source, but the full run refuses history resource reads
+before reaching the download. Source `f4a088f4` adds status/history to the same
+private query adapter: its strengthened focused test passes capture and the
+public download, then fails the stateful reader's original three-second parent
+deadline. Preserve the logs, executables and voter disks under
+`CG-17-workflow-merged-345cb110-01` and `CG-17-workflow-reads-f4a088f4-01`.
+
+Candidate `bb5a50e3` reuses a host-confirmed Quorum root for pure read dispatch
+only while the private source is unchanged and its authority remains current.
+New and dirty roots and S3 turns still checkpoint. The strengthened fixture
+writes before status/open and after the first chunk, then asserts all writes
+and exactly four source mutations (three proofs plus final result), with no
+Workflow target mutation. Its optimized focused rerun still times out. Advisory
+immutable-image scans observe the three intended source checkpoint steps;
+they do not establish completion or selected-manifest authority.
+
+The same optimized executable fails the full native case and both real RustFS
+native/Axum cases during recovery status reads (`UnsupportedCapability`). Cold
+public discovery incorrectly takes the source-proven binding path. Preserve
+`CG-17-workflow-reads-bb5a50e3-01`, `CG-17-workflow-merged-bb5a50e3-01` and
+`CG-17-workflow-rustfs-bb5a50e3-01`. The two RustFS cases stop in materialized
+mode before reaching the extent mode; no mode coverage is claimed.
+
+Source `ea01566d` selects ordinary discovery for public ingress and the
+permit-protected path for source bindings. Stream capture sizes chunks against
+the complete response codec, preserving the original reply and checkpoint
+bounds. This reduces read round trips while retaining a fresh linearizable
+generation check for every chunk. Strict affected-target Clippy and the
+strengthened focused download case pass. Its full native fixture also passes
+retained restart/replay and both stream downloads, then refuses deletion of a
+held callback because range deletion still requires Fleet activation.
+The real RustFS native/Axum fixtures expose cold-discovery `Runtime(NotReady)`
+before reaching the extent mode. Preserve `CG-17-workflow-merged-ea01566d-01`
+and `CG-17-workflow-rustfs-ea01566d-01`. The Fleet regression first fails a
+`waiting` state assertion while the full native case overlaps; its repeat
+passes in 0.56 seconds. Both observations are retained without a cause claim.
+
+The follow-up routes range deletion through the existing fenced writable
+storage scope. It retries only typed read-only `NotReady`/`Overloaded` admission
+failures, with bounded backoff under the original deadline and source permit;
+terminal, fencing and untyped failures still escape. Runtime qualification is pending.
+Earlier prototype failures and the opt0 minimized
+pass remain under `CG-17-workflow-fifo-diagnostics-01`; they establish no
+exact-source qualification.
+
+The campaign runner has 19 passing unit tests and the plan validator has 44.
+Five selected Workflow unit tests and all three writer-admission tests passed
+before the final cancellation cleanup; its two new cleanup tests still require
+a fresh unit run. The partial primitive catalogue includes the new registration
+API. Full plan validation in this checkout is blocked by absent historical
+ignored evidence (`CG-01-06-gates-e32115aa-02/CG-01-record.json`). The real RustFS
+Workflow campaign is failed, not accepted. CG-17 and accepted-case totals are unchanged;
+cron, full-size values, provider execution and combined lifecycle/disaster
+scenarios remain open.
+
 ## CG-17 bounded competing enrollment
 
 Source `4d6f7d2f` adds bounded waiting for competing first creators. A binding

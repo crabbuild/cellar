@@ -151,6 +151,26 @@ pub(super) struct Registration {
 }
 
 impl Shared {
+    pub(super) async fn checkpoint(&self) -> Result<()> {
+        if self.storage.is_raft() {
+            self.track(self.storage.sync().await)?;
+        }
+        Ok(())
+    }
+
+    fn current(&self) -> Result<bool> {
+        let Some(meta) = self.get(META)? else {
+            return Ok(false);
+        };
+        Ok(text(&meta, "generation")? == self.generation
+            && !terminal(&meta)?
+            && !matches!(
+                text(&meta, "status")?.as_str(),
+                "paused" | "waitingForPause"
+            )
+            && (self.rollback_mode || property(&meta, "rollbackTarget")?.is_none()))
+    }
+
     pub(super) fn registration(&self, key: &str) -> Option<Registration> {
         self.state.lock().unwrap().rollbacks.get(key).cloned()
     }
@@ -274,6 +294,12 @@ impl Step {
                 body(shared.clone(), key, count, ordinal).await
             }
             .await;
+            // A dependent step may perform external work on its first poll.
+            // Its predecessor's journal must already have its required proof.
+            let result = match shared.checkpoint().await {
+                Ok(()) => result,
+                Err(error) => Err(error),
+            };
             let mut state = shared.state.lock().unwrap();
             state.running -= 1;
             state.activity += 1;
@@ -464,6 +490,10 @@ impl Step {
                     set(&mut running, "pendingStream", &pending)?;
                 }
                 shared.put(&key, &running)?;
+                shared.checkpoint().await?;
+                if !shared.current()? {
+                    return Ok(StepResult::Pause);
+                }
                 let mut future = scoped(&name, || Box::pin(callback(context.clone())));
                 let result = match crate::asyncrt::timeout(
                     std::time::Duration::from_millis(timeout_ms.min(u64::MAX as f64) as u64),
@@ -1015,6 +1045,10 @@ pub(super) async fn alarm(cell: Arc<InstanceCell>, context: Context) -> Result<(
                 put_field(meta, "status", json!("running"))
             }
         })? {
+            return Ok(());
+        }
+        shared.checkpoint().await?;
+        if !shared.current()? {
             return Ok(());
         }
         let event = Event {

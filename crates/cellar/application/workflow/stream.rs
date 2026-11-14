@@ -10,7 +10,49 @@ use crate::application::{
 use cellar_native::{clone::Object, web::AbortReason};
 use std::future::Future;
 
+/// A pure callback over the query owner's pinned committed image. Resource
+/// generation checks and response encoding match the ordinary command adapter.
+pub(crate) fn read_query(
+    storage: &Storage,
+    method: &str,
+    args: &crate::engine_api::RpcData,
+) -> Result<crate::engine_api::RpcData> {
+    ensure!(
+        super::read_operation(method).is_some(),
+        "invalid Workflow read"
+    );
+    let result = argument(args).and_then(|value| match method {
+        "__wfStatus" => read_status(storage),
+        "__wfHistory" => super::history::page(storage, &value),
+        _ => control(storage, method, &value),
+    });
+    match result {
+        Ok(value) => crate::application::encode_rpc(&value),
+        Err(error) => Ok(crate::engine_api::RpcData::Structured(
+            cellar_native::rpc::encode_error(&error.to_string(), "Error", None)?.into(),
+        )),
+    }
+}
+
 const CHUNK_BYTES: usize = 64 << 10;
+
+// Match the complete private Query/command response codec, including its nested
+// structured-RPC framing. No reply limit is raised to accommodate a chunk.
+fn raft_chunk_limit(result_limit: usize) -> Result<usize> {
+    let mut length = result_limit.min(CHUNK_BYTES);
+    loop {
+        let reply = crate::application::consensus::native_rpc::encode_response(
+            &crate::application::encode_rpc(&value(vec![0; length]))?,
+        )?;
+        if reply.len() <= result_limit && length != 0 {
+            return Ok(length);
+        }
+        length = length
+            .checked_sub(reply.len().saturating_sub(result_limit).max(1))
+            .filter(|length| *length != 0)
+            .ok_or_else(|| error("Workflow reply limit cannot fit a stream chunk"))?;
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct StepSelector {
@@ -77,7 +119,7 @@ impl StreamOutput {
     }
 
     pub async fn next(&mut self, context: &Context) -> Result<Option<Vec<u8>>> {
-        context.check_turn()?;
+        context.check_binding_turn()?;
         ensure!(
             Arc::ptr_eq(&context.io, &self.context.io),
             "WORKFLOW_ERROR: stream belongs to another invocation"
@@ -111,7 +153,7 @@ impl StreamOutput {
 
     /// The producer remains attached to this event through HTTP delivery and drain.
     pub fn into_readable(mut self, context: &Context) -> Result<ByteReadable> {
-        context.check_turn()?;
+        context.check_binding_turn()?;
         ensure!(
             Arc::ptr_eq(&context.io, &self.context.io),
             "WORKFLOW_ERROR: stream belongs to another invocation"
@@ -267,6 +309,26 @@ impl Step {
                 );
                 put_field(&mut record, "pendingStream", json!(id))?;
                 capturing.put(&key, &record)?;
+                // The manifest becomes visible only after the whole step. Group
+                // chunks into bounded roots instead of proving every 32 KiB.
+                // Reserve headroom for SQLite pages and framework journal rows;
+                // the producer still checks the actual complete encoded bound.
+                let (checkpoint_bytes, chunk_bytes) = if capturing.storage.is_raft() {
+                    let dispatch = crate::storage::capture_raft_dispatch()?.ok_or(
+                        crate::application::consensus::CommandFailure::UnsupportedCapability,
+                    )?;
+                    let checkpoint_bytes = dispatch
+                        .checkpoint_limit()?
+                        .saturating_sub(64 << 10)
+                        .clamp(CHUNK_BYTES / 2, 256 << 10);
+                    (
+                        checkpoint_bytes,
+                        raft_chunk_limit(dispatch.result_limit()?)?.min(checkpoint_bytes),
+                    )
+                } else {
+                    (usize::MAX, CHUNK_BYTES)
+                };
+                let mut unproven = 0;
                 let mut chunks = 0_u64;
                 let mut size = 0_u64;
                 loop {
@@ -279,7 +341,11 @@ impl Step {
                         .value
                         .ok_or_else(|| error("stream read returned no bytes"))?
                         .into_bytes();
-                    for chunk in bytes.chunks(CHUNK_BYTES) {
+                    for chunk in bytes.chunks(chunk_bytes) {
+                        if unproven != 0 && unproven + chunk.len() > checkpoint_bytes {
+                            capturing.checkpoint().await?;
+                            unproven = 0;
+                        }
                         let length = chunk.len() as u64;
                         capturing.track(capturing.storage.transaction_sync(|transaction| {
                             let mut meta = required(transaction)?;
@@ -314,6 +380,11 @@ impl Step {
                             put_field(&mut meta, "streamBytes", json!(total))?;
                             transaction.put_clone(META, &meta)
                         }))?;
+                        unproven += chunk.len();
+                        if unproven >= checkpoint_bytes {
+                            capturing.checkpoint().await?;
+                            unproven = 0;
+                        }
                         chunks += 1;
                         size = size
                             .checked_add(length)
@@ -321,6 +392,12 @@ impl Step {
                         if chunks.is_multiple_of(16) {
                             crate::asyncrt::sleep(std::time::Duration::ZERO).await;
                         }
+                    }
+                    // A slow producer must never suspend at its next read while
+                    // retaining an unproven writer, however small this item was.
+                    if unproven != 0 {
+                        capturing.checkpoint().await?;
+                        unproven = 0;
                     }
                 }
                 data(json!({"__cellarWorkflowStream":{"id":id,"chunks":chunks,"size":size}}))
@@ -337,6 +414,30 @@ impl Step {
                 &value,
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raft_stream_chunks_fit_the_complete_reply_codec() -> Result<()> {
+        for limit in [1024, 4096, 64 << 10, 1 << 20] {
+            let size = raft_chunk_limit(limit)?;
+            let encoded = |size| {
+                crate::application::consensus::native_rpc::encode_response(
+                    &crate::application::encode_rpc(&value(vec![255; size]))?,
+                )
+            };
+            assert!(size <= CHUNK_BYTES);
+            assert!(encoded(size)?.len() <= limit);
+            if size < CHUNK_BYTES {
+                assert!(encoded(size + 1)?.len() > limit);
+            }
+        }
+        assert!(raft_chunk_limit(1).is_err());
+        Ok(())
     }
 }
 

@@ -75,16 +75,20 @@ impl RaftCursors {
     }
 
     pub(super) fn publishable(&self) -> anyhow::Result<()> {
-        self.prune()?;
         anyhow::ensure!(
-            self.cells.sql_cursors.borrow().values().all(|cursor| {
-                // SAFETY: this arena owns each live statement and its command
-                // still owns the connection. No cursor can step concurrently.
-                unsafe { rusqlite::ffi::sqlite3_stmt_readonly(cursor.statement) != 0 }
-            }),
+            self.parkable()?,
             "cannot publish storage with an unfinished SQL write cursor; consume its rows before output or storage.sync()"
         );
         Ok(())
+    }
+
+    pub(super) fn parkable(&self) -> anyhow::Result<bool> {
+        self.prune()?;
+        Ok(self.cells.sql_cursors.borrow().values().all(|cursor| {
+            // SAFETY: this arena owns each live statement and its command
+            // still owns the connection. No cursor can step concurrently.
+            unsafe { rusqlite::ffi::sqlite3_stmt_readonly(cursor.statement) != 0 }
+        }))
     }
 
     pub(super) fn clear(&self) -> anyhow::Result<()> {

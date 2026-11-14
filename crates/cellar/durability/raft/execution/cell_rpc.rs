@@ -161,6 +161,7 @@ impl CellPrivateExecutor {
                     domain,
                     deadline,
                     result_limit: self.options.limits.max_result_bytes,
+                    checkpoint_limit: self.options.limits.envelope.max_payload_bytes,
                     fence: self.authority.activation_fence(),
                     binding_source: bindings.and_then(|host| {
                         class.cell_configuration_digest().map(|configuration| {
@@ -408,6 +409,9 @@ impl CellPrivateExecutor {
             .database_mut()
             .continue_checkpoint(&turn.transaction)
             .map_err(private_failure)?;
+        turn.transaction.mark_quorum_read_base(
+            turn.step != 0 && turn.attempt.request.durability == Durability::Quorum,
+        );
         turn.preparation = Some(StagePreparation {
             sequence,
             log_reservation,
