@@ -262,6 +262,10 @@ pub async fn qualify_axum(real_rustfs: bool) -> Result<()> {
 }
 
 async fn qualify_host(real_rustfs: bool, external: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::sql_ingress=debug,cellar::raft::enrollment=debug,cellar::raft::execution_readiness=debug,cellar::raft::cell_groups::controller::effects=debug")
+        .with_test_writer()
+        .try_init();
     for rooted in [false, true] {
         let label = if external { "events-axum" } else { "events" };
         let store = Arc::new(if real_rustfs {
@@ -415,6 +419,11 @@ async fn qualify_host(real_rustfs: bool, external: bool) -> Result<()> {
             .map_err(anyhow::Error::from)
             .and_then(std::convert::identity);
         let mut cleanup = Vec::new();
+        if work.is_err() {
+            for (index, host) in cluster.hosts.iter().enumerate() {
+                eprintln!("EventStream failure node={index}: {:?}", host.performance());
+            }
+        }
         for node in std::mem::take(&mut cluster.nodes) {
             if let Err(error) = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {
                 cleanup.push(error.to_string());
