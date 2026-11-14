@@ -320,7 +320,7 @@ async fn run(
     external: bool,
 ) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::enrollment=debug,cellar::raft::sql_ingress=debug,cellar::raft::execution_readiness=debug,cellar::raft::rpc_progress=debug")
+        .with_env_filter("cellar::raft::enrollment=debug,cellar::raft::sql_ingress=debug,cellar::raft::execution_readiness=debug")
         .with_test_writer()
         .try_init();
     let observed = Arc::new(Observed::default());
