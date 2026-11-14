@@ -62,25 +62,33 @@ The first public RF3 run at `3732fd4a` fails before bootstrap on an incoherent
 fixture input/retained-byte profile. The corrected profile and failed-startup
 join/disk-retention regression pass at `1ef71db9`. Public startup then exposes a
 global service-selection gap: producer configuration is incorrectly required on
-resource-owned stream/catalog namespaces. Qualify the common unique-owner
-selector and its missing/ambiguous-owner refusals before the delivery matrix.
+resource-owned stream/catalog namespaces. PR [#170](https://github.com/crabbuild/cellar/pull/170)
+contains the common unique-owner selector on merged main. At `49509b38`, its
+locked integration build and startup-cleanup regression pass. The combined
+missing/ambiguous-owner case fails on `Runtime(Overloaded)`: the four-namespace
+fixture's configured reservations exceed its 16-MiB host bank before ownership
+validation. Correct that explicit profile and qualify the exact refusal before
+running the native/Axum delivery matrix; those public selections are unrun.
 See the [candidate and failed control](progress.md#cg-17-eventstream-public-activation-candidate).
 
-1. **Deliver EventStream end to end.** Implement ordinary publication and
-   subscription routing, committed outbox discovery, destination authority,
-   receipt/acknowledgement settlement and autonomous interrupted delivery
-   recovery. The integrated inbox bridge alone is insufficient. Keep original
-   event/lane identities through movement and new-incarnation recovery; never
+1. **Deliver EventStream end to end.** Qualify integrated publication,
+   subscription routing, committed outbox discovery, destination authority and
+   receipt/acknowledgement settlement through normal public paths. Complete
+   autonomous interrupted delivery recovery. The integrated inbox bridge alone
+   is insufficient. Keep original event/lane identities through movement and
+   new-incarnation recovery; never
    treat a source commit as destination acceptance.
    The source journal, per-lane identity and shared work bridge are described in
-   the [EventStream contract](event-stream-durability.md). Public activation still
-   requires the authenticated target path and resource bootstrap.
+   the [EventStream contract](event-stream-durability.md). Public activation,
+   authenticated target dispatch and resource bootstrap still need RF3/RustFS
+   qualification.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
    and fault oracles, then resolve producer deadlines and the older final-drain
    failures under the unchanged load and budgets. Qualify both image forms.
-   Fix concurrent boot reconciliation and ensure every failed startup joins its
-   owners and retains its disks; the current retention branch covers activation
-   errors only. Do not attribute intermittent failures to an unproven cause.
+   Resolve the managed trust-refresh failure and qualify concurrent boot
+   reconciliation. General failed-startup joining and disk retention are now
+   implemented, with the typed profile-refusal regression passing at `49509b38`.
+   Do not attribute intermittent failures to an unproven cause.
 3. **Complete bindings, durable time and Workflow lifecycle.** Qualify independent
    target-S3 minima, interruption before target proof, unused child sequence
    sealing, concurrent/cross-class creation and large calls. Complete SQL

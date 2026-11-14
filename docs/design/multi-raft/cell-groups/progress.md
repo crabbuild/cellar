@@ -75,12 +75,29 @@ The cohort remains FAILED, with the source-proof selection unrun. It retains six
 disks and 21 verified evidence files in `CG-17-event-public-1ef71db9-128`; the new
 cleanup also preserves the positive-path startup failure.
 
-The next source correction makes startup and authenticated dispatch select the
-same unique resource service, independent of producer aliases/configuration.
-Missing and ambiguous service owners still refuse. The correction and its public
-negative cases need qualification. Public RF3 delivery/inbox/ack/restart, real
-RustFS, long-poll concurrency, interruption and complete family qualification
-remain open.
+The source correction makes startup and authenticated dispatch select the same
+unique resource service, independent of producer aliases/configuration. Follow-up
+PR [#170](https://github.com/crabbuild/cellar/pull/170) starts from merged main
+`50b927d9` at `49509b38`. Its tracked tree is byte-identical to `2991f25b`, where
+strict library/all-test Clippy and repository checks pass; those checks retain
+their original source pins. The main-based locked optimized integration build
+also passes.
+
+Cohort `CG-17-event-main-49509b38-132` remains **FAILED**. The startup-refusal
+regression passes, but the missing/ambiguous-owner regression receives typed
+`Runtime(Overloaded)` instead of the expected ownership refusal. Source inspection
+identifies a conflicting fixture profile: its four-namespace ambiguity case
+reserves more than 21 MiB for invocation, route and directory capacities against
+the unchanged 16-MiB namespace bank. Admission precedes binding validation.
+Correct this explicit test profile before qualifying the ownership oracle; the
+passing missing-owner portion does not accept the combined case.
+
+The failed run retains nine disks, frozen source/binary provenance and 23
+hash-verified evidence files. Public native/Axum delivery and source-proof
+selections were not run after the failed gate. Public RF3 delivery/inbox/ack/
+restart, real RustFS, long-poll concurrency, interruption and complete family
+qualification remain open. Neither the build nor private units establish those
+public behaviors.
 Acceptance remains **13/17 tasks and 147/195 cases**.
 
 ## CG-17 EventStream source journal and shared work
