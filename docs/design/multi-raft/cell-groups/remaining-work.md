@@ -73,9 +73,14 @@ intermittent archive-deadline failure also remains unexplained.
    control comparison also failed both old and candidate executables. Preserve
    these separate failures; neither a deadlock nor an alarm-only cause is proven.
    See the [current writer checkpoint](progress.md#cg-17-fifo-writers-and-authority-readiness).
-   Then deliver the reserved cron service, backend-aware alarm installation,
-   committed occurrence/history before handler entry and autonomous startup.
-   Movement/wake, deployment/clock changes and release process loss remain gates.
+   Source `13b93404` now delivers the reserved ordinary cron service,
+   backend-aware alarm installation, committed occurrence/history before handler
+   entry and autonomous startup. Retained recovery passes four native and four
+   real-RustFS configurations; see the
+   [cron checkpoint](progress.md#cg-17-ordinary-cron-startup-and-retained-recovery).
+   Finish its cron-only stateless/public daemon/CLI path and deployment transitions;
+   changed/removed schedules currently refuse. Movement/wake, clock changes,
+   independent voter/disk loss and release process loss remain gates.
 2. Complete Queue lifecycle/load, EventStream and Workflow execution through
    their public adapters. Queue normal/fault/long-callback/load results retain
    their exact source pins; full-size payload, clock, deployment, movement/wake

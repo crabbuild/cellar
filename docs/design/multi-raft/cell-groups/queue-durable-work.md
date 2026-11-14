@@ -157,6 +157,8 @@ Full CG-17 and its independent API/scenario/configuration matrix remain open.
 Queue `max_concurrency` remains a ceiling; this shared owner runs one retained
 callback per broker at a time on each node. Clock/deployment changes, movement,
 wake, all-voter disk loss, full-size payloads and independent Linux voters/load
-need qualification. EventStream, Workflow, cron and other work reasons still
-need their own adapters. Delivery remains at least once, with application inbox
-or external-provider idempotency at the documented business boundary.
+need qualification. Ordinary cron now has its
+[basic startup and retained-recovery checkpoint](progress.md#cg-17-ordinary-cron-startup-and-retained-recovery);
+its full lifecycle needs qualification. EventStream, Workflow and other work
+reasons still need their own adapters. Delivery remains at least once, with
+application inbox or external-provider idempotency at the documented business boundary.

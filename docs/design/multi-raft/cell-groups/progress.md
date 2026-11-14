@@ -27,6 +27,66 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 ordinary cron startup and retained recovery
+
+Source `13b93404` delivers ordinary deployed cron schedules through the shared
+group runtime. A reserved `.cron` class binds the script, expressions and
+deployment/history configuration to its immutable definition. Startup requires
+the matching declared namespace. One bounded, joined bootstrap owner per node
+enrolls the schedule with a stable creation identity; retained enrollment never
+rearms it. Due execution uses the existing shared callback owner, without an
+idle-cell task or a client request to start discovery.
+
+The existing cron state machine commits the owed occurrence, attempt and history
+before scheduled application entry, and checkpoints expression settlement before
+continuing. Backend-aware alarm installation checks include claimed work.
+Signed operator inspection selects a linearizable pinned history image. A
+separate trusted framework read path accepts read authority and verifies a
+read-only result statement before stepping it; mutation paths still require
+command authority. Application SQL cannot borrow framework-table authorization.
+
+| Gate at `13b93404` | Result |
+| --- | --- |
+| Framework read mutation/privacy guard | **Pass** |
+| Invalid/changed/removed cron declaration refusal | **Pass** |
+| Existing Fleet cron conformance | **Pass** |
+| Shared-group autonomous cron and retained restart | **4/4 native configurations pass** |
+| Same cron cases on real RustFS | **4/4 configurations pass** |
+| Optimized library/integration build, strict affected-target Clippy, format/layout/dependencies | **Pass** |
+
+Cohort `CG-17-cron-read-13b93404-95` is **PASSED**. Both image formats run
+at Quorum and S3 namespace minima. Each configuration observes a committed
+`started` history before the first handler finishes, inspects it through a signed
+follower route, then joins every old voter while that handler is pending. Reopen
+the retained disks without client traffic: the same scheduled occurrence resumes,
+retries a known handler error and completes attempt three, while the second
+expression declines retry exactly once. Declared variables and retired scheduled
+Contexts retain their ordinary behavior.
+
+The fixture explicitly selects a 30-second callback budget, a 75-second calendar
+observer and a 45-second restart observer. Public request budgets and production
+quotas are unchanged. RustFS retains one CPU/two GiB in the existing eight-GiB
+VM; RF3 voters have separate disks and one SQL worker each in one native process.
+The backend and VM are stopped with objects retained. All 4,954 tracked source
+inputs and frozen executables are recorded; 25 evidence files have verified
+workspace-volume backups.
+
+Keep cohort `CG-17-cron-63763d5b-94` **FAILED**: autonomous handler entry
+worked, then history inspection incorrectly requested write authority and returned
+`UnsupportedCapability`. Its logs, executables and three voter disks are retained.
+The read-only bridge fixes that failure; no deadline or assertion was weakened.
+
+This qualifies the basic ordinary cron path, not complete durable-work support.
+Changed/removed cron contracts currently refuse instead of discarding obligations;
+deployment transitions, clock discontinuities, movement/wake, release process
+loss and independent-voter/disk-loss recovery remain gates. Cron-only stateless
+Raft admission without a registered Raft class is not implemented; the actual
+daemon/CLI declaration path is not yet qualified. Workflow-specific schedules
+are separate and remain refused in the unintegrated Workflow candidate.
+Queue/cold-S3 deadlines, EventStream, qualified Workflow integration and the
+remaining adapters retain their priority. No full family/task is accepted:
+**13/17 tasks and 147/195 cases** remain the totals.
+
 ## CG-17 FIFO writers and authority readiness
 
 Source `15b9bf46` integrates bounded FIFO writer admission for ordinary RPCs and

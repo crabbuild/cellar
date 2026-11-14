@@ -4,7 +4,39 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current writer and Queue checkpoint
+## Current ordinary cron checkpoint
+
+Source `13b93404` implements the reserved ordinary cron service, autonomous
+startup enrollment, backend-aware alarm installation, committed occurrence/history
+before handler entry and signed linearizable history inspection. The read-only
+framework SQL bridge fixes the first history query's `UnsupportedCapability`
+without weakening command write checks or application table restrictions.
+
+Cohort `CG-17-cron-read-13b93404-95` is **PASSED**: cron recovery passes
+four native and four real-RustFS image/minimum configurations. All old voters
+join before retained restart; the same occurrence resumes without requests,
+retries a known failure and completes attempt three, while another expression
+declines retry. The mutation/privacy guard, declaration refusals, ordinary Fleet
+cron regression, optimized build, strict affected-target Clippy and static checks
+pass. All 4,954 tracked inputs match the frozen source; 25 evidence files have
+verified backups. Backend/VM are stopped with objects retained. See the
+[cron checkpoint](progress.md#cg-17-ordinary-cron-startup-and-retained-recovery).
+
+Keep cohort 94 **FAILED** with its logs, frozen executables and three voter
+disks. Current success establishes the basic ordinary cron path only. The fixture
+uses a 30-second callback budget and separate RF3 disks/one SQL worker per voter
+in one process; it does not qualify independent Linux voters or release aborts.
+Changed/removed cron contracts refuse. Deployment/clock/movement/wake and disk-loss
+gates, cron-only stateless admission and actual daemon/CLI qualification remain.
+Workflow-specific schedules remain refused in the separate Workflow candidate.
+
+Next close the Queue/cold target-S3 request failures and integrate the qualified
+Workflow candidate on a new combined source, preserving the cron service and
+alarm failure/FIFO ownership. Finish EventStream and the remaining adapters, then
+the CG-13/15/16 recovery/release matrix. No complete primitive family is accepted;
+totals stay **13/17 tasks and 147/195 cases**.
+
+## Previous writer and Queue checkpoint
 
 Source `15b9bf46` adds bounded FIFO admission and a shared original-deadline
 fresh-authority wait. Diagnostic 85 confirms that the prior one-shot lookup
@@ -24,12 +56,10 @@ Strict affected-target Clippy, both builds, formatting, layout and dependencies
 pass. The owned RustFS backend and VM remain stopped.
 
 Next isolate cold target-S3 onboarding from the Queue parent deadline; keep
-budgets/quotas unchanged and unknown mutation identities intact. The next cron
-feature slice has concrete owners: `native_services.rs`/Registry registration,
-`cron/state.rs`'s Fleet-only alarm table lookup, and `Schedule::alarm`'s occurrence
-history checkpoint before application entry. Preserve the existing public cron
+budgets/quotas unchanged and unknown mutation identities intact. The later cron
+checkpoint above delivers its basic service while preserving the ordinary
 configuration, retry, no-retry and history APIs. Workflow candidates in another
-checkout remain unqualified and unintegrated here. Full-family and combined
+checkout remain unintegrated here. Full-family and combined
 release gates remain open; acceptance stays **13/17 tasks and 147/195 cases**.
 
 ## Previous ordinary alarm failure checkpoint
