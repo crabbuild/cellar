@@ -27,6 +27,78 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 combined filesystem and Queue proof qualification
+
+Qualified runtime source: `c13a47453e79559533d408d8c87aff12f94b70a4`.
+The public `RaftClass::filesystem` adapter and framework inbox bridge are now
+integrated with Workflow, ordinary cron and the newer alarm failure/lease owner.
+Transactional files, invocation-bound descriptors, immutable query views,
+file/business-state rollback, maintenance, original receipts, retained RF3 restart
+and quorum refusal pass both native and real-RustFS image forms. Inbox receipts
+share business rollback without borrowing application authorization for framework
+SQL. Movement/wake, archive-outage/load and all-voter-disk recovery are not covered
+by these filesystem cases; no complete family is accepted.
+
+Queue callbacks now prove their generic claim together with the batch lease
+before entering the consumer. A preceding DLQ call still commits its source
+intent before dispatch. Other callbacks keep their eager claim checkpoint, and
+shared Queues refuse the Fleet fallback without the proof-bearing adapter.
+The public regression passes all four image/minimum configurations on native
+storage and all four on real RustFS. It requires exactly two group commits from
+the paused cut, versus the baseline's reproduced three, verifies the committed
+active lease while holding the consumer, and blocks consumer entry while S3
+archive publication is refused. This removes a verified checkpoint cost;
+**it does not close the Queue load deadline failures**.
+
+| Current-source selection | Result |
+| --- | --- |
+| Locked optimized library and five integration-target build, captured CLI and strict affected-target Clippy | Pass |
+| Owning class/work/inbox/filesystem/Workflow/writer/storage units | 46/46 pass |
+| Existing Fleet filesystem, EventStream and Workflow conformance | 5/5 pass |
+| Combined primitive declaration guard | Pass |
+| Native Queue batch proof | 4/4 image/minimum configurations pass |
+| Real-RustFS Queue batch proof, independent cohort 109 | 4/4 configurations pass |
+| Shared filesystem recovery | Both native and both real-RustFS image forms pass |
+| Native and real-RustFS Axum Queue fault/retention suites | Pass |
+| Native alarm failure/backoff and rollback | Pass |
+| Real-RustFS ordinary Workflow and Axum scheduled Workflow | Both image forms pass for each selection |
+| Native Queue load | Failed on producer request sequence 9 before final drain; extent mode unrun |
+| Real-RustFS Queue load | Failed on producer request sequence 7 before final drain; extent mode unrun |
+| Initial real-RustFS batch-proof selection in cohort 108 | Failed during managed startup/trust refresh, before proof assertions |
+
+Cohort `CG-17-queue-fs-c13a4745-108` is **FAILED: 15/17 selections pass**;
+its remaining five selections are unrun after the startup failure.
+`CG-17-queue-fs-rustfs-c13a4745-109` executes those independent RustFS selections
+and the proof control: **FAILED: 5/6 selections pass**, with Queue load failing.
+The later proof pass does not establish the cause of the earlier startup
+failure. Neither campaign reaches its final 528-message load oracle. Source
+`7e4347e9` retains its separate final-drain failures; these new producer failures
+are not the same observed cut.
+
+Both campaigns preserve source inputs, frozen executables and hash-verified
+backups: 44 evidence files for cohort 108 and 33 for cohort 109. Six failed load
+voter disks remain. The trust-refresh startup failure occurs before the fixture's
+activation-only retention branch, so its temporary startup disks were not
+retained; complete failed-startup cleanup/evidence coverage remains open.
+The owned RustFS container and VM stop successfully after each campaign, with
+objects retained. Native RF3 uses separate disks and one SQL worker per voter in
+one process. RustFS keeps one CPU/two GiB in the same four-CPU/eight-GiB VM;
+these are not independent Linux voter or failure-domain qualifications.
+
+Format/layout, dependency/docs checks, 13 coverage tests, 19 runner tests,
+two resource-profile tests and 317 performance-tool tests (one opt-in skip) pass
+at the runtime source. The plan verifier records 43/44 passes because the merged
+daemon harness has a stale reviewed-source anchor. The following documentation
+checkpoint refreshes that reviewed hash/excerpt without changing runtime bytes;
+it does not replace the failed record or qualify full-plan evidence preflight.
+The separate missing historical CG-01 evidence remains a release gate.
+
+Next deliver ordinary EventStream publication/subscription and autonomous outbox
+recovery through shared authority. Close Queue request deadlines and managed
+startup/cleanup stability, then complete payload/provider adapters and the
+CG-13/15/16 recovery/release matrix. Acceptance remains **13/17 tasks and
+147/195 cases**. Full public primitive compatibility and hard cutover are open.
+
 ## CG-17 Queue batch proof coalescing candidate
 
 The Queue callback candidate defers the generic work-claim checkpoint to the

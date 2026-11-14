@@ -4,29 +4,36 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current Queue proof candidate
+## Current combined primitive checkpoint
 
-Filesystem/inbox merge `649ba11a`, Queue proof regression `d53b1c27` and the
-coalescing/no-fallback candidate are integrated back into the original active
-checkout. Source `648bc468` reproduces the old three-commit path without any
-production changes from `7e4347e9`; cohort 107 retains its negative executable,
-log, three voter disks and verified backup. Its S3/extent configurations are
-unrun behind that expected first failure. Candidate formatting, build and
-runtime qualification remain next.
+Runtime source `c13a4745` integrates filesystem/inbox with Workflow, ordinary
+cron and exact alarm/maintenance lease fencing. Filesystem public recovery passes
+both native and real-RustFS image forms. Queue claim/lease coalescing passes all
+four image/minimum configurations on native storage and all four on real RustFS,
+including denied-publication refusal before consumer entry. Native and RustFS
+Axum Queue faults, alarm retries and selected Workflow regressions pass.
 
-Cohort 106 is terminal FAILED: 20/22 selections pass, including ordinary and
-scheduled Workflow in all eight real-RustFS native/Axum configurations. Native
-and RustFS Queue load fail during final drain after producers return. Six failed
-disks, four executables and 55 verified backup files remain; backend and VM are
-stopped. Do not relabel these failures or claim the new optimization fixes them
-until the original load cases pass.
+Cohort 108 is terminal FAILED at 15/17 selections: native load expires producer
+sequence 9; RustFS proof setup fails trust refresh before assertions. Cohort 109
+is terminal FAILED at 5/6: RustFS load expires producer sequence 7; its proof,
+filesystem, fault and Workflow selections pass. Preserve both failures and the
+older `7e4347e9` final-drain failures. Six failed load disks, frozen executables
+and 77 hash-verified evidence files remain; both backend/VM shutdowns succeed.
+Startup disks from the trust-refresh failure were not retained because it occurs
+before the activation-only failure cleanup. Fix that ownership/evidence gap.
 
-Next run the combined candidate's claim/lease proof under Quorum/S3 minima,
-including blocked S3 publication, then existing Queue fault/long/load, Workflow,
-alarm and filesystem guards. Preserve original deadlines, byte/item budgets,
-physical ownership and exact settlement fences. The temporary integration
-worktree can be archived once its merged commits are preserved here. Full
-acceptance remains 13/17 tasks and 147/195 cases.
+The locked build, CLI, strict affected-target Clippy, 46 owning units, Fleet
+conformance and static/tooling checks pass, apart from the recorded stale daemon
+anchor in the runtime-source plan verifier. The following documentation
+checkpoint refreshes that reviewed anchor; keep the failed record. See the
+[qualification checkpoint](progress.md#cg-17-combined-filesystem-and-queue-proof-qualification).
+
+Prioritize the missing EventStream public publication/subscription/outbox adapter
+and the Queue deadline/startup blockers. Then finish payload/provider adapters
+and the complete primitive lifecycle/recovery matrix. No quotas, deadlines,
+identities or proof boundaries may be weakened. Acceptance stays 13/17 tasks,
+147/195 cases; no complete primitive family or hard cutover is accepted.
+The temporary integration worktree is archived after its commits are merged.
 
 ## Previous isolated filesystem integration checkout
 
