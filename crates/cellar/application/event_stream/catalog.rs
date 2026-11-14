@@ -18,6 +18,8 @@ const ACCEPT_CONFIGURATION: &str = "UPDATE __sys_event_catalog SET definition=pe
 
 const RECORD_FAILURE: &str = "UPDATE __sys_event_catalog SET last_error=? WHERE id=? AND operation=? AND (pending_definition IS NOT NULL OR pending_retirement IS NOT NULL)";
 
+const REARM_RECONCILIATION: &str = "UPDATE __sys_event_catalog SET retry_at_ms=max(retry_at_ms,?1) WHERE id=?2 AND operation=?3 AND (pending_definition IS NOT NULL OR pending_retirement IS NOT NULL)";
+
 struct Catalog;
 
 pub(crate) fn create_cell(context: &Context) -> Result<Arc<dyn Cell>> {
@@ -355,6 +357,29 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
     if !retiring && !matches!(row.get("pending_definition"), Some(SqlValue::Text(_))) {
         return status(&row);
     }
+    let operation = store::text(&row, "operation")?;
+    let _dispatch = if db.is_raft() {
+        let identity = context.identity().ok_or_else(|| error(ErrorCode::Forbidden, "catalog reconciliation requires a cell identity"))?;
+        let limits = crate::application::limits::current().events;
+        let Some(dispatch) = context.io.host_services().events().dispatch(
+            &identity.scope,
+            &format!("catalog:{id}"),
+            limits.max_dispatch_concurrency,
+        ) else {
+            // Configuration ingress and autonomous maintenance can overlap while
+            // the same source writer is parked. Keep one live reconciler and
+            // re-arm its durable obligation instead of allocating another child
+            // identity and requiring a second independent broker checkpoint.
+            db.tx(|tx| {
+                tx.system_sql(REARM_RECONCILIATION, &[crate::asyncrt::wall_ms().saturating_add(1000).into(), id.into(), operation.clone().into()])?;
+                schedule(tx)
+            })?;
+            return operation_result(&db, id, &operation);
+        };
+        Some(dispatch)
+    } else {
+        None
+    };
     let definition: Definition = serde_json::from_str(&store::text(
         &row,
         if retiring {
@@ -364,7 +389,6 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
         },
     )?)?;
     let authority: Authority = serde_json::from_str(&store::text(&row, "pending_authority")?)?;
-    let operation = store::text(&row, "operation")?;
     db.tx(|tx| {
         tx.system_sql("UPDATE __sys_event_catalog SET retry_at_ms=?,attempts=CASE WHEN attempts<9223372036854775807 THEN attempts+1 ELSE attempts END WHERE id=? AND operation=?",
             &[crate::asyncrt::wall_ms().saturating_add(1000).into(),id.into(),operation.clone().into()])?;
@@ -609,79 +633,5 @@ pub(crate) async fn maintain(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rusqlite::{params, Connection};
-
-    #[test]
-    fn duplicate_and_stale_catalog_completions_preserve_accepted_metadata() -> Result<()> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(include_str!("catalog.sql"))?;
-        let id = "1".repeat(32);
-        let first = "a".repeat(32);
-        let second = "b".repeat(32);
-        db.execute(
-            "INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,operation,digest,operation_authority,pending_definition,pending_authority,desired_revision,retry_at_ms) VALUES(?,'events','creating','team','app','changed',?,'digest','authority','definition-v1','authority',1,0)",
-            params![id, first],
-        )?;
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, first])?, 1);
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, first])?, 0);
-        assert_eq!(
-            db.execute(RECORD_FAILURE, params!["late failure", id, first])?,
-            0
-        );
-        let state = || {
-            db.query_row(
-                "SELECT definition,accepted_revision,pending_definition,desired_revision,last_error FROM __sys_event_catalog WHERE id=?",
-                [&id],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<String>>(0)?,
-                        row.get::<_, Option<i64>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<i64>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                    ))
-                },
-            )
-        };
-        assert_eq!(
-            state()?,
-            (Some("definition-v1".into()), Some(1), None, None, None)
-        );
-        db.execute(
-            "UPDATE __sys_event_catalog SET lifecycle='updating',operation=?,pending_definition='definition-v2',pending_authority='authority',desired_revision=2 WHERE id=?",
-            params![second, id],
-        )?;
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, first])?, 0);
-        assert_eq!(
-            db.execute(RECORD_FAILURE, params!["old operation", id, first])?,
-            0
-        );
-        assert_eq!(
-            state()?,
-            (
-                Some("definition-v1".into()),
-                Some(1),
-                Some("definition-v2".into()),
-                Some(2),
-                None
-            )
-        );
-        assert_eq!(
-            db.execute(RECORD_FAILURE, params!["pending retry", id, second])?,
-            1
-        );
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, second])?, 1);
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, second])?, 0);
-        assert_eq!(
-            db.execute(RECORD_FAILURE, params!["late retry", id, second])?,
-            0
-        );
-        assert_eq!(
-            state()?,
-            (Some("definition-v2".into()), Some(2), None, None, None)
-        );
-        Ok(())
-    }
-}
+#[path = "catalog_tests.rs"]
+mod tests;

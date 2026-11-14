@@ -92,7 +92,7 @@ fn definition() -> Definition {
 #[tokio::test]
 async fn configuration_hint_changes_cost_without_replacing_current_proof() -> Result<()> {
     let definition = definition();
-    let active = json!({"state":"active", "resource":definition.resource.id, "accepted_revision":"1", "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&definition)?))});
+    let active = json!({"state":"active", "operation":super::super::raft::operation("app", &definition)?, "resource":definition.resource.id, "accepted_revision":"1", "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&definition)?))});
     let mut retired = active.clone();
     retired["state"] = json!("deleted");
     let mut superseded = active.clone();
@@ -139,6 +139,32 @@ async fn configuration_hint_changes_cost_without_replacing_current_proof() -> Re
             replies: std::sync::Mutex::new(replies.into()),
         };
         let result = configure(&host, &[("app".into(), definition.clone())], &[]).await;
+        assert_eq!(result.is_ok(), accepted, "{result:?}");
+        assert!(host.replies.lock().unwrap().is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn pending_configuration_polls_current_state_without_reissuing_mutation() -> Result<()> {
+    let definition = definition();
+    let operation = super::super::raft::operation("app", &definition)?;
+    let active = json!({"state":"active", "operation":operation, "resource":definition.resource.id, "accepted_revision":"1", "accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&definition)?))});
+    let mut pending = active.clone();
+    pending["state"] = json!("creating");
+    pending["accepted_revision"] = Value::Null;
+    pending["accepted_digest"] = Value::Null;
+    let mut foreign = pending.clone();
+    foreign["operation"] = json!("02020202020202020202020202020202");
+    for (status, accepted) in [(pending.clone(), true), (foreign, false)] {
+        let mut replies = vec![("__catalogConfigure", pending.clone()), ("__catalogStatus", status)];
+        if accepted { replies.push(("__catalogStatus", active.clone())); }
+        let host = Host { known: false, replies: std::sync::Mutex::new(replies.into()) };
+        let domain = std::sync::Arc::new(crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current()));
+        let definitions = [("app".into(), definition.clone())];
+        let result = domain.run(configure(&host, &definitions, &[])).await;
+        domain.shutdown().await;
+        let result = result?;
         assert_eq!(result.is_ok(), accepted, "{result:?}");
         assert!(host.replies.lock().unwrap().is_empty());
     }

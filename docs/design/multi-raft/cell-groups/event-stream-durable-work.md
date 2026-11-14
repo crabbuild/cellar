@@ -49,6 +49,17 @@ retirement and receipts survive reactivation; factory construction does not
 overwrite them. Authorized callers may observe a pending initial configuration
 without acquiring creation authority.
 
+Shared-group catalog ingress and autonomous maintenance share a bounded live
+reconciliation reservation for each catalog resource. An overlapping caller
+keeps the durable pending operation and re-arms its retry without allocating a
+second broker command. Rearming cannot pull a retry earlier, alter a newer
+operation or revive a completed one. Activation polls the same pending operation
+through current metadata reads under its original deadline; it does not resubmit
+configuration or accept a historical receipt as current readiness. The live
+reservation is an optimization. SQLite obligations, original operation identities,
+current execution fences and independent destination proof remain authoritative
+after cancellation, ownership loss or restart.
+
 ## Publication and independent proof
 
 Applications use `Context::stream`, `Storage::tx` and `tx.emit` unchanged. Business
