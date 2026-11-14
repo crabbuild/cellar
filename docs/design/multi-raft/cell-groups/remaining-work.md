@@ -47,7 +47,13 @@ outputs use a complete checkpoint. Original identities, deadlines, exact proofs,
 physical ownership and quotas remain mandatory. See the
 [current executed results](progress.md#cg-17-binding-deadlines-and-archive-tails)
 for native and real-RustFS binding/recovery, SQL/KV, alarm, Queue and archive
-coverage. Current failed selections: none in these component campaigns.
+coverage. Those foundation campaigns have no failed selections. Source
+`9a6055bd` additionally passes native/RustFS alarm failure/restart, full RustFS
+exhaustion and normal alarms; its campaign fails materialized Queue load on
+producer sequence 7, with extents and three subsequent selections unrun.
+Retained controls 70/74 still record unexplained request/callback deadline
+misses. See the
+[alarm failure checkpoint](progress.md#cg-17-ordinary-alarm-failure-retries).
 
 Earlier `dc19ce98` passes live bindings and interrupted recovery each 8/8,
 RustFS SQL 4/4 plus 8/8 interrupted recovery, KV 4/4 including 25-MiB values,
@@ -58,11 +64,14 @@ native live-binding configurations. Keep all failed controls and disks; a newer
 pass cannot erase them or establish a capacity-deadlock cause. The older
 intermittent archive-deadline failure also remains unexplained.
 
-1. Implement ordinary alarm handler-failure rollback followed by committed,
-   generation-fenced backoff/exhaustion using the existing pure retry policy.
-   The claim lease is not that policy. Then connect cron deployment/startup,
-   persisted occurrence/history and the shared alarm projection. Pending work
-   must resume without client traffic after restart, movement and wake.
+1. Close current Queue load: materialized producer sequence 7 returns an
+   ambiguous deadline at `9a6055bd`; extents load and three Queue regressions
+   remain unrun. Compare the frozen `25d81992` control under equal conditions,
+   isolate the execution/retention path and fix it without raised budgets or
+   blind retries. The snapshot alone does not prove deadlock. Ordinary alarm
+   failure/restart and full RustFS exhaustion pass their scoped gates. Then
+   connect cron startup, occurrence identity/history and shared alarm projection,
+   with movement/wake, deployment/clock changes and release-profile process loss.
 2. Complete Queue lifecycle/load, EventStream and Workflow execution through
    their public adapters. Queue normal/fault/long-callback/load results retain
    their exact source pins; full-size payload, clock, deployment, movement/wake

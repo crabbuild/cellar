@@ -63,6 +63,51 @@ bounded to 300 seconds; the lease includes one additional second. The focused
 alarm fixture selects a five-second callback budget, matching the existing
 bounded Queue fixture. Public request budgets remain unchanged.
 
+## Returned handler failures
+
+A returned application error or caught callback panic after the claim proof
+rolls back the attempt's
+unsynced application writes. Earlier explicit checkpoints remain committed.
+The SQL owner then records retry state in a separate framework transaction and
+publishes it through the existing quorum/S3 command path. Failed instances are
+retired; their mutated in-memory state cannot return to the activation cache.
+
+Retry state follows `cellar_logic::alarm::alarm_retry`: a two-second base with
+exponential backoff and up to six retries after the initial attempt. Claim
+attempts and counted application failures are separate. A failed claim proof,
+kernel deadline, cancellation or lost authority does not fabricate a returned
+handler failure; its retained claim remains recoverable after the lease.
+
+The test profile unwinds, so caught callback panics use this failure path.
+Shipped release builds use `panic = "abort"`; an abort is process loss and
+recovers through the retained claim/lease. It cannot fabricate a known failure
+count. Release process-loss qualification remains a separate gate.
+
+Failure and completion compare the installation generation, attempt, exact lease
+and claim phase. Backoff clears that phase before the next attempt can claim it.
+The phase is necessary even when the backoff and old lease deadlines coincide.
+An old completion cannot remove a persisted retry, committed replacement or
+cancellation. The committed due index drives recovery without per-idle-cell
+work. Callbacks remain at least once; independent checkpoints and external
+operations still require application idempotency.
+
+The private callback contract binds the changed framework schema. Use fresh
+compatible namespaces and matching voters for this internal hard cutover;
+format markers remain 1 and no legacy schema reader or migration is installed.
+The public failure/restart fixture fences and joins every old voter, then
+asserts the retry did not run before reopening retained disks. This separates
+pending-work recovery from a retry that raced a sequential shutdown. The
+exhaustion fixture preserves the full ordinary retry schedule. At `9a6055bd`,
+failure/restart passes all 12 native and real-RustFS native/Axum image/minimum
+configurations; full RustFS exhaustion passes four configurations. The fixture
+observes the synchronous return/unwind after the panic hook, matching the
+runtime's caught-failure boundary. Its timing bounds and budgets are unchanged.
+Ten owning SQLite tests and native exhaustion retain their separate passing
+source `dbc6e979`. See the
+[source-pinned checkpoint](progress.md#cg-17-ordinary-alarm-failure-retries).
+Earlier request/callback deadline controls remain unresolved release concerns;
+a passing component run does not erase them or qualify the complete family.
+
 ## Qualification and remaining work
 
 The `ordinary-alarms` RustFS suite covers both image forms and Quorum/S3
@@ -79,9 +124,8 @@ At `d22ef830`, the native and real-RustFS native/Axum alarm selections pass all
 separate Queue enrollment and archive-deadline regression guards; see the
 [source-pinned checkpoint](progress.md#cg-17-ordinary-native-ingress-and-durable-alarms).
 
-Ordinary failure/backoff exhaustion, archive outages, movement/wake and
-independent voter/disk-loss qualification remain required. The current claim
-lease is not full parity with `cellar_logic::alarm::alarm_retry`. Cron still
+Archive outages, movement/wake and independent voter/disk-loss qualification
+remain required. Cron still
 requires its deployment/startup adapter, persisted occurrence/history authority
 and matching shared alarm projection. Reuse the existing cron state machine;
 do not silently admit unsupported declarations. EventStream and Workflow remain

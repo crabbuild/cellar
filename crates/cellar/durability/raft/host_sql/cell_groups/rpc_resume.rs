@@ -47,34 +47,7 @@ impl Suspended {
                 .clone();
             let domain = domain.clone();
             self.resuming = Some(Box::pin(async move {
-                loop {
-                    if !fence.term_current() {
-                        return Err(unavailable());
-                    }
-                    let now = domain.mono_ms().map_err(|_| unavailable())?;
-                    if now >= commits.deadline {
-                        return Err(crate::raft::execution::authority_failure(
-                            RuntimeError::DeadlineExceeded,
-                        ));
-                    }
-                    match commits
-                        .runtime
-                        .execution_authority(commits.route.history, cell.clone())
-                        .await
-                    {
-                        Ok(authority) if fence.accepts_continuation(&authority) => {
-                            return Ok(authority)
-                        }
-                        Ok(_) => return Err(unavailable()),
-                        Err(RuntimeError::NotReady | RuntimeError::Overloaded) => {
-                            domain
-                                .sleep_until(now.saturating_add(10))
-                                .map_err(|_| unavailable())?
-                                .await;
-                        }
-                        Err(error) => return Err(crate::raft::execution::authority_failure(error)),
-                    }
-                }
+                commits.continuation_authority(&domain, &cell, &fence).await
             }));
         }
         let authority = match self

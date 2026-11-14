@@ -895,13 +895,10 @@ impl CellGroupSqlPool {
                     // request waited. Rebase only before any application entry,
                     // keeping the original term/history fence and command ID.
                     let fresh = commits
-                        .runtime
-                        .execution_authority(group, cell.clone())
-                        .await
-                        .map_err(crate::raft::execution::authority_failure)?;
-                    if !fence.accepts_continuation(&fresh) {
-                        return Err(unavailable());
-                    }
+
+                        .continuation_authority(&domain, &cell, &fence)
+                        .await?;
+
                     Ok::<_, ExecutionError>((reserved, fresh))
                 };
                 let (reserved, fresh) = crate::asyncrt::select_biased! {

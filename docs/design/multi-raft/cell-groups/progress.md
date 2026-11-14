@@ -27,6 +27,85 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 ordinary alarm failure retries
+
+Source `9a6055bd` qualifies ordinary alarm failure settlement with the corrected
+return/unwind observation. Runtime behavior is unchanged from `79f86a99`:
+returned errors and caught unwind panics roll back unsynced application writes,
+preserve explicit checkpoints and commit retry state through the quorum/S3
+pipeline. Generation, attempt, exact lease and claim phase fence settlement;
+failed activations are retired. The existing pure policy supplies two-second
+exponential backoff and six retries. Interrupted or unknown work retains its
+claim lease rather than fabricating a known failure. See the
+[alarm contract](durable-alarms.md).
+
+| Gate at `9a6055bd` | Result |
+| --- | --- |
+| Public native failure rollback/backoff, pending retained restart, replacement/cancellation and failed-memory retirement | **4/4 configurations pass** |
+| Real RustFS failure/restart through native and Axum ingress | **8/8 configurations pass** |
+| Full real-RustFS retry exhaustion, without shortening the policy | **4/4 configurations pass** |
+| Real RustFS normal alarms, native/Axum | **8/8 configurations pass** |
+| Real RustFS bounded Queue load | **FAILED: materialized producer sequence 7 reaches its deadline; extents unrun** |
+| Current native and RustFS campaign | **FAILED: six exact selections pass, one fails; three subsequent Queue selections unrun** |
+| Strict affected-target Clippy and formatting | **Pass** |
+
+The Queue failure preserves an ambiguous public producer result. Its snapshot
+observes both callback slots occupied on one voter, active SQL preparation on
+all voters, and committed entries ahead of apply; these samples do not prove a
+deadlock cause. Ordinary native/Axum and long-callback Queue selections are
+explicitly unrun after this gate. Keep all three failed Queue voter disks.
+The earlier successful source `25d81992` is the frozen load control for the next
+investigation; no equal-condition old/new comparison has run yet.
+
+Cohort `CG-17-alarm-unwind-9a6055bd-76` freezes the native test executable and
+actual CLI on one source. The pending-retry oracle joins every old voter and
+proves the retry has not entered before reopening retained disks, then observes
+autonomous execution without client traffic. The exhaustion fixture keeps all
+six backoffs (2/4/8/16/32/64 seconds). Original three-second public requests,
+five-second callback budgets, quotas and exact proof checks remain unchanged.
+Ten owning SQLite tests, four native exhaustion configurations and the native
+alarm/Queue regressions retain their separate passing source `dbc6e979` in
+cohort 69; their runtime/owning inputs are unchanged, but they are not new
+executions in cohort 76.
+
+Keep cohort `CG-17-alarm-rustfs-dbc6e979-70` **FAILED** with three voter disks.
+Its extents/S3 final public `Cancel`, ingress sequence 11, returns an ambiguous
+`Runtime(DeadlineExceeded)`. The same public case passes in cohort 76; the old
+deadline's cause is not established. Diagnostic cohort 74 also misses an S3
+callback-checkpoint budget, which is not explained by the clock correction.
+Those latency controls remain release concerns, not erased outcomes.
+
+Diagnostics 74/75 expose a separate fixture error: failure was timestamped
+before the panic hook, while production starts backoff after catching the
+unwind. In cohort 75 the retry row is repeatedly visible but rejected by the
+pre-hook timestamp's 500-ms tolerance. A Drop guard on the synchronous failure
+exit now observes return/unwind after that hook; the timing assertions
+and deadlines are unchanged. Temporary debug logging is removed. Preserve
+cohort 73's setup-only HTTP 503 and all failed runtime controls/disks. Setup
+now requires the complete S3 conditional-write probe before any Cellar request;
+transient bucket-creation 503 observations remain recorded separately.
+
+Initial lease-only control 64 fails all four configurations; control 65 fails
+post-restart S3 ingress without refreshed namespace grants. Fixture 66 passes
+but lacks the stronger pending-retry oracle introduced in cohort 69. Frozen
+source/executable/log backups retain all these separate results.
+
+The tests unwind panics; shipped release builds abort, so release panics remain
+process loss recovered through retained claim leases, not counted errors.
+The private framework contract requires fresh compatible namespaces and matching
+voters; markers remain 1 with no legacy schema reader. PR #168 follows merged
+PR #166 on `origin/main` (`3d6450d4`). The owned RustFS backend and VM are stopped
+with objects retained. RustFS has one CPU/2 GiB; RF3 voters share a native
+process, separate disks and one SQL worker per node. Independent Linux failure
+domains, combined recovery/load/disk-loss and full-family qualification remain
+open. Full-plan acceptance remains **13/17 tasks and 147/195 cases**.
+
+Next isolate the Queue load failure against the frozen `25d81992` control,
+fix the identified execution/retention path and finish the unrun Queue gates.
+Then deliver cron startup, persisted occurrences/history and alarm projection,
+broader Queue lifecycle, EventStream and Workflow. Keep the retained
+request/callback deadline controls in combined recovery/load qualification.
+
 ## CG-17 binding deadlines and archive tails
 
 Source `25d81992` keeps foreground requests on their original identity, inputs,

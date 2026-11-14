@@ -4,7 +4,44 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current primitive foundation checkpoint
+## Current ordinary alarm failure checkpoint
+
+Cohort `CG-17-alarm-unwind-9a6055bd-76` is FAILED: six exact selections pass,
+then materialized Queue load fails with an ambiguous producer sequence-7
+deadline. Extents load and ordinary native/Axum plus long-callback Queue are
+unrun. Passing gates are native failure/restart (4/4 configurations), real RustFS
+native/Axum failure/restart (8/8), full RustFS retry exhaustion (4/4)
+and normal native/Axum alarms (8/8). Three Queue disks are retained. Runtime
+failure behavior remains the implementation at `79f86a99`: rollback unsynced
+writes, retain explicit checkpoints, commit fenced retry state and retire failed
+activation memory. See [current results](progress.md#cg-17-ordinary-alarm-failure-retries).
+
+Diagnostics 74/75 showed the observer timestamp preceded the panic hook, whereas
+production starts backoff after catching the unwind. The fixture now observes
+return/unwind with a Drop guard; timing assertions, quotas and original budgets
+are unchanged. Temporary debug logging is removed. Every old voter is joined
+before reopening retained disks, and pending retry resumes without client
+traffic. Owning/native-exhaustion evidence retains its separate source 69.
+
+Keep cohort 70 FAILED: its extents/S3 final Cancel returned an ambiguous
+DeadlineExceeded. Cohort 74 also misses a callback-checkpoint budget. Their
+causes remain unresolved even though current public cases pass. Never blindly
+retry those mutations or erase failed controls. Setup-only cohort 73 received
+HTTP503 before any Cellar test; subsequent setup requires a complete S3 probe.
+All failed artifacts and disks remain retained; the owned backend/VM are stopped.
+
+Next compare Queue load with the frozen `25d81992` artifact under the same
+owned profile and isolate the execution/retention bottleneck before a runtime
+fix. Its current snapshot does not establish a deadlock. Then finish the unrun
+Queue gates, cron deployment/startup and occurrence/history, broader Queue
+lifecycle, EventStream and Workflow.
+Complete target-S3 and pre-target-checkpoint binding/SQL/KV coverage, remaining
+adapters and combined independent-Linux-voter/load/recovery/release gates.
+Panic-abort process loss and controlled fresh-root contract cutover retain their
+separate qualification requirements. Full acceptance stays **13/17 tasks and
+147/195 cases**; no complete primitive family is accepted.
+
+## Previous primitive foundation checkpoint
 
 Source `25d81992` adds writer-release wakeups and yields private binding
 maintenance only after proven SQL refusal before enqueue. Original deadlines,

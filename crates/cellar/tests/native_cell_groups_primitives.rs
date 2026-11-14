@@ -84,6 +84,16 @@ async fn workflow_stream_checkpoints_allow_control_progress() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
+    alarms::qualify_failures(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_alarm_failures_exhaust_durable_retries() -> Result<()> {
+    alarms::qualify_exhaustion(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires the owned RustFS qualification backend"]
 async fn rustfs_ordinary_workflows_use_shared_quorum() -> Result<()> {
     workflows::qualify(true, false).await
@@ -93,6 +103,24 @@ async fn rustfs_ordinary_workflows_use_shared_quorum() -> Result<()> {
 #[ignore = "requires the owned RustFS qualification backend"]
 async fn rustfs_axum_workflows_use_shared_quorum() -> Result<()> {
     workflows::qualify(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
+    alarms::qualify_failures(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
+    alarms::qualify_failures(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_alarm_failures_exhaust_durable_retries() -> Result<()> {
+    alarms::qualify_exhaustion(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

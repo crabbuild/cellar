@@ -352,7 +352,12 @@ impl NativeCellFactory {
             if work.reason == "alarm" {
                 transaction.begin_native_alarm(work.generation)?;
             }
-            Some(work)
+            let leased_until = transaction
+                .inputs()
+                .now_unix_millis
+                .checked_add(work.lease_ms)
+                .ok_or(CommandFailure::Overloaded)?;
+            Some((work, leased_until))
         } else {
             None
         };
@@ -423,7 +428,7 @@ impl NativeCellFactory {
         }
         let context = self.context(identity, authority)?;
         let invocation = match &work {
-            Some(work) => Invocation::Alarm {
+            Some((work, _)) => Invocation::Alarm {
                 scheduled_ms: i64::try_from(work.due)?,
             },
             None => Invocation::CellRpc {
@@ -440,21 +445,49 @@ impl NativeCellFactory {
         let workflow = crate::deploy::is_workflow_class(&self.class);
         let retire = workflow.then(|| (instance.resources(), state.clone()));
         let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
-            if let Some(work) = work {
+            if let Some((work, leased_until)) = work {
                 // No callback entry until the exact claim survives quorum (and
                 // any stronger namespace minimum). A crash retains retry work.
                 storage.sync().await?;
-                let future = instance.0.invoke(context, invocation)?;
-                let result = if workflow {
-                    crate::application::workflow::join_turn(future, state, storage.clone()).await?
-                } else {
-                    future.await?
+                use futures_util::FutureExt as _;
+                // Preserve known alarm failure capture around the entire owned
+                // Workflow turn, including physical timeout continuations.
+                let invoked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    instance.0.invoke(context, invocation)
+                }));
+                let result = match invoked {
+                    Ok(Ok(future)) => {
+                        let future: HandlerFuture<Output> = if workflow {
+                            Box::pin(crate::application::workflow::join_turn(
+                                future, state, storage.clone(),
+                            ))
+                        } else {
+                            future
+                        };
+                        std::panic::AssertUnwindSafe(future)
+                            .catch_unwind()
+                            .await
+                            .map_err(crate::native_worker::panic_error)
+                            .and_then(std::convert::identity)
+                    }
+                    Ok(Err(error)) => return Err(error),
+                    Err(panic) => Err(crate::native_worker::panic_error(panic)),
                 };
-                anyhow::ensure!(
-                    matches!(result, Output::Done),
-                    CommandFailure::UnsupportedCapability
-                );
-                crate::storage::raft_native_work(|db| super::native_work::complete(db, &work))?;
+                let result = result.and_then(|result| {
+                    anyhow::ensure!(matches!(result, Output::Done), CommandFailure::UnsupportedCapability);
+                    Ok(())
+                });
+                if let Err(cause) = result {
+                    if work.reason == "alarm" {
+                        return Err(super::native_work::Failure {
+                            work, leased_until, at_ms: crate::asyncrt::wall_ms(), cause,
+                        }.into());
+                    }
+                    return Err(cause);
+                }
+                crate::storage::raft_native_work(|db| {
+                    super::native_work::complete(db, &work, leased_until)
+                })?;
                 return Ok(vec![1]);
             }
             let future = instance.0.invoke(context, invocation)?;
