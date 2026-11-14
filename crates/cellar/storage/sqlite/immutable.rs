@@ -42,6 +42,7 @@ impl ImmutableQuery {
 /// Owns the pinned image only for a synchronous registered query. Cloned
 /// Storage views carry the callback identity and cannot retain the image.
 pub(crate) struct QueryFrame {
+    lifetime: Arc<()>,
     // A callback may return a token, but never its raw statement or image pin.
     cursors: super::raft_cursors::RaftCursors,
     database: ImmutableQuery,
@@ -66,6 +67,7 @@ impl QueryFrame {
             }
         }
         let frame = Rc::new(Self {
+            lifetime: Arc::new(()),
             cursors: super::raft_cursors::RaftCursors::default(),
             database,
             storage: OnceCell::new(),
@@ -107,6 +109,10 @@ impl QueryFrame {
 
 pub(super) fn active() -> bool {
     CURRENT_QUERY.with(|current| current.borrow().is_some())
+}
+
+pub(crate) fn filesystem_lifetime() -> Option<std::sync::Weak<()>> {
+    CURRENT_QUERY.with(|current| Some(Arc::downgrade(&current.borrow().as_ref()?.lifetime)))
 }
 
 pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {

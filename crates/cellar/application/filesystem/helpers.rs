@@ -199,7 +199,8 @@ impl Filesystem {
         cursor: Option<&ReadDirCursor>,
     ) -> Result<DirectoryPage> {
         operation("filesystem.read_dir", || {
-            let scope = self.scope()?;
+            self.scope()?;
+            let scope = self.identity.as_str();
             if limit == 0 || limit > self.limits.max_directory_entries {
                 return Err(Error::new(
                     Errno::EINVAL,

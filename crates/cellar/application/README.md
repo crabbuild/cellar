@@ -79,6 +79,24 @@ required Quorum or S3 proof. Ordinary `Context` activation and the remaining
 primitive adapters are tracked in the
 [cell-group implementation plan](../../../docs/design/multi-raft/cell-groups/implementation-plan.md).
 
+An ordinary Raft cell enables `Context::fs()` with
+`RaftClass::filesystem(Policy)` before `Registry::raft_cell` registration. The
+policy joins the namespace schema identity. Enrollment creates the filesystem;
+file changes and business updates share the private transaction and its required
+durability proof. Immutable queries can read that same filesystem through
+`QueryContext::storage().fs()`. Descriptors expire with their invocation and
+cannot enter another transaction. Bounded garbage collection uses the shared
+durable callback scheduler, including after retained restart.
+Filesystem views acquired by the cell constructor can be cached for that
+activation; descriptor checks still require the exact executing invocation.
+
+`Storage::inbox` also accepts records in a Raft command's transaction. Receipt
+deduplication and local business effects commit or roll back together; the
+command's required proof must precede external acknowledgement. This does not
+enable the ordinary EventStream publisher, subscription transport or autonomous
+outbox adapter on shared groups; those still require their separate authority
+and recovery integration.
+
 `QueryContext::storage()` reads SQL and KV from the immutable image selected
 by the query's consistency policy. The view and the returned query version
 describe the same image. KV reads on images with no KV schema return empty

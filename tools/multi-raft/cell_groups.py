@@ -66,6 +66,17 @@ SUITES = {
         "RF3 voters share a host process. No operator CLI, full-size boundary, clock faults, movement/wake, "
         "independent voter limits or disk-loss recovery is qualified by this suite.",
     ),
+    "ordinary-filesystem": (
+        "native_cell_groups_primitives",
+        ("rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum",),
+        "transactional filesystem, descriptor authority and retained RF3 recovery",
+        "Materialized and extent images, Quorum/S3 commands and explicit file sync, "
+        "business/file rollback, directory-relative opens, cross-cell cursor refusal, "
+        "bounded autonomous garbage collection, original receipt replay, retained "
+        "restart and quorum refusal. Three host-native TLS voters share a process; "
+        "no HTTP/operator CLI, independent voter limits, movement/wake, archive "
+        "outage, sustained load or all-voter disk loss is qualified by this suite.",
+    ),
     "ordinary-alarms": (
         "native_cell_groups_primitives",
         ("rustfs_ordinary_alarms_recover_through_shared_quorum",
@@ -693,8 +704,8 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "queue-primitives"):
-        parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV, alarm, Workflow or Queue suite")
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem", "queue-primitives"):
+        parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV, alarm, Workflow, filesystem or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -744,7 +755,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -752,12 +763,17 @@ def main():
                 "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
+        if args.suite == "ordinary-filesystem":
+            # Large coroutine layouts make incremental cache serialization a
+            # poor fit for the constrained local qualification machine.
+            env.update(CARGO_INCREMENTAL="0", CARGO_BUILD_JOBS="1")
+            record["build_environment"] = {key: env[key] for key in ("CARGO_INCREMENTAL", "CARGO_BUILD_JOBS")}
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows") and number != 0:
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-filesystem") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

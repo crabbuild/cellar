@@ -396,6 +396,7 @@ pub struct RaftClass {
     inboxes: BTreeMap<String, super::RaftInbox>,
     outbox: Option<Arc<super::RaftOutbox>>,
     cell_factory: Option<Arc<CellRpcFactory>>,
+    filesystem: Option<crate::application::filesystem::Policy>,
 }
 
 impl RaftClass {
@@ -498,6 +499,7 @@ impl RaftClass {
             inboxes: BTreeMap::new(),
             outbox: None,
             cell_factory: None,
+            filesystem: None,
         };
         class.bind_command_manifest();
         Ok(class)
@@ -527,6 +529,39 @@ impl RaftClass {
     /// delivery. Namespace admission still requires the complete schema_digest.
     pub fn definition_digest(&self) -> [u8; 32] {
         self.base_schema_digest
+    }
+
+    /// Enable the transactional filesystem on an ordinary Raft cell. Policy
+    /// participates in namespace compatibility; maintenance uses shared callbacks.
+    pub fn filesystem(
+        mut self,
+        policy: crate::application::filesystem::Policy,
+    ) -> Result<Self, RegistrationError> {
+        policy
+            .validate()
+            .map_err(|_| RegistrationError::Invalid("filesystem policy"))?;
+        if self.filesystem.is_some() || self.cell_factory.is_some() {
+            return Err(RegistrationError::Invalid("filesystem registration"));
+        }
+        self.filesystem = Some(policy);
+        if !self.has_native_callbacks() {
+            self = self.durable_callbacks()?;
+        }
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    fn configure_filesystem(
+        &self,
+        storage: &crate::application::Storage,
+        identity: &CellHistory,
+        read_only: bool,
+    ) {
+        *storage.resources().filesystem_policy.lock().unwrap() =
+            self.filesystem.map(|mut policy| {
+                policy.read_only |= read_only;
+                crate::application::filesystem::RaftPolicy::new(policy, identity)
+            });
     }
 
     /// Register schema initialization for shared-group enrollment. The digest
@@ -568,6 +603,14 @@ impl RaftClass {
             .as_ref()
             .ok_or(RegistrationError::Invalid("missing initializer"))?;
         let _guard = CallbackGuard::enter()?;
+        if self.filesystem.is_some() {
+            let storage = transaction.storage()?;
+            self.configure_filesystem(&storage, cell, false);
+            crate::storage::filesystem::initialize(
+                crate::storage::RAFT_STORAGE_SCOPE,
+                crate::application::limits::current().filesystem,
+            )?;
+        }
         (initializer.callback)(cell, transaction)
     }
 
@@ -989,6 +1032,7 @@ impl RaftClass {
             inboxes: self.inboxes.clone(),
             outbox: self.outbox.clone(),
             cell_factory: self.cell_factory.clone(),
+            filesystem: self.filesystem,
         };
         if let Some(factory) = &self.cell_factory {
             if configuration.has_cell_bindings() {
@@ -1097,6 +1141,9 @@ impl RaftClass {
             CommandHandler::NativeWork => CellRpcMethod::Work,
             CommandHandler::Registered(_) => return Err(RegistrationError::KindMismatch.into()),
         };
+        if self.filesystem.is_some() {
+            self.configure_filesystem(&transaction.storage()?, target.cell, false);
+        }
         factory.start(target.cell, epoch, method, input, transaction, activation)
     }
 
@@ -1497,6 +1544,9 @@ impl RaftClass {
             return result;
         };
         let _guard = CallbackGuard::enter()?;
+        if self.filesystem.is_some() {
+            self.configure_filesystem(&transaction.storage()?, target.cell, false);
+        }
         callback(
             &CommandContext {
                 scope: target.cell,
@@ -1568,6 +1618,9 @@ impl RaftClass {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = CallbackGuard::enter()?;
             QueryFrame::run(database, |frame| {
+                if self.filesystem.is_some() {
+                    self.configure_filesystem(&frame.storage(), identity, true);
+                }
                 callback(
                     &QueryContext {
                         identity,
@@ -1596,6 +1649,11 @@ impl RaftClass {
         let mut hash = Sha256::new();
         hash.update(b"cellar-cell-class-call-schedule-1");
         hash.update(self.base_schema_digest);
+        if let Some(policy) = self.filesystem {
+            hash.update(b"filesystem-1");
+            hash.update(policy.creation_mask.to_be_bytes());
+            hash.update([u8::from(policy.read_only)]);
+        }
         if self.has_native_ingress() {
             hash.update(b"native-cell-ingress-1");
             hash.update(super::sql_ingress_identity::native_digest());

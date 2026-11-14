@@ -585,7 +585,7 @@ async fn qualify() -> Result<()> {
             .await?;
         ensure!(
             logs.contains(expected) && !logs.contains("cellar listening on "),
-            "wrong refusal\n{logs}"
+            "wrong refusal for {name}\n{logs}"
         );
         ensure!(
             !root.path().join("prepared").exists(),
@@ -594,7 +594,7 @@ async fn qualify() -> Result<()> {
     }
     for (mode, expected) in [
         ("missing-app", "absent from the active deployment"),
-        ("bad-schema", "compiled namespace schema mismatch"),
+        ("bad-schema", "Raft registration: ContractMismatch"),
         (
             "missing-peer-auth",
             "requires a fleet bucket for shared peer authentication",
@@ -612,7 +612,7 @@ async fn qualify() -> Result<()> {
         .await?;
         ensure!(
             logs.contains(expected) && !logs.contains("cellar listening on "),
-            "wrong refusal\n{logs}"
+            "wrong refusal for {mode}\n{logs}"
         );
         ensure!(
             !disk.join("raft").exists(),

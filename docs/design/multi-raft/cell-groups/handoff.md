@@ -4,6 +4,20 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Filesystem and inbox integration checkout
+
+The isolated `codex/cg17-primitives-integration` checkout combines filesystem/inbox
+source `64e9864d` with Workflow source `7e4347e9`. Original qualification continues
+in `/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar` with a fixed
+source; do not edit its tracked files until cohort 106 is terminal. The combined
+filesystem source needs its own unique workspace-volume target and qualification
+after that campaign. Preserve the newer alarm lease/retry schema and Workflow
+continuation owner. See the [filesystem integration checkpoint](progress.md#cg-17-filesystem-and-inbox-integration-with-workflow).
+
+Next bridge EventStream routing, outbox authority and durable work discovery into
+shared groups. Existing lower-level Raft outbox tests and the consumer inbox
+bridge do not establish the complete ordinary EventStream path.
+
 ## Current integration checkpoint
 
 Workflow candidate PR [#169](https://github.com/crabbuild/cellar/pull/169) at

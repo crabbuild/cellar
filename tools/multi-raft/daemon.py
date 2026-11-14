@@ -243,7 +243,7 @@ def verify_repair(events):
                 "replacement changed the archived receipt or cell history")
 
 
-def execute(mode, output, remote, credentials, build, engine, lab, standby=False, repair=False):
+def execute(mode, output, remote, credentials, build, engine, lab, standby=False, repair=False, node_memory_gib=3):
     docker, guest = lab.docker, lab.guest
     run = secrets.token_hex(8)
     directory = f"/tmp/cellar-daemon-{run}"
@@ -261,6 +261,7 @@ def execute(mode, output, remote, credentials, build, engine, lab, standby=False
         "CELLAR_CELL_GROUPS_RUSTFS_PREFIX": f"managed-linux-daemon/{run}",
         "CELLAR_RAFT_PROCESS_IMAGE_MODE": mode, "CELLAR_RAFT_PROCESS_EVIDENCE": f"{directory}/process.jsonl",
         "CELLAR_RAFT_DOCKER_RUN": run, "CELLAR_RAFT_DOCKER_IMAGE": image,
+        "CELLAR_RAFT_DOCKER_MEMORY_GIB": str(node_memory_gib),
         "CELLAR_RAFT_OPERATOR_CLI": f"{directory}/cellar", "TMPDIR": directory,
     }
     if standby:
@@ -372,6 +373,7 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--backend", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--node-memory-gib", type=int, choices=(2, 3), default=3)
     parser.add_argument("--colima-home", type=Path, default=Path.home() / ".colima",
                         help="explicit home containing the backend's dedicated Colima profile")
     extension = parser.add_mutually_exclusive_group()
@@ -385,8 +387,9 @@ def main():
         "info", "--format", "{{.ID}} {{.OSType}} {{.CgroupVersion}} {{.NCPU}} {{.MemTotal}}"
     ).split()
     require(cgroups == "2", "effective voter limit proof requires cgroup v2")
-    min_memory_gib = 15 if args.repair else 12
-    require(os_type == "linux" and int(cpus) >= 6 and int(memory) >= min_memory_gib * 1024**3,
+    nodes = 4 if args.repair or args.standby else 3
+    min_memory = (nodes * args.node_memory_gib + 2) * 1024**3 + 512 * 1024**2
+    require(os_type == "linux" and int(cpus) >= nodes + 2 and int(memory) >= min_memory,
             "insufficient Linux VM resources")
     require(not docker("ps", "-q", "--filter", f"label={LABEL}"), "another daemon campaign is active")
     build = verify_image(args.image, lab)
@@ -394,12 +397,14 @@ def main():
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     report = {"status": "RUNNING", "build": build, "backend": remote["observed_rustfs"],
               "scope": "three Linux voters with separate cgroups and disks in one VM",
+              "node_limits": {"cpus": 1, "memory_bytes": args.node_memory_gib * 1024**3},
               "repair_standby": args.standby, "failed_voter_repair": args.repair,
               "colima": {"profile": lab.profile, "context": lab.context, "home": str(lab.home), "engine_id": engine}}
     atomic_json(output / "record.json", report)
     try:
         for mode in ("materialized", "extents"):
-            execute(mode, output, remote, credentials, build, engine, lab, standby=args.standby, repair=args.repair)
+            execute(mode, output, remote, credentials, build, engine, lab, standby=args.standby, repair=args.repair,
+                    node_memory_gib=args.node_memory_gib)
         report["status"] = "PASSED"
     except Exception:
         report["status"] = "FAILED"

@@ -41,6 +41,7 @@ pub(crate) struct Resources {
     pub(crate) transaction: Mutex<Option<Arc<Transaction>>>,
     pub(crate) facets: Mutex<Option<Arc<super::facets::State>>>,
     pub(crate) filesystem: super::filesystem::Registry,
+    pub(crate) filesystem_policy: Mutex<Option<super::filesystem::RaftPolicy>>,
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
     transaction_serial: AtomicU64,
@@ -557,7 +558,7 @@ impl Storage {
         Ok(Self(owner, None, self.2))
     }
 
-    fn data_scope(&self) -> Result<&str> {
+    pub(super) fn data_scope(&self) -> Result<&str> {
         self.check_transaction_authority()?;
         let scope = self.data_activation_scope()?;
         if let Some(error) = crate::storage::sql_critical_error(scope) {

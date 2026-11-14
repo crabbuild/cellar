@@ -346,6 +346,7 @@ impl NativeCellFactory {
             let work: super::native_work::Work = serde_json::from_slice(input)?;
             anyhow::ensure!(
                 work.reason == "alarm"
+                    || work.reason == "filesystem"
                     || (work.reason == "queue" && self.class == crate::deploy::QUEUE_CLASS),
                 CommandFailure::UnsupportedCapability
             );
@@ -456,6 +457,13 @@ impl NativeCellFactory {
                 // No callback entry until the exact claim survives quorum (and
                 // any stronger namespace minimum). A crash retains retry work.
                 storage.sync().await?;
+                if work.reason == "filesystem" {
+                    storage.fs()?.collect_garbage()?;
+                    crate::storage::raft_native_work(|db| {
+                        super::native_work::complete(db, &work, leased_until)
+                    })?;
+                    return Ok(vec![1]);
+                }
                 use futures_util::FutureExt as _;
                 // Preserve known alarm failure capture around the entire owned
                 // Workflow turn, including physical timeout continuations.
