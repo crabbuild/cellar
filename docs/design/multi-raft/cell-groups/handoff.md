@@ -4,7 +4,43 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current EventStream source checkpoint
+## Current immutable EventStream query checkpoint
+
+Runtime `cfe096c9` in draft PR [#170](https://github.com/crabbuild/cellar/pull/170)
+implements the four private metadata readers and integrates PR #171's read
+progress. Real RustFS native and Axum Quorum cases both pass both images,
+including delivery, inbox/ack, replay, retained three-group restart and minority
+refusal. All 11 private units, conformance, SDK source-proof and three merged
+read/membership regressions pass. Locked optimized compilation, repository checks
+and strict library/three integration-target Clippy pass. See the
+[current evidence](progress.md#cg-17-immutable-eventstream-metadata-and-merged-read-progress).
+
+Cohort 145 remains FAILED: native/Axum materialized cases reach their last
+minority-refusal assertion, then return raw transport I/O instead of typed
+unavailability. Extents are unrun. The failing Emit has no history/submission
+phase; `group_client/names.rs` maps remote read I/O directly and does not retry it.
+Keep the mutation transport's ambiguity unchanged. Add a read-only availability
+translation/retry and rerun the unchanged public assertions.
+
+Cohort 146 remains FAILED despite its two complete Quorum passes. Its new native
+and Axum target-S3 cases expire in first materialized activation; configuration
+acknowledges S3 at 2.965/2.850 seconds of the shared three-second budget. Profile
+and optimize the remaining pipeline without extending the budget, weakening
+proof or dropping current grant/lifecycle checks. Configuration receipts are
+historical: they cannot replace fresh status after retirement/revocation. The
+new S3 metadata coverage owner is implemented but its complete runtime gate is
+open. Frozen source/binaries, 52 verified runtime evidence files and 12 failed
+voter disks are retained; failed build 143 has 12 separate verified files.
+Postflight records shutdown and final transfer. No runtime acceptance is borrowed
+from an earlier source. Native voters share one process; this is not independent
+Linux-voter/full-family qualification.
+
+After these gates, finish EventStream long polling and interrupted recovery,
+then Queue load/startup, remaining binding/time/Workflow lifecycle and payload/
+provider adapters. Full CG-13/17/15/16 qualification and hard cutover remain
+required. Acceptance is unchanged at 13/17 tasks and 147/195 cases.
+
+## Previous EventStream source checkpoint
 
 Runtime `96e2d335` on `codex/cg17-eventstream-quorum-mvp`, PR
 [#170](https://github.com/crabbuild/cellar/pull/170), includes the private

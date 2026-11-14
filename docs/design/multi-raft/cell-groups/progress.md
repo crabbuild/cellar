@@ -27,6 +27,65 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 immutable EventStream metadata and merged read progress
+
+Runtime source `cfe096c9` integrates the read-routing/membership follow-up from
+PR [#171](https://github.com/crabbuild/cellar/pull/171) and adds private immutable
+EventStream metadata queries. `__catalogStatus`, `__catalogResolveName`,
+`__catalogResolve` and `__streamResolve` use pinned linearizable reads without
+factory initialization, enrollment, command sequences or empty mutations.
+Host-minted admission, a distinct authenticated transport purpose, namespace write
+grants, current stored resource grants and boot/membership fences remain required.
+S3-minimum reads additionally wait for complete independently recovered coverage
+of their selected logical history/version and retain that proof through output.
+Clock, lease and configuration mutations stay on the command path. See the
+[contract](event-stream-durability.md).
+
+Cohort `CG-17-event-query-cfe096c9-145` records **16/18 selected tests passing**:
+11 private codec/admission/configuration units, ordinary EventStream conformance,
+SDK source-proof, both blocked-local read-fallback image cases and membership
+ReadIndex retry. The public native/Axum cases now pass materialized activation,
+publication, autonomous delivery, inbox/ack, exact replay and retained restart,
+then fail their final minority-refusal assertion. Both return HTTP 503 but expose
+`Transport(Io("Connection refused ..."))` instead of typed unavailability.
+Their extent branches remain unrun. Logs place the failing Emit call before its
+history/command-submission phase; name discovery is read-only and currently
+stops on a remote I/O error. Normalize/retry read-only transport failures at that
+boundary without changing mutation ambiguity or weakening the assertion.
+
+Cohort `CG-17-event-query-rustfs-cfe096c9-146` records **two passing Quorum cases**:
+ordinary native and Axum EventStream each pass materialized and extent images.
+Both include activation, publication/read, autonomous outbox delivery, inbox
+accept/deduplication, acknowledgement, replay, retained three-group restart and
+minority refusal. This closes the recorded RustFS Axum metadata-activation
+failure at this scoped source; it does not prove every earlier intermittent
+failure's cause. RustFS has one CPU/two GiB. RF3 voters share one native process,
+with separate workspace disks and one SQL worker each.
+
+The same cohort remains **FAILED overall**: its two new independent-target-S3
+cases expire during initial materialized activation. Catalog configuration itself
+acknowledges S3 in 2.965 seconds (native) and 2.850 seconds (Axum), leaving little
+of the original shared three-second budget for metadata checks. Extents are
+unrun. Complete S3 metadata-read/proof qualification and phase attribution remain
+open. Do not increase the deadline, lower the target minimum or replace fresh
+status/grant reads with an old configuration receipt: repeated configuration
+operations intentionally return history, which can precede retirement/revocation.
+
+The locked optimized build, canonical format/layout, dependency/docs checks and
+strict library plus all three affected integration-target Clippy pass. The
+merged read regressions are qualified here rather than relabeled from PR #171.
+Failed build control `CG-17-event-query-c9507412-143` retains its five integration
+compiler errors; the correction compiles at `cfe096c9`. No runtime ran at that
+failed source. Runtime cohorts retain 52 verified evidence files, four frozen
+native executables and 12 failed voter disks; the build control retains 12 more
+verified files. The early backend-resume refusal and successful retry are kept
+separately. Shutdown and final evidence transfer are recorded in the postflight.
+
+Long polling, interrupted delivery/acknowledgement, movement/wake, archive outages,
+fenced disk-loss recovery and the complete primitive matrix remain open.
+Acceptance stays **13/17 tasks and 147/195 cases**; no complete family or hard
+cutover is accepted.
+
 ## CG-17 EventStream public request checkpoint
 
 Runtime source `96e2d335` connects the ordinary stream, publisher authority,

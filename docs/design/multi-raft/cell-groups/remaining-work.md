@@ -56,35 +56,31 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-At `96e2d335`, ordinary EventStream turn guards and catalog source-proof
-coalescing are integrated in PR [#170](https://github.com/crabbuild/cellar/pull/170).
-The real RustFS native public case passes both image forms, including publication,
-inbox/ack, exact replay, retained restart and quorum refusal. Native conformance,
-SDK source-proof, locked build, repository checks and focused strict Clippy pass.
-Native/Axum in-memory cases still expire in initial catalog configuration.
-RustFS Axum reaches the third node's activation, then exceeds the shared budget
-across status/name/resolution commands. Both campaigns remain FAILED overall.
-See the [current checkpoint](progress.md#cg-17-eventstream-public-request-checkpoint)
-for scope, controls and retained artifacts.
+At `cfe096c9`, private immutable EventStream metadata queries and merged read
+progress are implemented. Both native and Axum real-RustFS Quorum cases pass both
+image forms, including delivery, inbox/ack, replay, retained restart and minority
+refusal. Eleven private units, conformance, SDK source-proof, the merged
+read/membership regressions, the optimized build and focused strict Clippy pass.
+The native campaign still fails typed minority-refusal assertions; the new
+independent-target-S3 cases still miss activation deadlines. Both campaigns
+remain FAILED overall. See the [current checkpoint](progress.md#cg-17-immutable-eventstream-metadata-and-merged-read-progress).
 
-1. **Close EventStream public activation and recovery.** Implement private,
-   authorized linearizable queries for `__catalogStatus`, `__catalogResolveName`,
-   `__catalogResolve` and `__streamResolve`; preserve any independent S3 minimum
-   through archive coverage. These metadata reads should not create mutation
-   receipts or empty Raft entries. Keep clock/lease-changing operations on the
-   command path. Separately resolve source continuation after destination
-   acceptance under the original three-second activation budget. Then qualify
-   integrated publication,
-   subscription routing, committed outbox discovery, destination authority and
-   receipt/acknowledgement settlement through normal public paths. Complete
-   autonomous interrupted delivery recovery. The integrated inbox bridge alone
-   is insufficient. Keep original event/lane identities through movement and
-   new-incarnation recovery; never treat source and destination acceptance as
-   interchangeable.
-   The source journal, per-lane identity and shared work bridge are described in
-   the [EventStream contract](event-stream-durability.md). Public activation,
-   authenticated target dispatch and resource bootstrap still need RF3/RustFS
-   qualification.
+1. **Close EventStream refusal, target-S3 and recovery gates.** Normalize/retry
+   read-only name/query transport failures as typed unavailability while
+   preserving mutation ambiguity. The native/Axum cases now reach the final
+   minority refusal and expose raw connection errors before command submission;
+   keep their original assertions. Profile and optimize cold S3 configuration
+   plus metadata/proof work within the original shared three-second deadline.
+   Configuration alone takes 2.85–2.97 seconds in the new failed controls. Retain
+   independent source/target S3 proofs and every fresh lifecycle/grant check;
+   historical configuration receipts cannot replace current status. The four
+   pure metadata methods now use private authorized linearizable queries,
+   without mutation receipts or empty entries. Their complete target-S3 and
+   remote-path qualification remains required. Then qualify long polling,
+   autonomous interrupted delivery/ack settlement, deletion/recreation and
+   retention. Keep original event/lane identities through movement and
+   new-incarnation recovery. The [EventStream contract](event-stream-durability.md)
+   defines the independent source, destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
    and fault oracles, then resolve producer deadlines and the older final-drain
    failures under the unchanged load and budgets. Qualify both image forms.
