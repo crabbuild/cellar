@@ -1915,16 +1915,5 @@ async fn queue_long_callbacks_preserve_progress() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn queue_load_preserves_acknowledged_messages() -> Result<()> {
-    use tracing_subscriber::prelude::*;
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::registry().with(
-            tracing_subscriber::fmt::layer()
-                .with_test_writer()
-                .with_filter(
-                    tracing_subscriber::filter::Targets::new()
-                        .with_target("cellar::debug_fifo_84", tracing::Level::WARN),
-                ),
-        ),
-    )?;
     Box::pin(queues::qualify_load(false)).await
 }

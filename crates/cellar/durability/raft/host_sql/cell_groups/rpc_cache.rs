@@ -115,10 +115,6 @@ impl RpcCache {
             {
                 return Ok(prior.value);
             }
-            if prior.value.shared() {
-                tracing::warn!(target: "cellar::debug_fifo_84", accepted = prior.value.fence.accepts(authority), current = prior.value.fence.current(), continuation_current = prior.value.fence.continuation_current(), live = prior.value.activation.as_ref().is_some_and(|value| value.live()), cell = ?authority.cell().version,
-                    "[DEBUG-fifo-84] taking shared activation retires it");
-            }
             self.retire(prior.value)?;
         }
         Ok(RpcActivation {
@@ -182,10 +178,6 @@ impl RpcCache {
                 .as_ref()
                 .is_some_and(|activation| !activation.live())
         {
-            if value.shared() {
-                tracing::warn!(target: "cellar::debug_fifo_84", current = value.fence.current(), continuation_current = value.fence.continuation_current(), live = value.activation.as_ref().is_some_and(|activation| activation.live()),
-                    "[DEBUG-fifo-84] putting shared activation retires it");
-            }
             return self.retire(value);
         }
         let mut state = self.state.lock().map_err(|_| unavailable())?;

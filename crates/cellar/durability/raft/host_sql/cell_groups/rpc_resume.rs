@@ -47,38 +47,7 @@ impl Suspended {
                 .clone();
             let domain = domain.clone();
             self.resuming = Some(Box::pin(async move {
-                loop {
-                    if !fence.term_current() {
-                        return Err(unavailable());
-                    }
-                    let now = domain.mono_ms().map_err(|_| unavailable())?;
-                    if now >= commits.deadline {
-                        return Err(crate::raft::execution::authority_failure(
-                            RuntimeError::DeadlineExceeded,
-                        ));
-                    }
-                    match commits
-                        .runtime
-                        .execution_authority(commits.route.history, cell.clone())
-                        .await
-                    {
-                        Ok(authority) if fence.accepts_continuation(&authority) => {
-                            return Ok(authority)
-                        }
-                        Ok(authority) => {
-                            tracing::warn!(target: "cellar::debug_fifo_84", term_current = fence.term_current(), fresh_check = ?authority.check(), cell = ?authority.cell().version,
-                                "[DEBUG-fifo-84] continuation authority refused");
-                            return Err(unavailable());
-                        }
-                        Err(RuntimeError::NotReady | RuntimeError::Overloaded) => {
-                            domain
-                                .sleep_until(now.saturating_add(10))
-                                .map_err(|_| unavailable())?
-                                .await;
-                        }
-                        Err(error) => return Err(crate::raft::execution::authority_failure(error)),
-                    }
-                }
+                commits.continuation_authority(&domain, &cell, &fence).await
             }));
         }
         let authority = match self
@@ -104,8 +73,6 @@ impl Suspended {
             .as_ref()
             .is_some_and(|value| Arc::ptr_eq(&value.resources(), &prior))
         {
-            tracing::warn!(target: "cellar::debug_fifo_84", prior_retired = prior.retired.load(Ordering::Acquire), cached_live = activation.activation.as_ref().is_some_and(|value| value.live()),
-                "[DEBUG-fifo-84] continuation activation changed");
             cache.put(self.cell.clone(), activation, now)?;
             return Poll::Ready(Err(unavailable()));
         }

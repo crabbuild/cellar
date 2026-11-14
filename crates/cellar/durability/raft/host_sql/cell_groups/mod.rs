@@ -895,19 +895,8 @@ impl CellGroupSqlPool {
                     // request waited. Rebase only before any application entry,
                     // keeping the original term/history fence and command ID.
                     let fresh = commits
-                        .runtime
-                        .execution_authority(group, cell.clone())
-                        .await
-                        .map_err(|error| {
-                            tracing::warn!(target: "cellar::debug_fifo_84", error = ?error,
-                                "[DEBUG-fifo-85] queued writer authority lookup failed");
-                            crate::raft::execution::authority_failure(error)
-                        })?;
-                    if !fence.accepts_continuation(&fresh) {
-                        tracing::warn!(target: "cellar::debug_fifo_84", term_current = fence.term_current(), fresh_check = ?fresh.check(), cell = ?fresh.cell().version,
-                            "[DEBUG-fifo-84] queued writer authority refused");
-                        return Err(unavailable());
-                    }
+                        .continuation_authority(&domain, &cell, &fence)
+                        .await?;
                     Ok::<_, ExecutionError>((reserved, fresh))
                 };
                 let (reserved, fresh) = crate::asyncrt::select_biased! {
