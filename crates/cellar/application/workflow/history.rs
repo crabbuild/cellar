@@ -94,7 +94,7 @@ impl Subscription {
     }
 
     pub async fn next(&mut self) -> Result<Option<InstanceEvent>> {
-        self.context.check_turn()?;
+        self.context.check_binding_turn()?;
         loop {
             if let Some(event) = self.buffered.pop_front() {
                 self.cursor = event.event_id;
@@ -149,7 +149,7 @@ impl Subscription {
                 property(&reply, "done")?.is_some_and(|v| v.root == CloneValue::Boolean(true));
             if self.buffered.is_empty() && !self.ended {
                 crate::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
-                self.context.check_turn()?;
+                self.context.check_binding_turn()?;
             }
         }
     }
@@ -278,9 +278,12 @@ pub(super) fn page(
     })?;
     let mut selected = Vec::new();
     let mut encoded_size = 0_usize;
+    // Leave room for the structured array/response envelope in the ordinary
+    // 64-KiB Raft result profile. Native history keeps its existing large page.
+    let page_bytes = if storage.is_raft() { 48 << 10 } else { 8 << 20 };
     for record in records {
         let size = cellar_native::clone::encode(&record.1.value)?.len();
-        if !selected.is_empty() && encoded_size.saturating_add(size) > 8 << 20 {
+        if !selected.is_empty() && encoded_size.saturating_add(size) > page_bytes {
             break;
         }
         encoded_size = encoded_size.saturating_add(size);

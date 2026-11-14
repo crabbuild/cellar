@@ -439,11 +439,38 @@ impl RaftClass {
         )
     }
 
+    pub(super) fn cron_service(digest: [u8; 32]) -> Result<Self, RegistrationError> {
+        Self::definition(cellar_logic::cron::RESERVED_CLASS.into(), 1, digest)
+    }
+
+    pub(crate) fn cron_scope(&self) -> Option<String> {
+        if self.name != cellar_logic::cron::RESERVED_CLASS {
+            return None;
+        }
+        let factory = self.cell_factory.as_ref()?;
+        factory.configuration_digest()?;
+        Some(cellar_logic::cron::reserved_cell(factory.script()))
+    }
+
     pub(super) fn kv_service() -> Result<Self, RegistrationError> {
         Self::definition(
             crate::deploy::KV_CLASS.into(),
             1,
             Sha256::digest(b"cellar-raft-kv-value-reference-callback-service-1").into(),
+        )
+    }
+
+    pub(super) fn workflow_service(
+        script: &str,
+        compiled: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
+        let mut digest = Sha256::new();
+        digest.update(b"cellar-raft-workflow-quorum-journal-service-1");
+        digest.update(compiled);
+        Self::definition(
+            crate::deploy::workflow_class(script),
+            1,
+            digest.finalize().into(),
         )
     }
 
@@ -584,9 +611,6 @@ impl RaftClass {
             .as_ref()
             .ok_or(RegistrationError::Invalid("missing initializer"))?;
         let _guard = CallbackGuard::enter()?;
-        if let Some(factory) = &self.cell_factory {
-            factory.configure_storage(&transaction.storage()?, cell);
-        }
         if self.filesystem.is_some() {
             let storage = transaction.storage()?;
             self.configure_filesystem(&storage, cell, false);
@@ -831,7 +855,7 @@ impl RaftClass {
         self.system_commands.insert(
             super::native_work::OPERATION.into(),
             Command {
-                digest: Sha256::digest(b"cellar-native-work-callback-budget-1").into(),
+                digest: Sha256::digest(b"cellar-native-work-alarm-failure-retry-1").into(),
                 handler: CommandHandler::NativeWork,
             },
         );
@@ -869,6 +893,8 @@ impl RaftClass {
                 && operation == crate::application::queue::OPERATOR)
             || (self.name == crate::deploy::KV_CLASS
                 && operation == crate::application::kv::OPERATOR)
+            || (crate::deploy::is_workflow_class(&self.name)
+                && operation == crate::application::workflow::OPERATOR)
         {
             return None;
         }
@@ -891,6 +917,12 @@ impl RaftClass {
     pub(crate) fn queue_operator_contract(&self) -> Option<OperationContract> {
         (self.name == crate::deploy::QUEUE_CLASS)
             .then(|| self.contract(crate::application::queue::OPERATOR))
+            .flatten()
+    }
+
+    pub(crate) fn workflow_operator_contract(&self) -> Option<OperationContract> {
+        crate::deploy::is_workflow_class(&self.name)
+            .then(|| self.contract(crate::application::workflow::OPERATOR))
             .flatten()
     }
 
@@ -1132,7 +1164,6 @@ impl RaftClass {
         if self.filesystem.is_some() {
             self.configure_filesystem(&transaction.storage()?, target.cell, false);
         }
-        factory.configure_storage(&transaction.storage()?, target.cell);
         factory.start(target.cell, epoch, method, input, transaction, activation)
     }
 

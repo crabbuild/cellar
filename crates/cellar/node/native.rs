@@ -5,6 +5,7 @@ use crate::application::{
     consensus::{ClusterId, GroupHistory, NamespaceId, RaftCells},
     Application,
 };
+use crate::fleet::LoadedDeployment;
 use crate::generation::GenerationId;
 use std::collections::{BTreeSet, HashMap};
 
@@ -392,7 +393,39 @@ impl CompiledApplications {
                 anyhow::anyhow!("no compiled application registered for {script} at {version}")
             })?;
         let application = factory()?;
-        application.validate_configuration(&configuration.options(script))?;
+        if configuration.crons.is_empty() {
+            anyhow::ensure!(
+                configuration.cron_history.is_none(),
+                "cron history requires a schedule"
+            );
+            application.validate_configuration(&configuration.options(script))?;
+        } else {
+            let history = configuration
+                .cron_history
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("cron provisioning requires deployment metadata"))?;
+            anyhow::ensure!(
+                history.deployment_version == version,
+                "cron provisioning code version differs"
+            );
+            application.validate_deployment(&LoadedDeployment {
+                script_name: script.into(),
+                version: version.into(),
+                prefix: history.prefix.clone(),
+                options: configuration.options(script),
+                native: None,
+                event_streams: Vec::new(),
+                asset_binding: None,
+                loader_bindings: Vec::new(),
+                assets: None,
+                services: Vec::new(),
+                crons: configuration.crons.clone(),
+                cron_revision: history.schedule_revision.clone(),
+                containers: Vec::new(),
+                fence_image: None,
+                container_images: Vec::new(),
+            })?;
+        }
         anyhow::ensure!(
             !application.supports_cell(class) && !application.supports_workflow(class),
             crate::application::consensus::RegistrationError::UnsupportedFactory(class.into())

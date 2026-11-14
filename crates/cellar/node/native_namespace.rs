@@ -35,6 +35,16 @@ struct Plan {
     configuration: crate::application::consensus::NativeCellConfiguration,
     #[serde(default)]
     image_storage: ImageStorage,
+    #[serde(default)]
+    minimum_durability: MinimumDurability,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum MinimumDurability {
+    #[default]
+    Quorum,
+    S3,
 }
 
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
@@ -166,6 +176,10 @@ async fn provision(
         class.schema_digest(),
     );
     config.image_storage = plan.image_storage.into();
+    config.minimum_durability = match plan.minimum_durability {
+        MinimumDurability::Quorum => Durability::Quorum,
+        MinimumDurability::S3 => Durability::S3,
+    };
     let registered = fleet
         .provision_managed_namespace(
             &request,
@@ -184,6 +198,7 @@ async fn provision(
         "expected_revision": request.expected_revision,
         "class": registered.class,
         "image_storage": plan.image_storage,
+        "minimum_durability": plan.minimum_durability,
         "schema_digest": hex::encode(registered.namespace.schema_digest),
     }))
 }

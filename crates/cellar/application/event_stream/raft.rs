@@ -1,59 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Shared-group source identity, provisioning and bounded durable event work.
+//! Shared-group bounded event transport and trusted resource provisioning.
 
 use super::*;
-use crate::application::consensus::CellHistory;
-use crate::worker_config::WorkerConfig;
-
-/// Only immutable event declarations enter the storage capability graph.
-/// Provider/runtime handles stay with the native execution adapter.
-pub(crate) struct Configuration {
-    pub script_name: String,
-    pub stream_bindings: Vec<BindingConfig>,
-    pub event_readiness: Arc<super::readiness::Readiness>,
-}
-
-impl From<&WorkerConfig> for Configuration {
-    fn from(config: &WorkerConfig) -> Self {
-        Self {
-            script_name: config.script_name.clone(),
-            stream_bindings: config.stream_bindings.clone(),
-            event_readiness: config.event_readiness.clone(),
-        }
-    }
-}
 use sha2::{Digest, Sha256};
-
-#[derive(Clone)]
-pub(crate) struct Source {
-    pub config: Arc<Configuration>,
-    pub scope: String,
-    pub incarnation: String,
-}
-
-impl Source {
-    pub fn new(history: &CellHistory, config: Arc<Configuration>) -> Self {
-        let mut hash = Sha256::new();
-        hash.update(b"cellar-event-source-history-1");
-        hash.update(history.cluster.bytes());
-        hash.update(history.namespace.bytes());
-        hash.update((history.cell.as_str().len() as u64).to_be_bytes());
-        hash.update(history.cell.as_str().as_bytes());
-        hash.update(history.incarnation.bytes());
-        let digest = hash.finalize();
-        Self {
-            config,
-            scope: history.cell.as_str().into(),
-            incarnation: hex::encode(&digest[..16]),
-        }
-    }
-}
-
-pub(crate) struct Emission<'a> {
-    pub source: &'a Source,
-    pub input_limit: usize,
-}
 
 pub(crate) fn append_limit(binding: &Binding) -> Result<usize> {
     crate::storage::capture_raft_dispatch()?
@@ -133,28 +83,4 @@ pub(crate) fn provision(
         }
     }
     Ok(())
-}
-
-pub(crate) async fn maintain(context: Context) -> Result<()> {
-    let Some(installation) = crate::storage::work::raft_due(crate::asyncrt::wall_ms())? else {
-        // An earlier unclaimed discovery hint can survive a client moving the
-        // embedded deadline forward. Claiming it must preserve that future work.
-        return crate::storage::work::raft_project();
-    };
-    use cellar_logic::work::Reason;
-    match installation.reason {
-        Reason::Outbox => {
-            crate::application::outbox::dispatch(context, installation).await?;
-        }
-        Reason::StreamMaintenance => {
-            super::broker::maintain(context, installation).await?;
-        }
-        Reason::ResourceReconciliation => {
-            super::catalog::maintain(context, installation).await?;
-        }
-        _ => anyhow::bail!("unsupported shared event work"),
-    }
-    // A callback can replace another deadline. Project the surviving rows before
-    // consuming the claimed native-work generation.
-    crate::storage::work::raft_project()
 }

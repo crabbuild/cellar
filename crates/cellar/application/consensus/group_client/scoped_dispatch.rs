@@ -7,6 +7,9 @@ use crate::application::storage::RaftDispatch;
 use crate::raft::completion::RuntimeError;
 use futures_util::future::BoxFuture;
 
+// Prepared futures poll only owned target I/O. A same-cell child can reach its
+// writer queue after the source parks, so keep that I/O progressing without
+// reacquiring the source writer before the target response is ready.
 type PreparedCall<T, E> = Result<BoxFuture<'static, Result<T, Arc<E>>>, Arc<E>>;
 
 pub(super) fn failure(error: anyhow::Error) -> CellDispatchError {
@@ -69,7 +72,7 @@ impl RaftCellHandle {
             Ok(Some(scope)) => match self.prepare_sdk_command(contract, input, options) {
                 Err(error) => Box::pin(async move { Err(error) }),
                 Ok(prepared) => {
-                    let call = scope.schedule(move |_| prepared);
+                    let call = scope.schedule_io(move |_| prepared);
                     Box::pin(async move {
                         call.future.await.map_err(|error| {
                             Arc::new(CellCommandError {
@@ -100,7 +103,7 @@ impl RaftCellHandle {
             Ok(Some(scope)) => match self.prepare_sdk_query(invocation, contract, input, options) {
                 Err(error) => Box::pin(async move { Err(error) }),
                 Ok(prepared) => {
-                    let call = scope.schedule(move |_| prepared);
+                    let call = scope.schedule_io(move |_| prepared);
                     Box::pin(async move {
                         call.future
                             .await
@@ -131,7 +134,7 @@ impl RaftCellHandle {
             Ok(Some(scope)) => match self.prepare_sdk_enrollment(request, timeout) {
                 Err(error) => Box::pin(async move { Err(error) }),
                 Ok(prepared) => {
-                    let call = scope.schedule(move |_| prepared);
+                    let call = scope.schedule_io(move |_| prepared);
                     Box::pin(async move {
                         call.future.await.map_err(|error| {
                             Arc::new(CellEnrollmentError {
@@ -159,7 +162,7 @@ impl RaftCellHandle {
             Ok(Some(scope)) => match self.prepare_sdk_receipt(request, timeout) {
                 Err(error) => Box::pin(async move { Err(error) }),
                 Ok(prepared) => {
-                    let call = scope.schedule(move |_| prepared);
+                    let call = scope.schedule_io(move |_| prepared);
                     Box::pin(async move {
                         call.future
                             .await

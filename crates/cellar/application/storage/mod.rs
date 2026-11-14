@@ -10,6 +10,7 @@ mod dispatch;
 pub(crate) use dispatch::{RaftDispatch, RaftDispatchContext, RaftDispatchIo, RaftDispatchPermit};
 mod inbox;
 mod outbox;
+pub(crate) use outbox::EventSourceConfiguration;
 mod outbox_inspection;
 pub(crate) mod transaction;
 pub use cellar_native::sql::Value as SqlValue;
@@ -41,8 +42,8 @@ pub(crate) struct Resources {
     pub(crate) transaction: Mutex<Option<Arc<Transaction>>>,
     pub(crate) facets: Mutex<Option<Arc<super::facets::State>>>,
     pub(crate) filesystem: super::filesystem::Registry,
-    pub(crate) event_source: Mutex<Option<super::event_stream::raft::Source>>,
     pub(crate) filesystem_policy: Mutex<Option<super::filesystem::RaftPolicy>>,
+    pub(crate) event_source: std::sync::OnceLock<Arc<EventSourceConfiguration>>,
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
     transaction_serial: AtomicU64,
@@ -324,7 +325,12 @@ impl Storage {
     }
 
     pub(crate) fn clear_current_work(&self, reason: cellar_logic::work::Reason) -> Result<()> {
-        if let Some(installation) = crate::storage::work::current(self.write_scope()?, reason)? {
+        let current = if self.is_raft() {
+            crate::storage::work::raft_current(self.write_scope()?, reason)?
+        } else {
+            crate::storage::work::current(self.scope()?, reason)?
+        };
+        if let Some(installation) = current {
             self.clear_work(installation)?;
         }
         Ok(())
@@ -335,7 +341,14 @@ impl Storage {
         reason: cellar_logic::work::Reason,
         at_ms: i64,
     ) -> Result<()> {
-        let scope = self.write_scope()?;
+        if self.is_raft() {
+            anyhow::ensure!(
+                self.resources().durable_callbacks.load(Ordering::Acquire),
+                consensus::CommandFailure::UnsupportedCapability
+            );
+            return crate::storage::work::raft_set(self.write_scope()?, reason, at_ms);
+        }
+        let scope = self.scope()?;
         if let Some(effective) = crate::storage::work::set(scope, reason, at_ms)? {
             if effective >= 0 {
                 crate::host_gates::spawn_arm_gate(
@@ -352,7 +365,10 @@ impl Storage {
         &self,
         installation: cellar_logic::work::Installation,
     ) -> Result<bool> {
-        let scope = self.write_scope()?;
+        if self.is_raft() {
+            return crate::storage::work::raft_clear(self.write_scope()?, installation);
+        }
+        let scope = self.scope()?;
         let (cleared, effective) = crate::storage::work::clear(scope, installation)?;
         if let Some(effective) = effective.filter(|deadline| *deadline >= 0) {
             crate::host_gates::spawn_arm_gate(
@@ -369,19 +385,27 @@ impl Storage {
         reason: cellar_logic::work::Reason,
     ) -> Result<Option<cellar_logic::work::Installation>> {
         if self.is_raft() {
-            crate::storage::work::current(self.write_scope()?, reason)
-        } else {
-            crate::storage::work::installation(self.scope()?, reason)
+            return crate::storage::work::raft_current(self.write_scope()?, reason);
         }
+        crate::storage::work::installation(self.scope()?, reason)
     }
 
     pub(crate) fn system_sql(&self, query: &str, bindings: &[SqlValue]) -> Result<Vec<SqlRow>> {
         crate::storage::system_sql(self.write_scope()?, query, bindings)
     }
 
+    /// Read framework-owned state through the current command or committed image.
+    pub(crate) fn system_sql_read(
+        &self,
+        query: &str,
+        bindings: &[SqlValue],
+    ) -> Result<Vec<SqlRow>> {
+        crate::storage::system_sql_read(self.data_scope()?, query, bindings)
+    }
+
     /// Built-in maintenance can remove a key range without reading its values.
     pub(crate) fn system_delete_range(&self, start: &str, end: &str) -> Result<()> {
-        let scope = self.scope()?;
+        let scope = self.write_scope()?;
         crate::storage::system_sql(
             scope,
             "DELETE FROM __sys_cell_kv WHERE scope=?1 AND k>=?2 AND k<?3",
@@ -762,6 +786,22 @@ impl Storage {
             return crate::storage::raft_visible_alarm();
         }
         Ok(crate::storage::get_alarm(self.scope()?))
+    }
+
+    /// Framework scheduling distinguishes a claimed alarm from exhaustion;
+    /// public get_alarm deliberately hides the currently executing generation.
+    pub(crate) fn alarm_installed(&self) -> Result<bool> {
+        if self.is_raft() {
+            self.data_scope()?;
+            return crate::storage::raft_alarm_installed();
+        }
+        let scope = self.scope()?;
+        Ok(!self
+            .system_sql(
+                "SELECT 1 FROM __sys_cell_alarm WHERE scope=?",
+                &[scope.to_owned().into()],
+            )?
+            .is_empty())
     }
 
     pub fn set_alarm(&self, at_ms: i64) -> Result<()> {

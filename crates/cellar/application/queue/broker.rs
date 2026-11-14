@@ -692,6 +692,12 @@ impl Broker {
                     self.settle(context, &body).await?;
                     continue;
                 }
+                // Shared-group consumers enter only through the adapter above,
+                // after its claim and batch lease have their required proof.
+                ensure!(
+                    !self.storage.is_raft(),
+                    crate::application::consensus::CommandFailure::UnsupportedCapability
+                );
                 crate::native_worker::queue_dispatch(
                     context,
                     consumer.script.clone(),

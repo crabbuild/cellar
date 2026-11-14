@@ -82,6 +82,7 @@ mod sql_operator;
 mod state_sampling;
 mod stream_operator;
 mod wake_discovery;
+mod workflow_operator;
 #[cfg(not(cellar_internal_tests))]
 pub use embedded::*;
 #[cfg(not(cellar_internal_tests))]
@@ -942,10 +943,31 @@ async fn arm_cron_schedule(app: AppHandle, cell: String) -> anyhow::Result<()> {
 /// node -- the same arbiter that makes an alarm fire once per fleet makes a
 /// cron trigger fire once too. Boot and adoption both come through here, so
 /// a schedule change arrives with the deployment that carries it.
+fn uses_raft_cron(app: &AppHandle, cell: &str) -> bool {
+    app.runtime.as_ref().is_some_and(|runtime| {
+        runtime
+            .generation()
+            .native_applications
+            .values()
+            .any(|application| {
+                application
+                    .resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)
+                    .ok()
+                    .and_then(|class| class.cron_scope())
+                    .as_deref()
+                    == Some(cell)
+            })
+    })
+}
+
 fn spawn_cron_arm(app: AppHandle) {
     let Some(cell) = app.runtime.as_ref().and_then(|runtime| runtime.cron_cell()) else {
         return;
     };
+    if uses_raft_cron(&app, &cell) {
+        // The joined Raft bootstrap enrolls and arms its shared scheduling cell.
+        return;
+    }
     crate::asyncrt::spawn(async move {
         // Routing needs node authority, exactly as the wake scan does.
         let deadline = Instant::now() + std::time::Duration::from_secs(30);
@@ -3681,6 +3703,23 @@ async fn handle_internal(
                 .is_some_and(|(class, _)| class == crate::deploy::SQL_CLASS)
             {
                 if let Some(reply) = sql_operator::dispatch_authenticated(
+                    &app,
+                    &method,
+                    &scope,
+                    name.as_deref(),
+                    &body,
+                    deadline,
+                )
+                .await
+                {
+                    return Ok(peer_response(reply));
+                }
+            }
+            if scope
+                .split_once(':')
+                .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
+            {
+                if let Some(reply) = workflow_operator::dispatch_authenticated(
                     &app,
                     &method,
                     &scope,

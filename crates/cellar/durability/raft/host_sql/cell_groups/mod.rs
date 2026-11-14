@@ -822,6 +822,7 @@ impl CellGroupSqlPool {
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         let (cell, action) = self
             .stage_request(options, authority, attempt, mode, callback)
+            .await
             .map_err(CellSqlStageFailure::admission)?;
         let wait = self
             .send(cell, action)
@@ -836,10 +837,10 @@ impl CellGroupSqlPool {
             .map_err(CellSqlStageFailure::known)
     }
 
-    fn stage_request(
+    async fn stage_request(
         &self,
         options: CellSqlOptions,
-        authority: CellExecutionAuthority,
+        mut authority: CellExecutionAuthority,
         attempt: CommandAttempt,
         mode: CellSqlStageMode,
         callback: worker::Callback,
@@ -869,10 +870,49 @@ impl CellGroupSqlPool {
             .and_then(|n| n.checked_add(4096))
             .ok_or_else(overloaded)?;
         let cell = authority.cell().version.history.clone();
-        let (lease, bytes) =
-            self.inner
-                .admission
-                .reserve(&cell, authority.route().history, bytes)?;
+        let group = authority.route().history;
+        let (lease, bytes) = if let (
+            CellSqlStageMode::InvokeBefore(deadline),
+            worker::Callback::Registered {
+                class,
+                commits: Some(commits),
+                ..
+            },
+        ) = (mode, &callback)
+        {
+            if class.is_cell_rpc(&attempt.request.operation) {
+                let fence = authority.activation_fence();
+                let domain = self.inner.workers[0].domain.clone();
+                let timeout = domain.sleep_until(deadline).map_err(|_| unavailable())?;
+                let waiting = async {
+                    let reserved = self
+                        .inner
+                        .admission
+                        .reserve_queued(&cell, group, bytes)
+                        .await?;
+                    self.admit()?;
+                    // The old writer may have proven several roots while this
+                    // request waited. Rebase only before any application entry,
+                    // keeping the original term/history fence and command ID.
+                    let fresh = commits
+                        .continuation_authority(&domain, &cell, &fence)
+                        .await?;
+
+                    Ok::<_, ExecutionError>((reserved, fresh))
+                };
+                let (reserved, fresh) = crate::asyncrt::select_biased! {
+                    "original SQL writer admission deadline";
+                    _=timeout=>return Err(crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded)),
+                    result=waiting=>result?,
+                };
+                authority = fresh;
+                reserved
+            } else {
+                self.inner.admission.reserve(&cell, group, bytes)?
+            }
+        } else {
+            self.inner.admission.reserve(&cell, group, bytes)?
+        };
         Ok((
             cell,
             worker::Action::Stage(Box::new(worker::Stage {
@@ -1081,6 +1121,7 @@ impl CellGroupSqlPool {
 
     pub async fn close(&self) -> Result<(), ExecutionError> {
         self.inner.closing.store(true, Ordering::Release);
+        self.inner.admission.close();
         self.inner.stop.notify_one();
         self.inner
             .terminal

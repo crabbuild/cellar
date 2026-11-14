@@ -55,7 +55,7 @@ OPERATIONS = (
     'archive_physical_queue',
     'engine_purge',
 )
-COUNTERS = (
+RECOVERY_COUNTERS = (
     'engine_file_read_bytes',
     'engine_file_write_requested_bytes',
     'engine_file_write_completed_bytes',
@@ -99,6 +99,23 @@ COUNTERS = (
     'snapshot_prepared_misses',
     'snapshot_prepared_reused_bytes',
 )
+COUNTERS = (
+    'cell_kv_resolved_payload_preparations',
+    'cell_kv_local_payload_preparations',
+    'cell_binding_applied_history_hints',
+    'cell_membership_discovery_owners',
+    'cell_membership_refresh_joins',
+    'cell_linearizable_read_barriers',
+    'cell_linearizable_read_cohort_joins',
+    'cell_command_directory_lookups',
+    'cell_membership_background_observations',
+    'cell_membership_demand_refreshes',
+    'cell_leader_advice_hits',
+    'cell_command_rpc_attempts',
+    'cell_command_leader_probes',
+    'cell_command_pre_admission_refusals',
+    'cell_command_unconfirmed_replies',
+) + RECOVERY_COUNTERS
 LEGACY_OPERATIONS = ('engine_queue', 'engine_file_sync', 'engine_directory_sync', 'engine_persist',
               'sql_queue', 'sql_stage', 'sql_prepare', 'sql_publish', 'sql_query',
               'sql_archive_capture', 'sql_other', 'object_get', 'object_put_create', 'object_put_update',
@@ -128,6 +145,7 @@ LEGACY_BOUNDS = BOUNDS[:15] + (None,)
 SCHEMAS = ((LEGACY_OPERATIONS, LEGACY_COUNTERS, LEGACY_BOUNDS),
            (ARCHIVE_OPERATIONS, ARCHIVE_COUNTERS, LEGACY_BOUNDS),
            (ARCHIVE_OPERATIONS + ('engine_purge',), ARCHIVE_COUNTERS, LEGACY_BOUNDS),
+           (OPERATIONS, RECOVERY_COUNTERS, BOUNDS),
            (OPERATIONS, COUNTERS, BOUNDS))
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')
 

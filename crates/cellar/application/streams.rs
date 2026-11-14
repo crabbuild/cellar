@@ -150,7 +150,7 @@ impl Context {
         readable: &ByteReadable,
         future: impl Future<Output = Result<()>> + Send + 'static,
     ) -> Result<()> {
-        self.check_turn()?;
+        self.check_binding_turn()?;
         let guard = ProducerGuard {
             readable: readable.clone(),
             finished: false,

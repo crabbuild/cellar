@@ -226,7 +226,7 @@ mod tests {
         outbox.open(&c)?;
         SCHEMA.open(&c)?;
         c.execute(
-            "INSERT INTO __sys_event_source VALUES(1,?1,1)",
+            "INSERT INTO __sys_event_source VALUES(1,?1,1,'Account:source',zeroblob(32))",
             ["0".repeat(32)],
         )?;
         c.execute_batch("CREATE TABLE business(v INTEGER); INSERT INTO business VALUES(7)")?;

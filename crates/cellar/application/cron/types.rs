@@ -37,7 +37,8 @@ impl Scheduled {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Configuration {
     pub prefix: String,
     pub deployment_version: String,

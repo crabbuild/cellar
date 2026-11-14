@@ -61,12 +61,13 @@ budgets reserve response framing capacity.
 
 ## Work and subscription lifecycle
 
-The bounded shared scheduler projects the earliest embedded outbox, stream
-maintenance or catalog reconciliation deadline into one `events` work reason.
-Claiming that reason commits a generation-fenced lease before entering the
-callback. Completion removes only its claimed generation. Replaced deadlines
-and remaining embedded work survive completion and retained restart. Idle cells
-do not acquire individual background tasks.
+The bounded shared scheduler discovers outbox, stream maintenance and catalog
+reconciliation through their fixed native work reasons. Claiming a reason commits
+a generation-fenced lease before entering the callback. Completion removes only
+its claimed generation and lease. Replaced deadlines survive completion and
+retained restart. Idle cells do not acquire individual background tasks. The
+[source journal contract](event-stream-durability.md) describes logical source
+ownership and per-lane incarnation handling.
 
 Leased subscription fetch, acknowledgement, retry, absolute extension and
 administrative changes execute as independently durable broker commands. A

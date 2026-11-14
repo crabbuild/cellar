@@ -80,11 +80,6 @@ pub(super) fn save(storage: &Storage, configuration: &str, state: &State) -> Res
 
 /// Public get_alarm intentionally hides an alarm during its handler. Arming
 /// needs the stored row to distinguish that from native retry exhaustion.
-pub(super) fn has_alarm(storage: &Storage, scope: &str) -> Result<bool> {
-    Ok(!storage
-        .system_sql(
-            "SELECT 1 FROM __sys_cell_alarm WHERE scope=?",
-            &[scope.to_string().into()],
-        )?
-        .is_empty())
+pub(super) fn has_alarm(storage: &Storage) -> Result<bool> {
+    storage.alarm_installed()
 }

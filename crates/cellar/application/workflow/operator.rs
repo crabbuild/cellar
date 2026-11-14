@@ -53,6 +53,130 @@ struct Request {
 }
 
 impl InstanceCell {
+    pub(super) fn operator_value(
+        &self,
+        context: &Context,
+        bytes: &[u8],
+    ) -> Result<serde_json::Value> {
+        let request: Request = serde_json::from_slice(bytes)?;
+        let workflow = context.workflow(&request.binding)?;
+        let existing = read(&self.storage, META)?;
+        // Inventory may visit another binding's instance in the same application.
+        if matches!(request.command, OperatorAction::Inspect)
+            && existing.as_ref().is_none_or(|meta| {
+                text(meta, "workflowName").ok().as_deref() != Some(workflow.name())
+            })
+        {
+            return Ok(serde_json::Value::Null);
+        }
+        let id = request
+            .instance
+            .or_else(|| {
+                existing
+                    .as_ref()
+                    .and_then(|meta| text(meta, "instanceId").ok())
+            })
+            .ok_or_else(|| error("instance does not exist"))?;
+        check_id(&id)?;
+        ensure!(
+            context
+                .identity()
+                .is_some_and(|identity| identity.scope == workflow.instance(id.clone()).scope()),
+            "workflow instance identity mismatch"
+        );
+        if let Some(meta) = &existing {
+            ensure!(
+                text(meta, "workflowName")? == workflow.name() && text(meta, "instanceId")? == id,
+                "workflow metadata identity mismatch"
+            );
+        }
+        match request.command {
+            OperatorAction::Inspect | OperatorAction::Status => {
+                let meta = existing.ok_or_else(|| error("instance does not exist"))?;
+                let mut result = serde_json::Map::new();
+                let fields: &[&str] = if matches!(request.command, OperatorAction::Inspect) {
+                    &[
+                        "workflowName",
+                        "instanceId",
+                        "generation",
+                        "createdMs",
+                        "endedMs",
+                        "expiresMs",
+                        "status",
+                    ]
+                } else {
+                    &[
+                        "workflowName",
+                        "instanceId",
+                        "generation",
+                        "createdMs",
+                        "endedMs",
+                        "expiresMs",
+                        "status",
+                        "error",
+                        "output",
+                        "rollback",
+                        "params",
+                        "definitionSnapshot",
+                    ]
+                };
+                for field in fields {
+                    if let Some(value) = property(&meta, field)? {
+                        result.insert((*field).into(), operator_json(&value)?);
+                    }
+                }
+                result.insert(
+                    "retention_expired".into(),
+                    json!(
+                        terminal(&meta)?
+                            && property(&meta, "expiresMs")?.is_some()
+                            && number(&meta, "expiresMs")? <= now() as f64
+                    ),
+                );
+                Ok(serde_json::Value::Object(result))
+            }
+            OperatorAction::History { cursor } => operator_history(&self.storage, &id, cursor),
+            OperatorAction::HistorySearch { cursor, query } => {
+                operator_search(&self.storage, &id, cursor, &query)
+            }
+            action => {
+                if !matches!(action, OperatorAction::Start { .. }) {
+                    let meta = existing
+                        .as_ref()
+                        .ok_or_else(|| error("instance does not exist"))?;
+                    ensure!(request.expected_generation.as_deref() == Some(text(meta,"generation")?.as_str()), "workflow generation changed or was not provided; inspect the instance before acting");
+                }
+                let (method, argument) = match action {
+                    OperatorAction::Start { params } => {
+                        let (_, argument) = workflow.options(CreateOptions {
+                            id: Some(id),
+                            params: Some(data(params)?),
+                            ..Default::default()
+                        })?;
+                        ("__wfCreate", argument)
+                    }
+                    OperatorAction::Pause => ("__wfPause", data(json!({}))?),
+                    OperatorAction::Resume => ("__wfResume", data(json!({}))?),
+                    OperatorAction::Restart => ("__wfRestart", data(json!({}))?),
+                    OperatorAction::Terminate { rollback } => {
+                        ("__wfTerminate", data(json!({"rollback":rollback}))?)
+                    }
+                    OperatorAction::SendEvent {
+                        event_type,
+                        payload,
+                    } => (
+                        "__wfSendEvent",
+                        data(json!({"type":event_type,"payload":payload}))?,
+                    ),
+                    _ => unreachable!("read actions handled above"),
+                };
+                let value = self.control(context, method, argument)?;
+                self.changed.notify_waiters();
+                operator_json(&value)
+            }
+        }
+    }
+
     pub(super) async fn operator(&self, context: &Context, body: RequestBody) -> HttpResponse {
         let result = async {
             let mut stream = context.take_body(body)?;
@@ -64,120 +188,7 @@ impl InstanceCell {
                 );
                 bytes.extend(chunk);
             }
-            let request: Request = serde_json::from_slice(&bytes)?;
-            let workflow = context.workflow(&request.binding)?;
-            let existing = read(&self.storage, META)?;
-            // Inventory may visit another binding's instance in the same application.
-            if matches!(request.command, OperatorAction::Inspect)
-                && existing.as_ref().is_none_or(|meta| {
-                    text(meta, "workflowName").ok().as_deref() != Some(workflow.name())
-                })
-            {
-                return Ok(serde_json::Value::Null);
-            }
-            let id = request
-                .instance
-                .or_else(|| {
-                    existing
-                        .as_ref()
-                        .and_then(|meta| text(meta, "instanceId").ok())
-                })
-                .ok_or_else(|| error("instance does not exist"))?;
-            check_id(&id)?;
-            ensure!(
-                    context.identity().is_some_and(
-                        |identity| identity.scope == workflow.instance(id.clone()).scope()
-                    ),
-                    "workflow instance identity mismatch"
-                );
-            if let Some(meta) = &existing {
-                ensure!(
-                    text(meta, "workflowName")? == workflow.name()
-                        && text(meta, "instanceId")? == id,
-                    "workflow metadata identity mismatch"
-                );
-            }
-            match request.command {
-                OperatorAction::Inspect | OperatorAction::Status => {
-                    let meta = existing.ok_or_else(|| error("instance does not exist"))?;
-                    let mut result = serde_json::Map::new();
-                    let fields: &[&str] = if matches!(request.command, OperatorAction::Inspect) {
-                        &[
-                            "workflowName",
-                            "instanceId",
-                            "generation",
-                            "createdMs",
-                            "endedMs",
-                            "expiresMs",
-                            "status",
-                        ]
-                    } else {
-                        &[
-                            "workflowName",
-                            "instanceId",
-                            "generation",
-                            "createdMs",
-                            "endedMs",
-                            "expiresMs",
-                            "status",
-                            "error",
-                            "output",
-                            "rollback",
-                            "params",
-                            "definitionSnapshot",
-                        ]
-                    };
-                    for field in fields {
-                        if let Some(value) = property(&meta, field)? {
-                            result.insert((*field).into(), operator_json(&value)?);
-                        }
-                    }
-                    result.insert(
-                        "retention_expired".into(),
-                        json!(
-                            terminal(&meta)?
-                                && property(&meta, "expiresMs")?.is_some()
-                                && number(&meta, "expiresMs")? <= now() as f64
-                        ),
-                    );
-                    Ok(serde_json::Value::Object(result))
-                }
-                OperatorAction::History { cursor } => operator_history(&self.storage, &id, cursor),
-                OperatorAction::HistorySearch { cursor, query } => operator_search(&self.storage, &id, cursor, &query),
-                action => {
-                    if !matches!(action,OperatorAction::Start {..}) {
-                        let meta = existing.as_ref().ok_or_else(|| error("instance does not exist"))?;
-                        ensure!(request.expected_generation.as_deref() == Some(text(meta,"generation")?.as_str()), "workflow generation changed or was not provided; inspect the instance before acting");
-                    }
-                    let (method, argument) = match action {
-                        OperatorAction::Start { params } => {
-                            let (_, argument) = workflow.options(CreateOptions {
-                                id: Some(id),
-                                params: Some(data(params)?),
-                                ..Default::default()
-                            })?;
-                            ("__wfCreate", argument)
-                        }
-                        OperatorAction::Pause => ("__wfPause", data(json!({}))?),
-                        OperatorAction::Resume => ("__wfResume", data(json!({}))?),
-                        OperatorAction::Restart => ("__wfRestart", data(json!({}))?),
-                        OperatorAction::Terminate { rollback } => {
-                            ("__wfTerminate", data(json!({"rollback":rollback}))?)
-                        }
-                        OperatorAction::SendEvent {
-                            event_type,
-                            payload,
-                        } => (
-                            "__wfSendEvent",
-                            data(json!({"type":event_type,"payload":payload}))?,
-                        ),
-                        _ => unreachable!("read actions handled above"),
-                    };
-                    let value = self.control(context, method, argument)?;
-                    self.changed.notify_waiters();
-                    operator_json(&value)
-                }
-            }
+            self.operator_value(context, &bytes)
         }
         .await;
         let (status, body) = match result {

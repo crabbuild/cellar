@@ -5,44 +5,84 @@
 use super::*;
 use crate::application::event_stream::{DeliveryError, ErrorCode, Event, SealStatus, Stream};
 
-impl Storage {
-    fn event_configuration(
-        &self,
-    ) -> Result<std::sync::Arc<crate::application::event_stream::raft::Configuration>> {
-        self.write_scope()?;
-        if self.is_raft() {
-            Ok(self
-                .resources()
-                .event_source
-                .lock()
-                .unwrap()
-                .as_ref()
-                .ok_or_else(|| anyhow!("missing Raft event configuration"))?
-                .config
-                .clone())
-        } else {
-            Ok(std::sync::Arc::new(
-                crate::application::event_stream::raft::Configuration::from(
-                    self.native_activation()?.worker_config.as_ref(),
-                ),
-            ))
+pub(crate) struct EventSourceConfiguration {
+    script: String,
+    bindings: Arc<[crate::application::event_stream::BindingConfig]>,
+    readiness: Arc<crate::application::event_stream::readiness::Readiness>,
+}
+
+impl EventSourceConfiguration {
+    pub(crate) fn new(config: &crate::worker_config::WorkerConfig) -> Self {
+        Self {
+            script: config.script_name.clone(),
+            bindings: config.stream_bindings.clone().into(),
+            readiness: config.event_readiness.clone(),
         }
     }
+}
 
-    pub(super) fn event_source_scope(&self) -> Result<String> {
+fn authorize<E>(
+    script: &str,
+    bindings: &[crate::application::event_stream::BindingConfig],
+    readiness: &crate::application::event_stream::readiness::Readiness,
+    stream: &Stream<E>,
+    ready: bool,
+) -> Result<()> {
+    stream.check_domain()?;
+    if ready {
+        stream.check_ready()?;
+        readiness.check()?;
+    }
+    if !(stream.binding.publish
+        && script == stream.binding.principal
+        && bindings.iter().any(|current| {
+            current.environment == stream.binding.environment
+                && current.principal == stream.binding.principal
+                && current.grant == stream.binding.grant
+                && current.publish
+                && readiness
+                    .binding(current)
+                    .is_ok_and(|resolved| resolved.resource.same_identity(stream.resource()))
+        }))
+    {
+        return Err(DeliveryError::new(
+            ErrorCode::Forbidden,
+            "stream publication is not bound to this cell's application configuration",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+impl Storage {
+    fn authorize_outbox<E>(&self, stream: &Stream<E>, ready: bool) -> Result<()> {
         self.write_scope()?;
         if self.is_raft() {
-            Ok(self
+            anyhow::ensure!(
+                self.resources().durable_callbacks.load(Ordering::Acquire),
+                consensus::CommandFailure::UnsupportedCapability
+            );
+            let config = self
                 .resources()
                 .event_source
-                .lock()
-                .unwrap()
-                .as_ref()
-                .ok_or_else(|| anyhow!("missing Raft event identity"))?
-                .scope
-                .clone())
+                .get()
+                .ok_or(consensus::CommandFailure::UnsupportedCapability)?;
+            authorize(
+                &config.script,
+                &config.bindings,
+                &config.readiness,
+                stream,
+                ready,
+            )
         } else {
-            Ok(self.scope()?.into())
+            let config = &self.native_activation()?.worker_config;
+            authorize(
+                &config.script_name,
+                &config.stream_bindings,
+                &config.event_readiness,
+                stream,
+                ready,
+            )
         }
     }
 
@@ -55,32 +95,16 @@ impl Storage {
     /// caller's business transaction; its return is not a destination receipt.
     pub fn seal<E: Event>(&self, stream: &Stream<E>, operation: &str) -> Result<SealStatus> {
         let scope = self.write_scope()?;
-        stream.check_domain()?;
-        let config = self.event_configuration()?;
+        self.authorize_outbox(stream, false)?;
         anyhow::ensure!(
             crate::storage::facet_opening(scope).is_none(),
             "facets cannot seal durable producers"
         );
-        anyhow::ensure!(
-            config.script_name == stream.binding.principal
-                && config
-                    .stream_bindings
-                    .iter()
-                    .any(|current| current.environment == stream.binding.environment
-                        && current.principal == stream.binding.principal
-                        && current.grant == stream.binding.grant
-                        && config
-                            .event_readiness
-                            .binding(current)
-                            .is_ok_and(|resolved| resolved
-                                .resource
-                                .same_identity(stream.resource()))
-                        && current.publish),
-            "producer seal is not bound to this application"
-        );
-        let source = self.resources().event_source.lock().unwrap().clone();
-        if source.is_some() {
-            crate::storage::outbox::seal_from(scope, &stream.binding, operation, source.as_ref())
+        if self.is_raft() {
+            let history = crate::storage::capture_raft_dispatch()?
+                .ok_or(consensus::CommandFailure::UnsupportedCapability)?
+                .source_history()?;
+            crate::storage::outbox::seal_raft(&stream.binding, operation, &history)
         } else {
             crate::storage::outbox::seal(scope, &stream.binding, operation)
         }
@@ -123,28 +147,7 @@ impl Storage {
 
     pub fn emit<E: Event>(&self, stream: &Stream<E>, event: E) -> Result<()> {
         let scope = self.write_scope()?;
-        stream.check_ready()?;
-        let config = self.event_configuration()?;
-        config.event_readiness.check()?;
-        if !(config.script_name == stream.binding.principal
-            && config.stream_bindings.iter().any(|current| {
-                current.environment == stream.binding.environment
-                    && current.principal == stream.binding.principal
-                    && current.grant == stream.binding.grant
-                    && config
-                        .event_readiness
-                        .binding(current)
-                        .is_ok_and(|resolved| resolved.resource.same_identity(stream.resource()))
-                    && current.publish
-            }))
-            || !stream.binding.publish
-        {
-            return Err(DeliveryError::new(
-                ErrorCode::Forbidden,
-                "stream publication is not bound to this cell's application configuration",
-            )
-            .into());
-        }
+        self.authorize_outbox(stream, true)?;
         if self.1.is_none() && self.resources().transaction.lock().unwrap().is_none() {
             return Err(DeliveryError::new(
                 ErrorCode::TransactionRequired,
@@ -187,36 +190,20 @@ impl Storage {
         let key = key.to_owned();
         let payload =
             crate::application::event_stream::encoding::payload(&event, limits.event_bytes())?;
-        let source = self.resources().event_source.lock().unwrap().clone();
-        if source.is_none() {
-            return crate::storage::outbox::emit(
-                scope,
+        if self.is_raft() {
+            let history = crate::storage::capture_raft_dispatch()?
+                .ok_or(consensus::CommandFailure::UnsupportedCapability)?
+                .source_history()?;
+            crate::storage::outbox::emit_raft(
                 &stream.binding,
                 E::VERSION,
                 key,
                 payload,
                 limits,
-            );
+                &history,
+            )
+        } else {
+            crate::storage::outbox::emit(scope, &stream.binding, E::VERSION, key, payload, limits)
         }
-        let emission = source
-            .as_ref()
-            .map(|source| {
-                Ok::<_, anyhow::Error>(crate::application::event_stream::raft::Emission {
-                    source,
-                    input_limit: crate::application::event_stream::raft::append_limit(
-                        &stream.binding,
-                    )?,
-                })
-            })
-            .transpose()?;
-        crate::storage::outbox::emit_from(
-            scope,
-            &stream.binding,
-            E::VERSION,
-            key,
-            payload,
-            limits,
-            emission.as_ref(),
-        )
     }
 }

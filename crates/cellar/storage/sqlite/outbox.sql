@@ -4,7 +4,9 @@
 CREATE TABLE IF NOT EXISTS __sys_event_source (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     incarnation TEXT NOT NULL CHECK(length(incarnation)=32),
-    protocol INTEGER NOT NULL CHECK(protocol=1)
+    protocol INTEGER NOT NULL CHECK(protocol=1),
+    source TEXT NOT NULL CHECK(length(source)>0),
+    owner BLOB NOT NULL CHECK(typeof(owner)='blob' AND length(owner)=32)
 );
 CREATE TABLE IF NOT EXISTS __sys_outbox_lanes (
     lane TEXT PRIMARY KEY,
@@ -19,6 +21,7 @@ CREATE TABLE IF NOT EXISTS __sys_outbox_lanes (
     pending_rows INTEGER NOT NULL DEFAULT 0 CHECK(typeof(pending_rows)='integer' AND pending_rows>=0),
     pending_bytes INTEGER NOT NULL DEFAULT 0 CHECK(typeof(pending_bytes)='integer' AND pending_bytes>=0),
     blocked_reason TEXT CHECK(blocked_reason IS NULL OR blocked_reason IN ('Forbidden','DestinationDeleted','SequenceGap','PayloadTooLarge','UnsupportedProtocol','ConfigConflict','ProducerSealed')),
+    incarnation TEXT NOT NULL CHECK(length(incarnation)=32 AND incarnation NOT GLOB '*[^0-9a-f]*'),
     CHECK(status!='blocked' OR blocked_reason IS NOT NULL),
     CHECK(blocked_reason IS NULL OR status IN ('blocked','sealed'))
 );

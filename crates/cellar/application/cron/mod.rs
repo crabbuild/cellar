@@ -41,7 +41,37 @@ struct Schedule {
 pub(crate) fn create_cell(
     context: &Context,
     application: Arc<dyn Application>,
+    expressions: Vec<String>,
+) -> Result<Arc<dyn Cell>> {
+    create(
+        context,
+        application,
+        expressions,
+        context.worker_config.cron_history.clone(),
+    )
+}
+
+pub(crate) fn create_raft_cell(
+    context: &Context,
+    handler: super::Handler,
+    expressions: Vec<String>,
+    configuration: HistoryConfiguration,
+) -> Result<Arc<dyn Cell>> {
+    let application = Arc::new(super::Registry::new(move |context, invocation| {
+        handler(context, invocation)
+    }));
+    create(context, application, expressions, Some(configuration))
+}
+
+pub(crate) fn history_page(storage: &Storage, query: HistoryQuery) -> Result<Value> {
+    history::page(storage, query)
+}
+
+fn create(
+    context: &Context,
+    application: Arc<dyn Application>,
     mut expressions: Vec<String>,
+    configuration: Option<HistoryConfiguration>,
 ) -> Result<Arc<dyn Cell>> {
     anyhow::ensure!(
         context
@@ -77,7 +107,7 @@ pub(crate) fn create_cell(
         "{:x}",
         Sha256::digest(serde_json::to_vec(&json!({
             "application":context.worker_config.script_name,
-            "configuration":context.worker_config.cron_history,
+            "configuration":configuration,
             "expressions":expressions,
             "workflows":workflow_targets.iter().map(|target|target.as_ref().map(|workflow|workflow.name())).collect::<Vec<_>>(),
             "bindings":workflow_bindings,
@@ -91,7 +121,7 @@ pub(crate) fn create_cell(
         positions,
         workflow_targets,
         workflow_bindings,
-        configuration: context.worker_config.cron_history.clone(),
+        configuration,
         application_name: context.worker_config.script_name.clone(),
         node: context.worker_config.node.clone(),
         runtime_generation: context.generation,
@@ -147,10 +177,7 @@ impl Schedule {
             &self.state_configuration,
             self.expressions.len(),
         )?;
-        if !state::has_alarm(
-            &self.storage,
-            &policy::reserved_cell(&self.application_name),
-        )? {
+        if !state::has_alarm(&self.storage)? {
             // The native alarm's bounded failure policy can exhaust a never-
             // completing handler. Resume the calendar, not another blind retry.
             state.owed = None;
@@ -246,6 +273,11 @@ impl Schedule {
                 record.clone(),
                 || state::save(&self.storage, &self.state_configuration, &state),
             )?;
+            if self.storage.is_raft() {
+                // The occurrence and in-flight history precede handler entry.
+                // A lost owner retains this exact occurrence for recovery.
+                self.storage.sync().await?;
+            }
             let mut retry = false;
             if let Some(workflow) = workflow {
                 match workflow.create_scheduled(context, schedule).await {
@@ -296,6 +328,9 @@ impl Schedule {
                 history::finish(storage, id, record)?;
                 state::save(storage, &self.state_configuration, &state)
             })?;
+            if self.storage.is_raft() {
+                self.storage.sync().await?;
+            }
         }
         let failed =
             std::mem::take(&mut state.owed.as_mut().expect("running cron occurrence").failed);

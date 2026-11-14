@@ -24,30 +24,85 @@ CREATE INDEX IF NOT EXISTS __sys_work_due ON __sys_work(scope, at_ms, reason)
     WHERE at_ms IS NOT NULL;
 ";
 
-fn with_work<T>(
-    scope: &str,
-    action: impl FnOnce(&Connection) -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    with_application_storage_write(scope, |connection| as_framework_sql(|| action(connection)))
+fn raft_reason(reason: Reason) -> anyhow::Result<&'static str> {
+    anyhow::ensure!(
+        matches!(
+            reason,
+            Reason::Outbox | Reason::StreamMaintenance | Reason::ResourceReconciliation
+        ),
+        crate::application::consensus::CommandFailure::UnsupportedCapability
+    );
+    Ok(reason.as_str())
+}
+
+/// The public work installation and shared callback discovery must commit or
+/// roll back together. Neither a node task nor an application alarm is armed.
+pub(crate) fn raft_set(scope: &str, reason: Reason, at_ms: i64) -> anyhow::Result<()> {
+    let name = raft_reason(reason)?;
+    anyhow::ensure!(at_ms >= 0, "internal work deadline must be nonnegative");
+    with_application_storage_write(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| {
+            with_storage_batch(connection, |connection| {
+                connection.execute_batch(SCHEMA)?;
+                set_in(connection, scope, reason, at_ms)?;
+                crate::application::consensus::native_work::arm_maintenance(connection, name, at_ms)
+            })
+        })
+    })
+}
+
+pub(crate) fn raft_current(scope: &str, reason: Reason) -> anyhow::Result<Option<Installation>> {
+    raft_reason(reason)?;
+    raft_native_work(|connection| {
+        let present: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='__sys_work' AND type='table')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !present {
+            return Ok(None);
+        }
+        connection.query_row(
+            "SELECT generation,at_ms FROM __sys_work WHERE scope=?1 AND reason=?2 AND at_ms IS NOT NULL",
+            rusqlite::params![scope, reason.as_str()],
+            |row| Ok(Installation { reason, generation: row.get(0)?, at_ms: row.get(1)? }),
+        ).optional().map_err(Into::into)
+    })
+}
+
+/// A delayed completion cannot remove a replacement's discovery obligation.
+pub(crate) fn raft_clear(scope: &str, installation: Installation) -> anyhow::Result<bool> {
+    let name = raft_reason(installation.reason)?;
+    with_application_storage_write(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| {
+            with_storage_batch(connection, |connection| {
+                let present: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='__sys_work' AND type='table')",
+                [], |row| row.get(0),
+            )?;
+                if !present {
+                    return Ok(false);
+                }
+                let cleared = connection.execute(
+                "UPDATE __sys_work SET at_ms=NULL WHERE scope=?1 AND reason=?2 AND generation=?3 AND at_ms=?4",
+                rusqlite::params![scope, name, i64::try_from(installation.generation)?, installation.at_ms],
+            )? == 1;
+                if cleared {
+                    crate::application::consensus::native_work::cancel(connection, name)?;
+                }
+                Ok(cleared)
+            })
+        })
+    })
 }
 
 pub(crate) fn set(scope: &str, reason: Reason, at_ms: i64) -> anyhow::Result<Option<i64>> {
     anyhow::ensure!(at_ms >= 0, "internal work deadline must be nonnegative");
-    with_work(scope, |connection| {
-        if scope == RAFT_STORAGE_SCOPE {
-            as_framework_sql(|| connection.execute_batch(SCHEMA))?;
-        }
+    with_application_storage_write(scope, |connection| {
         set_in(connection, scope, reason, at_ms)?;
-        if scope == RAFT_STORAGE_SCOPE {
-            project_in(connection)?;
-        }
         Ok(())
     })?;
-    Ok(if scope == RAFT_STORAGE_SCOPE {
-        None
-    } else {
-        publish_alarm(scope)
-    })
+    Ok(publish_alarm(scope))
 }
 
 pub(super) fn set_in(
@@ -72,8 +127,8 @@ pub(crate) fn clear(
     installation: Installation,
 ) -> anyhow::Result<(bool, Option<i64>)> {
     let generation = i64::try_from(installation.generation)?;
-    let cleared = with_work(scope, |connection| {
-        let cleared = connection
+    let cleared = with_application_storage_write(scope, |connection| {
+        Ok(connection
             .prepare_cached(
                 "UPDATE __sys_work SET at_ms=NULL
              WHERE scope=?1 AND reason=?2 AND generation=?3 AND at_ms=?4",
@@ -84,26 +139,15 @@ pub(crate) fn clear(
                 generation,
                 installation.at_ms
             ])?
-            == 1;
-        if scope == RAFT_STORAGE_SCOPE {
-            project_in(connection)?;
-        }
-        Ok(cleared)
+            == 1)
     })?;
-    Ok((
-        cleared,
-        if scope == RAFT_STORAGE_SCOPE {
-            None
-        } else {
-            cleared.then(|| publish_alarm(scope)).flatten()
-        },
-    ))
+    Ok((cleared, cleared.then(|| publish_alarm(scope)).flatten()))
 }
 
 pub(crate) fn due(scope: &str, now_ms: i64) -> anyhow::Result<Option<Installation>> {
     with(scope, |connection| {
         anyhow::ensure!(
-            scope == RAFT_STORAGE_SCOPE || connection.is_autocommit(),
+            connection.is_autocommit(),
             "internal work requires a committed transaction"
         );
         ensure_no_unfinished_write_cursor(connection)?;
@@ -146,51 +190,14 @@ pub(crate) fn installation(scope: &str, reason: Reason) -> anyhow::Result<Option
 }
 
 pub(crate) fn current(scope: &str, reason: Reason) -> anyhow::Result<Option<Installation>> {
-    with_work(scope, |connection| {
-        // A fresh private image has no embedded work until its first deadline.
-        // The shared claim path still requires the table and refuses corruption.
-        if scope == RAFT_STORAGE_SCOPE
-            && !connection.query_row(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_work')",
-                [],
-                |row| row.get::<_, bool>(0),
-            )?
-        {
-            return Ok(None);
-        }
+    with(scope, |connection| {
         connection.prepare_cached(
             "SELECT generation,at_ms FROM __sys_work WHERE scope=?1 AND reason=?2 AND at_ms IS NOT NULL",
         )?.query_row(
             rusqlite::params![scope,reason.as_str()],
             |row|Ok(Installation { reason, generation:row.get(0)?, at_ms:row.get(1)? }),
         ).optional().map_err(Into::into)
-    })
-}
-
-/// The shared scheduler owns one discovery row over bounded per-reason work.
-pub(super) fn project_in(connection: &Connection) -> anyhow::Result<()> {
-    let due: Option<i64> = connection.query_row(
-        "SELECT min(at_ms) FROM __sys_work WHERE scope=?1 AND at_ms IS NOT NULL",
-        [RAFT_STORAGE_SCOPE],
-        |row| row.get(0),
-    )?;
-    if let Some(due) = due {
-        crate::application::consensus::native_work::arm_maintenance(connection, "events", due)?;
-    }
-    Ok(())
-}
-
-pub(crate) fn raft_project() -> anyhow::Result<()> {
-    with_work(RAFT_STORAGE_SCOPE, project_in)
-}
-
-pub(crate) fn raft_due(now: i64) -> anyhow::Result<Option<Installation>> {
-    with_work(RAFT_STORAGE_SCOPE, |connection| {
-        connection.query_row("SELECT reason,generation,at_ms FROM __sys_work WHERE scope=?1 AND at_ms<=?2 ORDER BY at_ms,reason LIMIT 1",rusqlite::params![RAFT_STORAGE_SCOPE,now],|row|{
-            let reason: String=row.get(0)?;
-            Ok((reason,row.get::<_,u64>(1)?,row.get::<_,i64>(2)?))
-        }).optional()?.map(|(reason,generation,at_ms)| Ok(Installation{reason:Reason::parse(&reason).ok_or_else(||anyhow::anyhow!("invalid shared work reason"))?,generation,at_ms})).transpose()
-    })
+    }).unwrap_or_else(||Err(anyhow::anyhow!("no db for {scope}")))
 }
 
 pub(super) fn effective(connection: &Connection, scope: &str) -> anyhow::Result<Option<i64>> {
@@ -204,6 +211,10 @@ pub(super) fn effective(connection: &Connection, scope: &str) -> anyhow::Result<
         )?
         .query_row([scope], |row| row.get(0))?)
 }
+
+#[cfg(test)]
+#[path = "work_raft_tests.rs"]
+mod raft_tests;
 
 #[cfg(test)]
 mod tests {

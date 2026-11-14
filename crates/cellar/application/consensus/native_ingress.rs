@@ -16,7 +16,26 @@ pub(crate) fn rpc(
     args: RpcData,
     call_scope: CallScope,
 ) -> HandlerFuture<RpcData> {
-    rpc_with_authority(context, scope, name, method, args, call_scope, None)
+    submit(context, scope, name, method, args, call_scope, Purpose::Rpc)
+}
+
+pub(crate) fn resource_rpc(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    call_scope: CallScope,
+) -> HandlerFuture<RpcData> {
+    submit(
+        context,
+        scope,
+        name,
+        method,
+        args,
+        call_scope,
+        Purpose::Resource,
+    )
 }
 
 pub(crate) fn event_rpc(
@@ -28,33 +47,51 @@ pub(crate) fn event_rpc(
     call_scope: CallScope,
     authority: crate::application::event_stream::Authority,
 ) -> HandlerFuture<RpcData> {
-    rpc_with_authority(
+    submit(
         context,
         scope,
         name,
         method,
         args,
         call_scope,
-        Some(authority),
+        Purpose::Event(authority),
     )
 }
 
-fn rpc_with_authority(
+enum Purpose {
+    Rpc,
+    Resource,
+    Event(crate::application::event_stream::Authority),
+}
+
+fn submit(
     context: &Context,
     scope: String,
     name: Option<String>,
     method: String,
     args: RpcData,
     call_scope: CallScope,
-    authority: Option<crate::application::event_stream::Authority>,
+    purpose: Purpose,
 ) -> HandlerFuture<RpcData> {
+    let resource = matches!(&purpose, Purpose::Resource);
+    let authority = match purpose {
+        Purpose::Event(authority) => Some(authority),
+        _ => None,
+    };
     let prepared = (|| -> Result<_> {
         context.check_turn()?;
         anyhow::ensure!(
             context.identity().is_none(),
             CommandFailure::UnsupportedCapability
         );
-        context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
+        let read = scope
+            .split_once(':')
+            .is_some_and(|(class, _)| crate::deploy::is_workflow_class(class))
+            && crate::application::workflow::read_operation(&method).is_some();
+        anyhow::ensure!(!resource || read, CommandFailure::UnsupportedCapability);
+        if !resource {
+            context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
+        }
         let native = scope.split_once(':').and_then(|(class, _)| {
             context
                 .state
@@ -132,6 +169,9 @@ fn rpc_with_authority(
             return Ok(owner.event_ingress(admitted, call_scope, deadline, authority));
         }
         Ok(match native {
+            Some(configuration) if read => {
+                owner.workflow_read(admitted, call_scope, deadline, configuration)
+            }
             Some(configuration) => {
                 owner.native_ingress(admitted, call_scope, deadline, configuration)
             }

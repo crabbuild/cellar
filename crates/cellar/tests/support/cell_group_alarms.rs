@@ -6,6 +6,11 @@ use super::*;
 use futures_util::TryStreamExt;
 use std::sync::atomic::AtomicBool;
 
+#[path = "cell_group_alarm_failures.rs"]
+mod failures;
+pub use failures::qualify as qualify_failures;
+pub use failures::qualify_exhaustion;
+
 const SCRIPT: &str = "quorum-alarm-service";
 
 #[derive(Default)]
@@ -15,11 +20,13 @@ struct Observed {
     changed: Notify,
     interrupt: AtomicBool,
     previous: Mutex<Option<Context>>,
+    failure: failures::Control,
 }
 
 struct AlarmCell {
     storage: Storage,
     observed: Arc<Observed>,
+    poisoned: AtomicBool,
 }
 
 fn snapshot(storage: &Storage) -> Result<serde_json::Value> {
@@ -32,6 +39,10 @@ impl Cell for AlarmCell {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
             let storage = context.storage()?;
+            ensure!(
+                !self.poisoned.load(Ordering::Acquire),
+                "failed alarm activation was reused"
+            );
             match invocation {
                 Invocation::Alarm { scheduled_ms } => {
                     ensure!(
@@ -56,6 +67,9 @@ impl Cell for AlarmCell {
                     if label == "interrupt" && self.observed.interrupt.swap(false, Ordering::AcqRel)
                     {
                         return std::future::pending().await;
+                    }
+                    if label.starts_with("failure/") {
+                        return failures::invoke(&self, &storage, &label).await;
                     }
                     let mut calls = storage.get_json("calls")?.unwrap_or(json!([]));
                     calls
@@ -118,6 +132,9 @@ fn application(
         .durable_callbacks()?
         .query("Snapshot", [63; 32], |query, _| {
             Ok(serde_json::to_vec(&snapshot(&query.storage())?)?)
+        })?
+        .query("FailureState", [74; 32], |query, _| {
+            Ok(serde_json::to_vec(&failures::snapshot(&query.storage())?)?)
         })?;
     for (index, method) in ["Arm", "Cancel", "Rollback", "Read"]
         .into_iter()
@@ -167,6 +184,7 @@ fn application(
             Ok(Arc::new(AlarmCell {
                 storage: context.storage()?,
                 observed: observed.clone(),
+                poisoned: AtomicBool::new(false),
             }))
         })?
         .raft_class(RaftClass::new("Other", 1, [72; 32])?.initializer([73; 32], |_, _| Ok(()))?)?,

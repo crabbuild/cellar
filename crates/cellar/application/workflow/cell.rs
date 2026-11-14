@@ -9,6 +9,55 @@ use std::sync::Mutex;
 
 pub(super) const META: &str = "__wf.meta";
 
+pub(super) fn argument(args: &RpcData) -> Result<StructuredValue> {
+    let arguments = super::super::decode_rpc(args)?;
+    Ok(match &arguments.root {
+        CloneValue::Reference(id) => match arguments.objects.get(*id as usize) {
+            Some(cellar_native::clone::Object::DenseArray { elements, .. }) => StructuredValue {
+                root: elements.first().cloned().unwrap_or(CloneValue::Undefined),
+                objects: arguments.objects.clone(),
+            },
+            Some(cellar_native::clone::Object::SparseArray { properties, .. }) => {
+                let root = properties.iter().find_map(|(key, value)| {
+                                    if matches!(key, CloneValue::Number(number) if *number == 0.0) || matches!(key, CloneValue::String(name) if name.as_slice() == [u16::from(b'0')]) { Some(value.clone()) } else { None }
+                                }).unwrap_or(CloneValue::Undefined);
+                StructuredValue {
+                    root,
+                    objects: arguments.objects.clone(),
+                }
+            }
+            _ => return Err(error("invalid instance arguments")),
+        },
+        _ => return Err(error("invalid instance arguments")),
+    })
+}
+
+pub(super) fn status_value(meta: &StructuredValue) -> Result<StructuredValue> {
+    let status_name = text(meta, "status")?;
+    let mut status = data(
+        json!({"status":if status_name == "rollingBack" {"running"} else {status_name.as_str()},"rollback":null}),
+    )?;
+    for key in ["error", "output", "rollback"] {
+        if let Some(value) = property(meta, key)? {
+            set(&mut status, key, &value)?;
+        }
+    }
+    Ok(status)
+}
+
+/// Expiration is observable without a write. The committed retention alarm owns
+/// physical cleanup; querying must not create a new command/receipt or alarm.
+pub(super) fn read_status(storage: &Storage) -> Result<StructuredValue> {
+    let meta = required(storage)?;
+    ensure!(
+        !(terminal(&meta)?
+            && property(&meta, "expiresMs")?.is_some()
+            && number(&meta, "expiresMs")? <= now() as f64),
+        "WORKFLOW_ERROR: instance does not exist"
+    );
+    status_value(&meta)
+}
+
 pub(super) fn now() -> i64 {
     crate::ownership_store::now_ms() as i64
 }
@@ -179,6 +228,11 @@ pub(crate) fn create_cell(
 
 impl InstanceCell {
     async fn history(&self, argument: &StructuredValue) -> Result<StructuredValue> {
+        // A parked command cannot observe later private roots. Return a bounded
+        // page; the event-owned subscription reissues against a fresh quorum.
+        if self.storage.is_raft() {
+            return super::history::page(&self.storage, argument);
+        }
         let timeout = crate::asyncrt::sleep(std::time::Duration::from_secs(10));
         tokio::pin!(timeout);
         loop {
@@ -205,6 +259,19 @@ impl InstanceCell {
         let storage = &self.storage;
         match method {
             "__wfCreate" => {
+                let workflow = text(&argument, "workflowName")?;
+                let id = text(&argument, "instanceId")?;
+                check_id(&id)?;
+                ensure!(
+                    self.classes.contains_key(&workflow)
+                        && context.identity().is_some_and(|identity| identity.scope
+                            == crate::engine_api::workflow_cell_scope(
+                                &context.worker_config.script_name,
+                                &workflow,
+                                &id
+                            )),
+                    "WORKFLOW_ERROR: instance identity or Workflow definition differs"
+                );
                 if let Some(params) = property(&argument, "params")? {
                     check_value(&params, "the workflow params")?;
                 }
@@ -253,17 +320,9 @@ impl InstanceCell {
                         })
                     })?
                     .ok_or_else(|| error("instance does not exist"))?;
-                let status_name = text(&meta, "status")?;
-                let mut status = data(
-                    json!({"status":if status_name == "rollingBack" {"running"} else {status_name.as_str()},"rollback":null}),
-                )?;
-                for key in ["error", "output", "rollback"] {
-                    if let Some(value) = property(&meta, key)? {
-                        set(&mut status, key, &value)?;
-                    }
-                }
-                Ok(status)
+                status_value(&meta)
             }
+
             "__wfDelete" => {
                 let deleted = storage.transaction_sync(|transaction| {
                     let Some(mut meta) = read(transaction, META)? else {
@@ -277,6 +336,13 @@ impl InstanceCell {
                 })?;
                 if !deleted {
                     return Err(error("instance does not exist"));
+                }
+                if self.storage.is_raft() {
+                    context
+                        .state
+                        .raft_retire_after_turn
+                        .store(true, std::sync::atomic::Ordering::Release);
+                    return Ok(StructuredValue::undefined());
                 }
                 context
                     .io
@@ -500,6 +566,10 @@ impl InstanceCell {
                 Ok(StructuredValue::undefined())
             }
             "__wfHistory" => super::history::page(storage, &argument),
+            super::OPERATOR => data(self.operator_value(
+                context,
+                serde_json::to_vec(&argument.to_json()?)?.as_slice(),
+            )?),
             "__wfStreamOpen" | "__wfStreamRead" => {
                 super::stream::control(storage, method, &argument)
             }
@@ -558,33 +628,7 @@ impl Cell for InstanceCell {
                     Ok(Output::Done)
                 }
                 Invocation::CellRpc { method, args } => {
-                    let arguments = super::super::decode_rpc(&args)?;
-                    let argument = match &arguments.root {
-                        CloneValue::Reference(id) => match arguments.objects.get(*id as usize) {
-                            Some(cellar_native::clone::Object::DenseArray { elements, .. }) => {
-                                StructuredValue {
-                                    root: elements
-                                        .first()
-                                        .cloned()
-                                        .unwrap_or(CloneValue::Undefined),
-                                    objects: arguments.objects.clone(),
-                                }
-                            }
-                            Some(cellar_native::clone::Object::SparseArray {
-                                properties, ..
-                            }) => {
-                                let root = properties.iter().find_map(|(key, value)| {
-                                    if matches!(key, CloneValue::Number(number) if *number == 0.0) || matches!(key, CloneValue::String(name) if name.as_slice() == [u16::from(b'0')]) { Some(value.clone()) } else { None }
-                                }).unwrap_or(CloneValue::Undefined);
-                                StructuredValue {
-                                    root,
-                                    objects: arguments.objects.clone(),
-                                }
-                            }
-                            _ => return Err(error("invalid instance arguments")),
-                        },
-                        _ => return Err(error("invalid instance arguments")),
-                    };
+                    let argument = argument(&args)?;
                     let result = if method == "__wfHistory" {
                         self.history(&argument).await
                     } else {

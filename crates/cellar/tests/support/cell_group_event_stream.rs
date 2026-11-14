@@ -405,7 +405,17 @@ async fn call_options(
         )
         .await;
     Ok((
-        response.with_context(|| format!("{method} for {}", history.cell.as_str()))?,
+        response.with_context(|| {
+            format!(
+                "{method} for {}; admission: {:?}",
+                history.cell.as_str(),
+                cluster
+                    .hosts
+                    .iter()
+                    .map(|host| host.resource_usage())
+                    .collect::<Vec<_>>()
+            )
+        })?,
         options,
     ))
 }
@@ -515,7 +525,7 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
                 })
                 .await
                 .with_context(|| {
-                    format!("autonomous catalog provisioning deadline: {configuration}")
+                    format!("autonomous catalog provisioning deadline: {configuration}; admission: {:?}", cluster.hosts.iter().map(|host| host.resource_usage()).collect::<Vec<_>>())
                 })??;
                 call(
                     &cluster,
