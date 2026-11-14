@@ -19,6 +19,7 @@ pub(crate) enum ControlServiceKind {
     Transfer,
     Transition,
     Partition,
+    Cron,
 }
 
 impl ControlServiceKind {
@@ -32,6 +33,7 @@ impl ControlServiceKind {
             Self::Transfer => 5,
             Self::Transition => 6,
             Self::Partition => 7,
+            Self::Cron => 8,
         }
     }
 }
@@ -46,7 +48,7 @@ struct Entry {
 struct State {
     closing: bool,
     next: u64,
-    slots: [Option<Entry>; 8],
+    slots: [Option<Entry>; 9],
     partition: Option<crate::management::RaftFleetPartitionService>,
     partition_config: Option<crate::management::ConfiguredPartition>,
     topology: Option<crate::raft::fleet_catalog::FleetMovementService>,

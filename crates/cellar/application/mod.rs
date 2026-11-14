@@ -278,6 +278,7 @@ pub struct Registry {
     filesystems: HashMap<String, filesystem::Policy>,
     raft_classes: HashMap<String, Arc<consensus::RaftClass>>,
     raft_configuration: std::sync::OnceLock<RaftConfiguration>,
+    raft_cron: std::sync::OnceLock<Arc<consensus::RaftClass>>,
     workflows: HashMap<String, WorkflowHandler>,
 }
 
@@ -298,6 +299,7 @@ impl Registry {
             filesystems: HashMap::new(),
             raft_classes: HashMap::new(),
             raft_configuration: std::sync::OnceLock::new(),
+            raft_cron: std::sync::OnceLock::new(),
             workflows: HashMap::new(),
         }
     }
@@ -558,7 +560,6 @@ impl Application for Registry {
                     && deployment.assets.is_none()
                     && deployment.loader_bindings.is_empty()
                     && deployment.services.is_empty()
-                    && deployment.crons.is_empty()
                     && deployment.containers.is_empty()
                     && deployment.fence_image.is_none()
                     && deployment.container_images.is_empty(),
@@ -567,13 +568,46 @@ impl Application for Registry {
                 )
             );
         }
-        self.validate_configuration(&deployment.options)
+        self.validate_configuration(&deployment.options)?;
+        if !self.raft_classes.is_empty() {
+            if deployment.crons.is_empty() {
+                anyhow::ensure!(
+                    self.raft_cron.get().is_none(),
+                    consensus::RegistrationError::ContractMismatch
+                );
+            } else {
+                let config =
+                    consensus::AdmittedCellConfiguration::from_options(&deployment.options)?;
+                let class = Arc::new(consensus::cron_service(
+                    &config,
+                    self.handler.clone(),
+                    deployment.crons.clone(),
+                    cron::HistoryConfiguration {
+                        prefix: deployment.prefix.clone(),
+                        deployment_version: deployment.version.clone(),
+                        schedule_revision: deployment.cron_revision.clone(),
+                    },
+                )?);
+                let digest = class.schema_digest();
+                let installed = self.raft_cron.get_or_init(|| class);
+                anyhow::ensure!(
+                    installed.schema_digest() == digest,
+                    consensus::RegistrationError::ContractMismatch
+                );
+            }
+        }
+        Ok(())
     }
 
     fn resolve_raft_class(
         &self,
         class: &str,
     ) -> std::result::Result<Arc<consensus::RaftClass>, consensus::RegistrationError> {
+        if class == cellar_logic::cron::RESERVED_CLASS {
+            if let Some(class) = self.raft_cron.get() {
+                return Ok(class.clone());
+            }
+        }
         self.raft_configuration
             .get()
             .map_or(&self.raft_classes, |config| &config.classes)

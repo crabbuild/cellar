@@ -4777,6 +4777,17 @@ pub(crate) fn raft_visible_alarm() -> anyhow::Result<Option<i64>> {
 }
 
 /// Fixed framework work metadata under the currently installed private command.
+pub(crate) fn raft_alarm_installed() -> anyhow::Result<bool> {
+    with(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| {
+            crate::application::consensus::native_work::get(connection, "alarm")
+                .map(|alarm| alarm.is_some())
+        })
+    })
+    .ok_or_else(|| anyhow::anyhow!("no Raft alarm storage"))?
+}
+
+/// Fixed framework work metadata under the currently installed private command.
 pub(crate) fn raft_native_work<T>(
     callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {

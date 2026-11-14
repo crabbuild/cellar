@@ -33,6 +33,8 @@ pub(crate) struct NativeCellConfiguration {
     pub(crate) kv_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<NativeQueueBinding>,
     pub(crate) queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
+    pub(crate) crons: Vec<String>,
+    pub(crate) cron_history: Option<crate::application::cron::HistoryConfiguration>,
 }
 
 impl NativeCellConfiguration {
@@ -345,6 +347,8 @@ impl AdmittedCellConfiguration {
                 )
                 .collect(),
             queue_consumers: self.queue_consumers.values().cloned().collect(),
+            crons: Vec::new(),
+            cron_history: None,
             sql_bindings: self
                 .sql_bindings
                 .iter()

@@ -24,7 +24,9 @@ pub(crate) mod native_ingress;
 mod native_services;
 pub(crate) mod native_work;
 pub(crate) mod sql_ingress_identity;
-pub(in crate::application) use native_services::{kv_service, queue_service, sql_service};
+pub(in crate::application) use native_services::{
+    cron_service, kv_service, queue_service, sql_service,
+};
 pub(crate) mod native_rpc;
 pub(crate) use native_cell::CellRpcActivation;
 pub(in crate::application) use native_configuration::AdmittedCellConfiguration;

@@ -32,6 +32,8 @@ mod binding_recovery;
 mod bindings;
 #[path = "support/cell_group_configuration.rs"]
 mod configuration;
+#[path = "support/cell_group_cron.rs"]
+mod cron;
 #[path = "support/sql_cursor_rollback.rs"]
 mod cursor_rollback;
 #[path = "support/cell_group_dispatch.rs"]
@@ -63,6 +65,17 @@ mod sql_cursors;
 mod sql_exec_batches;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
+    Box::pin(cron::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_cron_recovers_occurrences_without_requests() -> Result<()> {
+    Box::pin(cron::qualify(true)).await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_alarms_recover_through_shared_quorum() -> Result<()> {

@@ -430,6 +430,19 @@ impl RaftClass {
         )
     }
 
+    pub(super) fn cron_service(digest: [u8; 32]) -> Result<Self, RegistrationError> {
+        Self::definition(cellar_logic::cron::RESERVED_CLASS.into(), 1, digest)
+    }
+
+    pub(crate) fn cron_scope(&self) -> Option<String> {
+        if self.name != cellar_logic::cron::RESERVED_CLASS {
+            return None;
+        }
+        let factory = self.cell_factory.as_ref()?;
+        factory.configuration_digest()?;
+        Some(cellar_logic::cron::reserved_cell(factory.script()))
+    }
+
     pub(super) fn kv_service() -> Result<Self, RegistrationError> {
         Self::definition(
             crate::deploy::KV_CLASS.into(),

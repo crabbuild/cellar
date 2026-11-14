@@ -257,6 +257,14 @@ pub(super) async fn cron_history(app: AppHandle, scope: String, body: Vec<u8>) -
         anyhow::ensure!(body.len() <= 4096, "cron history query exceeds 4 KiB");
         let query: crate::application::cron::HistoryQuery = serde_json::from_slice(&body)?;
         query.validate()?;
+        if crate::node::uses_raft_cron(&app, &scope) {
+            let service = crate::asyncrt::services()
+                .raft_lifecycle()
+                .application_service()?;
+            return service
+                .cron_history(&scope, body, std::time::Duration::from_millis(app.operation_deadline_ms))
+                .await;
+        }
         let (reply, receive) = oneshot::channel();
         let (cancel_tx, cancel) = oneshot::channel();
         let _hangup = HangUp(Some(cancel_tx));

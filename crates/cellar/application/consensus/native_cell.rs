@@ -48,6 +48,7 @@ pub(super) struct CellRpcFactory {
     handler: Arc<CellRpcHandler>,
     identity: Arc<()>,
     configuration: Option<[u8; 32]>,
+    script: String,
     binding_classes: std::collections::BTreeSet<String>,
     sql_scopes: std::collections::BTreeSet<String>,
     kv_scopes: std::collections::BTreeSet<String>,
@@ -58,6 +59,10 @@ pub(super) struct CellRpcFactory {
 }
 
 impl CellRpcFactory {
+    pub(super) fn script(&self) -> &str {
+        &self.script
+    }
+
     pub(super) fn configured(&self, config: &AdmittedCellConfiguration) -> Arc<Self> {
         (self.configure)(config)
     }
@@ -281,6 +286,7 @@ impl NativeCellFactory {
             .iter()
             .map(|(_, identity)| crate::engine_api::sql_cell_scope(identity))
             .collect();
+        let script = options.script_name.clone();
         let config = WorkerConfig::new(options).with_egress(EgressPolicy::Deny);
         let compiled_factory = factory.clone();
         let compiled_class = class.to_owned();
@@ -296,6 +302,7 @@ impl NativeCellFactory {
         Arc::new(CellRpcFactory {
             identity,
             configuration: declared.map(AdmittedCellConfiguration::digest),
+            script,
             binding_classes,
             sql_scopes,
             kv_scopes,

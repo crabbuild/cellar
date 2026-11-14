@@ -758,6 +758,22 @@ impl Storage {
         Ok(crate::storage::get_alarm(self.scope()?))
     }
 
+    /// Framework scheduling distinguishes a claimed alarm from exhaustion;
+    /// public get_alarm deliberately hides the currently executing generation.
+    pub(crate) fn alarm_installed(&self) -> Result<bool> {
+        if self.is_raft() {
+            self.data_scope()?;
+            return crate::storage::raft_alarm_installed();
+        }
+        let scope = self.scope()?;
+        Ok(!self
+            .system_sql(
+                "SELECT 1 FROM __sys_cell_alarm WHERE scope=?",
+                &[scope.to_owned().into()],
+            )?
+            .is_empty())
+    }
+
     pub fn set_alarm(&self, at_ms: i64) -> Result<()> {
         if self.is_raft() {
             return self.arm_raft_work("alarm", at_ms);
