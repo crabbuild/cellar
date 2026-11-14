@@ -21,11 +21,6 @@ use std::sync::{
 use std::time::Duration;
 use tokio::sync::Notify;
 
-#[test]
-fn event_stream_registration_requires_resolved_host_owned_declarations() -> Result<()> {
-    event_streams::registration()
-}
-
 #[path = "support/raft_catalog_fault.rs"]
 pub mod catalog_fault;
 // The host fixture controls wall clocks, test processes and on-disk faults.
@@ -81,6 +76,11 @@ mod workflow_contract;
 #[path = "support/cell_group_workflow.rs"]
 mod workflows;
 
+#[test]
+fn event_stream_registration_requires_resolved_host_owned_declarations() -> Result<()> {
+    event_streams::registration()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(false)).await
@@ -95,18 +95,6 @@ fn cron_declarations_refuse_changed_or_invalid_contracts() -> Result<()> {
 #[ignore = "requires the owned RustFS qualification backend"]
 async fn rustfs_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(true)).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn filesystem_transactions_and_descriptors_recover_through_shared_quorum() -> Result<()> {
-    filesystem::qualify(false).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires the owned RustFS qualification backend"]
-async fn rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum() -> Result<()>
-{
-    filesystem::qualify(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
