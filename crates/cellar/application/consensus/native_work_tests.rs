@@ -68,19 +68,21 @@ fn callback_claim_uses_its_bounded_execution_lease() -> Result<()> {
 
 #[test]
 fn queue_wakes_coalesce_only_before_claim_and_preserve_new_obligations() -> Result<()> {
-    let db = Connection::open_in_memory()?;
-    arm_queue(&db, 10)?;
-    let original = due(&db, 10)?.unwrap();
-    arm_queue(&db, 20)?;
-    assert_eq!(due(&db, 10)?.unwrap().generation, original.generation);
-    assert!(claim(&db, &original, 10)?);
-    let later = 10 + LEASE_MS as i64 + 100;
-    arm_queue(&db, later)?;
-    complete(&db, &original)?;
-    let replacement = due(&db, later as u64)?.unwrap();
-    assert_ne!(replacement.generation, original.generation);
-    assert_eq!(replacement.attempts, 0);
-    assert_eq!(replacement.due, later as u64);
+    for reason in ["queue", "filesystem"] {
+        let db = Connection::open_in_memory()?;
+        arm_maintenance(&db, reason, 10)?;
+        let original = due(&db, 10)?.unwrap();
+        arm_maintenance(&db, reason, 20)?;
+        assert_eq!(due(&db, 10)?.unwrap().generation, original.generation);
+        assert!(claim(&db, &original, 10)?);
+        let later = 10 + LEASE_MS as i64 + 100;
+        arm_maintenance(&db, reason, later)?;
+        complete(&db, &original)?;
+        let replacement = due(&db, later as u64)?.unwrap();
+        assert_ne!(replacement.generation, original.generation);
+        assert_eq!(replacement.attempts, 0);
+        assert_eq!(replacement.due, later as u64);
+    }
     Ok(())
 }
 

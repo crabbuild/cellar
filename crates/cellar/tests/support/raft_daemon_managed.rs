@@ -1038,7 +1038,7 @@ fn capacity_attestation(observed: RaftHostObservation) -> Result<FleetCapacityAt
         profile_revision: 1,
         profile_digest: fleet_capacity_profile_digest(&observed.node.profile)?,
         cpu_millis: 1000,
-        memory_bytes: 3 * 1024 * 1024 * 1024,
+        memory_bytes: docker::memory_bytes()?,
         durable_bytes: observed.node.profile.byte_capacity.max(1024 * 1024 * 1024),
         engine_slots: observed.node.profile.group_capacity.max(2),
         memory_swap_disabled: true,

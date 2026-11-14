@@ -1,6 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Shared Storage over private commands and pinned committed queries.
+// Filesystem descriptors traverse the native activation and HTTP client types.
+#![recursion_limit = "256"]
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::engine_api::RpcData;
@@ -38,6 +40,8 @@ mod cursor_rollback;
 mod dispatch;
 #[path = "support/cell_group_erase.rs"]
 mod erase;
+#[path = "support/cell_group_filesystem.rs"]
+mod filesystem;
 #[path = "support/cell_group_interleaving.rs"]
 mod interleaving;
 #[path = "support/cell_group_kv.rs"]
@@ -63,6 +67,18 @@ mod sql_cursors;
 mod sql_exec_batches;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn filesystem_transactions_and_descriptors_recover_through_shared_quorum() -> Result<()> {
+    filesystem::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum() -> Result<()>
+{
+    filesystem::qualify(true).await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_alarms_recover_through_shared_quorum() -> Result<()> {

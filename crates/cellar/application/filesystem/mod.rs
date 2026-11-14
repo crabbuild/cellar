@@ -18,6 +18,27 @@ use crate::application::Storage;
 use crate::storage::filesystem as backend;
 use std::sync::Arc;
 
+#[derive(Clone)]
+pub(crate) struct RaftPolicy {
+    pub(crate) policy: Policy,
+    pub(crate) identity: String,
+}
+
+impl RaftPolicy {
+    pub(crate) fn new(policy: Policy, cell: &crate::application::consensus::CellHistory) -> Self {
+        Self {
+            policy,
+            identity: format!(
+                "raft:{}:{}:{}:{}",
+                hex::encode(cell.cluster.bytes()),
+                hex::encode(cell.namespace.bytes()),
+                hex::encode(cell.incarnation.bytes()),
+                cell.cell.as_str()
+            ),
+        }
+    }
+}
+
 /// A checked view of the current root cell's filesystem. Cloning a view never
 /// changes its activation or transaction authority.
 #[derive(Clone)]
@@ -25,39 +46,52 @@ pub struct Filesystem {
     storage: Storage,
     limits: FilesystemLimits,
     policy: Policy,
+    identity: String,
 }
 
 impl Storage {
     pub fn fs(&self) -> Result<Filesystem> {
         operation("filesystem.acquire", || {
             self.filesystem_scope()?;
-            let activation = self.native_activation().map_err(Error::from)?;
-            let class = activation
-                .scope
-                .split_once(':')
-                .map_or(activation.scope.as_str(), |(class, _)| class);
-            let policy = activation
-                .worker_config
-                .native_application
-                .as_ref()
-                .and_then(|app| app.filesystem_policy(class))
-                .ok_or_else(|| {
-                    Error::new(Errno::EACCES, "cell class has no filesystem capability")
-                        .with_code("CapabilityMissing")
-                })?;
+            let declared = if self.is_raft() {
+                self.resources().filesystem_policy.lock().unwrap().clone()
+            } else {
+                let activation = self.native_activation().map_err(Error::from)?;
+                let class = activation
+                    .scope
+                    .split_once(':')
+                    .map_or(activation.scope.as_str(), |(class, _)| class);
+                activation
+                    .worker_config
+                    .native_application
+                    .as_ref()
+                    .and_then(|app| app.filesystem_policy(class))
+                    .map(|policy| RaftPolicy {
+                        policy,
+                        identity: activation.scope.clone(),
+                    })
+            }
+            .ok_or_else(|| {
+                Error::new(Errno::EACCES, "cell class has no filesystem capability")
+                    .with_code("CapabilityMissing")
+            })?;
             let limits = crate::application::limits::current().filesystem;
-            policy.validate()?;
-            backend::initialize(&activation.scope, limits).map_err(Error::from)?;
+            declared.policy.validate()?;
+            backend::initialize(self.data_scope().map_err(Error::from)?, limits)
+                .map_err(Error::from)?;
+            let mut storage = self.cursor_view().map_err(Error::from)?;
+            storage.1 = self.1.clone();
             Ok(Filesystem {
-                storage: self.clone(),
+                storage,
                 limits,
-                policy,
+                policy: declared.policy,
+                identity: declared.identity,
             })
         })
     }
 
     pub(crate) fn filesystem_scope(&self) -> Result<&str> {
-        let scope = self.scope().map_err(|error| {
+        let scope = self.data_scope().map_err(|error| {
             let mut error = Error::from(error);
             // Authority/transaction admission precedes this operation's
             // filesystem backend work. Retain an earlier failure as the cause

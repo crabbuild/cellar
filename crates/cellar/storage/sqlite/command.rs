@@ -102,6 +102,7 @@ struct CommandFrame {
     storage: OnceCell<Arc<Resources>>,
     activation: Option<Arc<Resources>>,
     invocation: Arc<()>,
+    filesystem_lifetime: Arc<()>,
     failure: RefCell<Option<String>>,
     work: RefCell<Work>,
     dispatch: OnceCell<RaftDispatchContext>,
@@ -384,6 +385,14 @@ pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
 
 pub(super) fn native_alarm_generation() -> Option<[u8; 16]> {
     CURRENT_COMMAND.with(|current| current.borrow().as_ref()?.native_alarm.get())
+}
+
+pub(crate) fn filesystem_lifetime() -> Option<std::sync::Weak<()>> {
+    CURRENT_COMMAND.with(|current| {
+        Some(Arc::downgrade(
+            &current.borrow().as_ref()?.filesystem_lifetime,
+        ))
+    })
 }
 
 /// Capture only a real ordinary RPC frame. Synchronous commands and immutable
@@ -718,6 +727,7 @@ impl CommandDatabase {
                 "cannot enable defensive command SQLite"
             );
         }
+        super::filesystem::validate_raft_existing(&connection)?;
         capacity::initialize(&connection)?;
         connection.authorizer(Some(authorize_command))?;
         Ok(Self {
@@ -774,6 +784,7 @@ impl CommandDatabase {
                 storage: OnceCell::new(),
                 activation,
                 invocation: Arc::new(()),
+                filesystem_lifetime: Arc::new(()),
                 failure: RefCell::new(None),
                 work: RefCell::new(Work {
                     tasks: VecDeque::new(),

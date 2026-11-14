@@ -41,6 +41,7 @@ pub(crate) struct Resources {
     pub(crate) transaction: Mutex<Option<Arc<Transaction>>>,
     pub(crate) facets: Mutex<Option<Arc<super::facets::State>>>,
     pub(crate) filesystem: super::filesystem::Registry,
+    pub(crate) filesystem_policy: Mutex<Option<super::filesystem::RaftPolicy>>,
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
     transaction_serial: AtomicU64,
@@ -536,7 +537,7 @@ impl Storage {
         self.data_scope()
     }
 
-    fn cursor_view(&self) -> Result<Self> {
+    pub(super) fn cursor_view(&self) -> Result<Self> {
         self.data_scope()?;
         let owner = match &self.0 {
             Owner::RaftCommand(authority) => {
@@ -548,7 +549,7 @@ impl Storage {
         Ok(Self(owner, None, self.2))
     }
 
-    fn data_scope(&self) -> Result<&str> {
+    pub(super) fn data_scope(&self) -> Result<&str> {
         self.check_transaction_authority()?;
         let scope = self.data_activation_scope()?;
         if let Some(error) = crate::storage::sql_critical_error(scope) {
@@ -557,7 +558,7 @@ impl Storage {
         Ok(scope)
     }
 
-    fn write_scope(&self) -> Result<&str> {
+    pub(super) fn write_scope(&self) -> Result<&str> {
         let scope = self.data_scope()?;
         anyhow::ensure!(
             !matches!(self.0, Owner::RaftQuery(_)),

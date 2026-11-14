@@ -31,7 +31,7 @@ fn exists(db: &Connection) -> Result<bool> {
 
 fn install(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS __sys_raft_native_work (
-        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue')),
+        reason TEXT PRIMARY KEY CHECK(reason IN ('alarm','queue','filesystem')),
         generation BLOB NOT NULL CHECK(typeof(generation)='blob' AND length(generation)=16),
         due INTEGER NOT NULL CHECK(typeof(due)='integer' AND due>=0),
         attempts INTEGER NOT NULL CHECK(typeof(attempts)='integer' AND attempts BETWEEN 0 AND 4294967295)
@@ -41,7 +41,7 @@ fn install(db: &Connection) -> Result<()> {
 
 fn validate(reason: &str) -> Result<()> {
     ensure!(
-        matches!(reason, "alarm" | "queue"),
+        matches!(reason, "alarm" | "queue" | "filesystem"),
         CommandFailure::UnsupportedCapability
     );
     Ok(())
@@ -62,12 +62,19 @@ pub(crate) fn arm(db: &Connection, reason: &str, due: i64) -> Result<()> {
 /// must always get a replacement, even at the same/later deadline, so its old
 /// completion cannot remove a newly installed retry or delayed delivery.
 pub(crate) fn arm_queue(db: &Connection, due: i64) -> Result<()> {
+    arm_maintenance(db, "queue", due)
+}
+
+/// Preserve an earlier unclaimed wake; replace claimed work so its completion
+/// cannot erase a new obligation installed by the callback.
+pub(crate) fn arm_maintenance(db: &Connection, reason: &str, due: i64) -> Result<()> {
+    validate(reason)?;
     ensure!(due >= 0, CommandFailure::UnsupportedCapability);
     if exists(db)? {
         let pending: Option<(i64, u32)> = db
             .query_row(
-                "SELECT due,attempts FROM __sys_raft_native_work WHERE reason='queue'",
-                [],
+                "SELECT due,attempts FROM __sys_raft_native_work WHERE reason=?1",
+                [reason],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
@@ -75,7 +82,7 @@ pub(crate) fn arm_queue(db: &Connection, due: i64) -> Result<()> {
             return Ok(());
         }
     }
-    arm(db, "queue", due)
+    arm(db, reason, due)
 }
 
 pub(crate) fn get(db: &Connection, reason: &str) -> Result<Option<i64>> {
