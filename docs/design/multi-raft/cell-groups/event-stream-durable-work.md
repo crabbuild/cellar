@@ -84,6 +84,13 @@ independently retained target command identities and the same authority checks.
 
 ## Qualification boundary
 
+Qualification keeps the original command deadlines. An ambiguous response may
+be resolved only through the original ID, contract, input and durability minimum
+using receipt-only lookup. An unfinished mutation still fails. Observational
+handlers may issue a fresh read within their bounded recovery gate. The campaign
+logs these recoveries explicitly; passing does not establish a first-response
+latency bound.
+
 The executable cases live in
 [the shared-group fixture](../../../../crates/cellar/tests/support/cell_group_event_stream.rs).
 Run the source-pinned real-object-store campaign with

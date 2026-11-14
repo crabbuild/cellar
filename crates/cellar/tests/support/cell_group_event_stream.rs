@@ -386,38 +386,98 @@ async fn call_options(
     method: &str,
     input: serde_json::Value,
 ) -> Result<(CommandReceipt, CommandOptions)> {
-    let node = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
-    let cell = cluster.hosts[node].cell(history.clone())?;
-    let next = sequence
-        .entry(history.cell.as_str().to_owned())
-        .or_insert(1);
-    let id = CommandId::new(ClientId::new([190; 16])?, *next)?;
-    *next += 1;
-    let mut options = CommandOptions::new(id, u64::try_from(cellar::asyncrt::wall_ms())? + 600_000);
-    if method == "PublishS3" || method == "Consume" {
-        options.durability = Durability::S3;
+    let readonly = matches!(
+        method,
+        "Configuration" | "Read" | "Inspect" | "Effects" | "Status"
+    );
+    let recovery_deadline = cellar::asyncrt::mono_ms().saturating_add(20_000);
+    loop {
+        let node = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+        let cell = cluster.hosts[node].cell(history.clone())?;
+        let next = sequence
+            .entry(history.cell.as_str().to_owned())
+            .or_insert(1);
+        let id = CommandId::new(ClientId::new([190; 16])?, *next)?;
+        *next += 1;
+        let mut options =
+            CommandOptions::new(id, u64::try_from(cellar::asyncrt::wall_ms())? + 600_000);
+        if method == "PublishS3" || method == "Consume" {
+            options.durability = Durability::S3;
+        }
+        let contract = cell.contract(method)?;
+        let encoded = serde_json::to_vec(&input)?;
+        let response = cell
+            .command(&contract, encoded.clone(), options.clone())
+            .await;
+        let response = match response {
+            Err(error) if error.ambiguous => {
+                // A waiter deadline is not a non-commit proof. Resolve only the
+                // original command; receipt lookup cannot execute application SQL.
+                let observed = cell
+                    .receipt(
+                        CellReceiptRequest {
+                            id,
+                            contract,
+                            input: encoded,
+                            durability: options.durability,
+                        },
+                        TIMEOUT,
+                    )
+                    .await;
+                if let Ok(observed) = observed {
+                    if let Some(stored) = observed.receipt() {
+                        ensure!(
+                            observed.command() == id
+                                && stored.command() == id
+                                && observed.durability() >= options.durability
+                                && observed.durability() >= stored.minimum_durability()
+                                && observed.observation().version.history == *history,
+                            "receipt recovery lost identity or durability"
+                        );
+                        eprintln!("EventStream receipt-only recovery: {method} {} sequence={} durability={:?}", history.cell.as_str(), id.sequence(), observed.durability());
+                        return Ok((
+                            CommandReceipt {
+                                id,
+                                result: stored.result().to_vec(),
+                                version: observed.observation().version.clone(),
+                                witness: observed.observation().witness,
+                                version_token: observed.token().clone(),
+                                durability: observed.durability(),
+                            },
+                            options,
+                        ));
+                    }
+                }
+                if readonly && cellar::asyncrt::mono_ms() < recovery_deadline {
+                    // These handlers only observe business state. An unresolved
+                    // read may be replaced; mutation handlers never take this path.
+                    eprintln!(
+                        "EventStream observation retry: {method} {} sequence={}",
+                        history.cell.as_str(),
+                        id.sequence()
+                    );
+                    cellar::asyncrt::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
+                Err(error)
+            }
+            response => response,
+        };
+        return Ok((
+            response.with_context(|| {
+                format!(
+                    "{method} for {}; admission: {:?}",
+                    history.cell.as_str(),
+                    cluster
+                        .hosts
+                        .iter()
+                        .map(|host| host.resource_usage())
+                        .collect::<Vec<_>>()
+                )
+            })?,
+            options,
+        ));
     }
-    let response = cell
-        .command(
-            &cell.contract(method)?,
-            serde_json::to_vec(&input)?,
-            options.clone(),
-        )
-        .await;
-    Ok((
-        response.with_context(|| {
-            format!(
-                "{method} for {}; admission: {:?}",
-                history.cell.as_str(),
-                cluster
-                    .hosts
-                    .iter()
-                    .map(|host| host.resource_usage())
-                    .collect::<Vec<_>>()
-            )
-        })?,
-        options,
-    ))
 }
 
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {

@@ -54,14 +54,14 @@ pub(crate) fn event_rpc(
         method,
         args,
         call_scope,
-        Purpose::Event(authority),
+        Purpose::Event(Box::new(authority)),
     )
 }
 
 enum Purpose {
     Rpc,
     Resource,
-    Event(crate::application::event_stream::Authority),
+    Event(Box<crate::application::event_stream::Authority>),
 }
 
 fn submit(
@@ -75,7 +75,7 @@ fn submit(
 ) -> HandlerFuture<RpcData> {
     let resource = matches!(&purpose, Purpose::Resource);
     let authority = match purpose {
-        Purpose::Event(authority) => Some(authority),
+        Purpose::Event(authority) => Some(*authority),
         _ => None,
     };
     let prepared = (|| -> Result<_> {
