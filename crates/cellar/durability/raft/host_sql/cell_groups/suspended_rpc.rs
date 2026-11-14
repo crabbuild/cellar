@@ -479,12 +479,23 @@ impl Cells {
             };
             // A submitted producer outlives deadline/term loss until exact
             // reconciliation; a parked invocation owns no submitted producer.
-            let admitted = if rpc.checkpoint.is_some() {
+            let mut admitted = if rpc.checkpoint.is_some() {
                 Ok(())
             } else {
                 rpc.check(now)
             };
-            if admitted.is_ok() && !rpc.ready.0.swap(false, Ordering::AcqRel) {
+            let mut yield_queries = false;
+            if admitted.is_ok()
+                && rpc.executor.is_some()
+                && rpc.retention.lease.contended()
+                && rpc.turn.waiting_on_queries()
+            {
+                match rpc.turn.can_park() {
+                    Ok(ready) => yield_queries = ready,
+                    Err(error) => admitted = Err(error),
+                }
+            }
+            if admitted.is_ok() && !rpc.ready.0.swap(false, Ordering::AcqRel) && !yield_queries {
                 self.suspended.push_back(rpc);
                 continue;
             }
@@ -493,6 +504,20 @@ impl Cells {
             let mut cx = Context::from_waker(&waker);
             if let Err(error) = admitted {
                 timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
+                return true;
+            }
+            if yield_queries {
+                // The SQL owner observes contention even if remote query I/O
+                // has not woken. Yield before polling application continuation.
+                match rpc.try_park(&self.activations, now) {
+                    Ok(()) => {
+                        self.suspended.push_back(rpc);
+                        timer.finish(true);
+                    }
+                    Err(error) => {
+                        timer.finish(self.finish_suspended(rpc, Err(error.into()), now));
+                    }
+                }
                 return true;
             }
             if rpc.checkpoint.is_some() {

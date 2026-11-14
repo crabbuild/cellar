@@ -85,6 +85,11 @@ roots and S3 turns take the ordinary checkpoint path. This avoids one replicated
 source mutation per downloaded chunk without bypassing proof of preceding writes.
 A read has no destination mutation requiring an intent/receipt. Reader generations
 are validated against each selected image. Missing quorum refuses these queries.
+While proven pure query I/O waits, an uncontended source may keep its admitted
+writer instead of reopening SQLite for every chunk. The SQL owner checks writer
+contention even without a query wake and parks only a clean, proven root before
+polling the application continuation. Proof-pending or mixed work retains the
+ordinary park/resume policy; deadlines and physical admission remain unchanged.
 Status projects logical expiration; the committed retention alarm owns physical
 cleanup. Raft history pages are bounded below the ordinary reply ceiling. The opening
 operation consumes a subrequest; chunk continuations retain bounded

@@ -459,7 +459,9 @@ impl NativeCellFactory {
                     Ok(Ok(future)) => {
                         let future: HandlerFuture<Output> = if workflow {
                             Box::pin(crate::application::workflow::join_turn(
-                                future, state, storage.clone(),
+                                future,
+                                state,
+                                storage.clone(),
                             ))
                         } else {
                             future
@@ -474,14 +476,21 @@ impl NativeCellFactory {
                     Err(panic) => Err(crate::native_worker::panic_error(panic)),
                 };
                 let result = result.and_then(|result| {
-                    anyhow::ensure!(matches!(result, Output::Done), CommandFailure::UnsupportedCapability);
+                    anyhow::ensure!(
+                        matches!(result, Output::Done),
+                        CommandFailure::UnsupportedCapability
+                    );
                     Ok(())
                 });
                 if let Err(cause) = result {
                     if work.reason == "alarm" {
                         return Err(super::native_work::Failure {
-                            work, leased_until, at_ms: crate::asyncrt::wall_ms(), cause,
-                        }.into());
+                            work,
+                            leased_until,
+                            at_ms: crate::asyncrt::wall_ms(),
+                            cause,
+                        }
+                        .into());
                     }
                     return Err(cause);
                 }

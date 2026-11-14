@@ -269,6 +269,20 @@ The follow-up routes range deletion through the existing fenced writable
 storage scope. It retries only typed read-only `NotReady`/`Overloaded` admission
 failures, with bounded backoff under the original deadline and source permit;
 terminal, fencing and untyped failures still escape. Runtime qualification is pending.
+At `a0a31220`, the complete real RustFS Axum Workflow fixture passes in both
+materialized and extent modes, including deletion/recreation, restart/replay,
+archive PUT refusal and quorum refusal. The campaign remains failed: native
+pause exceeds its original deadline. The focused source download and standalone
+native fixture also retain deadline failures. Preserve
+`CG-17-workflow-rustfs-a0a31220-01`, `CG-17-workflow-reads-a0a31220-01` and
+`CG-17-workflow-merged-a0a31220-01`; the Axum pass does not waive native failures.
+
+PR #166 merged at `3d6450d4`. The Workflow delta moves unchanged onto that tree
+at `4c54cae6`, with committed alarm/FIFO/writer-readiness foundation `15b9bf46`
+integrated at `8b3527a6`. The new candidate retains a source writer only while
+proven pure queries wait without contention, avoiding per-chunk SQLite reopen;
+contending writers still force a clean-root yield before application polling.
+Fresh merged-source runtime and RustFS qualification remain pending.
 Earlier prototype failures and the opt0 minimized
 pass remain under `CG-17-workflow-fifo-diagnostics-01`; they establish no
 exact-source qualification.

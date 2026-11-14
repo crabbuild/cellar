@@ -127,6 +127,7 @@ struct WorkTask {
     future: HandlerFuture<()>,
     external: Option<Arc<std::sync::atomic::AtomicBool>>,
     parked_io: Arc<std::sync::atomic::AtomicBool>,
+    query_only: bool,
 }
 
 thread_local! {
@@ -225,6 +226,23 @@ impl ActiveCommand {
                         .external
                         .as_ref()
                         .is_some_and(|proven| proven.load(std::sync::atomic::Ordering::Acquire))
+            })
+    }
+
+    /// Only the host's pure query adapter sets this hint after source proof.
+    /// Its target reads an immutable image, so retaining this writer cannot
+    /// create a target-write dependency. Contending writers still force a park.
+    pub(crate) fn waiting_on_queries(&self) -> bool {
+        let work = self.frame.work.borrow();
+        work.active != 0
+            && work.active == work.tasks.len()
+            && work.checkpoint.is_none()
+            && work.tasks.iter().all(|task| {
+                task.query_only
+                    && task
+                        .external
+                        .as_ref()
+                        .is_some_and(|waiting| waiting.load(std::sync::atomic::Ordering::Acquire))
             })
     }
 
@@ -570,6 +588,7 @@ pub(crate) fn schedule_work(
         task,
         None,
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        false,
     )
 }
 
@@ -580,8 +599,9 @@ pub(crate) fn schedule_dispatch_work(
     task: HandlerFuture<()>,
     external: Arc<std::sync::atomic::AtomicBool>,
     parked_io: Arc<std::sync::atomic::AtomicBool>,
+    query_only: bool,
 ) -> Result<()> {
-    schedule(resources, task, Some(external), parked_io)
+    schedule(resources, task, Some(external), parked_io, query_only)
 }
 
 fn schedule(
@@ -589,6 +609,7 @@ fn schedule(
     task: HandlerFuture<()>,
     external: Option<Arc<std::sync::atomic::AtomicBool>>,
     parked_io: Arc<std::sync::atomic::AtomicBool>,
+    query_only: bool,
 ) -> Result<()> {
     require_storage(resources, true)?;
     CURRENT_COMMAND.with(|current| {
@@ -614,6 +635,7 @@ fn schedule(
             future: task,
             external,
             parked_io,
+            query_only,
         });
         Ok(())
     })

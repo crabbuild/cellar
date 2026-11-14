@@ -364,7 +364,9 @@ impl RaftDispatch {
                 let _ = send.send(result);
                 Ok(())
             });
-            crate::storage::schedule_raft_dispatch_work(&authority, task, external, parked_io)?;
+            crate::storage::schedule_raft_dispatch_work(
+                &authority, task, external, parked_io, read_only,
+            )?;
             Ok(receive)
         })();
         let receive = prepared?;

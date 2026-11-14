@@ -9,6 +9,11 @@ impl Suspended {
         if self.commits.is_none() || !self.turn.can_park()? {
             return Ok(());
         }
+        // Pure queries need no target writer. Keep the already admitted source
+        // connection between chunk reads, unless another source writer waits.
+        if !self.retention.lease.contended() && self.turn.waiting_on_queries() {
+            return Ok(());
+        }
         let mut executor = self.executor.take().ok_or_else(unavailable)?;
         let fence = executor.rpc_activation_fence();
         if let Err(error) = executor.park_rpc(&mut self.turn) {

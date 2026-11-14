@@ -67,6 +67,10 @@ impl CellRpcTurn {
         self.step != 0 && self.transaction.can_poll_parked_io()
     }
 
+    pub(crate) fn waiting_on_queries(&self) -> bool {
+        self.step != 0 && self.output.is_none() && self.transaction.waiting_on_queries()
+    }
+
     pub(crate) fn poll_parked_io(&self, cx: &mut Context<'_>) -> Result<bool, ExecutionError> {
         self.transaction.poll_parked_io(cx).map_err(private_failure)
     }
