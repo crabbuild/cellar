@@ -70,6 +70,34 @@ async fn ordinary_alarms_recover_through_shared_quorum() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
+    alarms::qualify_failures(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_alarm_failures_exhaust_durable_retries() -> Result<()> {
+    alarms::qualify_exhaustion(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
+    alarms::qualify_failures(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
+    alarms::qualify_failures(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_alarm_failures_exhaust_durable_retries() -> Result<()> {
+    alarms::qualify_exhaustion(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_stateless_cell_ingress_refuses_missing_or_ambiguous_namespaces() -> Result<()> {
     alarms::qualify_admission().await
 }
