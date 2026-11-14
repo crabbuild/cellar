@@ -49,6 +49,16 @@ coexisting ownership copies), and the existing production performance harness's
 has a separate 1,024-page budget and an independently reproduced exhaustion
 failure; this new profile does not repair or qualify that fixture.
 
+The private-workspace disk bank admits eight concurrent workspaces. With this
+profile's execution bounds, each reserves 592 MiB for main/WAL/capture files;
+the inventory ceiling is 4,928 MiB, including the existing image/receive
+headroom. This is bounded disk admission, not an allocation of that much RAM or
+a kernel filesystem quota. The first three-node experiment used the older
+784-MiB inventory ceiling, which admitted only one such workspace and refused
+overlap. Its failed observations remain separate. The corrected profile records
+both byte and workspace-count ceilings and preserves CPU, RAM, deadlines, image
+and manifest limits. It does not fix production admission fairness or GC.
+
 ## Run
 
 Build using Rust 1.98.1 and locked dependencies, in a checkout-owned Docker cache:
@@ -102,3 +112,6 @@ If the successful load process exits between resource inspection and sampling,
 the runner retains its verified terminal state without inventing a final cgroup
 sample. Failed loads, changed ownership or limits, and stopped nodes or stores
 still fail the case.
+Terminal collection also indexes every complete window emitted in the retained
+load log when a sampler failure bypassed normal indexing. Recovery of those
+observations never promotes a failed case.

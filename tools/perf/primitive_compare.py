@@ -148,6 +148,20 @@ def rows_from(path):
     return [json.loads(line.removeprefix('PRIMITIVE_COMPARE ')) for line in path.read_text().splitlines() if line.startswith('PRIMITIVE_COMPARE ')]
 
 
+def record_load_evidence(case_dir, record):
+    """Index emitted windows even when a controller failure bypassed normal collection."""
+    log_path = case_dir / 'load.log'
+    rows = rows_from(log_path)
+    index = case_dir / 'windows.json'
+    if index.exists():
+        require(json.loads(index.read_text()) == rows, 'window index differs from retained load log')
+    else:
+        save(index, rows)
+    record['windows'] = [{key:value for key,value in row.items() if key not in ('attempt_latency_us','success_latency_us','attempted_batches')} for row in rows]
+    record['load_log_sha256'] = hashlib.sha256(log_path.read_bytes()).hexdigest()
+    return rows
+
+
 def wait_store_ready(endpoint):
     deadline = time.monotonic() + 60
     while True:
@@ -325,11 +339,8 @@ def case(args, engine, report, family, mode, config, token):
         record['load_exit_code'] = int(engine.call('wait', load))
         log_path = case_dir / 'load.log'
         log_path.write_text(engine.call('logs', load) + '\n')
-        rows = rows_from(log_path)
-        save(case_dir / 'windows.json', rows)
-        record['windows'] = [{key:value for key,value in row.items() if key not in ('attempt_latency_us','success_latency_us','attempted_batches')} for row in rows]
+        rows = record_load_evidence(case_dir, record)
         record['elapsed_seconds'] = time.monotonic() - started
-        record['load_log_sha256'] = hashlib.sha256(log_path.read_bytes()).hexdigest()
         if bases:
             record['raft_end'] = [request(base + '/state', token) for base in bases]
         require(record['load_exit_code'] == 0 and not record['load_state']['state']['OOMKilled'], 'load process failed')
@@ -352,7 +363,15 @@ def case(args, engine, report, family, mode, config, token):
                     engine.call('stop', '--time', '45', container)
                 final = engine.owned(container, run_id, cpu, image)
                 record['containers'].append(final)
-                (case_dir / (('node' + str(cpu+1)) if cpu < 3 else ('store' if cpu == 3 else 'load'))).with_suffix('.log').write_text(engine.call('logs', container) + '\n')
+                log_path = (case_dir / (('node' + str(cpu+1)) if cpu < 3 else ('store' if cpu == 3 else 'load'))).with_suffix('.log')
+                log_path.write_text(engine.call('logs', container) + '\n')
+                if container == record.get('load'):
+                    record['load_state'] = final
+                    record['load_exit_code'] = final['state']['ExitCode']
+                    recovered = not (case_dir / 'windows.json').exists()
+                    record_load_evidence(case_dir, record)
+                    if recovered:
+                        record['window_index_recovered_after_failure'] = True
                 if final['state']['OOMKilled'] or final['restarts'] != 0 or final['state']['ExitCode'] != 0:
                     record.update(status='FAILED', shutdown_error='nonzero container exit, restart or OOM retained')
             except Exception as error:

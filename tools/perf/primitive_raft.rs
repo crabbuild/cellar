@@ -5,6 +5,26 @@
 use super::*;
 use cellar::sdk::consensus::verification::RootPrivateOptions;
 
+const WRITER_WORKSPACES: usize = 8;
+
+fn extents(host: &RaftHostOptions) -> Result<RaftExtentOptions> {
+    let mut options = raft_limits::extents(host)?;
+    let workspace = RootPrivateOptions::workspace_bounds(host.execution)?.reservation()?;
+    // A prepared command or parked callback can retain a physical workspace
+    // while another cell enters SQL. Reserve bounded overlap on disk; the
+    // shared image bank and container RAM ceiling remain separate limits.
+    let additional = workspace
+        .checked_mul((WRITER_WORKSPACES - 1) as u64)
+        .context("overlapping private workspaces")?;
+    options.inventory.max_bytes = options
+        .inventory
+        .max_bytes
+        .checked_add(additional)
+        .context("primitive extent disk bank")?;
+    options.inventory.max_workspaces = WRITER_WORKSPACES;
+    Ok(options)
+}
+
 fn namespace(layout: &raft_groups::Layout, schema: [u8; 32]) -> Result<RaftNamespaceConfig> {
     let mut result = raft_setup::namespace_with_storage(layout, schema, RaftImageStorage::Extents)?;
     result.namespace.minimum_durability = match std::env::var("CELLAR_PERF_DURABILITY")?.as_str() {
@@ -97,7 +117,7 @@ pub async fn run() -> Result<()> {
     // Current, private, apply, incoming and snapshot owners can retain eight
     // copies. Keep every admitted image inside the unchanged shared bank.
     host.execution.max_image_bytes = host.images.max_bytes / 8;
-    host.extents = Some(raft_limits::extents(&host)?);
+    host.extents = Some(extents(&host)?);
     // The public local inventory API requires an explicit inspection profile.
     // This fixed cohort does not advertise managed fleet capacity qualification.
     host.node_profile = Some(RaftNodeProfile {
@@ -125,12 +145,15 @@ pub async fn run() -> Result<()> {
     }
     // Record the pre-existing production harness page budget. This is a new
     // resource profile, not a repair of the separate 1,024-page fixture failure.
+    let inventory = host.extents.context("primitive extent options")?.inventory;
     let profile = serde_json::json!({"family":family,"logicalCells":layout.total,"groups":3,"votersPerGroup":3,
         "cellsPerGroup":occupancy,"manifestPages":shared.manifest_pages,"manifestBytes":shared.manifest_bytes,
         "manifestRetainedRoots":shared.retained_roots,"sqlWorkers":1,"actorOperationMs":5000,"actorLeaseMs":5000,
         "callbackMs":5000,"imageBytes":host.images.max_bytes,"perCellImageBytes":host.execution.max_image_bytes,
         "imageOwnershipCopies":8,"manifestBudgetScope":"per physical group page store","images":"extents",
-        "privateWorkspaceBytes":RootPrivateOptions::workspace_bounds(host.execution)?.reservation()?,"layout":layout.json(placement)});
+        "privateWorkspaceBytes":RootPrivateOptions::workspace_bounds(host.execution)?.reservation()?,
+        "extentInventoryBytes":inventory.max_bytes,"extentWriterWorkspaces":inventory.max_workspaces,
+        "layout":layout.json(placement)});
     let initialize = std::env::var("RAFT_INITIALIZE").as_deref() == Ok("1");
     ensure!(!initialize || i == 1, "initialization owner");
     raft_setup::prepare(
@@ -369,3 +392,7 @@ async fn serve(
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "primitive_raft_tests.rs"]
+mod tests;

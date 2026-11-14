@@ -2,12 +2,15 @@
 
 import copy
 import io
+import json
+from pathlib import Path
 from types import SimpleNamespace
+import tempfile
 import unittest
 import urllib.error
 from unittest.mock import patch
 
-from primitive_compare import Engine, GIB, parse_cgroup, validate_rows, wait_store_ready, request, serving_leaders, sample_container
+from primitive_compare import Engine, GIB, parse_cgroup, validate_rows, wait_store_ready, request, serving_leaders, sample_container, record_load_evidence
 from primitive_load import latency_summary, value_for, window
 
 
@@ -120,6 +123,25 @@ class ComparisonEvidenceTests(unittest.TestCase):
             with self.subTest(mutation=mutation), patch.object(engine,'inspect',side_effect=[initial,stopped]), patch.object(engine,'call',side_effect=ValueError('exec failed')):
                 with self.assertRaises(ValueError):
                     sample_container(engine,'load','mine',4,'sha256:one',load)
+
+    def test_failed_controller_recovers_emitted_windows_without_promoting_case(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory)
+            observed=rows()
+            (folder/'load.log').write_text('\n'.join('PRIMITIVE_COMPARE '+json.dumps(row) for row in observed)+'\n')
+            record={'status':'FAILED','error':'load exited during sampling'}
+            self.assertEqual(record_load_evidence(folder,record),observed)
+            self.assertEqual(json.loads((folder/'windows.json').read_text()),observed)
+            self.assertEqual(record['status'],'FAILED')
+            self.assertEqual(record['error'],'load exited during sampling')
+            self.assertEqual(len(record['windows']),3)
+            self.assertNotIn('attempt_latency_us',record['windows'][0])
+            self.assertEqual(record_load_evidence(folder,record),observed)
+            (folder/'windows.json').write_text('[]\n')
+            with self.assertRaisesRegex(ValueError,'differs from retained load log'):
+                record_load_evidence(folder,record)
+            self.assertEqual((folder/'windows.json').read_text(),'[]\n')
+            self.assertEqual(record['status'],'FAILED')
 
     def test_unready_leader_missing_replica_or_divergent_inventory_refuses(self):
         for mutation in ['leader_not_ready','follower_claims_ready','missing_node','missing_group','wrong_cells','leader_disagrees','term_disagrees','wrong_node','missing_inventory','pending_group','profile_mismatch']:
