@@ -33,19 +33,24 @@ fn authorize<E>(
         stream.check_ready()?;
         readiness.check()?;
     }
-    anyhow::ensure!(
-        script == stream.binding.principal
-            && bindings
-                .iter()
-                .any(|current| current.environment == stream.binding.environment
-                    && current.principal == stream.binding.principal
-                    && current.grant == stream.binding.grant
-                    && current.publish
-                    && readiness
-                        .binding(current)
-                        .is_ok_and(|resolved| resolved.resource.same_identity(stream.resource()))),
-        "stream publication is not bound to this cell's application configuration"
-    );
+    if !(stream.binding.publish
+        && script == stream.binding.principal
+        && bindings.iter().any(|current| {
+            current.environment == stream.binding.environment
+                && current.principal == stream.binding.principal
+                && current.grant == stream.binding.grant
+                && current.publish
+                && readiness
+                    .binding(current)
+                    .is_ok_and(|resolved| resolved.resource.same_identity(stream.resource()))
+        }))
+    {
+        return Err(DeliveryError::new(
+            ErrorCode::Forbidden,
+            "stream publication is not bound to this cell's application configuration",
+        )
+        .into());
+    }
     Ok(())
 }
 

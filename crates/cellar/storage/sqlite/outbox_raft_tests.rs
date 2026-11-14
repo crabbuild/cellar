@@ -197,6 +197,30 @@ fn fresh_raft_history_preserves_old_event_bytes_and_opens_a_new_producer_lane() 
             )?,
             prior.1
         );
+        // The public retry adapter requires the host's callback owner. A
+        // refusal after its tentative lane update must roll back that update.
+        let before_retry =
+            storage.system_sql("SELECT * FROM __sys_outbox_lanes ORDER BY lane", &[])?;
+        let before_work =
+            storage.system_sql("SELECT * FROM __sys_work ORDER BY scope,reason", &[])?;
+        let refused = storage.retry_outbox_lane(&prior.0).unwrap_err();
+        assert_eq!(
+            refused.downcast_ref::<crate::application::consensus::CommandFailure>(),
+            Some(&crate::application::consensus::CommandFailure::UnsupportedCapability)
+        );
+        assert_eq!(
+            storage.system_sql("SELECT * FROM __sys_outbox_lanes ORDER BY lane", &[])?,
+            before_retry
+        );
+        assert_eq!(
+            storage.system_sql("SELECT * FROM __sys_work ORDER BY scope,reason", &[])?,
+            before_work
+        );
+        storage
+            .raft_command_authority()?
+            .resources
+            .durable_callbacks
+            .store(true, std::sync::atomic::Ordering::Release);
         assert!(storage.retry_outbox_lane(&prior.0)?);
         assert!(storage.retry_outbox_lane(&prior.0).is_err());
         let mut foreign = fresh.clone();

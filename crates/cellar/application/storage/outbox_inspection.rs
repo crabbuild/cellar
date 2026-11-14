@@ -490,8 +490,11 @@ impl Storage {
                 FROM __sys_outbox_lanes AS l WHERE lane=?",&[revision.lane.clone().into()])?;
             let row=rows.first().ok_or_else(|| failure(ErrorCode::ConfigConflict,"outbox retry lane no longer exists"))?;
             let source=tx.system_sql("SELECT source FROM __sys_event_source WHERE singleton=1", &[])?;
-            if text(source.first().context("outbox source missing")?, "source")? != revision.source || text(row, "incarnation")? != revision.incarnation {
-                return Err(failure(ErrorCode::ConfigConflict,"outbox retry source or lane incarnation changed"));
+            if text(source.first().context("outbox source missing")?, "source")? != revision.source {
+                return Err(failure(ErrorCode::InvalidRequest,"outbox retry belongs to another source"));
+            }
+            if text(row, "incarnation")? != revision.incarnation {
+                return Err(failure(ErrorCode::ConfigConflict,"outbox retry lane incarnation changed"));
             }
             let expected=cellar_logic::event_stream::ProducerRevision {generation:revision.dispatch_generation,next_sequence:revision.next_sequence,settled_through:revision.settled_through};
             let current=cellar_logic::event_stream::ProducerRevision {generation:number(row,"dispatch_generation")?,next_sequence:number(row,"next_sequence")?,settled_through:number(row,"settled_through")?};
