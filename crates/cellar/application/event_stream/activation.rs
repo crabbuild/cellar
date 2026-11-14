@@ -10,10 +10,11 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 pub(crate) trait Host {
-    /// Shared-group hosts can inspect the current catalog through a private
-    /// immutable reader. Fleet activation retains its existing command flow.
-    fn immutable_metadata(&self, _principal: &str) -> bool {
-        false
+    /// A local history hint chooses whether to try the immutable fast path.
+    /// It grants no authority and never replaces the subsequent strong read.
+    /// Unknown catalogs go directly through ordinary durable creation.
+    fn configuration_known(&self, _principal: &str, _authority: &Authority) -> Result<bool> {
+        Ok(false)
     }
 
     fn rpc(
@@ -81,7 +82,7 @@ pub(crate) async fn configure(
         let digest = hex::encode(Sha256::digest(&bytes));
         let operation = event_stream::raft::operation(script, definition)?;
         let authority = Authority::deployment(script, definition)?;
-        if host.immutable_metadata(script) {
+        if host.configuration_known(script, &authority)? {
             match rpc(
                 host,
                 script,
@@ -184,32 +185,5 @@ pub(crate) async fn configure(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::application::consensus::CellDispatchError;
-    use crate::raft::completion::RuntimeError;
-
-    #[test]
-    fn configuration_probe_does_not_hide_authority_availability_or_unknown_outcomes() {
-        for error in [
-            anyhow::Error::from(RuntimeError::NotFound),
-            anyhow::Error::from(CellDispatchError::Runtime(RuntimeError::NotFound)),
-            anyhow::Error::from(std::sync::Arc::new(CellDispatchError::Runtime(
-                RuntimeError::NotFound,
-            ))),
-            super::super::error::error(super::super::ErrorCode::NotInitialized, "absent"),
-        ] {
-            assert!(missing_configuration(&error.context("current catalog")));
-        }
-        for error in [
-            anyhow::Error::from(RuntimeError::DeadlineExceeded),
-            anyhow::Error::from(RuntimeError::NotReady),
-            super::super::error::error(super::super::ErrorCode::Forbidden, "revoked"),
-            super::super::error::error(super::super::ErrorCode::Unavailable, "no quorum"),
-            super::super::error::error(super::super::ErrorCode::Ambiguous, "unknown"),
-            super::super::error::error(super::super::ErrorCode::DestinationDeleted, "retired"),
-        ] {
-            assert!(!missing_configuration(&error.context("current catalog")));
-        }
-    }
-}
+#[path = "activation_tests.rs"]
+mod tests;

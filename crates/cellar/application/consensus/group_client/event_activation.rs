@@ -57,8 +57,8 @@ struct ActivationHost {
 }
 
 impl event_stream::activation::Host for ActivationHost {
-    fn immutable_metadata(&self, _principal: &str) -> bool {
-        true
+    fn configuration_known(&self, _principal: &str, authority: &event_stream::Authority) -> Result<bool> {
+        self.owner.event_configuration_known(authority)
     }
 
     fn rpc(
@@ -76,6 +76,17 @@ impl event_stream::activation::Host for ActivationHost {
 }
 
 impl RaftCells {
+    pub(crate) fn event_configuration_known(&self, authority: &event_stream::Authority) -> Result<bool> {
+        self.check_open()?;
+        let route = self.handle.core.host.event_query_route(
+            &event_stream::catalog_scope(&authority.resource)?,
+            "__catalogStatus",
+            &Authority::Event(authority.clone()),
+            &self.handle.core.log,
+        )?;
+        Ok(route.history_hint.is_some())
+    }
+
     pub(crate) fn begin_event_sources(&self) -> Result<EventSources> {
         self.check_open()?;
         let mut pending = EventSources {

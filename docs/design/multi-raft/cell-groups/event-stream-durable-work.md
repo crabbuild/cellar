@@ -29,7 +29,9 @@ callers, with separate archive coverage at an S3 minimum. Stateful callers prove
 preceding source writes before dispatch; metadata reads do not allocate child
 mutation identities or initialize target cells. Retained shared-group activation
 skips configuration only after a fresh authorized catalog read proves the exact
-active definition. Missing configuration follows the normal creation path;
+active definition. A local history hint chooses whether to attempt that read;
+unknown catalogs go directly through creation without an extra strong absence
+lookup. The hint grants no serving or configuration authority. Missing configuration follows the normal creation path;
 unavailability, revocation and unknown outcomes refuse activation. Catalog and
 partition resolution still check their current resource identities and grants.
 Clocks, leases and mutations retain their command
