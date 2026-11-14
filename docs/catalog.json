@@ -753,6 +753,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-comparison-2026-11-14.md",
+      "title": "Three-node primitive durability comparison",
+      "summary": "Separate 1-vCPU/2-GiB nodes, RustFS, 62 verified windows and retained Raft/Fleet Queue failures in the initial disk profile.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/progress.md",
       "title": "Cell-group implementation progress",
       "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",
