@@ -288,7 +288,6 @@ impl AdmittedCellConfiguration {
                 || !valid_name(&binding.workflow)
                 || !valid_name(&binding.class)
                 || binding.settings.validate().is_err()
-                || !binding.settings.schedules.is_empty()
             {
                 return Err(RegistrationError::Invalid(
                     "Raft Workflow binding or schedule",

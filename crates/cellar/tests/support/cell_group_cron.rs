@@ -51,6 +51,27 @@ pub fn validate_contracts() -> Result<()> {
     workflow_deployment.crons = vec![RETRY.into()];
     workflow_only.validate_deployment(&workflow_deployment)?;
     workflow_only.resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)?;
+    let scheduled_only = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_workflow(
+        "Orders",
+        [236; 32],
+        |_, _, _| Box::pin(async { Ok(cellar_native::clone::StructuredValue::undefined()) }),
+    )?;
+    workflow_deployment.crons.clear();
+    workflow_deployment.options.workflow_bindings[0]
+        .settings
+        .schedules = vec![RETRY.into()];
+    scheduled_only.validate_deployment(&workflow_deployment)?;
+    scheduled_only.resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)?;
+    workflow_deployment.options.workflow_bindings[0]
+        .settings
+        .schedules
+        .clear();
+    ensure!(
+        scheduled_only
+            .validate_deployment(&workflow_deployment)
+            .is_err(),
+        "Workflow schedule removal discarded the installed cron contract"
+    );
     ensure!(RaftClass::new(cellar_logic::cron::RESERVED_CLASS, 1, [237; 32]).is_err());
     let make = || -> Result<Registry> {
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(

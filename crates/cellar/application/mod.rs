@@ -608,7 +608,13 @@ impl Application for Registry {
         }
         self.validate_configuration(&deployment.options)?;
         if !self.raft_classes.is_empty() || !self.workflow_digests.is_empty() {
-            if deployment.crons.is_empty() {
+            if deployment.crons.is_empty()
+                && deployment
+                    .options
+                    .workflow_bindings
+                    .iter()
+                    .all(|binding| binding.settings.schedules.is_empty())
+            {
                 anyhow::ensure!(
                     self.raft_cron.get().is_none(),
                     consensus::RegistrationError::ContractMismatch

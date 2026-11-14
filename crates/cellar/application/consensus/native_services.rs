@@ -137,7 +137,19 @@ pub(in crate::application) fn cron_service(
             .map_err(|_| RegistrationError::Invalid("Raft cron configuration"))?,
     );
     let scope = cellar_logic::cron::reserved_cell(&configuration.script);
-    let initial = expressions.clone();
+    // Match the constructor's stable binding order. Workflow-only deployments
+    // must arm their first occurrence without an ordinary scheduled handler or
+    // any client traffic. The admitted configuration binds these expressions.
+    let initial = expressions
+        .iter()
+        .cloned()
+        .chain(
+            configuration
+                .workflow_bindings
+                .values()
+                .flat_map(|binding| binding.settings.schedules.iter().cloned()),
+        )
+        .collect::<Vec<_>>();
     let class = RaftClass::cron_service(hash.finalize().into())?
         .initializer(
             Sha256::digest(b"cellar-raft-cron-initializer-1").into(),

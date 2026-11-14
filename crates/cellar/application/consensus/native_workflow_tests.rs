@@ -94,10 +94,19 @@ fn workflow_declarations_are_canonical_and_fail_closed() -> anyhow::Result<()> {
         .validate_configuration(&options)
         .is_err());
     options.workflow_bindings.truncate(1);
+    let unscheduled = application([1; 32])?;
+    unscheduled.validate_configuration(&options)?;
     options.workflow_bindings[0]
         .settings
         .schedules
         .push("* * * * *".into());
+    let scheduled = application([1; 32])?;
+    scheduled.validate_configuration(&options)?;
+    assert_ne!(
+        unscheduled.resolve_raft_class(&name)?.schema_digest(),
+        scheduled.resolve_raft_class(&name)?.schema_digest()
+    );
+    options.workflow_bindings[0].settings.schedules[0] = "invalid".into();
     assert!(application([1; 32])?
         .validate_configuration(&options)
         .is_err());

@@ -122,8 +122,14 @@ real RustFS resource limits do not imply independent voter resource limits.
 Quorum acknowledgements precede asynchronous archival and therefore have an S3
 disaster-recovery RPO. Failed controls and unknown outcomes must remain recorded.
 
-Workflow cron declarations currently refuse admission because shared cron
-occurrence ownership is a separate adapter. Full-size params/results, longer
+Workflow binding schedules share the reserved cron owner. Its initializer arms
+the combined declared expressions even when there is no ordinary cron handler.
+The cron occurrence and history are proved before deterministic, idempotent
+scheduled instance creation; retained startup resumes the same owed occurrence.
+Schedule declarations are part of the immutable admitted namespace contract.
+The new autonomous creation/restart fixture still requires qualification.
+
+Full-size params/results, longer
 continuous callbacks, provider I/O, clock faults, deployment changes,
 movement/wake and fenced disk-loss recovery require their own qualifications.
 The common callback budget is bounded to 300 seconds; long sleeps and event

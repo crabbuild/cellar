@@ -9,6 +9,7 @@ use cellar_native::clone::StructuredValue;
 
 fn application(
     signals: Arc<contract::Signals>,
+    scheduled: bool,
 ) -> Result<(Arc<Registry>, cellar::engine_api::WorkerConfigOptions)> {
     let worker_signals = signals.clone();
     let workflow_signals = signals.clone();
@@ -51,7 +52,12 @@ fn application(
         class: "Orders".into(),
         settings: Default::default(),
     }];
-    app.validate_configuration(&options)?;
+    if scheduled {
+        options.workflow_bindings[0].settings.schedules = vec!["* * * * *".into()];
+    }
+    let mut deployment = managed_fixture::graph::graph(contract::SCRIPT, "", Vec::new()).primary;
+    deployment.options = options.clone();
+    app.validate_deployment(&deployment)?;
     Ok((app, options))
 }
 
@@ -216,6 +222,27 @@ async fn workflow(
     steps: Step,
     signals: Arc<contract::Signals>,
 ) -> Result<StructuredValue> {
+    if let Some(schedule) = event.schedule {
+        let scheduled = signals.clone();
+        let output = steps
+            .run("schedule", move |_| async move {
+                scheduled.first.fetch_add(1, Ordering::SeqCst);
+                scheduled
+                    .extra_cells
+                    .lock()
+                    .unwrap()
+                    .push(event.instance_id);
+                StructuredValue::from_json(serde_json::to_value(schedule)?)
+            })
+            .await?;
+        steps
+            .wait_for_event(
+                "scheduled-approval",
+                WaitOptions::new("approve").timeout("10 minutes"),
+            )
+            .await?;
+        return Ok(output);
+    }
     if event.instance_id == "delete-held" {
         return steps
             .run("held", move |_| async move {
@@ -345,7 +372,7 @@ async fn state(cluster: &ManagedCluster, id: &str, expected: &str) -> Result<ser
 
 pub async fn qualify(real: bool, external: bool) -> Result<()> {
     for extents in [false, true] {
-        Box::pin(case(real, external, extents, false))
+        Box::pin(case(real, external, extents, false, false))
             .await
             .with_context(|| format!("Workflow RustFS={real} Axum={external} extents={extents}"))?;
     }
@@ -353,17 +380,113 @@ pub async fn qualify(real: bool, external: bool) -> Result<()> {
 }
 
 pub async fn stream_controls() -> Result<()> {
-    Box::pin(case(false, false, false, true)).await
+    Box::pin(case(false, false, false, true, false)).await
 }
 
-async fn case(real: bool, external: bool, extents: bool, stream_only: bool) -> Result<()> {
+pub async fn schedules(real: bool, external: bool) -> Result<()> {
+    for extents in [false, true] {
+        Box::pin(case(real, external, extents, false, true))
+            .await
+            .with_context(|| {
+                format!("scheduled Workflow RustFS={real} Axum={external} extents={extents}")
+            })?;
+    }
+    Ok(())
+}
+
+async fn scheduled_case(cluster: &mut ManagedCluster, signals: &contract::Signals) -> Result<()> {
+    // No public request enrolls the cron owner or creates this instance.
+    let id = cellar::asyncrt::timeout(Duration::from_secs(75), async {
+        loop {
+            if let Some(id) = signals.extra_cells.lock().unwrap().first().cloned() {
+                return id;
+            }
+            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    state(cluster, &id, "waiting").await?;
+    let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+    let history = cluster.hosts[leader]
+        .resolve_cell_history(
+            cluster.history.cluster,
+            cluster.history.namespace,
+            CellId::new(cellar_logic::cron::reserved_cell(contract::SCRIPT))?,
+            QueryOptions {
+                consistency: QueryConsistency::Linearizable,
+                ..Default::default()
+            },
+        )
+        .await?
+        .context("autonomous Workflow cron enrollment")?;
+    let cell = cluster.hosts[leader].cell(history)?;
+    let occurrence = cellar::asyncrt::timeout(TIMEOUT, async {
+        loop {
+            let result = cell
+                .query(
+                    ProposalId::new([209; 16])?,
+                    &cell.contract("__cronHistory")?,
+                    b"{}".to_vec(),
+                    QueryOptions {
+                        consistency: QueryConsistency::Linearizable,
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            let page: serde_json::Value = serde_json::from_slice(&result.result)?;
+            if let Some(row) = page["items"]
+                .as_array()
+                .context("cron history items")?
+                .iter()
+                .find(|row| row["workflow_instance"] == id && row["status"] == "workflow_accepted")
+            {
+                ensure!(row["workflow_binding"] == "WF" && row["attempt"] == 1);
+                return Ok::<_, anyhow::Error>(
+                    json!({"cron": row["expression"], "scheduled_ms":row["scheduled_at"]}),
+                );
+            }
+            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    ensure!(signals.first.load(Ordering::SeqCst) == 1);
+    named_service::restart(cluster).await?;
+    state(cluster, &id, "waiting").await?;
+    call(cluster, "event", &id).await?;
+    let completed = state(cluster, &id, "complete").await?;
+    ensure!(
+        completed["output"] == occurrence,
+        "scheduled Workflow result: {completed}"
+    );
+    ensure!(
+        signals.first.load(Ordering::SeqCst) == 1,
+        "completed scheduled step replayed after retained RF3 restart"
+    );
+    Ok(())
+}
+
+async fn case(
+    real: bool,
+    external: bool,
+    extents: bool,
+    stream_only: bool,
+    scheduled: bool,
+) -> Result<()> {
     let backend = real
         .then(|| {
             rustfs::StoreConfig::load(
                 if external {
-                    "workflow-axum"
+                    if scheduled {
+                        "workflow-scheduled-axum"
+                    } else {
+                        "workflow-axum"
+                    }
                 } else {
-                    "workflow"
+                    if scheduled {
+                        "workflow-scheduled"
+                    } else {
+                        "workflow"
+                    }
                 },
                 extents,
             )
@@ -374,10 +497,17 @@ async fn case(real: bool, external: bool, extents: bool, stream_only: bool) -> R
         None => catalog_fault::Store::default(),
     });
     let signals = Arc::new(contract::Signals::default());
-    let (app, config) = application(signals.clone())?;
+    let (app, config) = application(signals.clone(), scheduled)?;
     let mut fixture = Fixture::with_namespaces(
         extents,
-        &["Sink", &cellar::deploy::workflow_class(contract::SCRIPT)],
+        &[
+            if scheduled {
+                cellar_logic::cron::RESERVED_CLASS
+            } else {
+                "Sink"
+            },
+            &cellar::deploy::workflow_class(contract::SCRIPT),
+        ],
         app,
         store,
     )
@@ -417,6 +547,10 @@ async fn case(real: bool, external: bool, extents: bool, stream_only: bool) -> R
             let group = named_service::activate(&cluster, "workflow").await?;
             named_service::grant(&cluster).await?;
             managed_fixture::leader(&cluster.hosts, group).await?;
+            if scheduled {
+                scheduled_case(&mut cluster, &signals).await?;
+                return Ok(());
+            }
             if stream_only {
                 call(&cluster, "create", "stream").await?;
                 cellar::asyncrt::timeout(TIMEOUT, async {

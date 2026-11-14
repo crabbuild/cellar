@@ -317,7 +317,7 @@ the original deadline and retained physical work stays charged while parked.
 The candidate is being integrated with the published PR foundation's local
 writer-release notifications, maintenance yielding and bounded archive replay.
 
-**Workflow is not qualified yet.** The exact optimized source `e2c8307e`
+The early exact optimized candidate `e2c8307e`
 gets past the earlier status-request refusals, but its full materialized fixture
 fails because the large stream does not reach `waiting` within the original
 30-second state limit. The focused stream/control test and the frozen native
@@ -416,20 +416,34 @@ modes (38.06 seconds); the original stream deadline gate and interleaving also
 pass. The refreshed real RustFS campaign passes both exact native/Axum cases
 and four image configurations with source/executable verification. Preserve
 `CG-17-workflow-sdk-7915a45a-01` and `CG-17-workflow-rustfs-7915a45a-01`.
-Fresh ownership/kernel units and final integration checks remain pending.
+At `5c6d3f3c`, all nine Workflow unit tests pass, including the two final
+cancellation/deletion cleanup tests. The complete native RF3 fixture passes both
+images, the focused stream gate passes, and Fleet conformance passes (0.45s).
+Ten shared-kernel, two storage and three FIFO writer-admission units pass, as do
+the ordinary-cron contract and SDK source-proof regression. Preserve
+`CG-17-workflow-merged-5c6d3f3c-01`; the initially mistyped admission filter
+selected zero tests, so its result grants no coverage. The corrected filter
+selects and passes all three admission tests.
+
+The follow-up admits validated Workflow binding schedules, installs the reserved
+cron owner for Workflow-only deployments and arms its initializer from both
+ordinary and Workflow expressions. Scheduled creation retains the existing
+occurrence proof and deterministic instance identity. New native/RustFS cases
+require autonomous creation without public traffic, committed cron history and
+completed-step reuse after retained RF3 restart. Qualification is pending.
 Earlier prototype failures and the opt0 minimized
 pass remain under `CG-17-workflow-fifo-diagnostics-01`; they establish no
 exact-source qualification.
 
 The campaign runner has 19 passing unit tests and the plan validator has 44.
-Five selected Workflow unit tests and all three writer-admission tests passed
-before the final cancellation cleanup; its two new cleanup tests still require
-a fresh unit run. The partial primitive catalogue includes the new registration
+The final nine Workflow units and three writer-admission tests pass at
+`5c6d3f3c`. The partial primitive catalogue includes the new registration
 API. Full plan validation in this checkout is blocked by absent historical
 ignored evidence (`CG-01-06-gates-e32115aa-02/CG-01-record.json`). The real RustFS
-Workflow campaign is failed, not accepted. CG-17 and accepted-case totals are unchanged;
-cron, full-size values, provider execution and combined lifecycle/disaster
-scenarios remain open.
+Workflow campaign passes at `7915a45a`; the later schedule adapter requires its
+own source-pinned rerun. CG-17 and accepted-case totals are unchanged;
+full-size values, provider execution and combined lifecycle/disaster scenarios
+remain open. The complete family is not accepted.
 
 ## CG-17 bounded competing enrollment
 
