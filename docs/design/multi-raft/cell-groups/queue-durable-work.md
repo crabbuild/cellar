@@ -110,7 +110,28 @@ the same broker. Its operator contract is absent from producer binding discovery
 The existing authorization binds method, path, body and addressed node. Operator
 timeouts preserve an unknown mutation outcome rather than replaying the command.
 
+## Shared writer admission
+
+Ordinary requests and parked callbacks share a bounded per-cell FIFO writer.
+Waiting requests reserve existing byte/item capacity before joining; cancellation
+removes their position. A ready callback yields at a safe proven-root boundary
+when another writer is waiting. An unfinished write VM retains its writer.
+Physical image, cursor and output reservations outlive logical writer release.
+
+After acquisition, the writer refreshes current authority before opening SQL.
+Other cells may still have committed entries awaiting apply, so `NotReady` and
+local runtime overload wait within the original absolute deadline. The same wait
+serves parked continuations. Original term, route, history and receipt checks
+remain mandatory; authority waiting never authorizes callback replay.
+
 ## Qualification and remaining scope
+
+The [current writer checkpoint](progress.md#cg-17-fifo-writers-and-authority-readiness)
+at `15b9bf46` passes deadline guards, four interleaving configurations and both
+ordinary JSON RPC images. Its load campaign fails during cold S3-minimum DLQ
+onboarding, and ordinary Queue fails on parent sequence 2. Real RustFS load is
+unrun on this source. These remain release gates; the older passes below do not
+qualify the current combined source.
 
 At `a5f65e79` and the combined KV/RPC source `9498029b`, the canonical
 `queue-primitives` suite passes all six exact

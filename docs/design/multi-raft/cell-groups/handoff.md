@@ -4,7 +4,35 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current ordinary alarm failure checkpoint
+## Current writer and Queue checkpoint
+
+Source `15b9bf46` adds bounded FIFO admission and a shared original-deadline
+fresh-authority wait. Diagnostic 85 confirms that the prior one-shot lookup
+returned `NotReady`, then refused a public Queue producer before callback entry.
+Writer position, physical admission, term/route/history checks and command IDs
+remain required; temporary tracing is removed. See
+[current results](progress.md#cg-17-fifo-writers-and-authority-readiness).
+
+Cohort 86 is FAILED: deadline guards pass, then the third cold S3-minimum DLQ
+warmup expires before load begins. Real RustFS and subsequent gates are unrun.
+Cohort 87 is FAILED: all four interleaving configurations and both JSON RPC
+images pass, then ordinary Queue materialized parent sequence 2 reaches its
+original deadline. Extents are unrun. Logs and records have verified backups;
+frozen binaries and six voter disks remain at their recorded workspace-volume
+paths. No failed status is replaced by a later pass.
+Strict affected-target Clippy, both builds, formatting, layout and dependencies
+pass. The owned RustFS backend and VM remain stopped.
+
+Next isolate cold target-S3 onboarding from the Queue parent deadline; keep
+budgets/quotas unchanged and unknown mutation identities intact. The next cron
+feature slice has concrete owners: `native_services.rs`/Registry registration,
+`cron/state.rs`'s Fleet-only alarm table lookup, and `Schedule::alarm`'s occurrence
+history checkpoint before application entry. Preserve the existing public cron
+configuration, retry, no-retry and history APIs. Workflow candidates in another
+checkout remain unqualified and unintegrated here. Full-family and combined
+release gates remain open; acceptance stays **13/17 tasks and 147/195 cases**.
+
+## Previous ordinary alarm failure checkpoint
 
 Cohort `CG-17-alarm-unwind-9a6055bd-76` is FAILED: six exact selections pass,
 then materialized Queue load fails with an ambiguous producer sequence-7
@@ -30,11 +58,8 @@ retry those mutations or erase failed controls. Setup-only cohort 73 received
 HTTP503 before any Cellar test; subsequent setup requires a complete S3 probe.
 All failed artifacts and disks remain retained; the owned backend/VM are stopped.
 
-Next compare Queue load with the frozen `25d81992` artifact under the same
-owned profile and isolate the execution/retention bottleneck before a runtime
-fix. Its current snapshot does not establish a deadlock. Then finish the unrun
-Queue gates, cron deployment/startup and occurrence/history, broader Queue
-lifecycle, EventStream and Workflow.
+The later writer checkpoint above records that comparison and the current
+Queue/cron priorities; the older snapshot does not establish a deadlock.
 Complete target-S3 and pre-target-checkpoint binding/SQL/KV coverage, remaining
 adapters and combined independent-Linux-voter/load/recovery/release gates.
 Panic-abort process loss and controlled fresh-root contract cutover retain their

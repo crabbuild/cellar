@@ -27,6 +27,58 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 FIFO writers and authority readiness
+
+Source `15b9bf46` integrates bounded FIFO writer admission for ordinary RPCs and
+parked callbacks. Queued requests reserve the existing byte/item budgets before
+waiting; cancellation removes their FIFO position. Logical writer release still
+retains physical image/output ownership. An unfinished write cursor keeps its
+writer rather than aborting a callback that reaches a parking boundary.
+
+Diagnostic `e74ae5fb` records three fresh-authority `NotReady` refusals from the
+new queued-writer path before a public Queue producer returns `Unavailable`.
+The one-shot lookup incorrectly treats an applied-prefix gap as a terminal
+refusal. New writers and resumed callbacks now share one bounded authority wait.
+It preserves their writer position, original deadline, term/route/history fences
+and command identity. Only authority readiness is retried. No handler is replayed,
+and no request budget, quota, format marker or durability requirement changes.
+Temporary diagnostic logging is removed.
+
+| Gate at `15b9bf46` | Result |
+| --- | --- |
+| Integration executables and captured CLI build | **Pass** |
+| Strict affected-target Clippy; format/layout/dependency checks | **Pass** |
+| Original readiness deadline and expired-before-dequeue guards | **2/2 exact tests pass** |
+| Public same-cell interleaving, cancellation, leader transfer and retained restart | **4/4 configurations pass** |
+| Ordinary public JSON RPC | **Both image configurations pass** |
+| Native Queue load | **FAILED during cold S3-minimum DLQ onboarding; load has not begun** |
+| Ordinary native Queue callbacks | **FAILED: materialized parent sequence 2 returns an ambiguous deadline; extents unrun** |
+| Real RustFS load and later campaign selections | **Unrun after the failed native gate** |
+
+Cohort `CG-17-queue-readiness-15b9bf46-86` passes the two deadline guards, then
+fails the third warmup request (`quorum-dead`) with `Runtime(DeadlineExceeded)`.
+The original three-second request expires before the archive-outage prelude or
+steady load. Its failure does not qualify or disprove the later producer-load
+path. Separate cohort `CG-17-writer-regressions-15b9bf46-87` passes interleaving
+and ordinary RPC, then fails ordinary Queue. Both cohorts remain **FAILED**;
+all six failed voter disks, frozen executables and complete logs are retained.
+
+The earlier equal-profile RustFS comparison has now run: cohort 81 fails both
+the frozen `25d81992` control (producer sequence 7) and the `9a6055bd` candidate
+(cold first-request deadline). This does not establish an alarm-only regression
+or the cause of those deadline misses. FIFO control 82 and diagnostics 84/85
+also remain failed with their disks retained. Owning FIFO/cancellation/physical
+retention tests and activation regressions retain their separate passing source
+`37b40b5a`; they are not new executions at `15b9bf46`.
+
+Next isolate cold S3-minimum onboarding from the ordinary Queue parent deadline,
+then finish load and real-RustFS qualification at unchanged budgets. Cron's next
+feature slice is the reserved shared-group service, backend-aware raw alarm
+installation checks, and a committed occurrence/history checkpoint before the
+scheduled handler. EventStream and qualified Workflow integration follow.
+The owned RustFS backend/VM remain stopped. No complete primitive family or
+release case is accepted: totals stay **13/17 tasks and 147/195 cases**.
+
 ## CG-17 ordinary alarm failure retries
 
 Source `9a6055bd` qualifies ordinary alarm failure settlement with the corrected
@@ -55,7 +107,8 @@ all voters, and committed entries ahead of apply; these samples do not prove a
 deadlock cause. Ordinary native/Axum and long-callback Queue selections are
 explicitly unrun after this gate. Keep all three failed Queue voter disks.
 The earlier successful source `25d81992` is the frozen load control for the next
-investigation; no equal-condition old/new comparison has run yet.
+investigation. The later [FIFO checkpoint](#cg-17-fifo-writers-and-authority-readiness)
+records the completed equal-profile comparison.
 
 Cohort `CG-17-alarm-unwind-9a6055bd-76` freezes the native test executable and
 actual CLI on one source. The pending-retry oracle joins every old voter and
@@ -100,8 +153,8 @@ process, separate disks and one SQL worker per node. Independent Linux failure
 domains, combined recovery/load/disk-loss and full-family qualification remain
 open. Full-plan acceptance remains **13/17 tasks and 147/195 cases**.
 
-Next isolate the Queue load failure against the frozen `25d81992` control,
-fix the identified execution/retention path and finish the unrun Queue gates.
+The later [FIFO checkpoint](#cg-17-fifo-writers-and-authority-readiness) records
+the comparison, confirmed admission refusal and remaining Queue gates.
 Then deliver cron startup, persisted occurrences/history and alarm projection,
 broader Queue lifecycle, EventStream and Workflow. Keep the retained
 request/callback deadline controls in combined recovery/load qualification.
