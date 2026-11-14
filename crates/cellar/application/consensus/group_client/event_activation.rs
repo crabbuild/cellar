@@ -57,7 +57,11 @@ struct ActivationHost {
 }
 
 impl event_stream::activation::Host for ActivationHost {
-    fn configuration_known(&self, _principal: &str, authority: &event_stream::Authority) -> Result<bool> {
+    fn configuration_known(
+        &self,
+        _principal: &str,
+        authority: &event_stream::Authority,
+    ) -> Result<bool> {
         self.owner.event_configuration_known(authority)
     }
 
@@ -76,7 +80,10 @@ impl event_stream::activation::Host for ActivationHost {
 }
 
 impl RaftCells {
-    pub(crate) fn event_configuration_known(&self, authority: &event_stream::Authority) -> Result<bool> {
+    pub(crate) fn event_configuration_known(
+        &self,
+        authority: &event_stream::Authority,
+    ) -> Result<bool> {
         self.check_open()?;
         let route = self.handle.core.host.event_query_route(
             &event_stream::catalog_scope(&authority.resource)?,

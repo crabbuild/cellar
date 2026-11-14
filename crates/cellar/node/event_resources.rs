@@ -244,9 +244,18 @@ struct ActivationHost {
 }
 
 impl event_stream::activation::Host for ActivationHost {
-    fn configuration_known(&self, principal: &str, authority: &event_stream::Authority) -> Result<bool> {
-        if !self.shared.contains(principal) { return Ok(false); }
-        self.owner.as_ref().context("shared event activation owner")?.event_configuration_known(authority)
+    fn configuration_known(
+        &self,
+        principal: &str,
+        authority: &event_stream::Authority,
+    ) -> Result<bool> {
+        if !self.shared.contains(principal) {
+            return Ok(false);
+        }
+        self.owner
+            .as_ref()
+            .context("shared event activation owner")?
+            .event_configuration_known(authority)
     }
 
     fn rpc(
