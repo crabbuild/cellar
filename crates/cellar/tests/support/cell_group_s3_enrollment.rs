@@ -183,6 +183,9 @@ pub(crate) async fn s3_enrollment(rooted: bool, store: Arc<dyn ObjectStore>) -> 
         assert_eq!(h.initializations.load(Ordering::SeqCst), 1);
         drop(response);
         controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 0)).await?;
+        h.remote
+            .deny_generation_writes
+            .store(false, Ordering::Release);
         let error = h
             .enroll(&h.dispatcher, 211, Durability::S3, Duration::from_secs(15))
             .await?

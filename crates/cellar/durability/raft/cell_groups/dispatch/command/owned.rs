@@ -346,6 +346,7 @@ impl CellCommandInvocation {
         progress: &mut watch::Receiver<()>,
     ) -> Result<CellCommandPreparation, CellDispatchError> {
         let mut observed_cut = None;
+        let mut writers = sql.writer_progress();
         loop {
             if self.expired()? {
                 return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
@@ -353,6 +354,7 @@ impl CellCommandInvocation {
             // Subscribe before the authority request. Apply may finish while
             // that request or its subsequent read-only status reply is in flight.
             progress.borrow_and_update();
+            writers.borrow_and_update();
             match self
                 .prepare_at(attempt, runtime, sql, options.clone())
                 .await
@@ -360,6 +362,20 @@ impl CellCommandInvocation {
                 Err(CellDispatchError::Execution(ExecutionError::Busy))
                     if self.writer_wait && self.origin.is_none() && self.output.is_none() =>
                 {
+                    if self.system
+                        && matches!(
+                            self.request.contract.operation.as_str(),
+                            crate::storage::raft_binding_recovery::CLAIM
+                                | crate::storage::raft_binding_recovery::SETTLE
+                                | crate::raft::execution::binding_seal::OPERATION
+                        )
+                    {
+                        // The durable maintenance scheduler rereads committed
+                        // state on its next turn. Release this command slot
+                        // instead of waiting beside the live foreground writer.
+                        // No initializer or mutation entered this refusal.
+                        return Err(CellDispatchError::Execution(ExecutionError::Busy));
+                    }
                     // A received pre-enqueue lease refusal proves that no
                     // callback or producer entered. Wait for the holder to park
                     // or finish, then acquire fresh authority under this same
@@ -372,6 +388,7 @@ impl CellCommandInvocation {
                         .map_err(|_| closed())?;
                     crate::asyncrt::select! {
                         result = progress.changed() => result.map_err(|_| closed())?,
+                        result = writers.changed() => result.map_err(|_| closed())?,
                         _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
                     }
                 }

@@ -26,6 +26,30 @@ impl BindingHost {
 }
 
 impl Host for BindingHost {
+    fn prepare_kv_payload(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        digest: [u8; 32],
+        length: u64,
+    ) -> anyhow::Result<
+        Option<(
+            CellHistory,
+            crate::raft::cell_groups::CellGroupPayloadReference,
+        )>,
+    > {
+        let owner = self.owner()?;
+        Ok(owner.handle.core.host.prepare_binding_kv_payload(
+            source,
+            configuration,
+            scope,
+            digest,
+            length,
+            &owner.handle.core.log,
+        )?)
+    }
+
     fn kv_binding_payload_store(
         &self,
         source: &CellHistory,

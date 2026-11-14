@@ -85,6 +85,26 @@ async fn command(
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+    let profile = args.first() == Some(&"put") && args.contains(&"--path");
+    let before = profile.then(|| {
+        cluster
+            .hosts
+            .iter()
+            .map(|host| host.performance())
+            .collect::<Vec<_>>()
+    });
+    let payload_before = profile.then(|| {
+        (
+            cluster.fixtures[0]
+                .store
+                .cell_payload_get_calls
+                .load(Ordering::Acquire),
+            cluster.fixtures[0]
+                .store
+                .cell_payload_put_calls
+                .load(Ordering::Acquire),
+        )
+    });
     let mut child = command.spawn()?;
     let mut out = child.stdout.take().context("KV CLI stdout")?;
     let mut err = child.stderr.take().context("KV CLI stderr")?;
@@ -109,6 +129,56 @@ async fn command(
     let error = String::from_utf8_lossy(&stderr)
         .replace(&backend.access, "[redacted]")
         .replace(&backend.secret, "[redacted]");
+    if let Some(before) = before {
+        for (node, (before, host)) in before.iter().zip(&cluster.hosts).enumerate() {
+            let after = host.performance();
+            let operations = before
+                .operations
+                .iter()
+                .zip(&after.operations)
+                .filter(|(a, b)| a.started != b.started || a.sum_us != b.sum_us)
+                .map(|(a, b)| {
+                    json!({
+                        "name":b.name,"started":b.started.checked_sub(a.started),
+                        "succeeded":b.succeeded.checked_sub(a.succeeded),
+                        "failed":b.failed.checked_sub(a.failed),
+                        "abandoned":b.abandoned.checked_sub(a.abandoned),
+                        "sumUs":b.sum_us.checked_sub(a.sum_us)
+                    })
+                })
+                .collect::<Vec<_>>();
+            let counters = before
+                .counters
+                .iter()
+                .zip(&after.counters)
+                .filter(|(a, b)| a.value != b.value)
+                .map(|(a, b)| json!({"name":b.name,"delta":b.value.checked_sub(a.value)}))
+                .collect::<Vec<_>>();
+            eprintln!(
+                "KV CLI performance: {}",
+                json!({"node":node,
+                "sameSource":before.source==after.source,
+                "available":before.available && after.available,
+                "saturated":before.saturated || after.saturated,
+                "operations":operations,"counters":counters})
+            );
+        }
+    }
+    if let Some((gets, puts)) = payload_before {
+        eprintln!(
+            "KV CLI payload calls: gets={} puts={}",
+            cluster.fixtures[0]
+                .store
+                .cell_payload_get_calls
+                .load(Ordering::Acquire)
+                - gets,
+            cluster.fixtures[0]
+                .store
+                .cell_payload_put_calls
+                .load(Ordering::Acquire)
+                - puts
+        );
+    }
     ensure!(status.success(), "KV CLI {args:?}: {status}: {error}");
     Ok(stdout)
 }

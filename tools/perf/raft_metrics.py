@@ -127,6 +127,8 @@ COUNTERS = (
     'cell_endpoint_demand_refreshes',
     'cell_endpoint_discovery_owners',
     'cell_endpoint_refresh_joins',
+    'cell_kv_local_payload_preparations',
+    'cell_kv_resolved_payload_preparations',
 )
 LEGACY_OPERATIONS = ('engine_queue', 'engine_file_sync', 'engine_directory_sync', 'engine_persist',
               'sql_queue', 'sql_stage', 'sql_prepare', 'sql_publish', 'sql_query',
@@ -160,7 +162,8 @@ SCHEMAS = ((LEGACY_OPERATIONS, LEGACY_COUNTERS, LEGACY_BOUNDS),
            # Retained measurement artifacts have a source-frozen vocabulary.
            # These schemas parse evidence only; they are not runtime readers.
            (OPERATIONS[:-3], COUNTERS[:COUNTERS.index('cell_command_rpc_attempts')], BOUNDS),
-           (OPERATIONS[:-3], COUNTERS[:-6], BOUNDS),
+           (OPERATIONS[:-3], COUNTERS[:COUNTERS.index('cell_group_ticks_executed')], BOUNDS),
+           (OPERATIONS, COUNTERS[:-2], BOUNDS),
            (OPERATIONS, COUNTERS, BOUNDS))
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')
 

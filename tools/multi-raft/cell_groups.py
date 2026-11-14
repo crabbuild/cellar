@@ -184,6 +184,19 @@ SUITES = {
         "must emit all four completed configurations. Target S3 minimum, cross-class "
         "selection, concurrent creation, movement/disaster and full CG-17 remain open.",
     ),
+    "ordinary-alarms": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_alarms_recover_through_shared_quorum",
+         "rustfs_axum_alarms_recover_through_shared_quorum"),
+        "ordinary alarm SDK/native/Axum paths and autonomous RF3 retained restart",
+        "Both image forms and Quorum/S3 namespace minima, with one SQL worker per node. "
+        "Public named SDK enrollment and alarm APIs, pinned-image reads, transactional "
+        "rollback/cancellation, same-deadline rearming, stale Context refusal, "
+        "interrupted callbacks, autonomous retained restart and quorum refusal are checked. "
+        "RF3 voters share one native process. No operator CLI is exercised. "
+        "Application failure/backoff exhaustion, archive outage, movement/wake, "
+        "independent voter limits, load and all-voter disk loss remain separate gates.",
+    ),
     "immutable-payloads": (
         "raft_cell_group_payloads",
         ("rustfs_immutable_payloads_confirm_bytes_and_preserve_old_recovery_cuts",),
@@ -983,7 +996,7 @@ def main():
     args = parser.parse_args()
     if args.keep_going and args.suite not in (
         "ordinary-primitives", "named-bindings", "ordinary-sql-bindings",
-        "ordinary-kv-bindings", "queue-primitives"
+        "ordinary-kv-bindings", "ordinary-alarms", "queue-primitives"
     ):
         parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
@@ -1048,7 +1061,7 @@ def main():
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_BUILD_JOBS", "CARGO_TERM_COLOR",
             )
         }
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "immutable-payloads", "queue-primitives"):
             record["test_profile"] = {key: env[key] for key in (
                 "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
@@ -1061,9 +1074,12 @@ def main():
                            or selection in NAMED_BINDING_CASES):
                 argv.append("--show-output")
             if (selection in ("rustfs_queue_load_preserves_acknowledged_messages",
-                              "rustfs_queue_four_in_flight_preserves_acknowledged_messages")
-                    or (args.suite == "ordinary-kv-bindings" and number != 0)):
+                              "rustfs_queue_four_in_flight_preserves_acknowledged_messages")):
                 argv.append("--nocapture")
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms") and number != 0:
+                # Keep successful diagnostics without splitting libtest's exact
+                # result line. The strict success verifier remains unchanged.
+                argv.append("--show-output")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
             if selection == "rustfs_quorum_continues_bounded_s3_outage":

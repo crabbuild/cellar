@@ -47,7 +47,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "immutable-payloads", "queue-primitives"):
+                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "immutable-payloads", "queue-primitives"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -60,8 +60,9 @@ class SqlCampaignTests(unittest.TestCase):
                     self.assertEqual("--nocapture" in argv,
                                      selection in ("rustfs_queue_load_preserves_acknowledged_messages",
                                                    "rustfs_queue_four_in_flight_preserves_acknowledged_messages"))
-                if suite == "ordinary-kv-bindings":
-                    self.assertIn("--nocapture", argv)
+                if suite in ("ordinary-kv-bindings", "ordinary-alarms"):
+                    self.assertIn("--show-output", argv)
+                    self.assertNotIn("--nocapture", argv)
                 if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives"):
                     retained = Path(env[{"ordinary-sql-bindings": "CELLAR_CELL_GROUPS_SQL_CLI", "ordinary-kv-bindings": "CELLAR_CELL_GROUPS_KV_CLI", "queue-primitives": "CELLAR_CELL_GROUPS_QUEUE_CLI"}[suite]])
                     self.assertEqual(retained, output / "cellar")
@@ -119,8 +120,12 @@ class SqlCampaignTests(unittest.TestCase):
                     self.assertEqual(record["operator_cli"]["sha256"], cell_groups.sha(output / "cellar"))
                 else:
                     self.assertNotIn("operator_cli", record)
-                    self.assertNotIn("three-voter", record["limitations"])
-                    self.assertIn("no Raft voters", record["limitations"])
+                    if suite == "immutable-payloads":
+                        self.assertNotIn("three-voter", record["limitations"])
+                        self.assertIn("no Raft voters", record["limitations"])
+                    elif suite == "ordinary-alarms":
+                        self.assertIn("Quorum/S3 namespace minima", record["limitations"])
+                        self.assertIn("No operator CLI", record["limitations"])
 
     def test_sql_uses_the_frozen_cli_for_every_case(self):
         self.campaign()
@@ -133,6 +138,19 @@ class SqlCampaignTests(unittest.TestCase):
 
     def test_payload_campaign_does_not_claim_voter_or_cli_qualification(self):
         self.campaign(suite="immutable-payloads")
+
+
+class AlarmCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_alarms_capture_exact_cases_without_claiming_cli_qualification(self):
+        self.campaign(suite="ordinary-alarms")
+
+    def test_alarms_refuse_success_with_no_selected_test(self):
+        self.campaign("zero", "ordinary-alarms")
+
+    def test_alarms_collect_independent_cases_without_waiving_failures(self):
+        self.campaign("zero", "ordinary-alarms", keep_going=True)
 
 
 class QueueCampaignTests(unittest.TestCase):
@@ -194,6 +212,18 @@ class QueueCampaignTests(unittest.TestCase):
 
 class KvCampaignTests(unittest.TestCase):
     campaign = SqlCampaignTests.campaign
+
+    def test_kv_capture_preserves_diagnostics_and_strict_success(self):
+        case = "rustfs_ordinary_kv_bindings_use_managed_shared_groups"
+        diagnostics = "public KV Contract node=0: status=200\n"
+        summary = "test result: ok. 1 passed; 0 failed; 0 ignored;\n"
+        captured = (f"test {case} ... ok\n\nsuccesses:\n\n"
+                    f"---- {case} stdout ----\n" + diagnostics + summary)
+        self.assertTrue(cell_groups.exact_case_passed(captured, case))
+        interleaved = f"test {case} ... " + diagnostics + "ok\n" + summary
+        self.assertFalse(cell_groups.exact_case_passed(interleaved, case))
+        self.assertFalse(cell_groups.exact_case_passed(
+            captured.replace("1 passed;", "0 passed;"), case))
 
     def test_kv_uses_the_frozen_cli_for_every_case(self):
         self.campaign(suite="ordinary-kv-bindings")

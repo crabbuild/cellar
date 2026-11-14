@@ -107,12 +107,15 @@ Batch, exec and migration failures roll back their partial changes before the
 SQL error response is encoded. User SQL retains the command authorizer; only
 fixed migration bookkeeping receives framework authority. No service request may
 commit the framework's outer command transaction. Existing SQL limits and the
-unsupported `Database::dump` behavior remain unchanged. KV binding admission
-still refuses until its expiry, alarm and payload adapters are delivered.
+unsupported `Database::dump` behavior remain unchanged. KV binding delivery and
+its separate qualification limits are described in the [payload contract](payload-storage.md)
+and [current priorities](remaining-work.md#primitive-delivery-priority).
 
 This implementation checkpoint does not accept the full SQL/KV primitive family.
 See [remaining work](remaining-work.md#primitive-delivery-priority) for the public
-recovery and release gates, including the independent S3-source deadline blocker.
+recovery and release gates. The current scoped S3-source and public SQL/KV
+qualification is recorded in the
+[latest checkpoint](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
 
 ## Stateless SQL ownership boundary
 
@@ -186,12 +189,50 @@ The target checks its current incarnation and independent minimum durability.
 Every live lookup, enrollment, proof, retry and dispatch consumes the original
 monotonic request deadline.
 
+After the source proof, framework-owned enrollment, lookup and child command
+I/O may progress while the source SQLite writer stays parked. Before selecting
+a competing creator, recording completion or recording a known refusal, the
+binding task disables parked polling and waits for the existing SQL owner to
+resume its writer. Selection and refusal retain their required source proofs.
+Ordinary Storage and application continuations still require a healthy writer;
+the I/O scope grants neither SQL access nor additional dispatch authority. The
+same owned task, buffer admission, cancellation and original deadlines cover
+both phases, without a detached task or another command admission slot.
+
 A successful call verifies the target receipt's identity, history and durability
 before marking its private source intent resolved. The next source effect or final
 parent acknowledgement proves that resolution; it needs no separate redundant
-checkpoint. Only an explicit overload refusal before target admission retries
-automatically, with identical input/history/identity and the original deadline.
-Application failures and ambiguous outcomes are not automatically retried.
+checkpoint. Enrollment and business dispatch may both wait on a typed local
+overload refusal that proves no admission occurred. Enrollment keeps the durable
+source intent, candidate and creation ID; business dispatch keeps its input,
+history and command ID. Both consume the original deadline through the existing
+parked binding task. Transmitted/ambiguous requests, initializer failures and
+application failures are not automatically retried.
+
+Within an admitted enrollment, a refused logical writer or SQL byte reservation
+may wait only with the SQL pool's explicit pre-enqueue proof. It retains the
+original captured initializer inputs, preview, creation ID, route attempt and
+deadline. Each retry acquires fresh leader/applied authority; unchanged fences
+still refuse. A received worker error or lost reply supplies no such proof and
+cannot re-enter initialization. Waiting uses the existing controller progress
+signal and node budgets, with no additional per-cell scheduler.
+
+The archive owner rejects a cut below a waiting command's committed log position
+before retained-cut validation or receipt worker admission. When an older held
+proof prevents a new allocation, that bound also avoids replaying an ineligible
+head. This only defers impossible proof work: current birth/journal ownership,
+complete physical coverage and the exact archived receipt still authorize every
+S3 response. Lookup and enrollment requests retain their full verification path.
+Pending publication intents still reconcile, and held proofs retain the existing
+current-plus-retiring allocation bound.
+
+After the current owner has physically verified its head, retirement-only work
+may finish with an advisory marker when no output waits, no publication intent
+remains and local apply is covered. That result carries no physical proof and
+cannot settle a response or advance compaction. Initial registration, restart
+and foreground S3 requests retain actual verification; idle groups retain no
+additional image pins or replay slots. Duplicate enrollment responses may share
+the same still-live verified cut while retaining separate response admission.
 
 ## Sequences and retained obligations
 
@@ -290,9 +331,24 @@ errors retain their typed causes in the reconciliation log.
 
 Orphaned resolved intents are removed without releasing a
 lane that a newer call has reused. Every failed turn rediscovers committed state;
-it never resumes an arbitrary Rust callback. The connected runtime qualification fails its combined gate; see the
-[current checkpoint](progress.md#cg-17-connected-binding-recovery-qualification).
-These contracts do not constitute a primitive-family pass.
+it never resumes an arbitrary Rust callback. The retained-restart binding gate
+passes all eight native/RustFS configurations at `25d81992`; see the
+[current checkpoint](progress.md#cg-17-binding-deadlines-and-archive-tails).
+Full primitive-family and combined recovery qualification remain open.
+
+## SQL writer and maintenance progress
+
+A logical SQL writer release can happen without a Raft apply. The node-wide
+SQL owner publishes that release after dropping its admission mutex. A waiting
+foreground command or enrollment subscribes before checking authority and may
+wait only after explicit refusal before enqueue. It retains its original
+identity, captured inputs, deadline and physical reservations and reacquires
+current authority; an entered initializer or unknown producer is not retried.
+
+Private binding claim, settlement and sequence-seal commands yield on a proven
+pre-enqueue writer refusal. The durable maintenance owner rereads committed
+state on a later turn; it cannot replay an expired business callback or declare
+an unknown result failed. No per-idle-cell watcher or task is introduced.
 
 ## Archive publication scheduling
 
@@ -343,6 +399,28 @@ Full primitive-family and combined lifecycle qualification remain open; see the
 
 ## Remaining qualification and delivery
 
+See the [current binding/SQL/KV and archive checkpoint](progress.md#cg-17-binding-deadlines-and-archive-tails) for exact executed results and retained failures. Full target-S3, interruption, lifecycle and combined recovery gates remain required.
+
+
+At `4d6f7d2f`, the real TLS competing-creator test passes matching creation,
+conflicting incarnation and original-deadline scenarios in both image modes.
+Eight existing enrollment safety tests and the six selected native primitive/
+archive guards pass. Live named bindings pass **7/8 native/RustFS
+configurations**; materialized S3 still misses its five-second parent deadline
+after both child calls return. Interrupted recovery and sequence sealing pass
+**8/8**. Real RustFS enrollment proof and deadline/cancellation guards pass six
+scenarios. The current Queue deadline remains failed. Preserve these limits;
+see the [current results](progress.md#cg-17-bounded-competing-enrollment).
+
+At runtime `9f6a5d08`, named bindings and interrupted recovery/sequence sealing
+each pass all eight native/RustFS image/source-durability configurations under
+the original budgets. The canonical real-RustFS SQL SDK/operator/CLI paths pass
+four image/ingress configurations and eight interrupted success/error recovery
+configurations. Canonical RustFS KV passes four image/ingress configurations
+with the same frozen runtime/CLI; qualification-only `1bda606a` captures diagnostics
+without weakening the strict exact-case verifier. See the
+[earlier results](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
+
 The focused public regression exercises ordinary named calls, repeated calls,
 multiple destinations, owned structured values, recursive self-calls with live
 SQL cursors, transaction refusal, cancellation, exact receipt replay and retained
@@ -350,13 +428,15 @@ RF3 restart. It uses both image forms and source Quorum/S3 requests against a ta
 whose minimum is Quorum. It does not qualify a target namespace with an S3 minimum,
 cross-class namespace selection or concurrent creation.
 
-Autonomous reconciliation and sequence sealing now have a connected implementation;
-process-loss qualification, deadline/refusal exhaustion, capacity, leader-loss
-and movement/wake/disaster qualification remain required. SQL/KV bindings, committed due work and the remaining public/provider
-primitive adapters are separate unfinished deliveries. Do not claim the full
+Autonomous reconciliation and sequence sealing have scoped retained-restart
+qualification; independent process-loss, deadline/refusal exhaustion, capacity,
+leader-loss and movement/wake/disaster qualification remain required. SQL/KV
+adapters pass the scoped public paths above, with remaining lifecycle gates.
+Committed due work and the remaining public/provider primitive adapters are
+unfinished deliveries. Do not claim the full
 HTTP/RPC primitive-family case from a focused binding pass.
 
-The current per-configuration report at `9e02f3f6` passes Quorum source requests
+The earlier per-configuration report at `9e02f3f6` passes Quorum source requests
 in both image forms on native storage and real RustFS. S3 source requests fail
 in both forms under the original five-second deadlines. The target namespace
 minimum in these cases is Quorum. The combined binding case remains failed;

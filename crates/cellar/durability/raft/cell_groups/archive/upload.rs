@@ -185,6 +185,13 @@ impl CellGroupArchiveUpload {
         self.0.source_budget.clone()
     }
 
+    pub(super) fn inherits_root(&self, descriptor: &Descriptor) -> bool {
+        self.0.inherited.objects.contains(&super::graph::Key {
+            kind: Kind::Roots,
+            object: descriptor.object.clone(),
+        })
+    }
+
     pub(super) fn allows(&self, graph: &Graph) -> Result<()> {
         if graph.objects.iter().any(|key| {
             key.object.generation != self.0.ticket.generation()

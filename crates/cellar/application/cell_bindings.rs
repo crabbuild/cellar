@@ -3,7 +3,7 @@
 //! Ordinary cell bindings retain their host, incarnation and child identity
 //! contracts separately from the source invocation's own durability proof.
 
-use super::storage::RaftDispatch;
+use super::storage::{RaftDispatch, RaftDispatchIo};
 use super::{consensus::*, HandlerFuture};
 use super::{Context, Storage};
 use crate::engine_api::RpcData;
@@ -33,6 +33,22 @@ pub(crate) struct Route {
 pub(crate) type BufferLease = Arc<dyn Send + Sync>;
 
 pub(crate) trait Host: Send + Sync {
+    /// A pending data locator from an already applied target. This performs no
+    /// I/O or enrollment and grants no execution or publication authority.
+    fn prepare_kv_payload(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        digest: [u8; 32],
+        length: u64,
+    ) -> Result<
+        Option<(
+            CellHistory,
+            crate::raft::cell_groups::CellGroupPayloadReference,
+        )>,
+    >;
+
     fn kv_payload_store(
         &self,
         source: &CellHistory,
@@ -362,16 +378,18 @@ pub(crate) fn rpc(
             move |intent| {
                 let identity = intent.child;
                 *observed_command.lock().unwrap() = Some(identity);
-                let call = dispatch.try_schedule(move |_| {
+                let call = dispatch.try_schedule_binding(move |io| async move {
                     run(
                         action_source,
                         storage,
                         intent,
                         action,
+                        io,
                         observed,
                         observed_command,
-                        lease,
                     )
+                    .await
+                    .map(|value| (value, lease))
                 })?;
                 Ok((identity, call))
             },
@@ -414,26 +432,51 @@ async fn run(
     storage: Storage,
     mut intent: Intent,
     dispatch: RaftDispatch,
+    io: RaftDispatchIo,
     selected: Arc<Mutex<Option<CellHistory>>>,
     command: Arc<Mutex<Option<CommandId>>>,
-    lease: BufferLease,
-) -> Result<(RpcData, BufferLease)> {
+) -> Result<RpcData> {
     // The Prepared source proof already authorizes this exact candidate and
     // creation ID. A hint exists only after a verified target receipt in this
     // same invocation; it never survives a request, movement or restart.
     let history = if !intent.enroll {
         intent.candidate.clone()
     } else {
-        match source
-            .host
-            .enroll(
-                intent.candidate.clone(),
-                intent.creation,
-                intent.route.durability,
-                dispatch.remaining_timeout()?,
-            )
-            .await
-        {
+        let mut noted = false;
+        let enrolled = loop {
+            let result = source
+                .host
+                .enroll(
+                    intent.candidate.clone(),
+                    intent.creation,
+                    intent.route.durability,
+                    dispatch.remaining_timeout()?,
+                )
+                .await;
+            let overloaded = result
+                .as_ref()
+                .err()
+                .and_then(|cause| cause.downcast_ref::<Arc<CellEnrollmentError>>())
+                .is_some_and(|error| {
+                    !error.ambiguous
+                        && matches!(
+                            error.cause.as_ref(),
+                            CellDispatchError::Runtime(RuntimeError::Overloaded)
+                        )
+                });
+            if !overloaded {
+                break result;
+            }
+            // A local overload proved no initializer entered. Retain the
+            // durable source intent, candidate and creation ID. Unknown or
+            // transmitted enrollments never enter this wait.
+            if !noted {
+                tracing::debug!(target: "cellar::raft::enrollment", phase = "binding-admission-wait", creation = ?intent.creation);
+                noted = true;
+            }
+            dispatch.wait_admission().await?;
+        };
+        match enrolled {
             Ok(()) => intent.candidate.clone(),
             Err(error) => match source
                 .host
@@ -448,10 +491,12 @@ async fn run(
     if history != intent.candidate {
         // A different existing creator needs its own durable selection before
         // any business callback. Never retarget an unknown dispatched command.
+        io.resume_writer().await?;
         crate::storage::raft_bindings::select(&mut intent, &history)?;
         *command.lock().unwrap() = Some(intent.child);
         storage.sync().await?;
     }
+    io.begin_io()?;
     *selected.lock().unwrap() = Some(history.clone());
     let mut options = CommandOptions::new(intent.child, intent.retry_until_ms);
     options.timeout = dispatch.remaining_timeout()?;
@@ -493,6 +538,7 @@ async fn run(
                     && receipt.durability >= intent.route.durability,
                 CommandFailure::CorruptState
             );
+            io.resume_writer().await?;
             crate::storage::raft_bindings::complete(&intent, &history, &receipt.result)?;
             // This is private continuation state. Another effect must prove it
             // before dispatch; the final source response also waits for proof.
@@ -503,10 +549,7 @@ async fn run(
                     _lease: memory,
                 });
             }
-            Ok((
-                super::consensus::native_rpc::decode_response(&receipt.result)?,
-                lease,
-            ))
+            super::consensus::native_rpc::decode_response(&receipt.result)
         }
         Err(cause) => {
             *source.hint.lock().unwrap() = None;
@@ -516,6 +559,7 @@ async fn run(
             if known {
                 // Non-admission did not consume the target sequence. Preserve
                 // that reservation until target reconciliation can seal it.
+                io.resume_writer().await?;
                 crate::storage::raft_bindings::refuse(&intent, &history)?;
                 storage.sync().await?;
             }

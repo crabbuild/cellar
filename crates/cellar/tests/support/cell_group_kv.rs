@@ -10,7 +10,40 @@ mod cli;
 const SCRIPT: &str = "kv-binding-service";
 const NAMESPACE: &str = "shared/cache";
 
-struct Caller(Arc<AtomicUsize>);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Coverage {
+    Api,
+    Chained,
+    Preparation,
+    Streaming,
+}
+
+impl Coverage {
+    fn focused(self) -> bool {
+        matches!(self, Self::Preparation | Self::Streaming)
+    }
+}
+
+fn preparations(cluster: &ManagedCluster, name: &str) -> Result<u64> {
+    cluster.hosts.iter().try_fold(0_u64, |sum, host| {
+        let snapshot = host.performance();
+        ensure!(snapshot.available && !snapshot.saturated);
+        let value = snapshot
+            .counters
+            .iter()
+            .find(|counter| counter.name == name)
+            .context("KV preparation performance counter")?
+            .value;
+        sum.checked_add(value)
+            .context("KV preparation counter overflow")
+    })
+}
+
+fn local_preparations(cluster: &ManagedCluster) -> Result<u64> {
+    preparations(cluster, "cell_kv_local_payload_preparations")
+}
+
+struct Caller(Arc<AtomicUsize>, Storage);
 
 async fn operation(context: &Context, method: &str) -> Result<serde_json::Value> {
     let namespace = context.kv("KV")?;
@@ -209,6 +242,9 @@ impl Cell for Caller {
                 let part: String = serde_json::from_str(&args)?;
                 kv_contract::phase(&context, &context.kv("KV")?, &part).await?;
                 json!(true)
+            } else if method == "ProofGuard" {
+                self.1.put_json("proof-guard", &json!(true))?;
+                operation(&context, "Boundary").await?
             } else {
                 operation(&context, &method).await?
             };
@@ -234,6 +270,7 @@ fn application(
         "ContractPart",
         "Unconfirmed",
         "Aggregate",
+        "ProofGuard",
     ]
     .into_iter()
     .enumerate()
@@ -264,7 +301,9 @@ fn application(
                 }))
             })
         })
-        .raft_cell(class, move |_, _| Ok(Arc::new(Caller(calls.clone()))))?,
+        .raft_cell(class, move |context, _| {
+            Ok(Arc::new(Caller(calls.clone(), context.storage()?)))
+        })?,
     );
     let mut declared = configuration::options(SCRIPT);
     declared.do_classes = vec!["Counter".into(), cellar::deploy::KV_CLASS.into()];
@@ -375,14 +414,22 @@ async fn operator_contract(cluster: &ManagedCluster) -> Result<serde_json::Value
 }
 
 pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
-    qualify_case(real_rustfs, external, false).await
+    qualify_case(real_rustfs, external, Coverage::Api).await
 }
 
 pub async fn qualify_chained(real_rustfs: bool) -> Result<()> {
-    qualify_case(real_rustfs, false, true).await
+    qualify_case(real_rustfs, false, Coverage::Chained).await
 }
 
-async fn qualify_case(real_rustfs: bool, external: bool, chained: bool) -> Result<()> {
+pub async fn qualify_preparation() -> Result<()> {
+    qualify_case(false, false, Coverage::Preparation).await
+}
+
+pub async fn qualify_streaming() -> Result<()> {
+    qualify_case(false, false, Coverage::Streaming).await
+}
+
+async fn qualify_case(real_rustfs: bool, external: bool, coverage: Coverage) -> Result<()> {
     let mut failures = Vec::new();
     for rooted in [false, true] {
         let result = async {
@@ -403,15 +450,30 @@ async fn qualify_case(real_rustfs: bool, external: bool, chained: bool) -> Resul
             } else {
                 Arc::new(catalog_fault::Store::default())
             };
-            Box::pin(run(rooted, store, backend.as_ref(), external, chained)).await
+            if coverage == Coverage::Streaming {
+                store
+                    .cell_payload_chunk_bytes
+                    .store(16 * 1024, Ordering::Release);
+            }
+            Box::pin(run(rooted, store, backend.as_ref(), external, coverage)).await
         }
         .await;
         match result {
             Ok(()) => {
-                eprintln!("KV binding RustFS={real_rustfs} extents={rooted} Axum={external}: PASS")
+                let kind = if coverage == Coverage::Preparation {
+                    "preparation"
+                } else {
+                    "binding"
+                };
+                eprintln!("KV {kind} RustFS={real_rustfs} extents={rooted} Axum={external}: PASS")
             }
             Err(error) => {
-                eprintln!("KV binding RustFS={real_rustfs} extents={rooted} Axum={external}: FAILED: {error:#}");
+                let kind = if coverage == Coverage::Preparation {
+                    "preparation"
+                } else {
+                    "binding"
+                };
+                eprintln!("KV {kind} RustFS={real_rustfs} extents={rooted} Axum={external}: FAILED: {error:#}");
                 failures.push(format!("extents={rooted}: {error:#}"));
             }
         }
@@ -429,7 +491,7 @@ async fn run(
     store: Arc<catalog_fault::Store>,
     backend: Option<&rustfs::StoreConfig>,
     external: bool,
-    chained: bool,
+    coverage: Coverage,
 ) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let (application, declared) = application(calls.clone())?;
@@ -499,6 +561,7 @@ async fn run(
                 Ok::<_, anyhow::Error>(())
             })
             .await??;
+            if !coverage.focused() {
             public_ok(&cluster, 0, "Contract").await?;
             public_ok(&cluster, 2, "Write").await?;
             public_ok(&cluster, 1, "Refused").await?;
@@ -506,6 +569,9 @@ async fn run(
             public_ok(&cluster, 0, "Boundary").await?;
             if let Some(backend) = backend {
                 cli::run(&cluster, backend).await?;
+            }
+            } else {
+                public_ok(&cluster, leader, "Write").await?;
             }
             let token = operator_contract(&cluster).await?;
             let namespace = cellar_native::cell_id::Namespace::new(
@@ -529,7 +595,7 @@ async fn run(
                 )
                 .await?;
             let mut sequence = 1;
-            if !chained {
+            if coverage == Coverage::Api {
                 for part in kv_contract::PARTS {
                     let mut options = bindings::options(sequence, Durability::Quorum)?;
                     options.timeout = Duration::from_secs(20);
@@ -560,7 +626,8 @@ async fn run(
                 "Unconfirmed",
                 "Delete",
             ] {
-                if method == "Contract" && !chained {
+                if (method == "Contract" && coverage != Coverage::Chained)
+                    || (coverage.focused() && method != "Large") {
                     continue;
                 }
                 let mut options = bindings::options(sequence, Durability::Quorum)?;
@@ -569,6 +636,7 @@ async fn run(
                 options.timeout = Duration::from_secs(20);
                 let puts_before = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire);
                 let bytes_before = cluster.fixtures[0].store.cell_payload_put_bytes.load(Ordering::Acquire);
+                let preparations_before = local_preparations(&cluster)?;
                 let start = cellar::asyncrt::mono_ms();
                 let reply = source
                     .command(&source.contract(method)?, b"null".to_vec(), options)
@@ -585,11 +653,58 @@ async fn run(
                     ensure!(puts == 1 && bytes == cellar_logic::kv::MAX_VALUE_BYTES,
                         "large SDK put/get duplicated payload publication: calls={puts} bytes={bytes}");
                     eprintln!("large KV immutable publication: calls={puts} bytes={bytes}");
+                    ensure!(local_preparations(&cluster)? == preparations_before + 1,
+                        "warm SDK value still required a preparation command");
                 }
                 sequence += 1;
             }
-            if let Some(backend) = backend { cli::large(&cluster, backend).await?; public_ok(&cluster, 2, "ReadCliLarge").await?; }
+            if let Some(backend) = backend {
+                let before = local_preparations(&cluster)?;
+                cli::large(&cluster, backend).await?;
+                ensure!(local_preparations(&cluster)? == before + 1,
+                    "warm operator value still required a preparation command");
+                public_ok(&cluster, 2, "ReadCliLarge").await?;
+            }
+            if coverage != Coverage::Streaming {
+            // A locator from applied metadata cannot authorize external I/O.
+            // The warm path must still wait for this source's new S3 proof.
+            let proof_source = cluster.hosts[leader].cell(CellHistory {
+                cluster: group.cluster,
+                namespace: group.namespace,
+                cell: CellId::new(namespace.id_from_name("payload-proof-source").scope())?,
+                incarnation: IncarnationId::new([53; 16])?,
+            })?;
+            proof_source.enroll(CellEnrollmentRequest {
+                creation: ProposalId::new([54; 16])?, durability: Durability::Quorum,
+            }, TIMEOUT).await?;
+            let preparation_before = local_preparations(&cluster)?;
+            let puts_before = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire);
+            let denied_before = cluster.fixtures[0].store.denied_group_archive_writes.load(Ordering::Acquire);
+            cluster.fixtures[0].store.deny_group_archive_writes.store(true, Ordering::Release);
+            let refused = proof_source.command(&proof_source.contract("ProofGuard")?,
+                b"null".to_vec(), bindings::options(1, Durability::S3)?).await;
+            let published = cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire);
+            let denied = cluster.fixtures[0].store.denied_group_archive_writes.load(Ordering::Acquire);
+            let preparations_after = local_preparations(&cluster);
+            cluster.fixtures[0].store.deny_group_archive_writes.store(false, Ordering::Release);
+            ensure!(refused.is_err(), "unproved S3 source published a KV value");
+            ensure!(preparations_after? == preparation_before + 1, "S3 guard did not reach warm preparation");
+            ensure!(denied > denied_before, "S3 guard did not reach the actual archive adapter");
+            ensure!(published == puts_before, "warm locator bypassed source publication proof");
+            let cold_before = preparations(&cluster, "cell_kv_resolved_payload_preparations")?;
+            let local_before = local_preparations(&cluster)?;
             public_ok(&cluster, 0, "PublicLarge").await?;
+            let cold = preparations(&cluster, "cell_kv_resolved_payload_preparations")? - cold_before;
+            let local = local_preparations(&cluster)? - local_before;
+            ensure!(cold + local == 1, "public large value did not use one pending preparation");
+            // Full conformance enrolled SIDE during Isolation; the focused
+            // window deliberately leaves it cold and requires enrollment.
+            if coverage == Coverage::Preparation {
+                ensure!(cold == 1, "cold ingress bypassed its enrollment path");
+            }
+            ensure!(cluster.fixtures[0].store.cell_payload_put_calls.load(Ordering::Acquire) == puts_before + 1,
+                "expired source upload started after restoring its archive provider");
+            }
             for host in &cluster.hosts {
                 let usage = host
                     .resource_usage()
@@ -600,6 +715,9 @@ async fn run(
                     usage.operations == 0 && usage.retained_bytes == 0,
                     "KV transport leaked payload admission: {usage:?}"
                 );
+            }
+            if coverage.focused() {
+                return Ok(());
             }
             let duplicate_options = bindings::options(sequence, Durability::Quorum)?;
             let duplicate = source

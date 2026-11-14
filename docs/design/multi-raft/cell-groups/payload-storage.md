@@ -39,23 +39,50 @@ tunnel the private operator contract. The caller's one original deadline covers
 preparation, publication, the actual child call and reply expansion; no phase
 receives a fresh budget.
 
-A prepared descriptor is a pending upload intent, not a confirmed dependency.
-Preparation is a small quorum operation and performs no object I/O. Publication
-checks the prepared writer, logical owner, digest and length and confirms the
-exact bytes before marking the descriptor published. Target execution verifies
+A prepared descriptor is a pending upload locator, not a confirmed dependency.
+Preparation performs no object I/O. An already applied target in the node's
+bounded namespace route cache supplies a pending locator locally, avoiding an
+otherwise redundant preparation command, receipt and source binding intent.
+This observation supplies data keys only: source-proof admission still precedes
+publication, and the actual write resolves/fences its history independently.
+For stateless ingress without applied metadata, the same bounded, cancellable
+routing owner resolves or durably enrolls the target and then constructs the
+pending locator before consuming any command-stream sequence. This preserves
+enrollment durability, competing-creator reconciliation, identity checks and the
+original deadline. Stateful cold callers keep their source-journaled enrollment
+and preparation-command path. Errors do not become cache misses. Fixed counters
+`cell_kv_local_payload_preparations` and `cell_kv_resolved_payload_preparations`
+observe these paths without per-cell labels. Publication checks the prepared
+writer, logical owner, digest and length and confirms the exact bytes before
+marking the descriptor published. Target execution verifies
 the uploaded input and commits an external-value row only after publication.
 Oversized non-value envelopes receive the same immutable treatment. Ordinary
 values above the existing 1-MiB storage threshold use direct value references:
 the SDK publishes bytes before the small child call, and that quorum command
 independently verifies actual complete bytes before installing the row. A read
 commits the exact row reference; the SDK verifies its body before exposing a
-value. The private operator/CLI uses the same path. Value bytes are not repeatedly
-read, encoded and re-published inside a long child RPC. Aggregate value admission
+value. The private operator/CLI stages the authenticated JSON body before native
+RPC encoding and releases its base64 field before publication. Only the compact
+reference enters the native codec. Value bytes are not repeatedly read, encoded
+and re-published inside a long child RPC. Aggregate value admission
 runs before fetching bodies, preserving the native result ceiling.
 
 Small ordinary Quorum calls remain independent of asynchronous archive PUTs;
 large transfers additionally require the payload provider. Caller-supplied
 publication flags and well-formed locators alone never authorize a row.
+
+Payload transfers use an internal I/O-only work kind. It becomes eligible for
+polling without SQLite only after the ordered source checkpoint has its required
+proof and the writer has parked. Stream readiness then polls that owned transfer
+without reopening the image for each body chunk. Ordinary Storage access and
+application continuations still require a resumed writer. Ordinary binding tasks
+also poll their owned remote I/O while parked, then explicitly resume the writer
+before source intent selection, completion or refusal; see the
+[binding contract](named-bindings.md#source-intent-and-target-proof).
+Every transfer poll retains invocation,
+activation, route, term and original-deadline checks. Callback and queue readiness
+unpark the existing SQL worker directly, with no additional queue slots or tasks.
+Cancellation continues dropping the same owned futures and byte reservations.
 
 Managed KV registration requires an explicit node-wide pool admitting the full
 64-MiB native wire ceiling plus framing, decoder workspace and a concurrent
@@ -75,6 +102,10 @@ old images, retained archive cuts, readers, pending uploads or interrupted turns
 All payload objects are retained until a separate collector can enumerate and
 prove retirement of the complete root/pin closure. This preserves recovery bytes
 at the cost of growing remote storage; reclamation remains required work.
+An observed pending locator may be ephemeral: it is neither a durable upload
+lease nor a confirmed recovery dependency. Before collection is introduced,
+framework-owned upload leases and a trusted dependency ledger must protect
+in-flight publication and distinguish it from caller-supplied descriptors.
 
 The owning protocol tests are in `raft_cell_group_payloads`. They exercise native
 storage and an explicitly configured real RustFS backend, including an actual

@@ -86,38 +86,31 @@ pub(super) async fn stage_operator(
     owner: &super::super::consensus::RaftCells,
     scope: &str,
     name: Option<&str>,
-    args: RpcData,
+    mut body: Value,
     deadline: u64,
-) -> Result<RpcData> {
-    let value = decode_rpc(&args)?.to_json()?;
-    let Value::Array(mut arguments) = value else {
-        return Ok(args);
-    };
-    if arguments.len() != 1 {
-        return Ok(args);
-    }
-    let mut body = arguments.remove(0);
+) -> Result<Value> {
     if !matches!(body["op"].as_str(), Some("put-base64" | "edit")) {
-        return Ok(args);
+        return Ok(body);
     }
     let Some(encoded) = body["value"].as_str() else {
-        return Ok(args);
+        return Ok(body);
     };
     if encoded.len() <= policy::MAX_INLINE_VALUE_BYTES {
-        return Ok(args);
+        return Ok(body);
     }
     let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(encoded) else {
-        return Ok(args);
+        return Ok(body);
     };
     if bytes.len() <= policy::MAX_INLINE_VALUE_BYTES || bytes.len() > policy::MAX_VALUE_BYTES {
-        return Ok(args);
+        return Ok(body);
     }
-    drop(args);
+    // Discard the base64 allocation before publication. Only the compact
+    // descriptor enters StructuredValue and the native RPC codec below.
+    body["value"] = Value::Null;
     let reference =
         raft_wire::publish_admin_bytes(owner, scope, name, bytes.into(), deadline).await?;
-    body["value"] = Value::Null;
     body["externalValue"] = json!(reference);
-    encode_rpc(&StructuredValue::from_json(json!([body]))?)
+    Ok(body)
 }
 
 pub(super) async fn expand_operator(

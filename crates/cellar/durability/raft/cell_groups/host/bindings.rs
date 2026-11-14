@@ -14,6 +14,70 @@ enum Access {
 }
 
 impl CellGroupHost {
+    pub(crate) fn prepare_binding_kv_payload(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        digest: [u8; 32],
+        length: u64,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Option<(CellHistory, CellGroupPayloadReference)>, CellDispatchError> {
+        let route = self.binding_route(
+            source,
+            configuration,
+            scope,
+            crate::application::kv::raft_wire::PREPARE,
+            log,
+        )?;
+        self.prepare_kv_payload(&route, digest, length, log)
+    }
+
+    pub(crate) fn prepare_ingress_kv_payload(
+        &self,
+        scope: &str,
+        digest: [u8; 32],
+        length: u64,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Option<(CellHistory, CellGroupPayloadReference)>, CellDispatchError> {
+        let route = self.kv_route(
+            scope,
+            crate::application::kv::raft_wire::PREPARE,
+            log,
+            Access::Binding,
+        )?;
+        self.prepare_kv_payload(&route, digest, length, log)
+    }
+
+    fn prepare_kv_payload(
+        &self,
+        route: &Route,
+        digest: [u8; 32],
+        length: u64,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Option<(CellHistory, CellGroupPayloadReference)>, CellDispatchError> {
+        let Some(history) = &route.history_hint else {
+            return Ok(None);
+        };
+        // This observation may select only immutable data keys. Publication
+        // still follows source-proof admission; the actual write independently
+        // resolves/fences its current history and verifies complete bytes.
+        let store = self.kv_store_for_route(history, route)?;
+        let reference = store
+            .prepare_reference(history, digest, length)
+            .map_err(|error| {
+                CellDispatchError::Invalid(match error {
+                    crate::raft::cell_groups::CellGroupPayloadError::Invalid(reason) => reason,
+                    _ => "KV payload preparation",
+                })
+            })?;
+        log.performance().increment(
+            crate::raft::performance::Counter::CellKvLocalPayloadPreparations,
+            1,
+        );
+        Ok(Some((history.clone(), reference)))
+    }
+
     pub(crate) fn kv_binding_payload_store(
         &self,
         source: &CellHistory,
@@ -165,6 +229,40 @@ impl CellGroupHost {
         let mut route = route(target_key, target, scope, method, Access::Binding)?;
         route.history_hint = target.dispatcher.applied_history_hint(log, &route.cell)?;
         Ok(route)
+    }
+
+    /// A stateless native caller can select only its immutable deployment's
+    /// declared factory. Multiple loaded namespaces remain ambiguous.
+    pub(crate) fn native_ingress_route(
+        &self,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let class = scope
+            .split_once(':')
+            .map(|(class, _)| class)
+            .ok_or(CellDispatchError::Invalid("native ingress scope"))?;
+        let mut candidates = self.inner.namespaces.iter().filter(|(_, binding)| {
+            binding.class.name() == class
+                && binding.class.cell_configuration_digest() == Some(configuration)
+                && binding.class.has_native_ingress()
+        });
+        let (key, target) = candidates.next().ok_or(CellDispatchError::Invalid(
+            "declared native namespace is missing",
+        ))?;
+        if candidates.next().is_some() {
+            return Err(CellDispatchError::Invalid(
+                "declared native namespace is ambiguous",
+            ));
+        }
+        let mut selected = route(*key, target, scope, method, Access::Binding)?;
+        selected.history_hint = target
+            .dispatcher
+            .applied_history_hint(log, &selected.cell)?;
+        Ok(selected)
     }
 
     /// Stateless SQL has no source namespace. A global database identity must

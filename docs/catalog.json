@@ -697,6 +697,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/durable-alarms.md",
+      "title": "Ordinary durable alarms and native ingress",
+      "summary": "Shared-group alarm and stateless named-cell ownership and qualification boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/named-bindings.md",
       "title": "Ordinary named-cell binding delivery",
       "summary": "Durable child identities, public adapters and remaining qualification boundaries.",

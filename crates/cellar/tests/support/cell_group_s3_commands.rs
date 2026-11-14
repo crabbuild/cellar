@@ -835,8 +835,37 @@ pub(crate) async fn s3_deadline(
     h.close().await
 }
 
+pub(crate) async fn archive_hot_cell_tail_bound(rooted: bool) -> Result<()> {
+    let h = Harness::new(rooted, Arc::new(object_store::memory::InMemory::new()), 1).await?;
+    let work = async {
+        for sequence in 1..=3 {
+            let response = h.command(sequence, b"hot", Durability::Quorum, Duration::from_secs(15))
+                .await?.response().await?;
+            let cut = response.local_receipt().context("hot cell receipt")?.position.index;
+            drop(response);
+            archive_controller::published(&h.controllers[0], h.route.history, cut).await?;
+            let coverage = archive_controller::verified_current(
+                &h.fixture, &h.archive, rooted, &format!("hot-cell-tail-{sequence}"),
+            ).await?;
+            let base = coverage.recovery().checkpoint().checkpoint().marker().position().index;
+            let span = cut.get() - base.get();
+            let cells = u64::from(coverage.marker().root().cells());
+            anyhow::ensure!(span <= cells.max(1),
+                "hot-cell archive replay exceeds one transition per cell: span={span} cells={cells}");
+            let (_, pin) = coverage.recovery().manifest().pin_cell(&h.cell.cell)
+                .context("recovered hot cell")?;
+            h.fixture.cluster.domain.blocking(move || dependencies::image_value(pin, sequence))?.await??;
+        }
+        anyhow::ensure!(h.calls.load(Ordering::SeqCst) == 3, "archive replay re-entered callbacks");
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    h.close().await?;
+    work
+}
+
 pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
     let h = Harness::new(rooted, store, 1).await?;
+    let sibling_index = dependencies::mutate_sibling(&h).await?;
     let result = h
         .command(1, b"first", Durability::Quorum, Duration::from_secs(15))
         .await?
@@ -854,57 +883,18 @@ pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>
         .context("published archive")?
         .published
         .context("archive marker")?;
-    let objects = h.remote.list(None).try_collect::<Vec<_>>().await?;
-    let mut missing = None;
-    for object in objects
-        .iter()
-        .filter(|object| object.location.as_ref().contains("/indexes/"))
-    {
-        let value: serde_json::Value =
-            serde_json::from_slice(&h.remote.get(&object.location).await?.bytes().await?)?;
-        let Some(chunks) = value.get("chunks").and_then(|v| v.as_array()) else {
-            continue;
-        };
-        let selected: GroupManifest = serde_json::from_value(value["marker"].clone())?;
-        if selected != marker {
-            continue;
-        }
-        let prefix = object
-            .location
-            .as_ref()
-            .split_once("/generations/")
-            .context("generation prefix")?
-            .0;
-        let path = |chunk: &serde_json::Value| -> Result<ObjectPath> {
-            let object = &chunk["object"];
-            let digest: Vec<u8> = serde_json::from_value(object["digest"].clone())?;
-            Ok(ObjectPath::from(format!(
-                "{prefix}/generations/{}/chunks/{}-{}",
-                object["generation"],
-                object["length"],
-                hex::encode(digest)
-            )))
-        };
-        let a = chunks
-            .iter()
-            .filter(|chunk| chunk["part"]["cell"] == "registered-a")
-            .map(&path)
-            .collect::<Result<Vec<_>>>()?;
-        for chunk in chunks
-            .iter()
-            .filter(|chunk| chunk["part"]["cell"] == "registered-b")
-        {
-            let candidate = path(chunk)?;
-            if !a.contains(&candidate) {
-                missing = Some(candidate);
-                break;
-            }
-        }
-        if missing.is_some() {
-            break;
-        }
-    }
-    let missing = missing.context("B dependency outside A closure")?;
+    anyhow::ensure!(sibling_index < index);
+    let coverage = archive_controller::verified_current(
+        &h.fixture,
+        &h.archive,
+        rooted,
+        "missing-sibling-fault",
+    )
+    .await?;
+    anyhow::ensure!(coverage.marker() == &marker);
+    let missing =
+        dependencies::sibling_dependency(&h, coverage.hold(), sibling_index, rooted).await?;
+    drop(coverage);
     h.remote.inner.delete(&missing).await?;
     // A still has its committed receipt. A cached published marker must not
     // acknowledge it while any other cell's selected dependency is missing.
@@ -934,7 +924,8 @@ pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>
             .result(),
         b"second"
     );
-    assert_eq!(h.calls.load(Ordering::SeqCst), 2);
+    // B mutation, A original, and the later A quorum successor each enter once.
+    assert_eq!(h.calls.load(Ordering::SeqCst), 3);
     drop(result);
     h.close().await
 }

@@ -427,6 +427,22 @@ async fn controller_archive_publishes_stable_cuts_while_quorum_advances() -> Res
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_archive_extends_committed_tails_and_rolls_checkpoints() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_tail_rollover(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_archive_bounds_hot_cell_replay_work() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_hot_cell_tail_bound(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn controller_archive_reconciles_exact_intent_and_joins_close() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::archive_controller_reconcile(rooted)).await?;

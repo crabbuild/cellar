@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 
 mod cursor;
 mod dispatch;
-pub(crate) use dispatch::{RaftDispatch, RaftDispatchContext, RaftDispatchPermit};
+pub(crate) use dispatch::{RaftDispatch, RaftDispatchContext, RaftDispatchIo, RaftDispatchPermit};
 mod inbox;
 mod outbox;
 mod outbox_inspection;
@@ -753,7 +753,7 @@ impl Storage {
     pub fn get_alarm(&self) -> Result<Option<i64>> {
         if self.is_raft() {
             self.data_scope()?;
-            return crate::storage::raft_native_work(|db| consensus::native_work::get(db, "alarm"));
+            return crate::storage::raft_visible_alarm();
         }
         Ok(crate::storage::get_alarm(self.scope()?))
     }

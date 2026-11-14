@@ -48,6 +48,7 @@ pub(crate) struct NativeWorker {
     config: Arc<WorkerConfig>,
     application: Arc<dyn Application>,
     rpc_catalog: Option<Arc<crate::application::rpc::Catalog>>,
+    raft_cell_classes: Arc<std::collections::BTreeMap<String, [u8; 32]>>,
     registry: Arc<ContextRegistry>,
     instances: HashMap<String, Arc<dyn Cell>>,
     activations: HashMap<String, Arc<Activation>>,
@@ -240,6 +241,29 @@ impl NativeWorker {
                 .iter()
                 .map(|binding| binding.class.as_str()),
         )?;
+        let mut raft_cell_classes = std::collections::BTreeMap::new();
+        for class in config
+            .do_classes
+            .iter()
+            .chain(config.bindings.iter().map(|(_, class)| class))
+        {
+            if crate::deploy::is_reserved_class(class) {
+                continue;
+            }
+            if let Ok(definition) = application.resolve_raft_class(class) {
+                if definition.has_cell_factory() {
+                    anyhow::ensure!(
+                        definition.has_native_ingress(),
+                        crate::application::consensus::RegistrationError::ContractMismatch
+                    );
+                    let digest = definition.cell_configuration_digest().ok_or(
+                        crate::application::consensus::RegistrationError::ContractMismatch,
+                    )?;
+                    raft_cell_classes.insert(class.clone(), digest);
+                }
+            }
+        }
+        let raft_cell_classes = Arc::new(raft_cell_classes);
         let registry = Arc::new(ContextRegistry::default());
         let vars = Arc::new(config.vars.iter().cloned().collect());
         let sql_bindings = Arc::new(config.sql_bindings.iter().cloned().collect());
@@ -301,6 +325,7 @@ impl NativeWorker {
             cells: storage::Cells::default(),
             application,
             rpc_catalog,
+            raft_cell_classes,
             config,
             registry,
             vars,
@@ -441,6 +466,8 @@ impl NativeWorker {
             });
         }
         let state = Arc::new(EventState {
+            raft_cell_classes: (!self.raft_cell_classes.is_empty())
+                .then(|| self.raft_cell_classes.clone()),
             raft_sql: self
                 .application
                 .resolve_raft_class(crate::deploy::SQL_CLASS)
@@ -2085,9 +2112,14 @@ pub(crate) fn rpc_cell(
             (class == crate::deploy::SQL_CLASS && context.state.raft_sql)
                 || (class == crate::deploy::QUEUE_CLASS && context.state.raft_queue)
                 || (class == crate::deploy::KV_CLASS && context.state.raft_kv)
+                || context
+                    .state
+                    .raft_cell_classes
+                    .as_ref()
+                    .is_some_and(|classes| classes.contains_key(class))
         })
     {
-        return crate::application::sql::ingress::rpc(
+        return crate::application::consensus::native_ingress::rpc(
             context, scope, name, method, args, call_scope,
         );
     }

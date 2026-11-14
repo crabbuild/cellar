@@ -24,6 +24,8 @@ pub mod catalog_fault;
 // The host fixture controls wall clocks, test processes and on-disk faults.
 #[path = "support/cell_group_activations.rs"]
 mod activations;
+#[path = "support/cell_group_alarms.rs"]
+mod alarms;
 #[path = "support/cell_group_binding_recovery.rs"]
 mod binding_recovery;
 #[path = "support/cell_group_bindings.rs"]
@@ -65,6 +67,28 @@ mod sql_cursors;
 mod sql_exec_batches;
 #[path = "support/raft_storage_fault.rs"]
 pub mod storage_fault;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordinary_alarms_recover_through_shared_quorum() -> Result<()> {
+    alarms::qualify(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_stateless_cell_ingress_refuses_missing_or_ambiguous_namespaces() -> Result<()> {
+    alarms::qualify_admission().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_ordinary_alarms_recover_through_shared_quorum() -> Result<()> {
+    alarms::qualify(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_alarms_recover_through_shared_quorum() -> Result<()> {
+    alarms::qualify(true, true).await
+}
 
 fn update(storage: &Storage, delta: i64) -> Result<i64> {
     storage.tx(|tx| {
@@ -1802,6 +1826,16 @@ async fn rustfs_chained_kv_contract_uses_one_original_parent_deadline() -> Resul
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_kv_bindings_use_managed_shared_groups() -> Result<()> {
     Box::pin(kv_bindings::qualify(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn warm_kv_payloads_preserve_source_proof_and_cold_enrollment() -> Result<()> {
+    Box::pin(kv_bindings::qualify_preparation()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fragmented_kv_payloads_progress_without_reopening_sqlite_per_chunk() -> Result<()> {
+    Box::pin(kv_bindings::qualify_streaming()).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

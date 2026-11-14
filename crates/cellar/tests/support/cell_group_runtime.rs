@@ -944,7 +944,7 @@ pub(super) use sql::{
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
-    archived_groups_reclaim_independently,
+    archive_controller_tail_rollover, archived_groups_reclaim_independently,
 };
 #[allow(unused_imports)]
 pub(super) use sql::{
@@ -953,13 +953,13 @@ pub(super) use sql::{
 };
 #[allow(unused_imports)]
 pub(super) use sql::{
-    archive_dependencies, archive_progress_wakes_commands, follower_acquires_published_prefix,
-    follower_bootstraps_first_prefix, full_backend_outage, output_during_apply,
-    peer_connection_idle, s3_commands, s3_deadline, s3_enrollment, s3_enrollment_deadline,
-    s3_late_receipt_uses_completed_verification, s3_missing_sibling, s3_namespace_minimum,
-    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
-    s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery, s3_replays_from_peer_archive,
-    s3_response_precedes_hold_retirement,
+    archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
+    follower_acquires_published_prefix, follower_bootstraps_first_prefix, full_backend_outage,
+    output_during_apply, peer_connection_idle, s3_commands, s3_deadline, s3_enrollment,
+    s3_enrollment_deadline, s3_late_receipt_uses_completed_verification, s3_missing_sibling,
+    s3_namespace_minimum, s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums,
+    s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery,
+    s3_replays_from_peer_archive, s3_response_precedes_hold_retirement,
 };
 pub(super) use sql::{
     background_admission, command_admission_starts_before_poll, command_waits_for_apply,
@@ -1040,7 +1040,9 @@ pub(super) use sql::cached_dispatch_execution;
 
 pub(super) use sql::{remote_command_lifecycle, remote_commands};
 
-pub(super) use sql::{remote_enrollment, remote_enrollment_lifecycle};
+pub(super) use sql::{
+    remote_enrollment, remote_enrollment_lifecycle, remote_enrollment_writer_contention,
+};
 
 pub(super) use sql::{receipt_lookup_cancelled, receipt_lookup_ingress, receipt_lookup_pending};
 

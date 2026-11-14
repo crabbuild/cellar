@@ -68,7 +68,7 @@ pub(crate) fn rpc(
             "put" => Request::Put(reference, value.context("KV payload bytes")?.into()),
             _ => anyhow::bail!(CommandFailure::UnsupportedCapability),
         };
-        let call = dispatch.schedule(move |timeout| async move {
+        let call = dispatch.schedule_io(move |timeout| async move {
             match request {
                 Request::Get(reference) => Ok(BlobReply::GroupBytes(
                     store

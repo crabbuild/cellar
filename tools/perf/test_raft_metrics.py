@@ -169,7 +169,8 @@ class Measurements(unittest.TestCase):
 
 class ReclamationVocabulary(unittest.TestCase):
     def test_retained_routing_windows_keep_their_complete_source_vocabulary(self):
-        for counter_count in (COUNTERS.index('cell_command_rpc_attempts'), len(COUNTERS) - 6):
+        for counter_count in (COUNTERS.index('cell_command_rpc_attempts'),
+                              COUNTERS.index('cell_group_ticks_executed')):
             raw = observation()
             raw['operations'] = raw['operations'][:-3]
             raw['counters'] = raw['counters'][:counter_count]

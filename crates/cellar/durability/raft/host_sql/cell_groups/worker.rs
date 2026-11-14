@@ -129,14 +129,19 @@ pub(in crate::raft::host_sql) struct Cells {
     pending: BTreeMap<CellHistory, Pending>,
     suspended: VecDeque<rpc::Suspended>,
     activations: Arc<RpcCache>,
+    wake: Arc<crate::raft::host_sql::WorkerWake>,
 }
 
 impl Cells {
-    pub(in crate::raft::host_sql) fn new(activations: Arc<RpcCache>) -> Self {
+    pub(in crate::raft::host_sql) fn new(
+        activations: Arc<RpcCache>,
+        wake: Arc<crate::raft::host_sql::WorkerWake>,
+    ) -> Self {
         Self {
             pending: BTreeMap::new(),
             suspended: VecDeque::new(),
             activations,
+            wake,
         }
     }
 

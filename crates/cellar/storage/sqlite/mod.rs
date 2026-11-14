@@ -22,6 +22,8 @@ pub(crate) use command::bind_storage as bind_raft_command_storage;
 pub(crate) use command::binding_ordinal as next_raft_binding_ordinal;
 pub(crate) use command::capture_dispatch as capture_raft_dispatch;
 pub(crate) use command::commit_work as commit_raft_work;
+pub(crate) use command::dispatch_has_writer as raft_dispatch_has_writer;
+pub(crate) use command::require_dispatch_storage as require_raft_dispatch_storage;
 pub(crate) use command::require_storage as require_raft_command_storage;
 pub(crate) use command::schedule_dispatch_work as schedule_raft_dispatch_work;
 pub(crate) use command::schedule_work as schedule_raft_work;
@@ -4765,6 +4767,21 @@ fn sqlite_limit_categories(limits: crate::application::limits::SqliteLimits) -> 
         (SQLITE_LIMIT_VARIABLE_NUMBER, limits.max_bind_parameters),
         (SQLITE_LIMIT_TRIGGER_DEPTH, limits.max_trigger_depth),
     ]
+}
+
+/// Read fixed framework metadata in the admitted command or immutable query.
+pub(crate) fn raft_visible_alarm() -> anyhow::Result<Option<i64>> {
+    let active = if immutable::active() {
+        None
+    } else {
+        command::native_alarm_generation()
+    };
+    with(RAFT_STORAGE_SCOPE, |connection| {
+        as_framework_sql(|| {
+            crate::application::consensus::native_work::visible_alarm(connection, active)
+        })
+    })
+    .ok_or_else(|| anyhow::anyhow!("no Raft alarm storage"))?
 }
 
 #[cfg(test)]

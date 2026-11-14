@@ -9,6 +9,12 @@ use cellar_logic::consensus::ClientId;
 use rusqlite::{Connection, OptionalExtension};
 
 pub(super) const OPERATION: &str = "__sqlIngressSequence";
+
+pub(super) fn native_digest() -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(b"cellar-native-cell-ingress-sequence-1").into()
+}
+
 const CLIENT: [u8; 16] = *b"SQLIngressLane01";
 
 pub(crate) fn client() -> ClientId {

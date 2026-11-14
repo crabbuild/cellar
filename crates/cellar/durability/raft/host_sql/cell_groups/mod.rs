@@ -323,6 +323,8 @@ impl CellSqlReceipt {
 pub(crate) struct CellSqlStageFailure {
     pub error: ExecutionError,
     pub unresolved: bool,
+    /// The request was refused before enqueue; no initializer/callback entered.
+    pub before_enqueue: bool,
     /// The writer lease refused before enqueue or application callback entry.
     pub writer_busy: bool,
 }
@@ -332,12 +334,14 @@ impl CellSqlStageFailure {
         Self {
             error,
             unresolved: false,
+            before_enqueue: false,
             writer_busy: false,
         }
     }
 
     fn admission(error: ExecutionError) -> Self {
         Self {
+            before_enqueue: true,
             writer_busy: matches!(error, ExecutionError::Busy),
             ..Self::known(error)
         }
@@ -562,6 +566,10 @@ impl CellGroupSqlPool {
             .reclaimed_history(log)
             .map_err(crate::raft::execution::storage)?;
         self.inner.admission.release_reclaimed_group(history)
+    }
+
+    pub(crate) fn writer_progress(&self) -> tokio::sync::watch::Receiver<()> {
+        self.inner.admission.writer_progress()
     }
 
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
@@ -860,11 +868,12 @@ impl CellGroupSqlPool {
             .map_err(CellSqlStageFailure::admission)?;
         let wait = self
             .send_ordinary(cell, action)
-            .map_err(CellSqlStageFailure::known)?;
+            .map_err(CellSqlStageFailure::admission)?;
         wait.await
             .map_err(|_| CellSqlStageFailure {
                 error: unavailable(),
                 unresolved: true,
+                before_enqueue: false,
                 writer_busy: false,
             })?
             .map_err(CellSqlStageFailure::known)
@@ -945,14 +954,15 @@ impl CellGroupSqlPool {
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         let (cell, action) = self
             .initialize_request(options, authority, attempt, initialize)
-            .map_err(CellSqlStageFailure::known)?;
+            .map_err(CellSqlStageFailure::admission)?;
         let wait = self
             .send_ordinary(cell, action)
-            .map_err(CellSqlStageFailure::known)?;
+            .map_err(CellSqlStageFailure::admission)?;
         wait.await
             .map_err(|_| CellSqlStageFailure {
                 error: unavailable(),
                 unresolved: true,
+                before_enqueue: false,
                 writer_busy: false,
             })?
             .map_err(CellSqlStageFailure::known)

@@ -10,14 +10,80 @@ use crate::raft::completion::RuntimeError;
 use cellar_logic::consensus::{IncarnationId, ProposalId};
 use rand::RngCore as _;
 
+#[derive(Clone, Copy)]
 enum Origin {
     Binding,
+    Native { configuration: [u8; 32] },
     Operator,
     QueueOperator,
     KvOperator,
+    KvPreparation { digest: [u8; 32], length: u64 },
 }
 
 impl RaftCells {
+    pub(crate) fn native_ingress(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        configuration: [u8; 32],
+    ) -> HandlerFuture<RpcData> {
+        self.submit_sql(
+            admitted,
+            call_scope,
+            deadline,
+            Origin::Native { configuration },
+        )
+    }
+
+    /// Stateless ingress may durably enroll an unknown target, then construct
+    /// its pending data locator without consuming a command-stream sequence.
+    /// Stateful callers retain their source-journaled enrollment path.
+    pub(crate) fn prepare_kv_ingress(
+        &self,
+        admitted: crate::outbound_rpc::Admitted,
+        call_scope: crate::host_rpc::CallScope,
+        deadline: u64,
+        digest: [u8; 32],
+        length: u64,
+    ) -> HandlerFuture<RpcData> {
+        match crate::storage::capture_raft_dispatch() {
+            Ok(None) => (),
+            Ok(Some(_)) => {
+                return Box::pin(async {
+                    Err(super::super::CommandFailure::UnsupportedCapability.into())
+                })
+            }
+            Err(error) => return Box::pin(async move { Err(error) }),
+        }
+        self.submit_sql(
+            admitted,
+            call_scope,
+            deadline,
+            Origin::KvPreparation { digest, length },
+        )
+    }
+
+    pub(crate) fn prepare_kv_payload(
+        &self,
+        scope: &str,
+        digest: [u8; 32],
+        length: u64,
+    ) -> anyhow::Result<
+        Option<(
+            CellHistory,
+            crate::raft::cell_groups::CellGroupPayloadReference,
+        )>,
+    > {
+        self.check_open()?;
+        Ok(self.handle.core.host.prepare_ingress_kv_payload(
+            scope,
+            digest,
+            length,
+            &self.handle.core.log,
+        )?)
+    }
+
     pub(crate) fn kv_wire_input_limit(&self, scope: &str, method: &str) -> anyhow::Result<usize> {
         self.check_open()?;
         anyhow::ensure!(
@@ -100,7 +166,31 @@ impl RaftCells {
         let prepared = (|| -> anyhow::Result<_> {
             self.check_open()?;
             let route = match origin {
+                Origin::KvPreparation { .. } => {
+                    anyhow::ensure!(
+                        method == crate::application::kv::raft_wire::PREPARE,
+                        super::super::CommandFailure::UnsupportedCapability
+                    );
+                    self.kv_wire_input_limit(&scope, &method)?;
+                    native_rpc::validate_identity(
+                        "cellar-kv-service",
+                        crate::deploy::KV_CLASS,
+                        &scope,
+                        name.as_deref(),
+                    )?;
+                    self.handle.core.host.sql_ingress_route(
+                        &scope,
+                        &method,
+                        &self.handle.core.log,
+                    )?
+                }
                 Origin::Binding => self.handle.core.host.sql_ingress_route(
+                    &scope,
+                    &method,
+                    &self.handle.core.log,
+                )?,
+                Origin::Native { configuration } => self.handle.core.host.native_ingress_route(
+                    configuration,
                     &scope,
                     &method,
                     &self.handle.core.log,
@@ -198,6 +288,7 @@ impl RaftCells {
                 memory,
             ))
         })();
+        tracing::debug!(target: "cellar::raft::sql_ingress", phase = "prepared", success = prepared.is_ok());
         let owner = self.internal_observer();
         Box::pin(async move {
             let (
@@ -242,18 +333,7 @@ impl RaftCells {
                 let (history, newly_enrolled) = if let Some(history) = history_hint {
                     (history, false)
                 } else {
-                    match owner
-                        .resolve_cell_history(
-                            candidate.cluster,
-                            candidate.namespace,
-                            candidate.cell.clone(),
-                            QueryOptions {
-                                timeout: remaining()?,
-                                ..QueryOptions::default()
-                            },
-                        )
-                        .await?
-                    {
+                    match ready_name(&owner, &candidate, deadline).await? {
                         Some(history) => (history, false),
                         None => {
                             match owner
@@ -269,18 +349,7 @@ impl RaftCells {
                             {
                                 Ok(_) => (candidate.clone(), true),
                                 Err(error) => loop {
-                                    match owner
-                                        .resolve_cell_history(
-                                            candidate.cluster,
-                                            candidate.namespace,
-                                            candidate.cell.clone(),
-                                            QueryOptions {
-                                                timeout: remaining()?,
-                                                ..QueryOptions::default()
-                                            },
-                                        )
-                                        .await
-                                    {
+                                    match ready_name(&owner, &candidate, deadline).await {
                                         Ok(Some(history)) => break (history, false),
                                         Ok(None) => {
                                             let delay = (remaining()?.as_millis() as u64).min(
@@ -310,6 +379,30 @@ impl RaftCells {
                 *selected.lock().unwrap() = Some(history.clone());
                 tracing::debug!(target: "cellar::raft::sql_ingress", %method,
                     phase="history", newly_enrolled, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
+                if let Origin::KvPreparation { digest, length } = origin {
+                    let store = owner.kv_wire_store(&history)?;
+                    let reference = store.prepare_reference(&history, digest, length)?;
+                    let encoded = crate::application::kv::raft_wire::prepared(&history, reference)?;
+                    let response = crate::application::encode_rpc(
+                        &cellar_native::clone::StructuredValue::from_json(serde_json::json!(
+                            encoded
+                        ))?,
+                    )?;
+                    if let Some(limit) = reservation.reply_limit() {
+                        anyhow::ensure!(
+                            matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
+                            crate::application::rpc::Failure::new(
+                                crate::application::rpc::Code::InvalidResponse
+                            )
+                        );
+                    }
+                    remaining()?;
+                    owner.handle.core.log.performance().increment(
+                        crate::raft::performance::Counter::CellKvResolvedPayloadPreparations,
+                        1,
+                    );
+                    return Ok(response);
+                }
                 let cell = owner.cell(history.clone())?;
                 // The runtime-owned initializer creates an empty stream. This
                 // is a hint at the enrollment cut, never an exclusive sequence
@@ -364,7 +457,7 @@ impl RaftCells {
                                 Ok(observed) => observed,
                                 Err(proof_error) => {
                                     return Err(anyhow::Error::from(error).context(format!(
-                                        "SQL sequence conflict proof failed: {proof_error}"
+                                        "ingress sequence conflict proof failed: {proof_error}"
                                     )))
                                 }
                             };
@@ -437,6 +530,53 @@ impl RaftCells {
     }
 }
 
+/// Read-only readiness precedes enrollment/business dispatch. Reuse the same
+/// logical candidate and absolute deadline; no submitted mutation is retried.
+async fn ready_name(
+    owner: &RaftCells,
+    candidate: &CellHistory,
+    deadline: u64,
+) -> anyhow::Result<Option<CellHistory>> {
+    let mut noted = false;
+    loop {
+        let now = owner.handle.domain.mono_ms()?;
+        let remaining = deadline
+            .checked_sub(now)
+            .filter(|remaining| *remaining != 0)
+            .ok_or(RuntimeError::DeadlineExceeded)?;
+        let result = owner
+            .resolve_cell_history(
+                candidate.cluster,
+                candidate.namespace,
+                candidate.cell.clone(),
+                QueryOptions {
+                    timeout: Duration::from_millis(remaining),
+                    ..QueryOptions::default()
+                },
+            )
+            .await;
+        match result {
+            Err(error)
+                if matches!(
+                    error.as_ref(),
+                    CellDispatchError::Runtime(RuntimeError::NotReady)
+                ) =>
+            {
+                if !noted {
+                    tracing::debug!(target: "cellar::raft::sql_ingress", phase = "discovery-pending");
+                    noted = true;
+                }
+                let now = owner.handle.domain.mono_ms()?;
+                let next = now
+                    .saturating_add(owner.handle.core.controller.limits().retry_interval_ms)
+                    .min(deadline);
+                owner.handle.domain.sleep_until(next)?.await;
+            }
+            result => return result.map_err(anyhow::Error::from),
+        }
+    }
+}
+
 async fn observe(
     cell: &RaftCellHandle,
     sequence: u64,
@@ -468,7 +608,7 @@ fn dispatch_failure(error: Arc<CellCommandError>, attempt: u64, budget_ms: u128)
     // Preserve the typed original cause and ambiguity while exposing whether
     // discovery consumed the budget or the target itself missed its deadline.
     let message =
-        format!("SQL target attempt {attempt} started with {budget_ms}ms remaining: {error}");
+        format!("Raft target attempt {attempt} started with {budget_ms}ms remaining: {error}");
     anyhow::Error::from(error).context(message)
 }
 

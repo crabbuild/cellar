@@ -263,9 +263,11 @@ pub(crate) enum Counter {
     CellEndpointRefreshes,
     CellEndpointDiscoveryOwners,
     CellEndpointRefreshJoins,
+    CellKvLocalPayloadPreparations,
+    CellKvResolvedPayloadPreparations,
 }
 
-const COUNTERS: [Counter; 68] = [
+const COUNTERS: [Counter; 70] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -334,11 +336,15 @@ const COUNTERS: [Counter; 68] = [
     Counter::CellEndpointRefreshes,
     Counter::CellEndpointDiscoveryOwners,
     Counter::CellEndpointRefreshJoins,
+    Counter::CellKvLocalPayloadPreparations,
+    Counter::CellKvResolvedPayloadPreparations,
 ];
 
 impl Counter {
     fn name(self) -> &'static str {
         match self {
+            Self::CellKvResolvedPayloadPreparations => "cell_kv_resolved_payload_preparations",
+            Self::CellKvLocalPayloadPreparations => "cell_kv_local_payload_preparations",
             Self::CellBindingAppliedHistoryHints => "cell_binding_applied_history_hints",
             Self::CellEndpointRefreshes => "cell_endpoint_demand_refreshes",
             Self::CellEndpointDiscoveryOwners => "cell_endpoint_discovery_owners",

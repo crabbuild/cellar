@@ -169,6 +169,7 @@ pub struct Store {
     pub cell_payload_put_calls: AtomicUsize,
     pub cell_payload_put_bytes: AtomicUsize,
     pub cell_payload_get_calls: AtomicUsize,
+    pub cell_payload_chunk_bytes: AtomicUsize,
     pub deny_cell_payload_reads: AtomicBool,
     pub denied_cell_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
@@ -1162,6 +1163,29 @@ impl ObjectStore for Store {
             gate.pause().await;
         }
 
+        let chunk_bytes = self.cell_payload_chunk_bytes.load(Ordering::Acquire);
+        if path.as_ref().contains("/cell-payloads-1/") && chunk_bytes != 0 {
+            let GetResultPayload::Stream(stream) = result.payload;
+            result.payload = GetResultPayload::Stream(
+                stream
+                    .flat_map(move |item| match item {
+                        Ok(bytes) => futures_util::stream::unfold(
+                            (bytes, 0),
+                            move |(bytes, at)| async move {
+                                if at == bytes.len() {
+                                    return None;
+                                }
+                                cellar::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
+                                let end = (at + chunk_bytes).min(bytes.len());
+                                Some((Ok(bytes.slice(at..end)), (bytes, end)))
+                            },
+                        )
+                        .boxed(),
+                        Err(error) => futures_util::stream::once(async move { Err(error) }).boxed(),
+                    })
+                    .boxed(),
+            );
+        }
         if root_extent {
             self.root_extent_hits.fetch_add(1, Ordering::AcqRel);
         }

@@ -902,7 +902,10 @@ impl State {
                     Some((call.inputs, call.preview)),
                 )
                 .await
-                .map_err(|error| command_failure(&error.cause))?;
+                .map_err(|error| {
+                    tracing::debug!(target: "cellar::raft::enrollment", phase = "prepare", error = ?error, "remote enrollment refused");
+                    command_failure(&error.cause)
+                })?;
             invocation.bind_remote_route(binding);
             if !gateway.accepting.load(Ordering::Acquire) {
                 return Err(CommandFailure::Unavailable);
@@ -912,10 +915,16 @@ impl State {
             let call = gateway
                 .controller
                 .enroll(invocation, options)
-                .map_err(|error| command_failure(&error.error.cause))?;
+                .map_err(|error| {
+                    tracing::debug!(target: "cellar::raft::enrollment", phase = "admission", error = ?error.error, "remote enrollment refused");
+                    command_failure(&error.error.cause)
+                })?;
             call.response()
                 .await
-                .map_err(|error| command_failure(&error.cause))?
+                .map_err(|error| {
+                    tracing::debug!(target: "cellar::raft::enrollment", phase = "response", error = ?error, "remote enrollment refused");
+                    command_failure(&error.cause)
+                })?
                 .into_local()
                 .ok_or(CommandFailure::CorruptState)
         }

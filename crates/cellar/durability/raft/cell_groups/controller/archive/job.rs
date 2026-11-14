@@ -139,17 +139,19 @@ pub(super) fn live(
     context.uses.live(admission)
 }
 
-pub(super) async fn retained(
-    context: &Context,
-    execution: &ControllerExecution,
-    admission: Admission,
-) -> Result<Option<Driven>> {
-    let Some(coverage) = live(context, admission)? else {
-        return Ok(None);
-    };
-    verify_retained(context, execution, coverage)
-        .await
-        .map(Some)
+pub(super) struct Demand {
+    pub outputs: bool,
+    pub required_prefix: Option<LogIndex>,
+    /// A prior completion's advisory marker in this owner. It supplies no
+    /// physical custody and cannot authorize a response or compaction.
+    pub observed_head: Option<GroupManifest>,
+}
+
+pub(super) enum Outcome {
+    Verified(Driven),
+    /// Retirement finished and the previously verified head still covers local
+    /// apply. No new physical proof is created by this maintenance result.
+    Maintenance(GroupManifest),
 }
 
 pub(super) async fn verify_retained(
@@ -241,10 +243,10 @@ pub(super) async fn drive(
     registration: &CellGroupArchiveRegistration,
     runtime: &CellGroupRuntime,
     execution: &ControllerExecution,
-    prove_outputs: bool,
+    demand: Demand,
     retained_head: Option<CellGroupArchiveCoverage>,
     admitted_through: u64,
-) -> Result<Driven> {
+) -> Result<Outcome> {
     let node = runtime.log().limits().node;
     let group = registration.birth.route().history.group;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "drive");
@@ -259,7 +261,7 @@ pub(super) async fn drive(
     // predecessor cleanup waits on remote I/O. Release our temporary owner
     // before any successor needs the original physical replay admission.
     drop(retained_head);
-    if !allocation_ready && (!prove_outputs || !matches!(record.pending, Pending::None)) {
+    if !allocation_ready && (!demand.outputs || !matches!(record.pending, Pending::None)) {
         return Err(CellGroupArchiveError::Busy.into());
     }
     if let Pending::Publish { ticket, intent } = record.pending.clone() {
@@ -282,6 +284,7 @@ pub(super) async fn drive(
                     Eligibility::existing(admitted_through),
                 )
                 .await
+                .map(Outcome::Verified)
             }
             Err(CellGroupArchiveError::Expired) => (),
             Err(error) => return Err(error.into()),
@@ -309,6 +312,7 @@ pub(super) async fn drive(
                     Eligibility::existing(admitted_through),
                 )
                 .await
+                .map(Outcome::Verified)
             }
             Err(CellGroupArchiveError::Expired) => (),
             Err(error) => return Err(error.into()),
@@ -324,11 +328,27 @@ pub(super) async fn drive(
             .map_err(|error| Error::Runtime(error.into()))?
             .ok_or(Error::Runtime(RuntimeError::NotReady))?;
         if let Some(head) = &record.head {
+            // Only this owner's prior physical verification enables the quiet
+            // maintenance path. Restart/initial activation has no observation,
+            // and waiting outputs always need their own actual proof below.
+            if !demand.outputs
+                && demand.observed_head.as_ref() == Some(head.marker())
+                && head.marker().position().index >= current.position().index
+            {
+                tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group,
+                    stage = "maintenance-complete", index = head.marker().position().index.get());
+                return Ok(Outcome::Maintenance(head.marker().clone()));
+            }
             // A queued output may already be covered even when later group
             // entries exist. The receipt verifier still checks its exact
             // position, cell version, witness and stored result against this
             // prefix; an uncovered output keeps waiting for allocation.
-            if !allocation_ready || head.marker().position().index >= current.position().index {
+            let may_cover = demand
+                .required_prefix
+                .is_none_or(|minimum| head.marker().position().index >= minimum);
+            if may_cover
+                && (!allocation_ready || head.marker().position().index >= current.position().index)
+            {
                 let coverage = context
                     .registry
                     .verify_hold(
@@ -338,12 +358,12 @@ pub(super) async fn drive(
                         receiver(registration)?,
                     )
                     .await?;
-                return Ok(Driven {
+                return Ok(Outcome::Verified(Driven {
                     published: coverage.marker().clone(),
                     coverage,
                     maintenance_pending: !allocation_ready,
                     eligibility: Some(Eligibility::existing(admitted_through)),
-                });
+                }));
             }
         }
         // Retained output proofs may delay the previous hold's release. Reuse
@@ -434,7 +454,8 @@ pub(super) async fn drive(
             coverage,
             Eligibility::existing(admitted_through),
         )
-        .await;
+        .await
+        .map(Outcome::Verified);
     }
     if let Pending::Reserve(intent) = &record.pending {
         match context.registry.reserve(execution, intent).await {
@@ -471,9 +492,18 @@ pub(super) async fn drive(
         .map_err(CellGroupArchiveError::from)?;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "captured",
         index = source.marker().position().index.get());
-    let uploaded = upload
-        .upload_cut(execution, &registration.tails, source)
-        .await?;
+    let uploaded = if demand.outputs {
+        // A waiting S3 response needs this exact cut. Prefer a complete image
+        // over reading and replaying an older checkpoint's tail on its original
+        // request budget. Background publication may amortize image uploads.
+        upload
+            .upload_cut(execution, &registration.tails, source)
+            .await?
+    } else {
+        upload
+            .upload_next_cut(execution, &registration.tails, record.head.as_ref(), source)
+            .await?
+    };
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "uploaded");
     let publication = upload
         .prepare_publication(
@@ -499,4 +529,5 @@ pub(super) async fn drive(
         Eligibility::publication(),
     )
     .await
+    .map(Outcome::Verified)
 }
