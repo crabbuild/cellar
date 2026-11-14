@@ -295,6 +295,14 @@ async fn workflow(
 }
 
 async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_json::Value> {
+    let started = cellar::asyncrt::mono_ms();
+    let before = (action == "status").then(|| {
+        cluster
+            .hosts
+            .iter()
+            .map(|h| h.performance())
+            .collect::<Vec<_>>()
+    });
     let response = reqwest::Client::builder()
         .no_proxy()
         .timeout(TIMEOUT + Duration::from_secs(1))
@@ -307,6 +315,14 @@ async fn call(cluster: &ManagedCluster, action: &str, id: &str) -> Result<serde_
         .await?;
     let status = response.status();
     let body = response.text().await?;
+    if action == "status"
+        && (!status.is_success() || cellar::asyncrt::mono_ms().saturating_sub(started) > 500)
+    {
+        eprintln!(
+            "[DEBUG-wf-status] {}",
+            json!({"id": id, "elapsed":cellar::asyncrt::mono_ms().saturating_sub(started),"before":before,"after":cluster.hosts.iter().map(|h| h.performance()).collect::<Vec<_>>() })
+        );
+    }
     ensure!(
         status.is_success(),
         "Workflow {action}/{id}: {status} {body}"
@@ -370,9 +386,17 @@ async fn state(cluster: &ManagedCluster, id: &str, expected: &str) -> Result<ser
     .with_context(|| format!("Workflow {id} did not reach {expected}"))?
 }
 
+#[derive(Clone, Copy)]
+enum Scenario {
+    Ordinary,
+    Stream,
+    Scheduled,
+    Status,
+}
+
 pub async fn qualify(real: bool, external: bool) -> Result<()> {
     for extents in [false, true] {
-        Box::pin(case(real, external, extents, false, false))
+        Box::pin(case(real, external, extents, Scenario::Ordinary))
             .await
             .with_context(|| format!("Workflow RustFS={real} Axum={external} extents={extents}"))?;
     }
@@ -380,16 +404,25 @@ pub async fn qualify(real: bool, external: bool) -> Result<()> {
 }
 
 pub async fn stream_controls() -> Result<()> {
-    Box::pin(case(false, false, false, true, false)).await
+    Box::pin(case(false, false, false, Scenario::Stream)).await
 }
 
 pub async fn schedules(real: bool, external: bool) -> Result<()> {
     for extents in [false, true] {
-        Box::pin(case(real, external, extents, false, true))
+        Box::pin(case(real, external, extents, Scenario::Scheduled))
             .await
             .with_context(|| {
                 format!("scheduled Workflow RustFS={real} Axum={external} extents={extents}")
             })?;
+    }
+    Ok(())
+}
+
+pub async fn status_progress(real: bool) -> Result<()> {
+    for extents in [false, true] {
+        Box::pin(case(real, false, extents, Scenario::Status))
+            .await
+            .with_context(|| format!("Workflow status progress RustFS={real} extents={extents}"))?;
     }
     Ok(())
 }
@@ -465,13 +498,9 @@ async fn scheduled_case(cluster: &mut ManagedCluster, signals: &contract::Signal
     Ok(())
 }
 
-async fn case(
-    real: bool,
-    external: bool,
-    extents: bool,
-    stream_only: bool,
-    scheduled: bool,
-) -> Result<()> {
+async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> Result<()> {
+    let scheduled = matches!(scenario, Scenario::Scheduled);
+    let stream_only = matches!(scenario, Scenario::Stream | Scenario::Status);
     let backend = real
         .then(|| {
             rustfs::StoreConfig::load(
@@ -551,6 +580,20 @@ async fn case(
                 scheduled_case(&mut cluster, &signals).await?;
                 return Ok(());
             }
+            if matches!(scenario, Scenario::Status) {
+                call(&cluster, "create", "recovery").await?;
+                state(&cluster, "recovery", "waiting").await?;
+                named_service::restart(&mut cluster).await?;
+                state(&cluster, "recovery", "waiting").await?;
+                ensure!(signals.first.load(Ordering::SeqCst) == 1);
+                for cycle in 0..8 {
+                    eprintln!("[DEBUG-wf-status] retry cycle {cycle}");
+                    call(&cluster, "create", "retry").await?;
+                    state(&cluster, "retry", "complete").await?;
+                    ensure!(&signals.retries.lock().unwrap()[cycle * 3..] == [1, 2, 3]);
+                    call(&cluster, "delete", "retry").await?;
+                }
+            }
             if stream_only {
                 call(&cluster, "create", "stream").await?;
                 cellar::asyncrt::timeout(TIMEOUT, async {
@@ -569,8 +612,14 @@ async fn case(
                     stream_version(&cluster, group, 97).await? == before,
                     "resource reads changed the Workflow target version"
                 );
-                call(&cluster, "terminate", "stream").await?;
-                state(&cluster, "stream", "terminated").await?;
+                if matches!(scenario, Scenario::Status) {
+                    call(&cluster, "event", "stream").await?;
+                    state(&cluster, "stream", "complete").await?;
+                    ensure!(signals.stream_runs.load(Ordering::SeqCst) == 1);
+                } else {
+                    call(&cluster, "terminate", "stream").await?;
+                    state(&cluster, "stream", "terminated").await?;
+                }
                 return Ok(());
             }
             call(&cluster, "create", "recovery").await?;

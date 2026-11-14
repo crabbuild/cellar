@@ -135,6 +135,17 @@ async fn workflow_stream_checkpoints_allow_control_progress() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn workflow_status_reads_progress_during_checkpoints_and_restart() -> Result<()> {
+    workflows::status_progress(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_workflow_status_reads_progress_during_checkpoints_and_restart() -> Result<()> {
+    workflows::status_progress(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ordinary_alarm_failures_persist_backoff_and_rollback() -> Result<()> {
     alarms::qualify_failures(false, false).await
 }
