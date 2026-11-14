@@ -35,6 +35,22 @@ impl Cell for Unused {
 }
 
 pub fn validate_contracts() -> Result<()> {
+    let workflow_only = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_workflow(
+        "Orders",
+        [236; 32],
+        |_, _, _| Box::pin(async { Ok(cellar_native::clone::StructuredValue::undefined()) }),
+    )?;
+    let mut workflow_deployment = managed_fixture::graph::graph(SCRIPT, "", Vec::new()).primary;
+    workflow_deployment.options.do_classes = vec![cellar::deploy::workflow_class(SCRIPT)];
+    workflow_deployment.options.workflow_bindings = vec![cellar::engine_api::WorkflowBinding {
+        environment: "WF".into(),
+        workflow: "orders".into(),
+        class: "Orders".into(),
+        settings: Default::default(),
+    }];
+    workflow_deployment.crons = vec![RETRY.into()];
+    workflow_only.validate_deployment(&workflow_deployment)?;
+    workflow_only.resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)?;
     ensure!(RaftClass::new(cellar_logic::cron::RESERVED_CLASS, 1, [237; 32]).is_err());
     let make = || -> Result<Registry> {
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(

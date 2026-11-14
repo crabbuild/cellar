@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "e5c499dd43d1b591a8071e4744bb06fe97c547d889d811dbf274c973720cc817"
+    "crates/cellar/application/mod.rs": "88f7bc050c8b2956773f0015dd51825cc97e9a032212774277c7ba3154d3146e"
   },
   "entries": [
     {
