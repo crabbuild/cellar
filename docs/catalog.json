@@ -662,6 +662,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/event-stream-durability.md",
+      "title": "EventStream on shared groups",
+      "summary": "Define the source journal, callback ownership and remaining public EventStream adapters.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/handoff.md",
       "title": "Cell-group implementation handoff",
       "summary": "Current implementation checkpoint, evidence transfer and next executor steps.",

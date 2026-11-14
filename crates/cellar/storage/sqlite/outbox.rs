@@ -467,7 +467,7 @@ fn seal_with_history(
                             "source has no producer incarnation",
                         )
                     })?;
-                let incarnation = history.map_or(incarnation, |history| raft_incarnation(history));
+                let incarnation = history.map_or(incarnation, raft_incarnation);
                 let lane = crate::application::event_stream::lane_identity(
                     &binding.resource,
                     source,
