@@ -7,16 +7,25 @@ use sha2::Digest;
 pub(super) fn read_object(
     inner: &Inner,
     id: ExtentId,
+    consume: impl FnMut(u64, &[u8]) -> Result<(), StoreError>,
+) -> Result<(), StoreError> {
+    read_object_with_sync(inner, id, DirectorySync::Immediate, consume)
+}
+
+pub(super) fn read_object_with_sync(
+    inner: &Inner,
+    id: ExtentId,
+    sync: DirectorySync,
     mut consume: impl FnMut(u64, &[u8]) -> Result<(), StoreError>,
 ) -> Result<(), StoreError> {
     let result = (|| {
-        let (verified, previous_proof) = {
+        let (persistence, previous_proof) = {
             let state = inner.state()?;
             let entry = state.objects.get(&id).ok_or(StoreError::Missing)?;
             if entry.bytes != u64::from(id.length()) {
                 return Err(StoreError::Integrity);
             }
-            (entry.verified, entry.read_proof.clone())
+            (entry.persistence, entry.read_proof.clone())
         };
         let mut file = inner.checked_file(
             &inner.directory.join(object_name(id)),
@@ -43,9 +52,13 @@ pub(super) fn read_object(
         {
             return Err(StoreError::Integrity);
         }
-        if !verified {
-            file.sync_all()?;
-            inner.filesystem.sync_all(&inner.directory)?;
+        if persistence != ObjectPersistence::Durable {
+            if sync == DirectorySync::Immediate || persistence == ObjectPersistence::Unverified {
+                file.sync_all()?;
+            }
+            if sync == DirectorySync::Immediate {
+                inner.filesystem.sync_all(&inner.directory)?;
+            }
         }
         let proof = match previous_proof {
             Some(proof) => proof,
@@ -53,13 +66,18 @@ pub(super) fn read_object(
         };
         let mut state = inner.state()?;
         let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
-        entry.verified = true;
+        entry.persistence =
+            if persistence == ObjectPersistence::Durable || sync == DirectorySync::Immediate {
+                ObjectPersistence::Durable
+            } else {
+                ObjectPersistence::FileSynced
+            };
         entry.read_proof = Some(proof);
         Ok(())
     })();
     if result.is_err() {
         if let Some(entry) = inner.state()?.objects.get_mut(&id) {
-            entry.verified = false;
+            entry.persistence = ObjectPersistence::Unverified;
             entry.read_proof = None;
         }
     }
@@ -84,10 +102,27 @@ impl NodeExtentStore {
         id: ExtentId,
         bytes: &[u8],
     ) -> Result<(), StoreError> {
+        self.put_extent_bytes_with_sync(id, bytes, DirectorySync::Immediate)
+    }
+
+    pub(super) fn put_extent_bytes_for_image(
+        &self,
+        id: ExtentId,
+        bytes: &[u8],
+    ) -> Result<(), StoreError> {
+        self.put_extent_bytes_with_sync(id, bytes, DirectorySync::ImagePublication)
+    }
+
+    fn put_extent_bytes_with_sync(
+        &self,
+        id: ExtentId,
+        bytes: &[u8],
+        sync: DirectorySync,
+    ) -> Result<(), StoreError> {
         if bytes.len() != id.length() as usize || ExtentId::of(bytes)? != id {
             return Err(StoreError::Integrity);
         }
-        self.put_extent_with(id, |file| {
+        self.put_extent_with(id, sync, |file| {
             // The caller already owns this bounded input. Avoid a second
             // extent allocation and preserve injected providers' fallback.
             file.write_all_at_window(0, bytes)?;
@@ -114,7 +149,7 @@ impl NodeExtentStore {
         id: ExtentId,
         read: &mut impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
     ) -> Result<(), StoreError> {
-        self.put_extent_with(id, |file| {
+        self.put_extent_with(id, DirectorySync::Immediate, |file| {
             let mut hash = id.stream_hasher();
             let mut offset = 0;
             while offset < u64::from(id.length()) {
@@ -137,11 +172,12 @@ impl NodeExtentStore {
     fn put_extent_with(
         &self,
         id: ExtentId,
+        sync: DirectorySync,
         write: impl FnOnce(&mut HostFile) -> Result<(), StoreError>,
     ) -> Result<(), StoreError> {
         let exists = self.inner.state()?.objects.contains_key(&id);
         if exists {
-            return read_object(&self.inner, id, |_, _| Ok(()));
+            return read_object_with_sync(&self.inner, id, sync, |_, _| Ok(()));
         }
         {
             let mut state = self.inner.state()?;
@@ -159,7 +195,7 @@ impl NodeExtentStore {
                 id,
                 ObjectEntry {
                     bytes: u64::from(id.length()),
-                    verified: false,
+                    persistence: ObjectPersistence::Unverified,
                     read_proof: None,
                 },
             );
@@ -180,7 +216,9 @@ impl NodeExtentStore {
             write(&mut file)?;
             file.sync_all()?;
             let proof = crate::extent::file::verify_file(&mut file, id)?;
-            self.inner.filesystem.sync_all(&self.inner.directory)?;
+            if sync == DirectorySync::Immediate {
+                self.inner.filesystem.sync_all(&self.inner.directory)?;
+            }
             Ok(proof)
         })();
         drop(file);
@@ -196,7 +234,11 @@ impl NodeExtentStore {
         };
         let mut state = self.inner.state()?;
         let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
-        entry.verified = true;
+        entry.persistence = if sync == DirectorySync::Immediate {
+            ObjectPersistence::Durable
+        } else {
+            ObjectPersistence::FileSynced
+        };
         entry.read_proof = Some(proof);
         Ok(())
     }
@@ -275,35 +317,104 @@ impl NodeExtentStore {
         let state = self.inner.state()?;
         for index in 0..manifest.geometry().extent_count() {
             let id = manifest.extent(index).ok_or(StoreError::Layout)?;
-            if !state
-                .objects
-                .get(&id)
-                .is_some_and(|entry| entry.verified && entry.bytes == u64::from(id.length()))
-            {
+            if !state.objects.get(&id).is_some_and(|entry| {
+                entry.persistence == ObjectPersistence::Durable
+                    && entry.bytes == u64::from(id.length())
+            }) {
                 return Err(StoreError::Unverified);
             }
         }
         drop(state);
         let view = self.stage_inner(manifest)?;
         let state = self.inner.state()?;
-        if view
-            .data
-            .objects
-            .iter()
-            .any(|id| !state.objects.get(id).is_some_and(|entry| entry.verified))
-        {
+        if view.data.objects.iter().any(|id| {
+            !state
+                .objects
+                .get(id)
+                .is_some_and(|entry| entry.persistence == ObjectPersistence::Durable)
+        }) {
             return Err(StoreError::Unverified);
         }
         Ok(SealedRoot(view))
     }
 
     fn stage_inner(&self, manifest: ExtentManifest) -> Result<RootView, StoreError> {
+        self.stage_with_sync(manifest, DirectorySync::Immediate, true)
+    }
+
+    /// One bounded image operation already owns the inventory mutation lane.
+    /// No data or root seal escapes before its common directory barrier. The
+    /// intermediate file observations cannot satisfy seal_root or cached reads.
+    pub(super) fn seal_prepared_image_root(
+        &self,
+        manifest: ExtentManifest,
+        transient: bool,
+    ) -> Result<SealedRoot, StoreError> {
+        let view = self.stage_with_sync(manifest, DirectorySync::ImagePublication, !transient)?;
+        let needs_barrier = {
+            let state = self.inner.state()?;
+            !state
+                .roots
+                .get(&view.reference.root)
+                .ok_or(StoreError::Missing)?
+                .persisted
+                || view.data.objects.iter().any(|id| {
+                    !state
+                        .objects
+                        .get(id)
+                        .is_some_and(|entry| entry.persistence == ObjectPersistence::Durable)
+                })
+        };
+        if needs_barrier {
+            if let Err(error) = self.inner.filesystem.sync_all(&self.inner.directory) {
+                // Neither a local closure nor quota credit may escape an
+                // uncertain shared barrier. Retain every created file/charge.
+                self.inner.quarantine();
+                return Err(error.into());
+            }
+        }
+        let mut state = self.inner.state()?;
+        if view.data.objects.iter().any(|id| {
+            !state.objects.get(id).is_some_and(|entry| {
+                entry.persistence != ObjectPersistence::Unverified
+                    && entry.bytes == u64::from(id.length())
+            })
+        }) {
+            return Err(StoreError::Unverified);
+        }
+        // The mutation lane excludes another writer/collector, while pinned
+        // readers can invalidate a failed extent. Recheck all file observations
+        // under this guard before publishing completed directory observations.
+        for id in &view.data.objects {
+            state
+                .objects
+                .get_mut(id)
+                .ok_or(StoreError::Missing)?
+                .persistence = ObjectPersistence::Durable;
+        }
+        state
+            .roots
+            .get_mut(&view.reference.root)
+            .ok_or(StoreError::Missing)?
+            .persisted = true;
+        Ok(SealedRoot(view))
+    }
+
+    fn stage_with_sync(
+        &self,
+        manifest: ExtentManifest,
+        sync: DirectorySync,
+        retained: bool,
+    ) -> Result<RootView, StoreError> {
         let bytes = manifest.encode()?;
         let reference = ExtentRootReference::new(manifest.root(), bytes.len() as u32)?;
         let path = self.inner.directory.join(root_name(reference.root));
         let exists = self.inner.state()?.roots.contains_key(&reference.root);
         if exists {
-            let data = self.read_root_synced(reference)?;
+            let data = match sync {
+                DirectorySync::Immediate => self.read_root_synced(reference)?,
+                DirectorySync::ImagePublication => self.read_root_for_image(reference)?,
+            };
             self.inner
                 .state()?
                 .roots
@@ -336,7 +447,7 @@ impl NodeExtentStore {
                 RootEntry {
                     bytes: bytes.len() as u64,
                     slots,
-                    retained: true,
+                    retained,
                     persisted: false,
                     token: Arc::new(()),
                     data: None,
@@ -372,7 +483,9 @@ impl NodeExtentStore {
                 return Err(StoreError::Integrity);
             }
             ExtentManifest::decode(&observed, reference.root)?;
-            self.inner.filesystem.sync_all(&self.inner.directory)?;
+            if sync == DirectorySync::Immediate {
+                self.inner.filesystem.sync_all(&self.inner.directory)?;
+            }
             Ok(())
         })();
         drop(file);
@@ -397,7 +510,7 @@ impl NodeExtentStore {
                 .roots
                 .get_mut(&reference.root)
                 .ok_or(StoreError::Missing)?;
-            entry.persisted = true;
+            entry.persisted = sync == DirectorySync::Immediate;
             entry.data = Some(data.clone());
         }
         self.view(reference, data)

@@ -74,6 +74,20 @@ retain inventory handles and working memory through physical completion. This
 does not authorize manifest-page collection, Raft log truncation or S3 coverage,
 and does not qualify sustained load.
 
+Image preparation shares one final inventory-directory barrier across the bounded
+LTX chain's changed extents and exact result-root file. Every new file still
+completes its file sync and independent destination verification. File-only
+observations remain distinct from complete local persistence; no closure seal
+escapes before the shared barrier succeeds and all dependency observations are
+rechecked. Existing unchanged files retain their completed barriers, while full
+byte verification still runs when reused by preparation. Ordinary imports and
+readers retain their own barriers. A failed shared directory sync quarantines
+mutation and preserves all charges until recovery; reopening clears volatile
+proofs and requires ordinary verification. Fresh transient root metadata adds no
+permanent host reference, including when final sealing fails. This batching adds
+neither an asynchronous wait nor a new quota, and supplies no Raft acknowledgement
+or archive authority by itself.
+
 Root metadata keeps a volatile observation of completed file and directory
 barriers on its exact open inventory owner. A repeated seal still reads and
 checks the entire root file and SQLite image bytes, while reusing those completed

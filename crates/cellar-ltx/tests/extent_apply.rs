@@ -5,6 +5,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/stream_snapshot_files.rs"]
 mod bounded_files;
+#[path = "support/extent_image_publication.rs"]
+mod image_publication;
 
 use cellar_ltx::{
     apply::{ApplyLimits, LtxSegment},
@@ -175,10 +177,13 @@ impl Fixture {
     }
 
     fn query(&self, root: &SealedImageRoot, expected: u64) {
+        self.query_view(root.view(), expected);
+    }
+
+    fn query_view(&self, view: &cellar_ltx::internal::RootView, expected: u64) {
         let directory = self.root.path().join("cache");
         DirectFileSystem.create_dir_all(&directory).unwrap();
-        let image = root
-            .view()
+        let image = view
             .image(
                 directory,
                 ScratchPool::new(ScratchLimits {
@@ -212,6 +217,53 @@ impl Fixture {
                 .unwrap(),
             "ok"
         );
+    }
+}
+
+#[test]
+fn image_updates_share_one_directory_barrier_after_all_file_seals() {
+    for payload in [4096, 5 * 1024 * 1024] {
+        let (fixture, before) = Fixture::new(4096, payload);
+        let mut buffer = vec![0; EXTENT_BYTES as usize];
+        let base = fixture.seal(&before, false, &mut buffer);
+        let after = fixture.mutate(if payload < EXTENT_BYTES {
+            "UPDATE counter SET value=8"
+        } else {
+            "UPDATE padding SET value=zeroblob(6291456);UPDATE counter SET value=8;VACUUM"
+        });
+        let encoded = delta(&before, &after, 4096, 2, false);
+        let update = fixture.update(&base, &encoded, &after, 2, false);
+        let files = fixture
+            .files
+            .metrics
+            .file_sync_calls
+            .load(Ordering::Acquire);
+        let directories = fixture.files.metrics.dir_sync_calls.load(Ordering::Acquire);
+        let prepared = fixture
+            .store
+            .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+            .unwrap();
+        assert_eq!(
+            prepared.work.extents_prepared,
+            if payload < EXTENT_BYTES { 1 } else { 2 }
+        );
+        assert_eq!(
+            fixture
+                .files
+                .metrics
+                .file_sync_calls
+                .load(Ordering::Acquire)
+                - files,
+            prepared.work.extents_prepared as usize + 1,
+            "every independently verified extent and root needs its file barrier"
+        );
+        assert_eq!(
+            fixture.files.metrics.dir_sync_calls.load(Ordering::Acquire) - directories,
+            1,
+            "one image publication must share its final directory barrier"
+        );
+        fixture.query(&prepared.image, 8);
+        fixture.query(&base, 7);
     }
 }
 

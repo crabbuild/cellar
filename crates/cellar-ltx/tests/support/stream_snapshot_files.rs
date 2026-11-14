@@ -24,7 +24,9 @@ pub struct Metrics {
     pub random_write_window_calls: AtomicUsize,
     pub native_random_windows: AtomicBool,
     pub file_sync_calls: AtomicUsize,
+    pub fail_file_sync_countdown: AtomicUsize,
     pub dir_sync_calls: AtomicUsize,
+    pub before_dir_sync: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub active_handles: AtomicUsize,
     pub fail_append: AtomicBool,
     pub fail_sync: AtomicBool,
@@ -178,7 +180,12 @@ impl HostFileIo for File {
 
     fn sync_all(&mut self) -> io::Result<()> {
         self.metrics.file_sync_calls.fetch_add(1, Ordering::AcqRel);
-        if self.metrics.fail_sync.swap(false, Ordering::AcqRel) {
+        let countdown = self.metrics.fail_file_sync_countdown.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |n| n.checked_sub(1),
+        );
+        if self.metrics.fail_sync.swap(false, Ordering::AcqRel) || countdown == Ok(1) {
             return Err(io::Error::other("uncertain file sync"));
         }
         self.inner.sync_all()?;
@@ -305,6 +312,10 @@ impl FileSystem for BoundedFiles {
     fn sync_all(&self, path: &Path) -> io::Result<()> {
         if DirectFileSystem.metadata(path)?.is_dir {
             self.metrics.dir_sync_calls.fetch_add(1, Ordering::AcqRel);
+            let hook = self.metrics.before_dir_sync.lock().unwrap().take();
+            if let Some(hook) = hook {
+                hook();
+            }
             let countdown = self.metrics.fail_dir_sync_countdown.fetch_update(
                 Ordering::AcqRel,
                 Ordering::Acquire,
