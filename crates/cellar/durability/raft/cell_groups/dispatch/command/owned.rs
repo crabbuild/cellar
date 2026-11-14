@@ -259,9 +259,13 @@ impl CellCommandInvocation {
             match self.submit_at().await {
                 Ok(CellCommandSubmission::Accepted(_)) => break,
                 Ok(CellCommandSubmission::Rejected) => {
+                    runtime.log().performance().increment(
+                        crate::raft::performance::Counter::CellCommandSubmissionRejections,
+                        1,
+                    );
                     return Err(CellDispatchError::Execution(ExecutionError::Refused(
                         CommandFailure::Overloaded,
-                    )))
+                    )));
                 }
                 Err(CellDispatchError::Runtime(
                     RuntimeError::NotReady | RuntimeError::Overloaded,
@@ -298,9 +302,15 @@ impl CellCommandInvocation {
                     )))
                 }
                 Ok(CellCommandSettlement::Refused(reason)) => {
+                    if matches!(reason, CommandFailure::Overloaded) {
+                        runtime.log().performance().increment(
+                            crate::raft::performance::Counter::CellCommandSettlementOverloads,
+                            1,
+                        );
+                    }
                     return Err(CellDispatchError::Execution(ExecutionError::Refused(
                         reason,
-                    )))
+                    )));
                 }
                 Err(
                     error @ CellDispatchError::Runtime(

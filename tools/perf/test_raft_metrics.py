@@ -168,6 +168,27 @@ class Measurements(unittest.TestCase):
 
 
 class ReclamationVocabulary(unittest.TestCase):
+    def test_primitive_snapshots_preserve_complete_historical_counter_inventories(self):
+        for boundary in ('cell_kv_local_payload_preparations', 'sql_node_admission_refusals'):
+            raw = observation()
+            raw['counters'] = raw['counters'][:COUNTERS.index(boundary)]
+            later = copy.deepcopy(raw)
+            later['sampled_at_us'] = '2'
+            later['counters'][-1]['value'] = '3'
+            result = delta(raw, later)
+            self.assertEqual(result['counters'][raw['counters'][-1]['name']], 3)
+            self.assertNotIn('sql_node_admission_refusals', result['counters'])
+            with self.assertRaises(ValueError):
+                delta(raw, observation(stamp=2))
+            raw['counters'].pop()
+            with self.assertRaises(ValueError):
+                snapshot(raw)
+        for missing in range(1, 8):
+            raw = observation()
+            raw['counters'] = raw['counters'][:-missing]
+            with self.assertRaises(ValueError):
+                snapshot(raw)
+
     def test_retained_routing_windows_keep_their_complete_source_vocabulary(self):
         for counter_count in (COUNTERS.index('cell_command_rpc_attempts'),
                               COUNTERS.index('cell_group_ticks_executed')):

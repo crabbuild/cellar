@@ -120,14 +120,22 @@ impl CellSqlOptions {
     fn open(
         self,
         authority: CellExecutionAuthority,
+        performance: &crate::raft::performance::Registry,
     ) -> Result<CellPrivateExecutor, ExecutionError> {
-        match self {
+        let result = (|| match self {
             Self::Materialized(o) => CellPrivateExecutor::open_cursor_image(o, authority),
             Self::Extents(o) => CellPrivateExecutor::open_rooted(
                 o.prepare(&authority.cell().version.history)?,
                 authority,
             ),
+        })();
+        if matches!(
+            result,
+            Err(ExecutionError::Refused(CommandFailure::Overloaded))
+        ) {
+            performance.increment(crate::raft::performance::Counter::SqlPrivateOpenRefusals, 1);
         }
+        result
     }
 }
 
@@ -451,6 +459,7 @@ struct Handle {
     closing: Arc<AtomicBool>,
     stop: Arc<Notify>,
     terminal: Arc<Terminal>,
+    performance: Arc<crate::raft::performance::Registry>,
 }
 
 impl Drop for Handle {
@@ -503,12 +512,18 @@ impl CellGroupSqlPool {
             engine_owner: log.owner(),
             workers,
             resources,
-            admission: Admission::new(limits, lease.clone(), log.limits().max_groups),
+            admission: Admission::new(
+                limits,
+                lease.clone(),
+                log.limits().max_groups,
+                log.performance(),
+            ),
             apply_admission: Budget::new(limits.node_bytes, log.limits().max_groups),
             activations,
             closing: closing.clone(),
             stop: stop.clone(),
             terminal: terminal.clone(),
+            performance: log.performance(),
         });
         let cleanup_domain = domain.clone();
         // Cleanup owns the join handles, so cancelling a close waiter cannot
@@ -665,7 +680,13 @@ impl CellGroupSqlPool {
             .try_acquire_owned()
             .map_err(|error| match error {
                 tokio::sync::TryAcquireError::Closed => unavailable(),
-                tokio::sync::TryAcquireError::NoPermits => overloaded(),
+                tokio::sync::TryAcquireError::NoPermits => {
+                    worker.performance.increment(
+                        crate::raft::performance::Counter::SqlWorkerAdmissionRefusals,
+                        1,
+                    );
+                    overloaded()
+                }
             })?;
         let queued = worker
             .performance
@@ -865,10 +886,10 @@ impl CellGroupSqlPool {
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         let (cell, action) = self
             .stage_request(options, authority, attempt, mode, callback)
-            .map_err(CellSqlStageFailure::admission)?;
+            .map_err(|error| self.stage_failure(error, true))?;
         let wait = self
             .send_ordinary(cell, action)
-            .map_err(CellSqlStageFailure::admission)?;
+            .map_err(|error| self.stage_failure(error, true))?;
         wait.await
             .map_err(|_| CellSqlStageFailure {
                 error: unavailable(),
@@ -876,7 +897,25 @@ impl CellGroupSqlPool {
                 before_enqueue: false,
                 writer_busy: false,
             })?
-            .map_err(CellSqlStageFailure::known)
+            .map_err(|error| self.stage_failure(error, false))
+    }
+
+    fn stage_failure(&self, error: ExecutionError, before_enqueue: bool) -> CellSqlStageFailure {
+        if matches!(error, ExecutionError::Refused(CommandFailure::Overloaded)) {
+            self.inner.performance.increment(
+                if before_enqueue {
+                    crate::raft::performance::Counter::SqlStageAdmissionRefusals
+                } else {
+                    crate::raft::performance::Counter::SqlStageExecutionRefusals
+                },
+                1,
+            );
+        }
+        if before_enqueue {
+            CellSqlStageFailure::admission(error)
+        } else {
+            CellSqlStageFailure::known(error)
+        }
     }
 
     fn stage_request(

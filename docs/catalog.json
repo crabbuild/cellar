@@ -775,6 +775,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/three-node-primitive-admission-2026-11-14.md",
+      "title": "Three-node primitive refusal diagnosis",
+      "summary": "SQL group admission observations and distinct SQL/KV/Queue deadlines under unchanged constrained resources.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/progress.md",
       "title": "Cell-group implementation progress",
       "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",

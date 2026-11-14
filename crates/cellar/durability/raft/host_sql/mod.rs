@@ -275,7 +275,8 @@ impl Pool {
                     worker_wake.0.set(std::thread::current()).map_err(|_| {
                         ExecutionError::Invalid("SQL worker wake already installed")
                     })?;
-                    let mut shared = cell_groups::Cells::new(activations, worker_wake);
+                    let mut shared =
+                        cell_groups::Cells::new(activations, worker_wake, performance.clone());
                     let mut requests = RequestQueue::new(receiver, capacity);
                     loop {
                         if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {

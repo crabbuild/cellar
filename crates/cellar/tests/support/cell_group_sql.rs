@@ -464,6 +464,14 @@ pub(super) async fn pool_admission(rooted: bool) -> Result<()> {
     pool::admission(rooted).await
 }
 
+pub(super) async fn admission_refusal_observations(rooted: bool) -> Result<()> {
+    pool::node_and_callback(rooted).await
+}
+
+pub(super) async fn workspace_refusal_observations() -> Result<()> {
+    pool::private_workspace().await
+}
+
 #[path = "cell_group_sql_reconcile.rs"]
 mod reconciliation;
 

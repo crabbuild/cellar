@@ -58,6 +58,24 @@ boot observation. These are separate from range/membership refresh and leader
 probe counters. They report bounded routing work; endpoint metadata grants no
 membership, application permission or durability proof.
 
+SQL refusal counters identify pressure at fixed admission boundaries.
+`sql_node_admission_refusals` and `sql_group_admission_refusals` count failed
+item/byte reservations; `sql_worker_admission_refusals` counts a full ordinary
+worker queue. The reserved progress lane is outside that last counter.
+`sql_stage_admission_refusals` counts overloaded staging requests refused before
+enqueue. `sql_stage_execution_refusals` counts overloaded replies received from
+the worker, including private-image opening failures and callback failures;
+it does not prove that a callback ran. Oversized compiled input refused before
+staging is outside these stage counters.
+
+`sql_private_open_refusals` counts overloaded private-image opening, including
+continuation reopening after earlier callback work.
+`cell_command_submission_rejections` counts rejected command submissions;
+`cell_command_settlement_overloads` counts overloaded settlement refusals.
+Counters overlap and describe node-wide observations, not per-command outcomes.
+They do not authorize retries, establish that a mutation did not commit, or
+replace the original command identity, deadline and receipt reconciliation.
+
 ## Event-delivery observations
 
 ### Host counters and histograms

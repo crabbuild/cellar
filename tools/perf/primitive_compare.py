@@ -148,6 +148,17 @@ def rows_from(path):
     return [json.loads(line.removeprefix('PRIMITIVE_COMPARE ')) for line in path.read_text().splitlines() if line.startswith('PRIMITIVE_COMPARE ')]
 
 
+def capture_raft_failure(bases, token):
+    """Observe each live owner before shutdown; missing nodes remain explicit."""
+    evidence = {'scope':'after failure, before shutdown','observations':[],'errors':[]}
+    for node, base in enumerate(bases, 1):
+        try:
+            evidence['observations'].append(request(base + '/state', token))
+        except Exception as error:
+            evidence['errors'].append({'node':node,'error':str(error)})
+    return evidence
+
+
 def record_load_evidence(case_dir, record):
     """Index emitted windows even when a controller failure bypassed normal collection."""
     log_path = case_dir / 'load.log'
@@ -226,6 +237,7 @@ def case(args, engine, report, family, mode, config, token):
         save(args.output / 'run.json', report)
     owned = []
     store = None
+    bases = []
     try:
         network = engine.call('network', 'create', '--label', owner, '--subnet', args.subnet, prefix)
         record['network'] = network
@@ -350,6 +362,8 @@ def case(args, engine, report, family, mode, config, token):
         record['status'] = 'PASSED'
     except BaseException as error:
         record.update(status='FAILED', error=str(error))
+        if isinstance(error, Exception) and bases and 'raft_end' not in record:
+            record['raft_failure'] = capture_raft_failure(bases, token)
         if not isinstance(error, Exception):
             raise
     finally:

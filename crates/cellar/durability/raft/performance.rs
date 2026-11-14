@@ -265,9 +265,18 @@ pub(crate) enum Counter {
     CellEndpointRefreshJoins,
     CellKvLocalPayloadPreparations,
     CellKvResolvedPayloadPreparations,
+    // Node-wide phase observations are not per-command outcome or retry proofs.
+    SqlNodeAdmissionRefusals,
+    SqlGroupAdmissionRefusals,
+    SqlWorkerAdmissionRefusals,
+    SqlStageAdmissionRefusals,
+    SqlStageExecutionRefusals,
+    SqlPrivateOpenRefusals,
+    CellCommandSubmissionRejections,
+    CellCommandSettlementOverloads,
 }
 
-const COUNTERS: [Counter; 70] = [
+const COUNTERS: [Counter; 78] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -338,11 +347,27 @@ const COUNTERS: [Counter; 70] = [
     Counter::CellEndpointRefreshJoins,
     Counter::CellKvLocalPayloadPreparations,
     Counter::CellKvResolvedPayloadPreparations,
+    Counter::SqlNodeAdmissionRefusals,
+    Counter::SqlGroupAdmissionRefusals,
+    Counter::SqlWorkerAdmissionRefusals,
+    Counter::SqlStageAdmissionRefusals,
+    Counter::SqlStageExecutionRefusals,
+    Counter::SqlPrivateOpenRefusals,
+    Counter::CellCommandSubmissionRejections,
+    Counter::CellCommandSettlementOverloads,
 ];
 
 impl Counter {
     fn name(self) -> &'static str {
         match self {
+            Self::SqlNodeAdmissionRefusals => "sql_node_admission_refusals",
+            Self::SqlGroupAdmissionRefusals => "sql_group_admission_refusals",
+            Self::SqlWorkerAdmissionRefusals => "sql_worker_admission_refusals",
+            Self::SqlStageAdmissionRefusals => "sql_stage_admission_refusals",
+            Self::SqlStageExecutionRefusals => "sql_stage_execution_refusals",
+            Self::SqlPrivateOpenRefusals => "sql_private_open_refusals",
+            Self::CellCommandSubmissionRejections => "cell_command_submission_rejections",
+            Self::CellCommandSettlementOverloads => "cell_command_settlement_overloads",
             Self::CellKvResolvedPayloadPreparations => "cell_kv_resolved_payload_preparations",
             Self::CellKvLocalPayloadPreparations => "cell_kv_local_payload_preparations",
             Self::CellBindingAppliedHistoryHints => "cell_binding_applied_history_hints",

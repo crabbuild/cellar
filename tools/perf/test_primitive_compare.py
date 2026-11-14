@@ -10,7 +10,7 @@ import unittest
 import urllib.error
 from unittest.mock import patch
 
-from primitive_compare import Engine, GIB, parse_cgroup, validate_rows, wait_store_ready, request, serving_leaders, sample_container, record_load_evidence
+from primitive_compare import Engine, GIB, parse_cgroup, validate_rows, wait_store_ready, request, serving_leaders, sample_container, record_load_evidence, capture_raft_failure
 from primitive_load import latency_summary, value_for, window
 
 
@@ -42,6 +42,17 @@ def topology(family='sql', leaders=(1,2,3)):
 class ComparisonEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.args = SimpleNamespace(repetitions=1, concurrency=[1], warmup=3, seconds=3)
+
+    def test_failed_node_observation_keeps_other_owners_and_missing_node_explicit(self):
+        states=topology()
+        with patch('primitive_compare.request',side_effect=[states[0],ValueError('owner closed'),states[2]]) as observe:
+            evidence=capture_raft_failure(['http://node1','http://node2','http://node3'],'test-token')
+        self.assertEqual(evidence['observations'],[states[0],states[2]])
+        self.assertEqual(evidence['errors'],[{'node':2,'error':'owner closed'}])
+        self.assertEqual(observe.call_count,3)
+        self.assertEqual([call.args[0] for call in observe.call_args_list],['http://node1/state','http://node2/state','http://node3/state'])
+        with self.assertRaises(ValueError):
+            serving_leaders(evidence['observations'],'sql')
 
     def test_incomplete_or_manipulated_windows_cannot_qualify(self):
         validate_rows(rows(), 'sql', self.args)

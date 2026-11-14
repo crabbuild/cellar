@@ -304,7 +304,7 @@ impl Cells {
             let commits = commits.map(|context| *context);
             let max_result = options.limits().max_result_bytes;
             let mut activation = self.activations.take(&cell, &authority, &class, now)?;
-            let mut executor = options.clone().open(authority)?;
+            let mut executor = options.clone().open(authority, &self.performance)?;
             let permit = &mut activation.permit;
             let mut admitted = false;
             let mut reserve = || {
@@ -508,7 +508,7 @@ impl Cells {
                 }
             }
             if rpc.executor.is_none() {
-                match rpc.poll_resume(&self.activations, &mut cx, domain, now) {
+                match rpc.poll_resume(&self.activations, &mut cx, domain, now, performance) {
                     Poll::Pending => {
                         self.suspended.push_back(rpc);
                         timer.finish(true);

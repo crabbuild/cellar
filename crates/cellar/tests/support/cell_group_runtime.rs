@@ -978,6 +978,14 @@ pub(super) async fn sql_pool_admission(rooted: bool) -> Result<()> {
     sql::pool_admission(rooted).await
 }
 
+pub(super) async fn admission_refusal_observations(rooted: bool) -> Result<()> {
+    sql::admission_refusal_observations(rooted).await
+}
+
+pub(super) async fn workspace_refusal_observations() -> Result<()> {
+    sql::workspace_refusal_observations().await
+}
+
 pub(super) async fn reconcile_sql_producers(rooted: bool) -> Result<()> {
     sql::reconcile_producers(rooted).await
 }

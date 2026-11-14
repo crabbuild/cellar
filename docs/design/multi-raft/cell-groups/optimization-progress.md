@@ -3969,3 +3969,42 @@ or production-capacity claims. No OPT/CG gate or historical failure is reset.
 Next priorities remain bounded admission/progress, Fleet lease-renewal progress,
 original-identity reconciliation, sustainable complete-root manifest reclamation
 and the remaining independent-domain/authority/retirement/provider gates.
+
+## Primitive refusal phases, 2026-11-14 UTC
+
+The [instrumented three-node probe](three-node-primitive-admission-2026-11-14.md)
+adds eight bounded observations for SQL node/group/ordinary-worker admission,
+staging before enqueue versus received worker replies, private-image opening,
+command submission and overloaded settlement. They change no admission bank,
+deadline, identity or retry behavior. Native controls distinguish an unopened
+callback from a callback that returns the same overload, and hold the original
+physical workspace bank full before testing refused opening and returned credit.
+
+Immutable image `16541b6a`, compiler inputs `0df275de`, runs all three public
+bindings on the existing separately constrained RF3 topology. Of 20 planned
+timed windows, three verify, one fails and 16 remain unmeasured; two warmups
+verify, two fail and eight remain unmeasured. All three cases fail, retaining
+eight emitted windows and 18 request errors. SQL reaches one group-budget
+refusal before enqueue at concurrency 16 alongside 12 deadlines. KV fails a
+four-client read with two deadlines; Queue fails four-client warmup with three
+deadlines. Neither KV nor Queue increments the new overload counters. The SQL
+counter does not explain every deadline, and zero overloads do not exclude
+writer contention or other waits.
+
+Queue delivery observations include all 40 acknowledged IDs plus 24 IDs from
+the three unconfirmed attempts, with zero reported backlog/DLQ. The failed row
+does not retain the complete observed body-hash map, so this is ID reconciliation
+only; delivery/body/settlement qualification remains failed. Original uncertain
+identities are retained without fresh-ID retries. All nodes/stores close zero,
+with no sampled OOM or restarts, and the original RustFS service is restored
+and ready. Complete owner snapshots, raw samples, source hashes and host activity
+remain available with the report; the earlier comparison is unchanged.
+
+Four native integration controls, two admission unit tests and five registry
+tests pass, with strict affected-target Clippy, formatting/layout and 332 Python
+performance tests (one existing optional skip). The evidence reader accepts the
+new counter vocabulary and complete historical measurement inventories, while
+refusing partial inventories and within-run schema changes. These are archive
+evidence readers, not runtime legacy-format support. No OPT/CG gate is accepted.
+Bounded group admission progress, independent deadline diagnosis and original-ID
+reconciliation remain required before another complete qualification campaign.

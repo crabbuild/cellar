@@ -17,6 +17,7 @@ pub(super) struct Admission {
     state: Mutex<State>,
     max_retired_groups: usize,
     writers: tokio::sync::watch::Sender<()>,
+    performance: Arc<crate::raft::performance::Registry>,
 }
 
 #[derive(Default)]
@@ -106,6 +107,7 @@ impl Admission {
         limits: CellSqlLimits,
         lease: Arc<crate::raft::storage::SqlPoolLease>,
         max_retired_groups: usize,
+        performance: Arc<crate::raft::performance::Registry>,
     ) -> Arc<Self> {
         Arc::new(Self {
             lease,
@@ -114,6 +116,7 @@ impl Admission {
             limits,
             state: Mutex::new(State::default()),
             writers: tokio::sync::watch::channel(()).0,
+            performance,
         })
     }
 
@@ -159,7 +162,13 @@ impl Admission {
         if state.retired.contains(&group) {
             return Err(ExecutionError::Refused(CommandFailure::Unavailable));
         }
-        let node = self.node.acquire(bytes).ok_or_else(overloaded)?;
+        let node = self.node.acquire(bytes).ok_or_else(|| {
+            self.performance.increment(
+                crate::raft::performance::Counter::SqlNodeAdmissionRefusals,
+                1,
+            );
+            overloaded()
+        })?;
         // Reclaim metadata only, never authority or pending physical ownership.
         state.groups.retain(|_, budget| budget.strong_count() != 0);
         let group_budget = state
@@ -169,7 +178,13 @@ impl Admission {
             .unwrap_or_else(|| {
                 Budget::new(self.limits.group_bytes, self.limits.group_pending_cells)
             });
-        let group_permit = group_budget.acquire(bytes).ok_or_else(overloaded)?;
+        let group_permit = group_budget.acquire(bytes).ok_or_else(|| {
+            self.performance.increment(
+                crate::raft::performance::Counter::SqlGroupAdmissionRefusals,
+                1,
+            );
+            overloaded()
+        })?;
         state.groups.insert(group, Arc::downgrade(&group_budget));
         Ok(Arc::new(Bytes {
             _lease: self.lease.clone(),
@@ -265,6 +280,7 @@ mod tests {
             },
             log.claim_sql_pool()?,
             2,
+            log.performance(),
         );
         let mut progress = admission.writer_progress();
         let (mut first, first_bytes) = admission.reserve(&cell, group, 1024)?;
@@ -336,7 +352,7 @@ mod tests {
             node_bytes: 16_384,
             group_bytes: 8192,
         };
-        let admission = Admission::new(limits, log.claim_sql_pool()?, 2);
+        let admission = Admission::new(limits, log.claim_sql_pool()?, 2, log.performance());
         let history = |id| -> anyhow::Result<GroupHistory> {
             Ok(GroupHistory {
                 cluster: ClusterId::new([4; 16])?,
