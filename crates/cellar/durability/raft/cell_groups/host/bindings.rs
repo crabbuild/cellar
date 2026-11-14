@@ -683,9 +683,9 @@ fn select_event_owner<'a>(
     });
     let (key, binding) = owners
         .next()
-        .ok_or(CellDispatchError::Invalid("event owner missing"))?;
+        .ok_or(CellDispatchError::Invalid("event service namespace is missing"))?;
     if owners.next().is_some() {
-        return Err(CellDispatchError::Invalid("event owner ambiguous"));
+        return Err(CellDispatchError::Invalid("event service namespace is ambiguous"));
     }
     Ok((*key, binding.as_ref()))
 }

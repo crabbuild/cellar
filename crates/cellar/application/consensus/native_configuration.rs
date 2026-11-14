@@ -43,7 +43,6 @@ pub(crate) struct NativeCellConfiguration {
     pub(crate) sql_bindings: Vec<(String, String)>,
     pub(crate) kv_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<NativeQueueBinding>,
-    pub(crate) stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub(crate) queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
     pub(crate) stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub(crate) crons: Vec<String>,
@@ -100,8 +99,6 @@ pub(in crate::application) struct AdmittedCellConfiguration {
     pub(in crate::application) sql_bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) kv_bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) queue_bindings: Arc<BTreeMap<String, (String, u32)>>,
-    pub(in crate::application) stream_bindings:
-        Arc<BTreeMap<String, crate::application::event_stream::BindingConfig>>,
     pub(in crate::application) queue_consumers:
         Arc<BTreeMap<String, crate::protocol::QueueConsumerConfig>>,
     pub(in crate::application) stream_bindings:
@@ -252,28 +249,6 @@ impl AdmittedCellConfiguration {
                 .checked_add(binding.environment.len() + binding.queue.len() + 4)
                 .ok_or(RegistrationError::Limit)?;
         }
-        let mut stream_bindings = BTreeMap::new();
-        for binding in &options.stream_bindings {
-            binding
-                .validate()
-                .map_err(|_| RegistrationError::Invalid("Raft stream binding"))?;
-            if binding.principal != options.script_name
-                || stream_bindings
-                    .insert(binding.environment.clone(), binding.clone())
-                    .is_some()
-            {
-                return Err(RegistrationError::Invalid(
-                    "Raft stream principal or duplicate binding",
-                ));
-            }
-            bytes = bytes
-                .checked_add(
-                    serde_json::to_vec(binding)
-                        .map_err(|_| RegistrationError::Invalid("Raft stream binding"))?
-                        .len(),
-                )
-                .ok_or(RegistrationError::Limit)?;
-        }
         let mut queue_consumers = BTreeMap::new();
         for consumer in &options.queue_consumers {
             let config = cellar_logic::queue::QueueConfig {
@@ -390,7 +365,6 @@ impl AdmittedCellConfiguration {
             sql_bindings: Arc::new(sql_bindings),
             kv_bindings: Arc::new(kv_bindings),
             queue_bindings: Arc::new(queue_bindings),
-            stream_bindings: Arc::new(stream_bindings),
             queue_consumers: Arc::new(queue_consumers),
             stream_bindings: Arc::new(stream_bindings),
         })

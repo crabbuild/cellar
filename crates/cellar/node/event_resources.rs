@@ -63,6 +63,12 @@ impl Drop for Pending {
 
 pub(super) async fn activate(app: AppHandle, generation: &Generation) -> Result<()> {
     generation.begin_event_activation();
+    if generation.event_streams().is_empty() && generation.event_bindings().is_empty() {
+        return Ok(());
+    }
+    let deadline = crate::asyncrt::mono_ms()
+        .checked_add(app.operation_deadline_ms)
+        .context("event activation deadline overflow")?;
     let mut pending = Pending(Some(generation.event_readiness.clone()));
     let result = crate::asyncrt::timeout(
         std::time::Duration::from_millis(app.operation_deadline_ms),
