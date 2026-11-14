@@ -92,8 +92,14 @@ intermittent archive-deadline failure also remains unexplained.
    their public adapters. Queue normal/fault/long-callback/load results retain
    their exact source pins; full-size payload, clock, deployment, movement/wake
    and disk-loss boundaries remain. EventStream needs committed outbox/inbox
-   authority and Workflow its qualified combined execution/replay adapter; draft
-   PR [#169](https://github.com/crabbuild/cellar/pull/169) is not integrated here.
+   authority. The Workflow adapter from draft PR
+   [#169](https://github.com/crabbuild/cellar/pull/169), head `0d9f6547`, is now
+   integrated with explicit shared-service selection and cron-only applications.
+   It delivers journaled steps, controls, streams and autonomous schedules; the
+   combined source still requires qualification. The candidate's RustFS campaign
+   remains FAILED at six of eight configurations, with an ordinary native status
+   deadline and one configuration unrun. Earlier isolated passes do not waive
+   that failure. See the [Workflow contract](workflow-durability.md).
    Reuse bounded shared owners rather than per-idle-cell tasks.
 3. Complete the remaining binding and SQL/KV recovery with independent target-S3 minima,
    interruption before the target checkpoint, unused child sequence sealing,

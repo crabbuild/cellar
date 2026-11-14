@@ -281,6 +281,7 @@ pub struct Registry {
     raft_configuration: std::sync::OnceLock<RaftConfiguration>,
     raft_cron: std::sync::OnceLock<Arc<consensus::RaftClass>>,
     workflows: HashMap<String, WorkflowHandler>,
+    workflow_digests: std::collections::BTreeMap<String, [u8; 32]>,
 }
 
 struct RaftConfiguration {
@@ -303,6 +304,7 @@ impl Registry {
             raft_configuration: std::sync::OnceLock::new(),
             raft_cron: std::sync::OnceLock::new(),
             workflows: HashMap::new(),
+            workflow_digests: Default::default(),
         }
     }
 
@@ -442,6 +444,7 @@ impl Registry {
 
     fn uses_raft_primitives(&self) -> bool {
         self.raft_primitives
+            || !self.workflow_digests.is_empty()
             || self
                 .raft_classes
                 .values()
@@ -468,6 +471,33 @@ impl Registry {
         );
         self.workflows.insert(class, Arc::new(handler));
         Ok(self)
+    }
+
+    /// Register a Workflow's compiled behavior for shared-group Quorum execution.
+    /// The digest must change with its code or replay contract. Definitions with
+    /// different digests cannot share a namespace; migration is not implicit.
+    pub fn raft_workflow(
+        self,
+        class: impl Into<String>,
+        digest: [u8; 32],
+        handler: impl Fn(
+                Context,
+                workflow::Event,
+                workflow::Step,
+            ) -> HandlerFuture<cellar_native::clone::StructuredValue>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Result<Self> {
+        anyhow::ensure!(
+            self.raft_configuration.get().is_none() && self.raft_cron.get().is_none(),
+            consensus::RegistrationError::ContractMismatch
+        );
+        anyhow::ensure!(digest != [0; 32], "Workflow code digest must be nonzero");
+        let class = class.into();
+        let mut registry = self.workflow(class.clone(), handler)?;
+        registry.workflow_digests.insert(class, digest);
+        Ok(registry)
     }
 }
 
@@ -500,6 +530,11 @@ impl Application for Registry {
         {
             if shared {
                 if (class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty())
+                    || (class == &crate::deploy::workflow_class(&options.script_name)
+                        && !options.workflow_bindings.is_empty())
+                    || options.workflow_bindings.iter().any(|binding| {
+                        &binding.class == class && self.workflow_digests.contains_key(class)
+                    })
                     || (class == crate::deploy::KV_CLASS && !options.kv_bindings.is_empty())
                     || (class == crate::deploy::QUEUE_CLASS
                         && (!options.queue_bindings.is_empty()
@@ -554,6 +589,16 @@ impl Application for Registry {
                     Arc::new(consensus::queue_service(&config, self.handler.clone())?),
                 );
             }
+            if !options.workflow_bindings.is_empty() {
+                classes.insert(
+                    crate::deploy::workflow_class(&options.script_name),
+                    Arc::new(consensus::workflow_service(
+                        &config,
+                        self.workflows.clone(),
+                        &self.workflow_digests,
+                    )?),
+                );
+            }
             let installed = self
                 .raft_configuration
                 .get_or_init(|| RaftConfiguration { digest, classes });
@@ -583,8 +628,17 @@ impl Application for Registry {
             );
         }
         self.validate_configuration(&deployment.options)?;
-        if self.raft_primitives || !self.raft_classes.is_empty() {
-            if deployment.crons.is_empty() {
+        if self.raft_primitives
+            || !self.raft_classes.is_empty()
+            || !self.workflow_digests.is_empty()
+        {
+            if deployment.crons.is_empty()
+                && deployment
+                    .options
+                    .workflow_bindings
+                    .iter()
+                    .all(|binding| binding.settings.schedules.is_empty())
+            {
                 anyhow::ensure!(
                     self.raft_cron.get().is_none(),
                     consensus::RegistrationError::ContractMismatch
@@ -703,6 +757,10 @@ impl Application for Registry {
 
 #[derive(Default)]
 pub(crate) struct EventState {
+    /// Only the Workflow command driver joins these retained continuations.
+    pub(crate) raft_workflow_turn: bool,
+    pub(crate) raft_retire_after_turn: std::sync::atomic::AtomicBool,
+    pub(crate) workflow_backgrounds: std::sync::atomic::AtomicUsize,
     /// Immutable source declaration, including stateless native invocations.
     /// Global SQL identities can resolve to another co-hosted script.
     pub(crate) raft_sql: bool,
@@ -912,8 +970,46 @@ impl Context {
         &self,
         future: impl Future<Output = Result<()>> + Send + 'static,
     ) -> Result<()> {
-        self.check_turn()?;
-        self.state.background.lock().unwrap().push(Box::pin(future));
+        if self.raft_storage.is_some() {
+            self.check_binding_turn()?;
+            anyhow::ensure!(
+                self.state.raft_workflow_turn,
+                consensus::CommandFailure::UnsupportedCapability
+            );
+            use std::sync::atomic::Ordering;
+            self.state
+                .workflow_backgrounds
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                    if count < 256 {
+                        Some(count + 1)
+                    } else {
+                        None
+                    }
+                })
+                .map_err(|_| consensus::CommandFailure::Overloaded)?;
+
+            struct Pending(std::sync::Weak<EventState>);
+
+            impl Drop for Pending {
+                fn drop(&mut self) {
+                    if let Some(state) = self.0.upgrade() {
+                        state.workflow_backgrounds.fetch_sub(1, Ordering::AcqRel);
+                    }
+                }
+            }
+            let pending = Pending(Arc::downgrade(&self.state));
+            self.state
+                .background
+                .lock()
+                .unwrap()
+                .push(Box::pin(async move {
+                    let _pending = pending;
+                    future.await
+                }));
+        } else {
+            self.check_turn()?;
+            self.state.background.lock().unwrap().push(Box::pin(future));
+        }
         Ok(())
     }
 

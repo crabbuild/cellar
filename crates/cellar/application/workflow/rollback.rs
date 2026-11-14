@@ -15,7 +15,7 @@ pub struct RollbackContext {
 
 impl RollbackContext {
     pub fn stream_output(&self, context: &Context) -> Result<Option<StreamOutput>> {
-        context.check_turn()?;
+        context.check_binding_turn()?;
         ensure!(
             Arc::ptr_eq(&context.io, &self.origin.context.io),
             "WORKFLOW_ERROR: rollback output belongs to another invocation"
@@ -93,15 +93,16 @@ pub(super) async fn drive(shared: Arc<Shared>) -> Result<Option<f64>> {
         let registration = shared.registration(&forward_key).ok_or_else(|| {
             error("a recorded rollback handler is missing from the current workflow")
         })?;
-        if let Some(at) = step(
+        let result = step(
             shared.clone(),
             forward_key,
             forward,
             registration,
             cause.clone(),
         )
-        .await?
-        {
+        .await;
+        shared.checkpoint().await?;
+        if let Some(at) = result? {
             return Ok(if admitted(&shared)? { Some(at) } else { None });
         }
     }
@@ -193,6 +194,10 @@ async fn step(
         )?,
     )?;
     let output = property(&forward, "value")?;
+    shared.checkpoint().await?;
+    if !admitted(&shared)? {
+        return Ok(None);
+    }
     let is_stream =
         property(&forward, "stream")?.is_some_and(|v| v.root == CloneValue::Boolean(true));
     let mut future = super::replay::scoped(&registration.name, || {

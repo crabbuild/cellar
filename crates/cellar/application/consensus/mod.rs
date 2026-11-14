@@ -22,6 +22,8 @@ mod native_cell;
 mod native_configuration;
 pub(crate) mod native_ingress;
 mod native_services;
+mod native_workflow;
+pub(in crate::application) use native_workflow::workflow_service;
 pub(crate) mod native_work;
 pub(crate) mod sql_ingress_identity;
 pub(in crate::application) use native_services::{

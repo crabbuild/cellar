@@ -67,6 +67,10 @@ impl CellRpcTurn {
         self.step != 0 && self.transaction.can_poll_parked_io()
     }
 
+    pub(crate) fn waiting_on_queries(&self) -> bool {
+        self.step != 0 && self.output.is_none() && self.transaction.waiting_on_queries()
+    }
+
     pub(crate) fn poll_parked_io(&self, cx: &mut Context<'_>) -> Result<bool, ExecutionError> {
         self.transaction.poll_parked_io(cx).map_err(private_failure)
     }
@@ -161,6 +165,7 @@ impl CellPrivateExecutor {
                     domain,
                     deadline,
                     result_limit: self.options.limits.max_result_bytes,
+                    checkpoint_limit: self.options.limits.envelope.max_payload_bytes,
                     fence: self.authority.activation_fence(),
                     binding_source: bindings.and_then(|host| {
                         class.cell_configuration_digest().map(|configuration| {
@@ -458,6 +463,9 @@ impl CellPrivateExecutor {
             .database_mut()
             .continue_checkpoint(&turn.transaction)
             .map_err(private_failure)?;
+        turn.transaction.mark_quorum_read_base(
+            turn.step != 0 && turn.attempt.request.durability == Durability::Quorum,
+        );
         turn.preparation = Some(StagePreparation {
             sequence,
             log_reservation,

@@ -897,6 +897,7 @@ impl CellGroupSqlPool {
                     let fresh = commits
                         .continuation_authority(&domain, &cell, &fence)
                         .await?;
+
                     Ok::<_, ExecutionError>((reserved, fresh))
                 };
                 let (reserved, fresh) = crate::asyncrt::select_biased! {

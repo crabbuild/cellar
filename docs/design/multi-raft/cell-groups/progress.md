@@ -27,6 +27,48 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 integrated Workflow and shared services
+
+The Workflow implementation from draft PR [#169](https://github.com/crabbuild/cellar/pull/169),
+head `0d9f6547`, is integrated with the newer explicit shared-service selector.
+`Registry::raft_workflow` selects shared groups for Workflow-only applications;
+`Registry::raft_primitives` continues to admit SQL/KV/Queue/cron without an
+application-owned cell class. Ordinary cron and Workflow binding schedules share
+the reserved cron owner. Workflow registration now refuses after configuration
+or cron admission, preserving the installed compiled contract. The public
+contract regression combines SQL, KV, Queue, Workflow and both schedule forms.
+
+The adapter supplies journaled steps/results, waits, retry/compensation,
+controls, history, streams, deletion/recreation and autonomous scheduled creation.
+Pinned linearizable Workflow reads reuse only a proven unchanged Quorum source
+root. S3 or dirty roots retain the checkpoint path; waiting target I/O cannot
+access source SQLite, and contending writers still force a yield. Alarm failure
+retirement, FIFO admission, original deadlines and independent target proofs
+remain required. See the [Workflow contract](workflow-durability.md).
+
+Combined-source build and qualification are pending. The candidate's recorded
+RustFS campaign remains FAILED: six of eight configurations pass, ordinary native
+status fails and one configuration is unrun. Its isolated native control passes
+both images without resolving that failure. Existing candidate evidence remains
+source-pinned in the following Workflow checkpoint.
+
+At preceding source `a8bfe076`, cohort
+`CG-17-sdk-target-io-a8bfe076-104` is FAILED. Native and real-RustFS SDK source-proof
+checks pass, as do native interleaving and RustFS Axum Queue. Native Queue,
+native load, RustFS native Queue and RustFS load fail their original deadlines.
+All eight selections ran, twelve failed voter disks remain, and thirty evidence
+files have verified backups. Backend and VM stopped successfully with objects
+retained. These failures remain release gates.
+
+Temporary invocation-phase tracing at `b0c97816` passes two fresh native Queue
+controls, each in both image modes. This does not reproduce or explain the
+untraced failures. Cohort `CG-17-queue-progress-b0c97816-105` retains both logs,
+source inputs and frozen executable with verified backups. The tracing is
+removed before integration. No deadlines, quotas or assertions changed.
+
+No complete primitive family is accepted. Acceptance remains **13/17 tasks and
+147/195 cases**; EventStream, remaining adapters and CG-13/15/16 remain open.
+
 ## CG-17 cron services through the daemon and CLI
 
 Source `17846604` adds `Registry::raft_primitives()` to select shared-group
@@ -366,6 +408,184 @@ bindings, interruptions before the target checkpoint and movement/wake remain
 open. Next implement ordinary alarm failure rollback, persisted backoff and
 exhaustion, then cron, broader Queue, EventStream and Workflow execution;
 remaining adapters and combined recovery still gate full support.
+
+## CG-17 Workflow implementation candidate
+
+The Workflow candidate adds `Registry::raft_workflow`, immutable compiled handler
+identities, ordinary native/Axum binding routing and the existing native journal
+engine over shared-group commands. Running step records and completed results
+cross Quorum checkpoints before callback/dependent-step entry. Timeout
+continuations remain physically joined and deletion retires the old activation.
+See the [Workflow contract](workflow-durability.md).
+
+Competing cell RPCs now have bounded FIFO writer admission; cancellation keeps
+the original deadline and retained physical work stays charged while parked.
+The candidate is being integrated with the published PR foundation's local
+writer-release notifications, maintenance yielding and bounded archive replay.
+
+The early exact optimized candidate `e2c8307e`
+gets past the earlier status-request refusals, but its full materialized fixture
+fails because the large stream does not reach `waiting` within the original
+30-second state limit. The focused stream/control test and the frozen native
+Fleet Workflow regression pass. Preserve the failed exact-source record,
+resource snapshots, both binaries, logs and three voter disks under
+`CG-17-workflow-merged-e2c8307e-01`. Available immutable image scans observe an
+incomplete chunk prefix; they are explicitly not selected-manifest authority.
+The callback quota is empty at the failure snapshot; no expiry cause is claimed
+from that observation alone.
+
+Source `13e1d946` batches stream capture into bounded proofs up to 256 KiB,
+reduced with the actual admitted envelope and metadata headroom. It flushes
+before waiting for another producer item. Original deadlines, quotas, chunk
+contents, generation checks and final manifest/result proofs remain. Its exact optimized rerun reaches `waiting`, then fails the original six-second
+public stream-download client limit. Preserve `CG-17-workflow-merged-13e1d946-01`
+with its executable, log and three voter disks. The focused control still passes.
+
+Source `345cb110` replaces stream-open/chunk commands with private compiled
+linearizable queries over pinned images. Both stateless and stateful callers
+retain authorization, the original deadline and byte admission; stateful reads
+prove preceding source writes. Chunk continuations retain resource admission
+without another subrequest. The fixture adds a stateful download, unchanged
+target-cell-version assertion and quorum-loss read refusal. Strict affected
+Clippy passes at that source, but the full run refuses history resource reads
+before reaching the download. Source `f4a088f4` adds status/history to the same
+private query adapter: its strengthened focused test passes capture and the
+public download, then fails the stateful reader's original three-second parent
+deadline. Preserve the logs, executables and voter disks under
+`CG-17-workflow-merged-345cb110-01` and `CG-17-workflow-reads-f4a088f4-01`.
+
+Candidate `bb5a50e3` reuses a host-confirmed Quorum root for pure read dispatch
+only while the private source is unchanged and its authority remains current.
+New and dirty roots and S3 turns still checkpoint. The strengthened fixture
+writes before status/open and after the first chunk, then asserts all writes
+and exactly four source mutations (three proofs plus final result), with no
+Workflow target mutation. Its optimized focused rerun still times out. Advisory
+immutable-image scans observe the three intended source checkpoint steps;
+they do not establish completion or selected-manifest authority.
+
+The same optimized executable fails the full native case and both real RustFS
+native/Axum cases during recovery status reads (`UnsupportedCapability`). Cold
+public discovery incorrectly takes the source-proven binding path. Preserve
+`CG-17-workflow-reads-bb5a50e3-01`, `CG-17-workflow-merged-bb5a50e3-01` and
+`CG-17-workflow-rustfs-bb5a50e3-01`. The two RustFS cases stop in materialized
+mode before reaching the extent mode; no mode coverage is claimed.
+
+Source `ea01566d` selects ordinary discovery for public ingress and the
+permit-protected path for source bindings. Stream capture sizes chunks against
+the complete response codec, preserving the original reply and checkpoint
+bounds. This reduces read round trips while retaining a fresh linearizable
+generation check for every chunk. Strict affected-target Clippy and the
+strengthened focused download case pass. Its full native fixture also passes
+retained restart/replay and both stream downloads, then refuses deletion of a
+held callback because range deletion still requires Fleet activation.
+The real RustFS native/Axum fixtures expose cold-discovery `Runtime(NotReady)`
+before reaching the extent mode. Preserve `CG-17-workflow-merged-ea01566d-01`
+and `CG-17-workflow-rustfs-ea01566d-01`. The Fleet regression first fails a
+`waiting` state assertion while the full native case overlaps; its repeat
+passes in 0.56 seconds. Both observations are retained without a cause claim.
+
+The follow-up routes range deletion through the existing fenced writable
+storage scope. It retries only typed read-only `NotReady`/`Overloaded` admission
+failures, with bounded backoff under the original deadline and source permit;
+terminal, fencing and untyped failures still escape. Runtime qualification is pending.
+At `a0a31220`, the complete real RustFS Axum Workflow fixture passes in both
+materialized and extent modes, including deletion/recreation, restart/replay,
+archive PUT refusal and quorum refusal. The campaign remains failed: native
+pause exceeds its original deadline. The focused source download and standalone
+native fixture also retain deadline failures. Preserve
+`CG-17-workflow-rustfs-a0a31220-01`, `CG-17-workflow-reads-a0a31220-01` and
+`CG-17-workflow-merged-a0a31220-01`; the Axum pass does not waive native failures.
+
+PR #166 merged at `3d6450d4`. The Workflow delta moves unchanged onto that tree
+at `4c54cae6`, with committed alarm/FIFO/writer-readiness foundation `15b9bf46`
+integrated at `8b3527a6`. The new candidate retains a source writer only while
+proven pure queries wait without contention, avoiding per-chunk SQLite reopen;
+contending writers still force a clean-root yield before application polling.
+At `50002981`, the strengthened original-deadline stream test and complete
+native RF3 Workflow fixture pass in both images. The real RustFS campaign passes
+both exact native/Axum cases, four image configurations, with source-input and
+frozen-executable verification. The Fleet Workflow conformance test passes in
+0.54 seconds. Preserve `CG-17-workflow-merged-50002981-01` and
+`CG-17-workflow-rustfs-50002981-01`.
+
+Selected shared-core regressions pass Queue, interleaving, Storage, alarm failure
+rollback and durable retry exhaustion (both minima and images). The SDK source
+proof gate fails its nested same-cell observer: a source writer can resume before
+the prepared child's asynchronous arrival at that writer queue. Preserve the
+failed command and three disks in `CG-17-workflow-regressions-50002981-01`; its
+remaining checks execute the frozen `50002981` binary independently of later
+checkout changes. The follow-up moves four prepared, owned target-I/O futures to
+the existing parked-I/O path after the same source proof. Application callbacks
+still wait for SQLite resume; mutation waits remain outside the pure-query hint.
+At `7915a45a`, the SDK source-proof gate passes both source minima and image
+modes (38.06 seconds); the original stream deadline gate and interleaving also
+pass. The refreshed real RustFS campaign passes both exact native/Axum cases
+and four image configurations with source/executable verification. Preserve
+`CG-17-workflow-sdk-7915a45a-01` and `CG-17-workflow-rustfs-7915a45a-01`.
+At `5c6d3f3c`, all nine Workflow unit tests pass, including the two final
+cancellation/deletion cleanup tests. The complete native RF3 fixture passes both
+images, the focused stream gate passes, and Fleet conformance passes (0.45s).
+Ten shared-kernel, two storage and three FIFO writer-admission units pass, as do
+the ordinary-cron contract and SDK source-proof regression. Preserve
+`CG-17-workflow-merged-5c6d3f3c-01`; the initially mistyped admission filter
+selected zero tests, so its result grants no coverage. The corrected filter
+selects and passes all three admission tests.
+
+The follow-up admits validated Workflow binding schedules, installs the reserved
+cron owner for Workflow-only deployments and arms its initializer from both
+ordinary and Workflow expressions. Scheduled creation retains the existing
+occurrence proof and deterministic instance identity. New native/RustFS cases
+require autonomous creation without public traffic, committed cron history and
+completed-step reuse after retained RF3 restart. Qualification is pending.
+Earlier prototype failures and the opt0 minimized
+pass remain under `CG-17-workflow-fifo-diagnostics-01`; they establish no
+exact-source qualification.
+
+At `a9931752`, the updated nine Workflow units pass, as do ordinary native
+Workflow in both images and the focused stream case. The new schedule fixture
+fails startup because it still declares Sink without installing that namespace;
+no scheduled image configuration or later Fleet command passes in this run.
+Preserve `CG-17-workflow-schedules-a9931752-01`, its log and frozen binaries.
+The correction removes the unused Sink declaration only for schedule fixtures,
+retaining the same schedule/history/replay assertions and budgets.
+
+At `88f48cd4`, scheduled Workflow creation passes both native image modes,
+including autonomous startup, committed cron history and retained-step reuse.
+The focused stream gate also passes. The combined native campaign remains
+FAILED: ordinary materialized Workflow passes capture and both downloads, then
+a status read while awaiting stream completion returns `DeadlineExceeded`.
+Ordinary extent and the later Fleet target are unrun. Preserve
+`CG-17-workflow-schedules-88f48cd4-01` with its frozen executable, resources,
+log and all three voter disks. No cause or waiver is inferred from the resource
+snapshot. The source-pinned real RustFS campaign finishes FAILED: scheduled
+Workflows pass all four native/Axum image configurations and ordinary Axum
+passes both images. Ordinary native fails a status/retry deadline after retained
+restart in materialized mode; its extent mode is unrun. Preserve
+`CG-17-workflow-rustfs-88f48cd4-01`, including the second three-disk failure.
+This is six passed, one failed and one unrun configuration. The isolated frozen native control passes both real RustFS image modes in
+133.26 seconds with unchanged source inputs and limits. Preserve
+`CG-17-workflow-isolated-88f48cd4-01`. This demonstrates the path but does not
+resolve the intermittent deadline or waive the failed combined campaign.
+The final frozen boundary run passes nine Workflow, ten callback-kernel, two
+storage and three writer-admission units, the cron declaration guard, SDK
+source-proof regression and Fleet conformance. Preserve
+`CG-17-workflow-boundaries-88f48cd4-01`.
+
+CI now passes the exact-source plan tests after the pinned fetch. It exposes a
+separate benchmark schema drift: 15 runtime counters were absent from the Python
+measurement vocabulary. The measurement adapter now retains complete historical
+windows and includes those counters; mixed-schema windows still refuse. All 317
+performance-tool tests pass (one opt-in case skipped).
+
+The campaign runner has 19 passing unit tests and the plan validator has 44.
+The final nine Workflow units and three writer-admission tests pass at
+`5c6d3f3c`. The partial primitive catalogue includes the new registration
+API. Full plan validation in this checkout is blocked by absent historical
+ignored evidence (`CG-01-06-gates-e32115aa-02/CG-01-record.json`). Earlier real RustFS Workflow passes at `7915a45a` remain preserved. At
+`88f48cd4`, schedule and Axum cases pass, but the combined campaign remains
+failed by ordinary-native status deadlines, despite a passing isolated control. CG-17 and accepted-case totals are unchanged;
+full-size values, provider execution and combined lifecycle/disaster scenarios
+remain open. The complete family is not accepted.
 
 ## CG-17 bounded competing enrollment
 

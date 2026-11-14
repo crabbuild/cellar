@@ -779,6 +779,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/workflow-durability.md",
+      "title": "Workflow on shared-group Quorum durability",
+      "summary": "Ordinary Workflow execution, journal proofs and remaining qualification boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/remaining-work.md",
       "title": "Remaining cell-group work and priorities",
       "summary": "Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.",

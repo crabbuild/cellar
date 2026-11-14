@@ -384,7 +384,7 @@ impl Storage {
 
     /// Built-in maintenance can remove a key range without reading its values.
     pub(crate) fn system_delete_range(&self, start: &str, end: &str) -> Result<()> {
-        let scope = self.scope()?;
+        let scope = self.write_scope()?;
         crate::storage::system_sql(
             scope,
             "DELETE FROM __sys_cell_kv WHERE scope=?1 AND k>=?2 AND k<?3",

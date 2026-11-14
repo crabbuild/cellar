@@ -8,6 +8,7 @@ use crate::application::{
     cell_bindings::{Host, Route},
     HandlerFuture,
 };
+use crate::engine_api::RpcData;
 use crate::raft::completion::RuntimeError;
 use cellar_logic::{
     cell_group::CellId,
@@ -113,6 +114,30 @@ impl Host for BindingHost {
             );
         }
         Ok(route)
+    }
+
+    fn read_route(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+    ) -> anyhow::Result<Route> {
+        let owner = self.owner()?;
+        Ok(owner.handle.core.host.workflow_read_route(
+            Some(source),
+            configuration,
+            scope,
+            method,
+            &owner.handle.core.log,
+        )?)
+    }
+
+    fn query(&self, route: Route, input: Vec<u8>, timeout: Duration) -> HandlerFuture<RpcData> {
+        let prepared = require_framework_dispatch()
+            .and_then(|()| self.owner())
+            .map(|owner| owner.query_workflow_resource(route, input, timeout, true));
+        Box::pin(async move { prepared?.await })
     }
 
     fn resolve(&self, route: Route, timeout: Duration) -> HandlerFuture<Option<CellHistory>> {

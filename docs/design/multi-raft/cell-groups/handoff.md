@@ -4,7 +4,29 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current service selector and daemon checkpoint
+## Current integration checkpoint
+
+Workflow candidate PR [#169](https://github.com/crabbuild/cellar/pull/169) at
+`0d9f6547` is integrated with the current shared-service selector and cron-only
+applications. The combined source adds a public contract guard for SQL/KV/Queue,
+Workflow, ordinary cron and Workflow schedules together, including refusal of
+Workflow registration after admission. Build and qualification are pending;
+source-specific candidate passes do not qualify this integration.
+
+The immediately preceding SDK/Queue cohort 104 is FAILED: SDK native/RustFS,
+native interleaving and RustFS Axum Queue pass; native Queue/load and RustFS
+native Queue/load fail. Twelve failed voter disks and thirty backed-up evidence
+files remain. Temporary tracing cohort 105 passes two native Queue controls in
+both images; it does not explain the untraced failures, and the tracing is
+removed. Backend and VM are stopped. See the
+[integration checkpoint](progress.md#cg-17-integrated-workflow-and-shared-services).
+
+Next qualify the combined Workflow, shared-service, SDK and Queue paths without
+changing budgets or weakening fences. Resolve ordinary native status/request
+progress, then deliver EventStream and remaining adapters before the complete
+CG-13/15/16 recovery/release matrix. Acceptance stays **13/17 tasks, 147/195 cases**.
+
+## Previous service selector and daemon checkpoint
 
 `Registry::raft_primitives()` at `17846604` admits built-in shared services
 without an application-owned cell class. Ordinary Fleet selection stays explicit;

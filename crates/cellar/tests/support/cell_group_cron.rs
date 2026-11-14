@@ -27,6 +27,43 @@ impl Drop for Dropped {
 }
 
 pub fn validate_contracts() -> Result<()> {
+    let workflow_only = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_workflow(
+        "Orders",
+        [236; 32],
+        |_, _, _| Box::pin(async { Ok(cellar_native::clone::StructuredValue::undefined()) }),
+    )?;
+    let mut workflow_deployment = managed_fixture::graph::graph(SCRIPT, "", Vec::new()).primary;
+    workflow_deployment.options.do_classes = vec![cellar::deploy::workflow_class(SCRIPT)];
+    workflow_deployment.options.workflow_bindings = vec![cellar::engine_api::WorkflowBinding {
+        environment: "WF".into(),
+        workflow: "orders".into(),
+        class: "Orders".into(),
+        settings: Default::default(),
+    }];
+    workflow_deployment.crons = vec![RETRY.into()];
+    workflow_only.validate_deployment(&workflow_deployment)?;
+    workflow_only.resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)?;
+    let scheduled_only = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_workflow(
+        "Orders",
+        [236; 32],
+        |_, _, _| Box::pin(async { Ok(cellar_native::clone::StructuredValue::undefined()) }),
+    )?;
+    workflow_deployment.crons.clear();
+    workflow_deployment.options.workflow_bindings[0]
+        .settings
+        .schedules = vec![RETRY.into()];
+    scheduled_only.validate_deployment(&workflow_deployment)?;
+    scheduled_only.resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)?;
+    workflow_deployment.options.workflow_bindings[0]
+        .settings
+        .schedules
+        .clear();
+    ensure!(
+        scheduled_only
+            .validate_deployment(&workflow_deployment)
+            .is_err(),
+        "Workflow schedule removal discarded the installed cron contract"
+    );
     ensure!(RaftClass::new(cellar_logic::cron::RESERVED_CLASS, 1, [237; 32]).is_err());
     let make = || -> Result<Registry> {
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_primitives()
@@ -99,6 +136,35 @@ pub fn validate_contracts() -> Result<()> {
     ] {
         ensure!(services.resolve_raft_class(class)?.name() == class);
     }
+    let combined = make()?.raft_workflow("Orders", [236; 32], |_, _, _| {
+        Box::pin(async { Ok(cellar_native::clone::StructuredValue::undefined()) })
+    })?;
+    options
+        .do_classes
+        .push(cellar::deploy::workflow_class(SCRIPT));
+    options.workflow_bindings = workflow_deployment.options.workflow_bindings.clone();
+    options.workflow_bindings[0].settings.schedules = vec![RETRY.into()];
+    let mut combined_deployment = managed_fixture::graph::graph(SCRIPT, "", Vec::new()).primary;
+    combined_deployment.options = options;
+    combined_deployment.crons = vec![NO_RETRY.into()];
+    combined.validate_deployment(&combined_deployment)?;
+    for class in [
+        "__SQLDatabase".into(),
+        cellar_logic::kv::RESERVED_CLASS.into(),
+        cellar_logic::queue::RESERVED_CLASS.into(),
+        cellar::deploy::workflow_class(SCRIPT),
+        cellar_logic::cron::RESERVED_CLASS.into(),
+    ] {
+        ensure!(combined.resolve_raft_class(&class)?.name() == class);
+    }
+    ensure!(
+        combined
+            .raft_workflow("Later", [238; 32], |_, _, _| {
+                Box::pin(async { Ok(cellar_native::clone::StructuredValue::undefined()) })
+            })
+            .is_err(),
+        "Workflow registration changed after shared service admission"
+    );
     let mut missing = configuration::options(SCRIPT);
     missing.do_classes.push("Absent".into());
     ensure!(

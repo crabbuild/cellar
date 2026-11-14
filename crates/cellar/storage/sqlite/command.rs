@@ -107,6 +107,9 @@ struct CommandFrame {
     dispatch: OnceCell<RaftDispatchContext>,
     binding_serial: Cell<u64>,
     parked_io: Cell<bool>,
+    // Minted only by the SQL owner after a Quorum checkpoint is applied. A
+    // read may reuse this proof while its private image remains unchanged.
+    quorum_read_base: Cell<Option<(u64, i64)>>,
     // Invocation-local, so cached constructor Storage follows the current
     // callback without hiding another command's or immutable reader's alarm.
     native_alarm: Cell<Option<[u8; 16]>>,
@@ -124,6 +127,7 @@ struct WorkTask {
     future: HandlerFuture<()>,
     external: Option<Arc<std::sync::atomic::AtomicBool>>,
     parked_io: Arc<std::sync::atomic::AtomicBool>,
+    query_only: bool,
 }
 
 thread_local! {
@@ -166,6 +170,12 @@ pub(crate) struct ActiveCommand {
 }
 
 impl ActiveCommand {
+    pub(crate) fn mark_quorum_read_base(&self, proven: bool) {
+        self.frame
+            .quorum_read_base
+            .set(proven.then(|| *self.baseline.borrow()));
+    }
+
     fn install(&self) -> Result<InstalledCommand> {
         CURRENT_COMMAND.with(|current| {
             let mut current = current.borrow_mut();
@@ -216,6 +226,23 @@ impl ActiveCommand {
                         .external
                         .as_ref()
                         .is_some_and(|proven| proven.load(std::sync::atomic::Ordering::Acquire))
+            })
+    }
+
+    /// Only the host's pure query adapter sets this hint after source proof.
+    /// Its target reads an immutable image, so retaining this writer cannot
+    /// create a target-write dependency. Contending writers still force a park.
+    pub(crate) fn waiting_on_queries(&self) -> bool {
+        let work = self.frame.work.borrow();
+        work.active != 0
+            && work.active == work.tasks.len()
+            && work.checkpoint.is_none()
+            && work.tasks.iter().all(|task| {
+                task.query_only
+                    && task
+                        .external
+                        .as_ref()
+                        .is_some_and(|waiting| waiting.load(std::sync::atomic::Ordering::Acquire))
             })
     }
 
@@ -317,14 +344,7 @@ impl ActiveCommand {
         // image. Preserve application objects by keeping their writer installed.
         // The sole exception is our protected dbstat module: open() recreates
         // it before installing the authorizer, and applications cannot alter it.
-        super::as_framework_sql(|| {
-            connection.query_row(
-                "SELECT NOT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE name!='__sys_raft_capacity')",
-                [],
-                |row| row.get(0),
-            )
-        })
-        .map_err(Into::into)
+        without_application_temps(&connection)
     }
 
     pub(crate) fn close_parked(self) -> Result<()> {
@@ -374,6 +394,17 @@ fn command_marker(connection: &Connection) -> Result<(u64, i64)> {
         connection.query_row("PRAGMA main.schema_version", [], |row| row.get(0))
     })?;
     Ok((connection.total_changes(), schema))
+}
+
+fn without_application_temps(connection: &Connection) -> Result<bool> {
+    super::as_framework_sql(|| {
+        connection.query_row(
+            "SELECT NOT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE name!='__sys_raft_capacity')",
+            [],
+            |row| row.get(0),
+        )
+    })
+    .map_err(Into::into)
 }
 
 pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
@@ -557,6 +588,7 @@ pub(crate) fn schedule_work(
         task,
         None,
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        false,
     )
 }
 
@@ -567,8 +599,9 @@ pub(crate) fn schedule_dispatch_work(
     task: HandlerFuture<()>,
     external: Arc<std::sync::atomic::AtomicBool>,
     parked_io: Arc<std::sync::atomic::AtomicBool>,
+    query_only: bool,
 ) -> Result<()> {
-    schedule(resources, task, Some(external), parked_io)
+    schedule(resources, task, Some(external), parked_io, query_only)
 }
 
 fn schedule(
@@ -576,6 +609,7 @@ fn schedule(
     task: HandlerFuture<()>,
     external: Option<Arc<std::sync::atomic::AtomicBool>>,
     parked_io: Arc<std::sync::atomic::AtomicBool>,
+    query_only: bool,
 ) -> Result<()> {
     require_storage(resources, true)?;
     CURRENT_COMMAND.with(|current| {
@@ -601,6 +635,7 @@ fn schedule(
             future: task,
             external,
             parked_io,
+            query_only,
         });
         Ok(())
     })
@@ -636,6 +671,41 @@ pub(crate) fn commit_work(resources: &RaftStorageAuthority) -> HandlerFuture<()>
             .context("RPC checkpoint owner was stopped")?
             .map_err(anyhow::Error::msg)
     })
+}
+
+/// A pure remote query needs proof of preceding source writes, not a new
+/// source mutation of its own. S3 turns, new roots, live write cursors and
+/// connection-local state retain the ordinary checkpoint path.
+pub(crate) fn confirm_read_work(resources: &RaftStorageAuthority) -> HandlerFuture<()> {
+    let clean = (|| -> Result<bool> {
+        require_storage(resources, true)?;
+        CURRENT_COMMAND.with(|current| {
+            let current = current.borrow();
+            let frame = current.as_ref().context("missing read source command")?;
+            ensure!(
+                frame
+                    .dispatch
+                    .get()
+                    .is_some_and(|dispatch| dispatch.fence.continuation_current()),
+                crate::application::consensus::CommandFailure::Unavailable
+            );
+            let Some(base) = frame.quorum_read_base.get() else {
+                return Ok(false);
+            };
+            if !frame.cursors.parkable()?
+                || !resources.resources.raft_can_park()
+                || frame.work.borrow().checkpoint.is_some()
+            {
+                return Ok(false);
+            }
+            let connection = frame.connection()?;
+            Ok(command_marker(&connection)? == base && without_application_temps(&connection)?)
+        })
+    })();
+    match clean {
+        Ok(false) => commit_work(resources),
+        result => Box::pin(async move { result.map(|_| ()) }),
+    }
 }
 
 pub(super) fn failure() -> Option<String> {
@@ -787,6 +857,7 @@ impl CommandDatabase {
                 dispatch: OnceCell::new(),
                 binding_serial: Cell::new(0),
                 parked_io: Cell::new(false),
+                quorum_read_base: Cell::new(None),
                 native_alarm: Cell::new(None),
             }),
             inputs,
