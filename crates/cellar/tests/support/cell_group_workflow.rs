@@ -488,7 +488,9 @@ async fn case(real: bool, external: bool, extents: bool, scenario: Scenario) -> 
     let backend = real
         .then(|| {
             rustfs::StoreConfig::load(
-                if external {
+                if matches!(scenario, Scenario::Status) {
+                    "workflow-status-progress"
+                } else if external {
                     if scheduled {
                         "workflow-scheduled-axum"
                     } else {
