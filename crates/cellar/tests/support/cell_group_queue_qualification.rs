@@ -586,7 +586,16 @@ pub async fn qualify_faults(real: bool, external: bool) -> Result<()> {
             Some(b) => Arc::new(catalog_fault::Store::around(b.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let mut s = Scenario::start(rooted, store, external, 5000, None, 2, Durability::S3.into()).await?;
+        let mut s = Scenario::start(
+            rooted,
+            store,
+            external,
+            5000,
+            None,
+            2,
+            Durability::S3.into(),
+        )
+        .await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome = domain
             .run(async {
@@ -937,7 +946,16 @@ pub async fn qualify_long(real: bool) -> Result<()> {
             Some(b) => Arc::new(catalog_fault::Store::around(b.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let s = Scenario::start(rooted, store, false, 90_000, None, 2, Durability::Quorum.into()).await?;
+        let s = Scenario::start(
+            rooted,
+            store,
+            false,
+            90_000,
+            None,
+            2,
+            Durability::Quorum.into(),
+        )
+        .await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome = domain
             .run(async {
@@ -976,7 +994,16 @@ pub async fn qualify_load(real: bool) -> Result<()> {
             Some(b) => Arc::new(catalog_fault::Store::around(b.open(None)?)),
             None => Arc::new(catalog_fault::Store::default()),
         };
-        let s = Scenario::start(rooted, store, false, 5000, None, 8, Durability::Quorum.into()).await?;
+        let s = Scenario::start(
+            rooted,
+            store,
+            false,
+            5000,
+            None,
+            8,
+            Durability::Quorum.into(),
+        )
+        .await?;
         let domain = s.cluster.fixtures[0].domain.clone();
         let outcome=domain.run(async {
             let store=s.cluster.fixtures[0].store.clone();
