@@ -4,9 +4,39 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current immutable EventStream query checkpoint
+## Current merged-source activation checkpoint
 
-**Integrate updated main first.** Origin now points to `0e925f6b`: PR #171 is
+Main `0e925f6b` is integrated in the primary checkout
+`/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar`, branch
+`codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170).
+Read the [current evidence](progress.md#cg-17-merged-source-activation-and-reconciliation)
+before attributing a pass to the combined implementation.
+
+Merged baseline `1408d26a` passes named native/Axum Quorum in both images natively
+and on RustFS, while broader recovery/target-S3 activation fail. The `aa6b3700`
+follow-up implements stateful private metadata reads and fresh retained activation;
+its build, strict Clippy, repository checks and all 13 private units pass, but
+native cohort 165 is FAILED at 21/25 and RustFS cohort 166 is FAILED at 0/6.
+The hint-only correction `2216aa23` also remains FAILED at 1/5 public controls.
+Do not substitute their build/unit passes for public feature acceptance.
+
+Candidate `aa591bc2` integrates the catalog coalescing change prepared in the
+isolated `cg17-catalog-work` worktree. It shares one bounded live reservation per
+catalog resource, preserves the pending operation and original child identities,
+and polls fresh activation metadata without resubmitting the mutation or extending
+the original deadline. Compile and qualify the candidate before publishing a
+runtime pass. Preserve stale/completed-operation retry fences, independent S3
+proof and all original public assertions. The isolated worktree is archived after its
+needed changes were integrated and retained.
+
+After public EventStream progress, finish interruption/retention and Queue load,
+remaining SQL/KV/time/Workflow lifecycle, payload/provider adapters and the complete
+CG-13/17/15/16 fault/release matrix. Counts remain 13/17 tasks and 147/195 cases;
+no complete primitive family or hard cutover is accepted.
+
+## Historical immutable EventStream query checkpoint
+
+**Historical pre-merge instruction.** Origin then pointed to `0e925f6b`: PR #171 is
 merged and PR #172 supplies an overlapping explicit-UUID EventStream adapter,
 including bounded append sizing, live callback/recovery fences and additional
 public recovery tests. The checkout remains on its qualified `cfe096c9` runtime

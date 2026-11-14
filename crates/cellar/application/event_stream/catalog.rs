@@ -359,7 +359,12 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
     }
     let operation = store::text(&row, "operation")?;
     let _dispatch = if db.is_raft() {
-        let identity = context.identity().ok_or_else(|| error(ErrorCode::Forbidden, "catalog reconciliation requires a cell identity"))?;
+        let identity = context.identity().ok_or_else(|| {
+            error(
+                ErrorCode::Forbidden,
+                "catalog reconciliation requires a cell identity",
+            )
+        })?;
         let limits = crate::application::limits::current().events;
         let Some(dispatch) = context.io.host_services().events().dispatch(
             &identity.scope,
@@ -371,7 +376,14 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
             // re-arm its durable obligation instead of allocating another child
             // identity and requiring a second independent broker checkpoint.
             db.tx(|tx| {
-                tx.system_sql(REARM_RECONCILIATION, &[crate::asyncrt::wall_ms().saturating_add(1000).into(), id.into(), operation.clone().into()])?;
+                tx.system_sql(
+                    REARM_RECONCILIATION,
+                    &[
+                        crate::asyncrt::wall_ms().saturating_add(1000).into(),
+                        id.into(),
+                        operation.clone().into(),
+                    ],
+                )?;
                 schedule(tx)
             })?;
             return operation_result(&db, id, &operation);

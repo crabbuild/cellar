@@ -157,10 +157,20 @@ async fn pending_configuration_polls_current_state_without_reissuing_mutation() 
     let mut foreign = pending.clone();
     foreign["operation"] = json!("02020202020202020202020202020202");
     for (status, accepted) in [(pending.clone(), true), (foreign, false)] {
-        let mut replies = vec![("__catalogConfigure", pending.clone()), ("__catalogStatus", status)];
-        if accepted { replies.push(("__catalogStatus", active.clone())); }
-        let host = Host { known: false, replies: std::sync::Mutex::new(replies.into()) };
-        let domain = std::sync::Arc::new(crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current()));
+        let mut replies = vec![
+            ("__catalogConfigure", pending.clone()),
+            ("__catalogStatus", status),
+        ];
+        if accepted {
+            replies.push(("__catalogStatus", active.clone()));
+        }
+        let host = Host {
+            known: false,
+            replies: std::sync::Mutex::new(replies.into()),
+        };
+        let domain = std::sync::Arc::new(crate::asyncrt::ExecutionDomain::new(
+            tokio::runtime::Handle::current(),
+        ));
         let definitions = [("app".into(), definition.clone())];
         let result = domain.run(configure(&host, &definitions, &[])).await;
         domain.shutdown().await;

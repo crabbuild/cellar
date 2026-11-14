@@ -27,6 +27,65 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 merged-source activation and reconciliation
+
+Main `0e925f6b` is integrated: the #172 delivery/recovery adapter and this
+branch's private provenance, named activation and metadata readers now share one
+command/query implementation. The earlier integration-pending instructions below
+are historical; neither side's earlier qualification is relabeled as the merge.
+
+At `1408d26a`, cohort `CG-17-event-merge-1408d26a-157` passes **21/24 selections**.
+Named native/Axum Quorum requests pass both image forms, including retained restart
+and typed minority refusal. Registration fails because its positive named fixture
+changes an already-admitted registry. The two broader explicit delivery/recovery
+cases fail their original activation deadlines. Real-RustFS cohort
+`CG-17-event-merge-rustfs-1408d26a-158` passes **2/6 selections**: the same named
+native/Axum Quorum cases pass both images; broader recovery and independent-target-S3
+activation fail. Their extent branches remain unrun.
+
+Source `aa6b3700` adds private immutable metadata calls for stateful sources.
+Prior source writes still require their own proof; target reads retain current
+namespace/grant checks, linearizability and independent S3 coverage. Retained
+activation can skip configuration only after a fresh authorized catalog read
+matches the exact active definition. The registration fixture now tests named
+bindings and invalid declarations before admission, then checks immutable binding
+refusal afterward. The locked optimized build, strict Clippy and repository checks
+pass. All **13 private-boundary units**, native EventStream conformance, SDK source
+proof, three read/membership regressions and registration/startup/ownership refusals
+pass. Nevertheless cohort `CG-17-event-read-aa6b3700-165` is **FAILED: 21/25**;
+all four public cases fail cold activation. RustFS cohort
+`CG-17-event-read-rustfs-aa6b3700-166` is **FAILED: 0/6**, with cold deadline or
+read-admission failures. These results supersede any pending-build claim at that
+source and do not qualify the new implementation end to end.
+
+The extra initial strong absence read is removed at `2216aa23`: local history
+hints choose only whether to attempt the read optimization, never whether to
+serve or trust configuration. Unknown catalogs take the ordinary creation path.
+Its locked optimized integration build, strict Clippy and repository checks pass.
+Focused cohort `CG-17-event-hint-2216aa23-170` remains **FAILED: 1/5**; registration
+passes, native creation still exceeds the original budget, and one RustFS named
+case reaches consumption before its original deadline failure. Removing the probe
+alone does not establish the cause or close the pipeline's progress failures.
+
+Read-only inspection `CG-17-event-cold-inspection-1408d26a-168` verifies a retained
+failed catalog with two reconciliation attempts and a pending `__streamConfigure`
+intent after activation. Its broker has two receipts with different clients but
+the **same request digest**. This establishes duplicate work, not its latency
+contribution. Candidate `aa591bc2` coalesces shared-group ingress/maintenance using
+the existing bounded live dispatch reservation, re-arms only the same pending
+operation and polls current activation status without resubmitting configuration.
+Its SQL/protocol tests cover monotonic retry, stale/completed-operation fencing,
+unknown-history creation and refusal of historical/superseded readiness.
+The candidate still requires compilation and current-source qualification.
+
+No deadline, quota, identity or durability proof is weakened. Native RF3 voters
+share one process, with separate workspace disks and one SQL worker each; RustFS
+has one CPU/two GiB. Failed controls, frozen executables and voter disks remain
+retained with their original source pins. Long polling, interrupted delivery/ack,
+retention, movement/wake, archive outage and fenced disk-loss qualification remain
+open. Acceptance stays **13/17 tasks and 147/195 cases**, with no complete primitive
+family or hard cutover accepted.
+
 ## CG-17 immutable EventStream metadata and merged read progress
 
 After this runtime campaign, fetching origin finds main `0e925f6b`, which merges

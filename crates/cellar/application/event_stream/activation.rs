@@ -116,26 +116,29 @@ pub(crate) async fn configure(
         // A repeated operation returns history. Check the catalog's current
         // revision/digest and lifecycle before accepting deployment readiness.
         loop {
-        let current = rpc(
-            host,
-            script,
-            authority.clone(),
-            event_stream::catalog_scope(&definition.resource)?,
-            event_stream::catalog_name(&definition.resource)?,
-            "__catalogStatus",
-            json!([{}]),
-        )
-        .await?;
-        if matches_definition(&current, definition, &digest) { break; }
-        anyhow::ensure!(
-            pending && matches!(current["state"].as_str(), Some("creating" | "updating"))
-                && current["resource"].as_str() == Some(definition.resource.id.as_str())
-                && current["operation"].as_str() == Some(operation.as_str()),
-            "event resource does not match the current deployment definition"
-        );
-        // A live reconciler owns the mutation. Poll only its current state;
-        // the host retains the original activation deadline and cancellation.
-        crate::asyncrt::sleep(std::time::Duration::from_millis(10)).await;
+            let current = rpc(
+                host,
+                script,
+                authority.clone(),
+                event_stream::catalog_scope(&definition.resource)?,
+                event_stream::catalog_name(&definition.resource)?,
+                "__catalogStatus",
+                json!([{}]),
+            )
+            .await?;
+            if matches_definition(&current, definition, &digest) {
+                break;
+            }
+            anyhow::ensure!(
+                pending
+                    && matches!(current["state"].as_str(), Some("creating" | "updating"))
+                    && current["resource"].as_str() == Some(definition.resource.id.as_str())
+                    && current["operation"].as_str() == Some(operation.as_str()),
+                "event resource does not match the current deployment definition"
+            );
+            // A live reconciler owns the mutation. Poll only its current state;
+            // the host retains the original activation deadline and cancellation.
+            crate::asyncrt::sleep(std::time::Duration::from_millis(10)).await;
         }
     }
     let mut activated = Vec::new();

@@ -56,36 +56,31 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-At `cfe096c9`, private immutable EventStream metadata queries and merged read
-progress are implemented. Both native and Axum real-RustFS Quorum cases pass both
-image forms, including delivery, inbox/ack, replay, retained restart and minority
-refusal. Eleven private units, conformance, SDK source-proof, the merged
-read/membership regressions, the optimized build and focused strict Clippy pass.
-The native campaign still fails typed minority-refusal assertions; the new
-independent-target-S3 cases still miss activation deadlines. Both campaigns
-remain FAILED overall. See the [current checkpoint](progress.md#cg-17-immutable-eventstream-metadata-and-merged-read-progress).
+The merged-source activation and reconciliation work is tracked in the
+[current checkpoint](progress.md#cg-17-merged-source-activation-and-reconciliation).
+Main `0e925f6b` is integrated into one private EventStream implementation. At
+`1408d26a`, named native/Axum Quorum paths pass both images natively and against
+RustFS; broader recovery and independent-target-S3 activation still fail.
+Stateful metadata queries and fresh retained activation are implemented at
+`aa6b3700`, but its native and RustFS campaigns fail cold startup. The hint-only
+correction at `2216aa23` passes its build/static gates yet fails four of five
+public controls. A compiled adapter is not complete primitive support.
 
-1. **Close EventStream refusal, target-S3 and recovery gates.** Normalize/retry
-   read-only name/query transport failures as typed unavailability while
-   preserving mutation ambiguity. The native/Axum cases now reach the final
-   minority refusal and expose raw connection errors before command submission;
-   keep their original assertions. Profile and optimize cold S3 configuration
-   plus metadata/proof work within the original shared three-second deadline.
-   Configuration alone takes 2.85–2.97 seconds in the new failed controls. Retain
-   independent source/target S3 proofs and every fresh lifecycle/grant check;
-   historical configuration receipts cannot replace current status. The four
-   pure metadata methods now use private authorized linearizable queries,
-   without mutation receipts or empty entries. Their complete target-S3 and
-   remote-path qualification remains required. Then qualify long polling,
-   autonomous interrupted delivery/ack settlement, deletion/recreation and
-   retention. Keep original event/lane identities through movement and
-   new-incarnation recovery. The [EventStream contract](event-stream-durability.md)
-   defines the independent source, destination and output boundaries.
-   First reconcile main `0e925f6b` (PR #172's independently implemented explicit
-   adapter) with this branch's private provenance, named activation and metadata
-   readers. Preserve its delivery/recovery fixes and tests in one implementation;
-   neither branch's evidence qualifies the unbuilt combination. Requalify that
-   combination before updating any release/default-backend gate.
+1. **Close EventStream startup, consumption and recovery progress.** Qualify the
+   catalog coalescing candidate against the unchanged native/RustFS cases.
+   Retained images establish two child receipts for the same configuration input;
+   coalesce live reconciliation before allocating duplicate child identities and
+   re-arm the same durable obligation safely. Poll only current status for the
+   original operation, within the original activation deadline. A local history
+   hint can select an optimization but never replace current authority/proof.
+   Trace remaining first-request and consumption delays at their owning boundary;
+   do not infer that one optimization explains every failed control. Keep original
+   budgets, independent source/target S3 proofs, fresh lifecycle/grant checks and
+   mutation ambiguity. Then qualify long polling, autonomous interrupted delivery
+   and ack settlement, deletion/recreation, retention and original lane identity
+   through movement and fresh-incarnation recovery. The
+   [EventStream contract](event-stream-durability.md) retains separate source,
+   destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
    and fault oracles, then resolve producer deadlines and the older final-drain
    failures under the unchanged load and budgets. Qualify both image forms.
