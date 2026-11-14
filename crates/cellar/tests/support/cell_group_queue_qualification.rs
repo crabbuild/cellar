@@ -66,6 +66,16 @@ impl Drop for ReleaseBatch {
     }
 }
 
+struct BlockArchive(Arc<catalog_fault::Store>);
+
+impl Drop for BlockArchive {
+    fn drop(&mut self) {
+        self.0
+            .deny_group_archive_writes
+            .store(false, Ordering::Release);
+    }
+}
+
 fn counter() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [41; 32])?
         .initializer([42; 32], |_, _| Ok(()))?
@@ -806,7 +816,57 @@ pub async fn qualify_batch_proof(real: bool) -> Result<()> {
                     let group = s.cluster.hosts[leader].group(s.queue)?;
                     let before = group.status().await?;
                     let release = ReleaseBatch(s.signals.clone());
-                    admin(&s.cluster, QUEUE, json!({"op":"resume"})).await?;
+                    let store = s.cluster.fixtures[0].store.clone();
+                    let denied = store.denied_group_archive_writes.load(Ordering::Acquire);
+                    let blocked = (minimum == Durability::S3).then(|| {
+                        store
+                            .deny_group_archive_writes
+                            .store(true, Ordering::Release);
+                        BlockArchive(store.clone())
+                    });
+                    let mut resume = Box::pin(admin(&s.cluster, QUEUE, json!({"op":"resume"})));
+                    if blocked.is_some() {
+                        let cut = before
+                            .applied
+                            .index
+                            .get()
+                            .checked_add(2)
+                            .context("Queue batch proof index overflow")?;
+                        let awaiting_archive = async {
+                            loop {
+                                ensure!(
+                                    s.signals.deliveries.lock().unwrap().is_empty(),
+                                    "S3 Queue consumer entered while archive writes were refused"
+                                );
+                                if group.status().await?.applied.index.get() >= cut
+                                    && store.denied_group_archive_writes.load(Ordering::Acquire)
+                                        > denied
+                                {
+                                    return Ok::<_, anyhow::Error>(());
+                                }
+                                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                            }
+                        };
+                        cellar::asyncrt::timeout(TIMEOUT, async {
+                            cellar::asyncrt::select_biased! { "S3 Queue lease must wait for archive coverage";
+                                result = &mut resume => {
+                                    result?;
+                                    anyhow::bail!("S3 Queue resume acknowledged while archive writes were refused")
+                                },
+                                result = awaiting_archive => result,
+                            }
+                        })
+                        .await??;
+                        cellar::asyncrt::select_biased! { "consumer must stay outside an unarchived lease";
+                            result = s.signals.wait("batch-proof", 1, false, TIMEOUT) => {
+                                result?;
+                                anyhow::bail!("S3 Queue consumer entered before its lease's archive coverage")
+                            },
+                            _ = cellar::asyncrt::sleep(Duration::from_millis(150)) => (),
+                        }
+                    }
+                    drop(blocked);
+                    resume.await?;
                     s.signals.wait("batch-proof", 1, false, TIMEOUT).await?;
                     let entered = group.status().await?;
                     ensure!(
@@ -826,11 +886,16 @@ pub async fn qualify_batch_proof(real: bool) -> Result<()> {
                         "Queue consumer entry required {commits} commits after pause; expected resume plus one claim/lease proof"
                     );
                     if minimum == Durability::S3 {
-                        ensure!(
-                            group
+                        let mut published = false;
+                        for host in &s.cluster.hosts {
+                            published |= host
+                                .group(s.queue)?
                                 .archive_status()?
                                 .and_then(|status| status.published)
-                                .is_some_and(|cut| cut.position().index >= entered.applied.index),
+                                .is_some_and(|cut| cut.position().index >= entered.applied.index);
+                        }
+                        ensure!(
+                            published,
                             "S3 Queue consumer entered before its lease's archive publication"
                         );
                     }
