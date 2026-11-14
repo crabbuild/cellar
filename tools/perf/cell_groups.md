@@ -11,6 +11,15 @@ and kernel/engine observations. It does not accept a reported pass boolean.
 This is CG-14 infrastructure. It does not close the release campaign or the
 unresolved occupancy-128 matrix failure recorded in the design progress log.
 
+The separate managed-daemon runner, `tools/multi-raft/daemon.py`, accepts
+`--node-memory-gib 2` for three 1-vCPU/2-GiB voters. Prepare its backend with
+`tools/multi-raft/local.py prepare --nodes 3 --node-memory-gib 2` on an explicit
+dedicated profile. RustFS retains its 1-vCPU/2-GiB limit. Preflight reserves five
+VM CPUs and at least 8.5 GiB for this topology. Both Docker configuration and
+effective cgroup CPU, memory and zero-swap limits are checked for every voter;
+reported capacity uses the selected limit. The default remains 3 GiB per voter.
+This profile does not change the workload-campaign limits below.
+
 ## Private configuration
 
 Build the current source with `tools/perf/raft.Dockerfile` before running. Provide

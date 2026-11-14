@@ -1080,6 +1080,14 @@ fn with<T>(scope: &str, f: impl FnOnce(&Connection) -> T) -> Option<T> {
     dbs(|d| d.borrow().get(scope).map(|cell| f(&cell.connection)))
 }
 
+pub(crate) fn raft_filesystem_lifetime() -> Option<std::sync::Weak<()>> {
+    if immutable::active() {
+        immutable::filesystem_lifetime()
+    } else {
+        command::filesystem_lifetime()
+    }
+}
+
 fn with_mut<T>(scope: &str, f: impl FnOnce(&mut Connection) -> T) -> Option<T> {
     if scope == RAFT_STORAGE_SCOPE {
         return command::with_mut(f);

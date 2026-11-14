@@ -12,7 +12,7 @@ pub struct Inbox {
 
 impl Storage {
     pub fn inbox(&self, processing_scope: &str) -> Result<Inbox> {
-        self.scope()?;
+        self.data_scope()?;
         anyhow::ensure!(
             !processing_scope.is_empty() && processing_scope.len() <= 128,
             "invalid inbox processing scope"
@@ -28,7 +28,7 @@ impl Inbox {
     /// Record the original event bytes in the caller's business transaction.
     /// A matching retained receipt returns false; conflicting bytes fail.
     pub fn accept(&self, event: &Record) -> Result<bool> {
-        let scope = self.storage.scope()?;
+        let scope = self.storage.write_scope()?;
         anyhow::ensure!(
             crate::storage::facet_opening(scope).is_none(),
             "facets cannot retain durable inbox receipts"
@@ -52,7 +52,7 @@ impl Inbox {
     /// Explicitly end deduplication for a bounded set of old receipts. Replaying
     /// those events afterwards may repeat effects. This never runs on a timer.
     pub fn prune_before(&self, processed_before_ms: i64, max_receipts: usize) -> Result<usize> {
-        let scope = self.storage.scope()?;
+        let scope = self.storage.write_scope()?;
         anyhow::ensure!(
             crate::storage::facet_opening(scope).is_none(),
             "facets cannot prune durable inbox receipts"

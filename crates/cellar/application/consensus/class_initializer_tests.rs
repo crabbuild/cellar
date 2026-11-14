@@ -3,6 +3,42 @@
 use super::*;
 
 #[test]
+fn filesystem_policy_binds_namespace_and_keeps_maintenance_private() -> anyhow::Result<()> {
+    use crate::application::filesystem::Policy;
+    let base = || RaftClass::new("Files", 1, [181; 32]);
+    let writable = base()?.filesystem(Policy::default())?;
+    let readonly = base()?.filesystem(Policy {
+        read_only: true,
+        ..Default::default()
+    })?;
+    let masked = base()?.filesystem(Policy {
+        creation_mask: 0o077,
+        ..Default::default()
+    })?;
+    assert_ne!(base()?.schema_digest(), writable.schema_digest());
+    assert_ne!(readonly.schema_digest(), writable.schema_digest());
+    assert_ne!(masked.schema_digest(), writable.schema_digest());
+    assert!(writable
+        .contract(super::super::native_work::OPERATION)
+        .is_none());
+    assert!(writable
+        .system_contract(super::super::native_work::OPERATION)
+        .is_some());
+    assert!(writable.validate_cell_factory().is_err());
+    assert!(base()?
+        .filesystem(Policy {
+            creation_mask: 0o1000,
+            ..Default::default()
+        })
+        .is_err());
+    assert!(base()?
+        .filesystem(Policy::default())?
+        .filesystem(Policy::default())
+        .is_err());
+    Ok(())
+}
+
+#[test]
 fn initializer_contract_binds_schema_and_admits_shared_host() -> anyhow::Result<()> {
     let base = || RaftClass::new("Counter", 1, [81; 32]);
     let ordinary = base()?.command("Add", [82; 32], |_, _| Ok(vec![]))?;

@@ -5,6 +5,7 @@ use super::*;
 
 const RUN: &str = "CELLAR_RAFT_DOCKER_RUN";
 const IMAGE: &str = "CELLAR_RAFT_DOCKER_IMAGE";
+const MEMORY_GIB: &str = "CELLAR_RAFT_DOCKER_MEMORY_GIB";
 const ENGINE_SOCKET: &str = "/run/docker.sock";
 const LABEL: &str = "io.cellar.daemon.run";
 pub(super) const VOTER: &str = "CELLAR_RAFT_DOCKER_VOTER";
@@ -12,6 +13,19 @@ const INSPECT: &str = r#"{"id":{{json .Id}},"image":{{json .Image}},"run":{{json
 
 pub(super) fn enabled() -> bool {
     std::env::var_os(RUN).is_some()
+}
+
+pub(super) fn memory_bytes() -> Result<u64> {
+    let gib: u64 = match std::env::var(MEMORY_GIB) {
+        Ok(value) => value.parse().context("voter memory GiB")?,
+        Err(std::env::VarError::NotPresent) => 3,
+        Err(error) => return Err(error.into()),
+    };
+    ensure!(
+        matches!(gib, 2 | 3),
+        "voter memory must be two or three GiB"
+    );
+    Ok(gib * 1024u64.pow(3))
 }
 
 fn fleet_owner(run: &str) -> String {
@@ -67,6 +81,7 @@ pub(super) struct Voter {
     disk: PathBuf,
     mode: String,
     repair_worker: bool,
+    memory_bytes: u64,
 }
 
 impl Voter {
@@ -111,6 +126,8 @@ impl Voter {
         let owner = output(Command::new("id").arg("-u"), "guest user lookup")?;
         let group = output(Command::new("id").arg("-g"), "guest group lookup")?;
         let mut command = docker();
+        let memory_bytes = memory_bytes()?;
+        let memory = memory_bytes.to_string();
         command.args([
             "create",
             "--name",
@@ -134,9 +151,9 @@ impl Voter {
             "--cpus",
             "1",
             "--memory",
-            "3g",
+            &memory,
             "--memory-swap",
-            "3g",
+            &memory,
             "--cap-drop",
             "ALL",
             "--security-opt",
@@ -164,6 +181,8 @@ impl Voter {
             }
         }
         command.args([
+            "--env",
+            &format!("{MEMORY_GIB}={}", memory_bytes / 1024u64.pow(3)),
             "--env",
             "CELLAR_RAFT_OPERATOR_CLI=/usr/local/bin/cellar",
             "--env",
@@ -201,6 +220,7 @@ impl Voter {
             disk,
             mode: mode.into(),
             repair_worker,
+            memory_bytes,
         };
         ensure!(
             voter.inspect()?["running"] == false,
@@ -230,7 +250,7 @@ impl Voter {
             state["network"] == "host"
                 && state["restart"] == "no"
                 && state["cpu"] == 1_000_000_000u64
-                && state["memory"] == 3 * 1024u64.pow(3)
+                && state["memory"] == self.memory_bytes
                 && state["swap"] == state["memory"],
             "voter cgroup or restart settings differ"
         );
@@ -308,7 +328,7 @@ impl Voter {
             anyhow::bail!("invalid voter cgroup limit inventory");
         };
         ensure!(
-            *quota > 0 && quota == period && *memory == 3 * 1024u64.pow(3) && *swap == 0,
+            *quota > 0 && quota == period && *memory == self.memory_bytes && *swap == 0,
             "effective voter cgroup limits differ"
         );
         state["cgroup"] = serde_json::json!({"cpu_quota_us":quota, "cpu_period_us":period, "memory_bytes":memory, "swap_bytes":swap});

@@ -4,14 +4,53 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current integration checkpoint
+## Current Queue proof candidate
+
+Filesystem/inbox merge `649ba11a`, Queue proof regression `d53b1c27` and the
+coalescing/no-fallback candidate are integrated back into the original active
+checkout. Source `648bc468` reproduces the old three-commit path without any
+production changes from `7e4347e9`; cohort 107 retains its negative executable,
+log, three voter disks and verified backup. Its S3/extent configurations are
+unrun behind that expected first failure. Candidate formatting, build and
+runtime qualification remain next.
+
+Cohort 106 is terminal FAILED: 20/22 selections pass, including ordinary and
+scheduled Workflow in all eight real-RustFS native/Axum configurations. Native
+and RustFS Queue load fail during final drain after producers return. Six failed
+disks, four executables and 55 verified backup files remain; backend and VM are
+stopped. Do not relabel these failures or claim the new optimization fixes them
+until the original load cases pass.
+
+Next run the combined candidate's claim/lease proof under Quorum/S3 minima,
+including blocked S3 publication, then existing Queue fault/long/load, Workflow,
+alarm and filesystem guards. Preserve original deadlines, byte/item budgets,
+physical ownership and exact settlement fences. The temporary integration
+worktree can be archived once its merged commits are preserved here. Full
+acceptance remains 13/17 tasks and 147/195 cases.
+
+## Previous isolated filesystem integration checkout
+
+The isolated `codex/cg17-primitives-integration` checkout combines filesystem/inbox
+source `64e9864d` with Workflow source `7e4347e9`. Original qualification continues
+in `/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar` with a fixed
+source; do not edit its tracked files until cohort 106 is terminal. The combined
+filesystem source needs its own unique workspace-volume target and qualification
+after that campaign. Preserve the newer alarm lease/retry schema and Workflow
+continuation owner. See the [filesystem integration checkpoint](progress.md#cg-17-filesystem-and-inbox-integration-with-workflow).
+
+Next bridge EventStream routing, outbox authority and durable work discovery into
+shared groups. Existing lower-level Raft outbox tests and the consumer inbox
+bridge do not establish the complete ordinary EventStream path.
+
+## Previous Workflow integration checkpoint
 
 Workflow candidate PR [#169](https://github.com/crabbuild/cellar/pull/169) at
 `0d9f6547` is integrated with the current shared-service selector and cron-only
 applications. The combined source adds a public contract guard for SQL/KV/Queue,
 Workflow, ordinary cron and Workflow schedules together, including refusal of
-Workflow registration after admission. Build and qualification are pending;
-source-specific candidate passes do not qualify this integration.
+Workflow registration after admission. Cohort 106 passes the integrated build,
+owning units, native Workflow and all eight real-RustFS Workflow configurations.
+Its native and RustFS Queue load failures remain open as described above.
 
 The immediately preceding SDK/Queue cohort 104 is FAILED: SDK native/RustFS,
 native interleaving and RustFS Axum Queue pass; native Queue/load and RustFS
@@ -21,9 +60,9 @@ both images; it does not explain the untraced failures, and the tracing is
 removed. Backend and VM are stopped. See the
 [integration checkpoint](progress.md#cg-17-integrated-workflow-and-shared-services).
 
-Next qualify the combined Workflow, shared-service, SDK and Queue paths without
-changing budgets or weakening fences. Resolve ordinary native status/request
-progress, then deliver EventStream and remaining adapters before the complete
+Next qualify the Queue/filesystem candidate without changing budgets or weakening
+fences. Resolve load drain and remaining request progress, then deliver
+EventStream and remaining adapters before the complete
 CG-13/15/16 recovery/release matrix. Acceptance stays **13/17 tasks, 147/195 cases**.
 
 ## Previous service selector and daemon checkpoint

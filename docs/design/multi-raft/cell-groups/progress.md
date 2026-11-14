@@ -27,6 +27,63 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 Queue batch proof coalescing candidate
+
+The Queue callback candidate defers the generic work-claim checkpoint to the
+trusted broker. Its existing checkpoint proves the claim together with batch
+leases before consumer entry; a preceding DLQ call still proves its source intent
+before dispatch. Ordinary alarms, Workflow and filesystem maintenance retain
+their eager claim checkpoint. A shared Queue without the proof-bearing consumer
+adapter now refuses instead of entering Fleet dispatch. Request budgets, lease
+periods, work identities and physical admission remain unchanged.
+
+Test source `d53b1c27` pauses and enqueues one message, then holds its consumer.
+It requires exactly two group commits from the paused cut: resume and one
+claim/lease checkpoint. It also inspects the committed message's active lease,
+and requires prior archive publication for an S3-minimum Queue. Both image forms
+and Quorum/S3 namespace minima are selected; an explicit RustFS variant is added.
+The production-equivalent baseline at `648bc468` reproduces exactly three
+commits on the first materialized/Quorum configuration in cohort
+`CG-17-queue-batch-baseline-648bc468-107`. Production inputs are unchanged from
+`7e4347e9`; only the three owning test files differ. The negative control closes
+and joins its voters, retains three disks and verifies its evidence backup.
+Extent and S3 configurations are unrun behind that expected first failure.
+The candidate still requires build and runtime qualification. This establishes
+the extra checkpoint cost, not the cause of every earlier Queue deadline.
+
+The preceding Workflow integration cohort 106 at `7e4347e9` is FAILED with
+**20/22 selections passing**. Ordinary and scheduled Workflow pass both native
+images and all eight real-RustFS native/Axum configurations. SDK source proofs,
+interleaving, cron recovery, ordinary alarm failures and ordinary native/Axum
+Queue pass. Native and RustFS load both fail during the final Queue drain after
+producer batches return. Six failed voter disks, four frozen executables and
+55 hash-verified evidence backup files remain. Backend and VM stop successfully
+with objects retained. Preserve all source-specific failures; current Workflow
+passes do not establish the cause of earlier intermittent status failures.
+No complete primitive family or task is accepted.
+
+## CG-17 filesystem and inbox integration with Workflow
+
+Filesystem/inbox source `64e9864d` is integrated with Workflow source `7e4347e9`
+in an isolated checkout while the latter's frozen qualification campaign runs.
+The public `RaftClass::filesystem` policy, transactional files, invocation-bound
+descriptors, immutable query views and consumer inbox savepoints are included.
+Shared filesystem maintenance uses the existing bounded callback owner; its
+completion now carries the same exact claimed lease as Queue and alarm work.
+The coalescing regression also checks that a wrong lease cannot clear either
+Queue or filesystem work before a replacement generation is installed.
+
+The merge preserves failed-alarm rollback/backoff, Workflow physical continuation
+ownership, shared service selection and the full newer native-work schema.
+Both RustFS suites remain registered. The public inventory now includes the
+filesystem declaration and its command/query authority owners. Standalone
+filesystem qualification below retains its actual source; this combined
+filesystem/Workflow source still requires build and runtime qualification.
+
+No complete primitive family or task is accepted. EventStream's ordinary
+publication, subscription and autonomous outbox paths remain open. Acceptance
+remains **13/17 tasks and 147/195 cases**.
+
 ## CG-17 integrated Workflow and shared services
 
 The Workflow implementation from draft PR [#169](https://github.com/crabbuild/cellar/pull/169),
@@ -46,11 +103,14 @@ access source SQLite, and contending writers still force a yield. Alarm failure
 retirement, FIFO admission, original deadlines and independent target proofs
 remain required. See the [Workflow contract](workflow-durability.md).
 
-Combined-source build and qualification are pending. The candidate's recorded
-RustFS campaign remains FAILED: six of eight configurations pass, ordinary native
-status fails and one configuration is unrun. Its isolated native control passes
-both images without resolving that failure. Existing candidate evidence remains
-source-pinned in the following Workflow checkpoint.
+At `7e4347e9`, the locked optimized build, captured CLI, strict affected-target
+Clippy, static checks, 14 owning units, ordinary Fleet Workflow conformance,
+combined declaration guard, SDK and interleaving pass. Ordinary and scheduled
+Workflow pass both native images and all eight real-RustFS native/Axum
+configurations. The combined campaign is FAILED only by native and RustFS Queue
+load. The older candidate's six-of-eight RustFS campaign and isolated passing
+control retain their source pins below; these newer passes do not identify the
+cause of those earlier failures or qualify the full Workflow family.
 
 At preceding source `a8bfe076`, cohort
 `CG-17-sdk-target-io-a8bfe076-104` is FAILED. Native and real-RustFS SDK source-proof
@@ -324,6 +384,81 @@ the comparison, confirmed admission refusal and remaining Queue gates.
 Then deliver cron startup, persisted occurrences/history and alarm projection,
 broader Queue lifecycle, EventStream and Workflow. Keep the retained
 request/callback deadline controls in combined recovery/load qualification.
+
+## CG-17 filesystem and consumer inbox foundation
+
+Sources `60feafa3` and `a2eda6b3` add declared filesystem policy to ordinary
+Raft classes and allow consumer inbox receipts inside the private command
+transaction. File and business updates share savepoints and the command's
+Quorum/S3 proof. Directory cursors bind to logical cell history rather than a
+physical group. Constructor-cached filesystem views retain activation
+authority; file descriptors require the exact executing invocation and preserve
+transaction affinity. Immutable query views remain read-only. Bounded filesystem garbage
+collection runs through the existing shared durable callback scheduler.
+
+Inbox operations retain the private command's SQL authorizer while using
+framework savepoints. Their focused guard checks receipt/effect rollback,
+deduplication, conflicting bytes, retained reopen, pruning, expired authority
+and refusal of nondeterministic SQL, protected tables and mutating pragmas.
+This is the consumer receipt foundation. Ordinary EventStream publication,
+subscription routing and autonomous outbox authority/recovery remain open.
+
+The first real-RustFS filesystem cohort passes both image forms at `60feafa3`.
+The follow-up at `a2eda6b3` reproduces and fixes a constructor-cached view that
+incorrectly retained its first command's authority. Its regression caches the
+view across application invocations while still refusing escaped descriptors.
+At `a2eda6b3`, the source-pinned real-RustFS case passes both image forms in
+93.098 seconds. Its frozen executable also passes the native case in 89.96
+seconds; the same executable digest covers both results. Existing native
+filesystem tests pass 3/3 and the EventStream lifecycle test passes 1/1.
+Affected library, filesystem, EventStream, primitive and daemon Clippy targets
+pass with `-D warnings --force-warn dead_code`; existing forced dead-code and
+dependency warnings remain. Format/layout and native dependency checks pass.
+Evidence is retained in `CG-17-fs-events-a2eda6b3-02` and
+`/Volumes/Workspace/crabbuild-target/cellar-fs-events-rustfs-02`.
+
+The first Linux cohort refuses before creating voters because the daemon
+fixture expects an obsolete schema-error message. Independent preflights prove
+the typed `ContractMismatch` refusal and absence of any replica log.
+Source `1da6dac3` corrects that assertion and adds the failing mode to diagnostics;
+filesystem/inbox production inputs are unchanged. The complete corrected daemon
+fixture passes with three host-native processes. Its independent Linux execution
+uses three 1-vCPU/2-GiB voters, separate cgroups/disks and local shared RustFS on
+one dedicated 5-vCPU/10-GiB Colima VM. RustFS has its own 1-vCPU/2-GiB limit.
+The Linux result remains separate from the host-native filesystem workload.
+New Colima commands later block in host `FSEventsGetCurrentEventId` initialization.
+The retained process sample and a hashed, profile-bound OpenSSH transport adapter
+document the fallback. It uses the existing profile SSH configuration and proves
+the same captured Docker engine; source/image, fixture and cgroup guards remain
+unchanged. No host service or unrelated VM is restarted.
+
+Both Linux modes pass at `1da6dac3`: materialized in 70.995 seconds and extents
+in 81.403 seconds. Every live resource sample proves a 100,000/100,000 CPU quota,
+2,147,483,648-byte memory limit and zero swap. The counter/SQL fixture exercises
+two logical cells in one physical group through native ingress, Axum and the
+frozen operator CLI, including archive-write refusal, hard leader loss, retained
+restart, park/wake, maintenance and quorum-loss refusal. These are three
+containers sharing one VM failure domain. Independent-host and filesystem
+movement/load qualification remain open. The failed Linux preflight cohort
+remains retained.
+The passing record is
+`/Volumes/Workspace/crabbuild-target/cellar-fs-events-linux-02/record.json`.
+The owned RustFS backend and VM are stopped with object data, the immutable
+Linux image archive and qualification evidence retained.
+
+Failed native controls retain four sets of three voter disks and hash-verified
+backups. The first two expose an incorrect test assumption: a retry's covering
+image can advance under autonomous maintenance while the command identity,
+result and handler execution count remain unchanged. The third exposes a test
+that assumed node zero remained leader after restart; it now uses the existing
+ready-leader gate. The fourth is the cached-view production regression. No
+deadline, quota or durability assertion was weakened. A resumed RustFS provider
+initially returned 503 for signed bucket creation; a subsequent independent
+protocol probe passed. These warm-provider runs do not qualify cold startup.
+
+Full-plan acceptance remains **13/17 tasks and 147/195 cases**. Filesystem
+movement/wake, archive-outage/load and all-voter disk-loss qualification remain
+open alongside the complete EventStream adapter and combined release gates.
 
 ## CG-17 binding deadlines and archive tails
 

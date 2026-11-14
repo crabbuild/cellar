@@ -41,6 +41,14 @@ A passing SQL/KV foundation is not the final supported scope. Keep CG-17 feature
 delivery ahead of optional routing/performance work and retain recovery and
 release gates.
 
+The [filesystem and inbox foundation](progress.md#cg-17-filesystem-and-consumer-inbox-foundation)
+adds transactional files, invocation-bound descriptors, shared maintenance and
+consumer receipts. Native and real-RustFS filesystem cases pass both image forms.
+EventStream still needs publication, subscription routing and autonomous outbox
+authority/recovery through its public adapter; accepting an inbox record alone
+does not establish that end-to-end contract. Filesystem movement/wake, archive
+outage/load and disk-loss recovery remain separate qualification work.
+
 Source `25d81992` provides SQL writer-release wakeups, yielding of contended
 private binding maintenance and bounded background archive tails. Waiting S3
 outputs use a complete checkpoint. Original identities, deadlines, exact proofs,
@@ -64,7 +72,14 @@ native live-binding configurations. Keep all failed controls and disks; a newer
 pass cannot erase them or establish a capacity-deadlock cause. The older
 intermittent archive-deadline failure also remains unexplained.
 
-1. Close Queue and cold S3-minimum admission deadlines. Source `15b9bf46`
+1. Close Queue drain throughput and remaining request deadlines. Combined source
+   `7e4347e9` passes 20/22 selections, including all eight real-RustFS Workflow
+   configurations and ordinary native/Axum Queue. Native and RustFS load fail
+   during final drain after producer batches return. Baseline `648bc468`
+   confirms an extra generic Queue claim checkpoint before the lease checkpoint;
+   the coalescing candidate and combined filesystem/inbox source still need
+   qualification. Earlier cold S3-minimum admission and deadline controls remain.
+   Source `15b9bf46`
    fixes the confirmed queued-writer `NotReady` refusal with a bounded authority
    wait, retaining FIFO/physical admission and original fences. Deadline guards,
    four interleaving configurations and both ordinary RPC images pass. Native
@@ -95,18 +110,20 @@ intermittent archive-deadline failure also remains unexplained.
    authority. The Workflow adapter from draft PR
    [#169](https://github.com/crabbuild/cellar/pull/169), head `0d9f6547`, is now
    integrated with explicit shared-service selection and cron-only applications.
-   It delivers journaled steps, controls, streams and autonomous schedules; the
-   combined source still requires qualification. The candidate's RustFS campaign
-   remains FAILED at six of eight configurations, with an ordinary native status
-   deadline and one configuration unrun. Earlier isolated passes do not waive
-   that failure. See the [Workflow contract](workflow-durability.md).
+   It delivers journaled steps, controls, streams and autonomous schedules.
+   Combined source `7e4347e9` passes ordinary and scheduled Workflow in all eight
+   real-RustFS native/Axum configurations. Earlier candidate failures retain
+   their source pins; the newer passes do not explain those status deadlines.
+   The combined filesystem/Workflow candidate still requires qualification.
+   See the [Workflow contract](workflow-durability.md).
    Reuse bounded shared owners rather than per-idle-cell tasks.
 3. Complete the remaining binding and SQL/KV recovery with independent target-S3 minima,
    interruption before the target checkpoint, unused child sequence sealing,
    concurrent/cross-class creation and interrupted large calls. Add movement,
    wake and cold-start contention. Verify actual external values and wire bytes
    before recovery admission; prepared uploads are not confirmed dependencies.
-4. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
+4. Qualify the integrated filesystem/inbox adapter, then complete Blob/external
+   payloads, HTTP/streaming, WebSockets and
    container/provider execution, including stateless/ephemeral and optional
    adapter regressions. Root-aware collection must protect retained images,
    readers, pending uploads, interrupted turns and recovery cuts. See the
