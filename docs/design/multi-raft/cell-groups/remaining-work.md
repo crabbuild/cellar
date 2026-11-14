@@ -81,14 +81,22 @@ intermittent archive-deadline failure also remains unexplained.
    Finish its cron-only stateless/public daemon/CLI path and deployment transitions;
    changed/removed schedules currently refuse. Movement/wake, clock changes,
    independent voter/disk loss and release process loss remain gates.
-2. Complete the Workflow ownership/kernel units and qualify the follow-up, then
+2. Resolve ordinary native Workflow status deadlines and qualify the combined follow-up, then
    complete Queue lifecycle/load and EventStream execution through their public
    adapters. Workflow source `50002981` passes native RF3 in both images and
    real RustFS native/Axum in four configurations, including replay, controls,
    streams, deletion, retained restart, archive refusal and quorum refusal.
    Its shared-core SDK regression exposes a same-cell observer deadlock;
    `7915a45a` preserves source proof while polling owned target I/O without the
-   source writer. Its SDK, stream/interleaving and four real-RustFS configurations pass; fresh ownership/kernel units remain pending.
+   source writer. Its SDK, stream/interleaving and four real-RustFS configurations pass. At
+   `5c6d3f3c`, the final Workflow/kernel/storage/writer-admission units, native
+   both-image Workflow, Fleet and SDK source-proof regression pass. The
+   `b91ae8b5` follow-up implements Workflow-only schedule declarations and
+   autonomous scheduled-instance/restart tests. At `88f48cd4`, schedules pass
+   both native images and four real RustFS native/Axum configurations; ordinary
+   Axum passes both images. The combined campaign remains FAILED by ordinary
+   native status deadlines (one failed and one unrun configuration). Keep those
+   controls and resolve the read/apply progress gap before full acceptance.
    See the [Workflow contract](workflow-durability.md) for full-size, cron,
    long continuous callbacks and combined lifecycle/disaster gates.
    Queue normal/fault/long-callback/load results retain

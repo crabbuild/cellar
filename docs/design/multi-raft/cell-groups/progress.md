@@ -435,13 +435,49 @@ Earlier prototype failures and the opt0 minimized
 pass remain under `CG-17-workflow-fifo-diagnostics-01`; they establish no
 exact-source qualification.
 
+At `a9931752`, the updated nine Workflow units pass, as do ordinary native
+Workflow in both images and the focused stream case. The new schedule fixture
+fails startup because it still declares Sink without installing that namespace;
+no scheduled image configuration or later Fleet command passes in this run.
+Preserve `CG-17-workflow-schedules-a9931752-01`, its log and frozen binaries.
+The correction removes the unused Sink declaration only for schedule fixtures,
+retaining the same schedule/history/replay assertions and budgets.
+
+At `88f48cd4`, scheduled Workflow creation passes both native image modes,
+including autonomous startup, committed cron history and retained-step reuse.
+The focused stream gate also passes. The combined native campaign remains
+FAILED: ordinary materialized Workflow passes capture and both downloads, then
+a status read while awaiting stream completion returns `DeadlineExceeded`.
+Ordinary extent and the later Fleet target are unrun. Preserve
+`CG-17-workflow-schedules-88f48cd4-01` with its frozen executable, resources,
+log and all three voter disks. No cause or waiver is inferred from the resource
+snapshot. The source-pinned real RustFS campaign finishes FAILED: scheduled
+Workflows pass all four native/Axum image configurations and ordinary Axum
+passes both images. Ordinary native fails a status/retry deadline after retained
+restart in materialized mode; its extent mode is unrun. Preserve
+`CG-17-workflow-rustfs-88f48cd4-01`, including the second three-disk failure.
+This is six passed, one failed and one unrun configuration. The isolated frozen native control passes both real RustFS image modes in
+133.26 seconds with unchanged source inputs and limits. Preserve
+`CG-17-workflow-isolated-88f48cd4-01`. This demonstrates the path but does not
+resolve the intermittent deadline or waive the failed combined campaign.
+The final frozen boundary run passes nine Workflow, ten callback-kernel, two
+storage and three writer-admission units, the cron declaration guard, SDK
+source-proof regression and Fleet conformance. Preserve
+`CG-17-workflow-boundaries-88f48cd4-01`.
+
+CI now passes the exact-source plan tests after the pinned fetch. It exposes a
+separate benchmark schema drift: 15 runtime counters were absent from the Python
+measurement vocabulary. The measurement adapter now retains complete historical
+windows and includes those counters; mixed-schema windows still refuse. All 317
+performance-tool tests pass (one opt-in case skipped).
+
 The campaign runner has 19 passing unit tests and the plan validator has 44.
 The final nine Workflow units and three writer-admission tests pass at
 `5c6d3f3c`. The partial primitive catalogue includes the new registration
 API. Full plan validation in this checkout is blocked by absent historical
-ignored evidence (`CG-01-06-gates-e32115aa-02/CG-01-record.json`). The real RustFS
-Workflow campaign passes at `7915a45a`; the later schedule adapter requires its
-own source-pinned rerun. CG-17 and accepted-case totals are unchanged;
+ignored evidence (`CG-01-06-gates-e32115aa-02/CG-01-record.json`). Earlier real RustFS Workflow passes at `7915a45a` remain preserved. At
+`88f48cd4`, schedule and Axum cases pass, but the combined campaign remains
+failed by ordinary-native status deadlines, despite a passing isolated control. CG-17 and accepted-case totals are unchanged;
 full-size values, provider execution and combined lifecycle/disaster scenarios
 remain open. The complete family is not accepted.
 
