@@ -48,7 +48,12 @@ retained on the workspace volume.
 The cohort remains **FAILED overall**: strict unit-test Clippy finds an existing
 Workflow stream test module before later production items. The follow-up moves
 that unchanged module after production definitions; its own lint result must be
-recorded before treating the build gate as closed. Build, format/layout,
+recorded before treating the build gate as closed. Follow-up
+`11c223a7` now passes strict library/all-test Clippy and every repository check.
+Its only Rust difference is relocation of the byte-identical test module;
+production source is unchanged. The follow-up retains 15 verified evidence files
+as `CG-17-event-source-followup-11c223a7-120`; it does not relabel the original
+failed cohort or claim a new runtime/release qualification. Build, format/layout,
 dependency/docs checks and all 44 plan/13 coverage-verifier units pass at the
 runtime source. No ignored tests or relaxed assertions are counted.
 

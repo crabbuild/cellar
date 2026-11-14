@@ -10,8 +10,8 @@ Source `6282bb46` adds the source journal, namespace-qualified producer identity
 per-lane fresh-history preservation and shared framework work. Forty owning units
 and six existing Fleet conformance tests pass. Its overall cohort remains FAILED
 by strict unit-test Clippy: Workflow stream tests precede production items. The
-follow-up relocates that unchanged test module; retain the failed record and
-record the new lint result. See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
+follow-up `11c223a7` relocates that unchanged test module and passes strict
+library/all-test Clippy and repository checks; retain the original failed record. See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The authenticated target adapter is being implemented separately in the attached
 `codex/cg17-event-target` checkout, based on `6282bb46`. It is not qualified or
