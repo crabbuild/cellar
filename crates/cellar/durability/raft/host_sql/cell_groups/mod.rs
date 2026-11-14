@@ -898,7 +898,11 @@ impl CellGroupSqlPool {
                         .runtime
                         .execution_authority(group, cell.clone())
                         .await
-                        .map_err(crate::raft::execution::authority_failure)?;
+                        .map_err(|error| {
+                            tracing::warn!(target: "cellar::debug_fifo_84", error = ?error,
+                                "[DEBUG-fifo-85] queued writer authority lookup failed");
+                            crate::raft::execution::authority_failure(error)
+                        })?;
                     if !fence.accepts_continuation(&fresh) {
                         tracing::warn!(target: "cellar::debug_fifo_84", term_current = fence.term_current(), fresh_check = ?fresh.check(), cell = ?fresh.cell().version,
                             "[DEBUG-fifo-84] queued writer authority refused");
