@@ -76,6 +76,9 @@ pub(super) async fn invoke(cell: &AlarmCell, storage: &Storage, label: &str) -> 
         control
             .failed_at
             .store(cellar::asyncrt::wall_ms(), Ordering::Release);
+        if label == "failure/panic" {
+            panic!("intended ordinary alarm callback panic");
+        }
         anyhow::bail!("intended ordinary alarm handler failure");
     }
     ensure!(
@@ -301,16 +304,21 @@ async fn case(
                 );
             }
             if !exhaust {
-                for label in ["failure/replace", "failure/cancel"] {
+                for label in ["failure/replace", "failure/cancel", "failure/panic"] {
                     control.arm(1);
                     request(&cluster, "Arm", json!({"label":label,"after":100})).await?;
                     control.wait_gate().await?;
                     let replacement = state(&cluster, &history).await?["alarm"].clone();
                     control.release.notify_one();
+                    if label == "failure/panic" {
+                        let lease = replacement.as_i64().context("panic claim lease")?;
+                        backoff(&cluster, &history, control, lease).await?;
+                    }
                     request(&cluster, "Read", json!(null)).await?;
                     let value = state(&cluster, &history).await?;
                     ensure!(
-                        value["alarm"] == replacement && value["unsynced"].is_null(),
+                        (label == "failure/panic" || value["alarm"] == replacement)
+                            && value["unsynced"].is_null(),
                         "old failed attempt changed a replacement or committed private writes"
                     );
                     request(&cluster, "Cancel", json!(null)).await?;
@@ -332,7 +340,10 @@ async fn case(
         match host.close().await {
             Ok(report)
                 if report.groups_total == 1
-                    && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers => (),
+                    && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers =>
+            {
+                ()
+            }
             result => cleanup.push(format!("alarm host closure: {result:?}")),
         }
     }

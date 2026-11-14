@@ -417,7 +417,21 @@ impl Cells {
     ) -> bool {
         let outcome = match rpc.executor.take() {
             Some(mut executor) => {
+                let failed_callback = result.as_ref().err().is_some_and(|error| {
+                    error.is::<crate::application::consensus::native_work::Failure>()
+                });
                 let staged = executor.finish_rpc(*rpc.turn, result);
+                let staged = if failed_callback {
+                    // The retry receipt is a successful framework mutation,
+                    // but the failed application's memory is never reusable.
+                    let retired = rpc
+                        .activation
+                        .take()
+                        .map_or(Ok(()), |activation| self.activations.retire(activation));
+                    staged.and_then(|outcome| retired.map(|()| outcome))
+                } else {
+                    staged
+                };
                 self.publish_stage(
                     rpc.cell,
                     executor,

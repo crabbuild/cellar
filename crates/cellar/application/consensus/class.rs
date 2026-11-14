@@ -777,7 +777,7 @@ impl RaftClass {
         self.system_commands.insert(
             super::native_work::OPERATION.into(),
             Command {
-                digest: Sha256::digest(b"cellar-native-work-callback-budget-1").into(),
+                digest: Sha256::digest(b"cellar-native-work-alarm-failure-retry-1").into(),
                 handler: CommandHandler::NativeWork,
             },
         );
