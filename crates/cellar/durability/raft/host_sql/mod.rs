@@ -11,7 +11,7 @@ use cellar_logic::consensus::CommandFailure;
 use std::collections::VecDeque;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    mpsc, Arc,
+    mpsc, Arc, OnceLock,
 };
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -25,6 +25,34 @@ trait Scheduled {
 enum Envelope {
     Shared(cell_groups::Request),
     GroupApply(Box<cell_groups::ApplyRequest>),
+}
+
+/// A readiness token wakes the existing physical owner without another queue
+/// entry, semaphore reservation or per-cell task.
+struct WorkerWake(OnceLock<std::thread::Thread>);
+
+impl WorkerWake {
+    fn wake(&self) {
+        if let Some(thread) = self.0.get() {
+            thread.unpark();
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Port {
+    sender: mpsc::SyncSender<Envelope>,
+    wake: Arc<WorkerWake>,
+}
+
+impl Port {
+    fn try_send(&self, request: Envelope) -> Result<(), ExecutionError> {
+        self.sender
+            .try_send(request)
+            .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
+        self.wake.wake();
+        Ok(())
+    }
 }
 
 impl Scheduled for Envelope {
@@ -61,10 +89,26 @@ impl<T: Scheduled> RequestQueue<T> {
         }
     }
 
-    fn next(&mut self) -> Result<T, mpsc::RecvTimeoutError> {
+    fn next(&mut self, wait: Duration) -> Result<T, mpsc::RecvTimeoutError> {
         if self.pending.is_empty() {
-            self.pending
-                .push_back(self.receiver.recv_timeout(Duration::from_millis(10))?);
+            let request = match self.receiver.try_recv() {
+                Ok(request) => request,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err(mpsc::RecvTimeoutError::Disconnected)
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Both queue producers and callback wakers unpark this
+                    // owner. A callback-only wake has no envelope: return to
+                    // polling suspended work immediately. The park token
+                    // also preserves a wake between try_recv and parking.
+                    std::thread::park_timeout(wait);
+                    self.receiver.try_recv().map_err(|error| match error {
+                        mpsc::TryRecvError::Empty => mpsc::RecvTimeoutError::Timeout,
+                        mpsc::TryRecvError::Disconnected => mpsc::RecvTimeoutError::Disconnected,
+                    })?
+                }
+            };
+            self.pending.push_back(request);
         }
         // All requests, including this local batch and the executing callback,
         // retain the same worker semaphore permits. Draining does not enlarge
@@ -108,9 +152,10 @@ impl<T: Scheduled> RequestQueue<T> {
 }
 
 pub(crate) struct Pool {
+    activations: Arc<cell_groups::RpcCache>,
     performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
-    senders: Vec<mpsc::SyncSender<Envelope>>,
+    senders: Vec<Port>,
     completion_slots: Vec<Arc<Semaphore>>,
     slots: Vec<Arc<Semaphore>>,
     workers: Vec<crate::asyncrt::TaskHandle<Result<(), ExecutionError>>>,
@@ -121,6 +166,8 @@ pub(crate) struct Pool {
 
 /// Retains only semaphore/counter metadata, never a worker, image or connection.
 pub(crate) struct ResourceObserver {
+    activations: std::sync::Weak<cell_groups::RpcCache>,
+    activation_capacity: usize,
     slots: Vec<Arc<Semaphore>>,
     stopped: Arc<AtomicBool>,
     running: Arc<AtomicUsize>,
@@ -140,11 +187,20 @@ impl ResourceObserver {
         if running_workers > self.slots.len() {
             return None;
         }
+        let (idle_activations, retained_activations, activation_capacity) =
+            match self.activations.upgrade() {
+                Some(cache) => cache.usage().ok()?,
+                None if self.stopped.load(Ordering::Acquire) => (0, 0, self.activation_capacity),
+                None => return None,
+            };
         Some(crate::application::consensus::RaftSqlUsage {
             running_workers,
             worker_capacity: self.slots.len(),
             work_reservations,
             work_capacity,
+            idle_activations,
+            retained_activations,
+            activation_capacity,
             queue_closed: self.stopped.load(Ordering::Acquire),
         })
     }
@@ -171,7 +227,7 @@ impl Drop for Running {
 pub(crate) struct Worker {
     performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
-    sender: mpsc::SyncSender<Envelope>,
+    sender: Port,
     completion_slots: Arc<Semaphore>,
     slots: Arc<Semaphore>,
 }
@@ -187,6 +243,7 @@ impl Pool {
         let stopped = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicUsize::new(0));
         let mut pool = Self {
+            activations: cell_groups::RpcCache::new(max_cells),
             performance: performance.clone(),
             domain: domain.clone(),
             senders: vec![],
@@ -206,19 +263,32 @@ impl Pool {
             let performance = performance.clone();
             let stopped = stopped.clone();
             let running = running.clone();
+            let activations = pool.activations.clone();
+            let wake = Arc::new(WorkerWake(OnceLock::new()));
+            let worker_wake = wake.clone();
             let task = domain
                 .blocking(move || {
                     // This guard drops after cells/connections finish cleanup,
                     // including errors and callback unwinding. A waiter cannot
                     // retire this physical worker count.
                     let _running = Running::enter(running);
-                    let mut shared = cell_groups::Cells::default();
+                    worker_wake.0.set(std::thread::current()).map_err(|_| {
+                        ExecutionError::Invalid("SQL worker wake already installed")
+                    })?;
+                    let mut shared = cell_groups::Cells::new(activations, worker_wake);
                     let mut requests = RequestQueue::new(receiver, capacity);
                     loop {
                         if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
                             break;
                         }
-                        let request = match requests.next() {
+                        let wait = if shared.poll_suspended(&owner, &stopped, &performance) {
+                            // Give queued work its turn before trying the next
+                            // ready continuation without the idle tick delay.
+                            Duration::ZERO
+                        } else {
+                            Duration::from_millis(10)
+                        };
+                        let request = match requests.next(wait) {
                             Ok(request) => request,
                             Err(mpsc::RecvTimeoutError::Timeout) => continue,
                             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -235,7 +305,7 @@ impl Pool {
                     shared.close()
                 })
                 .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
-            pool.senders.push(sender);
+            pool.senders.push(Port { sender, wake });
             pool.slots.push(Arc::new(Semaphore::new(queue)));
             pool.completion_slots.push(Arc::new(Semaphore::new(1)));
             pool.workers.push(task);
@@ -245,6 +315,8 @@ impl Pool {
 
     pub(crate) fn resource_observer(&self) -> ResourceObserver {
         ResourceObserver {
+            activations: Arc::downgrade(&self.activations),
+            activation_capacity: self.activations.capacity(),
             slots: self.slots.clone(),
             stopped: self.stopped.clone(),
             running: self.running.clone(),
@@ -271,6 +343,9 @@ impl Pool {
         self.stopped.store(true, Ordering::Release);
         for slots in self.slots.iter().chain(&self.completion_slots) {
             slots.close();
+        }
+        for port in &self.senders {
+            port.wake.wake();
         }
     }
 

@@ -41,10 +41,11 @@ class PlanTests(unittest.TestCase):
         path.write_text(value if isinstance(value, str) else json.dumps(value))
         return {"path": name, "sha256": plan.digest(path)}
 
-    def evidence(self):
-        task = self.manifest["tasks"][0]
-        paths = {self.baseline["anchors"][a]["path"] for a in task["anchors"]}
-        paths.add(f'crates/cellar/tests/{task["test_target"]}.rs')
+    def evidence(self, task=None):
+        task = task or self.manifest["tasks"][0]
+        cohort = self.manifest["tasks"] if task["id"] == "CG-16" else [task]
+        paths = {self.baseline["anchors"][a]["path"] for item in cohort for a in item["anchors"]}
+        paths.update(f'crates/cellar/tests/{item["test_target"]}.rs' for item in cohort)
         record = {"format": 1, "task_id": task["id"], "source_revision": self.revision,
                   "executable_sha256": self.executable, "environment": "Synthetic validator fixture only",
                   "limitations": "Not runtime evidence", "source_inputs": [], "commands": [], "profiles": []}
@@ -53,7 +54,9 @@ class PlanTests(unittest.TestCase):
         for index, command in enumerate(plan.commands_for(task, self.manifest)):
             output = "Command exited successfully.\n"
             if command[-1] == "--list":
-                output = "\n".join(c["name"] + ": test" for c in task["test_cases"]) + "\n"
+                target = command[command.index("--test") + 1]
+                output = "\n".join(c["name"] + ": test" for item in cohort if item["test_target"] == target
+                                   for c in item["test_cases"]) + "\n"
             elif "--exact" in command:
                 name = command[command.index("--exact") - 1]
                 output = f"running 1 test\ntest {name} ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 3 filtered out; finished in 0.01s\n"
@@ -329,6 +332,38 @@ class PlanTests(unittest.TestCase):
         expected = {c["name"] for task in self.manifest["tasks"] for c in task["test_cases"]}
         self.assertEqual(selected, expected)
         self.assertIn(["python3", "tools/docs/check.py"], commands)
+        self.assertIn(["python3", "tools/multi-raft/primitive_coverage.py", "check-catalog"], commands)
+
+    def test_named_passes_cannot_waive_primitive_report_in_any_acceptance_gate(self):
+        for tid in ("CG-17", "CG-15", "CG-16"):
+            task = next(task for task in self.manifest["tasks"] if task["id"] == tid)
+            record = self.evidence(task)
+            record["qualified_executable_sha256"] = self.executable
+            if tid in ("CG-15", "CG-16"):
+                # This test isolates the final evidence gate after the existing
+                # profile validator; the profile oracles have separate fixtures.
+                record["profiles"] = [self.put(f"profile-{profile['id']}.json", {"profile_id": profile["id"]})
+                                      for profile in self.profiles["profiles"] if profile["required"]]
+            with self.subTest(task=tid), \
+                    patch.object(plan, "git_bytes", side_effect=lambda root, rev, path: path.encode()), \
+                    patch.object(plan.subprocess, "check_output", return_value=b""), \
+                    patch.object(plan, "check_profile"), \
+                    self.assertRaisesRegex(plan.PlanError, "Missing primitive coverage report"):
+                plan.check_evidence(task, record, self.manifest, self.baseline,
+                                    self.profiles, self.profile_digest, self.root)
+
+    def test_outer_acceptance_reads_contracts_at_source_and_refuses_partial_inventory(self):
+        record = self.evidence(next(task for task in self.manifest["tasks"] if task["id"] == "CG-17"))
+        record["primitive_coverage"] = self.put("report.json", {"format": 1, "status": "acceptance"})
+
+        def frozen_contract(root, revision, path):
+            self.assertEqual(revision, self.revision)
+            self.assertIn(path, plan.PRIMITIVE_CONTRACT_FILES)
+            return (plan.ROOT / path).read_bytes()
+
+        with patch.object(plan, "git_bytes", side_effect=frozen_contract), \
+                self.assertRaisesRegex(plan.PlanError, "Primitive coverage refused: Primitive API inventory is incomplete"):
+            plan.check_primitive_evidence(record, self.manifest, self.root)
 
     def test_complete_profile_matrix_passes(self):
         self.verify_profile(*self.profile_fixture())
@@ -420,7 +455,7 @@ class PlanTests(unittest.TestCase):
         git("init", "--quiet")
         inputs = ["crates/lib.rs", "examples/main.rs", "vendor/lib.rs", ".cargo/config.toml", "build.rs",
                   "rust-toolchain.toml", "docs/api.md", "future-runtime-input.txt"]
-        for name in inputs + ["plans/status.json", "docs/design/status.json"]:
+        for name in inputs + plan.PRIMITIVE_CONTRACT_FILES + ["plans/status.json", "docs/design/status.json"]:
             self.put(name, "original\n")
         git("add", ".")
         git("commit", "--quiet", "-m", "Synthetic validator fixture")
@@ -437,6 +472,11 @@ class PlanTests(unittest.TestCase):
             with self.assertRaisesRegex(plan.PlanError, "dirty"):
                 plan.require_release_inputs(self.root, revision)
             self.put(name, "original\n")
+        contract = plan.PRIMITIVE_CONTRACT_FILES[0]
+        self.put(contract, "changed contract\n")
+        with self.assertRaisesRegex(plan.PlanError, "primitive contracts are dirty"):
+            plan.require_release_inputs(self.root, revision)
+        self.put(contract, "original\n")
         self.put("examples/main.rs", "changed\n")
         git("add", "examples")
         git("commit", "--quiet", "-m", "Changed executable")

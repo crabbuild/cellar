@@ -28,7 +28,7 @@ fn observation(cells: bool) -> LocalObservation {
     root["index"] = serde_json::json!(5);
     root["term"] = serde_json::json!(2);
     if cells {
-        root["root"] = serde_json::json!({"digest":vec![7;32],"height":2,"cells":2,"last_mutation_index":4,"last_mutation_term":2,"next_due_unix_millis":null});
+        root["root"] = serde_json::json!({"digest":vec![7;32],"height":2,"cells":2,"pending_calls":0,"last_mutation_index":4,"last_mutation_term":2,"next_due_unix_millis":null});
     }
     let root: GroupManifest = serde_json::from_value(root).unwrap();
     let conf = ConfState {

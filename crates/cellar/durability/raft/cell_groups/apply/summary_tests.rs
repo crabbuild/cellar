@@ -14,6 +14,8 @@ fn effects_are_bounded_and_inbox_receipts_do_not_schedule_work() {
             next_outbox_unix_millis: Some(10),
             pending_outbox: 2,
             pending_inbox: 0,
+            pending_calls: 0,
+            next_call_unix_millis: None,
         }
     );
     assert!(read(&db, 1).is_err());
@@ -58,4 +60,34 @@ fn malformed_effect_state_refuses_instead_of_reporting_idle() {
         db.execute_batch(ddl).unwrap();
         assert!(read(&db, 100).is_err(), "{ddl}");
     }
+}
+
+#[test]
+fn call_obligations_schedule_recovery_and_unresolved_calls_prevent_idle() {
+    let db = rusqlite::Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE __sys_raft_binding_intents(format,phase,next_at); INSERT INTO __sys_raft_binding_intents VALUES(1,0,20),(1,1,30),(1,2,40),(1,3,50);").unwrap();
+    let summary = read(&db, 4).unwrap();
+    assert_eq!(summary.pending_calls, 3);
+    assert_eq!(summary.next_due_unix_millis(), Some(20));
+    assert!(read(&db, 3).is_err());
+    db.execute("UPDATE __sys_raft_binding_intents SET phase=3", [])
+        .unwrap();
+    assert_eq!(read(&db, 4).unwrap().pending_calls, 0);
+    db.execute("UPDATE __sys_raft_binding_intents SET phase=5", [])
+        .unwrap();
+    assert!(read(&db, 4).is_err());
+}
+
+#[test]
+fn native_callbacks_project_independent_deadlines_and_refuse_invalid_rows() {
+    let db = rusqlite::Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE __sys_raft_native_work(due); INSERT INTO __sys_raft_native_work VALUES(5),(10);").unwrap();
+    assert_eq!(read(&db, 2).unwrap().next_due_unix_millis(), Some(5));
+    assert!(read(&db, 1).is_err());
+    db.execute("DELETE FROM __sys_raft_native_work WHERE due=5", [])
+        .unwrap();
+    assert_eq!(read(&db, 2).unwrap().next_due_unix_millis(), Some(10));
+    db.execute("UPDATE __sys_raft_native_work SET due=-1", [])
+        .unwrap();
+    assert!(read(&db, 2).is_err());
 }

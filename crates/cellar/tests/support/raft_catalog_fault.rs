@@ -163,7 +163,15 @@ impl RegistryGate {
 pub struct Store {
     external: Option<std::sync::Arc<dyn ObjectStore>>,
     gate_identity: std::sync::Arc<()>,
+    pub deny_routing_metadata_reads: AtomicBool,
+    pub denied_routing_metadata_reads: AtomicUsize,
     pub group_payload_reads: AtomicUsize,
+    pub cell_payload_put_calls: AtomicUsize,
+    pub cell_payload_put_bytes: AtomicUsize,
+    pub cell_payload_get_calls: AtomicUsize,
+    pub cell_payload_chunk_bytes: AtomicUsize,
+    pub deny_cell_payload_reads: AtomicBool,
+    pub denied_cell_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
     pub deny_group_payload_reads: AtomicBool,
     pub denied_prefix: std::sync::Mutex<Option<Path>>,
@@ -198,6 +206,7 @@ pub struct Store {
     pub registry_before: RegistryGate,
     pub registry_after: RegistryGate,
     pub group_archive_read: RegistryGate,
+    pub router_birth_read: RegistryGate,
     pub fail_registry_before: AtomicBool,
     pub fail_registry_after: AtomicBool,
     pub registry_writes: AtomicUsize,
@@ -381,6 +390,13 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/cell-payloads-1/") {
+            self.cell_payload_put_calls.fetch_add(1, Ordering::AcqRel);
+            self.cell_payload_put_bytes.fetch_add(
+                payload.iter().map(|bytes| bytes.len()).sum::<usize>(),
+                Ordering::AcqRel,
+            );
+        }
         if matches!(options.mode, PutMode::Create)
             && path.as_ref().contains("/cell-group-archives/")
             && DENIED_ARCHIVE_CREATION
@@ -696,6 +712,23 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if path.as_ref().contains("/cell-payloads-1/") {
+            self.cell_payload_get_calls.fetch_add(1, Ordering::AcqRel);
+            if self.deny_cell_payload_reads.load(Ordering::Acquire) {
+                self.denied_cell_payload_reads
+                    .fetch_add(1, Ordering::AcqRel);
+                return Err(failure());
+            }
+        }
+        if self.deny_routing_metadata_reads.load(Ordering::Acquire)
+            && (path.as_ref().contains("/cell-groups/")
+                || path.as_ref().contains("/fleet/")
+                || (path.as_ref().contains("/raft/") && path.as_ref().contains("/nodes/")))
+        {
+            self.denied_routing_metadata_reads
+                .fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
+        }
         if path.as_ref().contains("/cell-groups/births/")
             && GROUP_BIRTH_CONFIRMATION
                 .try_with(|state| {
@@ -708,6 +741,9 @@ impl ObjectStore for Store {
                 .unwrap_or(false)
         {
             return Err(failure());
+        }
+        if path.as_ref().contains("/cell-groups/births/") {
+            self.router_birth_read.pause().await;
         }
         let denied = self
             .denied_prefix
@@ -1047,6 +1083,29 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         let mut result = self.backend().get_opts(path, options).await?;
+        let chunk_bytes = self.cell_payload_chunk_bytes.load(Ordering::Acquire);
+        if path.as_ref().contains("/cell-payloads-1/") && chunk_bytes != 0 {
+            let GetResultPayload::Stream(stream) = result.payload;
+            result.payload = GetResultPayload::Stream(
+                stream
+                    .flat_map(move |item| match item {
+                        Ok(bytes) => futures_util::stream::unfold(
+                            (bytes, 0),
+                            move |(bytes, at)| async move {
+                                if at == bytes.len() {
+                                    return None;
+                                }
+                                cellar::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
+                                let end = (at + chunk_bytes).min(bytes.len());
+                                Some((Ok(bytes.slice(at..end)), (bytes, end)))
+                            },
+                        )
+                        .boxed(),
+                        Err(error) => futures_util::stream::once(async move { Err(error) }).boxed(),
+                    })
+                    .boxed(),
+            );
+        }
         if root_extent {
             self.root_extent_hits.fetch_add(1, Ordering::AcqRel);
         }

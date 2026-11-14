@@ -53,12 +53,62 @@ async fn s3_replays_from_peer_archive_without_new_upload() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_response_precedes_previous_archive_hold_retirement() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_response_precedes_hold_retirement(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_s3_response_precedes_previous_archive_hold_retirement() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_response_precedes_hold_retirement(
+            rooted,
+            rustfs::store("archive-deferred-retirement", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
 async fn rustfs_s3_replays_from_peer_archive_without_new_upload() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::s3_replays_from_peer_archive(
             rooted,
             rustfs::store("peer-archive", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn follower_archiver_verifies_a_published_prefix_without_upload() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::follower_acquires_published_prefix(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_follower_archiver_verifies_a_published_prefix_without_upload() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::follower_acquires_published_prefix(
+            rooted,
+            rustfs::store("follower-archive-prefix", rooted)?,
         ))
         .await?;
     }
@@ -328,6 +378,22 @@ async fn controller_archive_publishes_stable_cuts_while_quorum_advances() -> Res
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_archive_extends_committed_tails_and_rolls_checkpoints() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_controller_tail_rollover(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_archive_bounds_hot_cell_replay_work() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_hot_cell_tail_bound(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn controller_archive_reconciles_exact_intent_and_joins_close() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::archive_controller_reconcile(rooted)).await?;
@@ -444,6 +510,35 @@ async fn s3_receipt_lookup_tracks_archived_observations() -> Result<()> {
             rooted,
             Arc::new(object_store::memory::InMemory::new()),
         ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn late_s3_receipt_reuses_completed_background_verification() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_late_receipt_uses_completed_verification(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+            ),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_late_s3_receipt_reuses_completed_background_verification() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(
+            runtime_fixture::s3_late_receipt_uses_completed_verification(
+                rooted,
+                rustfs::store("late-receipt-verification", rooted)?,
+            ),
+        )
         .await?;
     }
     Ok(())

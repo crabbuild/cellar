@@ -7,7 +7,7 @@ mod collection;
 mod directory;
 pub(crate) use directory::require_local as require_local_fleet_boot;
 mod router_refresh;
-pub(crate) use router_refresh::{RouterRefreshClient, RouterRefreshRequest};
+pub(crate) use router_refresh::{RouterRefreshClient, RouterRefreshKey, RouterRefreshRequest};
 mod partition;
 mod provisioning;
 mod recovery;
@@ -58,6 +58,9 @@ pub struct RaftGroupAssignment {
 #[derive(Clone, Copy)]
 pub struct CellGroupNodeLimits {
     pub namespaces: CellGroupHostLimits,
+    /// One pool across all KV namespaces. Required before exposing the runtime
+    /// KV service; absence never falls back to Fleet's epoch-based blob store.
+    pub payloads: Option<CellGroupPayloadLimits>,
     pub controller: CellGroupControllerLimits,
     pub sql: CellSqlLimits,
     pub provisioning: CellGroupProvisionLimits,
@@ -425,7 +428,12 @@ pub(crate) async fn start(
                             continue;
                         }
                     }
-                    match transport.install_cell_query_group(route) {
+                    let installed = if options.managed.is_some() {
+                        transport.install_cell_query_group(route)
+                    } else {
+                        transport.install_initial_cell_query_group(route, &assignment.birth)
+                    };
+                    match installed {
                         Ok(()) => (),
                         Err(
                             super::transport::TransportError::Refused
@@ -557,13 +565,20 @@ pub(crate) async fn start(
             .with_s3(&controller)?;
             let config = namespace.directory.namespace_config();
             let storage = CellGroupNamespaceStorage::new(images.sql(config, &options)?)?;
-            if namespace.class.has_system_commands() {
+            if namespace.class.has_scheduled_work() {
+                let effect_options = options
+                    .effects
+                    .or_else(|| {
+                        (namespace.class.has_binding_maintenance()
+                            || namespace.class.has_native_callbacks())
+                        .then(crate::raft::effects::RaftEffectOptions::default)
+                    })
+                    .ok_or_else(|| anyhow::anyhow!("effects require a scheduler"))?;
+                effect_options.validate(&options)?;
                 let resources = storage.clone();
                 effects.push(CellGroupEffectRegistration::new(
                     dispatcher.clone(),
-                    options
-                        .effects
-                        .ok_or_else(|| anyhow::anyhow!("effects require a scheduler"))?,
+                    effect_options,
                     move |cell| Ok(resources.for_cell(cell)),
                 )?);
             }
@@ -576,13 +591,14 @@ pub(crate) async fn start(
         if !effects.is_empty() {
             controller.configure_effects(effects)?;
         }
-        let host = CellGroupHost::bind(
+        let host = CellGroupHost::bind_with_payloads(
             &runtime,
             &sql,
             &transport,
             controller.clone(),
             registrations,
             limits.namespaces,
+            limits.payloads.map(CellGroupPayloadPool::new).transpose()?,
         )?;
         let collection = collection::Collection::new(collectible)?;
         let resources = crate::application::consensus::group_client::resources::Resources::new(

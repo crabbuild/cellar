@@ -114,7 +114,23 @@ pub(crate) async fn prepare(
                 registration.class.clone()
             )
         );
-        let class = application.resolve_raft_class(&registration.class)?;
+        let class =
+            application.resolve_raft_namespace(&registration.namespace, &registration.class)?;
+        if class.name() == crate::deploy::KV_CLASS {
+            let limits = config
+                .shared
+                .payloads
+                .ok_or_else(|| anyhow::anyhow!("KV requires node-owned payload admission"))?;
+            super::CellGroupPayloadPool::new(limits)?;
+            anyhow::ensure!(
+                limits.max_payload_bytes >= crate::application::kv::raft_wire::MAX_BYTES
+                    && limits.max_retained_bytes
+                        >= crate::application::kv::raft_wire::MIN_RETAINED_BYTES
+                    && config.host.max_input_bytes >= 8192
+                    && config.host.execution.max_result_bytes >= 8192,
+                "KV requires full bounded external-wire and descriptor capacity"
+            );
+        }
         class.validate_shared_host(&config.host)?;
         anyhow::ensure!(
             class.schema_digest() == registration.namespace.schema_digest,

@@ -31,13 +31,12 @@ impl Storage {
     pub fn fs(&self) -> Result<Filesystem> {
         operation("filesystem.acquire", || {
             self.filesystem_scope()?;
-            let class = self
-                .0
+            let activation = self.native_activation().map_err(Error::from)?;
+            let class = activation
                 .scope
                 .split_once(':')
-                .map_or(self.0.scope.as_str(), |(class, _)| class);
-            let policy = self
-                .0
+                .map_or(activation.scope.as_str(), |(class, _)| class);
+            let policy = activation
                 .worker_config
                 .native_application
                 .as_ref()
@@ -48,7 +47,7 @@ impl Storage {
                 })?;
             let limits = crate::application::limits::current().filesystem;
             policy.validate()?;
-            backend::initialize(&self.0.scope, limits).map_err(Error::from)?;
+            backend::initialize(&activation.scope, limits).map_err(Error::from)?;
             Ok(Filesystem {
                 storage: self.clone(),
                 limits,
@@ -72,7 +71,7 @@ impl Storage {
                 "facets do not support the filesystem primitive",
             ));
         }
-        let current = self.0.resources.transaction.lock().unwrap();
+        let current = self.resources().transaction.lock().unwrap();
         let matches = match (&self.1, &*current) {
             (None, None) => true,
             (Some(owned), Some(current)) => Arc::ptr_eq(owned, current),
@@ -433,7 +432,7 @@ impl Filesystem {
         operation("filesystem.collect_garbage", || {
             self.scope()?;
             self.charge(0, self.limits.gc_batch_chunks.saturating_mul(CHUNK_BYTES))?;
-            let pins = self.storage.0.resources.filesystem.pins();
+            let pins = self.storage.resources().filesystem.pins();
             self.mutate(|db| db.collect(&pins))
         })
     }
@@ -455,7 +454,7 @@ pub(crate) async fn maintain(
         return Ok(crate::application::Output::Done);
     }
     let limits = crate::application::limits::current().filesystem;
-    let pinned = storage.0.resources.filesystem.pins();
+    let pinned = storage.resources().filesystem.pins();
     let result = storage.tx(|tx| {
         tx.clear_work(installation)?;
         backend::mutate(tx.scope()?, limits, |db| {

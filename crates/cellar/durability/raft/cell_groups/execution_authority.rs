@@ -8,8 +8,207 @@ use crate::raft::{cache::GroupLog, completion::RuntimeError};
 use cellar_logic::{cell_group::*, consensus::Term};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc,
+    Arc, RwLock, Weak,
 };
+
+impl GroupLog<GroupHistory> {
+    /// A locator from a live local voter's fully applied tree. Callers must
+    /// first select this exact route from their charged namespace range cache.
+    /// This grants no read lease, execution, enrollment or durability authority.
+    pub(crate) fn applied_history_hint(
+        &self,
+        route: &GroupRoute,
+        cell: &CellId,
+        schema: [u8; 32],
+    ) -> Result<Option<CellHistory>, crate::raft::storage::LogError> {
+        use crate::raft::storage::LogError;
+        if self.identity.scope != route.history
+            || !self.consensus_claimed.load(Ordering::Acquire)
+            || self.closed.load(Ordering::Acquire)
+            || self.reclaimed.load(Ordering::Acquire)
+        {
+            return Ok(None);
+        }
+        let key = cell_routing_key(route.history.namespace, cell);
+        if !route.range.contains(&key) {
+            return Ok(None);
+        }
+        let cache = match self.read() {
+            Ok(cache) => cache,
+            Err(LogError::Closed | LogError::NotFound) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if !cache.membership.permits_group(&self.identity)
+            || !cache
+                .conf_state
+                .voters
+                .iter()
+                .chain(&cache.conf_state.voters_outgoing)
+                .any(|member| *member == self.identity.member.get())
+            || cache
+                .group_manifest
+                .as_ref()
+                .is_none_or(|manifest| !manifest.is_active() || manifest.route() != route)
+        {
+            return Ok(None);
+        }
+        Ok(cache
+            .manifest_pins
+            .as_ref()
+            .and_then(|pins| pins.get(&key))
+            .filter(|(leaf, _)| leaf.enrollment.schema() == schema)
+            .map(|(leaf, _)| leaf.version.history.clone()))
+    }
+}
+
+/// A weak cache fence, never execution, image or durability authority.
+#[derive(Clone)]
+pub(crate) struct CellActivationFence {
+    owner: Weak<()>,
+    closed: Weak<std::sync::atomic::AtomicBool>,
+    reclaimed: Weak<std::sync::atomic::AtomicBool>,
+    cache: Weak<RwLock<crate::raft::cache::CachedGroup>>,
+    leader_term: Weak<AtomicU64>,
+    identity: cellar_logic::consensus::ReplicaIdentity<GroupHistory>,
+    route: GroupRoute,
+    term: Term,
+    version: CellVersion,
+}
+
+impl CellActivationFence {
+    /// Select a proven successor without acquiring execution or image custody.
+    /// The caller must match its prepared final image to the committed receipt;
+    /// cache admission still checks the original leader and current image.
+    pub(crate) fn advanced(&self, version: &CellVersion) -> Option<Self> {
+        if !version.covers(&self.version).ok()? {
+            return None;
+        }
+        let mut fence = self.clone();
+        fence.version = version.clone();
+        Some(fence)
+    }
+
+    pub(crate) fn accepts_continuation(&self, authority: &CellExecutionAuthority) -> bool {
+        self.owner.ptr_eq(&Arc::downgrade(&authority.group.owner))
+            && self.route == authority.route
+            && self.term == authority.term
+            && authority
+                .leaf
+                .version
+                .covers(&self.version)
+                .is_ok_and(|covers| covers)
+            && self.term_current()
+            && authority.check().is_ok()
+    }
+
+    pub(crate) fn term_current(&self) -> bool {
+        self.leader_term
+            .upgrade()
+            .is_some_and(|term| term.load(Ordering::Acquire) == self.term.get())
+            && self
+                .closed
+                .upgrade()
+                .is_some_and(|closed| !closed.load(Ordering::Acquire))
+            && self
+                .reclaimed
+                .upgrade()
+                .is_some_and(|closed| !closed.load(Ordering::Acquire))
+    }
+
+    pub(crate) fn accepts(&self, authority: &CellExecutionAuthority) -> bool {
+        self.owner.ptr_eq(&Arc::downgrade(&authority.group.owner))
+            && self.route == authority.route
+            && self.term == authority.term
+            && self.version == authority.leaf.version
+            && self.current()
+    }
+
+    pub(crate) fn current(&self) -> bool {
+        self.current_version(false)
+    }
+
+    pub(crate) fn continuation_current(&self) -> bool {
+        self.current_version(true)
+    }
+
+    /// A routing hint from this group's authenticated applied tree. This is
+    /// neither a read lease nor admission: the source proof records the exact
+    /// history and the destination must still validate it under quorum.
+    pub(crate) fn history_hint(
+        &self,
+        cluster: cellar_logic::consensus::ClusterId,
+        namespace: cellar_logic::consensus::NamespaceId,
+        cell: &CellId,
+    ) -> Option<CellHistory> {
+        if cluster != self.route.history.cluster
+            || namespace != self.route.history.namespace
+            || !self.continuation_current()
+        {
+            return None;
+        }
+        let key = cell_routing_key(namespace, cell);
+        if !self.route.range.contains(&key) {
+            return None;
+        }
+        let cache = self.cache.upgrade()?;
+        let cache = cache.read().ok()?;
+        let current = cache.group_manifest.as_ref()?;
+        if !current.is_active() || current.route() != &self.route {
+            return None;
+        }
+        cache
+            .manifest_pins
+            .as_ref()?
+            .get(&key)
+            .map(|(leaf, _)| leaf.version.history.clone())
+    }
+
+    fn current_version(&self, successor: bool) -> bool {
+        let (Some(closed), Some(reclaimed), Some(leader), Some(cache)) = (
+            self.closed.upgrade(),
+            self.reclaimed.upgrade(),
+            self.leader_term.upgrade(),
+            self.cache.upgrade(),
+        ) else {
+            return false;
+        };
+        if self.owner.strong_count() == 0
+            || closed.load(Ordering::Acquire)
+            || reclaimed.load(Ordering::Acquire)
+            || leader.load(Ordering::Acquire) != self.term.get()
+        {
+            return false;
+        }
+        let Ok(cache) = cache.read() else {
+            return false;
+        };
+        let key = cell_routing_key(self.route.history.namespace, &self.version.history.cell);
+        cache
+            .group_manifest
+            .as_ref()
+            .is_some_and(|manifest| manifest.is_active() && manifest.route() == &self.route)
+            && cache.hard_state.term == self.term.get()
+            && cache.membership.permits_group(&self.identity)
+            && cache
+                .conf_state
+                .voters
+                .iter()
+                .chain(&cache.conf_state.voters_outgoing)
+                .any(|id| *id == self.identity.member.get())
+            && cache
+                .manifest_pins
+                .as_ref()
+                .and_then(|pins| pins.get(&key))
+                .is_some_and(|(leaf, _)| {
+                    if successor {
+                        leaf.version.covers(&self.version).unwrap_or(false)
+                    } else {
+                        leaf.version == self.version
+                    }
+                })
+            && leader.load(Ordering::Acquire) == self.term.get()
+    }
+}
 
 /// Issued only by the actual leader after its current-term applied barrier.
 /// It pins one cell, not every image in the group. Other cells may advance while
@@ -25,6 +224,20 @@ pub struct CellExecutionAuthority {
 }
 
 impl CellExecutionAuthority {
+    pub(crate) fn activation_fence(&self) -> CellActivationFence {
+        CellActivationFence {
+            owner: Arc::downgrade(&self.group.owner),
+            closed: Arc::downgrade(&self.group.closed),
+            reclaimed: Arc::downgrade(&self.group.reclaimed),
+            cache: Arc::downgrade(&self.group.cache),
+            leader_term: Arc::downgrade(&self.leader_term),
+            identity: self.group.identity().clone(),
+            route: self.route.clone(),
+            term: self.term,
+            version: self.leaf.version.clone(),
+        }
+    }
+
     pub(crate) fn reserve_log(
         &self,
         envelope: crate::application::consensus::EnvelopeLimits,
@@ -84,6 +297,10 @@ impl CellExecutionAuthority {
         self.term
     }
 
+    pub(crate) fn term_current(&self) -> bool {
+        self.leader_term.load(Ordering::Acquire) == self.term.get()
+    }
+
     pub fn cell(&self) -> &CellManifestLeaf {
         &self.leaf
     }
@@ -110,7 +327,7 @@ impl CellExecutionAuthority {
     }
 
     pub fn check(&self) -> Result<(), RuntimeError> {
-        if self.leader_term.load(Ordering::Acquire) != self.term.get() {
+        if !self.term_current() {
             return Err(RuntimeError::NotReady);
         }
         let cache = self.group.read()?;

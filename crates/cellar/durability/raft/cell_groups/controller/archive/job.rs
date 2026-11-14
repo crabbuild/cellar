@@ -121,12 +121,74 @@ fn receiver(
         .map_err(CellGroupArchiveError::from)?)
 }
 
+pub(super) struct Driven {
+    pub coverage: CellGroupArchiveCoverage,
+    pub published: GroupManifest,
+    pub maintenance_pending: bool,
+}
+
+pub(super) struct Demand {
+    pub outputs: bool,
+    pub required_prefix: Option<LogIndex>,
+    /// A prior completion's advisory marker in this owner. It supplies no
+    /// physical custody and cannot authorize a response or compaction.
+    pub observed_head: Option<GroupManifest>,
+}
+
+pub(super) enum Outcome {
+    Verified(Driven),
+    /// Retirement finished and the previously verified head still covers local
+    /// apply. No new physical proof is created by this maintenance result.
+    Maintenance(GroupManifest),
+}
+
+/// Reuse only a still-live admitted verification. The weak index does not keep
+/// a workspace alive, and no archive-status sample can create this proof.
+pub(super) fn live(context: &Context) -> Result<Option<CellGroupArchiveCoverage>> {
+    let candidate = {
+        let mut uses = context
+            .uses
+            .lock()
+            .map_err(|_| Error::Invalid("archive use lock"))?;
+        uses.retain(|usage| usage.live());
+        uses.iter()
+            .max_by_key(|usage| usage.marker().position().index)
+            .cloned()
+    };
+    Ok(candidate.and_then(|usage| usage.retain_coverage()))
+}
+
+pub(super) async fn verify_retained(
+    context: &Context,
+    execution: &ControllerExecution,
+    coverage: CellGroupArchiveCoverage,
+) -> Result<Driven> {
+    context.authority.require_current().await?;
+    let record = load(context, execution).await?;
+    if record.head.as_ref() != Some(coverage.hold())
+        && record.retire.as_ref() != Some(coverage.hold())
+    {
+        return Err(Error::Invalid("retained archive hold journal"));
+    }
+    let published = record
+        .head
+        .as_ref()
+        .ok_or(Error::Invalid("retained archive without head"))?
+        .marker()
+        .clone();
+    Ok(Driven {
+        coverage,
+        published,
+        maintenance_pending: record.retire.is_some() || !matches!(record.pending, Pending::None),
+    })
+}
+
 async fn select(
     context: &Context,
     execution: &ControllerExecution,
     record: &mut Record,
     coverage: CellGroupArchiveCoverage,
-) -> Result<CellGroupArchiveCoverage> {
+) -> Result<Driven> {
     let head = coverage.hold().clone();
     if record.retire.is_some() {
         return Err(Error::Invalid("unfinished archive hold retirement"));
@@ -134,15 +196,25 @@ async fn select(
     record.retire = record.head.replace(head);
     record.pending = Pending::None;
     store(context, execution, record).await?;
-    retire(context, execution, record).await?;
-    Ok(coverage)
+    // The new head and its predecessor's retirement debt are now durable.
+    // Cleanup is not part of this publication's proof: a slow release must not
+    // hold an already verified response on the archive lane. The next drive
+    // retires the predecessor before allocating again, retaining the existing
+    // current-plus-retiring bound across failures and restart.
+    Ok(Driven {
+        published: coverage.marker().clone(),
+        coverage,
+        maintenance_pending: record.retire.is_some(),
+    })
 }
 
+/// Release an unused previous hold. False leaves its journaled ownership intact;
+/// it prevents another archive allocation, not verification of the current head.
 async fn retire(
     context: &Context,
     execution: &ControllerExecution,
     record: &mut Record,
-) -> Result<()> {
+) -> Result<bool> {
     if let Some(previous) = &record.retire {
         let retained = {
             let mut uses = context
@@ -153,11 +225,23 @@ async fn retire(
             uses.iter().any(|usage| usage.retains(previous))
         };
         if retained {
-            return Err(CellGroupArchiveError::Busy.into());
+            return Ok(false);
         }
         context.registry.release(execution, previous).await?;
         record.retire = None;
         store(context, execution, record).await?;
+    }
+    Ok(true)
+}
+
+/// Finish unretained predecessor debt after publication/proof work has joined.
+/// Live output proofs keep their exact hold journaled for the next owner; this
+/// never allocates an archive or drops a consumer's physical protection.
+pub(super) async fn finish(context: &Context, execution: &ControllerExecution) -> Result<()> {
+    let mut record = load(context, execution).await?;
+    if record.retire.is_some() {
+        context.authority.require_current().await?;
+        retire(context, execution, &mut record).await?;
     }
     Ok(())
 }
@@ -167,7 +251,9 @@ pub(super) async fn drive(
     registration: &CellGroupArchiveRegistration,
     runtime: &CellGroupRuntime,
     execution: &ControllerExecution,
-) -> Result<CellGroupArchiveCoverage> {
+    demand: Demand,
+    retained_head: Option<CellGroupArchiveCoverage>,
+) -> Result<Outcome> {
     let node = runtime.log().limits().node;
     let group = registration.birth.route().history.group;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "drive");
@@ -177,7 +263,14 @@ pub(super) async fn drive(
         .await
         .map_err(CellGroupArchiveBindingError::from)?;
     let mut record = load(context, execution).await?;
-    retire(context, execution, &mut record).await?;
+    let allocation_ready = retire(context, execution, &mut record).await?;
+    // Late covered requests can retain this exact admitted verification while
+    // predecessor cleanup waits on remote I/O. Release our temporary owner
+    // before any successor needs the original physical replay admission.
+    drop(retained_head);
+    if !allocation_ready && (!demand.outputs || !matches!(record.pending, Pending::None)) {
+        return Err(CellGroupArchiveError::Busy.into());
+    }
     if let Pending::Publish { ticket, intent } = record.pending.clone() {
         match context
             .registry
@@ -189,7 +282,11 @@ pub(super) async fn drive(
             )
             .await
         {
-            Ok(coverage) => return select(context, execution, &mut record, coverage).await,
+            Ok(coverage) => {
+                return select(context, execution, &mut record, coverage)
+                    .await
+                    .map(Outcome::Verified)
+            }
             Err(CellGroupArchiveError::Expired) => (),
             Err(error) => return Err(error.into()),
         }
@@ -207,7 +304,11 @@ pub(super) async fn drive(
             )
             .await
         {
-            Ok(coverage) => return select(context, execution, &mut record, coverage).await,
+            Ok(coverage) => {
+                return select(context, execution, &mut record, coverage)
+                    .await
+                    .map(Outcome::Verified)
+            }
             Err(CellGroupArchiveError::Expired) => (),
             Err(error) => return Err(error.into()),
         }
@@ -222,7 +323,27 @@ pub(super) async fn drive(
             .map_err(|error| Error::Runtime(error.into()))?
             .ok_or(Error::Runtime(RuntimeError::NotReady))?;
         if let Some(head) = &record.head {
-            if head.marker().position().index >= current.position().index {
+            // Only this owner's prior physical verification enables the quiet
+            // maintenance path. Restart/initial activation has no observation,
+            // and waiting outputs always need their own actual proof below.
+            if !demand.outputs
+                && demand.observed_head.as_ref() == Some(head.marker())
+                && head.marker().position().index >= current.position().index
+            {
+                tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group,
+                    stage = "maintenance-complete", index = head.marker().position().index.get());
+                return Ok(Outcome::Maintenance(head.marker().clone()));
+            }
+            // A queued output may already be covered even when later group
+            // entries exist. The receipt verifier still checks its exact
+            // position, cell version, witness and stored result against this
+            // prefix; an uncovered output keeps waiting for allocation.
+            let may_cover = demand
+                .required_prefix
+                .is_none_or(|minimum| head.marker().position().index >= minimum);
+            if may_cover
+                && (!allocation_ready || head.marker().position().index >= current.position().index)
+            {
                 let coverage = context
                     .registry
                     .verify_hold(
@@ -232,16 +353,53 @@ pub(super) async fn drive(
                         receiver(registration)?,
                     )
                     .await?;
-                return Ok(coverage);
+                return Ok(Outcome::Verified(Driven {
+                    published: coverage.marker().clone(),
+                    coverage,
+                    maintenance_pending: !allocation_ready,
+                }));
             }
         }
-        // Another voter may have published this exact applied manifest while
-        // our publication was in flight. Pin and independently verify its cut
-        // before settling any receipts or granting local reclamation.
+        // Retained output proofs may delay the previous hold's release. Reuse
+        // above requires no new archive, but acquisition/upload must preserve
+        // the existing current-plus-retiring bound.
+        if !allocation_ready {
+            return Err(CellGroupArchiveError::Busy.into());
+        }
+        // One group leader produces new cuts. Followers independently acquire
+        // published prefixes instead of recapturing every applied update. This
+        // role sample only schedules work: birth fencing, journal reconciliation
+        // and physical verification remain the archive authority. In particular,
+        // an already journaled upload still reconciles after role loss.
+        let publishing = registration.publisher == CellGroupArchivePublisher::LocalReplica
+            || runtime
+                .observe(registration.birth.route().history)
+                .await
+                .map_err(Error::Runtime)?
+                .role
+                == crate::application::consensus::RaftReplicaRole::Leader;
         record.pending = match context.registry.prepare_acquire(execution).await {
-            Ok(intent) if intent.acquire_marker()? == &current => Pending::Acquire(intent),
-            Ok(_) | Err(CellGroupArchiveError::Unconfirmed) => {
+            Ok(intent) => {
+                let selected = intent.acquire_marker()?;
+                let newer_prefix = !publishing
+                    && selected.route() == current.route()
+                    && selected.position().index < current.position().index
+                    && record.head.as_ref().is_none_or(|head| {
+                        selected.position().index > head.marker().position().index
+                    });
+                if selected == &current || newer_prefix {
+                    Pending::Acquire(intent)
+                } else if publishing {
+                    Pending::Reserve(context.registry.prepare_upload(execution).await?)
+                } else {
+                    return Err(CellGroupArchiveError::Busy.into());
+                }
+            }
+            Err(CellGroupArchiveError::Unconfirmed) if publishing => {
                 Pending::Reserve(context.registry.prepare_upload(execution).await?)
+            }
+            Err(CellGroupArchiveError::Unconfirmed) => {
+                return Err(CellGroupArchiveError::Busy.into());
             }
             Err(error) => return Err(error.into()),
         };
@@ -271,7 +429,9 @@ pub(super) async fn drive(
                 receiver(registration)?,
             )
             .await?;
-        return select(context, execution, &mut record, coverage).await;
+        return select(context, execution, &mut record, coverage)
+            .await
+            .map(Outcome::Verified);
     }
     if let Pending::Reserve(intent) = &record.pending {
         match context.registry.reserve(execution, intent).await {
@@ -306,9 +466,18 @@ pub(super) async fn drive(
         .map_err(CellGroupArchiveError::from)?;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "captured",
         index = source.marker().position().index.get());
-    let uploaded = upload
-        .upload_cut(execution, &registration.tails, source)
-        .await?;
+    let uploaded = if demand.outputs {
+        // A waiting S3 response needs this exact cut. Prefer a complete image
+        // over reading and replaying an older checkpoint's tail on its original
+        // request budget. Background publication may amortize image uploads.
+        upload
+            .upload_cut(execution, &registration.tails, source)
+            .await?
+    } else {
+        upload
+            .upload_next_cut(execution, &registration.tails, record.head.as_ref(), source)
+            .await?
+    };
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "uploaded");
     let publication = upload
         .prepare_publication(
@@ -326,5 +495,7 @@ pub(super) async fn drive(
     store(context, execution, &record).await?;
     let coverage = publication.commit(execution).await?;
     tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "published");
-    select(context, execution, &mut record, coverage).await
+    select(context, execution, &mut record, coverage)
+        .await
+        .map(Outcome::Verified)
 }

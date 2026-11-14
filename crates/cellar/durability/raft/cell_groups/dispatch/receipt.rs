@@ -219,6 +219,20 @@ impl CellReceiptInvocation {
         Ok(())
     }
 
+    pub(crate) async fn retry_leader(
+        &mut self,
+        retry_interval_ms: u64,
+    ) -> Result<(), CellDispatchError> {
+        super::mutation_route::backoff(
+            &self.dispatcher.domain,
+            self.session.deadline_ms(),
+            retry_interval_ms,
+            self.session.maximum_attempts() - usize::from(self.current()?.ordinal()),
+        )
+        .await?;
+        self.retry().await
+    }
+
     pub(crate) async fn remote_member(
         &self,
         runtime: &CellGroupRuntime,

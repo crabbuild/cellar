@@ -51,6 +51,119 @@ CASES = (
 )
 
 SUITES = {
+    "ordinary-alarms": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_alarms_recover_through_shared_quorum",
+         "rustfs_axum_alarms_recover_through_shared_quorum"),
+        "ordinary alarm SDK/native/Axum paths and autonomous RF3 retained restart",
+        "Both image forms and Quorum/S3 namespace minima, with one SQL worker per node. "
+        "Public named SDK enrollment and alarm APIs, pinned-image reads, transactional "
+        "rollback/cancellation, same-deadline rearming, stale Context refusal, "
+        "interrupted callbacks, autonomous retained restart and quorum refusal are checked. "
+        "RF3 voters share one native process. No operator CLI is exercised. "
+        "Application failure/backoff exhaustion, archive outage, movement/wake, "
+        "independent voter limits, load and all-voter disk loss remain separate gates.",
+    ),
+    "immutable-payloads": (
+        "raft_cell_group_payloads",
+        ("rustfs_immutable_payloads_confirm_bytes_and_preserve_old_recovery_cuts",),
+        "namespace-bound immutable external payload publication and verified reads",
+        "Data protocol only; no Raft voters or ordinary KV bindings are launched. "
+        "Real conditional creation, lost PUT replies, concurrent publishers, cold reopen, "
+        "old/new cell incarnations, corruption, body deadlines, cancellation and "
+        "shared operation/retained-byte admission are checked. "
+        "Objects are retained without deletion. Root-aware reclamation, fenced KV row "
+        "publication and combined lifecycle/disaster recovery remain separate gates.",
+    ),
+    "ordinary-kv-bindings": (
+        "native_cell_groups_primitives",
+        ("rustfs_ordinary_kv_bindings_use_managed_shared_groups",
+         "rustfs_axum_kv_bindings_use_managed_shared_groups"),
+        "ordinary KV SDK and authenticated operator/CLI on shared RF3 with real RustFS",
+        "Both image modes, separate source/KV groups, one SQL worker per node, "
+        "16-KiB command inputs and unchanged result limits. Native and Axum ingress, "
+        "the shared Fleet/Quorum API contract (five separately admitted source phases "
+        "with 20-second parents), 1-MiB and 25-MiB values, immutable "
+        "wire transport, conditional revisions, autonomous expiration, retained restart, "
+        "receipt replay, archive-write outage and quorum refusal are checked. "
+        "Large values require the payload provider. Voters share one host process; "
+        "interrupted large calls, external-object recovery closure, root-aware reclamation, "
+        "independent voter limits, load and disk-loss recovery remain separate gates.",
+    ),
+    "ordinary-sql-bindings": (
+        "native_cell_groups_primitives",
+        (
+            "rustfs_ordinary_sql_bindings_use_managed_shared_groups",
+            "rustfs_axum_sql_bindings_and_operators_use_managed_shared_groups",
+            "rustfs_interrupted_sql_bindings_recover_without_replaying_business_calls",
+        ),
+        "ordinary SQL SDK, authenticated operator/CLI and interrupted parent recovery on shared RF3",
+        "Both image modes, separate source/database groups and one SQL worker per node. "
+        "Native and Axum-owned listeners use the public SDK and actual frozen CLI. "
+        "Rollback, private-contract refusal, grant revocation/regrant, lost committed replies, "
+        "retained restart, receipt replay and quorum refusal are checked. "
+        "Recovery covers SQL successes and rolled-back errors after child reply but before "
+        "parent completion, with Quorum/S3 sources and a Quorum destination minimum. "
+        "Original deadlines and quotas remain unchanged. Target-S3, before-child-completion, "
+        "movement/wake/archive/disaster, independent voters and sustained load remain separate gates.",
+    ),
+    "queue-primitives": (
+        "native_cell_groups_primitives",
+        (
+            "rustfs_queue_load_preserves_acknowledged_messages",
+            "rustfs_queue_cross_deployment_faults_preserve_quorum",
+            "rustfs_queue_axum_cross_deployment_faults_preserve_quorum",
+            "rustfs_queue_long_callbacks_preserve_progress",
+            "rustfs_ordinary_queue_callbacks_use_shared_quorum",
+            "rustfs_ordinary_queue_axum_callbacks_use_shared_quorum",
+        ),
+        "ordinary Queue producer/callback/settlement through shared RF3 with real RustFS",
+        "Both image modes, one SQL worker per node. Expanded workloads observe an initial archived "
+        "group cut before setup; this does not qualify cold first-use S3 latency. Native public ingress, declared bindings, "
+        "ack/retry/dead-letter delivery, authenticated Queue operator controls, exact producer replay, "
+        "archive-write refusal, joined retained restart and autonomous interrupted-consumer recovery, "
+        "leader transfer and quorum-loss refusal. Separate producer, consumer and DLQ deployments, "
+        "partial retry, stale handlers, active purge, expired enqueue replay, cross-group S3 DLQ "
+        "reply loss, 65-second callbacks and concurrent two-queue load are checked. "
+        "Voters share the host process; complete CG-17 conformance, deployment removal, "
+        "clock discontinuities, independent Linux voter limits and disk-loss recovery remain separate gates.",
+    ),
+    "ordinary-primitives": (
+        "native_cell_groups_primitives",
+        (
+            "rustfs_ordinary_json_rpc_uses_raft_owned_context",
+            "rustfs_ordinary_cell_activation_cache_is_bounded_and_fenced",
+            "rustfs_ordinary_cell_rpcs_interleave_between_proven_roots",
+            "rustfs_ordinary_cell_sdk_dispatch_requires_source_proof",
+            "rustfs_ordinary_cell_sdk_resolves_current_histories",
+            "rustfs_storage_reads_and_writes_exact_cell_versions",
+        ),
+        "ordinary JSON cell RPC, Storage checkpoints and bounded native activation on shared RF3",
+        "Both image modes. Checkpoints use two cells sharing a group and one SQL worker per node. "
+        "Exact retries, nested rollback, bounded owned transactions/syncs, independent commits, "
+        "pending receipt lookup, dropped responses, explicit S3 proof and live leadership "
+        "transfer are checked. Basic request and cancellation budgets remain unchanged; "
+        "multi-stage conformance requests declare twenty seconds before admission. "
+        "A second case checks persistent native instances across RPCs, expired invocation handles, "
+        "global eviction across two SQL workers, real sixty-second idle expiry, leader fencing, "
+        "retained RF3 restart and receipt replay without constructing another instance. "
+        "A third case interleaves same-client invocations on one native instance between proven "
+        "roots, reopens the latest image, holds private DML/DDL and atomic transactions exclusive, "
+        "and fences a parked continuation after leader transfer. Joined stop cancels parked work; "
+        "retained RF3 restart restores its first root and unfinished receipt without replay. "
+        "It runs Quorum and explicit S3. "
+        "A fourth case gates dependent SDK command, query, enrollment and receipt calls on "
+        "source proof with independent target durability. It checks dropped child drainage, "
+        "ordered-root deadline accounting, callback refusal, recursive calls and leader fencing "
+        "with the original child identity and uncertainty. Proven SDK waits release the writer. "
+        "A fifth case resolves current cell histories through authenticated read-only quorum discovery, "
+        "then constructs and invokes a target handle inside an ordinary RPC after source proof. "
+        "It checks absent names, original deadlines, callback refusal, leader transfer and quorum loss. "
+        "A sixth case checks committed SQL/KV and keyset cursors, exact cell/version isolation, "
+        "range bounds, structured values, mutation, invalidation, rollback and expired views. "
+        "Declared bindings, automatic dispatch gates, other primitive families, process "
+        "faults, disk-loss recovery and full CG-17 acceptance remain separate gates.",
+    ),
     "managed-scheduler-fanout": (
         "native_cell_groups_scheduler",
         ("rustfs_control_plane_fanout_bounded",),
@@ -321,6 +434,17 @@ SUITES = {
         "Host-native voters and fixture capacity. Phase-crash schedules, full effect continuity "
         "and permanent platform fencing remain separate gates.",
     ),
+    "managed-disaster-retry": (
+        "native_cell_groups_disaster",
+        ("rustfs_disaster_retry_and_old_token_refusal",),
+        "recovery-seeded SDK command retries retain results and fresh-history Quorum/S3 proofs",
+        "Both image modes and host-native RF3 TLS voters with real RustFS. The fixture erases "
+        "all source disks, restores the selected child tail, confirms archived receipts, then "
+        "replays their original command IDs and inputs through the ordinary SDK. Old tokens "
+        "refuse; unchanged cell versions and subsequent SQL values detect callback replay. "
+        "Cold operator verification is retained. Permanent Docker launch revocation and the "
+        "complete CG-13 profile remain separate gates.",
+    ),
     "managed-disaster-outbox": (
         "native_cell_groups_disaster",
         ("rustfs_disaster_outbox_ambiguity_refuses",),
@@ -467,6 +591,24 @@ def exact_case_passed(output, case):
         if [value.get("mode") for value in observations] != ["materialized", "extents"]:
             raise ValueError("incomplete or duplicated reclamation observations")
         output = re.sub(pattern, "", output)
+    pattern = r"QUEUE_LOAD (\{[^\n]+\})\n"
+    observations = [json.loads(value) for value in re.findall(pattern, output)]
+    if case == "rustfs_queue_load_preserves_acknowledged_messages" and not observations:
+        raise ValueError("missing Queue load observations")
+    if observations:
+        if (case != "rustfs_queue_load_preserves_acknowledged_messages"
+                or [value.get("extents") for value in observations] != [False, True]
+                or any(not value.get("realRustFS")
+                       or value.get("steadyMessages") != 512
+                       or value.get("archiveOutageMessages") != 16
+                       or value.get("uniqueMessageIds") != 528
+                       or value.get("delivered", 0) < 528
+                       or value.get("inFlightRequests") != 2
+                       or value.get("perQueueInFlight") != 1
+                       or value.get("elapsedMs", 0) <= 0
+                       for value in observations)):
+            raise ValueError("incomplete or invalid Queue load observations")
+        output = re.sub(pattern, "", output)
     return bool(re.search(rf"^test {re.escape(case)} \.\.\. ok$", output, re.M)
                 and "test result: ok. 1 passed; 0 failed; 0 ignored;" in output)
 
@@ -486,7 +628,7 @@ def sources(suite):
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
                      or (suite in ("managed-scheduler-fanout", "managed-disjoint-partitions", "managed-automatic-repair", "managed-automatic-topology", "managed-automatic-partitions", "managed-partition-cancellation", "managed-partition-service", "managed-automatic-selection", "managed-transition-capacity", "managed-live-retirement", "managed-transition-service", "managed-partition-scheduler", "managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss", "managed-transition-disaster-closure", "managed-disaster-outbox")
+                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss", "managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]
@@ -533,7 +675,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--target-directory", type=Path, required=True,
                         help="absolute checkout-private Cargo target on the workspace volume")
+    parser.add_argument("--keep-going", action="store_true",
+                        help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "queue-primitives"):
+        parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
@@ -552,7 +698,10 @@ def main():
         "suite": args.suite, "test_target": target,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(args.suite), "backend": remote, "prefix": prefix, "commands": [],
-        "limitations": ("Host-native three-voter TLS fixture, both image forms, with RustFS in one local VM. "
+        "keep_going": args.keep_going, "passed_cases": [], "failed_cases": [],
+        "limitations": (("Payload data protocol with RustFS in one local VM; no Raft voters or image fixtures. "
+                         if args.suite == "immutable-payloads" else
+                         "Host-native three-voter TLS fixture, both image forms, with RustFS in one local VM. ")
                         + limitations + " Independent hosts remain a separate gate."),
     }
 
@@ -580,10 +729,23 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "immutable-payloads", "queue-primitives"):
+            env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
+                       CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
+                       CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
+            record["test_profile"] = {key: env[key] for key in (
+                "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
+                "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
         operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
+            if selection == "rustfs_queue_load_preserves_acknowledged_messages":
+                argv.append("--nocapture")
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms") and number != 0:
+                # Keep successful diagnostics without splitting libtest's exact
+                # result line. The strict success verifier remains unchanged.
+                argv.append("--show-output")
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
             if selection == "rustfs_quorum_continues_bounded_s3_outage":
@@ -614,7 +776,7 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite in ("managed-ingress", "managed-lifecycle") and result.returncode == 0:
+            if args.suite in ("managed-ingress", "managed-lifecycle", "ordinary-sql-bindings", "ordinary-kv-bindings", "queue-primitives") and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")
@@ -625,7 +787,13 @@ def main():
                     record["operator_cli"] = {"path": operator_cli.name, "sha256": cli_hash}
                 if cli_hash != record["operator_cli"]["sha256"] or sha(operator_cli) != cli_hash:
                     raise RuntimeError("managed operator CLI changed during qualification")
-            if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox"):
+                if args.suite == "ordinary-sql-bindings":
+                    env["CELLAR_CELL_GROUPS_SQL_CLI"] = str(operator_cli)
+                if args.suite == "queue-primitives":
+                    env["CELLAR_CELL_GROUPS_QUEUE_CLI"] = str(operator_cli)
+                if args.suite == "ordinary-kv-bindings":
+                    env["CELLAR_CELL_GROUPS_KV_CLI"] = str(operator_cli)
+            if args.suite in ("managed-transition-disaster-closure", "managed-disaster-outbox", "managed-disaster-retry"):
                 current_operator = executable.parent.parent / "cellar-perf-cell-group" if match else None
                 if current_operator is None or not current_operator.is_file():
                     raise RuntimeError("missing cold managed recovery operator provenance")
@@ -640,20 +808,29 @@ def main():
                         or sha(retained) != operator_hash):
                     raise RuntimeError("cold managed recovery operator changed during qualification")
             save()
-            if result.returncode:
-                raise RuntimeError(f"{selection} failed; see {log}")
+            if not match:
+                raise RuntimeError("missing executable provenance")
+            if result.returncode or (number != 0 and not exact_case_passed(output, selection)):
+                record["failed_cases"].append(selection)
+                save()
+                if not args.keep_going or number == 0:
+                    raise RuntimeError(f"{selection} failed; see {log}")
+                # These fixtures run in separate native processes with distinct
+                # store prefixes. No managed process/fault suite can use this.
+                print(f"FAIL {selection}; continuing independent cases", flush=True)
+                continue
             if number == 0:
                 for case in cases:
                     if not re.search(rf"^{re.escape(case)}: test$", output, re.M):
                         raise RuntimeError("missing exact RustFS test in executable inventory")
-            elif not exact_case_passed(output, selection):
-                raise RuntimeError("exact RustFS test was not executed successfully")
-            if not match:
-                raise RuntimeError("missing executable provenance")
+            else:
+                record["passed_cases"].append(selection)
             print(f"PASS {selection}", flush=True)
         if sources(args.suite) != record["source_inputs"]:
             raise RuntimeError("source changed during qualification")
         backend(args.backend.resolve())
+        if record["failed_cases"]:
+            raise RuntimeError(f"primitive campaign failed: {', '.join(record['failed_cases'])}")
         record["status"] = "PASSED"
         record["passed_cases"] = list(cases)
     except Exception:
@@ -662,7 +839,8 @@ def main():
     finally:
         save()
     print(json.dumps({"record": str(out / "record.json"), "status": record["status"],
-                      "rustfs_cases": len(cases), "image_modes_per_case": 2}), flush=True)
+                      "rustfs_cases": len(cases),
+                      "image_modes_per_case": 0 if args.suite == "immutable-payloads" else 2}), flush=True)
 
 
 if __name__ == "__main__":

@@ -447,6 +447,7 @@ impl Serving {
         .await?;
         controllers[0]
             .archive(CellGroupArchiveRegistration {
+                publisher: CellGroupArchivePublisher::LocalReplica,
                 directory: s.cluster.directory.clone(),
                 birth,
                 io,

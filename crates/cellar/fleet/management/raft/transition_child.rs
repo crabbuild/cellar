@@ -16,6 +16,8 @@ pub enum RaftFleetTransitionChildStep {
     Install,
     Attach,
     Quorum,
+    /// Initialize the remote binding and, on a local voter, install its
+    /// publisher before returning. This does not acknowledge any new write.
     InitializeArchive,
 }
 
@@ -191,6 +193,34 @@ impl RaftFleetControl {
                         turn.remaining()?,
                     )
                     .await?;
+                if let Some(observer) = &self.node_observer {
+                    if let Ok(group) = observer.group(history) {
+                        // The first S3 command must not be used as a discovery
+                        // probe. Initialization is a known remote mutation;
+                        // wait only for the bounded local discovery owner under
+                        // this request's original deadline.
+                        turn.run(async {
+                            loop {
+                                let installed = group
+                                    .ensure_existing_archive(turn.remaining()?)
+                                    .await
+                                    .map_err(|error| {
+                                        tracing::debug!(target: "cellar::raft::transition_setup", ?history, ?error, "child archive publisher installation refused");
+                                        RaftFleetFailure {
+                                            code: RaftFleetFailureCode::Unavailable,
+                                            outcome: RaftFleetOutcome::Unknown,
+                                            message: "The local archive publisher could not be confirmed. Reconcile the exact child setup request.".into(),
+                                        }
+                                    })?;
+                                if installed {
+                                    return Ok::<(), RaftFleetFailure>(());
+                                }
+                                crate::asyncrt::sleep(Duration::from_millis(5)).await;
+                            }
+                        })
+                        .await??;
+                    }
+                }
                 RaftFleetTransitionChildSetupResult::ArchiveInitialized
             }
             RaftFleetTransitionChildStep::Quorum => {

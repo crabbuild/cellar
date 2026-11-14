@@ -308,7 +308,10 @@ impl State {
             return Err(TransportError::Refused);
         }
         let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
-        let until = deadline.min(now.saturating_add(self.options.io_timeout_ms));
+        // The invocation owns execution time, including provider work. Socket
+        // phases have their own I/O bound; applying it here truncates a valid
+        // caller budget on both sides of the connection.
+        let until = deadline;
         if now >= until {
             return Err(TransportError::Timeout);
         }
@@ -467,10 +470,13 @@ impl State {
                 .timer(crate::raft::performance::Operation::QueryReplyWrite);
             let result = self
                 .query_until(&pool, until, cancel, permission, async {
-                    write_head(&mut writing.stream, &response).await?;
-                    writing.stream.write_all(writing.reply.bytes()).await?;
-                    writing.stream.flush().await?;
-                    Ok(())
+                    self.bounded(Some(&pool), async {
+                        write_head(&mut writing.stream, &response).await?;
+                        writing.stream.write_all(writing.reply.bytes()).await?;
+                        writing.stream.flush().await?;
+                        Ok(())
+                    })
+                    .await
                 })
                 .await;
             if let Err(error) = result {
@@ -550,15 +556,19 @@ impl State {
     ) -> Result<Vec<u8>, TransportError> {
         if connection.is_none() {
             let owner = self.outgoing_connections.query();
-            let tcp = TcpStream::connect(peer.query_address).await?;
-            tcp.set_nodelay(true)?;
-            let tcp = self.observed_socket(tcp, metrics::Lane::Query);
-            let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
-                .map_err(|_| TransportError::Identity)?;
-            let tls = tokio_rustls::TlsConnector::from(self.tls.client.clone())
-                .connect(name, tcp)
-                .await
-                .map_err(|e| TransportError::Tls(e.to_string()))?;
+            let tls = self
+                .bounded(None, async {
+                    let tcp = TcpStream::connect(peer.query_address).await?;
+                    tcp.set_nodelay(true)?;
+                    let tcp = self.observed_socket(tcp, metrics::Lane::Query);
+                    let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
+                        .map_err(|_| TransportError::Identity)?;
+                    tokio_rustls::TlsConnector::from(self.tls.client.clone())
+                        .connect(name, tcp)
+                        .await
+                        .map_err(|e| TransportError::Tls(e.to_string()))
+                })
+                .await?;
             let exporter = tls
                 .get_ref()
                 .1
@@ -577,11 +587,24 @@ impl State {
             + 1;
         let header = wire::RequestHead::new(route, sequence, &body);
         let head = wire::request_head(&self.auth, exporter, &header, &body, &self.options)?;
-        write_head(stream, &head).await?;
-        stream.write_all(&body).await?;
-        stream.flush().await?;
+        self.bounded(None, async {
+            write_head(stream, &head).await?;
+            stream.write_all(&body).await?;
+            stream.flush().await?;
+            Ok(())
+        })
+        .await?;
         drop(body);
-        let response = read_query_head(stream, &self.options, true).await?;
+        // A quiet socket while the receiver executes is not stalled framing.
+        // The enclosing query_until retains the original request deadline.
+        let mut prefix = [0; frame::PREFIX];
+        stream.read_exact(&mut prefix[..1]).await?;
+        let response = self
+            .bounded(None, async {
+                stream.read_exact(&mut prefix[1..]).await?;
+                read_query_tail(stream, prefix, &self.options, true).await
+            })
+            .await?;
         let digest = wire::read_response(
             &response,
             &self.auth,
@@ -591,7 +614,11 @@ impl State {
             &self.options,
         )?;
         let mut body = vec![0; response.payload_len];
-        stream.read_exact(&mut body).await?;
+        self.bounded(None, async {
+            stream.read_exact(&mut body).await?;
+            Ok(())
+        })
+        .await?;
         if digest != <[u8; 32]>::from(Sha256::digest(&body)) {
             return Err(TransportError::Authentication);
         }
@@ -612,6 +639,15 @@ async fn read_query_head<S: AsyncRead + Unpin>(
 ) -> Result<FrameHead, TransportError> {
     let mut prefix = [0; frame::PREFIX];
     stream.read_exact(&mut prefix).await?;
+    read_query_tail(stream, prefix, options, response).await
+}
+
+async fn read_query_tail<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    prefix: [u8; frame::PREFIX],
+    options: &TransportOptions,
+    response: bool,
+) -> Result<FrameHead, TransportError> {
     let (header, payload_len) = wire::parse_prefix(&prefix, options, response)?;
     let mut header = vec![0; header];
     stream.read_exact(&mut header).await?;

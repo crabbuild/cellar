@@ -12,6 +12,7 @@ use crate::host_channels::kv_blob_store;
 
 pub(crate) enum BlobReply {
     Bytes(Vec<u8>),
+    GroupBytes(crate::raft::cell_groups::CellGroupPayloadBytes),
     Json(serde_json::Value),
 }
 

@@ -1,22 +1,60 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Compiled, synchronous Raft operations with no ordinary mutable cell factory.
+//! Compiled Raft operations and their private application callbacks.
 
-use super::{CommandId, CommittedVersion, Durability};
+use super::{
+    native_cell::{CellRpcActivation, CellRpcFactory, CellRpcMethod, NativeCellFactory},
+    CommandId, CommittedVersion, Durability, RouteEpoch,
+};
+use crate::application::HandlerFuture;
 use crate::raft::version::CellVersionObservation;
-use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery};
+use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery, QueryFrame};
 use cellar_logic::{cell_group::CellHistory, NamespaceMode};
+use futures_util::FutureExt;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     sync::Arc,
+    task::{Context as TaskContext, Poll},
 };
 
 thread_local! { static CALLBACK_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { static FRAMEWORK_DISPATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+pub(crate) fn require_framework_dispatch() -> anyhow::Result<()> {
+    anyhow::ensure!(
+        FRAMEWORK_DISPATCH.with(std::cell::Cell::get),
+        super::CommandFailure::UnsupportedCapability
+    );
+    Ok(())
+}
 
 pub(crate) fn callback_active() -> bool {
     CALLBACK_ACTIVE.with(std::cell::Cell::get)
+}
+
+/// The private SDK adapter alone polls under this scope, after its source root
+/// is proven. Application SQL callbacks retain the ordinary dispatch refusal.
+pub(crate) fn framework_dispatch<T>(
+    permit: &crate::application::storage::RaftDispatchPermit,
+    callback: impl FnOnce() -> T,
+) -> anyhow::Result<T> {
+    permit.check()?;
+
+    struct Restore(bool, bool);
+
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CALLBACK_ACTIVE.with(|active| active.set(self.0));
+            FRAMEWORK_DISPATCH.with(|active| active.set(self.1));
+        }
+    }
+    let _restore = Restore(
+        CALLBACK_ACTIVE.with(|active| active.replace(false)),
+        FRAMEWORK_DISPATCH.with(|active| active.replace(true)),
+    );
+    Ok(callback())
 }
 
 struct CallbackGuard;
@@ -83,7 +121,8 @@ impl fmt::Display for RegistrationError {
 impl std::error::Error for RegistrationError {}
 
 /// Borrowed for one synchronous command transaction. This context has no
-/// outbound network, cell-call, task-spawn or general storage capability.
+/// outbound network, cell-call or task-spawn capability. SQL and KV are
+/// scoped to the private command transaction.
 /// Explicitly declared alarms persist intents through the command transaction.
 /// Native code is trusted; this contract is not an operating-system sandbox.
 /// Mutable Fleet capabilities are absent from this context, including bindings
@@ -149,11 +188,18 @@ impl<'a> CommandContext<'a> {
         self.transaction
     }
 
+    /// Access SQL and KV storage inside this command's private transaction.
+    /// The view expires when the command callback ends. Successful local
+    /// operations are included in the command receipt's durability proof.
+    pub fn storage(&self) -> anyhow::Result<crate::application::Storage> {
+        self.transaction.storage()
+    }
+
     /// Retain actual immutable bytes in this command's transaction. Returned
     /// references supply no durability proof before the command commits.
     pub fn put_blob(&self, bytes: &[u8]) -> anyhow::Result<super::RaftBlobReference> {
         crate::raft::effects::put_blob(
-            self.transaction.framework(),
+            &*self.transaction.framework()?,
             self.blobs
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
             bytes,
@@ -162,7 +208,7 @@ impl<'a> CommandContext<'a> {
 
     pub fn blob(&self, reference: super::RaftBlobReference) -> anyhow::Result<Vec<u8>> {
         crate::raft::effects::get_blob(
-            self.transaction.framework(),
+            &*self.transaction.framework()?,
             self.blobs
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
             reference,
@@ -207,7 +253,7 @@ impl CommandContext<'_> {
             self.alarm_names.contains(name),
             super::CommandFailure::UnsupportedCapability
         );
-        crate::raft::effects::alarm::cancel(self.transaction.framework(), name)
+        crate::raft::effects::alarm::cancel(&*self.transaction.framework()?, name)
     }
 }
 
@@ -226,16 +272,27 @@ pub enum QueryVersion<'a> {
 pub struct QueryContext<'a> {
     identity: &'a CellHistory,
     version: QueryVersion<'a>,
-    database: &'a ImmutableQuery,
+    frame: &'a QueryFrame,
     blobs: Option<super::RaftBlobLimits>,
     outbox: Option<&'a super::RaftOutbox>,
     schema: [u8; 32],
 }
 
 impl QueryContext<'_> {
+    pub(super) fn sql_ingress_sequence(&self, input: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let QueryVersion::Cell(observation) = self.version else {
+            anyhow::bail!(super::CommandFailure::UnsupportedCapability);
+        };
+        super::sql_ingress_identity::observe(
+            self.frame.database().connection(),
+            observation.version.sequence.get(),
+            input,
+        )
+    }
+
     pub fn outbox_progress(&self, lane: &str) -> anyhow::Result<super::RaftOutboxProgress> {
         crate::raft::effects::outbox::progress(
-            self.database.connection(),
+            self.frame.database().connection(),
             self.outbox
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
             self.identity,
@@ -252,10 +309,16 @@ impl QueryContext<'_> {
         self.version
     }
 
+    /// Read SQL and KV from the same committed image as this query's version.
+    /// Storage views expire when the callback returns and refuse mutations.
+    pub fn storage(&self) -> crate::application::Storage {
+        self.frame.storage()
+    }
+
     /// Read only bytes present in this query's pinned committed generation.
     pub fn blob(&self, reference: super::RaftBlobReference) -> anyhow::Result<Vec<u8>> {
         crate::raft::effects::get_blob(
-            self.database.connection(),
+            self.frame.database().connection(),
             self.blobs
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
             reference,
@@ -268,7 +331,7 @@ impl QueryContext<'_> {
         params: impl rusqlite::Params,
         read: impl FnOnce(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
     ) -> anyhow::Result<T> {
-        self.database.query_row(sql, params, read)
+        self.frame.database().query_row(sql, params, read)
     }
 }
 
@@ -279,14 +342,29 @@ type QueryCallback =
 type InitializerCallback =
     dyn Fn(&CellHistory, &CommandTransaction<'_>) -> anyhow::Result<()> + Send + Sync;
 
+#[derive(Clone)]
 struct Initializer {
     digest: [u8; 32],
     callback: Arc<InitializerCallback>,
 }
 
+#[derive(Clone)]
 struct Command {
     digest: [u8; 32],
-    callback: Arc<CommandCallback>,
+    handler: CommandHandler,
+}
+
+#[derive(Clone)]
+enum CommandHandler {
+    Registered(Arc<CommandCallback>),
+    JsonCellRpc,
+    NativeCellRpc { method: String, json_only: bool },
+    NativeWork,
+}
+
+pub(crate) struct CommandTarget<'a> {
+    pub(crate) cell: &'a CellHistory,
+    pub(crate) route_epoch: Option<RouteEpoch>,
 }
 
 enum RegisteredCommand<'a> {
@@ -294,14 +372,15 @@ enum RegisteredCommand<'a> {
     System(&'a OperationContract),
 }
 
+#[derive(Clone)]
 struct Query {
     digest: [u8; 32],
     callback: Arc<QueryCallback>,
 }
 
-/// A compiled definition, separate from `Cell` and its mutable factory. Register
-/// with `Registry::raft_class`; the node binds the class to a Raft namespace.
-/// Schema versions are explicit and do not authorize an automatic migration.
+/// A compiled definition for a Raft namespace. Register direct callbacks with
+/// `Registry::raft_class` or bind ordinary cell RPC handlers with
+/// `Registry::raft_cell`. Schema versions do not authorize automatic migration.
 pub struct RaftClass {
     name: String,
     schema_version: u32,
@@ -316,6 +395,7 @@ pub struct RaftClass {
     alarm_names: BTreeSet<String>,
     inboxes: BTreeMap<String, super::RaftInbox>,
     outbox: Option<Arc<super::RaftOutbox>>,
+    cell_factory: Option<Arc<CellRpcFactory>>,
 }
 
 impl RaftClass {
@@ -329,6 +409,40 @@ impl RaftClass {
         if crate::deploy::is_reserved_class(&name) {
             return Err(RegistrationError::Invalid("reserved class"));
         }
+        Self::definition(name, schema_version, schema_digest)
+    }
+
+    // Only the runtime can define the reserved SQL service. Public factories
+    // cannot substitute an application handler for a shared database identity.
+    pub(super) fn sql_service() -> Result<Self, RegistrationError> {
+        Self::definition(
+            crate::deploy::SQL_CLASS.into(),
+            1,
+            Sha256::digest(b"cellar-raft-sql-service-operator-1").into(),
+        )
+    }
+
+    pub(super) fn queue_service() -> Result<Self, RegistrationError> {
+        Self::definition(
+            crate::deploy::QUEUE_CLASS.into(),
+            1,
+            Sha256::digest(b"cellar-raft-queue-service-1").into(),
+        )
+    }
+
+    pub(super) fn kv_service() -> Result<Self, RegistrationError> {
+        Self::definition(
+            crate::deploy::KV_CLASS.into(),
+            1,
+            Sha256::digest(b"cellar-raft-kv-value-reference-callback-service-1").into(),
+        )
+    }
+
+    fn definition(
+        name: String,
+        schema_version: u32,
+        schema_digest: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
         if schema_version == 0 || schema_digest == [0; 32] {
             return Err(RegistrationError::Invalid("schema version/digest"));
         }
@@ -356,6 +470,7 @@ impl RaftClass {
             alarm_names: BTreeSet::new(),
             inboxes: BTreeMap::new(),
             outbox: None,
+            cell_factory: None,
         };
         class.bind_command_manifest();
         Ok(class)
@@ -372,7 +487,9 @@ impl RaftClass {
     /// Namespace/application identity binding class name, explicit version and
     /// the supplied schema-definition digest and required command contracts.
     /// Query contracts are checked independently and do not change voting
-    /// compatibility. Read this value after registering commands for the catalog.
+    /// compatibility. Ordinary cell factories also bind their admitted deployment
+    /// configuration. Resolve the active application definition before provisioning
+    /// or preparing a host; unconfigured definitions cannot serve its history.
     pub fn schema_digest(&self) -> [u8; 32] {
         self.schema_digest
     }
@@ -522,6 +639,24 @@ impl RaftClass {
         &self,
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
+        self.validate_cell_factory()?;
+        if self.has_native_callbacks() {
+            anyhow::ensure!(
+                host.effects
+                    .unwrap_or_default()
+                    .callback_timeout_ms
+                    .checked_add(1000)
+                    .is_some_and(|n| n <= host.execution.max_retry_window_ms),
+                "callback budget exceeds execution receipt horizon"
+            );
+            anyhow::ensure!(
+                host.execution.max_pending_transactions > 0
+                    && host.max_input_bytes >= 1024
+                    && host.execution.max_client_identities >= 2
+                    && host.execution.max_retained_receipts >= 2,
+                "durable callbacks require checkpoint and receipt capacity"
+            );
+        }
         if let Some(outbox) = &self.outbox {
             anyhow::ensure!(host.effects.is_some_and(|options|options.metadata_bytes>=512*1024)
                 && host.max_input_bytes>=32*1024
@@ -597,11 +732,359 @@ impl RaftClass {
             operation,
             Command {
                 digest,
-                callback: Arc::new(callback),
+                handler: CommandHandler::Registered(Arc::new(callback)),
             },
         );
         self.bind_command_manifest();
         Ok(self)
+    }
+
+    /// Route a JSON RPC operation to the ordinary `Cell::invoke` handler
+    /// supplied by `Registry::raft_cell`. The factory and handler share one
+    /// private Storage transaction and the JSON reply is retained in its receipt.
+    /// The shared SQL owner resumes a suspended handler under the original
+    /// transaction and routing authority.
+    pub fn json_cell_rpc(
+        mut self,
+        operation: impl Into<String>,
+        digest: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
+        let operation = operation.into();
+        self.validate_new(&operation, digest)?;
+        self.commands.insert(
+            operation,
+            Command {
+                digest,
+                handler: CommandHandler::JsonCellRpc,
+            },
+        );
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    /// Enable ordinary durable Alarm callbacks on the shared scheduler. Queue
+    /// services use this same kernel. Hosts install bounded scheduler defaults;
+    /// configure `RaftEffectOptions` to tune them.
+    /// Callbacks are at least once after interrupted execution; external effects
+    /// require application idempotency. Followers apply bytes, never callbacks.
+    pub fn durable_callbacks(mut self) -> Result<Self, RegistrationError> {
+        if self
+            .system_commands
+            .contains_key(super::native_work::OPERATION)
+        {
+            return Err(RegistrationError::Invalid("duplicate durable callbacks"));
+        }
+        self.system_commands.insert(
+            super::native_work::OPERATION.into(),
+            Command {
+                digest: Sha256::digest(b"cellar-native-work-callback-budget-1").into(),
+                handler: CommandHandler::NativeWork,
+            },
+        );
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    /// Route owned JSON or structured RPC values through the ordinary cell.
+    /// Leased capabilities require their separate session adapter.
+    pub fn cell_rpc(
+        mut self,
+        operation: impl Into<String>,
+        digest: [u8; 32],
+    ) -> Result<Self, RegistrationError> {
+        let operation = operation.into();
+        self.validate_new(&operation, digest)?;
+        self.commands.insert(
+            operation.clone(),
+            Command {
+                digest,
+                handler: CommandHandler::NativeCellRpc {
+                    method: operation,
+                    json_only: false,
+                },
+            },
+        );
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    pub(crate) fn binding_contract(&self, operation: &str) -> Option<OperationContract> {
+        if (self.name == crate::deploy::SQL_CLASS
+            && operation == crate::application::sql::operator::METHOD)
+            || (self.name == crate::deploy::QUEUE_CLASS
+                && operation == crate::application::queue::OPERATOR)
+            || (self.name == crate::deploy::KV_CLASS
+                && operation == crate::application::kv::OPERATOR)
+        {
+            return None;
+        }
+        let command = self.commands.get(operation)?;
+        match &command.handler {
+            CommandHandler::NativeCellRpc { .. } => self.contract(operation),
+            CommandHandler::JsonCellRpc => {
+                self.contract(&super::native_rpc::binding_operation(operation))
+            }
+            CommandHandler::Registered(_) | CommandHandler::NativeWork => None,
+        }
+    }
+
+    pub(crate) fn sql_operator_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::SQL_CLASS)
+            .then(|| self.contract(crate::application::sql::operator::METHOD))
+            .flatten()
+    }
+
+    pub(crate) fn queue_operator_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::QUEUE_CLASS)
+            .then(|| self.contract(crate::application::queue::OPERATOR))
+            .flatten()
+    }
+
+    pub(crate) fn kv_operator_contract(&self) -> Option<OperationContract> {
+        (self.name == crate::deploy::KV_CLASS)
+            .then(|| self.contract(crate::application::kv::OPERATOR))
+            .flatten()
+    }
+
+    pub(crate) fn binding_json_only(&self, operation: &str) -> Option<bool> {
+        match &self.commands.get(operation)?.handler {
+            CommandHandler::JsonCellRpc => Some(true),
+            CommandHandler::NativeCellRpc { json_only, .. } => Some(*json_only),
+            CommandHandler::Registered(_) | CommandHandler::NativeWork => None,
+        }
+    }
+
+    pub(in crate::application) fn validate_binding_configuration(
+        &self,
+    ) -> Result<(), RegistrationError> {
+        let mut operations: BTreeSet<_> = self
+            .commands
+            .keys()
+            .chain(self.queries.keys())
+            .cloned()
+            .collect();
+        for (name, command) in &self.commands {
+            if matches!(command.handler, CommandHandler::JsonCellRpc) {
+                let wire = super::native_rpc::binding_operation(name);
+                if !operations.insert(wire.clone()) {
+                    return Err(RegistrationError::Duplicate(wire));
+                }
+            }
+        }
+        if operations.len() > 256 {
+            return Err(RegistrationError::Limit);
+        }
+        if self.has_cell_factory() && !crate::deploy::is_reserved_class(&self.name) {
+            if !operations.insert(super::sql_ingress_identity::OPERATION.into()) {
+                return Err(RegistrationError::Invalid("reserved ingress query"));
+            }
+            if operations.len() > 256 {
+                return Err(RegistrationError::Limit);
+            }
+        }
+        Ok(())
+    }
+
+    pub(in crate::application) fn with_cell_factory(
+        mut self,
+        factory: crate::application::Factory,
+    ) -> Result<Self, RegistrationError> {
+        if self.cell_factory.is_some() || !self.uses_cell_factory() {
+            return Err(RegistrationError::Invalid("Raft cell factory registration"));
+        }
+        self.cell_factory = Some(NativeCellFactory::bind(
+            &self.name,
+            factory,
+            self.system_commands
+                .contains_key(super::native_work::OPERATION),
+        ));
+        Ok(self)
+    }
+
+    pub(crate) fn has_cell_factory(&self) -> bool {
+        self.cell_factory.is_some()
+    }
+
+    pub(crate) fn cell_configuration_digest(&self) -> Option<[u8; 32]> {
+        self.cell_factory
+            .as_ref()
+            .and_then(|factory| factory.configuration_digest())
+    }
+
+    pub(crate) fn cell_binding_classes(&self) -> Option<&BTreeSet<String>> {
+        self.cell_factory
+            .as_ref()
+            .map(|factory| factory.binding_classes())
+    }
+
+    pub(crate) fn cell_queue_scopes(&self) -> Option<&BTreeSet<String>> {
+        self.cell_factory
+            .as_ref()
+            .map(|factory| factory.queue_scopes())
+    }
+
+    pub(crate) fn queue_ownership(&self, scope: &str) -> Option<bool> {
+        self.cell_factory
+            .as_ref()
+            .and_then(|factory| factory.queue_ownership(scope))
+    }
+
+    pub(crate) fn allows_cell_binding(&self, scope: &str) -> bool {
+        self.cell_factory
+            .as_ref()
+            .is_some_and(|factory| factory.allows_binding(scope))
+    }
+
+    pub(in crate::application) fn configured_cell(
+        &self,
+        configuration: &super::AdmittedCellConfiguration,
+    ) -> Self {
+        let mut class = Self {
+            name: self.name.clone(),
+            schema_version: self.schema_version,
+            base_schema_digest: self.base_schema_digest,
+            schema_digest: self.schema_digest,
+            commands: self.commands.clone(),
+            initializer: self.initializer.clone(),
+            system_commands: self.system_commands.clone(),
+            queries: self.queries.clone(),
+            blobs: self.blobs,
+            alarm_limits: self.alarm_limits,
+            alarm_names: self.alarm_names.clone(),
+            inboxes: self.inboxes.clone(),
+            outbox: self.outbox.clone(),
+            cell_factory: self.cell_factory.clone(),
+        };
+        if let Some(factory) = &self.cell_factory {
+            if configuration.has_cell_bindings() {
+                for (name, command) in &self.commands {
+                    if matches!(command.handler, CommandHandler::JsonCellRpc) {
+                        class.commands.insert(
+                            super::native_rpc::binding_operation(name),
+                            Command {
+                                digest: super::native_rpc::binding_digest(name, command.digest),
+                                handler: CommandHandler::NativeCellRpc {
+                                    method: name.clone(),
+                                    json_only: true,
+                                },
+                            },
+                        );
+                    }
+                }
+            }
+            class.cell_factory = Some(factory.configured(configuration));
+            if configuration.has_cell_bindings() && !crate::deploy::is_reserved_class(&class.name) {
+                class.queries.insert(
+                    super::sql_ingress_identity::OPERATION.into(),
+                    Query {
+                        digest: super::sql_ingress_identity::native_digest(),
+                        callback: Arc::new(|query, input| query.sql_ingress_sequence(input)),
+                    },
+                );
+            }
+            class.bind_command_manifest();
+        }
+        class
+    }
+
+    pub(crate) fn validate_cell_factory(&self) -> Result<(), RegistrationError> {
+        if self.uses_cell_factory() && self.cell_factory.is_none() {
+            return Err(RegistrationError::UnsupportedFactory(self.name.clone()));
+        }
+        Ok(())
+    }
+
+    fn uses_cell_factory(&self) -> bool {
+        self.commands
+            .values()
+            .chain(self.system_commands.values())
+            .any(|command| {
+                matches!(
+                    command.handler,
+                    CommandHandler::JsonCellRpc
+                        | CommandHandler::NativeCellRpc { .. }
+                        | CommandHandler::NativeWork
+                )
+            })
+    }
+
+    pub(crate) fn is_cell_rpc(&self, operation: &str) -> bool {
+        self.commands
+            .get(operation)
+            .or_else(|| self.system_commands.get(operation))
+            .is_some_and(|command| {
+                matches!(
+                    command.handler,
+                    CommandHandler::JsonCellRpc
+                        | CommandHandler::NativeCellRpc { .. }
+                        | CommandHandler::NativeWork
+                )
+            })
+    }
+
+    pub(crate) fn start_cell_rpc(
+        &self,
+        contract: &OperationContract,
+        target: CommandTarget<'_>,
+        input: &[u8],
+        transaction: &CommandTransaction<'_>,
+        activation: &mut Option<CellRpcActivation>,
+    ) -> anyhow::Result<HandlerFuture<Vec<u8>>> {
+        if contract.operation == super::native_work::OPERATION {
+            self.validate_system_operation(contract)?;
+        } else {
+            self.validate_operation(contract)?;
+        }
+        anyhow::ensure!(
+            self.is_cell_rpc(&contract.operation),
+            RegistrationError::KindMismatch
+        );
+        let factory = self
+            .cell_factory
+            .as_ref()
+            .ok_or(super::CommandFailure::UnsupportedCapability)?;
+        let epoch = target
+            .route_epoch
+            .ok_or(super::CommandFailure::UnsupportedCapability)?;
+        let _guard = CallbackGuard::enter()?;
+        let method = match &self
+            .commands
+            .get(&contract.operation)
+            .or_else(|| self.system_commands.get(&contract.operation))
+            .ok_or(RegistrationError::KindMismatch)?
+            .handler
+        {
+            CommandHandler::JsonCellRpc => CellRpcMethod::Json(&contract.operation),
+            CommandHandler::NativeCellRpc { method, json_only } => CellRpcMethod::Owned {
+                method,
+                json_only: *json_only,
+            },
+            CommandHandler::NativeWork => CellRpcMethod::Work,
+            CommandHandler::Registered(_) => return Err(RegistrationError::KindMismatch.into()),
+        };
+        factory.start(target.cell, epoch, method, input, transaction, activation)
+    }
+
+    pub(crate) fn accepts_cell_activation(&self, activation: &CellRpcActivation) -> bool {
+        self.cell_factory
+            .as_ref()
+            .is_some_and(|factory| factory.accepts(activation))
+    }
+
+    pub(crate) fn poll_cell_rpc(
+        future: &mut HandlerFuture<Vec<u8>>,
+        context: &mut TaskContext<'_>,
+    ) -> Poll<anyhow::Result<Vec<u8>>> {
+        let _guard = CallbackGuard::enter()?;
+        future.as_mut().poll(context)
+    }
+
+    pub(crate) fn poll_cell_work(
+        future: &mut HandlerFuture<()>,
+        context: &mut TaskContext<'_>,
+    ) -> Poll<anyhow::Result<()>> {
+        let _guard = CallbackGuard::enter()?;
+        future.as_mut().poll(context)
     }
 
     /// Register a normal command with authenticated, durable receiver receipts.
@@ -638,9 +1121,9 @@ impl RaftClass {
             operation,
             Command {
                 digest,
-                callback: Arc::new(move |context, input| {
+                handler: CommandHandler::Registered(Arc::new(move |context, input| {
                     inbox.receive(context, &contract, input, &callback)
-                }),
+                })),
             },
         );
         self.bind_command_manifest();
@@ -655,6 +1138,24 @@ impl RaftClass {
         durability: Durability,
         input: &[u8],
     ) -> anyhow::Result<()> {
+        let ingress = id.client == super::sql_ingress_identity::client();
+        let ingress_class = matches!(
+            self.name.as_str(),
+            crate::deploy::SQL_CLASS | crate::deploy::QUEUE_CLASS | crate::deploy::KV_CLASS
+        ) || self.has_native_ingress();
+        if (ingress_class && ingress)
+            || (self.is_cell_rpc(&contract.operation)
+                && super::native_rpc::has_ingress_nonce(input))
+        {
+            anyhow::ensure!(
+                ingress
+                    && ingress_class
+                    && self.is_cell_rpc(&contract.operation)
+                    && super::native_rpc::has_ingress_nonce(input),
+                super::CommandFailure::UnsupportedCapability
+            );
+            super::native_rpc::decode_request(input)?;
+        }
         if let Some(inbox) = self.inboxes.get(&contract.operation) {
             anyhow::ensure!(
                 durability >= inbox.durability,
@@ -742,6 +1243,22 @@ impl RaftClass {
     /// System operations are absent from public discovery and normal command
     /// validation. Only the node's owned business-feature adapters use them.
     pub(crate) fn system_contract(&self, operation: &str) -> Option<OperationContract> {
+        if self.has_binding_maintenance() {
+            if operation == crate::raft::execution::binding_seal::OPERATION {
+                return Some(crate::raft::execution::binding_seal::contract());
+            }
+            if matches!(
+                operation,
+                crate::storage::raft_binding_recovery::CLAIM
+                    | crate::storage::raft_binding_recovery::SETTLE
+            ) {
+                return Some(OperationContract {
+                    operation: operation.into(),
+                    kind: OperationKind::Command,
+                    digest: Sha256::digest(operation.as_bytes()).into(),
+                });
+            }
+        }
         let command = self.system_commands.get(operation)?;
         Some(OperationContract {
             operation: operation.into(),
@@ -751,7 +1268,23 @@ impl RaftClass {
     }
 
     pub(crate) fn has_system_commands(&self) -> bool {
-        !self.system_commands.is_empty()
+        !self.system_commands.is_empty() || self.has_binding_maintenance()
+    }
+
+    /// Bindings require the shared recovery owner even without user effects.
+    /// Target retirement itself is invoked by the claiming source owner.
+    pub(crate) fn has_native_callbacks(&self) -> bool {
+        self.system_commands
+            .contains_key(super::native_work::OPERATION)
+    }
+
+    pub(crate) fn has_scheduled_work(&self) -> bool {
+        !self.system_commands.is_empty() || self.has_binding_maintenance()
+    }
+
+    pub(crate) fn has_binding_maintenance(&self) -> bool {
+        self.cell_binding_classes()
+            .is_some_and(|classes| !classes.is_empty())
     }
 
     pub(crate) fn validate_system_operation(
@@ -785,7 +1318,7 @@ impl RaftClass {
             operation,
             Command {
                 digest,
-                callback: Arc::new(callback),
+                handler: CommandHandler::Registered(Arc::new(callback)),
             },
         );
         self.bind_command_manifest();
@@ -795,7 +1328,7 @@ impl RaftClass {
     pub(crate) fn invoke_command(
         &self,
         contract: &OperationContract,
-        scope: &CellHistory,
+        target: CommandTarget<'_>,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -803,7 +1336,7 @@ impl RaftClass {
     ) -> anyhow::Result<Vec<u8>> {
         self.invoke_registered_command(
             RegisteredCommand::Application(contract),
-            scope,
+            target,
             command,
             durability,
             transaction,
@@ -813,18 +1346,72 @@ impl RaftClass {
 
     pub(crate) fn invoke_system_command(
         &self,
-        contract: &OperationContract,
         scope: &CellHistory,
-        command: CommandId,
-        durability: Durability,
+        request: &crate::raft::execution::CommandRequest,
         transaction: &CommandTransaction<'_>,
         input: &[u8],
+        limits: crate::raft::execution::ExecutionLimits,
+        origin: crate::storage::raft_binding_recovery::Origin,
     ) -> anyhow::Result<Vec<u8>> {
+        let contract = OperationContract {
+            operation: request.operation.clone(),
+            kind: OperationKind::Command,
+            digest: request.contract_digest,
+        };
+        self.validate_system_operation(&contract)?;
+        if contract.operation == crate::raft::execution::binding_seal::OPERATION {
+            let _guard = CallbackGuard::enter()?;
+            return crate::raft::execution::binding_seal::execute(
+                self,
+                request.id,
+                request.durability,
+                transaction,
+                input,
+                limits,
+            );
+        }
+        if matches!(
+            contract.operation.as_str(),
+            crate::storage::raft_binding_recovery::CLAIM
+                | crate::storage::raft_binding_recovery::SETTLE
+        ) {
+            let _guard = CallbackGuard::enter()?;
+            anyhow::ensure!(
+                input.len() <= crate::storage::raft_binding_recovery::MAX_METADATA,
+                super::CommandFailure::Overloaded
+            );
+            let connection = transaction.framework()?;
+            if contract.operation == crate::storage::raft_binding_recovery::CLAIM {
+                let key = serde_json::from_slice(input)?;
+                return Ok(serde_json::to_vec(
+                    &crate::storage::raft_binding_recovery::claim(
+                        &connection,
+                        scope,
+                        origin,
+                        request.durability,
+                        transaction.inputs().now_unix_millis,
+                        &key,
+                    )?,
+                )?);
+            }
+            let settlement = serde_json::from_slice(input)?;
+            crate::storage::raft_binding_recovery::settle(
+                &connection,
+                scope,
+                origin,
+                request.durability,
+                &settlement,
+            )?;
+            return Ok(vec![1]);
+        }
         self.invoke_registered_command(
-            RegisteredCommand::System(contract),
-            scope,
-            command,
-            durability,
+            RegisteredCommand::System(&contract),
+            CommandTarget {
+                cell: scope,
+                route_epoch: None,
+            },
+            request.id,
+            request.durability,
             transaction,
             input,
         )
@@ -833,7 +1420,7 @@ impl RaftClass {
     fn invoke_registered_command(
         &self,
         registration: RegisteredCommand<'_>,
-        scope: &CellHistory,
+        target: CommandTarget<'_>,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -853,14 +1440,31 @@ impl RaftClass {
             contract.kind == OperationKind::Command,
             RegistrationError::KindMismatch
         );
-        let callback = &commands
+        let handler = &commands
             .get(&contract.operation)
             .ok_or(RegistrationError::KindMismatch)?
-            .callback;
+            .handler;
+        let CommandHandler::Registered(callback) = handler else {
+            let mut activation = None;
+            let result = (|| {
+                let future =
+                    self.start_cell_rpc(contract, target, input, transaction, &mut activation)?;
+                // The low-level synchronous verification entry point cannot park
+                // or retain a native instance after returning its private view.
+                let _guard = CallbackGuard::enter()?;
+                future
+                    .now_or_never()
+                    .ok_or(super::CommandFailure::UnsupportedCapability)?
+            })();
+            if let Some(activation) = activation {
+                activation.close()?;
+            }
+            return result;
+        };
         let _guard = CallbackGuard::enter()?;
         callback(
             &CommandContext {
-                scope,
+                scope: target.cell,
                 command,
                 transaction,
                 blobs: self.blobs,
@@ -879,7 +1483,7 @@ impl RaftClass {
         &self,
         contract: &OperationContract,
         version: &CommittedVersion,
-        database: &ImmutableQuery,
+        database: ImmutableQuery,
         input: &[u8],
     ) -> anyhow::Result<Vec<u8>> {
         let identity = CellHistory::try_from(&version.scope)?;
@@ -896,7 +1500,7 @@ impl RaftClass {
         &self,
         contract: &OperationContract,
         observation: &CellVersionObservation,
-        database: &ImmutableQuery,
+        database: ImmutableQuery,
         input: &[u8],
     ) -> anyhow::Result<Vec<u8>> {
         self.invoke_query(
@@ -913,7 +1517,7 @@ impl RaftClass {
         contract: &OperationContract,
         identity: &CellHistory,
         version: QueryVersion<'_>,
-        database: &ImmutableQuery,
+        database: ImmutableQuery,
         input: &[u8],
     ) -> anyhow::Result<Vec<u8>> {
         self.validate_operation(contract)?;
@@ -928,25 +1532,39 @@ impl RaftClass {
             .callback;
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = CallbackGuard::enter()?;
-            callback(
-                &QueryContext {
-                    identity,
-                    version,
-                    database,
-                    blobs: self.blobs,
-                    outbox: self.outbox.as_deref(),
-                    schema: self.schema_digest,
-                },
-                input,
-            )
+            QueryFrame::run(database, |frame| {
+                callback(
+                    &QueryContext {
+                        identity,
+                        version,
+                        frame,
+                        blobs: self.blobs,
+                        outbox: self.outbox.as_deref(),
+                        schema: self.schema_digest,
+                    },
+                    input,
+                )
+            })
         }))
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
     }
 
+    pub(crate) fn has_native_ingress(&self) -> bool {
+        self.cell_configuration_digest().is_some()
+            && self
+                .queries
+                .get(super::sql_ingress_identity::OPERATION)
+                .is_some_and(|query| query.digest == super::sql_ingress_identity::native_digest())
+    }
+
     fn bind_command_manifest(&mut self) {
         let mut hash = Sha256::new();
-        hash.update(b"cellar-cell-class-1");
+        hash.update(b"cellar-cell-class-call-schedule-1");
         hash.update(self.base_schema_digest);
+        if self.has_native_ingress() {
+            hash.update(b"native-cell-ingress-1");
+            hash.update(super::sql_ingress_identity::native_digest());
+        }
         if let Some(initializer) = &self.initializer {
             hash.update(b"initializer-1");
             hash.update(initializer.digest);
@@ -985,6 +1603,39 @@ impl RaftClass {
             hash.update(name.as_bytes());
             hash.update(command.digest);
         }
+        if self.uses_cell_factory() {
+            if let Some(configuration) = self
+                .cell_factory
+                .as_ref()
+                .and_then(|f| f.configuration_digest())
+            {
+                hash.update(b"cell-configuration-1");
+                hash.update(configuration);
+            }
+            hash.update(b"json-cell-rpc-1");
+            for (name, command) in &self.commands {
+                if matches!(command.handler, CommandHandler::JsonCellRpc) {
+                    hash.update((name.len() as u16).to_be_bytes());
+                    hash.update(name.as_bytes());
+                }
+            }
+        }
+        for (name, command) in &self.commands {
+            if let CommandHandler::NativeCellRpc { method, json_only } = &command.handler {
+                hash.update(b"native-cell-rpc-error-replies-1");
+                hash.update((name.len() as u16).to_be_bytes());
+                hash.update(name.as_bytes());
+                hash.update((method.len() as u16).to_be_bytes());
+                hash.update(method.as_bytes());
+                hash.update([u8::from(*json_only)]);
+            }
+        }
+        if self.has_binding_maintenance() {
+            hash.update(b"binding-sequence-seal-1");
+            hash.update(crate::raft::execution::binding_seal::contract().digest);
+            hash.update(crate::storage::raft_binding_recovery::CLAIM.as_bytes());
+            hash.update(crate::storage::raft_binding_recovery::SETTLE.as_bytes());
+        }
         if !self.system_commands.is_empty() {
             hash.update(b"system-commands-1");
             hash.update((self.system_commands.len() as u16).to_be_bytes());
@@ -1001,6 +1652,11 @@ impl RaftClass {
         validate_name(operation)?;
         if operation.starts_with("__sys_raft_") {
             return Err(RegistrationError::Invalid("reserved system command"));
+        }
+        if operation == super::sql_ingress_identity::OPERATION
+            && !crate::deploy::is_reserved_class(&self.name)
+        {
+            return Err(RegistrationError::Invalid("reserved ingress query"));
         }
         if digest == [0; 32] {
             return Err(RegistrationError::Invalid("operation digest"));

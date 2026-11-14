@@ -54,12 +54,16 @@ mod cell_queries;
 mod command_origins;
 #[path = "query_reply.rs"]
 mod query_replies;
+pub(crate) use cell_commands::CellRemoteNameResponse;
 pub use cell_commands::{
     CellCommandGateway, CellRemoteCommandResponse, CellRemoteEnrollmentResponse,
     CellRemoteReceiptResponse,
 };
 #[path = "query_cell_discovery.rs"]
 mod cell_query_discovery;
+#[path = "leader_cache.rs"]
+mod leader_cache;
+pub(crate) use leader_cache::LeaderLookup;
 #[path = "transport_control_send.rs"]
 mod control_sender;
 #[path = "transport_directory.rs"]
@@ -108,6 +112,9 @@ pub enum TransportError {
     Authentication,
     Query(cellar_logic::consensus::CommandFailure),
     Command(cellar_logic::consensus::CommandFailure),
+    /// Authenticated proof that this remote attempt entered no producer. It
+    /// establishes nothing about any preceding attempt of the same command.
+    CommandRejected(cellar_logic::consensus::CommandFailure),
     Protocol,
     Identity,
     Replay,
@@ -319,6 +326,7 @@ struct Registry {
     group_checkpoints: BTreeMap<GroupHistory, std::sync::Weak<group_snapshots::Endpoint>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     cell_query_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
+    leaders: leader_cache::Cache,
     command_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     inspection_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
@@ -339,6 +347,7 @@ impl Registry {
     }
 
     fn prune_pools(&mut self) {
+        self.leaders.prune(&self.cell_query_groups);
         let used: BTreeSet<_> = self
             .groups
             .values()
@@ -551,6 +560,7 @@ impl RaftTransport {
                 group_checkpoints: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
                 cell_query_groups: BTreeMap::new(),
+                leaders: leader_cache::Cache::new(&options),
                 command_origins: BTreeMap::new(),
                 origins: BTreeMap::new(),
                 inspection_origins: BTreeMap::new(),
@@ -1128,6 +1138,7 @@ impl State {
         let finished = {
             let mut registry = self.lifecycle_registry();
             registry.closed = true;
+            registry.leaders.clear();
             registry.tasks == 0
         };
         self.stop.send_replace(true);

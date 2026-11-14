@@ -16,6 +16,7 @@ pub use concurrency::CallbackScope;
 pub mod assets;
 pub mod blob;
 pub mod cache;
+pub(crate) mod cell_bindings;
 pub mod cells;
 pub(crate) mod concurrency;
 pub mod consensus;
@@ -219,6 +220,20 @@ pub trait Application: Send + Sync + 'static {
         )
     }
 
+    /// Resolve the immutable definition selected by a namespace, including
+    /// cohosted deployments that export the same reserved service class.
+    fn resolve_raft_namespace(
+        &self,
+        namespace: &consensus::NamespaceConfig,
+        class: &str,
+    ) -> std::result::Result<Arc<consensus::RaftClass>, consensus::RegistrationError> {
+        let definition = self.resolve_raft_class(class)?;
+        if definition.schema_digest() != namespace.schema_digest {
+            return Err(consensus::RegistrationError::ContractMismatch);
+        }
+        Ok(definition)
+    }
+
     fn supports_workflow(&self, _class: &str) -> bool {
         false
     }
@@ -262,7 +277,13 @@ pub struct Registry {
     cells: HashMap<String, Factory>,
     filesystems: HashMap<String, filesystem::Policy>,
     raft_classes: HashMap<String, Arc<consensus::RaftClass>>,
+    raft_configuration: std::sync::OnceLock<RaftConfiguration>,
     workflows: HashMap<String, WorkflowHandler>,
+}
+
+struct RaftConfiguration {
+    digest: [u8; 32],
+    classes: HashMap<String, Arc<consensus::RaftClass>>,
 }
 
 impl Registry {
@@ -276,6 +297,7 @@ impl Registry {
             cells: HashMap::new(),
             filesystems: HashMap::new(),
             raft_classes: HashMap::new(),
+            raft_configuration: std::sync::OnceLock::new(),
             workflows: HashMap::new(),
         }
     }
@@ -374,6 +396,11 @@ impl Registry {
     /// cannot also have an ordinary `Cell` factory under the same class name.
     pub fn raft_class(mut self, class: consensus::RaftClass) -> Result<Self> {
         anyhow::ensure!(
+            self.raft_configuration.get().is_none(),
+            consensus::RegistrationError::ContractMismatch
+        );
+        class.validate_cell_factory()?;
+        anyhow::ensure!(
             !self.cells.contains_key(class.name())
                 && !self.raft_classes.contains_key(class.name())
                 && !self.workflows.contains_key(class.name()),
@@ -382,6 +409,16 @@ impl Registry {
         self.raft_classes
             .insert(class.name().into(), Arc::new(class));
         Ok(self)
+    }
+
+    /// Register an ordinary cell factory for the Raft operations declared by
+    /// this class. The factory belongs to the Raft namespace exclusively.
+    pub fn raft_cell(
+        self,
+        class: consensus::RaftClass,
+        factory: impl Fn(Context, &CellIdentity) -> Result<Arc<dyn Cell>> + Send + Sync + 'static,
+    ) -> Result<Self> {
+        self.raft_class(class.with_cell_factory(Arc::new(factory))?)
     }
 
     pub fn workflow(
@@ -416,6 +453,10 @@ impl Application for Registry {
         &self,
         options: &crate::engine_api::WorkerConfigOptions,
     ) -> Result<()> {
+        let shared = self
+            .raft_classes
+            .values()
+            .any(|class| class.has_cell_factory());
         for class in self.rpc.classes() {
             anyhow::ensure!(
                 self.cells.contains_key(class),
@@ -433,6 +474,23 @@ impl Application for Registry {
                     .map(|binding| &binding.class),
             )
         {
+            if shared {
+                if (class == crate::deploy::SQL_CLASS && !options.sql_bindings.is_empty())
+                    || (class == crate::deploy::KV_CLASS && !options.kv_bindings.is_empty())
+                    || (class == crate::deploy::QUEUE_CLASS
+                        && (!options.queue_bindings.is_empty()
+                            || !options.queue_consumers.is_empty()))
+                {
+                    continue;
+                }
+                anyhow::ensure!(
+                    self.raft_classes
+                        .get(class)
+                        .is_some_and(|target| target.has_cell_factory()),
+                    consensus::RegistrationError::UnsupportedFactory(class.clone())
+                );
+                continue;
+            }
             anyhow::ensure!(
                 !self.raft_classes.contains_key(class),
                 consensus::RegistrationError::WrongMode {
@@ -441,20 +499,93 @@ impl Application for Registry {
                 }
             );
         }
+        if self
+            .raft_classes
+            .values()
+            .any(|class| class.has_cell_factory())
+        {
+            let config = consensus::AdmittedCellConfiguration::from_options(options)?;
+            if config.has_cell_bindings() {
+                for class in self.raft_classes.values() {
+                    class.validate_binding_configuration()?;
+                }
+            }
+            let digest = config.digest();
+            let mut classes: HashMap<_, _> = self
+                .raft_classes
+                .iter()
+                .map(|(name, class)| (name.clone(), Arc::new(class.configured_cell(&config))))
+                .collect();
+            if !options.sql_bindings.is_empty() {
+                classes.insert(
+                    crate::deploy::SQL_CLASS.into(),
+                    Arc::new(consensus::sql_service()?),
+                );
+            }
+            if !options.kv_bindings.is_empty() {
+                classes.insert(
+                    crate::deploy::KV_CLASS.into(),
+                    Arc::new(consensus::kv_service()?),
+                );
+            }
+            if !options.queue_bindings.is_empty() || !options.queue_consumers.is_empty() {
+                classes.insert(
+                    crate::deploy::QUEUE_CLASS.into(),
+                    Arc::new(consensus::queue_service(&config, self.handler.clone())?),
+                );
+            }
+            let installed = self
+                .raft_configuration
+                .get_or_init(|| RaftConfiguration { digest, classes });
+            anyhow::ensure!(
+                installed.digest == digest,
+                consensus::RegistrationError::ContractMismatch
+            );
+        }
         Ok(())
+    }
+
+    fn validate_deployment(&self, deployment: &crate::fleet::LoadedDeployment) -> Result<()> {
+        if self
+            .raft_classes
+            .values()
+            .any(|class| class.has_cell_factory())
+        {
+            anyhow::ensure!(
+                deployment.options.script_name == deployment.script_name
+                    && deployment.event_streams.is_empty()
+                    && deployment.asset_binding.is_none()
+                    && deployment.assets.is_none()
+                    && deployment.loader_bindings.is_empty()
+                    && deployment.services.is_empty()
+                    && deployment.crons.is_empty()
+                    && deployment.containers.is_empty()
+                    && deployment.fence_image.is_none()
+                    && deployment.container_images.is_empty(),
+                consensus::RegistrationError::Invalid(
+                    "unimplemented Raft cell deployment adapters"
+                )
+            );
+        }
+        self.validate_configuration(&deployment.options)
     }
 
     fn resolve_raft_class(
         &self,
         class: &str,
     ) -> std::result::Result<Arc<consensus::RaftClass>, consensus::RegistrationError> {
-        self.raft_classes.get(class).cloned().ok_or_else(|| {
-            if self.cells.contains_key(class) || self.workflows.contains_key(class) {
-                consensus::RegistrationError::UnsupportedFactory(class.into())
-            } else {
-                consensus::RegistrationError::UnknownClass(class.into())
-            }
-        })
+        self.raft_configuration
+            .get()
+            .map_or(&self.raft_classes, |config| &config.classes)
+            .get(class)
+            .cloned()
+            .ok_or_else(|| {
+                if self.cells.contains_key(class) || self.workflows.contains_key(class) {
+                    consensus::RegistrationError::UnsupportedFactory(class.into())
+                } else {
+                    consensus::RegistrationError::UnknownClass(class.into())
+                }
+            })
     }
 
     fn supports_workflow(&self, class: &str) -> bool {
@@ -524,6 +655,13 @@ impl Application for Registry {
 
 #[derive(Default)]
 pub(crate) struct EventState {
+    /// Immutable source declaration, including stateless native invocations.
+    /// Global SQL identities can resolve to another co-hosted script.
+    pub(crate) raft_sql: bool,
+    pub(crate) raft_queue: bool,
+    pub(crate) raft_kv: bool,
+    /// Declared native classes and their immutable deployment configurations.
+    pub(crate) raft_cell_classes: Option<Arc<std::collections::BTreeMap<String, [u8; 32]>>>,
     pub background: Mutex<Vec<HandlerFuture<()>>>,
     pub(crate) blocks: concurrency::Blocks,
     // Keep framework cleanup behind the requesting event and its reply proof.
@@ -554,6 +692,7 @@ pub(crate) struct Activation {
 
 #[derive(Clone)]
 pub struct Context {
+    pub(crate) raft_storage: Option<storage::RaftStorageAuthority>,
     pub(crate) container_supervision: Option<Arc<containers::Supervision>>,
     pub(crate) rpc_catalog: Option<Arc<rpc::Catalog>>,
     pub(crate) event_authority: Option<event_stream::Authority>,
@@ -571,10 +710,10 @@ pub struct Context {
     pub(crate) workflow_bindings: Arc<HashMap<String, workflow::Workflow>>,
     pub(crate) blob_bindings: Arc<HashMap<String, blob::Bucket>>,
     pub(crate) asset_binding: Option<(Arc<str>, assets::Fetcher)>,
-    pub(crate) queue_config: Arc<queue::Config>,
+    pub(crate) queue_config: Option<Arc<queue::Config>>,
     pub(crate) generation: crate::generation::GenerationId,
     pub(crate) worker_config: Arc<crate::worker_config::WorkerConfig>,
-    pub(crate) loader_owner: Arc<loader::Owner>,
+    pub(crate) loader_owner: Option<Arc<loader::Owner>>,
     pub(crate) loaded_environment: Option<Arc<cellar_native::clone::StructuredValue>>,
 }
 
@@ -653,6 +792,10 @@ impl Context {
 
     pub(crate) fn check_turn(&self) -> Result<()> {
         anyhow::ensure!(
+            self.raft_storage.is_none(),
+            consensus::CommandFailure::UnsupportedCapability
+        );
+        anyhow::ensure!(
             crate::host_io::installed_context()
                 .as_ref()
                 .is_some_and(|io| Arc::ptr_eq(io, &self.io)),
@@ -707,6 +850,14 @@ impl Context {
         Ok(())
     }
 
+    pub(crate) fn check_binding_turn(&self) -> Result<()> {
+        if let Some(resources) = &self.raft_storage {
+            Storage::raft_command(resources.clone()).check_raft_turn()
+        } else {
+            self.check_turn()
+        }
+    }
+
     /// Background futures are polled by the same turn driver and retain the
     /// event's residency after the response has been sent.
     pub fn wait_until(
@@ -719,12 +870,21 @@ impl Context {
     }
 
     pub fn storage(&self) -> Result<Storage> {
+        if let Some(resources) = &self.raft_storage {
+            anyhow::ensure!(
+                self.identity.is_some(),
+                "stateless handlers have no cell storage"
+            );
+            let storage = Storage::raft_command(resources.clone());
+            storage.check_raft_turn()?;
+            return Ok(storage);
+        }
         self.check_turn()?;
         anyhow::ensure!(
             self.identity.is_some(),
             "stateless handlers have no cell storage"
         );
-        Ok(Storage(
+        Ok(Storage::native(
             self.io
                 .native_activation
                 .clone()

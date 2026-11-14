@@ -183,7 +183,7 @@ impl Context {
                 .unwrap()
                 .clone()
                 .map(|transaction| {
-                    Storage(
+                    Storage::native(
                         activation.clone(),
                         Some(transaction),
                         self.io.source_generation,
@@ -225,7 +225,7 @@ impl Context {
                     .unwrap()
                     .clone()
                     .map(|transaction| {
-                        Storage(
+                        Storage::native(
                             activation.clone(),
                             Some(transaction),
                             self.io.source_generation,

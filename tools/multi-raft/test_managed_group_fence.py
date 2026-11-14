@@ -1,6 +1,7 @@
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 """Managed request binding, including writers absent from the SDK minimum."""
+import fcntl
 import hashlib
 import json
 from pathlib import Path
@@ -186,6 +187,71 @@ class ManagedFenceTests(unittest.TestCase):
                 method({0: 3})
         with self.assertRaisesRegex(ValueError, 'not durably bound'):
             self.controller.certificate_payload(word(1, 32), DockerInventory([]))
+
+    def test_dynamic_assignment_is_durable_before_materialization_and_holds_fence_lock(self):
+        self.declare(0, 10)
+        old = [self.launch(0, node) for node in (4, 5, 6)]
+
+        def attach():
+            retained = json.loads(self.controller.path.read_text())
+            self.assertEqual(retained['deployments']['0'], [
+                '/'.join((word(1, 32), word(2, 32), word(group), word(group + 1)))
+                for group in (10, 12)])
+            with open(self.controller.path.with_suffix('.lock'), 'a+') as lock:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return 'attached'
+
+        self.assertEqual(self.controller.assign_histories(
+            0, word(1, 32), word(2, 32), [history(12)], attach), 'attached')
+        digest, encoded = request([lineage(4, 12)])
+        reloaded = ManagedLauncher(self.root, 'owned')
+        self.assertEqual(reloaded.bind(digest, encoded), old)
+        docker = DockerInventory(old)
+        reloaded.fence(digest, docker)
+        payload = reloaded.certificate_payload(digest, docker)
+        self.declare(1, 80)
+        self.launch(1, 10)
+        self.controller.assign_histories(1, word(1, 32), word(2, 32), [history(82)], lambda: None)
+        self.assertEqual(reloaded.certificate_payload(digest, docker), payload)
+
+    def test_lost_assignment_reply_keeps_history_in_reloaded_fence_inventory(self):
+        self.declare(0, 10)
+        old = [self.launch(0, node) for node in (4, 5, 6)]
+
+        def lost():
+            raise RuntimeError('lost attach reply')
+
+        with self.assertRaisesRegex(RuntimeError, 'lost attach reply'):
+            self.controller.assign_histories(0, word(1, 32), word(2, 32), [history(12)], lost)
+        reloaded = ManagedLauncher(self.root, 'owned')
+        before = reloaded.read()['deployments']
+        self.assertEqual(reloaded.assign_histories(
+            0, word(1, 32), word(2, 32), [history(12)], lambda: 'reconciled'), 'reconciled')
+        self.assertEqual(reloaded.read()['deployments'], before)
+        with self.assertRaisesRegex(ValueError, 'different managed deployment declaration'):
+            self.declare(0, 10)
+        digest, encoded = request([lineage(4, 12)])
+        self.assertEqual(reloaded.bind(digest, encoded), old)
+
+    def test_assignment_refuses_unknown_revoked_and_foreign_deployments_before_callback(self):
+        invoke = lambda: self.fail('refused assignment materialized')
+        with self.assertRaisesRegex(ValueError, 'not declared'):
+            self.controller.assign_histories(0, word(1, 32), word(2, 32), [history(12)], invoke)
+        self.declare(0, 10)
+        self.launch(0, 4)
+        digest, encoded = request([lineage(4, 10)])
+        self.controller.bind(digest, encoded)
+        with self.assertRaisesRegex(ValueError, 'deployment permanently revoked'):
+            self.controller.assign_histories(0, word(1, 32), word(2, 32), [history(12)], invoke)
+        self.declare(1, 80)
+        with self.assertRaisesRegex(ValueError, 'managed history permanently revoked'):
+            self.controller.assign_histories(1, word(1, 32), word(2, 32), [history(10)], invoke)
+        with self.assertRaisesRegex(ValueError, 'deployment scope'):
+            self.controller.assign_histories(1, word(3, 32), word(2, 32), [history(12)], invoke)
+        for invalid in ([], [history(12), history(12)]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.controller.assign_histories(1, word(1, 32), word(2, 32), invalid, invoke)
 
     def test_wire_cli_checks_expected_digest_before_returning_the_minimum(self):
         digest, encoded = request()

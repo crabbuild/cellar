@@ -12,6 +12,7 @@ use std::fmt;
 pub enum CellRouteOperation {
     Command(CommandId),
     Receipt(CommandId),
+    BindingRetirement(CommandId),
     Enrollment(ProposalId),
     Query(ProposalId),
 }
@@ -36,8 +37,12 @@ pub struct CellRoutingLimits {
 
 impl CellRoutingLimits {
     pub(crate) fn deadline_at(self, started_at: u64) -> Option<u64> {
+        self.deadline_at_bounded(started_at, 60_000)
+    }
+
+    pub(crate) fn deadline_at_bounded(self, started_at: u64, maximum_ms: u64) -> Option<u64> {
         if self.timeout.as_millis() == 0
-            || self.timeout > Duration::from_secs(60)
+            || self.timeout > Duration::from_millis(maximum_ms)
             || !(1..=16).contains(&self.max_attempts)
         {
             return None;
@@ -73,13 +78,15 @@ impl fmt::Display for CellRoutingError {
 
 impl std::error::Error for CellRoutingError {}
 
-/// A cached observation obtained from the configured trusted catalog. It can
-/// become stale; a serving destination must check the full route binding.
+/// A routing observation from the trusted catalog or an entered destination's
+/// applied group manifest. Neither grants serving authority; the actual owner
+/// must check the full route and current execution admission independently.
 #[derive(Clone)]
 pub struct ResolvedCellRoute {
     cell: CellHistory,
     route: GroupRoute,
     revision: u64,
+    root: [u8; 32],
     owner: Arc<()>,
 }
 
@@ -94,6 +101,14 @@ pub struct CellRouteAttempt {
     resolved: ResolvedCellRoute,
     request: Arc<CellRouteRequest>,
     deadline_ms: u64,
+    ordinal: u8,
+    owner: Arc<()>,
+}
+
+/// Private attempt-scoped bookkeeping, consumed only by an authenticated
+/// pre-admission refusal. Dropping it preserves submission uncertainty.
+pub(crate) struct RemoteSubmission {
+    previous: bool,
     ordinal: u8,
     owner: Arc<()>,
 }
@@ -147,7 +162,9 @@ pub struct CellRoutingSession {
     active: bool,
     submitted: bool,
     cached: Option<ResolvedCellRoute>,
+    minimum_revision: u64,
     route_cache: Option<Arc<RouteCache>>,
+    command_performance: Option<Arc<crate::raft::performance::Registry>>,
     owner: Arc<()>,
 }
 
@@ -180,6 +197,18 @@ impl RangeDirectory {
         cached: Option<ResolvedCellRoute>,
         started_at: u64,
     ) -> Result<CellRoutingSession, CellRoutingError> {
+        self.routing_session_bounded_in(domain, request, limits, cached, started_at, 60_000)
+    }
+
+    pub(crate) fn routing_session_bounded_in(
+        &self,
+        domain: DomainToken,
+        request: CellRouteRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        started_at: u64,
+        maximum_ms: u64,
+    ) -> Result<CellRoutingSession, CellRoutingError> {
         let error = |reason| CellRoutingError {
             reason,
             ambiguous_command: None,
@@ -202,7 +231,7 @@ impl RangeDirectory {
             return Err(error(CellRoutingFailure::InvalidRequest));
         }
         let deadline = limits
-            .deadline_at(started_at)
+            .deadline_at_bounded(started_at, maximum_ms)
             .ok_or_else(|| error(CellRoutingFailure::InvalidRequest))?;
         if now >= deadline {
             return Err(error(CellRoutingFailure::Deadline));
@@ -216,14 +245,69 @@ impl RangeDirectory {
             attempts: 0,
             active: false,
             submitted: false,
+            minimum_revision: cached.as_ref().map_or(0, |route| route.revision),
             cached,
             route_cache: None,
+            command_performance: None,
             owner: Arc::new(()),
         })
     }
 }
 
 impl CellRoutingSession {
+    pub(crate) fn track_command(&mut self, performance: Arc<crate::raft::performance::Registry>) {
+        self.command_performance = Some(performance);
+    }
+
+    /// An incoming command already selected its destination. Its actual local
+    /// manifest supplies the range observation without another catalog round
+    /// trip. This never populates the directory cache or authorizes SQL.
+    pub(crate) fn begin_destination(
+        &mut self,
+        route: GroupRoute,
+    ) -> Result<CellRouteAttempt, CellRoutingError> {
+        if self.attempts != 0 {
+            return Err(self.error(CellRoutingFailure::StaleAttempt));
+        }
+        self.active = false;
+        self.live()?;
+        self.attempts = 1;
+        wire::Route::encode(&route, &self.directory)
+            .map_err(|error| self.error(CellRoutingFailure::Catalog(error)))?;
+        route
+            .check_cell(
+                &self.request.cell,
+                &cell_routing_key(self.request.cell.namespace, &self.request.cell.cell),
+            )
+            .map_err(|_| self.error(CellRoutingFailure::InvalidHint))?;
+        let resolved = ResolvedCellRoute {
+            cell: self.request.cell.clone(),
+            route,
+            revision: self.cached.as_ref().map_or(0, |previous| previous.revision),
+            root: [0; 32],
+            owner: self.directory.namespace.inner.owner.clone(),
+        };
+        self.cached = Some(resolved.clone());
+        self.active = true;
+        Ok(CellRouteAttempt {
+            resolved,
+            request: self.request.clone(),
+            deadline_ms: self.deadline,
+            ordinal: 1,
+            owner: self.owner.clone(),
+        })
+    }
+
+    /// Incoming RPC construction may consume time before its local session is
+    /// captured. Preserve the transport's original absolute deadline exactly.
+    pub(crate) fn constrain_deadline(&mut self, deadline: u64) -> Result<(), CellRoutingError> {
+        if self.attempts != 0 {
+            return Err(self.error(CellRoutingFailure::StaleAttempt));
+        }
+        self.deadline = self.deadline.min(deadline);
+        self.live()
+    }
+
     pub(crate) fn using_cache(mut self, cache: Arc<RouteCache>) -> Self {
         self.route_cache = Some(cache);
         self
@@ -293,6 +377,31 @@ impl CellRoutingSession {
         Ok(())
     }
 
+    pub(crate) fn mark_remote_submitted(
+        &mut self,
+        attempt: &CellRouteAttempt,
+    ) -> Result<RemoteSubmission, CellRoutingError> {
+        let previous = self.submitted;
+        self.mark_submitted(attempt)?;
+        Ok(RemoteSubmission {
+            previous,
+            ordinal: attempt.ordinal,
+            owner: attempt.owner.clone(),
+        })
+    }
+
+    pub(crate) fn reject_remote_submission(
+        &mut self,
+        proof: RemoteSubmission,
+    ) -> Result<(), CellRoutingError> {
+        if !self.active || proof.ordinal != self.attempts || !Arc::ptr_eq(&proof.owner, &self.owner)
+        {
+            return Err(self.error(CellRoutingFailure::StaleAttempt));
+        }
+        self.submitted = proof.previous;
+        Ok(())
+    }
+
     pub async fn begin(&mut self) -> Result<CellRouteAttempt, CellRoutingError> {
         if self.attempts != 0 {
             return Err(self.error(CellRoutingFailure::StaleAttempt));
@@ -359,25 +468,57 @@ impl CellRoutingSession {
                 return Err(self.error(CellRoutingFailure::InvalidHint));
             }
         }
+        if let (Some(cache), Some(cached)) = (&self.route_cache, &self.cached) {
+            if !cache
+                .can_reuse(&cached.route, cached.revision, cached.root)
+                .map_err(|e| self.error(CellRoutingFailure::Catalog(e)))?
+            {
+                // Keep the invocation's catalog floor even when its prior
+                // observation has been invalidated by a publication or fence.
+                self.cached = None;
+            }
+        }
         if use_cache && hint.is_none() && self.cached.is_none() {
             if let Some(cache) = &self.route_cache {
-                if let Some((route, revision)) = cache
-                    .get(&self.request.cell)
+                if let Some((route, revision, root)) = cache
+                    .get(&self.request.cell, self.minimum_revision)
                     .map_err(|e| self.error(CellRoutingFailure::Catalog(e)))?
                 {
                     self.cached = Some(ResolvedCellRoute {
                         cell: self.request.cell.clone(),
                         route,
                         revision,
+                        root,
                         owner: self.directory.namespace.inner.owner.clone(),
                     });
                 }
             }
         }
         if !use_cache || self.cached.is_none() || hint.is_some() {
-            let minimum = self.cached.as_ref().map_or(0, |route| route.revision);
+            if let Some(performance) = &self.command_performance {
+                performance.increment(
+                    crate::raft::performance::Counter::CellCommandDirectoryLookups,
+                    1,
+                );
+            }
+            let minimum = self.minimum_revision;
+            let generation = self
+                .route_cache
+                .as_ref()
+                .map(|cache| cache.generation())
+                .transpose()
+                .map_err(|e| self.error(CellRoutingFailure::Catalog(e)))?;
             let work = async {
                 let view = self.directory.observe().await?;
+                // Record a verified publication/fence before the target path
+                // can fail or expire. The returned token names that exact
+                // observation, never a later generation sampled after I/O.
+                let observed_generation =
+                    if let (Some(cache), Some(generation)) = (&self.route_cache, &generation) {
+                        Some(cache.observe_lookup(&view, generation).await?)
+                    } else {
+                        None
+                    };
                 let route = self
                     .directory
                     .lookup(&view, &self.request.cell.cell)
@@ -389,7 +530,7 @@ impl CellRoutingSession {
                         return Err(CatalogError::Fenced);
                     }
                 }
-                Ok::<_, CatalogError>((view, route))
+                Ok::<_, CatalogError>((view, route, observed_generation))
             };
             let result = self
                 .domain
@@ -397,21 +538,29 @@ impl CellRoutingSession {
                 .await
                 .map_err(|_| self.error(CellRoutingFailure::Closed))?;
             self.live()?;
-            let (view, route) = result
+            let (view, route, generation) = result
                 .map_err(|_| self.error(CellRoutingFailure::Deadline))?
                 .map_err(|error| self.error(CellRoutingFailure::Catalog(error)))?;
             if view.revision() < minimum || hint.is_some_and(|hint| &route != hint) {
                 return Err(self.error(CellRoutingFailure::InvalidHint));
             }
-            if let Some(cache) = &self.route_cache {
-                cache
-                    .remember(&view, &route)
+            if let (Some(cache), Some(generation)) = (&self.route_cache, &generation) {
+                self.domain
+                    .run(crate::asyncrt::timeout_at(
+                        self.deadline,
+                        cache.remember(&view, &route, generation),
+                    ))
+                    .await
+                    .map_err(|_| self.error(CellRoutingFailure::Closed))?
+                    .map_err(|_| self.error(CellRoutingFailure::Deadline))?
                     .map_err(|e| self.error(CellRoutingFailure::Catalog(e)))?;
             }
+            self.minimum_revision = self.minimum_revision.max(view.revision());
             self.cached = Some(ResolvedCellRoute {
                 cell: self.request.cell.clone(),
                 route,
                 revision: view.revision(),
+                root: view.digest(),
                 owner: self.directory.namespace.inner.owner.clone(),
             });
         }
@@ -420,6 +569,7 @@ impl CellRoutingSession {
             .cached
             .clone()
             .ok_or_else(|| self.error(CellRoutingFailure::InvalidHint))?;
+        self.minimum_revision = self.minimum_revision.max(resolved.revision);
         self.active = true;
         Ok(CellRouteAttempt {
             resolved,
@@ -428,5 +578,34 @@ impl CellRoutingSession {
             ordinal: self.attempts,
             owner: self.owner.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_budget_does_not_extend_public_routing() {
+        let public = CellRoutingLimits {
+            timeout: Duration::from_secs(60),
+            max_attempts: 4,
+        };
+        assert_eq!(public.deadline_at(10), Some(60_010));
+        let callback = CellRoutingLimits {
+            timeout: Duration::from_secs(90),
+            ..public
+        };
+        assert_eq!(callback.deadline_at(10), None);
+        assert_eq!(callback.deadline_at_bounded(10, 300_000), Some(90_010));
+        assert_eq!(callback.deadline_at_bounded(u64::MAX, 300_000), None);
+        assert_eq!(
+            CellRoutingLimits {
+                timeout: Duration::from_secs(301),
+                ..public
+            }
+            .deadline_at_bounded(10, 300_000),
+            None
+        );
     }
 }

@@ -383,6 +383,7 @@ impl CompiledApplications {
         script: &str,
         version: &str,
         class: &str,
+        configuration: &crate::application::consensus::NativeCellConfiguration,
     ) -> anyhow::Result<Arc<crate::application::consensus::RaftClass>> {
         let factory = self
             .factories
@@ -391,11 +392,13 @@ impl CompiledApplications {
                 anyhow::anyhow!("no compiled application registered for {script} at {version}")
             })?;
         let application = factory()?;
+        application.validate_configuration(&configuration.options(script))?;
         anyhow::ensure!(
             !application.supports_cell(class) && !application.supports_workflow(class),
             crate::application::consensus::RegistrationError::UnsupportedFactory(class.into())
         );
         let definition = application.resolve_raft_class(class)?;
+        definition.validate_cell_factory()?;
         anyhow::ensure!(
             definition.name() == class,
             "compiled Raft class differs from the plan"

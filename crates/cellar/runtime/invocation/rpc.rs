@@ -19,6 +19,10 @@ pub(crate) struct CallScope {
 }
 
 impl CallScope {
+    pub(crate) fn reply_limit(&self) -> Option<usize> {
+        self.reply_limit
+    }
+
     pub(crate) fn in_context(
         context: &crate::application::Context,
         deadline_ms: Option<u64>,

@@ -9,11 +9,26 @@ pub(crate) mod admission;
 mod archive_status;
 pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
-pub(crate) use class::callback_active;
+pub(crate) use class::{
+    callback_active, framework_dispatch, require_framework_dispatch, CommandTarget,
+};
 pub(crate) mod group_client;
 mod group_contracts;
 pub(crate) use group_contracts::cell_routing_key;
 pub(crate) mod group_protocol;
+mod native_applications;
+pub use native_applications::RaftApplications;
+mod native_cell;
+mod native_configuration;
+pub(crate) mod native_ingress;
+mod native_services;
+pub(crate) mod native_work;
+pub(crate) mod sql_ingress_identity;
+pub(in crate::application) use native_services::{kv_service, queue_service, sql_service};
+pub(crate) mod native_rpc;
+pub(crate) use native_cell::CellRpcActivation;
+pub(in crate::application) use native_configuration::AdmittedCellConfiguration;
+pub(crate) use native_configuration::NativeCellConfiguration;
 mod performance;
 pub use performance::{
     RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,
@@ -65,14 +80,15 @@ pub use crate::raft::cell_groups::{
     CellGroupBirthSpec, CellGroupCheckpointLimits, CellGroupCheckpointPolicy,
     CellGroupControllerError, CellGroupControllerLimits, CellGroupDisasterFenceRequest,
     CellGroupHostLimits, CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionContext,
-    CellGroupPartitionObservation, CellGroupPartitionWriter, CellGroupPermanentFenceAuthority,
-    CellGroupProposal, CellGroupProvisionLimits, CellGroupQuorumMembership,
-    CellGroupRecoveryLimits, CellGroupRecoveryPool, CellGroupSealOutcome,
-    CellGroupSourceRetirement, CellGroupSourceRetirementAck, CellGroupTransferActivation,
-    CellGroupTransferActivationAck, CellGroupTransferArchive, CellGroupTransitionSource,
-    CellGroupWorkload, CellReceiptRequest, CellReceiptResponse, CellSqlLimits, DirectoryLimits,
-    DirectoryPublication, GroupSourceSeal, InstalledTransferVoter, ManifestLimits,
-    TransferChildQuorum, TransferInstallQuorum, VerifiedCellGroupTransitionSources,
+    CellGroupPartitionObservation, CellGroupPartitionWriter, CellGroupPayloadLimits,
+    CellGroupPayloadUsage, CellGroupPermanentFenceAuthority, CellGroupProposal,
+    CellGroupProvisionLimits, CellGroupQuorumMembership, CellGroupRecoveryLimits,
+    CellGroupRecoveryPool, CellGroupSealOutcome, CellGroupSourceRetirement,
+    CellGroupSourceRetirementAck, CellGroupTransferActivation, CellGroupTransferActivationAck,
+    CellGroupTransferArchive, CellGroupTransitionSource, CellGroupWorkload, CellReceiptRequest,
+    CellReceiptResponse, CellSqlLimits, DirectoryLimits, DirectoryPublication, GroupSourceSeal,
+    InstalledTransferVoter, ManifestLimits, TransferChildQuorum, TransferInstallQuorum,
+    VerifiedCellGroupTransitionSources,
 };
 pub use crate::raft::fleet_catalog::{
     fleet_capacity_profile_digest, FleetAbortedMovementCompletion, FleetCapacityAction,

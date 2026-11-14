@@ -38,6 +38,8 @@ pub struct RaftCloseReport {
     pub omitted_groups: usize,
     pub groups_with_archive_lag: usize,
     pub groups_with_unknown_archive: usize,
+    /// Consumer admission still retained after physical joins. A nonzero count
+    /// withholds the local producer-quiescence proof.
     pub retained_calls_at_shutdown: usize,
     pub mutation_outcomes: MutationOutcomes,
 }
@@ -121,20 +123,23 @@ pub(super) fn start(
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clear();
-            let usage = core.controller.usage();
-            // Acquire no new writer after sealing. Accepted physical work cannot
-            // disappear from these counters when its response times out or drops.
-            let quiesced = !close.admission.is_poisoned()
+            let controller = core.host.close().await.err().map(Arc::new);
+            // Admission is sealed and every physical owner has joined. Sampling
+            // before this join confuses work that cleanup is about to release
+            // with a producer that remains unresolved after closure. Held replies,
+            // poisoned admission and failed groups still withhold the proof.
+            let quiesced = controller.is_none()
+                && !close.admission.is_poisoned()
                 && core.controller.local_producers_quiesced()
                 && core.resources.sql.usage().is_ok_and(|sql| {
                     sql.active_cells == 0
                         && sql.retained_operations == 0
                         && sql.queued_or_running == 0
                 });
-            let controller = core.host.close().await.err().map(Arc::new);
             // Read after persistence/SQL/runtime joins, before closing the engine.
             // Include every durable group even if its detail row exceeds the cap.
-            let report = capture(&core, usage.retained_commands, quiesced);
+            let retained = core.controller.usage().retained_commands;
+            let report = capture(&core, retained, quiesced && retained == 0);
             let log = core.log.close().await.err().map(Arc::new);
             let result = match (controller, log, report) {
                 (None, None, Ok(report)) => Ok(report),

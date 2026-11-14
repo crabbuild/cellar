@@ -3,16 +3,8 @@
 //! Disposable operator handoff: each invocation opens the existing S3 roots
 //! and private replay stores. The infrastructure controller signs externally.
 use super::*;
-use cellar::{
-    bucket::{Bucket, StorageBackend},
-    sdk::fleet_operations::{
-        RaftFleetConnection, RaftFleetControl, RaftFleetTransitionRecoverySelection,
-    },
-};
-use object_store::{
-    aws::{AmazonS3Builder, S3ConditionalPut},
-    list::{PaginatedListOptions, PaginatedListResult, PaginatedListStore},
-    prefix::PrefixStore,
+use cellar::sdk::fleet_operations::{
+    RaftFleetConnection, RaftFleetControl, RaftFleetTransitionRecoverySelection,
 };
 use serde::Deserialize;
 
@@ -34,21 +26,6 @@ struct ManagedConfig {
     selection: Option<RaftFleetTransitionRecoverySelection>,
     fence_public: [u8; 32],
     certificate: Vec<u8>,
-}
-
-struct NoListing;
-
-#[async_trait::async_trait]
-impl PaginatedListStore for NoListing {
-    async fn list_paginated(
-        &self,
-        _: Option<&str>,
-        _: PaginatedListOptions,
-    ) -> object_store::Result<PaginatedListResult> {
-        Err(object_store::Error::NotSupported {
-            source: "managed recovery uses exact rooted keys".into(),
-        })
-    }
 }
 
 pub(super) async fn run(domain: &ExecutionDomain, options: &Options) -> Result<()> {
@@ -76,35 +53,13 @@ pub(super) async fn run(domain: &ExecutionDomain, options: &Options) -> Result<(
                 == config.rooted,
         "exact namespace and image mode required"
     );
-    let builder = AmazonS3Builder::new()
-        .with_endpoint(&config.endpoint)
-        .with_bucket_name(&config.bucket)
-        .with_region("us-east-1")
-        .with_access_key_id(&config.access)
-        .with_secret_access_key(&config.secret)
-        .with_allow_http(true)
-        .with_conditional_put(S3ConditionalPut::ETagMatch);
-    let store = Arc::new(PrefixStore::new(
-        builder.clone().build()?,
-        config.prefix.as_str(),
-    ));
-    // Preserve lost conditional-write replies for exact SDK reconciliation.
-    let cas = Arc::new(PrefixStore::new(
-        builder
-            .with_retry(object_store::RetryConfig {
-                max_retries: 0,
-                ..Default::default()
-            })
-            .build()?,
-        config.prefix.as_str(),
-    ));
-    let bucket = Bucket::from_clients(
-        store,
-        cas,
-        Arc::new(NoListing),
-        StorageBackend::S3,
-        config.bucket,
-        config.bucket_prefix,
+    let bucket = super::managed_store::open(
+        &config.endpoint,
+        &config.bucket,
+        &config.prefix,
+        &config.access,
+        &config.secret,
+        &config.bucket_prefix,
     )?;
     let control = RaftFleetControl::connect(domain, bucket, config.connection, bounds().timeout)
         .await?
@@ -175,7 +130,7 @@ pub(super) async fn run(domain: &ExecutionDomain, options: &Options) -> Result<(
     )
 }
 
-async fn verifier(
+pub(super) async fn verifier(
     domain: &ExecutionDomain,
     directory: PathBuf,
     rooted: bool,

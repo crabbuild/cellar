@@ -57,7 +57,7 @@ fn result_bytes() -> Vec<u8> {
         .issue_cell(&cell_observation(), [9; 32], 1000)
         .unwrap();
     let mut bytes = b"CLGCQS01\0".to_vec();
-    bytes.extend_from_slice(&0u64.to_be_bytes());
+    bytes.push(0);
     string(&mut bytes, token.as_str()).unwrap();
     bytes.extend_from_slice(&3u32.to_be_bytes());
     bytes.extend_from_slice(&[8, 7, 6]);
@@ -592,7 +592,7 @@ fn shared_query_result_authenticates_cell_progress_not_group_log_index() {
     let observation = cell_observation();
     let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
     let mut bytes = b"CLGCQS01\0".to_vec();
-    bytes.extend_from_slice(&0u64.to_be_bytes());
+    bytes.push(0);
     string(&mut bytes, token.as_str()).unwrap();
     bytes.extend_from_slice(&3u32.to_be_bytes());
     bytes.extend_from_slice(b"yes");
@@ -806,6 +806,7 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
     let cell = &observation.version.history;
     let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
     let mut body = b"CLGCCS01".to_vec();
+    body.extend_from_slice(&[0, 0]);
     body.push(0);
     body.push(1);
     body.extend_from_slice(&call.request.id.client.bytes());
@@ -889,6 +890,7 @@ fn shared_s3_results_refuse_durability_downgrades() {
     .unwrap();
     for achieved in [Durability::Quorum, Durability::S3] {
         let mut command = b"CLGCCS01".to_vec();
+        command.extend_from_slice(&[0, 0]);
         command.extend_from_slice(&[0, durability_code(achieved)]);
         command.extend_from_slice(&call.request.id.client.bytes());
         command.extend_from_slice(&call.request.id.sequence().to_be_bytes());
@@ -936,7 +938,7 @@ fn shared_s3_results_refuse_durability_downgrades() {
         }
         // Unknown durability codes must not become either successful contract.
         for invalid in [0, 3, 255] {
-            command[9] = invalid;
+            command[11] = invalid;
             receipt[9] = invalid;
             let mut enrollment = enrollment.clone();
             enrollment[9] = invalid;
@@ -986,6 +988,220 @@ fn enrollment_call() -> enrollment::CellEnrollmentCall {
         timeout_ms: 1000,
         route_epoch: 3,
         birth_digest: [84; 32],
+    }
+}
+
+#[test]
+fn shared_name_lookup_wire_rejects_wrong_purpose_and_unbounded_frames() {
+    let call = name::CellNameCall {
+        timeout_ms: 1000,
+        route_epoch: 3,
+        birth_digest: [84; 32],
+    };
+    let bytes = call.encode(4096).unwrap();
+    assert_eq!(
+        name::CellNameCall::decode(&bytes, 4096)
+            .unwrap()
+            .encode(4096)
+            .unwrap(),
+        bytes
+    );
+    for end in 0..bytes.len() {
+        assert!(name::CellNameCall::decode(&bytes[..end], 4096).is_err());
+    }
+    let mut extra = bytes.clone();
+    extra.push(0);
+    assert!(name::CellNameCall::decode(&extra, 4096).is_err());
+    assert!(name::CellNameCall::decode(&bytes, bytes.len() - 1).is_err());
+    assert!(name::CellNameCall::decode(&enrollment_call().encode(4096).unwrap(), 4096).is_err());
+    assert!(enrollment::CellEnrollmentCall::decode(&bytes, 4096).is_err());
+    assert!(command::CellCommandCall::decode(&bytes, 4096).is_err());
+    assert!(cell::CellQueryCall::decode(&bytes, 4096).is_err());
+    for call in [
+        name::CellNameCall {
+            timeout_ms: 0,
+            ..call
+        },
+        name::CellNameCall {
+            timeout_ms: 60_001,
+            route_epoch: 3,
+            birth_digest: [84; 32],
+        },
+        name::CellNameCall {
+            timeout_ms: 1000,
+            route_epoch: 0,
+            birth_digest: [84; 32],
+        },
+        name::CellNameCall {
+            timeout_ms: 1000,
+            route_epoch: 3,
+            birth_digest: [0; 32],
+        },
+    ] {
+        assert!(call.encode(4096).is_err());
+    }
+}
+
+#[test]
+fn shared_name_lookup_returns_current_incarnation_only_for_the_bound_name() {
+    let actual = cell_observation().version.history;
+    let record = crate::raft::cell_groups::EnrollmentRecord::new(
+        actual.clone(),
+        enrollment_call().request.creation,
+        [9; 32],
+        cell_observation().version.image,
+    )
+    .unwrap();
+    let mut candidate = actual.clone();
+    candidate.incarnation = cellar_logic::consensus::IncarnationId::new([85; 16]).unwrap();
+    let bytes = name::encode_result(&Ok(Some(record.clone())), 4096).unwrap();
+    assert_eq!(
+        name::decode_result(&bytes, &candidate, [9; 32], 4096)
+            .unwrap()
+            .unwrap(),
+        Some(record)
+    );
+    let mut foreign = candidate.clone();
+    foreign.cell = cellar_logic::cell_group::CellId::new("Counter:foreign").unwrap();
+    assert!(name::decode_result(&bytes, &foreign, [9; 32], 4096).is_err());
+    foreign = candidate.clone();
+    foreign.namespace = cellar_logic::consensus::NamespaceId::new([86; 16]).unwrap();
+    assert!(name::decode_result(&bytes, &foreign, [9; 32], 4096).is_err());
+    assert!(name::decode_result(&bytes, &candidate, [8; 32], 4096).is_err());
+    for end in 0..bytes.len() {
+        assert!(name::decode_result(&bytes[..end], &candidate, [9; 32], 4096).is_err());
+    }
+    let mut extra = bytes.clone();
+    extra.push(0);
+    assert!(name::decode_result(&extra, &candidate, [9; 32], 4096).is_err());
+    assert!(name::decode_result(&bytes, &candidate, [9; 32], bytes.len() - 1).is_err());
+    let absent = name::encode_result(&Ok(None), 4096).unwrap();
+    assert_eq!(
+        name::decode_result(&absent, &candidate, [9; 32], 4096)
+            .unwrap()
+            .unwrap(),
+        None
+    );
+    let refused = name::encode_result(&Err(CommandFailure::Unavailable), 4096).unwrap();
+    assert_eq!(
+        name::decode_result(&refused, &candidate, [9; 32], 4096).unwrap(),
+        Err(CommandFailure::Unavailable)
+    );
+}
+
+#[test]
+fn shared_name_lookup_purpose_is_read_only_and_authenticated() {
+    let read = Route::new_shared(
+        identity(1).node_identity(),
+        "node-1",
+        &identity(2),
+        "node-2",
+        &cell_observation().version.history,
+        [9; 32],
+    )
+    .unwrap();
+    let route = read.clone().for_name().unwrap();
+    assert!(route.is_name());
+    assert!(!route.requires_command_grant());
+    assert!(!read.is_name());
+    assert!(!route.is_command());
+    assert!(!route.is_enrollment());
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = name::CellNameCall {
+        timeout_ms: 1000,
+        route_epoch: 3,
+        birth_digest: [84; 32],
+    }
+    .encode(4096)
+    .unwrap();
+    let request = RequestHead::new(route, 4, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    for purpose in ["Query", "Command", "CommandProbe", "Enrollment", "Receipt"] {
+        let mut value = serde_json::to_value(&request).unwrap();
+        value["route"]["purpose"] = serde_json::json!(purpose);
+        let changed = FrameHead {
+            prefix: head.prefix,
+            header: serde_json::to_vec(&value).unwrap(),
+            tag: head.tag,
+            payload_len: head.payload_len,
+        };
+        assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+    }
+    let bytes = name::encode_result(&Ok(None), 4096).unwrap();
+    let response = response_head(&auth, &[3; 32], &request, &head.tag, &bytes, &options).unwrap();
+    for other in [
+        read.clone(),
+        read.clone().for_command().unwrap(),
+        read.for_enrollment().unwrap(),
+    ] {
+        let other = RequestHead::new(other, 4, &body);
+        assert!(read_response(&response, &auth, &[3; 32], &other, &head.tag, &options).is_err());
+    }
+}
+
+#[test]
+fn binding_retirement_is_bounded_and_has_an_authenticated_command_purpose() {
+    let mut client = [19; 16];
+    client[..4].copy_from_slice(b"RCB1");
+    let call = binding::Call {
+        request: crate::raft::execution::binding_seal::Request {
+            format: 1,
+            client,
+            sequence: 1,
+            operation: "Add".into(),
+            contract: [21; 32],
+            request_digest: [22; 32],
+            durability: 2,
+            retry_until_ms: 60_000,
+        },
+        timeout_ms: 5000,
+        route_epoch: 3,
+        birth_digest: [84; 32],
+    };
+    let body = call.encode(8192).unwrap();
+    assert_eq!(
+        binding::Call::decode(&body, 8192)
+            .unwrap()
+            .encode(8192)
+            .unwrap(),
+        body
+    );
+    for end in 0..body.len() {
+        assert!(binding::Call::decode(&body[..end], 8192).is_err());
+    }
+    assert!(binding::Call::decode(&body, body.len() - 1).is_err());
+    assert!(command::CellCommandCall::decode(&body, 8192).is_err());
+    let mut invalid = binding::Call::decode(&body, 8192).unwrap();
+    invalid.request.client = [19; 16];
+    assert!(invalid.encode(8192).is_err());
+    let read = Route::new_shared(
+        identity(1).node_identity(),
+        "node-1",
+        &identity(2),
+        "node-2",
+        &cell_observation().version.history,
+        [9; 32],
+    )
+    .unwrap();
+    let retirement = read.clone().for_binding_retirement().unwrap();
+    assert!(retirement.requires_command_grant());
+    assert!(retirement.is_binding_retirement());
+    assert!(!read.requires_command_grant());
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let request = RequestHead::new(retirement, 4, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    for purpose in ["Query", "Command", "Enrollment", "Receipt", "Name"] {
+        let mut value = serde_json::to_value(&request).unwrap();
+        value["route"]["purpose"] = serde_json::json!(purpose);
+        let changed = FrameHead {
+            prefix: head.prefix,
+            header: serde_json::to_vec(&value).unwrap(),
+            tag: head.tag,
+            payload_len: head.payload_len,
+        };
+        assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
     }
 }
 
@@ -1434,9 +1650,27 @@ fn shared_receipt_purpose_cannot_authorize_mutation() {
 
 #[test]
 fn shared_query_leader_hint_is_advice_inside_authenticated_payload() {
-    for hint in [None, Some(MemberId::new(3).unwrap())] {
-        let bytes =
-            cell::encode_cell_result(&Err(CommandFailure::VersionUnavailable), hint, 4096).unwrap();
+    for hint in [
+        None,
+        Some(crate::raft::leader_advice::LeaderAdvice {
+            history: cellar_logic::cell_group::GroupHistory {
+                cluster: cell_history().cluster,
+                namespace: cell_history().namespace,
+                group: GroupId::new([3; 16]).unwrap(),
+                incarnation: cell_history().incarnation,
+            },
+            membership_revision: 7,
+            configuration_digest: [8; 32],
+            term: 9,
+            leader: MemberId::new(3).unwrap(),
+        }),
+    ] {
+        let bytes = cell::encode_cell_result(
+            &Err(CommandFailure::VersionUnavailable),
+            hint.as_ref(),
+            4096,
+        )
+        .unwrap();
         let (result, decoded) = cell::decode_cell_reply(
             &bytes,
             &cell_history(),

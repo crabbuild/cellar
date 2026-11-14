@@ -21,14 +21,14 @@ struct Queued {
     done: tokio::sync::oneshot::Sender<Result<(), String>>,
 }
 
-struct Slot {
+pub(super) struct Slot {
     queue: Arc<Mutex<std::collections::VecDeque<Queued>>>,
     id: Arc<()>,
-    admission: Ready,
+    pub(super) admission: Ready,
 }
 
 impl Queue {
-    fn reserve(&self) -> (Slot, Ready) {
+    pub(super) fn reserve(&self) -> (Slot, Ready) {
         let (done, receive) = tokio::sync::oneshot::channel();
         let ready: Ready = async move {
             // Abandoning a slot still advances the queue. The input gate owns
@@ -183,12 +183,13 @@ impl Transaction {
     fn control(&self, storage: &Storage, action: &str) -> Result<()> {
         // Cleanup needs its original connection after a failed critical
         // section. It ignores the failure flag, never activation identity.
-        crate::native_worker::transaction_control(
-            storage.installed_activation_scope()?,
-            action,
-            self.nested,
-            &self.savepoint,
-        )
+        let scope = storage.installed_data_scope()?;
+        if matches!(&storage.0, Owner::RaftCommand(_)) {
+            return crate::storage::transaction_control(scope, action, true, &self.savepoint)
+                .map(|_| ())
+                .map_err(anyhow::Error::msg);
+        }
+        crate::native_worker::transaction_control(scope, action, self.nested, &self.savepoint)
     }
 
     async fn drain(&self) {
@@ -207,18 +208,18 @@ impl Transaction {
 /// The active helper view is installed only while its callback is polling.
 /// Another future belonging to the same event cannot borrow it across awaits.
 pub(crate) struct Current {
-    activation: Arc<Activation>,
+    owner: Owner,
     previous: Option<Arc<Transaction>>,
 }
 
 impl Current {
     pub(crate) fn enter(view: &Storage) -> Self {
         let previous = std::mem::replace(
-            &mut *view.0.resources.transaction.lock().unwrap(),
+            &mut *view.resources().transaction.lock().unwrap(),
             view.1.clone(),
         );
         Self {
-            activation: view.0.clone(),
+            owner: view.0.clone(),
             previous,
         }
     }
@@ -226,7 +227,7 @@ impl Current {
 
 impl Drop for Current {
     fn drop(&mut self) {
-        *self.activation.resources.transaction.lock().unwrap() = self.previous.take();
+        *self.owner.resources().transaction.lock().unwrap() = self.previous.take();
     }
 }
 
@@ -241,11 +242,12 @@ impl Guard {
         parent: Option<Arc<Transaction>>,
         asynchronous: bool,
     ) -> Result<Self> {
-        storage.activation_scope()?;
+        storage.data_activation_scope()?;
         if let Some(parent) = &parent {
             parent.check_active()?;
         }
-        let previous_open = storage.0.resources.open_transaction.lock().unwrap().clone();
+        let resources = storage.resources();
+        let previous_open = resources.open_transaction.lock().unwrap().clone();
         anyhow::ensure!(
             match (&previous_open, &parent) {
                 (None, None) => true,
@@ -254,11 +256,7 @@ impl Guard {
             },
             "native transaction does not own the innermost savepoint"
         );
-        let serial = storage
-            .0
-            .resources
-            .transaction_serial
-            .fetch_add(1, Ordering::Relaxed);
+        let serial = resources.transaction_serial.fetch_add(1, Ordering::Relaxed);
         let transaction = Arc::new(Transaction {
             status: AtomicU8::new(ACTIVE),
             closed: AtomicBool::new(false),
@@ -271,7 +269,7 @@ impl Guard {
             filesystem_work: Mutex::new((0, 0)),
         });
         transaction.control(storage, "start")?;
-        *storage.0.resources.open_transaction.lock().unwrap() = Some(transaction.clone());
+        *resources.open_transaction.lock().unwrap() = Some(transaction.clone());
         Ok(Self {
             view: Storage(storage.0.clone(), Some(transaction), storage.2),
             previous_open,
@@ -289,7 +287,7 @@ impl Guard {
             "commit"
         };
         if action == "commit" {
-            self.view.activation_scope()?;
+            self.view.data_activation_scope()?;
         }
         transaction.control(&self.view, action)?;
         transaction.closed.store(true, Ordering::Release);
@@ -307,20 +305,22 @@ impl Drop for Guard {
             // An outer rollback destroys its children's savepoints. A child
             // cancelled afterwards must not roll back the next transaction.
             if !transaction.ancestor_closed()
-                && !self.view.0.resources.retired.load(Ordering::Acquire)
+                && !self.view.resources().retired.load(Ordering::Acquire)
             {
                 if let Err(error) = transaction.control(&self.view, "rollback") {
                     let reason = format!("a transaction rollback failed: {error}");
-                    if self.view.installed_activation_scope().is_ok() {
-                        crate::storage::poison_transaction(&self.view.0.scope, reason.clone());
+                    if let Ok(scope) = self.view.installed_data_scope() {
+                        crate::storage::poison_transaction(scope, reason.clone());
                     }
-                    self.view.0.fail(reason);
+                    if let Ok(activation) = self.view.native_activation() {
+                        activation.fail(reason);
+                    }
                 }
             }
             transaction.status.store(ROLLED_BACK, Ordering::Release);
             transaction.closed.store(true, Ordering::Release);
         }
-        let mut open = self.view.0.resources.open_transaction.lock().unwrap();
+        let mut open = self.view.resources().open_transaction.lock().unwrap();
         let mut current = open.as_ref();
         let mut owns = false;
         while let Some(layer) = current {
@@ -358,7 +358,85 @@ where
     .await
 }
 
+async fn run_transaction<T, F, Fut>(
+    storage: Storage,
+    parent: Option<Arc<Transaction>>,
+    slot: Slot,
+    callback: F,
+) -> Result<T>
+where
+    F: FnOnce(Storage) -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    let root = parent.is_none();
+    let result = async {
+        slot.admission.clone().await.map_err(anyhow::Error::msg)?;
+        let guard = Guard::start(&storage, parent, true)?;
+        let result = callback_result(guard.view.clone(), callback).await;
+        guard.view.1.as_ref().unwrap().drain().await;
+        match result {
+            Ok(value) => {
+                guard.finish()?;
+                Ok(value)
+            }
+            Err(error) => {
+                drop(guard);
+                Err(error)
+            }
+        }
+    }
+    .await;
+    if root && result.is_ok() {
+        if let Owner::RaftCommand(resources) = &storage.0 {
+            crate::storage::commit_raft_work(resources).await?;
+        }
+    }
+    drop(slot);
+    result
+}
+
 impl Storage {
+    /// Queue an owned RPC checkpoint after preceding root transactions. The
+    /// frame owner supplies the exact durability proof, even if the caller
+    /// abandons this result future. Savepoints must remain atomic.
+    pub(super) fn raft_sync(&self) -> HandlerFuture<()> {
+        let prepared = (|| -> Result<_> {
+            self.write_scope()?;
+            let Owner::RaftCommand(authority) = &self.0 else {
+                anyhow::bail!(consensus::CommandFailure::UnsupportedCapability);
+            };
+            let resources = &authority.resources;
+            anyhow::ensure!(
+                self.1.is_none()
+                    && resources.transaction.lock().unwrap().is_none()
+                    && resources.open_transaction.lock().unwrap().is_none(),
+                "storage.sync: open transaction; call sync() after the transaction commits"
+            );
+            let (slot, _) = resources.transaction_queue.reserve();
+            let (send, receive) = tokio::sync::oneshot::channel();
+            let storage = self.clone();
+            let committer = authority.clone();
+            let task = Box::pin(async move {
+                let result = async {
+                    slot.admission.clone().await.map_err(anyhow::Error::msg)?;
+                    storage.write_scope()?;
+                    crate::storage::commit_raft_work(&committer).await
+                }
+                .await;
+                drop(slot);
+                let _ = send.send(result);
+                Ok(())
+            });
+            crate::storage::schedule_raft_work(authority, task)?;
+            Ok(receive)
+        })();
+        Box::pin(async move {
+            prepared?
+                .await
+                .map_err(|_| anyhow!("Raft storage sync was abandoned"))?
+        })
+    }
+
     /// Atomically commit synchronous work in this cell. A local commit is
     /// followed by the event's normal discovery and durability output gates.
     pub fn tx<T>(&self, callback: impl FnOnce(&Storage) -> Result<T>) -> Result<T> {
@@ -369,6 +447,14 @@ impl Storage {
     /// callback errors and panics roll back without resetting the cell. Root
     /// transactions reserve slots in call order; nested children finish before
     /// this boundary commits or rolls back, even if their futures are dropped.
+    /// Within a Raft RPC each root callback waits for its independently applied
+    /// checkpoint and required archive proof. Nested callbacks own savepoints
+    /// within that root. A later RPC failure preserves already committed roots;
+    /// retries of an unfinished invocation cannot reexecute those callbacks.
+    /// Between proven roots, an invocation waiting without private SQL changes
+    /// can yield to another request for the same cell. Its next poll opens the
+    /// latest committed image under its original invocation and leader fence.
+    /// An open transaction or private continuation retains exclusive ownership.
     pub fn transaction<T, F, Fut>(&self, context: &Context, callback: F) -> HandlerFuture<T>
     where
         T: Send + 'static,
@@ -376,22 +462,37 @@ impl Storage {
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         let prepared = (|| -> Result<_> {
-            context.check_turn()?;
-            self.activation_scope()?;
-            anyhow::ensure!(
-                context
-                    .io
-                    .native_activation
+            let raft = if let Owner::RaftCommand(resources) = &self.0 {
+                let contextual = context
+                    .raft_storage
                     .as_ref()
-                    .is_some_and(|activation| Arc::ptr_eq(activation, &self.0)),
-                "native transaction context belongs to another cell"
-            );
+                    .ok_or_else(|| anyhow!("transaction context has no Raft invocation"))?;
+                crate::storage::require_raft_command_storage(contextual, true)?;
+                anyhow::ensure!(
+                    Arc::ptr_eq(&contextual.resources, &resources.resources),
+                    "transaction context belongs to another Raft invocation"
+                );
+                self.data_activation_scope()?;
+                Some(resources.clone())
+            } else {
+                context.check_turn()?;
+                self.activation_scope()?;
+                let activation = self.native_activation()?;
+                anyhow::ensure!(
+                    context
+                        .io
+                        .native_activation
+                        .as_ref()
+                        .is_some_and(|installed| Arc::ptr_eq(installed, activation)),
+                    "native transaction context belongs to another cell"
+                );
+                None
+            };
             if let Some(view) = &self.1 {
                 view.check_active()?;
             }
             let parent = self
-                .0
-                .resources
+                .resources()
                 .transaction
                 .lock()
                 .unwrap()
@@ -405,41 +506,39 @@ impl Storage {
                 );
             }
             let (slot, done) = parent.as_ref().map_or_else(
-                || self.0.resources.transaction_queue.reserve(),
+                || self.resources().transaction_queue.reserve(),
                 |parent| parent.queue.reserve(),
             );
             if let Some(parent) = &parent {
                 parent.pending.lock().unwrap().push(done);
             }
-            Ok((parent, slot))
+            Ok((parent, slot, raft))
         })();
-        let (parent, slot) = match prepared {
+        let (parent, slot, raft) = match prepared {
             Ok(prepared) => prepared,
             Err(error) => return Box::pin(async move { Err(error) }),
         };
         let storage = self.clone();
+        if let Some(resources) = raft {
+            let (send, receive) = tokio::sync::oneshot::channel();
+            let task = Box::pin(async move {
+                let result = run_transaction(storage, parent, slot, callback).await;
+                let _ = send.send(result);
+                Ok(())
+            });
+            if let Err(error) = crate::storage::schedule_raft_work(&resources, task) {
+                return Box::pin(async move { Err(error) });
+            }
+            return Box::pin(async move {
+                receive
+                    .await
+                    .map_err(|_| anyhow!("Raft transaction callback was abandoned"))?
+            });
+        }
         // Catch a transaction's failure inside the critical section, retaining
         // the original distinction between rollback and actor reset.
         let block = context.block_concurrency_while(move |_| async move {
-            let result = async {
-                slot.admission.clone().await.map_err(anyhow::Error::msg)?;
-                let guard = Guard::start(&storage, parent, true)?;
-                let result = callback_result(guard.view.clone(), callback).await;
-                guard.view.1.as_ref().unwrap().drain().await;
-                match result {
-                    Ok(value) => {
-                        guard.finish()?;
-                        Ok(value)
-                    }
-                    Err(error) => {
-                        drop(guard);
-                        Err(error)
-                    }
-                }
-            }
-            .await;
-            drop(slot); // release before the critical section drains children
-            Ok(result)
+            Ok(run_transaction(storage, parent, slot, callback).await)
         });
         Box::pin(async move { block.await? })
     }
@@ -448,10 +547,9 @@ impl Storage {
     /// success. Errors and panics roll back; root helpers take the innermost
     /// active layer. An escaped view refuses use after its boundary.
     pub fn transaction_sync<T>(&self, callback: impl FnOnce(&Storage) -> Result<T>) -> Result<T> {
-        self.scope()?;
+        self.write_scope()?;
         let parent = self
-            .0
-            .resources
+            .resources()
             .transaction
             .lock()
             .unwrap()
@@ -477,8 +575,8 @@ impl Storage {
             return Ok(());
         }
         transaction.check_active()?;
-        self.activation_scope()?;
-        let mut current = self.0.resources.transaction.lock().unwrap().clone();
+        self.data_activation_scope()?;
+        let mut current = self.resources().transaction.lock().unwrap().clone();
         let mut owned = false;
         while let Some(layer) = current {
             if Arc::ptr_eq(&layer, transaction) {

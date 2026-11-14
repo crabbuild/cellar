@@ -63,6 +63,33 @@ and escaped views refuse access after termination. Synchronous helpers cannot
 start asynchronous transaction blocks. Use parameterized SQL and bound values
 for untrusted inputs. Close or drop cursors promptly and cap scans.
 
+For ordinary JSON cell RPC registered through `RaftClass::json_cell_rpc`,
+`Storage::transaction(&context, callback)` schedules an owned async transaction.
+Each root callback waits for its independently applied Raft checkpoint before
+returning its value. Explicit S3 durability additionally waits for that exact
+checkpoint's archive proof. Nested callbacks use savepoints within their root;
+errors and panics roll back that root or savepoint.
+
+Dropping the returned future leaves the callback owned by the invocation. The
+RPC waits for its children before producing its final successful receipt.
+Failure of a later transaction or the RPC preserves earlier committed roots.
+After interruption, retrying the original command ID and input cannot rerun the
+unfinished invocation. Its durable checkpoint remains an uncertain RPC outcome,
+and receipt lookup cannot describe it as completed or absent.
+
+Outside transaction callbacks, `Storage::sync()` owns a checkpoint in the same
+call-order queue as root transactions. It waits for the RPC's quorum/S3 proof;
+dropping its future leaves the queued boundary owned by the invocation. Calling
+sync inside an open synchronous or async transaction refuses before scheduling.
+Synchronous registered commands and immutable queries do not schedule these RPC
+checkpoints.
+
+Outstanding callbacks and explicit sync requests share
+`ExecutionLimits::max_pending_transactions` (32 by default); excess requests
+receive `Overloaded` before they run. The
+remaining primitive adapters and complete qualification remain in the
+[CG-17 implementation scope](design/multi-raft/cell-groups/remaining-work.md).
+
 ## Per-cell filesystem
 
 The opt-in `context.fs()` primitive stores regular files and directories in this

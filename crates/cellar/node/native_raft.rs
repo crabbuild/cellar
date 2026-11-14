@@ -13,6 +13,9 @@ use std::{path::PathBuf, sync::Arc};
 pub struct NativeRaftNode {
     pub node: String,
     pub data_dir: PathBuf,
+    /// The active, validated application. Resolve namespace definitions through
+    /// this instance so preparation uses the daemon's immutable configuration.
+    pub application: Arc<dyn crate::application::Application>,
 }
 
 /// Explicit resources for one production cell host. The daemon supplies the
@@ -60,9 +63,24 @@ impl Startup {
                     self.script
                 )
             })?;
+        // The namespace's immutable schema selects its deployment. Never pick
+        // whichever application's reserved Queue class was loaded first.
+        let generation = app
+            .runtime
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("native runtime unavailable"))?
+            .generation();
+        let mut cohosted: Vec<_> = generation.native_applications.iter().collect();
+        cohosted.sort_by_key(|(name, _)| *name);
+        let application: Arc<dyn crate::application::Application> =
+            Arc::new(crate::application::consensus::RaftApplications::new(
+                application,
+                cohosted.into_iter().map(|(_, app)| app.clone()),
+            )?);
         let prepared = (self.prepare)(NativeRaftNode {
             node: node.clone(),
             data_dir: data_dir.clone(),
+            application: application.clone(),
         })
         .await?;
         let local_node = prepared.config.infrastructure.log.node;

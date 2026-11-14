@@ -9,8 +9,11 @@ use super::completion::GroupStatus;
 use super::receipts;
 mod cell;
 mod submission;
-pub(crate) use cell::authority_failure;
+pub(crate) use cell::{
+    authority_failure, CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn,
+};
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
+pub(crate) mod binding_seal;
 mod command;
 mod enrollment;
 mod registered;
@@ -36,6 +39,10 @@ use images::{Images, Options, Preview, Published, State, WorkingImage};
 use sha2::{Digest, Sha256};
 use std::{fmt, path::PathBuf};
 
+/// Bound simultaneous physical images retained by lazy cursors of one cell.
+/// Slots are reused only after their connection/VFS/lock has been closed.
+pub(crate) const MAX_CURSOR_IMAGES: usize = 64;
+
 #[cfg(test)]
 #[path = "../execution_preview_tests.rs"]
 mod preview_tests;
@@ -47,6 +54,9 @@ pub struct ExecutionLimits {
     pub max_result_bytes: usize,
     pub max_client_identities: usize,
     pub max_retained_receipts: usize,
+    /// Outstanding async transaction callbacks and explicit sync requests
+    /// within one private RPC. Zero disables scheduling either kind of work.
+    pub max_pending_transactions: usize,
     pub max_retry_window_ms: u64,
     /// Virtual space within max_image_bytes reserved for durable receipts,
     /// client sequence floors and LTX control tables. Zero disables this policy.
@@ -65,6 +75,7 @@ impl Default for ExecutionLimits {
             max_result_bytes: 64 * 1024,
             max_client_identities: 1024,
             max_retained_receipts: 4096,
+            max_pending_transactions: 32,
             max_retry_window_ms: 600_000,
             receipt_reserve_bytes: 0,
             receipt_maintenance: Some(
@@ -107,6 +118,7 @@ impl ExecutionLimits {
             || !(1..=1024 * 1024).contains(&self.max_result_bytes)
             || !(1..=65_536).contains(&self.max_client_identities)
             || !(1..=65_536).contains(&self.max_retained_receipts)
+            || self.max_pending_transactions > 1024
             || !(1..=90 * 24 * 60 * 60 * 1000).contains(&self.max_retry_window_ms)
             || self.receipt_reserve_bytes > self.max_image_bytes / 4
             || !self.receipt_reserve_bytes.is_multiple_of(512)
@@ -174,7 +186,7 @@ pub fn query_registered(
         position: published.position(),
     };
     let result = class
-        .invoke_group_query(contract, &version, &database, input)
+        .invoke_group_query(contract, &version, database, input)
         .map_err(storage)?;
     if result.len() > limits.max_result_bytes {
         return Err(ExecutionError::Refused(CommandFailure::Overloaded));
@@ -314,6 +326,8 @@ pub struct StoredReceipt {
     pub(super) result: Vec<u8>,
     pub(super) minimum_durability: Durability,
     pub(super) retry_until_ms: u64,
+    /// A private invocation checkpoint is never a completed RPC response.
+    pub(super) rpc_step: Option<u64>,
 }
 
 impl StoredReceipt {
@@ -601,7 +615,17 @@ impl PrivateExecutor {
         let command = attempt.request.id;
         let durability = attempt.request.durability;
         self.stage_admitted(attempt, allow_new, |transaction| {
-            class.invoke_command(&contract, &scope, command, durability, transaction, input)
+            class.invoke_command(
+                &contract,
+                crate::application::consensus::CommandTarget {
+                    cell: &scope,
+                    route_epoch: None,
+                },
+                command,
+                durability,
+                transaction,
+                input,
+            )
         })
     }
 
@@ -772,7 +796,7 @@ impl PrivateExecutor {
             .ok_or(ExecutionError::RebuildRequired)?;
         working.begin_mutation();
         command::apply(
-            working.database(),
+            working.database_mut(),
             self.options.limits,
             &attempt,
             maintenance,
@@ -801,12 +825,17 @@ impl PrivateExecutor {
             .ok_or(ExecutionError::RebuildRequired)?
             .begin_mutation();
         self.working
-            .as_ref()
+            .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?
-            .database()
-            .transaction(inputs, |connection, _| {
-                receipts::prune(connection, client, through, inputs.now_unix_millis)
-                    .map_err(anyhow::Error::new)
+            .database_mut()
+            .transaction(inputs, |transaction| {
+                receipts::prune(
+                    &*transaction.framework()?,
+                    client,
+                    through,
+                    inputs.now_unix_millis,
+                )
+                .map_err(anyhow::Error::new)
             })
             .map_err(private_failure)?;
         self.freeze(proposal, preview, Kind::Prune { client, through })

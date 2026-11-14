@@ -206,7 +206,7 @@ impl BindingJournal {
         self.authority.check(context)?;
         let storage = context.storage()?;
         ensure!(
-            storage.0.resources.transaction.lock().unwrap().is_none(),
+            storage.resources().transaction.lock().unwrap().is_none(),
             "provider journals cannot be used inside storage callbacks"
         );
         Ok(&context.identity().unwrap().scope)
@@ -227,8 +227,7 @@ impl BindingJournal {
             self.check(context)?;
             context
                 .storage()?
-                .0
-                .resources
+                .resources()
                 .provider_lifecycle
                 .get(&self.name)
         })();

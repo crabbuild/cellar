@@ -15,12 +15,18 @@ use cellar_logic::consensus::{Durability, MemberId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[path = "leader_advice_wire.rs"]
+pub(super) mod advice;
+#[path = "binding_cell_wire.rs"]
+pub(super) mod binding;
 #[path = "query_cell_wire.rs"]
 pub(super) mod cell;
 #[path = "command_cell_wire.rs"]
 pub(super) mod command;
 #[path = "enrollment_cell_wire.rs"]
 pub(super) mod enrollment;
+#[path = "name_cell_wire.rs"]
+pub(super) mod name;
 #[path = "receipt_cell_wire.rs"]
 pub(super) mod receipt;
 
@@ -39,9 +45,9 @@ fn read_durability(body: &mut Reader<'_>) -> Result<Durability, TransportError> 
     }
 }
 
-pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-1";
-const REQUEST: &[u8] = b"cellar-raft-query-request-1";
-const RESPONSE: &[u8] = b"cellar-raft-query-response-1";
+pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-advice-1";
+const REQUEST: &[u8] = b"cellar-raft-query-advice-request-1";
+const RESPONSE: &[u8] = b"cellar-raft-query-advice-response-1";
 
 fn failure_code(failure: &CommandFailure) -> u8 {
     match failure {

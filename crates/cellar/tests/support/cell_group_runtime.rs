@@ -908,17 +908,19 @@ pub(super) use sql::{
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
-    archived_groups_reclaim_independently,
+    archive_controller_tail_rollover, archived_groups_reclaim_independently,
 };
 #[allow(unused_imports)]
 pub(super) use sql::{archive_controller_publish_store, archive_controller_reconcile_store};
 #[allow(unused_imports)]
 pub(super) use sql::{
-    archive_dependencies, archive_progress_wakes_commands, full_backend_outage,
-    output_during_apply, s3_commands, s3_deadline, s3_enrollment, s3_enrollment_deadline,
-    s3_missing_sibling, s3_namespace_minimum, s3_receipt_deadline, s3_receipt_failures,
-    s3_receipt_minimums, s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs,
-    s3_remote_slow_delivery, s3_replays_from_peer_archive,
+    archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
+    follower_acquires_published_prefix, full_backend_outage, output_during_apply, s3_commands,
+    s3_deadline, s3_enrollment, s3_enrollment_deadline,
+    s3_late_receipt_uses_completed_verification, s3_missing_sibling, s3_namespace_minimum,
+    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
+    s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery, s3_replays_from_peer_archive,
+    s3_response_precedes_hold_retirement,
 };
 pub(super) use sql::{
     background_admission, command_admission_starts_before_poll, command_waits_for_apply,
@@ -961,7 +963,10 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
     sql::submission_rejections(rooted).await
 }
 
-pub(super) use sql::{coherent_reads, follower_linearizable, query_lifecycle, recent_source_reads};
+pub(super) use sql::{
+    coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable, query_lifecycle,
+    recent_source_reads,
+};
 
 pub(super) use sql::apply_images;
 
@@ -985,7 +990,9 @@ pub(super) use sql::{
     enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
 };
 
-pub(super) use sql::{remote_follower_reads, remote_queries, remote_query_lifecycle};
+pub(super) use sql::{
+    remote_execution_deadlines, remote_follower_reads, remote_queries, remote_query_lifecycle,
+};
 
 pub(super) use sql::{nonmember_controller_queries, nonmember_queries, nonmember_query_revocation};
 
@@ -993,7 +1000,9 @@ pub(super) use sql::cached_dispatch_execution;
 
 pub(super) use sql::{remote_command_lifecycle, remote_commands};
 
-pub(super) use sql::{remote_enrollment, remote_enrollment_lifecycle};
+pub(super) use sql::{
+    remote_enrollment, remote_enrollment_lifecycle, remote_enrollment_writer_contention,
+};
 
 pub(super) use sql::{receipt_lookup_cancelled, receipt_lookup_ingress, receipt_lookup_pending};
 

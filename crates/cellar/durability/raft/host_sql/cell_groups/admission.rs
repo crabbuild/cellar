@@ -16,6 +16,7 @@ pub(super) struct Admission {
     limits: CellSqlLimits,
     state: Mutex<State>,
     max_retired_groups: usize,
+    writers: tokio::sync::watch::Sender<()>,
 }
 
 #[derive(Default)]
@@ -45,17 +46,58 @@ impl Bytes {
 pub(super) struct CellLease {
     owner: Arc<Admission>,
     cell: LogicalCell,
+    group: GroupHistory,
+    held: bool,
+}
+
+impl CellLease {
+    pub(super) fn park(&mut self) -> Result<(), ExecutionError> {
+        let mut state = self.owner.state.lock().map_err(|_| unavailable())?;
+        if !self.held || !state.cells.remove(&self.cell) {
+            return Err(ExecutionError::Invalid("cell writer lease is not held"));
+        }
+        self.held = false;
+        drop(state);
+        self.owner.writers.send_replace(());
+        Ok(())
+    }
+
+    pub(super) fn resume(&mut self) -> Result<(), ExecutionError> {
+        let mut state = self.owner.state.lock().map_err(|_| unavailable())?;
+        if self.held {
+            return Ok(());
+        }
+        if state.retired.contains(&self.group) {
+            return Err(unavailable());
+        }
+        if !state.cells.insert(self.cell.clone()) {
+            return Err(ExecutionError::Busy);
+        }
+        self.held = true;
+        Ok(())
+    }
 }
 
 impl Drop for CellLease {
     fn drop(&mut self) {
-        if let Ok(mut state) = self.owner.state.lock() {
-            state.cells.remove(&self.cell);
+        let released = self.held
+            && self
+                .owner
+                .state
+                .lock()
+                .is_ok_and(|mut state| state.cells.remove(&self.cell));
+        if released {
+            self.owner.writers.send_replace(());
         }
     }
 }
 
 impl Admission {
+    /// Local writer release need not produce another Raft apply notification.
+    pub(super) fn writer_progress(&self) -> tokio::sync::watch::Receiver<()> {
+        self.writers.subscribe()
+    }
+
     pub fn limits(&self) -> CellSqlLimits {
         self.limits
     }
@@ -71,6 +113,7 @@ impl Admission {
             node: Budget::new(limits.node_bytes, limits.max_pending_cells),
             limits,
             state: Mutex::new(State::default()),
+            writers: tokio::sync::watch::channel(()).0,
         })
     }
 
@@ -91,6 +134,8 @@ impl Admission {
             CellLease {
                 owner: self.clone(),
                 cell: key,
+                group,
+                held: true,
             },
             bytes,
         ))
@@ -179,6 +224,91 @@ mod tests {
         storage::ReplicaLog,
     };
     use cellar_logic::consensus::{DiskLineage, GroupId, IncarnationId, NodeId, ProcessGeneration};
+
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods)]
+    async fn writer_release_wakes_waiters_without_raft_apply() -> anyhow::Result<()> {
+        let root = tempfile::tempdir()?;
+        let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+        let log = domain
+            .run(ReplicaLog::open(
+                ReplicaLogOptions::new(
+                    root.path().join("raft"),
+                    NodeId::new([1; 16])?,
+                    DiskLineage::new([2; 16])?,
+                    ProcessGeneration::new([3; 16])?,
+                    LogOpenMode::Create,
+                ),
+                Arc::new(cellar_ltx::DirectFileSystem),
+            ))
+            .await??;
+        let group = GroupHistory {
+            cluster: ClusterId::new([4; 16])?,
+            namespace: NamespaceId::new([5; 16])?,
+            group: GroupId::new([6; 16])?,
+            incarnation: IncarnationId::new([7; 16])?,
+        };
+        let cell = CellHistory {
+            cluster: group.cluster,
+            namespace: group.namespace,
+            cell: cellar_logic::cell_group::CellId::new("writer")?,
+            incarnation: group.incarnation,
+        };
+        let admission = Admission::new(
+            CellSqlLimits {
+                workers: 1,
+                queue_per_worker: 4,
+                max_pending_cells: 4,
+                group_pending_cells: 4,
+                node_bytes: 16_384,
+                group_bytes: 8192,
+            },
+            log.claim_sql_pool()?,
+            2,
+        );
+        let mut progress = admission.writer_progress();
+        let (mut first, first_bytes) = admission.reserve(&cell, group, 1024)?;
+        assert!(matches!(
+            admission.reserve(&cell, group, 1024),
+            Err(ExecutionError::Busy)
+        ));
+        // No group exists and no Raft apply can wake this waiter. Parking must
+        // publish local progress even while the original physical bytes stay held.
+        first.park()?;
+        domain
+            .run(crate::asyncrt::timeout(
+                std::time::Duration::from_secs(1),
+                progress.changed(),
+            ))
+            .await???;
+        let (second, second_bytes) = admission.reserve(&cell, group, 1024)?;
+        assert!(matches!(first.resume(), Err(ExecutionError::Busy)));
+        drop(second);
+        domain
+            .run(crate::asyncrt::timeout(
+                std::time::Duration::from_secs(1),
+                progress.changed(),
+            ))
+            .await???;
+        first.resume()?;
+        drop(first);
+        domain
+            .run(crate::asyncrt::timeout(
+                std::time::Duration::from_secs(1),
+                progress.changed(),
+            ))
+            .await???;
+        assert_eq!(admission.usage()?.0, 0);
+        assert_eq!(
+            admission.usage()?.2,
+            2,
+            "physical ownership must stay charged after writer release"
+        );
+        drop((first_bytes, second_bytes, admission));
+        log.close().await?;
+        domain.shutdown().await;
+        Ok(())
+    }
 
     #[tokio::test]
     #[allow(clippy::disallowed_methods)]

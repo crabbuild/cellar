@@ -60,6 +60,7 @@ impl CellGroupController {
                 permit: Arc::new(Retention {
                     _permit: permit,
                     _work: registration.work.take(),
+                    _callback: None,
                 }),
             })))
             .map_err(|error| {

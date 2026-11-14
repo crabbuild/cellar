@@ -3,6 +3,9 @@
 //! CG-14 exercises the existing physical RF3/SQLite owner and campaign refusals.
 #![allow(clippy::disallowed_methods)]
 
+#[path = "support/raft_storage_fault.rs"]
+pub mod storage_fault;
+
 #[path = "support/cell_group_host_context.rs"]
 mod fixture;
 

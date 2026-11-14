@@ -83,17 +83,24 @@ impl ManifestLimits {
 pub struct EffectSummary {
     pub next_alarm_unix_millis: Option<u64>,
     pub next_outbox_unix_millis: Option<u64>,
+    pub next_call_unix_millis: Option<u64>,
     pub pending_outbox: u64,
     pub pending_inbox: u64,
+    /// Unresolved ordinary calls pin their exact child history and prevent park.
+    pub pending_calls: u64,
 }
 
 impl EffectSummary {
     /// Earliest durable work hint. It grants no callback or delivery authority.
     pub fn next_due_unix_millis(self) -> Option<u64> {
-        [self.next_alarm_unix_millis, self.next_outbox_unix_millis]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            self.next_alarm_unix_millis,
+            self.next_outbox_unix_millis,
+            self.next_call_unix_millis,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 }
 
@@ -126,11 +133,13 @@ impl CellManifestLeaf {
         if [
             self.effects.next_alarm_unix_millis,
             self.effects.next_outbox_unix_millis,
+            self.effects.next_call_unix_millis,
         ]
         .into_iter()
         .flatten()
         .any(|due| due > i64::MAX as u64)
             || (self.effects.pending_outbox == 0) != self.effects.next_outbox_unix_millis.is_none()
+            || (self.effects.pending_calls != 0 && self.effects.next_call_unix_millis.is_none())
         {
             return Err(ManifestError::Invalid("effect summary"));
         }
@@ -207,6 +216,11 @@ impl ManifestRoot {
 
     pub fn depth(self) -> u8 {
         self.0.map_or(0, |p| p.height)
+    }
+
+    /// Authenticated unresolved-call count after complete-root verification.
+    pub(crate) fn pending_calls(self) -> u64 {
+        self.0.map_or(0, |page| page.pending_calls)
     }
 
     /// Authenticated subtree hint after complete-root verification. No SQLite

@@ -121,23 +121,30 @@ pub(crate) async fn s3_enrollment(rooted: bool, store: Arc<dyn ObjectStore>) -> 
         assert_eq!(response.record(), &original);
         assert_eq!(h.archive.tails.usage().operations, 1);
         assert_eq!(h.initializations.load(Ordering::SeqCst), 1);
+        // The original cut is already independently verified. A duplicate
+        // creation shares that admitted proof, without another upload or replay
+        // slot, while both responses keep their own bounded admission.
+        h.remote
+            .deny_generation_writes
+            .store(true, Ordering::Release);
         let duplicate = h
             .enroll(&h.dispatcher, 210, Durability::S3, Duration::from_secs(15))
+            .await?
+            .response()
             .await?;
         controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 2)).await?;
-        let mut duplicate = Box::pin(duplicate.response());
-        assert!(
-            tokio::time::timeout(Duration::from_millis(30), duplicate.as_mut())
-                .await
-                .is_err()
-        );
-        drop(response);
-        let response = duplicate.await?;
-        assert_eq!(response.record(), &original);
-        assert_eq!(response.durability(), Durability::S3);
+        assert_eq!(duplicate.record(), &original);
+        assert_eq!(duplicate.durability(), Durability::S3);
+        assert_eq!(h.archive.tails.usage().operations, 1);
         assert_eq!(h.initializations.load(Ordering::SeqCst), 1);
         drop(response);
+        controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 1)).await?;
+        assert_eq!(h.archive.tails.usage().operations, 1);
+        drop(duplicate);
         controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 0)).await?;
+        h.remote
+            .deny_generation_writes
+            .store(false, Ordering::Release);
         let error = h
             .enroll(&h.dispatcher, 211, Durability::S3, Duration::from_secs(15))
             .await?

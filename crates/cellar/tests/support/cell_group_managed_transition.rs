@@ -18,6 +18,9 @@ mod preparation;
 #[path = "cell_group_managed_transition_retirement.rs"]
 mod retirement;
 
+#[path = "cell_group_transition_routing.rs"]
+mod routing;
+
 #[path = "cell_group_managed_transition_merge.rs"]
 pub(crate) mod merge;
 
@@ -421,6 +424,11 @@ async fn exercise_inner(
 
     closure::acknowledged(&archived);
     effects::before_seal(cluster, &seeded.cells).await?;
+    let cached_source = if matches!(decision, Decision::Authorize) {
+        Some(routing::prime(cluster, &seeded).await?)
+    } else {
+        None
+    };
     let admitted = fleet.read(TIMEOUT).await?;
     let other = identity(235, admitted.revision());
     let mutation = FleetMutation {
@@ -631,11 +639,18 @@ async fn exercise_inner(
         if matches!(decision, Decision::Publication) {
             return Ok(None);
         }
+        if let Some(cached) = &cached_source {
+            routing::replay(cluster, cached, seeded.retry).await?;
+        }
         let cells = seeded.cells.clone();
         Box::pin(preparation::verify_transferred_sql(
-            cluster, directory, seeded,
+            cluster,
+            directory,
+            seeded,
+            cached_source.as_ref(),
         ))
         .await?;
+        drop(cached_source);
         restart::checkpoint(cluster, directory, &recovered, TransitionPhase::Active).await?;
         let tombstone = Box::pin(retirement::reopen_and_retire(
             cluster, directory, &recovered,

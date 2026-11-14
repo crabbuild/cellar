@@ -19,6 +19,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
 
+#[path = "support/sql_cursor_rollback.rs"]
+mod cursor_rollback;
+#[path = "support/sql_exec_batches.rs"]
+mod sql_exec_batches;
+
 fn clone_value(value: serde_json::Value) -> StructuredValue {
     StructuredValue::from_json(value).unwrap()
 }
@@ -240,6 +245,8 @@ fn check_transactions(storage: &Storage) -> Result<()> {
 }
 
 fn check_sql(storage: &Storage) -> Result<()> {
+    sql_exec_batches::check(storage)?;
+    cursor_rollback::check(storage)?;
     let mut cursor=storage.sql_cursor("CREATE TABLE items(n INTEGER PRIMARY KEY,b BLOB); INSERT INTO items VALUES(1,x'ff'),(2,x'00'); SELECT n,b,9e999 AS inf FROM items ORDER BY n",&[])?;
     assert_eq!(cursor.column_names(), &["n", "b", "inf"]);
     assert_eq!(cursor.rows_read(), 1);

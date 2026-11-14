@@ -193,6 +193,21 @@ impl CellGroupResourceUsage {
             }
         }
         let c = self.host.controller;
+        if let Some(payloads) = self.host.payloads {
+            sample(&mut out, "payload_operations", "", payloads.operations);
+            sample(
+                &mut out,
+                "payload_retained_bytes",
+                "",
+                payloads.retained_bytes,
+            );
+            sample(
+                &mut out,
+                "payload_capacity_bytes",
+                "",
+                self.host.payload_byte_limit,
+            );
+        }
         for (name, value) in [
             ("namespaces", self.host.namespaces),
             ("namespace_bytes", self.host.namespace_bytes),
@@ -216,6 +231,7 @@ impl CellGroupResourceUsage {
         for (lane, usage) in [
             ("ordinary", c.ordinary),
             ("archive_settlement", c.archive_settlement),
+            ("callback", c.callbacks),
         ] {
             let labels = format!("{{lane=\"{lane}\"}}");
             for (name, value) in [
@@ -254,6 +270,9 @@ impl CellGroupResourceUsage {
                 ("sql_workers", sql.running_workers),
                 ("sql_worker_capacity", sql.worker_capacity),
                 ("sql_active_cells", sql.active_cells),
+                ("sql_idle_activations", sql.idle_activations),
+                ("sql_retained_activations", sql.retained_activations),
+                ("sql_activation_capacity", sql.activation_capacity),
                 ("sql_retained_operations", sql.retained_operations),
                 ("sql_retained_bytes", sql.retained_bytes),
                 ("sql_queued_or_running", sql.queued_or_running),

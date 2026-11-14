@@ -6,7 +6,7 @@ mod remote;
 
 use super::*;
 use crate::raft::execution::CellEnrollmentAttempt;
-use crate::raft::transport::{CellRemoteEnrollmentResponse, RaftTransport};
+use crate::raft::transport::CellRemoteEnrollmentResponse;
 use crate::storage::CommandInputs;
 use cellar_logic::consensus::{CommandFailure, Durability};
 use cellar_ltx::generation::ImageId;
@@ -109,6 +109,12 @@ enum EnrollmentInput {
     Received(CommandInputs, ImageId),
 }
 
+struct EnrollmentCapture {
+    input: EnrollmentInput,
+    started: u64,
+    admission: Permit,
+}
+
 impl CellGroupDispatcher {
     pub fn enroll(
         &self,
@@ -159,18 +165,64 @@ impl CellGroupDispatcher {
     ) -> impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
            + Send
            + 'static {
-        let dispatcher = self.clone();
-        let started = self.domain.mono_ms();
-        async move {
-            let started = started.map_err(|_| CellEnrollmentError {
-                creation: request.creation,
-                ambiguous: false,
-                cause: Box::new(closed()),
-            })?;
-            dispatcher
-                .enroll_captured(cell, request, limits, cached, input, started)
-                .await
+        let prepared = self.capture_enrollment(cell, request, limits, cached, input);
+        async move { prepared?.await }
+    }
+
+    pub(crate) fn capture_routed_enrollment(
+        &self,
+        cell: CellHistory,
+        request: CellEnrollmentRequest,
+        limits: CellRoutingLimits,
+    ) -> Result<
+        impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
+            + Send
+            + 'static,
+        CellEnrollmentError,
+    > {
+        self.capture_enrollment(cell, request, limits, None, EnrollmentInput::Originating)
+    }
+
+    fn capture_enrollment(
+        &self,
+        cell: CellHistory,
+        request: CellEnrollmentRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        input: EnrollmentInput,
+    ) -> Result<
+        impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
+            + Send
+            + 'static,
+        CellEnrollmentError,
+    > {
+        let failure = |cause| CellEnrollmentError {
+            creation: request.creation,
+            ambiguous: false,
+            cause: Box::new(cause),
+        };
+        let started = self.domain.mono_ms().map_err(|_| failure(closed()))?;
+        if limits.deadline_at(started).is_none() {
+            return Err(failure(CellDispatchError::Invalid("enrollment deadline")));
         }
+        self.class
+            .require_initializer()
+            .map_err(|error| failure(CellDispatchError::Registration(error)))?;
+        let admission = self
+            .budget
+            .acquire(8192)
+            .ok_or_else(|| failure(CellDispatchError::Runtime(RuntimeError::Overloaded)))?;
+        let dispatcher = self.clone();
+        let capture = EnrollmentCapture {
+            input,
+            started,
+            admission,
+        };
+        Ok(async move {
+            dispatcher
+                .enroll_captured(cell, request, limits, cached, capture)
+                .await
+        })
     }
 
     async fn enroll_captured(
@@ -179,9 +231,13 @@ impl CellGroupDispatcher {
         mut request: CellEnrollmentRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
-        input: EnrollmentInput,
-        started: u64,
+        capture: EnrollmentCapture,
     ) -> Result<CellEnrollmentInvocation, CellEnrollmentError> {
+        let EnrollmentCapture {
+            input,
+            started,
+            admission,
+        } = capture;
         let error = |cause| CellEnrollmentError {
             creation: request.creation,
             ambiguous: false,
@@ -200,10 +256,6 @@ impl CellGroupDispatcher {
         self.class
             .require_initializer()
             .map_err(|e| error(CellDispatchError::Registration(e)))?;
-        let admission = self
-            .budget
-            .acquire(8192)
-            .ok_or_else(|| error(CellDispatchError::Runtime(RuntimeError::Overloaded)))?;
         let (inputs, preview) = if let EnrollmentInput::Received(inputs, preview) = input {
             (inputs, preview)
         } else {
@@ -320,8 +372,9 @@ impl CellEnrollmentInvocation {
         options: CellSqlOptions,
         roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
-        transport: &RaftTransport,
+        routing: MutationRouting<'_>,
     ) -> Result<CellEnrollmentResponse, CellEnrollmentError> {
+        let transport = routing.transport;
         self.started = true;
         let mut attempt = self.begin_owned().await.map_err(|e| self.error(e))?;
         if self.route_remote && self.remote_route.is_none() {
@@ -337,6 +390,29 @@ impl CellEnrollmentInvocation {
                 .await;
                 match selected {
                     Ok(member) => break member,
+                    Err(cause)
+                        if matches!(
+                            cause.refusal(),
+                            Some(CommandFailure::NotLeader { .. } | CommandFailure::Overloaded)
+                        ) && usize::from(attempt.ordinal())
+                            < self.session.maximum_attempts() =>
+                    {
+                        // No creation was sent. Retain the same placement, inputs,
+                        // creation identity and original attempt/deadline bank.
+                        routing
+                            .backoff(
+                                &self.dispatcher.domain,
+                                self.session.deadline_ms(),
+                                self.session.maximum_attempts() - usize::from(attempt.ordinal()),
+                            )
+                            .await
+                            .map_err(|cause| self.error(cause))?;
+                        attempt = self
+                            .session
+                            .retry(&attempt)
+                            .await
+                            .map_err(|error| self.error(CellDispatchError::Routing(error)))?;
+                    }
                     Err(CellDispatchError::Runtime(
                         RuntimeError::NotReady | RuntimeError::NotFound,
                     )) if usize::from(attempt.ordinal()) < self.session.maximum_attempts() => {
@@ -403,61 +479,16 @@ impl CellEnrollmentInvocation {
         {
             return Err(CellDispatchError::Runtime(RuntimeError::NotFound));
         }
-        let authority = runtime
-            .enrollment_authority(attempt.route().history, self.cell.clone())
-            .await
-            .map_err(CellDispatchError::Runtime)?;
-        if authority.state().route() != attempt.route() {
-            return Err(CellDispatchError::Invalid("enrollment destination route"));
-        }
-        if self.durability == Durability::S3 {
-            let owner = self
-                .dispatcher
-                .s3
-                .as_ref()
-                .ok_or(CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability,
-                )))?;
-            owner.require_runtime(runtime)?;
-            owner.require_group(attempt.route())?;
-        }
-        self.session
-            .mark_submitted(&attempt)
-            .map_err(CellDispatchError::Routing)?;
-        self.ambiguous = true;
-        self.origin = Some(Origin {
-            runtime: runtime.clone(),
-            sql: sql.clone(),
-            route: attempt.route().clone(),
-            prepared: None,
-        });
-        let class = self.dispatcher.class.clone();
-        let cell = self.cell.clone();
-        let staged = sql
-            .initialize_owned(
-                options,
-                authority,
-                CellEnrollmentAttempt {
-                    creation: self.creation,
-                    preview: self.preview,
-                    inputs: self.inputs,
-                },
-                move |tx| class.invoke_initializer(&cell, tx),
-            )
-            .await;
-        match staged {
-            Ok(CellSqlOutcome::Enrollment(enrolled)) => return self.committed(*enrolled).await,
-            Ok(CellSqlOutcome::Prepared(prepared)) => self.origin_mut()?.prepared = Some(prepared),
-            Ok(_) => {
+        match self
+            .initialize_when_ready(runtime, sql, options, progress, &attempt)
+            .await?
+        {
+            CellSqlOutcome::Enrollment(enrolled) => return self.committed(*enrolled).await,
+            CellSqlOutcome::Prepared(prepared) => self.origin_mut()?.prepared = Some(prepared),
+            _ => {
                 return Err(CellDispatchError::Invalid(
                     "enrollment preparation response",
                 ))
-            }
-            Err(failure) => {
-                if !failure.unresolved {
-                    self.origin = None;
-                }
-                return Err(CellDispatchError::Execution(failure.error));
             }
         }
         loop {
@@ -561,6 +592,150 @@ impl CellEnrollmentInvocation {
             }
             progress.changed().await.map_err(|_| closed())?;
         }
+    }
+
+    /// Only witnessed pre-enqueue refusals may wait for a logical writer or
+    /// fresh applied authority. Entered initializers and lost replies retain
+    /// their existing producer ownership and reconciliation; they never retry.
+    async fn initialize_when_ready(
+        &mut self,
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        options: CellSqlOptions,
+        progress: &mut watch::Receiver<()>,
+        attempt: &CellRouteAttempt,
+    ) -> Result<CellSqlOutcome, CellDispatchError> {
+        let mut observed_cut = None;
+        let mut noted = false;
+        let mut writers = sql.writer_progress();
+        loop {
+            self.session
+                .validate_attempt(attempt)
+                .map_err(CellDispatchError::Routing)?;
+            progress.borrow_and_update();
+            writers.borrow_and_update();
+            let mut before_enqueue = false;
+            let staged = self
+                .initialize_at(runtime, sql, options.clone(), attempt, &mut before_enqueue)
+                .await;
+            let wait_for_writer = before_enqueue
+                && matches!(
+                    &staged,
+                    Err(CellDispatchError::Execution(ExecutionError::Busy))
+                );
+            match staged {
+                Err(CellDispatchError::Execution(
+                    ExecutionError::Busy | ExecutionError::Refused(CommandFailure::Overloaded),
+                )) if before_enqueue && self.origin.is_none() => {
+                    if !noted {
+                        tracing::debug!(target: "cellar::raft::enrollment", phase = "writer-wait", creation = ?self.creation);
+                        noted = true;
+                    }
+                }
+                Err(error)
+                    if self.origin.is_none()
+                        && (matches!(
+                            error,
+                            CellDispatchError::Runtime(RuntimeError::NotReady)
+                        ) || (before_enqueue
+                            && matches!(
+                                error,
+                                CellDispatchError::Execution(ExecutionError::Refused(
+                                    CommandFailure::Unavailable
+                                ))
+                            ))) =>
+                {
+                    let status = runtime
+                        .status(attempt.route().history)
+                        .await
+                        .map_err(CellDispatchError::Runtime)?;
+                    let cut = (
+                        status.term.get(),
+                        status.applied.index.get(),
+                        status.committed.get(),
+                    );
+                    if status.applied.index >= status.committed {
+                        // A completed apply may race authority selection. Retry
+                        // each newly observed ready cut once; stable fences refuse.
+                        if status.ready && observed_cut != Some(cut) {
+                            observed_cut = Some(cut);
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                    observed_cut = Some(cut);
+                }
+                result => return result,
+            }
+            let timer = self
+                .dispatcher
+                .domain
+                .sleep_until(self.session.deadline_ms())
+                .map_err(|_| closed())?;
+            crate::asyncrt::select! {
+                result = progress.changed() => result.map_err(|_| closed())?,
+                result = writers.changed(), if wait_for_writer => result.map_err(|_| closed())?,
+                _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+            }
+        }
+    }
+
+    async fn initialize_at(
+        &mut self,
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        options: CellSqlOptions,
+        attempt: &CellRouteAttempt,
+        before_enqueue: &mut bool,
+    ) -> Result<CellSqlOutcome, CellDispatchError> {
+        let authority = runtime
+            .enrollment_authority(attempt.route().history, self.cell.clone())
+            .await
+            .map_err(CellDispatchError::Runtime)?;
+        if authority.state().route() != attempt.route() {
+            return Err(CellDispatchError::Invalid("enrollment destination route"));
+        }
+        if self.durability == Durability::S3 {
+            let owner = self
+                .dispatcher
+                .s3
+                .as_ref()
+                .ok_or(CellDispatchError::Execution(ExecutionError::Refused(
+                    CommandFailure::UnsupportedCapability,
+                )))?;
+            owner.require_runtime(runtime)?;
+            owner.require_group(attempt.route())?;
+        }
+        self.session
+            .mark_submitted(attempt)
+            .map_err(CellDispatchError::Routing)?;
+        self.ambiguous = true;
+        self.origin = Some(Origin {
+            runtime: runtime.clone(),
+            sql: sql.clone(),
+            route: attempt.route().clone(),
+            prepared: None,
+        });
+        let class = self.dispatcher.class.clone();
+        let cell = self.cell.clone();
+        sql.initialize_owned(
+            options,
+            authority,
+            CellEnrollmentAttempt {
+                creation: self.creation,
+                preview: self.preview,
+                inputs: self.inputs,
+            },
+            move |tx| class.invoke_initializer(&cell, tx),
+        )
+        .await
+        .map_err(|failure| {
+            *before_enqueue = failure.before_enqueue;
+            if !failure.unresolved {
+                self.origin = None;
+            }
+            CellDispatchError::Execution(failure.error)
+        })
     }
 
     fn origin_ref(&self) -> Result<&Origin, CellDispatchError> {

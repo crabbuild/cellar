@@ -389,3 +389,31 @@ async fn dispatcher_route_cache_bounds_and_refreshes_hints() -> anyhow::Result<(
 async fn dispatcher_route_cache_refuses_superseded_inflight_refill() -> anyhow::Result<()> {
     directory::stale_cache_refill().await
 }
+
+#[tokio::test]
+async fn dispatcher_route_cache_repairs_only_changed_intervals() -> anyhow::Result<()> {
+    directory::changed_interval_preserves_unaffected_routes().await
+}
+
+#[tokio::test]
+async fn dispatcher_route_cache_retains_original_revision_and_catalog_floor() -> anyhow::Result<()>
+{
+    directory::retained_revision_honors_invocation_floor().await
+}
+
+#[tokio::test]
+async fn dispatcher_route_cache_falls_back_within_original_budgets() -> anyhow::Result<()> {
+    directory::repair_failure_invalidates_all().await
+}
+
+#[tokio::test]
+async fn dispatcher_route_cache_fence_rejects_late_proof_and_retains_its_memory(
+) -> anyhow::Result<()> {
+    directory::old_proof_cannot_cross_a_fence().await
+}
+
+#[tokio::test]
+async fn dispatcher_route_cache_deadline_cannot_forget_an_observed_publication(
+) -> anyhow::Result<()> {
+    directory::repair_deadline_keeps_the_observed_publication().await
+}

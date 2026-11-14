@@ -254,8 +254,8 @@ must fail closed. Unreconciled old-origin outbox work must remain refused.
 
 ## Full primitive compatibility (CG-17)
 
-CG-17 is an implementation and qualification task. It starts TODO with no
-accepted cases; the existing SQL and effect tests do not establish this broader
+CG-17 is an implementation and qualification task. CG17-01 is in progress with
+no accepted cases; the existing SQL and effect tests do not establish this broader
 support. Its 32 exact cases are defined in `tasks.json` and displayed by
 `plan.py show CG-17`. Implementations of those planned cases are required
 outputs, not tests that this plan change has passed. CG-15 and CG-16 depend on
@@ -416,6 +416,74 @@ Replaying one transaction is not permission to rerun an entire callback that
 already committed other transactions. A later pre-admission rejection describes
 only that attempt; it cannot clear earlier uncertainty.
 
+The ordinary RPC adapter uses these identities and transitions:
+
+- The invocation is the exact cell history, client/sequence, operation contract
+  and request digest. Each root transaction has a monotonically increasing
+  checkpoint number; nested transactions remain savepoints within that root.
+- A Prepared checkpoint owns one private SQL image and a fresh proposal/preview
+  identity. Submitted checkpoints retain their original producer, cell admission
+  and byte reservation through response expiry until exact apply or newer-term
+  reconciliation resolves them. A timeout supplies no non-commit proof.
+- An Applied checkpoint updates the invocation's existing receipt row with its
+  checkpoint number. It uses the original client floor, receipt count, retry
+  horizon and physical receipt quota. A completed invocation replaces that marker
+  with its final result. Partial commits survive later handler failure.
+- An unfinished marker is an ambiguous invocation. Public receipt lookup refuses
+  to describe it as completed or absent, and retry admission refuses to rerun its
+  factory or callback. A new leader restores the marker, fences the obsolete
+  in-memory continuation and preserves the already committed state.
+- The root callback retains its ordered slot and Rust return value until the
+  exact checkpoint is applied. Explicit S3 durability additionally verifies that
+  checkpoint's pending receipt from recovered archive bytes before continuation.
+  Background archival for Quorum requests retains its documented RPO.
+
+Ordinary RPC `Storage::sync()` reserves an owned boundary in the same call-order
+queue as root transactions. It checkpoints preceding private SQL/KV writes and
+waits for the invocation's exact quorum/S3 proof before completing. Dropping its
+result future does not remove the admitted boundary. Sync inside an open
+transaction refuses before scheduling: it cannot publish a savepoint or split an
+atomic callback. Synchronous registered commands and immutable queries retain
+their separate completion contracts and cannot schedule RPC checkpoints.
+
+Canonical SDK commands, queries, receipt inspection and enrollment from ordinary
+RPCs capture target bounds, namespace admission and an absolute deadline at the
+call boundary. Their owned task proves the ordered source checkpoint before
+actual dispatch. Target durability and consistency remain independent, and the
+caller persists its original target identity/input. A dropped response retains
+admitted child work and gates parent output; this is not a cross-cell transaction
+or an automatic handler-recovery protocol. Synchronous callbacks, immutable
+queries and open atomic transactions cannot acquire this dispatch permit.
+
+A proven SDK wait can release the source writer, including for a recursive call
+to the same cell. If the child reaches admission before its parent parks, only
+a received writer-lease refusal before enqueue grants a wait under the original
+request identity, inputs, route ticket and deadline. A worker/callback error or
+lost reply never grants callback replay. Leader, route, history, activation and
+original deadline checks fence the continuation and preserve uncertain outcomes.
+
+Ordinary cell instances are activation-owned caches, not replayable application
+state. Constructor Storage handles may enter later invocations of that same live
+activation; invocation handles retain a distinct non-reusable token. A successful
+quorum-applied final receipt admits the instance back to the idle cache.
+Normal public receipt reconciliation may retain the instance only at its exact
+prepared final image with the original leader fence still current. Preparation
+failure, rejected proposals and changed-term reconciliation retire it.
+Receipt/input refusals before native execution preserve an untouched instance
+only while its original cache fence remains current.
+Cache reuse requires the same class
+factory, exact cell version, physical engine, route and leader term. Its weak
+fence retains no image, log reservation or engine owner. Node-wide instance
+capacity uses the configured SQL pending-cell ceiling; idle instances expire
+after sixty seconds, with bounded pruning on existing SQL workers. Eviction,
+leadership/routing changes and joined shutdown retire constructor handles too.
+
+These transitions are delivery contracts, not acceptance claims. Complete their
+public recovery, fault and feature matrix before accepting CG-17. The receipt
+schema adds a protected pending-checkpoint field under the existing format-1
+internal hard cutover; matching nodes and applications require a rebuild, and
+older receipt images are not migrated by this change.
+
 The common kernel reuses existing command/receipt, LTX, alarm and outbox/inbox
 owners. Built-in schemas and internal operations retain separate host-minted
 authority. Bind publish/read/consume/admin and provider grants to the correct
@@ -431,6 +499,116 @@ arbitrary request cannot be unsent; preserve its documented at-least-once/unknow
 outcome. Require real provider enforcement only where that adapter promises it;
 otherwise report the weaker external contract explicitly without weakening the
 cell's replicated state proof.
+
+### Storage SQL cursor ownership
+
+`Storage::sql_cursor` uses the existing lazy typed SQL engine in native turns,
+private Raft commands and committed Raft queries. The worker owns statements and
+cache entries in the exact command/query frame. Public tokens contain owned
+column/row buffers and cancellation signals, never raw SQLite handles or image
+pins. Query exit, command completion/abort and frame destruction finalize every
+statement before the connection or committed-image owner is released.
+
+A cursor created through constructor-cached Storage binds the current invocation;
+the cached Storage itself may be reused, but its SQL/KV cursor may not enter a
+later invocation. Cursors retain ordinary savepoint behavior within the live
+invocation. Between proven roots, a live read VM may retain its source connection,
+capture VFS, file lock and physical workspace reservation while releasing writer
+admission. A same-cell child uses another image slot; the parent continuation
+rechecks its original receipt and opens the latest committed image under current
+authority. Its existing VM continues reading its source image; fresh Storage
+operations use the new command image. Neither can read a child's private writes.
+There are at most 64 physical image slots per cell. Extent slots independently
+reserve their full image/WAL/capture bounds in the node inventory; exhaustion
+refuses admission. Materialized slots use a fixed bounded set of sibling
+directories, cleaned under their own locks before reuse, including after crashes.
+Idle caches are cleared before parking and retained VMs are detached from the
+cache so their statements cannot enter a different connection's cache. The worker
+closes retained images after their last VM is consumed/cancelled, or at invocation
+completion/abort. No image is retained in the idle native activation cache.
+Dropped tokens outside a turn only signal cancellation; the owning worker prunes
+them before its next poll/checkpoint. They cannot append unbounded cleanup work
+to an idle activation or finalize another invocation's VM.
+
+Schema rollback can invalidate an existing SQLite read VM. Native and Raft
+cursors preserve the already-prefetched row and deliver the following step's
+error on the next call. A rollback-free checkpoint success test must remain
+separate from the paired native/Raft schema-rollback oracle.
+
+Unfinished write/`RETURNING` statements must be consumed or dropped before exact
+checkpoint or final-output publication. A statement failure retains the existing
+SQLite transaction-poisoning rules. Immutable queries preserve their read-only
+and framework-table authorizer on every prepare/step, including automatic schema
+recompilation. No output or child dispatch acquires weaker durability.
+
+`SqlLimits` retains finite live-cursor count and sampled statement/bind-byte
+budgets in the unrestricted profile. Native and Raft paths share the same lazy
+parser, prefix execution, typed values, deferred errors and row/write counters;
+this does not eagerly materialize arbitrary result sets or relax SQLite limits.
+The byte budget is not a page-cache, sorter, application-buffer or RSS ceiling.
+
+Qualification must exercise typed BLOB/non-finite values, aliases, multi-statement
+prefixes, concurrent cursors, `RETURNING`, failed/missing bindings, protected SQL,
+limits before mutating steps, transaction boundaries, independent roots,
+constructor-cached handles, escaped command/query tokens, cancellation and joined
+teardown. Keep native Storage regressions and both image/Quorum/S3 RustFS cases.
+This ownership delivery does not waive complete named bindings, committed due
+work, family adapters or any full CG-17 scenario/configuration gate.
+
+### Storage keyset cursors
+
+`Storage::list_cursor` uses the same keyset range implementation in ordinary
+Fleet storage and shared Raft command/query storage. Each step reads one owned
+row; it retains no SQL statement, connection, worker or image pin. Prefix,
+start/end/start-after, reverse traversal and limits retain their existing
+semantics. Inserts/deletes around the last key cannot shift an offset.
+
+Raft cursors validate their original invocation or committed query on every
+step. Starting another iterator on the same Storage owner invalidates the older
+one with a non-wrapping generation. The Storage owner retains only the current
+range; invalidated handles retain no old range buffers. Dropping an old handle
+cannot clear a newer iterator. A cursor may continue across a transaction
+boundary in its live invocation, reading the then-current image. After rollback,
+subsequent steps read the surviving image rather than a retained private snapshot.
+A cursor cannot enter a different invocation. Query cursors
+remain bound to their selected committed image and cannot escape its callback.
+Cursor positions are ephemeral and are not restartable durable work.
+
+The public RF3 and RustFS Storage cases must check structured values, empty KV
+schema, all range/limit directions, mutation between steps, invalidation, rollback,
+expired views and exact cell/version isolation. The ordinary RPC case must hold
+an iterator across an independently proven async root and observe the newly
+inserted key. Preserve the ordinary native Storage conformance regression.
+These checks qualify this API boundary; SQL cursors, other Storage methods,
+named namespace KV bindings and the full family matrix remain separate work.
+
+### Logical-name discovery
+
+`RaftCells::resolve_cell_history` observes an existing name's current enrollment
+through a fresh quorum read. It returns the selected incarnation or absence and
+never initializes a name. Only linearizable consistency is admitted. The lookup
+uses the existing namespace read authorization, including current-voter access,
+and authenticated, purpose-specific bounded wire frames. A command grant or
+version-token signing key is not required. Source and
+replica routing retain the original admission, attempt budget and deadline,
+including a future first polled after its deadline.
+
+Inside an ordinary JSON RPC, lookup waits for the source root's exact requested
+durability proof. The resulting exact-history handle may be constructed in the
+current invocation, while its command/query still requires separate admission and
+source proof. Synchronous commands, immutable queries and open atomic callbacks
+refuse before dispatch. Discovery neither supplies invocation authority nor
+resolves whether an earlier mutation committed; a returned absence cannot clear
+an uncertain outcome. A caller persists and reuses the original child identity.
+
+The native and isolated RustFS name-discovery cases must check read-only remote
+resolution without constructing the application, absent names, source-proof
+ordering, handle construction inside an ordinary RPC, exact replay, callback
+refusal/rollback, original deadline expiry, follower resolution after leader
+transfer and refusal without quorum. The wire tests must reject cross-purpose,
+truncated, oversized and foreign-name/schema frames. These component cases do
+not establish declared `Context` binding support, automatic enrollment, a typed
+RPC port, automatic invocation recovery or complete CG-17 acceptance.
 
 ### Additional primitive-specific oracles
 
@@ -457,6 +635,11 @@ is durable. Workflow output chunks and EventStream records are durable state;
 ordinary network byte pipes are not. Fully qualified API identities prevent the
 word "stream" or "bucket" from collapsing these different contracts.
 
+The [immutable payload storage contract](payload-storage.md) specifies the
+namespace-bound publication/read-back layer and its deliberate retention of
+older references. Its protocol gates do not replace ordinary KV integration,
+complete payload recovery closure or root-aware collection qualification.
+
 Derive a feasible capability profile from the intersection of public application
 limits and actual envelope, result/receipt, private image, staging, worker,
 scheduler, archive and provider limits. Bounded profiles must accept valid
@@ -472,8 +655,9 @@ protocol, add old format readers or waive pending obligations after undeploy.
 
 ### Machine-readable inventory and acceptance evidence
 
-CG17-01 must create the following outputs; none is accepted runtime evidence just
-because its path is declared:
+CG17-01 owns the following outputs. The starter catalog, report schema and
+independent gate are present. The catalog's `partial` status blocks acceptance
+until the full export audit and real evidence producers are delivered:
 
 - `primitive-inventory.json`: fully qualified public operations, built-in resource
   classes, symbols/examples, feature conditions, owners and schemas, persistent
@@ -513,14 +697,16 @@ attempts without letting them satisfy acceptance. No mandatory cell becomes
 inapplicable because infrastructure is unavailable or a feature implementation is
 missing. Feature-off regressions are separate required observations.
 
-Integrate this validation into `plan.py check_evidence` for CG-17 and every
-CG-15/16 combined-source rerun. The current named-case checks and profile rules
-alone do not enforce this matrix; implementation of the independent report
-validation and its wiring remains required before task acceptance. The
-`primitives_complete_coverage_evidence` case must exercise that integration, not
-just call a checker in isolation. The plan's guards against removing cases,
-integration owners and output paths protect the delivery contract; they do not
-claim that the future coverage checker has already been implemented.
+`plan.py check_evidence` invokes the independent verifier for CG-17 and CG-15/16
+combined-source reruns. A `primitive_coverage` artifact in task evidence binds
+the report to the contracts at its source revision. CG-15/16 additionally record
+`primitive_test_executable_sha256`, separate from their campaign executable.
+The [runner contract](../../../../tools/multi-raft/README.md#primitive-compatibility-evidence)
+defines the test-emitted provenance and artifact shape. The
+`primitives_complete_coverage_evidence` case must exercise that integration with
+actual runtime artifacts; the current synthetic negative tests only qualify the
+verifier's refusal behavior. Complete inventory, artifact producers and the
+runtime matrix remain required before acceptance.
 
 Use backend factories to reuse existing public conformance suites. Explicitly
 exercise ordinary Fleet namespaces under both `fleet` and `bucket` durability,
@@ -641,3 +827,18 @@ python3 -m unittest discover -s tools/perf -p 'test_*.py'
 
 Feature-specific and external consumer checks in the SDK CI workflow remain
 required. The new package runner supplements CI; it is not a substitute for it.
+
+### Durable callback and Queue implementation
+
+The [durable-work/Queue contract](queue-durable-work.md) records the shared
+native callback owner, generation claims, source checkpoints and normal Queue
+producer/consumer/operator paths. Run the scoped real-backend selection with:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite queue-primitives \
+  --backend /absolute/owned/rustfs-run --output /absolute/new/evidence-run \
+  --target-directory /absolute/checkout-private/target
+```
+
+This runner retains exact source and executable hashes. Its host-native RF3
+fixture and scoped Queue scenarios do not replace the complete CG-17 matrix.

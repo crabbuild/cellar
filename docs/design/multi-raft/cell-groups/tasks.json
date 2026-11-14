@@ -2750,6 +2750,11 @@
         "tools/cellar-recovery-tests/",
         "tools/multi-raft/",
         "crates/cellar/tests/support/raft_daemon_recovery.rs",
+        "crates/cellar/tests/native_cell_groups_disaster.rs",
+        "crates/cellar/tests/support/cell_group_managed_process.rs",
+        "crates/cellar/tests/support/cell_group_managed_inspection_catchup.rs",
+        "crates/cellar/tests/support/cell_group_managed_shutdown.rs",
+        "crates/cellar/application/consensus/group_client/node.rs",
         "crates/cellar/tests/support/cell_group_managed_transition_fence.rs",
         "crates/cellar/tests/support/cell_group_managed_transition_merge.rs",
         "crates/cellar/tests/support/cell_group_managed_transition_retirement.rs",
@@ -2761,7 +2766,18 @@
         "tools/multi-raft/managed_group_fence.py",
         "tools/multi-raft/test_managed_group_fence.py",
         "crates/cellar/fleet/management/raft/recovery_selection.rs",
-        "tools/multi-raft/node/managed_operator.rs"
+        "tools/multi-raft/node/managed_operator.rs",
+        "tools/multi-raft/node/managed_recovery.rs",
+        "tools/multi-raft/node/managed_bootstrap.rs",
+        "tools/multi-raft/managed_group_voter.py",
+        "tools/multi-raft/managed_group_configuration.py",
+        "tools/multi-raft/test_managed_group_configuration.py",
+        "tools/multi-raft/managed_group_drill.py",
+        "tools/multi-raft/test_managed_group_drill.py",
+        "tools/multi-raft/managed_group_transition.py",
+        "crates/cellar/fleet/management/raft/recovery_sources.rs",
+        "tools/multi-raft/managed_group_deployment.py",
+        "tools/multi-raft/node/managed_relay.rs"
       ],
       "test_target": "native_cell_groups_disaster",
       "steps": [
@@ -2991,7 +3007,7 @@
     {
       "id": "CG-17",
       "title": "Deliver full public primitive compatibility on shared-group durability",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P0",
       "effort": "XL",
       "risk": "HIGH",
@@ -3043,21 +3059,21 @@
       "test_target": "native_cell_groups_primitives",
       "steps": [
         {
-          "action": "CG17-01 — Inventory, evidence and deployment contracts. Produce primitive-inventory.json, primitive-coverage-requirements.json and primitive-coverage.schema.json; implement tools/multi-raft/primitive_coverage.py with negative tests and wire it into plan.py check_evidence and CG-15/16 reruns. Inventory qualified public symbols, resource/schema owners, provider contracts, permissions and every supported feature path; compile declared capability/budget requirements before activation. A report of named passes is insufficient. This foundation can begin after CG-07/08; full task acceptance retains every existing dependency.",
+          "action": "CG17-01 \u2014 Inventory, evidence and deployment contracts. Produce primitive-inventory.json, primitive-coverage-requirements.json and primitive-coverage.schema.json; implement tools/multi-raft/primitive_coverage.py with negative tests and wire it into plan.py check_evidence and CG-15/16 reruns. Inventory qualified public symbols, resource/schema owners, provider contracts, permissions and every supported feature path; compile declared capability/budget requirements before activation. A report of named passes is insufficient. This foundation can begin after CG-07/08; full task acceptance retains every existing dependency.",
           "tests": [
             "primitives_capability_inventory_and_deployment_bounds",
             "primitives_coverage_manifest_and_rejection"
           ]
         },
         {
-          "action": "CG17-02 — Shared primitive storage foundation. Implement one activation/Storage bridge and typed system-operation boundary over existing shared transaction, receipt, LTX and output-proof owners; reuse it for every primitive instead of creating per-family consensus paths. Extend owning native-worker, storage, node and execution modules as needed. Preserve synchronous local API returns, private preparation and framework-table authorization while requiring the exact quorum/S3 proof before protected output; declare independent binding/provider boundaries.",
+          "action": "CG17-02 \u2014 Shared primitive storage foundation. Implement one activation/Storage bridge and typed system-operation boundary over existing shared transaction, receipt, LTX and output-proof owners; reuse it for every primitive instead of creating per-family consensus paths. Extend owning native-worker, storage, node and execution modules as needed. Preserve synchronous local API returns, private preparation and framework-table authorization while requiring the exact quorum/S3 proof before protected output; declare independent binding/provider boundaries.",
           "tests": [
             "primitives_activation_storage_backend_bridge",
             "primitives_storage_sql_kv_atomicity"
           ]
         },
         {
-          "action": "CG17-03 — Async invocation and external execution protocol, after CG17-02. Specify and implement transaction/invocation/attempt identities and Prepared/Submitted/Applied/Ambiguous settlement, nested child ownership, reentrancy, cancellation and leadership revocation. Persist external intents before dispatch; enforce real provider execution fencing/idempotency/reconciliation where promised. Keep synchronous replicated SQL callbacks free of network work and do not replay a whole multi-transaction callback after a lost response.",
+          "action": "CG17-03 \u2014 Async invocation and external execution protocol, after CG17-02. Specify and implement transaction/invocation/attempt identities and Prepared/Submitted/Applied/Ambiguous settlement, nested child ownership, reentrancy, cancellation and leadership revocation. Persist external intents before dispatch; enforce real provider execution fencing/idempotency/reconciliation where promised. Keep synchronous replicated SQL callbacks free of network work and do not replay a whole multi-transaction callback after a lost response.",
           "tests": [
             "primitives_async_callbacks_commit_and_retry",
             "primitives_async_nested_transactions_and_output_gates",
@@ -3066,7 +3082,7 @@
           ]
         },
         {
-          "action": "CG17-04 — Durable work and time, after CG17-02/03. Map every ordinary framework work reason and Queue/Workflow/cron obligation into committed bounded shared discovery, installation-specific settlement and park/wake. Retained startup and deployment removal must rediscover existing obligations without application traffic. Capture operation time/random identities consistently and preserve wall-clock schedules versus monotonic deadlines under clock jumps.",
+          "action": "CG17-04 \u2014 Durable work and time, after CG17-02/03. Map every ordinary framework work reason and Queue/Workflow/cron obligation into committed bounded shared discovery, installation-specific settlement and park/wake. Retained startup and deployment removal must rediscover existing obligations without application traffic. Capture operation time/random identities consistently and preserve wall-clock schedules versus monotonic deadlines under clock jumps. Delivery checkpoint: at a5f65e79 and combined KV/RPC source 9498029b, the shared callback/Queue kernel passes canonical real-RustFS 12/12 image configurations, including 65-second callbacks and bounded load. Two node slots share one byte ceiling, with one physically retained callback per cell. Earlier unclaimed Queue wakes coalesce; claimed work and ordinary alarms preserve replacement-generation fencing. Original request budgets and production quotas remain. Cold S3 first use, higher concurrency, other work reasons, cron, clock faults, movement/wake and deployment removal remain open; see queue-durable-work.md.",
           "tests": [
             "primitives_due_work_recovery_without_requests",
             "primitives_alarms_cron_occurrence_identity",
@@ -3074,7 +3090,7 @@
           ]
         },
         {
-          "action": "CG17-05 — Public storage/SQL/KV/filesystem and payload closure, after CG17-02/03. Port normal binding and descriptor APIs and reuse existing conformance suites, including sessions/bookmarks, TTL/revision conditions, nested transactions, file-plus-state atomicity, sync/fsync and typed uncertain errors. Keep SQLite filesystem chunks, in-SQL immutable values, external KV/Blob objects and provider volumes distinct. Implement publication/reference ordering and retention-aware GC against every selected recovery dependency; actual bytes, not metadata alone, qualify recovery.",
+          "action": "CG17-05 \u2014 Public storage/SQL/KV/filesystem and payload closure, after CG17-02/03. Port normal binding and descriptor APIs and reuse existing conformance suites, including sessions/bookmarks, TTL/revision conditions, nested transactions, file-plus-state atomicity, sync/fsync and typed uncertain errors. Keep SQLite filesystem chunks, in-SQL immutable values, external KV/Blob objects and provider volumes distinct. Implement publication/reference ordering and retention-aware GC against every selected recovery dependency; actual bytes, not metadata alone, qualify recovery.",
           "tests": [
             "primitives_sql_sessions_kv_ttl_and_revision_conditions",
             "primitives_filesystem_descriptors_transactions_and_gc",
@@ -3083,7 +3099,7 @@
           ]
         },
         {
-          "action": "CG17-06 — Queue, EventStream and Workflow state machines, after CG17-02/03/04 and applicable payload support. Preserve existing public producer/consumer/step APIs, partial batch/DLQ settlement, durable stream chunks/checkpoints, compensation, cancellation, lease generations and receipt horizons. Define each primitive schema/deployment change contract and recover existing obligations through deployment changes. Reuse the common storage/effect kernel and keep callbacks outside consensus polling.",
+          "action": "CG17-06 \u2014 Queue, EventStream and Workflow state machines, after CG17-02/03/04 and applicable payload support. Preserve existing public producer/consumer/step APIs, partial batch/DLQ settlement, durable stream chunks/checkpoints, compensation, cancellation, lease generations and receipt horizons. Define each primitive schema/deployment change contract and recover existing obligations through deployment changes. Reuse the common storage/effect kernel and keep callbacks outside consensus polling. Delivery checkpoint: ordinary Queue producer/consumer/operator and captured CLI paths pass native/Axum real-RustFS in both images at a5f65e79 and combined KV/RPC source 9498029b (12/12 configurations across six cases), including separate deployment schemas, partial retry, lost inter-group S3-DLQ replies, stale consumers, active purge, retention replay, retained restart, quorum refusal, 65-second callbacks and four-producer/two-in-flight load. The earlier fe4cd801 load failure, four-in-flight and cold S3 controls remain retained; those broader envelopes were not rerun. Full Queue acceptance still requires clock/deployment-change/movement/wake/disk-loss/full-size payload and independent-voter gates. EventStream and Workflow adapters remain undelivered.",
           "tests": [
             "primitives_queue_leases_ack_retry_and_dead_letter",
             "primitives_event_stream_outbox_inbox_replay",
@@ -3093,7 +3109,7 @@
           ]
         },
         {
-          "action": "CG17-07 — Complete public adapters and backend conformance, after the applicable foundations. Deliver HTTP/RPC, WebSocket, Container/sandbox and all remaining SDK adapters using actual providers and explicit ephemeral-resource contracts. Wire normal SDK declarations, daemon/native/Axum ingress and applicable CLI/admin paths. Run shared conformance factories for ordinary fleet and bucket durability and supported mixed/feature-off modes; prove the Raft run actually uses shared groups with no weaker fallback.",
+          "action": "CG17-07 \u2014 Complete public adapters and backend conformance, after the applicable foundations. Deliver HTTP/RPC, WebSocket, Container/sandbox and all remaining SDK adapters using actual providers and explicit ephemeral-resource contracts. Wire normal SDK declarations, daemon/native/Axum ingress and applicable CLI/admin paths. Run shared conformance factories for ordinary fleet and bucket durability and supported mixed/feature-off modes; prove the Raft run actually uses shared groups with no weaker fallback.",
           "tests": [
             "primitives_websocket_reconnect_and_stale_owner",
             "primitives_container_restart_and_fencing",
@@ -3104,7 +3120,7 @@
           ]
         },
         {
-          "action": "CG17-08 — Combined qualification, after CG17-01 through CG17-07 and all task-level lifecycle dependencies. Use the CG-14 constrained RF3 process/RustFS harness and real supported providers for the complete API × scenario × configuration matrix: leader loss/partition, membership replacement, split/merge/placement, park/wake, archive outage, local reclamation, fenced all-voter-disk loss, saturation/cancellation and joined close. Preserve failures, source/binary identities and complete ledgers. Only the independent validator plus all unchanged safety oracles can admit task acceptance; CG-15 and CG-16 repeat the complete matrix at the release source.",
+          "action": "CG17-08 \u2014 Combined qualification, after CG17-01 through CG17-07 and all task-level lifecycle dependencies. Use the CG-14 constrained RF3 process/RustFS harness and real supported providers for the complete API \u00d7 scenario \u00d7 configuration matrix: leader loss/partition, membership replacement, split/merge/placement, park/wake, archive outage, local reclamation, fenced all-voter-disk loss, saturation/cancellation and joined close. Preserve failures, source/binary identities and complete ledgers. Only the independent validator plus all unchanged safety oracles can admit task acceptance; CG-15 and CG-16 repeat the complete matrix at the release source.",
           "tests": [
             "primitives_leader_loss_quorum_refusal_and_restart",
             "primitives_split_merge_placement_and_wakeup",

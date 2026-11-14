@@ -442,6 +442,7 @@ impl Node {
             .await??;
         self.controller
             .archive(CellGroupArchiveRegistration {
+                publisher: CellGroupArchivePublisher::LocalReplica,
                 directory: self.directory.clone(),
                 birth: self.birth.clone(),
                 io: CellGroupArchivePool::new(Default::default())?,

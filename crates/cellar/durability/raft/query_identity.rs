@@ -58,8 +58,10 @@ enum Purpose {
     Query,
     Command,
     CommandProbe,
+    BindingRetirement,
     Enrollment,
     Receipt,
+    Name,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,6 +179,16 @@ impl QueryRoute {
         self.purpose == Purpose::CommandProbe
     }
 
+    pub fn for_binding_retirement(mut self) -> Result<Self, TransportError> {
+        self.decode_shared()?;
+        self.purpose = Purpose::BindingRetirement;
+        Ok(self)
+    }
+
+    pub fn is_binding_retirement(&self) -> bool {
+        self.purpose == Purpose::BindingRetirement
+    }
+
     pub fn for_enrollment(mut self) -> Result<Self, TransportError> {
         self.decode_shared()?;
         self.purpose = Purpose::Enrollment;
@@ -197,8 +209,22 @@ impl QueryRoute {
         self.purpose == Purpose::Receipt
     }
 
+    pub fn for_name(mut self) -> Result<Self, TransportError> {
+        self.decode_shared()?;
+        self.purpose = Purpose::Name;
+        Ok(self)
+    }
+
+    pub fn is_name(&self) -> bool {
+        self.purpose == Purpose::Name
+    }
+
     pub fn requires_command_grant(&self) -> bool {
-        self.is_command() || self.is_command_probe() || self.is_enrollment() || self.is_receipt()
+        self.is_command()
+            || self.is_command_probe()
+            || self.is_binding_retirement()
+            || self.is_enrollment()
+            || self.is_receipt()
     }
 
     pub fn validate(&self) -> Result<(), TransportError> {

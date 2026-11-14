@@ -25,17 +25,17 @@ struct Physical {
     finished: Notify,
 }
 
-struct Entered(Arc<Physical>);
+pub(crate) struct ControllerWork(Arc<Physical>);
 
-impl Drop for Entered {
+impl Drop for ControllerWork {
     fn drop(&mut self) {
         self.0.active.fetch_sub(1, Ordering::AcqRel);
         self.0.finished.notify_waiters();
     }
 }
 
-/// One controller's physical joins, including closures whose async waiter has
-/// already failed or disappeared. Does not join unrelated execution-domain work.
+/// One controller's admitted async work and physical joins, including closures
+/// whose async waiter has disappeared. Never joins unrelated domain work.
 #[derive(Clone)]
 pub(crate) struct ControllerExecution {
     domain: DomainToken,
@@ -52,6 +52,13 @@ impl ControllerExecution {
 
     pub(crate) fn is_idle(&self) -> bool {
         self.physical.active.load(Ordering::Acquire) == 0
+    }
+
+    /// Retain async ownership before returning to the controller's admission
+    /// loop. Physical children retain their own work after cancellation.
+    pub(crate) fn retain(&self) -> ControllerWork {
+        self.physical.active.fetch_add(1, Ordering::AcqRel);
+        ControllerWork(self.physical.clone())
     }
 
     pub(crate) async fn join(&self) {
@@ -81,8 +88,7 @@ impl CellGroupArchiveExecution for ControllerExecution {
         T: Send + 'static,
         F: FnOnce() -> T + Send + 'static,
     {
-        self.physical.active.fetch_add(1, Ordering::AcqRel);
-        let entered = Entered(self.physical.clone());
+        let entered = self.retain();
         self.domain.blocking(move || {
             let _entered = entered;
             operation()

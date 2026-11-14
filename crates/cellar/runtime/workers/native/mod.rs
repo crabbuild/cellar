@@ -48,6 +48,7 @@ pub(crate) struct NativeWorker {
     config: Arc<WorkerConfig>,
     application: Arc<dyn Application>,
     rpc_catalog: Option<Arc<crate::application::rpc::Catalog>>,
+    raft_cell_classes: Arc<std::collections::BTreeMap<String, [u8; 32]>>,
     registry: Arc<ContextRegistry>,
     instances: HashMap<String, Arc<dyn Cell>>,
     activations: HashMap<String, Arc<Activation>>,
@@ -185,6 +186,9 @@ pub(crate) fn validate_application_classes<'a>(
                 || class == cellar_logic::cron::RESERVED_CLASS
                 || class == crate::deploy::workflow_class(script)
                 || application.supports_cell(class)
+                // Export validation accepts the hosted Raft factory. Fleet
+                // activation still requires its separate ordinary factory.
+                || application.resolve_raft_class(class).is_ok_and(|class| class.has_cell_factory())
                 || application.sandbox_executor(class).is_some(),
             "native application {script} has no factory for {class}"
         );
@@ -237,6 +241,29 @@ impl NativeWorker {
                 .iter()
                 .map(|binding| binding.class.as_str()),
         )?;
+        let mut raft_cell_classes = std::collections::BTreeMap::new();
+        for class in config
+            .do_classes
+            .iter()
+            .chain(config.bindings.iter().map(|(_, class)| class))
+        {
+            if crate::deploy::is_reserved_class(class) {
+                continue;
+            }
+            if let Ok(definition) = application.resolve_raft_class(class) {
+                if definition.has_cell_factory() {
+                    anyhow::ensure!(
+                        definition.has_native_ingress(),
+                        crate::application::consensus::RegistrationError::ContractMismatch
+                    );
+                    let digest = definition.cell_configuration_digest().ok_or(
+                        crate::application::consensus::RegistrationError::ContractMismatch,
+                    )?;
+                    raft_cell_classes.insert(class.clone(), digest);
+                }
+            }
+        }
+        let raft_cell_classes = Arc::new(raft_cell_classes);
         let registry = Arc::new(ContextRegistry::default());
         let vars = Arc::new(config.vars.iter().cloned().collect());
         let sql_bindings = Arc::new(config.sql_bindings.iter().cloned().collect());
@@ -298,6 +325,7 @@ impl NativeWorker {
             cells: storage::Cells::default(),
             application,
             rpc_catalog,
+            raft_cell_classes,
             config,
             registry,
             vars,
@@ -437,11 +465,28 @@ impl NativeWorker {
                 root: storage::embedded_root_gate(&identity.scope),
             });
         }
-        let state = Arc::new(EventState::default());
+        let state = Arc::new(EventState {
+            raft_cell_classes: (!self.raft_cell_classes.is_empty())
+                .then(|| self.raft_cell_classes.clone()),
+            raft_sql: self
+                .application
+                .resolve_raft_class(crate::deploy::SQL_CLASS)
+                .is_ok(),
+            raft_queue: self
+                .application
+                .resolve_raft_class(crate::deploy::QUEUE_CLASS)
+                .is_ok(),
+            raft_kv: self
+                .application
+                .resolve_raft_class(crate::deploy::KV_CLASS)
+                .is_ok(),
+            ..Default::default()
+        });
         io.native_event
             .set(Arc::downgrade(&state))
             .map_err(|_| anyhow!("native invocation already owns an event state"))?;
         Ok(Context {
+            raft_storage: None,
             container_supervision: self.application.container_supervision(),
             rpc_catalog: self.rpc_catalog.clone(),
             event_authority: None,
@@ -459,10 +504,10 @@ impl NativeWorker {
             workflow_bindings: self.workflow_bindings.clone(),
             blob_bindings: self.blob_bindings.clone(),
             asset_binding: self.asset_binding.clone(),
-            queue_config: self.queue_config.clone(),
+            queue_config: Some(self.queue_config.clone()),
             generation: self.config.generation,
             worker_config: self.config.clone(),
-            loader_owner: self.loader_owner.clone(),
+            loader_owner: Some(self.loader_owner.clone()),
             loaded_environment: self.loaded_environment.clone(),
         })
     }
@@ -909,6 +954,18 @@ impl NativeWorker {
                 let mut entered = crate::application::rpc::Entered::new(&invocation);
                 match &context.identity {
                     Some(identity) => {
+                        // Reserved services otherwise bypass Application's
+                        // ordinary factory lookup. A declared Raft service
+                        // must never execute against Fleet-owned storage.
+                        anyhow::ensure!(
+                            self.application
+                                .resolve_raft_class(&identity.class)
+                                .is_err(),
+                            crate::application::consensus::RegistrationError::WrongMode {
+                                class: identity.class.clone(),
+                                mode: cellar_logic::NamespaceMode::Fleet,
+                            }
+                        );
                         if let Invocation::CellRpc { method, args } = &invocation {
                             if let Some(catalog) = self.rpc_catalog.as_deref() {
                                 if let Some(refusal) =
@@ -1929,6 +1986,26 @@ pub(crate) fn storage_sync(scope: &str) -> HandlerFuture<()> {
     })
 }
 
+fn check_fleet_sql(context: &Context, scope: &str) -> Result<()> {
+    let class = scope.split_once(':').map(|(class, _)| class);
+    let shared = match class {
+        Some(crate::deploy::SQL_CLASS) => context.state.raft_sql || context.raft_storage.is_some(),
+        Some(crate::deploy::QUEUE_CLASS) => {
+            context.state.raft_queue || context.raft_storage.is_some()
+        }
+        Some(crate::deploy::KV_CLASS) => context.state.raft_kv || context.raft_storage.is_some(),
+        _ => false,
+    };
+    anyhow::ensure!(
+        !shared,
+        crate::application::consensus::RegistrationError::WrongMode {
+            class: class.unwrap_or_default().into(),
+            mode: cellar_logic::NamespaceMode::Fleet,
+        }
+    );
+    Ok(())
+}
+
 pub(crate) fn fetch_cell(
     context: &Context,
     scope: String,
@@ -1938,6 +2015,7 @@ pub(crate) fn fetch_cell(
 ) -> HandlerFuture<HttpResponse> {
     if let Err(error) = context
         .check_turn()
+        .and_then(|()| check_fleet_sql(context, &scope))
         .and_then(|()| context.io.charge_subrequest().map_err(anyhow::Error::msg))
     {
         return Box::pin(async move { Err(error) });
@@ -1993,6 +2071,9 @@ pub(crate) fn kv_blob(
     request: serde_json::Value,
     value: Option<Vec<u8>>,
 ) -> HandlerFuture<crate::kv_blob::BlobReply> {
+    if context.raft_storage.is_some() {
+        return crate::application::kv::raft_blob::rpc(context, request, value);
+    }
     let prepared: Result<_> = (|| {
         context.check_turn()?;
         let identity = context
@@ -2021,6 +2102,30 @@ pub(crate) fn rpc_cell(
     args: RpcData,
     call_scope: crate::host_rpc::CallScope,
 ) -> HandlerFuture<RpcData> {
+    if context.raft_storage.is_some() {
+        return crate::application::cell_bindings::rpc(
+            context, scope, name, method, args, call_scope,
+        );
+    }
+    if context.identity().is_none()
+        && scope.split_once(':').is_some_and(|(class, _)| {
+            (class == crate::deploy::SQL_CLASS && context.state.raft_sql)
+                || (class == crate::deploy::QUEUE_CLASS && context.state.raft_queue)
+                || (class == crate::deploy::KV_CLASS && context.state.raft_kv)
+                || context
+                    .state
+                    .raft_cell_classes
+                    .as_ref()
+                    .is_some_and(|classes| classes.contains_key(class))
+        })
+    {
+        return crate::application::consensus::native_ingress::rpc(
+            context, scope, name, method, args, call_scope,
+        );
+    }
+    if let Err(error) = check_fleet_sql(context, &scope) {
+        return Box::pin(async move { Err(error) });
+    }
     if crate::application::event_stream::is_event_scope(&scope) {
         return Box::pin(async { Err(anyhow!("event stream calls require a bound capability")) });
     }

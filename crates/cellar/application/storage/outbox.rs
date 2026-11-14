@@ -16,22 +16,21 @@ impl Storage {
     pub fn seal<E: Event>(&self, stream: &Stream<E>, operation: &str) -> Result<SealStatus> {
         let scope = self.scope()?;
         stream.check_domain()?;
+        let activation = self.native_activation()?;
         anyhow::ensure!(
             crate::storage::facet_opening(scope).is_none(),
             "facets cannot seal durable producers"
         );
         anyhow::ensure!(
-            self.0.worker_config.script_name == stream.binding.principal
-                && self
-                    .0
+            activation.worker_config.script_name == stream.binding.principal
+                && activation
                     .worker_config
                     .stream_bindings
                     .iter()
                     .any(|current| current.environment == stream.binding.environment
                         && current.principal == stream.binding.principal
                         && current.grant == stream.binding.grant
-                        && self
-                            .0
+                        && activation
                             .worker_config
                             .event_readiness
                             .binding(current)
@@ -82,20 +81,26 @@ impl Storage {
     pub fn emit<E: Event>(&self, stream: &Stream<E>, event: E) -> Result<()> {
         let scope = self.scope()?;
         stream.check_ready()?;
-        self.0.worker_config.event_readiness.check()?;
-        if !(self.0.worker_config.script_name == stream.binding.principal
-            && self.0.worker_config.stream_bindings.iter().any(|current| {
-                current.environment == stream.binding.environment
-                    && current.principal == stream.binding.principal
-                    && current.grant == stream.binding.grant
-                    && self
-                        .0
-                        .worker_config
-                        .event_readiness
-                        .binding(current)
-                        .is_ok_and(|resolved| resolved.resource.same_identity(stream.resource()))
-                    && current.publish
-            }))
+        let activation = self.native_activation()?;
+        activation.worker_config.event_readiness.check()?;
+        if !(activation.worker_config.script_name == stream.binding.principal
+            && activation
+                .worker_config
+                .stream_bindings
+                .iter()
+                .any(|current| {
+                    current.environment == stream.binding.environment
+                        && current.principal == stream.binding.principal
+                        && current.grant == stream.binding.grant
+                        && activation
+                            .worker_config
+                            .event_readiness
+                            .binding(current)
+                            .is_ok_and(|resolved| {
+                                resolved.resource.same_identity(stream.resource())
+                            })
+                        && current.publish
+                }))
             || !stream.binding.publish
         {
             return Err(DeliveryError::new(
@@ -104,7 +109,7 @@ impl Storage {
             )
             .into());
         }
-        if self.1.is_none() && self.0.resources.transaction.lock().unwrap().is_none() {
+        if self.1.is_none() && self.resources().transaction.lock().unwrap().is_none() {
             return Err(DeliveryError::new(
                 ErrorCode::TransactionRequired,
                 "event emission requires an active transaction",

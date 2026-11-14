@@ -1155,6 +1155,36 @@ async fn physical_owner_retains_lease_through_cancelled_sync() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn linearizable_read_cohorts_keep_fresh_barriers() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_reads(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_linearizable_read_cohorts_keep_fresh_barriers() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_reads(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn linearizable_read_cohorts_refuse_term_change() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_invalidated(false, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_linearizable_read_cohorts_refuse_term_change() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_invalidated(true, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn linearizable_read_cohorts_refuse_configuration_change() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_invalidated(false, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_linearizable_read_cohorts_refuse_configuration_change() -> Result<()> {
+    Box::pin(runtime_fixture::cohort_invalidated(true, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn strong_read_at_group_barrier() -> Result<()> {
     runtime_fixture::coherent_reads(false).await
 }
@@ -1315,6 +1345,11 @@ async fn shared_remote_queries_bind_cell_versions_and_gateway_owners() -> Result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_execution_uses_request_deadline_and_bounded_socket_io() -> Result<()> {
+    Box::pin(runtime_fixture::remote_execution_deadlines()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn shared_remote_queries_retain_cancelled_sql_until_join() -> Result<()> {
     Box::pin(runtime_fixture::remote_query_lifecycle(false)).await
 }
@@ -1362,6 +1397,11 @@ async fn shared_remote_command_revocation_preserves_admitted_ownership() -> Resu
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn shared_remote_enrollment_requires_write_grants_and_exact_creation() -> Result<()> {
     Box::pin(runtime_fixture::remote_enrollment()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_enrollment_waits_for_logical_writer() -> Result<()> {
+    Box::pin(runtime_fixture::remote_enrollment_writer_contention()).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]

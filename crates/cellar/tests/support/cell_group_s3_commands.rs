@@ -24,7 +24,8 @@ pub(crate) use enrollment::{s3_enrollment, s3_enrollment_deadline};
 use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
-    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
+    s3_late_receipt_uses_completed_verification, s3_receipt_deadline, s3_receipt_failures,
+    s3_receipt_minimums, s3_receipt_observations, s3_response_precedes_hold_retirement,
 };
 pub(crate) use remote::{s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -385,6 +386,75 @@ pub(crate) async fn s3_replays_from_peer_archive(
     h.close().await
 }
 
+/// A follower can pin a published prefix while a newer local cut is not archived.
+pub(crate) async fn follower_acquires_published_prefix(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let h = Harness::new(rooted, store, 4).await?;
+    let first = h
+        .command(
+            1,
+            b"archived-prefix",
+            Durability::S3,
+            Duration::from_secs(5),
+        )
+        .await?
+        .response()
+        .await?;
+    let at = first.local_receipt().context("archived receipt")?.position;
+    drop(first);
+    let gate = h.remote.hold_publication();
+    let result = async {
+        let next = h
+            .command(
+                2,
+                b"unpublished-tail",
+                Durability::Quorum,
+                Duration::from_secs(5),
+            )
+            .await?
+            .response()
+            .await?;
+        let tail = next.local_receipt().context("tail receipt")?.position;
+        anyhow::ensure!(tail.index > at.index);
+        drop(next);
+        tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+        controller::applied(&h.fixture, h.route.history, tail.index).await?;
+        anyhow::ensure!(h.fixture.runtimes[1].status(h.route.history).await?.leader == Some(1));
+        // The leader's tail publication is held. An attempted follower upload
+        // cannot succeed, but metadata acquisition and physical verification can.
+        h.remote
+            .deny_generation_writes
+            .store(true, Ordering::Release);
+        let peer = CellGroupArchiveRegistration {
+            publisher: CellGroupArchivePublisher::GroupLeader {
+                retry_interval_ms: 100,
+            },
+            store: archive_controller::verifier(&h.fixture, &h.route, rooted, "follower-prefix")
+                .await?,
+            ..h.archive.clone()
+        };
+        h.controllers[1].archive(peer)?.response().await?;
+        archive_controller::published(&h.controllers[1], h.route.history, at.index).await?;
+        let prefix = h.controllers[1]
+            .archive_status(h.route.history)?
+            .and_then(|status| status.published)
+            .context("independently verified follower prefix")?;
+        anyhow::ensure!(prefix.position() == at);
+        anyhow::ensure!(h.fixture.runtimes[1].status(h.route.history).await?.leader == Some(1));
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    h.remote
+        .deny_generation_writes
+        .store(false, Ordering::Release);
+    gate.release.notify_one();
+    let closed = h.close().await;
+    result?;
+    closed
+}
+
 pub(crate) async fn archive_progress_wakes_commands(rooted: bool) -> Result<()> {
     let h = Harness::configured_resources(
         rooted,
@@ -561,24 +631,21 @@ pub(crate) async fn s3_commands(
     );
     assert_eq!(h.archive.tails.usage().operations, 1);
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);
-    // A Quorum duplicate still honors the stored S3 minimum. A retained response
-    // keeps its physical proof and remote hold until the final consumer drops it.
-    let mut duplicate = Box::pin(
-        h.command(1, b"first", Durability::Quorum, Duration::from_secs(15))
-            .await?
-            .response(),
-    );
+    // A covered duplicate shares the already-admitted proof, including the
+    // stored S3 minimum. Disallow another upload while both consumers retain it.
+    h.remote
+        .deny_generation_writes
+        .store(true, Ordering::Release);
+    let duplicate = h
+        .command(1, b"first", Durability::Quorum, Duration::from_secs(15))
+        .await?
+        .response()
+        .await?;
     controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 2)).await?;
-    assert!(
-        tokio::time::timeout(Duration::from_millis(30), duplicate.as_mut())
-            .await
-            .is_err()
-    );
-    drop(response);
-    let response = duplicate.await?;
-    assert_eq!(response.durability(), Durability::S3);
+    assert_eq!(h.archive.tails.usage().operations, 1);
+    assert_eq!(duplicate.durability(), Durability::S3);
     assert_eq!(
-        response
+        duplicate
             .local_receipt()
             .expect("local command receipt")
             .receipt
@@ -586,7 +653,7 @@ pub(crate) async fn s3_commands(
         b"first"
     );
     assert_eq!(
-        response
+        duplicate
             .local_receipt()
             .expect("local command receipt")
             .version
@@ -596,6 +663,44 @@ pub(crate) async fn s3_commands(
     );
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);
     drop(response);
+    controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 1)).await?;
+    assert_eq!(h.archive.tails.usage().operations, 1);
+
+    // An uncovered successor cannot borrow that historical proof or bypass the
+    // single-operation verification pool. Dropping only the first consumer did
+    // not release the shared admission; the final consumer must release it.
+    h.remote
+        .deny_generation_writes
+        .store(false, Ordering::Release);
+    let mut successor = Box::pin(
+        h.command(3, b"third", Durability::S3, Duration::from_secs(15))
+            .await?
+            .response(),
+    );
+    controller::wait_for(async || {
+        Ok(h.controllers[0].usage().retained_s3 == 2
+            && h.calls.load(Ordering::SeqCst) == 3
+            && h.fixture.appliers[&(0, h.route.history)]
+                .0
+                .usage()?
+                .active_cells
+                == 0)
+    })
+    .await?;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), successor.as_mut())
+            .await
+            .is_err()
+    );
+    assert_eq!(h.archive.tails.usage().operations, 1);
+    drop(duplicate);
+    let successor = successor.await?;
+    assert_eq!(successor.durability(), Durability::S3);
+    let receipt = successor.local_receipt().context("successor S3 receipt")?;
+    assert_eq!(receipt.receipt.result(), b"third");
+    assert_eq!(receipt.version.sequence.get(), 4);
+    assert_eq!(h.calls.load(Ordering::SeqCst), 3);
+    drop(successor);
     controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 0)).await?;
     assert!(h.controllers[0].group_failure(h.route.history)?.is_none());
     h.close().await
@@ -668,8 +773,37 @@ pub(crate) async fn s3_deadline(
     h.close().await
 }
 
+pub(crate) async fn archive_hot_cell_tail_bound(rooted: bool) -> Result<()> {
+    let h = Harness::new(rooted, Arc::new(object_store::memory::InMemory::new()), 1).await?;
+    let work = async {
+        for sequence in 1..=3 {
+            let response = h.command(sequence, b"hot", Durability::Quorum, Duration::from_secs(15))
+                .await?.response().await?;
+            let cut = response.local_receipt().context("hot cell receipt")?.position.index;
+            drop(response);
+            archive_controller::published(&h.controllers[0], h.route.history, cut).await?;
+            let coverage = archive_controller::verified_current(
+                &h.fixture, &h.archive, rooted, &format!("hot-cell-tail-{sequence}"),
+            ).await?;
+            let base = coverage.recovery().checkpoint().checkpoint().marker().position().index;
+            let span = cut.get() - base.get();
+            let cells = u64::from(coverage.marker().root().cells());
+            anyhow::ensure!(span <= cells.max(1),
+                "hot-cell archive replay exceeds one transition per cell: span={span} cells={cells}");
+            let (_, pin) = coverage.recovery().manifest().pin_cell(&h.cell.cell)
+                .context("recovered hot cell")?;
+            h.fixture.cluster.domain.blocking(move || dependencies::image_value(pin, sequence))?.await??;
+        }
+        anyhow::ensure!(h.calls.load(Ordering::SeqCst) == 3, "archive replay re-entered callbacks");
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    h.close().await?;
+    work
+}
+
 pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
     let h = Harness::new(rooted, store, 1).await?;
+    let sibling_index = dependencies::mutate_sibling(&h).await?;
     let result = h
         .command(1, b"first", Durability::Quorum, Duration::from_secs(15))
         .await?
@@ -687,57 +821,18 @@ pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>
         .context("published archive")?
         .published
         .context("archive marker")?;
-    let objects = h.remote.list(None).try_collect::<Vec<_>>().await?;
-    let mut missing = None;
-    for object in objects
-        .iter()
-        .filter(|object| object.location.as_ref().contains("/indexes/"))
-    {
-        let value: serde_json::Value =
-            serde_json::from_slice(&h.remote.get(&object.location).await?.bytes().await?)?;
-        let Some(chunks) = value.get("chunks").and_then(|v| v.as_array()) else {
-            continue;
-        };
-        let selected: GroupManifest = serde_json::from_value(value["marker"].clone())?;
-        if selected != marker {
-            continue;
-        }
-        let prefix = object
-            .location
-            .as_ref()
-            .split_once("/generations/")
-            .context("generation prefix")?
-            .0;
-        let path = |chunk: &serde_json::Value| -> Result<ObjectPath> {
-            let object = &chunk["object"];
-            let digest: Vec<u8> = serde_json::from_value(object["digest"].clone())?;
-            Ok(ObjectPath::from(format!(
-                "{prefix}/generations/{}/chunks/{}-{}",
-                object["generation"],
-                object["length"],
-                hex::encode(digest)
-            )))
-        };
-        let a = chunks
-            .iter()
-            .filter(|chunk| chunk["part"]["cell"] == "registered-a")
-            .map(&path)
-            .collect::<Result<Vec<_>>>()?;
-        for chunk in chunks
-            .iter()
-            .filter(|chunk| chunk["part"]["cell"] == "registered-b")
-        {
-            let candidate = path(chunk)?;
-            if !a.contains(&candidate) {
-                missing = Some(candidate);
-                break;
-            }
-        }
-        if missing.is_some() {
-            break;
-        }
-    }
-    let missing = missing.context("B dependency outside A closure")?;
+    anyhow::ensure!(sibling_index < index);
+    let coverage = archive_controller::verified_current(
+        &h.fixture,
+        &h.archive,
+        rooted,
+        "missing-sibling-fault",
+    )
+    .await?;
+    anyhow::ensure!(coverage.marker() == &marker);
+    let missing =
+        dependencies::sibling_dependency(&h, coverage.hold(), sibling_index, rooted).await?;
+    drop(coverage);
     h.remote.inner.delete(&missing).await?;
     // A still has its committed receipt. A cached published marker must not
     // acknowledge it while any other cell's selected dependency is missing.
@@ -767,7 +862,8 @@ pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>
             .result(),
         b"second"
     );
-    assert_eq!(h.calls.load(Ordering::SeqCst), 2);
+    // B mutation, A original, and the later A quorum successor each enter once.
+    assert_eq!(h.calls.load(Ordering::SeqCst), 3);
     drop(result);
     h.close().await
 }

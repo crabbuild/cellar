@@ -172,8 +172,22 @@ pub(crate) async fn remote_commands() -> Result<()> {
             ),
             "{refusal:?}"
         );
+        assert!(
+            !refusal.ambiguous,
+            "fresh follower refusal proves no producer entered"
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         drop(follower);
+        // This invocation already experienced unclassified transport failures.
+        // The same authenticated follower rejection cannot settle that history.
+        let refusal = command
+            .execute_remote(&router.transport, MemberId::new(2)?)
+            .await
+            .err()
+            .context("rejection after uncertain transmission")?;
+        assert!(refusal.ambiguous);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        command.retry().await?;
         let result = command
             .execute_remote(&router.transport, MemberId::new(1)?)
             .await?;

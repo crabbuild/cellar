@@ -21,6 +21,7 @@ pub(super) struct PageRef {
     pub digest: [u8; 32],
     pub height: u8,
     pub cells: u32,
+    pub pending_calls: u64,
     pub last_mutation_index: u64,
     pub last_mutation_term: u64,
     // Required even when null: internal marker-1 hard cutover, no old reader.
@@ -98,6 +99,13 @@ impl Page {
             digest: digest(bytes),
             height,
             cells,
+            pending_calls: self
+                .leaf
+                .effects
+                .pending_calls
+                .checked_add(self.left.map_or(0, |p| p.pending_calls))
+                .and_then(|n| n.checked_add(self.right.map_or(0, |p| p.pending_calls)))
+                .ok_or(ManifestError::Limit)?,
             last_mutation_index: latest.index.get(),
             last_mutation_term: latest.term.get(),
             next_due_unix_millis: [

@@ -100,6 +100,25 @@ impl RaftTransport {
             .map_err(|error| classify(error, 0))
     }
 
+    /// A local inspection needs the same installed revision floor as a remote
+    /// receiver. Clone a refresh basis only when the current cut is behind.
+    pub(crate) fn lagging_inspection_trust(
+        &self,
+        minimum_revision: u64,
+    ) -> Result<Option<crate::raft::fleet_catalog::FleetTrustSnapshot>, InspectionError> {
+        let read = || -> Result<_, TransportError> {
+            let state = &self.handle.0;
+            let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+            state.admit(&registry)?;
+            let trust = registry
+                .fleet_trust
+                .as_ref()
+                .ok_or(TransportError::Refused)?;
+            Ok((trust.revision() < minimum_revision).then(|| trust.as_ref().clone()))
+        };
+        read().map_err(|error| classify(error, 0))
+    }
+
     pub(crate) fn validate_fleet_node_observation(
         &self,
         view: &RaftHostObservation,

@@ -59,8 +59,8 @@ retain records for replay and independent subscriptions. See the
 [runnable example](../../../examples/durable-streams/README.md) for publication,
 consumption, retries and their durability boundaries.
 
-`Registry::raft_class` registers a `RaftClass` separately from mutable `Cell`
-factories and workflows. Synchronous commands receive a borrowed transaction
+`Registry::raft_class` registers a `RaftClass` with direct callbacks. Synchronous
+commands receive a borrowed transaction
 and captured inputs; queries receive only a pinned read-only image. Operation
 kind and contract digest are checked before callbacks. The namespace identity
 also binds required command names/digests, while query compatibility is checked
@@ -68,10 +68,35 @@ per request. `Node::start_raft_cells` connects these definitions to node-owned p
 bounded `RaftCellHandle` commands, stale queries, receipts and closure. A returned
 future is admitted immediately; its deadline and cancellation cannot discard a
 submitted producer. Native HTTP and Axum can call those same handles; see the
-[Raft counter](../../../examples/raft-counter/README.md). S3 archive and stronger
-read-consistency requests are refused until their work packages are implemented.
-The full delivery status is recorded in
-[MR-07](../../../docs/design/multi-raft/implementation-plan.md).
+[Raft counter](../../../examples/raft-counter/README.md).
+
+`CommandContext::storage()` opens the SDK's `Storage` view on the command's
+private SQLite image. Initializers can acquire the same view from
+`CommandTransaction::storage()`. SQL and KV changes join the command
+transaction, including work inside `Storage::tx` savepoints. The view expires
+with its callback. The cell handle returns the command receipt after the
+required Quorum or S3 proof. Ordinary `Context` activation and the remaining
+primitive adapters are tracked in the
+[cell-group implementation plan](../../../docs/design/multi-raft/cell-groups/implementation-plan.md).
+
+`QueryContext::storage()` reads SQL and KV from the immutable image selected
+by the query's consistency policy. The view and the returned query version
+describe the same image. KV reads on images with no KV schema return empty
+results. SQL writes and Storage mutations fail, and the view expires with the
+callback.
+
+`Registry::raft_cell` binds a normal `Cell` factory to a Raft class.
+`RaftClass::json_cell_rpc` routes a compiled command to
+`Cell::invoke(Invocation::CellRpc)` with JSON bytes. Each admitted attempt
+constructs a disposable instance. Its factory and handler share
+`Context::storage()` and one private transaction. Return
+`Output::Rpc(RpcData::Json(...))`. The serialized reply follows the command's
+applied receipt and required durability proof. A suspended handler retains
+its private transaction under the original cell and route while the shared
+worker serves other cells. Storage is installed only during its polls. The
+worker rolls back on expiry or leadership loss before submission. Use an
+explicit compiled query for committed reads. Independent async Storage
+transactions and provider bindings remain planned.
 
 Within each component, private modules separate values, codecs and validation
 from runtime operations. Pass clocks and budgets explicitly to value helpers;

@@ -16,6 +16,8 @@ pub(super) enum Error {
     Runtime(RuntimeError),
     Execution(ExecutionError),
     Command(Arc<crate::raft::cell_groups::CellCommandError>),
+    BindingRetirement(anyhow::Error),
+    BindingAllocator(Box<crate::raft::cell_groups::CellDispatchError>),
     Effect(CommandFailure),
     Invalid(&'static str),
 }
@@ -26,6 +28,8 @@ impl std::fmt::Display for Error {
             Self::Runtime(e) => std::fmt::Display::fmt(e, f),
             Self::Execution(e) => std::fmt::Display::fmt(e, f),
             Self::Command(e) => std::fmt::Display::fmt(e, f),
+            Self::BindingRetirement(e) => write!(f, "binding retirement: {e:#}"),
+            Self::BindingAllocator(e) => write!(f, "binding settlement allocator: {e}"),
             Self::Effect(e) => std::fmt::Display::fmt(e, f),
             Self::Invalid(e) => f.write_str(e),
         }
@@ -40,7 +44,7 @@ fn open(shared: &Shared) -> Result<(), Error> {
     }
 }
 
-fn clock(shared: &Shared) -> Result<u64, Error> {
+pub(super) fn clock(shared: &Shared) -> Result<u64, Error> {
     shared
         .domain
         .mono_ms()
@@ -159,27 +163,137 @@ pub(super) async fn run(
         ..
     } = *scan.into_scan();
     let _metadata = _reservation;
-    let Some(due) = due else {
+    let Some(mut due) = due else {
         return Ok(());
     };
-    let minimum = due.minimum();
+    let native_callback = matches!(due, DueEffect::Work(_));
+    if native_callback
+        && shared
+            .callback_cells
+            .contains(&cell)
+            .map_err(Error::Runtime)?
+    {
+        return Ok(());
+    }
+    let callback_window = registration.options.callback_timeout_ms + 1000;
+    if let DueEffect::Work(work) = &mut due {
+        work.lease_ms = callback_window;
+    }
+    if native_callback && callback_window > limits.max_retry_window_ms {
+        return Err(Error::Invalid(
+            "callback retry window exceeds execution limit",
+        ));
+    }
+    let minimum = due.minimum().map_err(effect)?;
     let (operation, input) = due.command().map_err(effect)?;
     let retry_until = wall()?
-        .checked_add(registration.options.retry_window_ms)
+        .checked_add(if native_callback {
+            callback_window.max(registration.options.retry_window_ms)
+        } else {
+            registration.options.retry_window_ms
+        })
         .ok_or(Error::Invalid("effect retry window"))?;
+    let prepared_request = request(registration, next, &operation, input, minimum, retry_until)?;
+    if native_callback {
+        // Admission transfers the entire invocation to the joined controller.
+        // Dropping its response does not cancel it. Discovery remains available
+        // for other queues while a long callback holds one of two bounded slots.
+        let invocation = registration
+            .dispatcher
+            .system_command(
+                cell.clone(),
+                prepared_request,
+                CellRoutingLimits {
+                    timeout: Duration::from_millis(registration.options.callback_timeout_ms),
+                    max_attempts: 4,
+                },
+            )
+            .await
+            .map_err(|error| Error::Command(Arc::new(error)))?;
+        let call = commands::admit(shared, invocation, options)
+            .map_err(|error| Error::Command(Arc::new(error.error)))?;
+        drop(call);
+        return Ok(());
+    }
     let receipt = command(
         shared,
         registration,
         &cell,
         options.clone(),
-        request(registration, next, &operation, input, minimum, retry_until)?,
+        prepared_request,
     )
     .await?;
     let local = receipt
         .local_receipt()
         .ok_or(Error::Invalid("local effect receipt"))?;
     match due {
-        DueEffect::Alarm(_) => check_result(receipt.result()),
+        DueEffect::Binding(_) => {
+            let pending: Option<crate::storage::raft_binding_recovery::Pending> =
+                serde_json::from_slice(receipt.result())
+                    .map_err(|_| Error::Invalid("binding claim result"))?;
+            let Some(pending) = pending else {
+                return Ok(());
+            };
+            let route = execution.route().clone();
+            let authority = execution
+                .effect_authority(&local.version, local.position.term)
+                .map_err(Error::Runtime)?;
+            // Release the source proof's SQL/archive response slot before a
+            // loopback target needs the same admission bank.
+            drop(receipt);
+            authority.check().map_err(Error::Runtime)?;
+            let host = registration
+                .dispatcher
+                .bindings
+                .get()
+                .ok_or(Error::Invalid("binding recovery host"))?;
+            let candidate_lost = host
+                .retire(
+                    pending.clone(),
+                    Duration::from_millis(registration.options.operation_timeout_ms),
+                )
+                .await
+                .map_err(Error::BindingRetirement)?;
+            authority.check().map_err(Error::Runtime)?;
+            // Self-calls and concurrent target maintenance may have consumed the
+            // same system client's next sequence. Read its allocator anew.
+            let deadline = clock(shared)?
+                .checked_add(registration.options.operation_timeout_ms)
+                .ok_or(Error::Invalid("binding settlement deadline"))?;
+            let next = super::super::binding_recovery::next_system(
+                shared,
+                &registration.dispatcher,
+                options.clone(),
+                cell.clone(),
+                route,
+                deadline,
+            )
+            .await
+            .map_err(|error| Error::BindingAllocator(Box::new(error)))?;
+            let input = serde_json::to_vec(&crate::storage::raft_binding_recovery::Settlement {
+                key: pending.key,
+                digest: pending.digest,
+                candidate_lost,
+            })
+            .map_err(|_| Error::Invalid("binding settlement input"))?;
+            let receipt = command(
+                shared,
+                registration,
+                &cell,
+                options,
+                request(
+                    registration,
+                    next,
+                    crate::storage::raft_binding_recovery::SETTLE,
+                    input,
+                    minimum,
+                    retry_until,
+                )?,
+            )
+            .await?;
+            check_result(receipt.result())
+        }
+        DueEffect::Alarm(_) | DueEffect::Work(_) => check_result(receipt.result()),
         DueEffect::Delivery {
             selected,
             definition,

@@ -32,6 +32,7 @@ pub use partition_service::{
 };
 mod records;
 mod recovery_selection;
+mod recovery_sources;
 mod transition;
 mod transition_admission;
 mod transition_child;

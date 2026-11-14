@@ -58,17 +58,18 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         .scope
         .clone();
     if let Some(record) = crate::storage::sandbox_erasure::load(&scope)? {
-        storage.0.close_for_erasure();
+        let owner = storage.native_activation()?;
+        owner.close_for_erasure();
         storage.sync().await?;
         let (reply, receive) = tokio::sync::oneshot::channel();
-        let activation = std::sync::Arc::downgrade(&storage.0);
+        let activation = std::sync::Arc::downgrade(owner);
         crate::host_channels::FACET_TX
             .get()
             .ok_or_else(|| anyhow::anyhow!("erasure requires a node host"))?
             .send(crate::host_channels::FacetReq::Erase {
                 request: crate::host_channels::CellErasureRequest {
                     record,
-                    epoch: storage.0.epoch,
+                    epoch: owner.epoch,
                     validate_admission: Box::new(move |scope, epoch| {
                         let activation = activation
                             .upgrade()

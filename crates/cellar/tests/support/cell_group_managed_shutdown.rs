@@ -319,7 +319,10 @@ async fn pending_sql(
         anyhow::bail!("expected one physical group in the close report")
     };
     ensure!(
-        group.history == cluster.history && group.applied.index >= receipt.witness.position.index
+        group.history == cluster.history
+            && group.active
+            && !group.failed
+            && group.applied.index >= receipt.witness.position.index
     );
     ensure!(service.close().await? == closed);
     Ok(())

@@ -91,6 +91,8 @@ pub(super) struct SendCellQuery {
     peer: RaftPeer<GroupHistory>,
     cell: CellHistory,
     call: CellQueryCall,
+    started_at: u64,
+    leader_generation: Option<std::sync::Weak<()>>,
     keys: VersionKeys,
     _admission: Arc<Permit>,
     deadline: u64,
@@ -176,7 +178,7 @@ impl RaftTransport {
         let state = &self.handle.0;
         // Discovery never creates a local replica or grants voting authority.
         state.runtime.shared()?;
-        let (view, peer, pool) = {
+        let (view, peer, pool, leader_generation) = {
             let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
             state.admit(&registry)?;
             let view = registry
@@ -202,9 +204,11 @@ impl RaftTransport {
                 .get(&peer.replica.node)
                 .ok_or(TransportError::StalePeer)?
                 .clone();
-            (view, peer, pool)
+            let leader_generation = registry.leaders.generation(&view);
+            (view, peer, pool, leader_generation)
         };
-        if state.domain.mono_ms().map_err(|_| TransportError::Closed)? >= deadline {
+        let started_at = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        if started_at >= deadline {
             return Err(TransportError::Timeout);
         }
         let charge = queries::reservation(
@@ -238,6 +242,8 @@ impl RaftTransport {
                 peer,
                 cell: cell.clone(),
                 call,
+                started_at,
+                leader_generation,
                 keys: context.keys,
                 _admission: context.admission,
                 deadline,
@@ -262,6 +268,23 @@ impl CellQueryGateway {
 }
 
 impl State {
+    pub(in crate::raft::transport) fn check_cell_name_gateway(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<(), TransportError> {
+        let gateway = self
+            .cell_query_gateways
+            .lock()
+            .map_err(|_| TransportError::Closed)?
+            .get(&(cell.cluster, cell.namespace))
+            .and_then(|entry| entry.upgrade())
+            .ok_or(TransportError::Refused)?;
+        if !gateway.accepting.load(Ordering::Acquire) {
+            return Err(TransportError::Refused);
+        }
+        Ok(())
+    }
+
     pub(super) fn authorize_cell_query(
         &self,
         wire: &QueryRoute,
@@ -344,7 +367,7 @@ impl State {
                     }
                     let now = u64::try_from(crate::asyncrt::wall_ms())
                         .map_err(|_| TransportError::Authentication)?;
-                    wire::cell::decode_cell_reply(
+                    let reply = wire::cell::decode_cell_reply(
                         &body,
                         &request.cell,
                         request.route.schema_digest,
@@ -352,7 +375,22 @@ impl State {
                         now,
                         self.options.max_query_response_bytes,
                         request.peer.replica.member,
-                    )
+                    )?;
+                    if reply
+                        .1
+                        .as_ref()
+                        .is_some_and(|advice| advice.history != request.route.scope)
+                    {
+                        return Err(TransportError::Authentication);
+                    }
+                    self.remember_cell_leader(
+                        &request.route,
+                        request.leader_generation.as_ref(),
+                        &request.peer,
+                        reply.1,
+                        request.started_at,
+                    );
+                    Ok(reply)
                 },
             )
             .await;
@@ -368,7 +406,7 @@ impl State {
                     _node: request.node,
                     _peer: request.peer_bytes,
                 }),
-                leader_hint,
+                leader_hint: leader_hint.map(|advice| advice.leader),
             }));
         failed
     }
@@ -377,9 +415,11 @@ impl State {
 pub(super) enum IncomingCall {
     Shared(CellQueryCall),
     Command(crate::raft::query_wire::command::CellCommandCall),
+    Binding(crate::raft::query_wire::binding::Call),
     CommandProbe(crate::raft::query_wire::command::CellCommandProbe),
     Enrollment(crate::raft::query_wire::enrollment::CellEnrollmentCall),
     Receipt(crate::raft::query_wire::receipt::CellReceiptCall),
+    Name(crate::raft::query_wire::name::CellNameCall),
 }
 
 impl IncomingCall {
@@ -388,6 +428,16 @@ impl IncomingCall {
         bytes: &[u8],
         limit: usize,
     ) -> Result<Self, TransportError> {
+        if route.is_binding_retirement() {
+            return Ok(Self::Binding(
+                crate::raft::query_wire::binding::Call::decode(bytes, limit)?,
+            ));
+        }
+        if route.is_name() {
+            return Ok(Self::Name(
+                crate::raft::query_wire::name::CellNameCall::decode(bytes, limit)?,
+            ));
+        }
         if route.is_receipt() {
             return Ok(Self::Receipt(
                 crate::raft::query_wire::receipt::CellReceiptCall::decode(bytes, limit)?,
@@ -415,9 +465,11 @@ impl IncomingCall {
         match self {
             Self::Shared(call) => call.timeout_ms,
             Self::Command(call) => call.timeout_ms,
+            Self::Binding(call) => call.timeout_ms,
             Self::CommandProbe(call) => call.timeout_ms,
             Self::Enrollment(call) => call.timeout_ms,
             Self::Receipt(call) => call.timeout_ms,
+            Self::Name(call) => call.timeout_ms,
         }
     }
 
@@ -428,7 +480,13 @@ impl IncomingCall {
         deadline: u64,
     ) -> Result<super::query_replies::Reply, TransportError> {
         match self {
-            Self::Command(call) => state.execute_cell_command(route, call).await,
+            Self::Binding(call) => {
+                state
+                    .execute_binding_retirement(route, call, deadline)
+                    .await
+            }
+            Self::Name(call) => state.execute_cell_name(route, call, deadline).await,
+            Self::Command(call) => state.execute_cell_command(route, call, deadline).await,
             Self::CommandProbe(call) => {
                 state
                     .execute_cell_command_probe(route, call, deadline)
@@ -455,11 +513,10 @@ impl IncomingCall {
                     state
                         .runtime
                         .shared()?
-                        .status(target.scope)
+                        .leader_advice(target.scope, deadline)
                         .await
                         .ok()
-                        .and_then(|status| status.leader)
-                        .and_then(|member| MemberId::new(member).ok())
+                        .flatten()
                 } else {
                     None
                 };
@@ -470,7 +527,7 @@ impl IncomingCall {
                 .map_err(|e| query_failure(&e));
                 wire::cell::encode_cell_result(
                     &result,
-                    leader_hint,
+                    leader_hint.as_ref(),
                     state.options.max_query_response_bytes,
                 )
                 .map(super::query_replies::Reply::plain)

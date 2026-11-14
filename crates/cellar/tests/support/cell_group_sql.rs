@@ -501,8 +501,8 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
 mod reads;
 
 pub(crate) use reads::{
-    coherent as coherent_reads, follower_linearizable, lifecycle as query_lifecycle,
-    recent_source_reads,
+    coherent as coherent_reads, cohort_invalidated, cohort_reads, follower_linearizable,
+    lifecycle as query_lifecycle, recent_source_reads,
 };
 
 #[path = "cell_group_sql_apply.rs"]
@@ -546,11 +546,13 @@ mod s3_commands;
 mod s3_response;
 #[allow(unused_imports)]
 pub(crate) use s3_commands::{
-    archive_dependencies, archive_progress_wakes_commands, full_backend_outage,
-    output_during_apply, s3_commands, s3_deadline, s3_enrollment, s3_enrollment_deadline,
-    s3_missing_sibling, s3_namespace_minimum, s3_receipt_deadline, s3_receipt_failures,
-    s3_receipt_minimums, s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs,
-    s3_remote_slow_delivery, s3_replays_from_peer_archive,
+    archive_dependencies, archive_hot_cell_tail_bound, archive_progress_wakes_commands,
+    follower_acquires_published_prefix, full_backend_outage, output_during_apply, s3_commands,
+    s3_deadline, s3_enrollment, s3_enrollment_deadline,
+    s3_late_receipt_uses_completed_verification, s3_missing_sibling, s3_namespace_minimum,
+    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
+    s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery, s3_replays_from_peer_archive,
+    s3_response_precedes_hold_retirement,
 };
 #[allow(unused_imports)]
 pub(crate) use s3_response::unproved_s3_responses;
@@ -566,7 +568,7 @@ mod outbox_effects;
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
-    archived_groups_reclaim_independently,
+    archive_controller_tail_rollover, archived_groups_reclaim_independently,
 };
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{
@@ -600,7 +602,9 @@ pub(crate) use controller_enrollment::{
 
 #[path = "cell_group_remote_queries.rs"]
 mod remote_queries;
-pub(crate) use remote_queries::{remote_follower_reads, remote_queries, remote_query_lifecycle};
+pub(crate) use remote_queries::{
+    remote_execution_deadlines, remote_follower_reads, remote_queries, remote_query_lifecycle,
+};
 
 #[path = "cell_group_query_origins.rs"]
 mod query_origins;
@@ -618,7 +622,9 @@ pub(crate) use remote_commands::{remote_command_lifecycle, remote_commands};
 
 #[path = "cell_group_remote_enrollment.rs"]
 mod remote_enrollment;
-pub(crate) use remote_enrollment::{remote_enrollment, remote_enrollment_lifecycle};
+pub(crate) use remote_enrollment::{
+    remote_enrollment, remote_enrollment_lifecycle, remote_enrollment_writer_contention,
+};
 
 #[path = "cell_group_receipt_lookup.rs"]
 mod receipt_lookup;

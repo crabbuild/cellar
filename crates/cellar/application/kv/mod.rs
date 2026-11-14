@@ -6,6 +6,9 @@
 
 mod inspection;
 mod options;
+pub(crate) mod raft_blob;
+mod raft_value;
+pub(crate) mod raft_wire;
 mod validation;
 mod wire;
 pub use options::{
@@ -30,6 +33,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+
+pub(crate) const OPERATOR: &str = "__kvOperator";
 
 #[derive(Clone, Debug)]
 pub struct Namespace {
@@ -161,16 +166,21 @@ impl Namespace {
         context: &Context,
         method: &str,
         args: StructuredValue,
-    ) -> Result<StructuredValue> {
+    ) -> Result<raft_wire::Reply> {
+        let encoded = encode_rpc(&args)?;
+        drop(args);
+        if raft_wire::enabled(context) {
+            return raft_wire::call(context, &self.identity, method, encoded).await;
+        }
         let reply = context
             .rpc_cell(
                 policy_scope(&self.identity),
                 Some(policy::cell_name(&self.identity, 0)),
                 method.into(),
-                encode_rpc(&args)?,
+                encoded,
             )
             .await?;
-        decode_rpc_result(&reply)
+        Ok(raft_wire::Reply::inline(decode_rpc_result(&reply)?))
     }
 
     async fn read(
@@ -188,7 +198,7 @@ impl Namespace {
                 context,
                 "__kvGet",
                 StructuredValue::from_json(
-                    json!([{ "keys":keys, "withMetadata":metadata, "now":now() }]),
+                    json!([{ "keys":keys, "withMetadata":metadata, "now":now(), "externalValues":raft_wire::enabled(context) }]),
                 )?,
             )
             .await?;
@@ -197,35 +207,28 @@ impl Namespace {
             rows.len() == keys.len(),
             "KV_ERROR: namespace returned an invalid result count"
         );
-        rows.iter()
-            .zip(keys)
-            .map(|(row, key)| {
-                ensure!(
-                    wire::string(wire::field(&reply, row, "key"))? == *key,
-                    "KV_ERROR: namespace returned a different key"
-                );
-                let found = matches!(wire::field(&reply, row, "found"), CloneValue::Boolean(true));
-                let value = if found {
-                    Some(decode_value(
-                        wire::bytes(&reply, wire::field(&reply, row, "value"))?,
-                        kind,
-                    )?)
-                } else {
-                    None
-                };
-                let metadata = wire::optional_string(wire::field(&reply, row, "metadata"))?
-                    .map(|text| serde_json::from_str(&text))
-                    .transpose()?;
-                Ok((
-                    key.clone(),
-                    WithMetadata {
-                        value,
-                        metadata,
-                        cache_status: None,
-                    },
-                ))
-            })
-            .collect()
+        let mut result = Vec::with_capacity(keys.len());
+        raft_value::check_rows(&reply, &rows)?;
+        for (row, key) in rows.iter().zip(keys) {
+            ensure!(
+                wire::string(wire::field(&reply, row, "key"))? == *key,
+                "KV_ERROR: namespace returned a different key"
+            );
+            let value = raft_value::read(context, &self.identity, &reply, row, kind).await?;
+            let metadata = wire::optional_string(wire::field(&reply, row, "metadata"))?
+                .map(|text| serde_json::from_str(&text))
+                .transpose()?;
+            result.push((
+                key.clone(),
+                WithMetadata {
+                    value,
+                    metadata,
+                    cache_status: None,
+                },
+            ));
+        }
+        reply.check(context)?;
+        Ok(result)
     }
 
     pub async fn get(
@@ -301,9 +304,29 @@ impl Namespace {
         if let Some(metadata) = &metadata {
             check_metadata(metadata)?;
         }
-        let expires = expiry(now(), options.expiration, options.expiration_ttl)?;
+        let at = now();
+        let expires = expiry(at, options.expiration, options.expiration_ttl)?;
+        let ttl = options
+            .expiration_ttl
+            .and_then(|_| expires.and_then(|expires| expires.checked_sub(at)));
+        if raft_wire::enabled(context) && bytes.len() > policy::MAX_INLINE_VALUE_BYTES {
+            return raft_value::put(
+                context,
+                &self.identity,
+                Entry {
+                    key: key.into(),
+                    value: bytes,
+                    reference: None,
+                    tag: tag.into(),
+                    metadata,
+                    expires,
+                },
+                ttl,
+            )
+            .await;
+        }
         let mut args = StructuredValue::from_json(
-            json!([{ "entries":[{ "key":key, "value":null, "tag":tag, "metadata":metadata, "expiresAt":expires }] }]),
+            json!([{ "entries":[{ "key":key, "value":null, "tag":tag, "metadata":metadata, "expiresAt":expires,"expirationTtlMs":ttl }] }]),
         )?;
         let body = wire::array(&args, &args.root)?[0].clone();
         let entry = wire::array(&args, wire::field(&args, &body, "entries"))?[0].clone();
@@ -436,12 +459,28 @@ fn policy_scope(identity: &str) -> String {
 struct Entry {
     key: String,
     value: Vec<u8>,
+    reference: Option<String>,
     tag: String,
     metadata: Option<String>,
     expires: Option<i64>,
 }
 
+impl Entry {
+    fn size(&self) -> Result<usize> {
+        self.reference
+            .as_deref()
+            .map_or_else(|| Ok(self.value.len()), raft_wire::value_length)
+    }
+}
+
+struct ReadOptions {
+    metadata: bool,
+    expiration: bool,
+    references: bool,
+}
+
 struct Stored {
+    size: usize,
     entry: Entry,
     value: Option<Vec<u8>>,
     reference: Option<String>,
@@ -509,7 +548,7 @@ impl NamespaceCell {
     }
 
     fn open(&self) -> Result<()> {
-        if self.ready.load(Ordering::Acquire) {
+        if !self.storage.is_raft() && self.ready.load(Ordering::Acquire) {
             return Ok(());
         }
         self.storage.system_sql_schema(
@@ -522,6 +561,10 @@ impl NamespaceCell {
             .iter()
             .any(|row| matches!(row.get("name"), Some(SqlValue::Text(name)) if name == "revision"))
         {
+            ensure!(
+                !self.storage.is_raft(),
+                super::consensus::CommandFailure::CorruptState
+            );
             self.storage.system_sql_schema(
                 "ALTER TABLE __sys_kv ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;",
             )?;
@@ -540,6 +583,11 @@ impl NamespaceCell {
     }
 
     fn arm_blob(&self) -> Result<()> {
+        // Immutable Raft payloads remain retained until a collector proves the
+        // complete row/image/archive/reader closure. Never run Fleet's sweep.
+        if self.storage.is_raft() {
+            return Ok(());
+        }
         self.open()?;
         self.exec("INSERT INTO __sys_kv_meta(name,value) VALUES ('blob-sweep-due',1) ON CONFLICT(name) DO UPDATE SET value=excluded.value", &[])?;
         self.arm_before(
@@ -594,16 +642,16 @@ impl NamespaceCell {
         &self,
         context: &Context,
         keys: &[String],
-        metadata: bool,
-        expiration: bool,
+        options: ReadOptions,
         at: i64,
+        payloads: &mut Vec<crate::raft::cell_groups::CellGroupPayloadBytes>,
     ) -> Result<StructuredValue> {
         check_bulk(keys)?;
         self.open()?;
         let mut rows = Vec::with_capacity(keys.len());
         let mut bytes = Vec::with_capacity(keys.len());
         for key in keys {
-            let row = self.exec("SELECT value,blob_id,tag,metadata,expires_at,revision FROM __sys_kv WHERE name=? AND (expires_at IS NULL OR expires_at>?)", &[key.clone().into(), at.into()])?.into_iter().next();
+            let row = self.exec("SELECT value,blob_id,size,tag,metadata,expires_at,revision FROM __sys_kv WHERE name=? AND (expires_at IS NULL OR expires_at>?)", &[key.clone().into(), at.into()])?.into_iter().next();
             let Some(row) = row else {
                 rows.push(json!({ "key":key,"found":false }));
                 bytes.push(None);
@@ -611,6 +659,26 @@ impl NamespaceCell {
             };
             let reference = optional_text(&row, "blob_id")?;
             let inline = reference.is_none();
+            let mut entry = json!({"key":key,"found":true,"tag":text(&row,"tag")?,"value":null,"revision":self.revision(integer(&row,"revision")?)?});
+            if options.metadata {
+                entry["metadata"] = json!(optional_text(&row, "metadata")?);
+            }
+            if options.expiration {
+                entry["expiration"] = json!(optional_integer(&row, "expires_at")?);
+            }
+            if options.references && self.storage.is_raft() {
+                if let Some(reference) = reference.as_deref() {
+                    let (reference, length) = raft_wire::published_value(reference)?;
+                    ensure!(
+                        u64::try_from(integer(&row, "size")?)? == length as u64,
+                        super::consensus::CommandFailure::CorruptState
+                    );
+                    entry["externalValue"] = json!(reference);
+                    rows.push(entry);
+                    bytes.push(None);
+                    continue;
+                }
+            }
             let value = if let Some(reference) = reference {
                 match crate::native_worker::kv_blob(
                     context,
@@ -620,6 +688,11 @@ impl NamespaceCell {
                 .await?
                 {
                     crate::kv_blob::BlobReply::Bytes(bytes) => bytes,
+                    crate::kv_blob::BlobReply::GroupBytes(held) => {
+                        let bytes = held.as_ref().to_vec();
+                        payloads.push(held);
+                        bytes
+                    }
                     crate::kv_blob::BlobReply::Json(_) => {
                         return Err(error(format!(
                             "the value for {} is missing from the fleet bucket (blob {reference})",
@@ -633,13 +706,6 @@ impl NamespaceCell {
                     _ => return Err(error("stored inline value is not bytes")),
                 }
             };
-            let mut entry = json!({"key":key,"found":true,"tag":text(&row,"tag")?,"value":null,"revision":integer(&row,"revision")?.to_string()});
-            if metadata {
-                entry["metadata"] = json!(optional_text(&row, "metadata")?);
-            }
-            if expiration {
-                entry["expiration"] = json!(optional_integer(&row, "expires_at")?);
-            }
             rows.push(entry);
             bytes.push(Some((value, inline)));
         }
@@ -669,7 +735,7 @@ impl NamespaceCell {
     ) -> Result<bool> {
         for entry in &entries {
             check_key(&entry.key)?;
-            check_value(entry.value.len())?;
+            check_value(entry.size()?)?;
             if let Some(metadata) = &entry.metadata {
                 check_metadata(metadata)?;
             }
@@ -724,8 +790,27 @@ impl NamespaceCell {
         }
         let mut stored = Vec::with_capacity(entries.len());
         for entry in entries {
-            if entry.value.len() <= policy::MAX_INLINE_VALUE_BYTES {
+            let size = entry.size()?;
+            if let Some(reference) = entry.reference.as_deref() {
+                ensure!(
+                    self.storage.is_raft() && entry.value.is_empty(),
+                    "KV_ERROR: unexpected external value"
+                );
+                let (reference, verified_size) =
+                    raft_wire::verify_value(context, reference).await?;
+                ensure!(
+                    size == verified_size,
+                    super::consensus::CommandFailure::CorruptState
+                );
                 stored.push(Stored {
+                    size,
+                    entry,
+                    value: None,
+                    reference: Some(reference),
+                });
+            } else if entry.value.len() <= policy::MAX_INLINE_VALUE_BYTES {
+                stored.push(Stored {
+                    size,
                     value: Some(entry.value.clone()),
                     reference: None,
                     entry,
@@ -740,7 +825,7 @@ impl NamespaceCell {
                 self.arm_blob()?;
                 let crate::kv_blob::BlobReply::Json(reply) = crate::native_worker::kv_blob(
                     context,
-                    json!({"mode":"prepare","digest":digest}),
+                    json!({"mode":"prepare","digest":digest,"length":entry.value.len()}),
                     None,
                 )
                 .await?
@@ -761,6 +846,7 @@ impl NamespaceCell {
                     bail!("KV_ERROR: CELLAR_TEST_KV_FAIL_AFTER_BLOB_WRITE");
                 }
                 stored.push(Stored {
+                    size,
                     entry,
                     value: None,
                     reference: Some(reference),
@@ -782,7 +868,7 @@ impl NamespaceCell {
             for item in &stored {
                 let revision = self.next_revision()?;
                 self.exec("INSERT INTO __sys_kv(name,value,blob_id,size,tag,metadata,expires_at,revision) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value,blob_id=excluded.blob_id,size=excluded.size,tag=excluded.tag,metadata=excluded.metadata,expires_at=excluded.expires_at,revision=excluded.revision", &[
-                    item.entry.key.clone().into(), item.value.clone().map(SqlValue::Blob).unwrap_or(SqlValue::Null), sql_text(item.reference.clone()), (item.entry.value.len() as i64).into(), item.entry.tag.clone().into(), sql_text(item.entry.metadata.clone()), sql_integer(item.entry.expires), revision.into()
+                    item.entry.key.clone().into(), item.value.clone().map(SqlValue::Blob).unwrap_or(SqlValue::Null), sql_text(item.reference.clone()), (item.size as i64).into(), item.entry.tag.clone().into(), sql_text(item.entry.metadata.clone()), sql_integer(item.entry.expires), revision.into()
                 ])?;
             }
             Ok(true)
@@ -941,20 +1027,68 @@ impl NamespaceCell {
     }
 
     async fn rpc(&self, context: &Context, method: &str, args: &RpcData) -> Result<RpcData> {
+        let mut retained = Vec::new();
+        if !self.storage.is_raft() {
+            return self.rpc_inner(context, method, args, &mut retained).await;
+        }
+        if method == raft_wire::PREPARE {
+            return raft_wire::prepare_input(context, args).await;
+        }
+        let (method, args, held_input) = raft_wire::unwrap_input(context, method, args).await?;
+        let result = self
+            .rpc_inner(context, &method, &args, &mut retained)
+            .await?;
+        let result = raft_wire::wrap_reply(context, result).await;
+        drop(held_input);
+        drop(retained);
+        result
+    }
+
+    async fn rpc_inner(
+        &self,
+        context: &Context,
+        method: &str,
+        args: &RpcData,
+        retained: &mut Vec<crate::raft::cell_groups::CellGroupPayloadBytes>,
+    ) -> Result<RpcData> {
         let graph = decode_rpc(args)?;
         let arguments = wire::array(&graph, &graph.root)?;
         let body = arguments
             .first()
             .ok_or_else(|| error("RPC has no arguments"))?;
         let field = |name| wire::field(&graph, body, name);
+        let observed_at = || {
+            if self.storage.is_raft() {
+                Ok(now())
+            } else {
+                wire::number(field("now"))
+            }
+        };
         let result = match method {
+            OPERATOR => StructuredValue::from_json(
+                self.operator(
+                    context,
+                    graph
+                        .to_json()?
+                        .as_array()
+                        .and_then(|args| args.first())
+                        .cloned()
+                        .ok_or_else(|| error("operator body"))?,
+                    retained,
+                )
+                .await?,
+            )?,
             "__kvGet" => {
                 self.get(
                     context,
                     &names(&graph, field("keys"))?,
-                    matches!(field("withMetadata"), CloneValue::Boolean(true)),
-                    matches!(field("withExpiration"), CloneValue::Boolean(true)),
-                    wire::number(field("now"))?,
+                    ReadOptions {
+                        metadata: matches!(field("withMetadata"), CloneValue::Boolean(true)),
+                        expiration: matches!(field("withExpiration"), CloneValue::Boolean(true)),
+                        references: matches!(field("externalValues"), CloneValue::Boolean(true)),
+                    },
+                    observed_at()?,
+                    retained,
                 )
                 .await?
             }
@@ -963,12 +1097,41 @@ impl NamespaceCell {
                     .iter()
                     .map(|entry| {
                         let field = |name| wire::field(&graph, entry, name);
+                        let ttl = wire::optional_number(field("expirationTtlMs"))?;
+                        let expires = if let Some(ttl) = ttl.filter(|_| self.storage.is_raft()) {
+                            let floor = crate::kv_blob::limits()["minExpirationTtlMs"]
+                                .as_i64()
+                                .expect("KV limits");
+                            ensure!(ttl >= floor, "KV_ERROR: expiration TTL is below its floor");
+                            Some(
+                                now()
+                                    .checked_add(ttl)
+                                    .ok_or_else(|| error("expiration overflow"))?,
+                            )
+                        } else {
+                            wire::optional_number(field("expiresAt"))?
+                        };
+                        let reference = wire::optional_string(field("externalValue"))?;
+                        let value = if reference.is_some() {
+                            ensure!(
+                                self.storage.is_raft()
+                                    && matches!(
+                                        field("value"),
+                                        CloneValue::Null | CloneValue::Undefined
+                                    ),
+                                "KV_ERROR: unexpected external value"
+                            );
+                            Vec::new()
+                        } else {
+                            wire::bytes(&graph, field("value"))?
+                        };
                         Ok(Entry {
                             key: wire::string(field("key"))?,
-                            value: wire::bytes(&graph, field("value"))?,
+                            value,
+                            reference,
                             tag: wire::string(field("tag"))?,
                             metadata: wire::optional_string(field("metadata"))?,
-                            expires: wire::optional_number(field("expiresAt"))?,
+                            expires,
                         })
                     })
                     .collect::<Result<_>>()?;
@@ -989,13 +1152,11 @@ impl NamespaceCell {
                 wire::string(field("prefix"))?,
                 wire::number(field("limit"))?,
                 wire::string(field("after"))?,
-                wire::number(field("now"))?,
+                observed_at()?,
             )?)?,
-            "__kvMetrics" => {
-                StructuredValue::from_json(self.metrics(wire::number(field("now"))?)?)?
-            }
+            "__kvMetrics" => StructuredValue::from_json(self.metrics(observed_at()?)?)?,
             "__kvSweep" => StructuredValue::from_json(
-                json!({"removed":self.sweep(wire::number(field("now"))?,wire::number(field("limit"))?)?}),
+                json!({"removed":self.sweep(observed_at()?,wire::number(field("limit"))?)?}),
             )?,
             _ => return Err(error(format!("namespace has no RPC method {method}"))),
         };
@@ -1012,7 +1173,12 @@ impl NamespaceCell {
         }
     }
 
-    async fn operator(&self, context: &Context, body: Value) -> Result<Value> {
+    async fn operator(
+        &self,
+        context: &Context,
+        body: Value,
+        retained: &mut Vec<crate::raft::cell_groups::CellGroupPayloadBytes>,
+    ) -> Result<Value> {
         let at = now();
         match body["op"].as_str() {
             Some("get") => {
@@ -1030,18 +1196,35 @@ impl NamespaceCell {
                         let size = integer(&row, "size")?;
                         if size > i64::try_from(limit).unwrap_or(i64::MAX) {
                             return Ok(
-                                json!({"found":true,"valueOmitted":true,"size":size,"tag":text(&row,"tag")?,"revision":integer(&row,"revision")?.to_string(),"metadata":optional_text(&row,"metadata")?,"expiration":optional_integer(&row,"expires_at")?}),
+                                json!({"found":true,"valueOmitted":true,"size":size,"tag":text(&row,"tag")?,"revision":self.revision(integer(&row,"revision")?)?,"metadata":optional_text(&row,"metadata")?,"expiration":optional_integer(&row,"expires_at")?}),
                             );
                         }
                     }
                 }
-                let graph = self.get(context, &[key], true, true, at).await?;
+                let graph = self
+                    .get(
+                        context,
+                        &[key],
+                        ReadOptions {
+                            metadata: true,
+                            expiration: true,
+                            references: self.storage.is_raft(),
+                        },
+                        at,
+                        retained,
+                    )
+                    .await?;
                 let row = &wire::array(&graph, &graph.root)?[0];
                 if !matches!(wire::field(&graph, row, "found"), CloneValue::Boolean(true)) {
                     return Ok(json!({"found":false,"revision":null}));
                 }
-                let bytes = wire::bytes(&graph, wire::field(&graph, row, "value"))?;
+                let reference = wire::optional_string(wire::field(&graph, row, "externalValue"))?;
                 let mut value = json!({"found":true,"tag":wire::string(wire::field(&graph,row,"tag"))?,"revision":wire::string(wire::field(&graph,row,"revision"))?,"metadata":wire::optional_string(wire::field(&graph,row,"metadata"))?,"expiration":wire::optional_number(wire::field(&graph,row,"expiration"))?});
+                if let Some(reference) = reference {
+                    value["valueReference"] = json!(reference);
+                    return Ok(value);
+                }
+                let bytes = wire::bytes(&graph, wire::field(&graph, row, "value"))?;
                 if bytes.len() > policy::MAX_INLINE_VALUE_BYTES {
                     value["value"] = json!(base64::engine::general_purpose::STANDARD.encode(bytes));
                     value["valueEncoding"] = json!("base64");
@@ -1053,7 +1236,23 @@ impl NamespaceCell {
             Some(op @ ("put" | "put-base64" | "edit")) => {
                 let key = js_string(body.get("key"));
                 check_key(&key)?;
-                let bytes = if op == "put-base64" || op == "edit" {
+                let reference = body
+                    .get("externalValue")
+                    .filter(|value| !value.is_null())
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .map(str::to_string)
+                            .ok_or_else(|| error("invalid external value"))
+                    })
+                    .transpose()?;
+                let bytes = if reference.is_some() {
+                    ensure!(
+                        self.storage.is_raft() && body["value"].is_null(),
+                        "KV_ERROR: unexpected external value"
+                    );
+                    Vec::new()
+                } else if op == "put-base64" || op == "edit" {
                     base64::engine::general_purpose::STANDARD
                         .decode(js_string(body.get("value")))
                         .map_err(error)?
@@ -1100,6 +1299,7 @@ impl NamespaceCell {
                         vec![Entry {
                             key,
                             value: bytes,
+                            reference,
                             tag: body
                                 .get("tag")
                                 .filter(|value| !value.is_null())
@@ -1168,8 +1368,9 @@ impl NamespaceCell {
             serde_json::from_slice::<Value>(&bytes).map_err(anyhow::Error::from)
         }
         .await;
+        let mut retained = Vec::new();
         let result = match body {
-            Ok(body) => self.operator(context, body).await,
+            Ok(body) => self.operator(context, body, &mut retained).await,
             Err(_) => Err(error("invalid request body")),
         };
         let (status, body) = match result {

@@ -2,9 +2,13 @@
 
 //! A distinct opener for a verified immutable image; no framework schema writes.
 
+use crate::application::{storage::Resources, Storage};
 use cellar_ltx::generation::{GenerationPin, ImmutableDatabase, ReadServices};
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use rusqlite::{ffi, Connection};
+use std::cell::{OnceCell, RefCell};
+use std::rc::Rc;
+use std::sync::Arc;
 
 pub struct ImmutableQueryOptions {
     pub services: ReadServices,
@@ -33,6 +37,107 @@ impl ImmutableQuery {
     pub fn connection(&self) -> &Connection {
         self.database.connection()
     }
+}
+
+/// Owns the pinned image only for a synchronous registered query. Cloned
+/// Storage views carry the callback identity and cannot retain the image.
+pub(crate) struct QueryFrame {
+    // A callback may return a token, but never its raw statement or image pin.
+    cursors: super::raft_cursors::RaftCursors,
+    database: ImmutableQuery,
+    storage: OnceCell<Arc<Resources>>,
+    kv_present: OnceCell<bool>,
+}
+
+thread_local! {
+    static CURRENT_QUERY: RefCell<Option<Rc<QueryFrame>>> = const { RefCell::new(None) };
+}
+
+impl QueryFrame {
+    pub(crate) fn run<T>(
+        database: ImmutableQuery,
+        callback: impl FnOnce(&Self) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        struct Installed;
+
+        impl Drop for Installed {
+            fn drop(&mut self) {
+                CURRENT_QUERY.with(|current| current.borrow_mut().take());
+            }
+        }
+        let frame = Rc::new(Self {
+            cursors: super::raft_cursors::RaftCursors::default(),
+            database,
+            storage: OnceCell::new(),
+            kv_present: OnceCell::new(),
+        });
+        let _installed = CURRENT_QUERY.with(|current| {
+            let mut current = current.borrow_mut();
+            anyhow::ensure!(current.is_none(), "nested Raft query");
+            *current = Some(frame.clone());
+            Ok::<_, anyhow::Error>(Installed)
+        })?;
+        let _cursors = frame.cursors.install();
+        callback(&frame)
+    }
+
+    pub(crate) fn database(&self) -> &ImmutableQuery {
+        &self.database
+    }
+
+    pub(crate) fn storage(&self) -> Storage {
+        let resources = self.storage.get_or_init(|| Arc::new(Resources::default()));
+        Storage::raft_query(resources.clone())
+    }
+
+    fn kv_present(&self) -> rusqlite::Result<bool> {
+        if let Some(present) = self.kv_present.get() {
+            return Ok(*present);
+        }
+        let present = super::as_framework_sql(|| {
+            self.database.connection().query_row(
+                "SELECT EXISTS(SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='__sys_cell_kv')",
+                [],
+                |row| row.get(0),
+            )
+        })?;
+        Ok(*self.kv_present.get_or_init(|| present))
+    }
+}
+
+pub(super) fn active() -> bool {
+    CURRENT_QUERY.with(|current| current.borrow().is_some())
+}
+
+pub(super) fn with<T>(read: impl FnOnce(&Connection) -> T) -> Option<T> {
+    CURRENT_QUERY.with(|current| {
+        let current = current.borrow();
+        Some(read(current.as_ref()?.database.connection()))
+    })
+}
+
+pub(super) fn has_kv() -> rusqlite::Result<bool> {
+    // Images written without SDK KV contain no KV schema.
+    CURRENT_QUERY.with(|current| {
+        current
+            .borrow()
+            .as_ref()
+            .map_or(Ok(true), |frame| frame.kv_present())
+    })
+}
+
+pub(crate) fn require_storage(resources: &Arc<Resources>) -> anyhow::Result<()> {
+    CURRENT_QUERY.with(|current| {
+        anyhow::ensure!(
+            current
+                .borrow()
+                .as_ref()
+                .and_then(|frame| frame.storage.get())
+                .is_some_and(|owner| Arc::ptr_eq(owner, resources)),
+            "storage is outside its committed query"
+        );
+        Ok(())
+    })
 }
 
 pub fn open_immutable_generation(

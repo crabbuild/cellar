@@ -136,6 +136,7 @@ pub(in crate::raft::cell_groups::controller) struct Request {
     cancelled: Arc<AtomicBool>,
     reply: oneshot::Sender<std::result::Result<Settled, CellDispatchError>>,
     permit: Arc<Mutex<Permit>>,
+    attempted_cut: Option<cellar_logic::consensus::LogIndex>,
 }
 
 struct Cancel(Arc<AtomicBool>);
@@ -366,6 +367,7 @@ impl Client {
                 cancelled: cancelled.clone(),
                 reply,
                 permit,
+                attempted_cut: None,
             },
             receiver,
             _cancel: Cancel(cancelled),
@@ -436,6 +438,18 @@ impl Prepared {
 }
 
 impl Request {
+    fn minimum_index(&self) -> Option<cellar_logic::consensus::LogIndex> {
+        match &self.output {
+            Output::Command(receipt) => Some(receipt.receipt().position.index),
+            Output::Enrollment(_) | Output::Lookup(_) => None,
+        }
+    }
+
+    pub(super) fn may_reuse(&self, index: cellar_logic::consensus::LogIndex) -> bool {
+        self.attempted_cut.is_none_or(|previous| previous < index)
+            && self.minimum_index().is_none_or(|minimum| minimum <= index)
+    }
+
     pub(super) fn fail(self, error: Arc<Error>) {
         let _ = self.reply.send(Err(CellDispatchError::Archive(error)));
     }
@@ -443,6 +457,22 @@ impl Request {
     fn expired(&self, now: u64) -> bool {
         self.cancelled.load(Ordering::Acquire) || self.reply.is_closed() || now >= self.deadline
     }
+}
+
+/// Only a negative bound: a prefix below every waiting command cannot prove
+/// any of them. An enrollment or lookup lacks this group-position bound and
+/// keeps the ordinary full-verification path.
+pub(super) fn required_prefix(requests: &[Request]) -> Option<cellar_logic::consensus::LogIndex> {
+    let mut minimum = None;
+    for request in requests {
+        let required = request.minimum_index()?;
+        minimum = Some(
+            minimum.map_or(required, |previous: cellar_logic::consensus::LogIndex| {
+                previous.min(required)
+            }),
+        );
+    }
+    minimum
 }
 
 pub(super) fn prune(requests: &mut Vec<Request>, now: u64) {
@@ -470,7 +500,13 @@ pub(super) async fn prove(
     {
         let mut uses = context.uses.lock().unwrap_or_else(|e| e.into_inner());
         uses.retain(|usage| usage.live());
-        uses.push(coverage.retain_use());
+        let retained = coverage.retain_use();
+        // Replaying covered outputs shares the same admitted verification.
+        // One weak entry per admitted verification keeps this index bounded by
+        // verification admission, rather than the number of duplicate calls.
+        if !uses.iter().any(|usage| usage.same_snapshot(&retained)) {
+            uses.push(retained);
+        }
     }
     for request in requests {
         let now = execution
@@ -482,6 +518,10 @@ pub(super) async fn prove(
         }
         if request.route != *coverage.marker().route() {
             request.fail(Arc::new(Error::Invalid("S3 output route")));
+            continue;
+        }
+        if !request.may_reuse(coverage.marker().position().index) {
+            waiting.push(request);
             continue;
         }
         let store = registration.store.clone();
@@ -561,7 +601,7 @@ pub(super) async fn prove(
         let Ok(read) = read else {
             continue;
         };
-        let Ok((request, result)) = read.await else {
+        let Ok((mut request, result)) = read.await else {
             continue;
         };
         let now = execution
@@ -572,7 +612,11 @@ pub(super) async fn prove(
             continue;
         }
         match result {
-            Ok(false) | Err(CellGroupArchiveError::Busy) => waiting.push(request),
+            Ok(false) => {
+                request.attempted_cut = Some(coverage.marker().position().index);
+                waiting.push(request);
+            }
+            Err(CellGroupArchiveError::Busy) => waiting.push(request),
             Err(CellGroupArchiveError::Replay(error))
                 if matches!(&request.output, Output::Lookup(_)) =>
             {

@@ -1,0 +1,89 @@
+{
+  "format": 1,
+  "axes": {
+    "image": [
+      "materialized",
+      "extents"
+    ],
+    "namespace": [
+      "managed",
+      "unmanaged"
+    ],
+    "minimum": [
+      "quorum",
+      "s3"
+    ],
+    "occupancy": [
+      1,
+      2
+    ]
+  },
+  "features": [
+    "native",
+    "native-no-default",
+    "python",
+    "javascript",
+    "mixed"
+  ],
+  "scenarios": {
+    "retry": {
+      "case": null,
+      "faults": [
+        "commit-reply-lost",
+        "same-id-reconciled"
+      ]
+    },
+    "leader": {
+      "case": "primitives_leader_loss_quorum_refusal_and_restart",
+      "faults": [
+        "follower-caught-up",
+        "leader-killed",
+        "quorum-refused",
+        "retained-restart",
+        "voter-replaced"
+      ]
+    },
+    "movement": {
+      "case": "primitives_split_merge_placement_and_wakeup",
+      "faults": [
+        "cell-moved",
+        "controller-restarted",
+        "merge",
+        "parked",
+        "placed",
+        "split",
+        "woken"
+      ]
+    },
+    "archive": {
+      "case": "primitives_archive_outage_reclaim_and_recovery",
+      "faults": [
+        "archive-debt-bounded",
+        "archive-restored",
+        "log-reclaimed",
+        "rustfs-returned",
+        "rustfs-unavailable"
+      ]
+    },
+    "disaster": {
+      "case": "primitives_zero_quorum_fresh_incarnation",
+      "faults": [
+        "fresh-incarnation",
+        "fresh-quorum",
+        "old-token-refused",
+        "old-writers-fenced",
+        "voter-disk-erased"
+      ]
+    },
+    "shutdown": {
+      "case": "primitives_cancellation_capacity_and_joined_shutdown",
+      "faults": [
+        "capacity-refused",
+        "joined-close",
+        "obligations-resumed",
+        "owner-revoked",
+        "request-cancelled"
+      ]
+    }
+  }
+}

@@ -34,16 +34,33 @@ pub(super) fn read(
         }
         Ok((count, earliest))
     };
-    let (_, next_alarm_unix_millis) = scan("__sys_raft_alarms", "due")?;
+    let (_, alarm) = scan("__sys_raft_alarms", "due")?;
+    let (_, callback) = scan("__sys_raft_native_work", "due")?;
+    let next_alarm_unix_millis = alarm.into_iter().chain(callback).min();
     let (pending_outbox, _) = scan("__sys_raft_outbox", "next_at")?;
+    let (calls, next_call_unix_millis) = scan("__sys_raft_binding_intents", "next_at")?;
+    let pending_calls = if calls == 0 {
+        0
+    } else {
+        let (pending, invalid): (u64, u64) = connection.query_row(
+            "SELECT COALESCE(SUM(phase!=3),0),COALESCE(SUM(CASE WHEN typeof(format)='integer' AND format=1 AND phase BETWEEN 0 AND 4 THEN 0 ELSE 1 END),0) FROM __sys_raft_binding_intents",
+            [], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(storage)?;
+        if invalid != 0 {
+            return Err(ExecutionError::Invalid("binding intent summary state"));
+        }
+        pending
+    };
     let next_outbox_unix_millis = outbox_front(connection, pending_outbox)?;
     Ok(EffectSummary {
         next_alarm_unix_millis,
+        next_call_unix_millis,
         next_outbox_unix_millis,
         pending_outbox,
         // The current inbox is synchronous receipt/deduplication state, not an
         // asynchronous work queue. Retained inbox receipts cannot prevent parking.
         pending_inbox: 0,
+        pending_calls,
     })
 }
 

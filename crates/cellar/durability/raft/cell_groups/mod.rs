@@ -46,20 +46,19 @@ pub(crate) use controller::PartitionGroupPage;
 pub(crate) use controller::{ArchiveSeedClient, ArchiveSeedDescriptor};
 pub use controller::{
     CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,
-    CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
-    CellGroupArchiveStatus, CellGroupCheckpointPolicy, CellGroupController,
-    CellGroupControllerError, CellGroupControllerLimits, CellGroupControllerUsage,
-    CellGroupEffectRegistration, CellGroupProvisionCall, CellGroupProvisionLimits,
-    CellGroupProvisionNamespace, CellGroupProvisioning, CellGroupRegistration,
-    CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
+    CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchivePublisher,
+    CellGroupArchiveRegistration, CellGroupArchiveStatus, CellGroupCheckpointPolicy,
+    CellGroupController, CellGroupControllerError, CellGroupControllerLimits,
+    CellGroupControllerUsage, CellGroupEffectRegistration, CellGroupProvisionCall,
+    CellGroupProvisionLimits, CellGroupProvisionNamespace, CellGroupProvisioning,
+    CellGroupRegistration, CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
 };
-pub(crate) use controller::{RetiredSource, S3OutputProof};
+pub(crate) use controller::{RetiredSource, S3Client, S3OutputProof};
 mod disaster;
 mod dispatch;
 pub use disaster::CellGroupPermanentFenceAuthority;
 mod host;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
-pub(crate) use dispatch::PendingCellCommand;
 pub use dispatch::{
     CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
     CellCommandResponse, CellCommandSettlement, CellCommandSubmission, CellDispatchError,
@@ -68,15 +67,24 @@ pub use dispatch::{
     CellQueryRequest, CellQueryResponse, CellQueryRouting, CellReceiptInvocation,
     CellReceiptRequest, CellReceiptResponse, CellReceiptSelection,
 };
+pub(crate) use dispatch::{MutationRouting, PendingCellCommand};
 pub use host::{
     CellGroupCellHandle, CellGroupHost, CellGroupHostLimits, CellGroupHostRegistration,
     CellGroupHostUsage, CellGroupNamespaceStorage,
 };
 
 mod effect_index;
+mod payload;
+pub(crate) use payload::MAX_BYTES as MAX_CELL_GROUP_PAYLOAD_BYTES;
+pub use payload::{
+    CellGroupPayloadBytes, CellGroupPayloadError, CellGroupPayloadLimits, CellGroupPayloadPool,
+    CellGroupPayloadReference, CellGroupPayloadStore, CellGroupPayloadUsage,
+    PublishedCellGroupPayload,
+};
 mod execution_authority;
 pub(crate) mod member_reclaim;
 pub(crate) mod source_reclaim;
+pub(crate) use execution_authority::CellActivationFence;
 pub(crate) use execution_authority::CellEffectAuthority;
 pub use execution_authority::{CellExecutionAuthority, CellReconciliationAuthority};
 

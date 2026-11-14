@@ -1,7 +1,11 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+use super::rpc_cache::RpcActivation;
 use super::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+
+#[path = "suspended_rpc.rs"]
+mod rpc;
 
 type VerificationCallback =
     Box<dyn FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>> + Send>;
@@ -12,6 +16,7 @@ pub(super) enum Callback {
         class: Arc<crate::application::consensus::RaftClass>,
         input: Box<[u8]>,
         system: bool,
+        commits: Option<Box<RpcCommitContext>>,
     },
 }
 
@@ -23,6 +28,16 @@ pub(super) struct Stage {
     pub callback: Callback,
     pub lease: CellLease,
     pub bytes: Arc<Bytes>,
+}
+
+impl Stage {
+    fn is_cell_rpc(&self) -> bool {
+        matches!(
+            &self.callback,
+            Callback::Registered { class, .. }
+                if class.is_cell_rpc(&self.attempt.request.operation)
+        )
+    }
 }
 
 type Initializer = Box<dyn FnOnce(&CommandTransaction<'_>) -> anyhow::Result<()> + Send>;
@@ -73,6 +88,13 @@ struct Pending {
     prepared: CellSqlPrepared,
     submitted: bool,
     _lease: CellLease,
+    activation: Option<RpcActivation>,
+}
+
+struct StageRetention {
+    lease: CellLease,
+    bytes: Arc<Bytes>,
+    max_result: usize,
 }
 
 enum Producer {
@@ -103,12 +125,26 @@ impl Producer {
     }
 }
 
-#[derive(Default)]
 pub(in crate::raft::host_sql) struct Cells {
     pending: BTreeMap<CellHistory, Pending>,
+    suspended: VecDeque<rpc::Suspended>,
+    activations: Arc<RpcCache>,
+    wake: Arc<crate::raft::host_sql::WorkerWake>,
 }
 
 impl Cells {
+    pub(in crate::raft::host_sql) fn new(
+        activations: Arc<RpcCache>,
+        wake: Arc<crate::raft::host_sql::WorkerWake>,
+    ) -> Self {
+        Self {
+            pending: BTreeMap::new(),
+            suspended: VecDeque::new(),
+            activations,
+            wake,
+        }
+    }
+
     pub fn execute(
         &mut self,
         request: Request,
@@ -146,8 +182,12 @@ impl Cells {
                     Action::Stage(stage) if stage.mode.expired(now) => Err(
                         crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded),
                     ),
+                    Action::Stage(stage) if stage.is_cell_rpc() => {
+                        timer.finish(self.start_rpc(cell, *stage, reply, max, domain, now));
+                        return;
+                    }
                     Action::Query(query) => super::query::run(*query, domain),
-                    action => self.run(cell, action, max),
+                    action => self.run(cell, action, max, now),
                 }
             }
             _ => {
@@ -166,15 +206,23 @@ impl Cells {
         cell: CellHistory,
         action: Action,
         max: usize,
+        now: u64,
     ) -> Result<CellSqlOutcome, ExecutionError> {
         match action {
             Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
             Action::Stage(stage) => {
-                if self.pending.contains_key(&cell) {
+                self.check_capacity(&cell, max)?;
+                // A parked RPC has released its writer lease, but still owns a
+                // continuation that may later complete the original sequence.
+                // Seal only after every same-cell frame has physically joined.
+                if matches!(
+                    stage.attempt.request.operation.as_str(),
+                    crate::raft::execution::binding_seal::OPERATION
+                        | crate::storage::raft_binding_recovery::CLAIM
+                        | crate::storage::raft_binding_recovery::SETTLE
+                ) && self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
+                {
                     return Err(ExecutionError::Busy);
-                }
-                if self.pending.len() >= max {
-                    return Err(overloaded());
                 }
                 let Stage {
                     options,
@@ -183,7 +231,7 @@ impl Cells {
                     mode,
                     callback,
                     lease,
-                    mut bytes,
+                    bytes,
                 } = *stage;
                 if authority.cell().version.history != cell {
                     return Err(ExecutionError::Invalid("SQL cell history"));
@@ -199,6 +247,7 @@ impl Cells {
                         class,
                         input,
                         system,
+                        ..
                     } => {
                         if system {
                             executor.stage_system_registered(attempt, &class, &input, allow_new)
@@ -207,57 +256,21 @@ impl Cells {
                         }
                     }
                 };
-                match result {
-                    Ok(CellStageOutcome::Prepared(prepared)) => {
-                        let retained = prepared
-                            .bytes()
-                            .len()
-                            .checked_add(max_result)
-                            .and_then(|n| n.checked_add(4096))
-                            .ok_or_else(overloaded)?;
-                        Bytes::shrink(&mut bytes, retained)?;
-                        let prepared = CellSqlPrepared {
-                            prepared,
-                            _bytes: bytes,
-                        };
-                        self.pending.insert(
-                            cell,
-                            Pending {
-                                producer: Producer::Command(Box::new(executor)),
-                                prepared: prepared.clone(),
-                                submitted: false,
-                                _lease: lease,
-                            },
-                        );
-                        Ok(CellSqlOutcome::Prepared(prepared))
-                    }
-                    Ok(CellStageOutcome::Duplicate(receipt)) => {
-                        executor.close()?;
-                        let retained = receipt
-                            .receipt
-                            .result()
-                            .len()
-                            .checked_add(4096)
-                            .ok_or_else(overloaded)?;
-                        Bytes::shrink(&mut bytes, retained)?;
-                        Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
-                            receipt: *receipt,
-                            _retention: OutputRetention::Sql { _bytes: bytes },
-                        })))
-                    }
-                    Err(error) => {
-                        executor.close()?;
-                        Err(error)
-                    }
-                }
+                self.publish_stage(
+                    cell,
+                    executor,
+                    result,
+                    StageRetention {
+                        lease,
+                        bytes,
+                        max_result,
+                    },
+                    None,
+                    now,
+                )
             }
             Action::Initialize(request) => {
-                if self.pending.contains_key(&cell) {
-                    return Err(ExecutionError::Busy);
-                }
-                if self.pending.len() >= max {
-                    return Err(overloaded());
-                }
+                self.check_capacity(&cell, max)?;
                 let Initialize {
                     options,
                     authority,
@@ -307,6 +320,7 @@ impl Cells {
                         prepared: prepared.clone(),
                         submitted: false,
                         _lease: lease,
+                        activation: None,
                     },
                 );
                 Ok(CellSqlOutcome::Prepared(prepared))
@@ -325,6 +339,9 @@ impl Cells {
                     .remove(&cell)
                     .ok_or(ExecutionError::Uncertain)?;
                 pending.producer.close()?;
+                if let Some(activation) = pending.activation {
+                    activation.close()?;
+                }
                 let outcome = match outcome {
                     CellEnrollmentResolution::Committed(record) => {
                         CellSqlEnrollmentResolution::Committed(Box::new(CellSqlEnrollment {
@@ -365,6 +382,9 @@ impl Cells {
                 // The proof permanently seals every submission clone. Close
                 // physical SQL ownership before dropping logical-name admission.
                 pending.producer.close()?;
+                if let Some(activation) = pending.activation {
+                    activation.close()?;
+                }
                 Ok(CellSqlOutcome::Rejected)
             }
             Action::Submit(proposal) => {
@@ -382,6 +402,7 @@ impl Cells {
                 Ok(CellSqlOutcome::Submitted)
             }
             Action::Finish(authority) => {
+                let fence = authority.activation_fence();
                 let pending = self
                     .pending
                     .get_mut(&cell)
@@ -392,6 +413,10 @@ impl Cells {
                     .remove(&cell)
                     .ok_or(ExecutionError::Invalid("cell producer changed"))?;
                 pending.producer.close()?;
+                if let Some(mut activation) = pending.activation {
+                    activation.fence = fence;
+                    self.activations.put(cell, activation, now)?;
+                }
                 Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
                     receipt,
                     _retention: OutputRetention::Sql {
@@ -404,6 +429,7 @@ impl Cells {
                     .pending
                     .get_mut(&cell)
                     .ok_or(ExecutionError::Uncertain)?;
+                let expected = pending.producer.command()?.prepared_final_version();
                 let resolution = pending
                     .producer
                     .command()?
@@ -413,6 +439,26 @@ impl Cells {
                     .remove(&cell)
                     .ok_or(ExecutionError::Invalid("cell producer changed"))?;
                 pending.producer.close()?;
+                if let Some(mut activation) = pending.activation {
+                    // Normal public settlement also uses reconciliation. A
+                    // committed final image can retain native state while the
+                    // original leader fence survives; a later image or term
+                    // cannot establish that this instance matches the cell.
+                    let fence = match &resolution {
+                        CellReconciliation::Committed(receipt)
+                            if expected.as_ref() == Some(&receipt.version) =>
+                        {
+                            activation.fence.advanced(&receipt.version)
+                        }
+                        _ => None,
+                    };
+                    if let Some(fence) = fence {
+                        activation.fence = fence;
+                        self.activations.put(cell, activation, now)?;
+                    } else {
+                        activation.close()?;
+                    }
+                }
                 let resolution = match resolution {
                     CellReconciliation::Committed(receipt) => {
                         CellSqlReconciliation::Committed(Box::new(CellSqlReceipt {
@@ -430,13 +476,107 @@ impl Cells {
         }
     }
 
+    fn check_capacity(&self, cell: &CellHistory, max: usize) -> Result<(), ExecutionError> {
+        if self.pending.contains_key(cell) {
+            return Err(ExecutionError::Busy);
+        }
+        if self.pending.len() + self.suspended.len() >= max {
+            return Err(overloaded());
+        }
+        Ok(())
+    }
+
+    fn publish_stage(
+        &mut self,
+        cell: CellHistory,
+        executor: CellPrivateExecutor,
+        result: Result<CellStageOutcome, ExecutionError>,
+        retention: StageRetention,
+        activation: Option<RpcActivation>,
+        now: u64,
+    ) -> SqlReply {
+        let StageRetention {
+            lease,
+            mut bytes,
+            max_result,
+        } = retention;
+        match result {
+            Ok(CellStageOutcome::Prepared(prepared)) => {
+                let shrink = prepared
+                    .bytes()
+                    .len()
+                    .checked_add(max_result)
+                    .and_then(|n| n.checked_add(4096))
+                    .ok_or_else(overloaded)
+                    .and_then(|retained| Bytes::shrink(&mut bytes, retained));
+                if let Err(error) = shrink {
+                    executor.close()?;
+                    if let Some(activation) = activation {
+                        activation.close()?;
+                    }
+                    return Err(error);
+                }
+                let prepared = CellSqlPrepared {
+                    prepared,
+                    _bytes: bytes,
+                };
+                self.pending.insert(
+                    cell,
+                    Pending {
+                        producer: Producer::Command(Box::new(executor)),
+                        prepared: prepared.clone(),
+                        submitted: false,
+                        _lease: lease,
+                        activation,
+                    },
+                );
+                Ok(CellSqlOutcome::Prepared(prepared))
+            }
+            Ok(CellStageOutcome::Duplicate(receipt)) => {
+                executor.close()?;
+                if let Some(activation) = activation {
+                    self.activations.put(cell, activation, now)?;
+                }
+                let retained = receipt
+                    .receipt
+                    .result()
+                    .len()
+                    .checked_add(4096)
+                    .ok_or_else(overloaded)?;
+                Bytes::shrink(&mut bytes, retained)?;
+                Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
+                    receipt: *receipt,
+                    _retention: OutputRetention::Sql { _bytes: bytes },
+                })))
+            }
+            Err(error) => {
+                executor.close()?;
+                if let Some(activation) = activation {
+                    activation.close()?;
+                }
+                Err(error)
+            }
+        }
+    }
+
     pub fn close(&mut self) -> Result<(), ExecutionError> {
         let mut result = Ok(());
+        for suspended in std::mem::take(&mut self.suspended) {
+            if let Err(error) = suspended.close() {
+                result = Err(error);
+            }
+        }
         for (_, pending) in std::mem::take(&mut self.pending) {
             if let Err(error) = pending.producer.close() {
                 result = Err(error);
             }
+            if let Some(activation) = pending.activation {
+                if let Err(error) = activation.close() {
+                    result = Err(error);
+                }
+            }
         }
-        result
+        let cached = self.activations.close();
+        result.and(cached)
     }
 }

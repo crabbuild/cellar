@@ -51,9 +51,21 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         store: Arc::new(fault::Store::around(f.store.clone())),
         catalog: f.catalog.clone(),
         declaration: f.declaration.clone(),
+        additional_namespaces: f.additional_namespaces.clone(),
         application: f.application.clone(),
+        configuration: f.configuration.clone(),
+        cohosted: f.cohosted.clone(),
+        external_http: f.external_http.clone(),
+        // A newly registered peer owns independent physical I/O.
+        filesystem: Arc::new(cellar_ltx::DirectFileSystem),
         effects: f.effects,
+        cell_limits: f.cell_limits,
+        sql_workers: f.sql_workers,
+        ordinary_admission: f.ordinary_admission,
+        max_pending_transactions: f.max_pending_transactions,
+        max_client_identities: f.max_client_identities,
         max_input_bytes: f.max_input_bytes,
+        payloads: f.payloads,
         image_bytes: f.image_bytes,
         logical_byte_capacity: f.logical_byte_capacity,
         placement_domains: f.placement_domains.clone(),
@@ -107,13 +119,29 @@ pub async fn admit_capacity(
         cpu_millis: 1000,
         memory_bytes: 3 * 1024 * 1024 * 1024,
         durable_bytes: local.node.profile.byte_capacity.max(1024 * 1024 * 1024),
-        engine_slots: 2,
+        engine_slots: local.node.profile.group_capacity,
         memory_swap_disabled: true,
         used_memory_bytes: 64 * 1024 * 1024,
         used_durable_bytes: 1024 * 1024,
         evidence_digest: [71; 32],
         evidence_reference: "fixture-only/deployment-attestation".into(),
     };
+    let mut directories = vec![directory.clone()];
+    for declaration in &f.additional_namespaces {
+        let adapter = Catalog::new(
+            f.store.clone(),
+            CatalogOptions {
+                prefix: "managed/".into(),
+                ..Default::default()
+            },
+        )?;
+        directories.push(RangeDirectory::new(
+            adapter
+                .existing_namespace(declaration.namespace.clone())
+                .await?,
+            DirectoryLimits::default(),
+        )?);
+    }
     for (offset, action, state) in [
         (0, FleetCapacityAction::Qualify, FleetNodeState::Ready),
         (1, FleetCapacityAction::Activate, FleetNodeState::Active),
@@ -134,7 +162,7 @@ pub async fn admit_capacity(
                     action,
                 },
                 host,
-                std::slice::from_ref(directory),
+                &directories,
                 TIMEOUT,
             )
             .await?;
@@ -165,14 +193,23 @@ pub async fn leader(hosts: &[RaftCells], history: GroupHistory) -> Result<usize>
 }
 
 pub async fn close_group_nodes(nodes: Vec<Node>, hosts: &[RaftCells]) -> Result<()> {
+    close_group_nodes_with_groups(nodes, hosts, 1).await
+}
+
+pub async fn close_group_nodes_with_groups(
+    nodes: Vec<Node>,
+    hosts: &[RaftCells],
+    expected: usize,
+) -> Result<()> {
     for (node, host) in nodes.into_iter().zip(hosts) {
-        ensure!(matches!(
-            node.shutdown(ShutdownMode::Preserve).await?,
-            NodeOutcome::Stopped(_)
-        ));
+        let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+        ensure!(
+            matches!(outcome, NodeOutcome::Stopped(_)),
+            "managed node stop: {outcome:?}"
+        );
         let report = host.close().await?;
         ensure!(
-            report.groups_total == 1
+            report.groups_total == expected
                 && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers
         );
     }
@@ -359,6 +396,15 @@ impl ManagedCluster {
             .run(adapter.existing_namespace(f.declaration.namespace.clone()))
             .await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+        let mut inventory_directories = vec![directory.clone()];
+        for declaration in &f.additional_namespaces {
+            inventory_directories.push(RangeDirectory::new(
+                adapter
+                    .existing_namespace(declaration.namespace.clone())
+                    .await?,
+                DirectoryLimits::default(),
+            )?);
+        }
         let standby = f
             .catalog
             .observe_managed_standby(
@@ -403,12 +449,7 @@ impl ManagedCluster {
         let mut hosts = Vec::new();
         let mut peers = Vec::new();
         for (i, fixture) in fixtures.iter().enumerate() {
-            let node = start_node(
-                roots[i].path(),
-                fixture.application.clone(),
-                &fixture.spec.label,
-            )
-            .await?;
+            let node = fixture.start_node(roots[i].path()).await?;
             let (mut config, services) = fixture
                 .config(&node, LogOpenMode::Create, 24 + i as u8)
                 .await?;
@@ -483,7 +524,7 @@ impl ManagedCluster {
             let cut = f.catalog.read(TIMEOUT).await?;
             ensure!(
                 f.catalog
-                    .check_inventory(&cut, std::slice::from_ref(&directory), TIMEOUT)
+                    .check_inventory(&cut, &inventory_directories, TIMEOUT)
                     .await?
                     .histories()
                     == 1,
@@ -535,7 +576,27 @@ impl ManagedCluster {
                 ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
                 ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
             } else {
-                result?;
+                if let Err(error) = result {
+                    // A failed activation may already own durable state. Join
+                    // every started owner before preserving its disks; dropping
+                    // node handles alone only requests cancellation.
+                    let mut cleanup = Vec::new();
+                    for node in nodes {
+                        if let Err(error) = node.cancel().await {
+                            cleanup.push(format!("node join: {error:#}"));
+                        }
+                    }
+                    for host in &hosts {
+                        if let Err(error) = host.close().await {
+                            cleanup.push(format!("Raft close: {error:#}"));
+                        }
+                    }
+                    for root in roots {
+                        eprintln!("retained managed startup disk: {}", root.keep().display());
+                    }
+                    return Err(anyhow::Error::from(error)
+                        .context(format!("managed startup cleanup: {}", cleanup.join("; "))));
+                }
             }
         }
         if public_operator {

@@ -122,8 +122,8 @@ impl CellPrivateEnrollment {
             .ok_or(ExecutionError::RebuildRequired)?;
         working.begin_mutation();
         working
-            .database()
-            .transaction(attempt.inputs, |_, tx| initialize(tx))
+            .database_mut()
+            .transaction(attempt.inputs, initialize)
             .map_err(private_failure)?;
         let update = working
             .capture_initial(&self.options)

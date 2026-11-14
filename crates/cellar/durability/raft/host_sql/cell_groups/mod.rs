@@ -3,6 +3,10 @@
 //! Cell-history admission and commands on the existing fixed node SQL workers.
 
 mod admission;
+mod rpc_cache;
+mod rpc_commit;
+pub(super) use rpc_cache::RpcCache;
+pub(crate) use rpc_commit::RpcCommitContext;
 mod apply;
 pub(in crate::raft::host_sql) use apply::ApplyRequest;
 pub use apply::CellGroupPreparedApply;
@@ -117,7 +121,7 @@ impl CellSqlOptions {
         authority: CellExecutionAuthority,
     ) -> Result<CellPrivateExecutor, ExecutionError> {
         match self {
-            Self::Materialized(o) => CellPrivateExecutor::open(o, authority),
+            Self::Materialized(o) => CellPrivateExecutor::open_cursor_image(o, authority),
             Self::Extents(o) => CellPrivateExecutor::open_rooted(
                 o.prepare(&authority.cell().version.history)?,
                 authority,
@@ -128,13 +132,32 @@ impl CellSqlOptions {
 
 impl CellSqlRootOptions {
     fn prepare(self, cell: &CellHistory) -> Result<RootPrivateOptions, ExecutionError> {
-        let workspace = self
-            .images
-            .create_workspace(
-                cell_image_history_digest(cell),
-                RootPrivateOptions::workspace_bounds(self.limits)?,
-            )
-            .map_err(crate::raft::execution::storage)?;
+        use cellar_ltx::internal::StoreError;
+        use sha2::{Digest, Sha256};
+        let history = cell_image_history_digest(cell);
+        let bounds = RootPrivateOptions::workspace_bounds(self.limits)?;
+        let mut acquired = None;
+        for slot in 0..crate::raft::execution::MAX_CURSOR_IMAGES {
+            let id = if slot == 0 {
+                history
+            } else {
+                let mut hash = Sha256::new();
+                hash.update(b"cellar/raft/cursor-image/1");
+                hash.update(history);
+                hash.update((slot as u64).to_le_bytes());
+                hash.finalize().into()
+            };
+            match self.images.create_workspace(id, bounds) {
+                Ok(workspace) => {
+                    acquired = Some(workspace);
+                    break;
+                }
+                Err(StoreError::Busy) => (),
+                Err(StoreError::Limit) => return Err(overloaded()),
+                Err(error) => return Err(crate::raft::execution::storage(error)),
+            }
+        }
+        let workspace = acquired.ok_or_else(overloaded)?;
         Ok(RootPrivateOptions {
             workspace,
             host: self.host,
@@ -299,6 +322,10 @@ impl CellSqlReceipt {
 pub(crate) struct CellSqlStageFailure {
     pub error: ExecutionError,
     pub unresolved: bool,
+    /// The request was refused before enqueue; no initializer/callback entered.
+    pub before_enqueue: bool,
+    /// The writer lease refused before enqueue or application callback entry.
+    pub writer_busy: bool,
 }
 
 impl CellSqlStageFailure {
@@ -306,6 +333,16 @@ impl CellSqlStageFailure {
         Self {
             error,
             unresolved: false,
+            before_enqueue: false,
+            writer_busy: false,
+        }
+    }
+
+    fn admission(error: ExecutionError) -> Self {
+        Self {
+            before_enqueue: true,
+            writer_busy: matches!(error, ExecutionError::Busy),
+            ..Self::known(error)
         }
     }
 }
@@ -338,7 +375,11 @@ pub struct CellSqlUsage {
     /// Independent progress budget; not included in SQL producer retention.
     pub apply_retained_bytes: usize,
     pub apply_retained_operations: usize,
+    /// Exclusive writer leases; parked invocations remain charged in retained_operations.
     pub active_cells: usize,
+    pub idle_activations: usize,
+    pub retained_activations: usize,
+    pub activation_capacity: usize,
     pub retained_bytes: usize,
     pub retained_operations: usize,
     pub running_workers: usize,
@@ -386,6 +427,14 @@ impl WeakCellGroupSqlPool {
 }
 
 impl CellGroupSqlPool {
+    pub(crate) fn retain_binding_bytes(
+        &self,
+        group: GroupHistory,
+        bytes: usize,
+    ) -> Result<Arc<dyn Send + Sync>, ExecutionError> {
+        Ok(self.inner.admission.reserve_read(group, bytes)?)
+    }
+
     pub(crate) fn downgrade(&self) -> WeakCellGroupSqlPool {
         WeakCellGroupSqlPool(Arc::downgrade(&self.inner))
     }
@@ -397,6 +446,7 @@ struct Handle {
     resources: ResourceObserver,
     admission: Arc<Admission>,
     apply_admission: Arc<Budget>,
+    activations: Arc<RpcCache>,
     closing: Arc<AtomicBool>,
     stop: Arc<Notify>,
     terminal: Arc<Terminal>,
@@ -444,6 +494,7 @@ impl CellGroupSqlPool {
             .map(|n| pool.worker(n))
             .collect::<Result<Vec<_>, _>>()?;
         let resources = pool.resource_observer();
+        let activations = pool.activations.clone();
         let closing = pool.stopped.clone();
         let stop = Arc::new(Notify::new());
         let terminal = Arc::new(Terminal::new());
@@ -453,6 +504,7 @@ impl CellGroupSqlPool {
             resources,
             admission: Admission::new(limits, lease.clone(), log.limits().max_groups),
             apply_admission: Budget::new(limits.node_bytes, log.limits().max_groups),
+            activations,
             closing: closing.clone(),
             stop: stop.clone(),
             terminal: terminal.clone(),
@@ -515,16 +567,25 @@ impl CellGroupSqlPool {
         self.inner.admission.release_reclaimed_group(history)
     }
 
+    pub(crate) fn writer_progress(&self) -> tokio::sync::watch::Receiver<()> {
+        self.inner.admission.writer_progress()
+    }
+
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
         let (active_cells, retained_bytes, retained_operations) = self.inner.admission.usage()?;
         let resources = self.inner.resources.capture().ok_or_else(unavailable)?;
         let (apply_retained_bytes, apply_retained_operations) = self.inner.apply_admission.usage();
+        let (idle_activations, retained_activations, activation_capacity) =
+            self.inner.activations.usage()?;
         Ok(CellSqlUsage {
             limits: self.inner.admission.limits(),
             closing: self.inner.closing.load(Ordering::Acquire),
             apply_retained_bytes,
             apply_retained_operations,
             active_cells,
+            idle_activations,
+            retained_activations,
+            activation_capacity,
             retained_bytes,
             retained_operations,
             running_workers: resources.running_workers,
@@ -657,6 +718,32 @@ impl CellGroupSqlPool {
                 class,
                 input: input.into_boxed_slice(),
                 system: false,
+                commits: None,
+            },
+        )
+        .await
+    }
+
+    pub(crate) async fn stage_rpc_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Vec<u8>,
+        commits: RpcCommitContext,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        let system = class.system_contract(&attempt.request.operation).is_some();
+        self.stage_compiled_owned(
+            options,
+            authority,
+            attempt,
+            CellSqlStageMode::InvokeBefore(commits.deadline),
+            worker::Callback::Registered {
+                class,
+                input: input.into_boxed_slice(),
+                system,
+                commits: Some(Box::new(commits)),
             },
         )
         .await
@@ -680,6 +767,7 @@ impl CellGroupSqlPool {
                 class,
                 input: input.into_boxed_slice(),
                 system: true,
+                commits: None,
             },
         )
         .await
@@ -734,7 +822,7 @@ impl CellGroupSqlPool {
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         let (cell, action) = self
             .stage_request(options, authority, attempt, mode, callback)
-            .map_err(CellSqlStageFailure::known)?;
+            .map_err(CellSqlStageFailure::admission)?;
         let wait = self
             .send(cell, action)
             .map_err(CellSqlStageFailure::known)?;
@@ -742,6 +830,8 @@ impl CellGroupSqlPool {
             .map_err(|_| CellSqlStageFailure {
                 error: unavailable(),
                 unresolved: true,
+                before_enqueue: false,
+                writer_busy: false,
             })?
             .map_err(CellSqlStageFailure::known)
     }
@@ -821,14 +911,16 @@ impl CellGroupSqlPool {
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         let (cell, action) = self
             .initialize_request(options, authority, attempt, initialize)
-            .map_err(CellSqlStageFailure::known)?;
+            .map_err(CellSqlStageFailure::admission)?;
         let wait = self
             .send(cell, action)
-            .map_err(CellSqlStageFailure::known)?;
+            .map_err(CellSqlStageFailure::admission)?;
         wait.await
             .map_err(|_| CellSqlStageFailure {
                 error: unavailable(),
                 unresolved: true,
+                before_enqueue: false,
+                writer_busy: false,
             })?
             .map_err(CellSqlStageFailure::known)
     }

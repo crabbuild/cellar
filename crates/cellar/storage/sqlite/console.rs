@@ -73,6 +73,25 @@ pub(crate) fn sql_console(
     sql: &str,
     readonly: bool,
 ) -> Result<SqlResponse, SqlFailure> {
+    sql_console_request(scope, sql, readonly, false)
+}
+
+/// The Storage owner supplies a savepoint within the private Raft transaction.
+/// Console errors roll back that savepoint, never commit the outer command.
+pub(crate) fn sql_console_in_transaction(
+    scope: &str,
+    sql: &str,
+    readonly: bool,
+) -> Result<SqlResponse, SqlFailure> {
+    sql_console_request(scope, sql, readonly, true)
+}
+
+fn sql_console_request(
+    scope: &str,
+    sql: &str,
+    readonly: bool,
+    existing_transaction: bool,
+) -> Result<SqlResponse, SqlFailure> {
     require_sql_healthy(scope).map_err(sql_error)?;
     if sql.trim().is_empty() || sql.len() > 64 * 1024 {
         return Err(sql_error("console SQL must contain 1–65536 bytes"));
@@ -80,16 +99,21 @@ pub(crate) fn sql_console(
     let source = CString::new(sql).map_err(|error| sql_error(error.to_string()))?;
     let started = std::time::Instant::now();
     with(scope, |connection| {
-        if !connection.is_autocommit() {
+        if existing_transaction && connection.is_autocommit() {
+            return Err(sql_error("console SQL requires its owned transaction"));
+        }
+        if !existing_transaction && !connection.is_autocommit() {
             return Err(sql_error(
                 "console SQL cannot start inside an open transaction",
             ));
         }
         // Readers take a deferred snapshot; writes retain the existing atomic exec contract.
-        without_sql_authorizer(connection, || {
-            connection.execute_batch(if readonly { "BEGIN" } else { "BEGIN IMMEDIATE" })
-        })
-        .map_err(|error| sql_error(error.to_string()))?;
+        if !existing_transaction {
+            without_sql_authorizer(connection, || {
+                connection.execute_batch(if readonly { "BEGIN" } else { "BEGIN IMMEDIATE" })
+            })
+            .map_err(|error| sql_error(error.to_string()))?;
+        }
         let ran = {
             let _budget = Budget(connection, ACTIVE.with(|active| active.replace(true)));
             if readonly {
@@ -113,6 +137,13 @@ pub(crate) fn sql_console(
                 unsafe { sql_run_statements(scope, connection, &source, sql, true, sql_error) }
             })
         };
+        if existing_transaction {
+            return ran.map(|(count, results)| SqlResponse::Exec {
+                count,
+                duration: started.elapsed().as_secs_f64() * 1000.0,
+                results,
+            });
+        }
         match ran {
             Ok((count, results)) => {
                 sql_transaction_control(

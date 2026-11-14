@@ -5,7 +5,7 @@
 //! `unrestricted()` removes Cellar's compatibility ceilings. SQLite's compiled
 //! limits, the structured-value codec, integer ranges and the storage provider
 //! still constrain operations. Admission, durability and ownership are separate.
-//! Filesystem transfers, handles and transaction work retain explicit finite
+//! SQL cursors, filesystem transfers, handles and transaction work retain explicit finite
 //! bounds under `unrestricted()`; filesystem size/inode quotas can use i64 maxima.
 
 use anyhow::{ensure, Result};
@@ -44,6 +44,7 @@ impl CellLimits {
                 connection: None,
                 max_rows: usize::MAX,
                 max_result_bytes: usize::MAX,
+                ..SqlLimits::default()
             },
             blob: BlobLimits {
                 max_list_limit: i64::MAX as usize,
@@ -79,6 +80,8 @@ impl CellLimits {
             ("kv.max_list_limit", self.kv.max_list_limit),
             ("sql.max_rows", self.sql.max_rows),
             ("sql.max_result_bytes", self.sql.max_result_bytes),
+            ("sql.max_open_cursors", self.sql.max_open_cursors),
+            ("sql.max_cursor_bytes", self.sql.max_cursor_bytes),
             ("blob.max_list_limit", self.blob.max_list_limit),
             (
                 "blob.max_multipart_backlog_bytes",
@@ -170,6 +173,12 @@ pub struct SqlLimits {
     pub connection: Option<SqliteLimits>,
     pub max_rows: usize,
     pub max_result_bytes: usize,
+    /// Live lazy SQL statements per native activation or Raft execution frame.
+    /// Retained even by `CellLimits::unrestricted()`.
+    pub max_open_cursors: usize,
+    /// Compiled statement/bind memory reported by SQLite, sampled at prepare.
+    /// Excludes page caches, sorter workspace and application-owned result rows.
+    pub max_cursor_bytes: usize,
 }
 
 impl Default for SqlLimits {
@@ -178,6 +187,8 @@ impl Default for SqlLimits {
             connection: Some(SqliteLimits::default()),
             max_rows: crate::application::sql::SQL_MAX_ROWS,
             max_result_bytes: crate::application::sql::SQL_MAX_RESULT_BYTES,
+            max_open_cursors: 64,
+            max_cursor_bytes: 2 * 1024 * 1024,
         }
     }
 }

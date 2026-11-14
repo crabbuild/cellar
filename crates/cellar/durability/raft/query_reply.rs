@@ -4,6 +4,7 @@
 use super::TransportError;
 use crate::application::consensus::CommandFailure;
 use crate::raft::cell_groups::{CellCommandResponse, CellReceiptResponse, CellSqlEnrollment};
+use crate::raft::leader_advice::{LeaderAdvice, MutationDisposition};
 use crate::raft::query_wire as wire;
 use cellar_logic::consensus::Durability;
 
@@ -32,9 +33,29 @@ impl Reply {
 
     pub(super) fn command(
         result: Result<CellCommandResponse, CommandFailure>,
+        disposition: MutationDisposition,
+        advice: Option<&LeaderAdvice>,
         limit: usize,
     ) -> Result<Self, TransportError> {
-        let bytes = wire::command::encode_result(&result, limit)?;
+        let bytes = wire::command::encode_reply(&result, disposition, advice, limit)?;
+        let owner = result
+            .ok()
+            .filter(|r| r.durability() == Durability::S3)
+            .map(|response| Owner::Command {
+                _response: Box::new(response),
+            });
+        Ok(Self {
+            bytes,
+            _owner: owner,
+        })
+    }
+
+    pub(super) fn binding_retirement(
+        result: Result<CellCommandResponse, CommandFailure>,
+        request: &crate::raft::execution::binding_seal::Request,
+        limit: usize,
+    ) -> Result<Self, TransportError> {
+        let bytes = wire::binding::encode_reply(&result, request, limit)?;
         let owner = result
             .ok()
             .filter(|r| r.durability() == Durability::S3)

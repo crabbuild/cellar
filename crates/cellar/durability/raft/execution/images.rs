@@ -349,6 +349,13 @@ impl WorkingImage {
         }
     }
 
+    pub fn database_mut(&mut self) -> &mut crate::storage::CommandDatabase {
+        match self {
+            Self::Materialized(working) => &mut working.database,
+            Self::Rooted(working) => &mut working.database,
+        }
+    }
+
     pub fn begin_mutation(&mut self) {
         match self {
             Self::Materialized(working) => working.begin_mutation(),
@@ -369,6 +376,26 @@ impl WorkingImage {
         let closed = self.close();
         options.discard_cell_scratch()?;
         closed
+    }
+
+    pub(super) fn trim_cell(
+        &self,
+        options: &Options,
+        base: &crate::raft::cell_groups::CellImagePin,
+    ) -> anyhow::Result<()> {
+        use crate::raft::cell_groups::CellImagePin;
+        match (self, base) {
+            (Self::Materialized(working), CellImagePin::Materialized(pin)) => {
+                working.trim_through(&options.materialized()?, pin.state().txid)
+            }
+            (Self::Materialized(working), CellImagePin::Empty) => {
+                working.trim_through(&options.materialized()?, cellar_ltx::TXID(0))
+            }
+            (Self::Rooted(working), CellImagePin::Extents(pin)) => {
+                working.trim_through(options, cellar_ltx::TXID(pin.manifest().binding().txid))
+            }
+            _ => anyhow::bail!("cell capture trim storage differs"),
+        }
     }
 
     pub fn trim(&self, options: &Options, base: Option<&Published>) -> anyhow::Result<()> {

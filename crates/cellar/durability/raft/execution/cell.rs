@@ -11,7 +11,11 @@ use crate::raft::cell_groups::{
     cell_image_history_digest, CellExecutionAuthority, CellReconciliationAuthority,
 };
 use crate::raft::completion::RuntimeError;
-use cellar_logic::cell_group::CellVersion;
+use cellar_logic::cell_group::{CellVersion, MutationSequence};
+
+#[path = "cell_rpc.rs"]
+mod rpc;
+pub(crate) use rpc::{CellRpcDispatch, CellRpcEnvironment, CellRpcStart, CellRpcTurn};
 
 /// A receipt read from the exact committed cell image. This is not S3 coverage.
 pub struct CellCommittedReceipt {
@@ -54,6 +58,19 @@ struct PendingCell {
     result: CellVersion,
     _preview: Preview,
     submitted: bool,
+    rpc_step: Option<u64>,
+    rpc_prior_steps: u64,
+}
+
+struct StagePreparation {
+    sequence: MutationSequence,
+    log_reservation: std::sync::Arc<crate::raft::cell_groups::log_retention::LogReservation>,
+    maintenance: Option<crate::raft::receipt_maintenance::Plan>,
+}
+
+enum StageAdmission {
+    Duplicate(Box<CellCommittedReceipt>),
+    New(StagePreparation),
 }
 
 pub struct CellPrivateExecutor {
@@ -67,6 +84,13 @@ pub struct CellPrivateExecutor {
 }
 
 impl CellPrivateExecutor {
+    pub(crate) fn open_cursor_image(
+        options: PrivateOptions,
+        authority: CellExecutionAuthority,
+    ) -> Result<Self, ExecutionError> {
+        Self::open_image_kind(options.into(), authority, true)
+    }
+
     pub fn open(
         options: PrivateOptions,
         authority: CellExecutionAuthority,
@@ -85,6 +109,14 @@ impl CellPrivateExecutor {
         options: Options,
         authority: CellExecutionAuthority,
     ) -> Result<Self, ExecutionError> {
+        Self::open_image_kind(options, authority, false)
+    }
+
+    fn open_image_kind(
+        mut options: Options,
+        authority: CellExecutionAuthority,
+        cursor_images: bool,
+    ) -> Result<Self, ExecutionError> {
         options.limits.validate()?;
         options.images.validate_workspace(options.limits)?;
         authority.check().map_err(authority_failure)?;
@@ -92,11 +124,29 @@ impl CellPrivateExecutor {
             return Err(ExecutionError::Invalid("cell execution schema"));
         }
         let filesystem = options.host.filesystem();
-        options.prepare_directory()?;
+        let directory = options.directory.clone();
+        let mut acquired = None;
+        for slot in 0..if cursor_images { MAX_CURSOR_IMAGES } else { 1 } {
+            if slot != 0 {
+                let mut name = directory
+                    .file_name()
+                    .ok_or(ExecutionError::Invalid("private directory name"))?
+                    .to_os_string();
+                name.push(format!(".cursor-{slot}"));
+                options.directory = directory.with_file_name(name);
+            }
+            options.prepare_directory()?;
+            match filesystem.lock_file(&options.directory.join("working.lock")) {
+                Ok(lock) => {
+                    acquired = Some(lock);
+                    break;
+                }
+                Err(error) if cursor_images && error.kind() == std::io::ErrorKind::WouldBlock => (),
+                Err(error) => return Err(storage(error)),
+            }
+        }
         let lock = PrivateLock {
-            _lock: filesystem
-                .lock_file(&options.directory.join("working.lock"))
-                .map_err(storage)?,
+            _lock: acquired.ok_or(ExecutionError::Refused(CommandFailure::Overloaded))?,
             _workspace: options.images.workspace().cloned(),
         };
         let working = match WorkingImage::open_cell(
@@ -167,18 +217,28 @@ impl CellPrivateExecutor {
         )?;
         let command = attempt.request.id;
         let durability = attempt.request.durability;
+        let route_epoch = self.authority.route().epoch;
+        let limits = self.options.limits;
+        let system_request = system.then(|| attempt.request.clone());
+        let origin = crate::storage::raft_binding_recovery::Origin {
+            group: self.authority.route().history,
+            term: self.authority.term().get(),
+        };
         self.stage(attempt, allow_new, |transaction| {
-            if system {
-                class.invoke_system_command(
+            if let Some(request) = system_request {
+                class.invoke_system_command(&history, &request, transaction, input, limits, origin)
+            } else {
+                class.invoke_command(
                     &contract,
-                    &history,
+                    crate::application::consensus::CommandTarget {
+                        cell: &history,
+                        route_epoch: Some(route_epoch),
+                    },
                     command,
                     durability,
                     transaction,
                     input,
                 )
-            } else {
-                class.invoke_command(&contract, &history, command, durability, transaction, input)
             }
         })
     }
@@ -193,6 +253,29 @@ impl CellPrivateExecutor {
         allow_new: bool,
         callback: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
     ) -> Result<CellStageOutcome, ExecutionError> {
+        let mut preparation = match self.prepare_stage(&attempt, allow_new)? {
+            StageAdmission::Duplicate(receipt) => return Ok(CellStageOutcome::Duplicate(receipt)),
+            StageAdmission::New(preparation) => preparation,
+        };
+        let working = self
+            .working
+            .as_mut()
+            .ok_or(ExecutionError::RebuildRequired)?;
+        command::apply(
+            working.database_mut(),
+            self.options.limits,
+            &attempt,
+            preparation.maintenance.take(),
+            callback,
+        )?;
+        self.capture_stage(attempt, preparation)
+    }
+
+    fn prepare_stage(
+        &mut self,
+        attempt: &CommandAttempt,
+        allow_new: bool,
+    ) -> Result<StageAdmission, ExecutionError> {
         if self.pending.is_some() {
             return Err(ExecutionError::Busy);
         }
@@ -208,13 +291,13 @@ impl CellPrivateExecutor {
             working.database().framework(),
             self.options.limits,
             &mut self.receipt_cursor,
-            &attempt,
+            attempt,
             allow_new,
         )? {
             command::Admission::Duplicate => {
                 return self
                     .read_receipt(&self.authority, &attempt.request)
-                    .map(|receipt| CellStageOutcome::Duplicate(Box::new(receipt)))
+                    .map(|receipt| StageAdmission::Duplicate(Box::new(receipt)))
             }
             command::Admission::New(maintenance) => maintenance,
         };
@@ -235,13 +318,27 @@ impl CellPrivateExecutor {
             .as_mut()
             .ok_or(ExecutionError::RebuildRequired)?;
         working.begin_mutation();
-        command::apply(
-            working.database(),
-            self.options.limits,
-            &attempt,
+        Ok(StageAdmission::New(StagePreparation {
+            sequence,
+            log_reservation,
             maintenance,
-            callback,
-        )?;
+        }))
+    }
+
+    fn capture_stage(
+        &mut self,
+        attempt: CommandAttempt,
+        preparation: StagePreparation,
+    ) -> Result<CellStageOutcome, ExecutionError> {
+        let StagePreparation {
+            sequence,
+            log_reservation,
+            ..
+        } = preparation;
+        let working = self
+            .working
+            .as_mut()
+            .ok_or(ExecutionError::RebuildRequired)?;
         let update = working
             .capture_cell(&self.options, self.authority.image())
             .map_err(private_failure)?;
@@ -319,6 +416,8 @@ impl CellPrivateExecutor {
             },
             _preview: preview,
             submitted: false,
+            rpc_step: None,
+            rpc_prior_steps: 0,
         });
         self.poisoned = false;
         Ok(CellStageOutcome::Prepared(prepared))
@@ -376,6 +475,15 @@ impl CellPrivateExecutor {
         Ok(receipt)
     }
 
+    /// Native state can survive only a receipt at this exact final image.
+    /// Intermediate RPC checkpoints cannot return an instance to the idle cache.
+    pub(crate) fn prepared_final_version(&self) -> Option<CellVersion> {
+        self.pending
+            .as_ref()
+            .filter(|pending| pending.rpc_step.is_none())
+            .map(|pending| pending.result.clone())
+    }
+
     /// Resolve the original request without requiring the original log entry.
     /// Missing receipts cannot retire an ambiguous same-term proposal. The
     /// caller must close this disposable producer after successful resolution.
@@ -401,7 +509,9 @@ impl CellPrivateExecutor {
         check()?;
         // Staging already established absence in this exact immutable base.
         // In particular an enrollment image need not yet have receipt tables.
-        let receipt = if authority.cell().version == self.authority.cell().version {
+        let receipt = if authority.cell().version == self.authority.cell().version
+            && pending.rpc_prior_steps == 0
+        {
             Ok(None)
         } else {
             let database = self
@@ -409,11 +519,22 @@ impl CellPrivateExecutor {
                 .images
                 .read_cell(&self.options, authority.image())
                 .map_err(storage)?;
-            receipts::lookup_identity(
-                database.connection(),
-                &pending.request,
-                &self.options.limits,
-            )
+            if let Some(step) = pending.rpc_step {
+                receipts::lookup_rpc_identity(
+                    database.connection(),
+                    &pending.request,
+                    &self.options.limits,
+                )
+                .map(|receipt| {
+                    receipt.filter(|receipt| receipt.rpc_step.is_none_or(|actual| actual >= step))
+                })
+            } else {
+                receipts::lookup_identity(
+                    database.connection(),
+                    &pending.request,
+                    &self.options.limits,
+                )
+            }
         };
         let resolution = match receipt {
             Ok(Some(receipt)) => CellReconciliation::Committed(Box::new(CellCommittedReceipt {
@@ -428,6 +549,13 @@ impl CellPrivateExecutor {
             Err(ExecutionError::Refused(
                 failure @ (CommandFailure::CommandExpired | CommandFailure::CommandConflict),
             )) if authority.term() > self.authority.term() => CellReconciliation::Refused(failure),
+            // A newer barrier can exclude this final proposal while earlier
+            // root transactions remain committed under the same invocation.
+            Err(ExecutionError::Uncertain)
+                if authority.term() > self.authority.term() && pending.rpc_prior_steps != 0 =>
+            {
+                CellReconciliation::Refused(CommandFailure::Unavailable)
+            }
             Err(error) => return Err(error),
             Ok(None) => return Err(ExecutionError::Uncertain),
         };

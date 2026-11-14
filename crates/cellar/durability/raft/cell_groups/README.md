@@ -8,7 +8,34 @@ these owners. A stored root or local attachment is not fresh quorum authority.
 See the [delivery status](../../../../../docs/design/multi-raft/cell-groups/remaining-work.md)
 for the remaining public fleet and backend qualification gates.
 
-## SDK reads and receipt inspection
+## SDK routing, reads and receipt inspection
+
+Command, query and leader-probe responses include bounded optional advice sampled
+by the actual Raft owner: group history, applied configuration revision/digest,
+term and an incoming-voter leader. Advice is neither membership nor serving
+authority. Command responses separately distinguish a proven rejection before
+controller admission from an admitted or unknown result. Only the exact receipt
+and requested durability proof establish success; rejection cannot settle an
+earlier uncertain attempt. These marker-1 response layouts require matching
+rebuilt clients and peers, with no predecessor reader. See the
+[optimization ledger](../../../../../docs/design/multi-raft/cell-groups/optimization-progress.md)
+for validation and outstanding optimization work.
+
+Ingress-only nodes can route warm commands directly to a verified member with
+authenticated leader advice, without another probe or demand metadata lookup.
+The index charges each entry to the existing control bank and uses weak route
+references. Term conflicts, expiry, changed configuration, endpoint replacement
+and trust fencing invalidate advice. Replies captured before an entry or endpoint
+generation changes cannot update its replacement. Advice cannot introduce a peer
+or address, grant membership or extend authority.
+
+An authenticated rejection before controller admission can repair leadership and
+retry the same invocation within its original deadline and attempt bank. A lost
+reply retains ambiguity and the command's original identity. Incoming commands
+use their actual applied local manifest for route observation; the current Raft
+execution authority still checks readiness, seal/activation/recovery state and
+the exact cell before SQL or proposal admission. Receipt and enrollment discovery
+retain their own directory confirmation requirements.
 
 Automatic SDK reads and receipt inspection follow directory-selected successor
 groups after a split or merge. Read-only retries retain the original invocation,
@@ -21,6 +48,15 @@ turn. Its advisory cache shares the transport route limit. Discovery grants no
 namespace read/write permission or engine ownership. An admitted local engine
 can atomically replace an advisory route only after validating its exact member,
 manifest, boot and peers. Receipt RPCs retain explicit namespace command grants.
+
+Concurrent demand refreshes for the same history and exact route/configuration
+generations share one operation in that worker. Its first caller's deadline and
+32-KiB control reservation remain owned until actual work and result delivery
+exit. Each additional waiter charges 4 KiB and an item to the same control bank
+and retains its own original deadline. Cancellation cannot release entered work
+or extend its deadline. Closing joins entered work and drains queued owners before
+releasing the directory service lease. Discovery completion remains advisory;
+callers still check route generations and serving authority.
 
 Remote receipts carry authenticated values and achieved durability, separately
 from the stored command's minimum. They provide neither a local SQL image nor a
@@ -403,6 +439,33 @@ cannot become a selected root. Group IDs remain reserved after retirement.
 operation, expected head and exact routes. Persist these bytes before submission;
 after an unknown result, decode and retry the identical request. One conditional
 head update selects the tree, immutable journal and operation/group indexes.
+Publication also retains the exact mutation bytes at their journal-bound digest.
+These bounded change records are cache-repair evidence, not another directory
+authority, bootstrap permit or serving proof.
+
+The dispatcher range cache verifies at most four intervening publications,
+sixteen claimed parent/child routes per publication and 128 immutable pages.
+It checks the complete contiguous replacement and compares the ordered maps
+outside that interval, skipping equal Merkle subtrees. Only verified overlaps
+are invalidated; unrelated entries keep their original root and revision.
+Invocation catalog floors are never promoted along with the cache's newer head.
+Missing/corrupt proof, excessive history/work or admission exhaustion selects
+full invalidation and a targeted lookup instead of unbounded journal traversal.
+
+One active proof borrows 512 KiB and one item from the existing invocation bank.
+Admission also preserves one maximum normal invocation's byte/item headroom;
+a one-slot or tight parent falls back. The cache envelope and parent limits are
+unchanged. Every asynchronous lookup
+captures a weak local generation before I/O; insertion rechecks it under the
+cache lock. Publications and changed namespace/recovery fences retire that
+generation, including fences that do not advance the routing revision. A late
+lookup/proof cannot restore its parent. Stable fence observations can retain
+freshly checked unblocked routes; cached observations still grant no permission.
+The newer head/generation is recorded before target lookup or repair I/O can
+fail. While repair is pending, earlier rows are ineligible. A drop guard discards
+unverified rows on expiry/cancellation while preserving the observed head and
+any newly verified current rows. Another publication during pending repair
+selects full invalidation rather than forgetting the first publication's changes.
 Read-back confirms the selected operation even after another publisher advances
 the head. Reusing an operation for different bytes refuses. The returned receipt
 describes its historical decision, not the latest route or serving authority.
@@ -668,6 +731,24 @@ and rechecks route, leader and catalog binding. It neither restarts receipt
 reconciliation nor executes another callback. A duplicate receipt uses the same
 output phase. Cancellation keeps the admitted owner; terminal errors release
 output resources without quarantining a group whose SQL producer already closed.
+
+An output can reuse a still-live, admitted archive verification instead of
+reserving another verifier workspace for the same covered receipt. The owner
+keeps only weak references, coalescing clones of one verification while tracking
+independent verification instances separately. It checks the journaled hold,
+current birth, local prefix and exact archived receipt before settling output;
+later serving fences still apply. Uncovered requests continue through publication.
+This cache neither keeps an idle workspace alive nor grows with duplicate calls.
+
+An outstanding S3 output can retain the previous archive hold while the next
+verified head is already committed. That retention delays another archive
+allocation; it does not prevent new outputs from proving their receipts against
+the current head. The journal retains the old hold until every use ends, and
+acquisition or upload of another head waits for its confirmed release. This
+preserves the bound of one current head and one retiring head. Deferred
+retirement remains scheduled at the existing bounded retry cadence until the
+last output drops; it does not need another application request to release the
+old hold. An idle retirement retry does not rebuild an unused coverage proof.
 
 Shared log-engine I/O/corruption/closure and lost shared SQL worker replies still
 close the node. Unknown events and controller ownership violations fail closed.

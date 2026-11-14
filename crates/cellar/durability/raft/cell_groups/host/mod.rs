@@ -2,6 +2,8 @@
 
 //! Namespace registrations over one shared node controller. Cell handles are
 //! disposable values; obtaining or cloning one neither enrolls nor caches a cell.
+mod bindings;
+mod sdk_dispatch;
 mod storage;
 pub use storage::CellGroupNamespaceStorage;
 
@@ -49,6 +51,7 @@ struct Inner {
     domain: crate::asyncrt::DomainToken,
     namespaces: Arc<BTreeMap<(ClusterId, NamespaceId), Arc<Binding>>>,
     budget: Arc<Budget>,
+    payloads: Option<CellGroupPayloadPool>,
     closed: AtomicBool,
 }
 
@@ -65,6 +68,8 @@ pub struct CellGroupHostUsage {
     pub namespaces: usize,
     pub namespace_bytes: usize,
     pub namespace_byte_limit: usize,
+    pub payloads: Option<CellGroupPayloadUsage>,
+    pub payload_byte_limit: usize,
     pub controller: CellGroupControllerUsage,
 }
 
@@ -76,6 +81,26 @@ impl CellGroupHost {
         controller: CellGroupController,
         registrations: Vec<CellGroupHostRegistration>,
         limits: CellGroupHostLimits,
+    ) -> Result<Self, CellDispatchError> {
+        Self::bind_with_payloads(
+            runtime,
+            sql,
+            transport,
+            controller,
+            registrations,
+            limits,
+            None,
+        )
+    }
+
+    pub(crate) fn bind_with_payloads(
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        transport: &RaftTransport,
+        controller: CellGroupController,
+        registrations: Vec<CellGroupHostRegistration>,
+        limits: CellGroupHostLimits,
+        payloads: Option<CellGroupPayloadPool>,
     ) -> Result<Self, CellDispatchError> {
         let domain = runtime.log().domain();
         if !controller.belongs_to(runtime)
@@ -100,6 +125,11 @@ impl CellGroupHost {
                 return Err(CellDispatchError::Invalid("shared host namespace domain"));
             }
             let (config, class, bytes) = dispatcher.host_binding()?;
+            if class.name() == crate::deploy::KV_CLASS && payloads.is_none() {
+                return Err(CellDispatchError::Invalid(
+                    "KV requires node-owned payload admission",
+                ));
+            }
             controller.require_host_effects(&dispatcher)?;
             registration.storage.validate_namespace(&config)?;
             let bytes = bytes
@@ -123,6 +153,7 @@ impl CellGroupHost {
             );
         }
         let namespaces = Arc::new(namespaces);
+        bindings::validate(&namespaces)?;
         controller
             .own_host_resources(Arc::new(HostResources {
                 namespaces: namespaces.clone(),
@@ -134,6 +165,7 @@ impl CellGroupHost {
                 domain,
                 namespaces,
                 budget,
+                payloads,
                 closed: AtomicBool::new(false),
             }),
         })
@@ -143,6 +175,16 @@ impl CellGroupHost {
     /// Each invocation still obtains exact runtime/catalog authority.
     pub fn cell(&self, history: CellHistory) -> Result<CellGroupCellHandle, CellDispatchError> {
         self.inner.check_open()?;
+        self.cell_metadata(history)
+    }
+
+    /// The SDK validates the original ordinary RPC before metadata-only
+    /// construction. Actual dispatch still requires its proven source permit.
+    pub(crate) fn cell_metadata(
+        &self,
+        history: CellHistory,
+    ) -> Result<CellGroupCellHandle, CellDispatchError> {
+        self.inner.check_lifecycle()?;
         let binding = self
             .inner
             .namespaces
@@ -154,6 +196,20 @@ impl CellGroupHost {
             binding,
             history,
         })
+    }
+
+    pub(crate) fn name_directory(
+        &self,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+    ) -> Result<RangeDirectory, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let binding = self
+            .inner
+            .namespaces
+            .get(&(cluster, namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        Ok(binding.dispatcher.directory())
     }
 
     pub(crate) async fn refresh_namespace_routes(
@@ -201,6 +257,16 @@ impl CellGroupHost {
             namespaces: self.inner.namespaces.len(),
             namespace_bytes: self.inner.budget.usage().0,
             namespace_byte_limit: self.inner.budget.capacity().0,
+            payloads: self
+                .inner
+                .payloads
+                .as_ref()
+                .map(CellGroupPayloadPool::usage),
+            payload_byte_limit: self
+                .inner
+                .payloads
+                .as_ref()
+                .map_or(0, |pool| pool.limits().max_retained_bytes),
             controller: self.inner.controller.usage(),
         }
     }
@@ -259,6 +325,10 @@ impl Inner {
                 ),
             ));
         }
+        self.check_lifecycle()
+    }
+
+    fn check_lifecycle(&self) -> Result<(), CellDispatchError> {
         if self.closed.load(Ordering::Acquire)
             || self.domain.mono_ms().is_err()
             || self.controller.usage().closing
@@ -303,6 +373,15 @@ impl CellGroupCellHandle {
         request: CellCommandRequest,
         limits: CellRoutingLimits,
     ) -> Result<CellCommandCall, CellCommandError> {
+        self.command_retaining(request, limits, None)
+    }
+
+    pub(crate) fn command_retaining(
+        &self,
+        request: CellCommandRequest,
+        limits: CellRoutingLimits,
+        reservation: Option<crate::rpc_reservation::Reservation>,
+    ) -> Result<CellCommandCall, CellCommandError> {
         self.host.check_open().map_err(|cause| CellCommandError {
             command: request.id,
             ambiguous: false,
@@ -316,13 +395,18 @@ impl CellGroupCellHandle {
                 ambiguous: false,
                 cause: Box::new(cause),
             })?;
-        self.host.controller.dispatch_command(
-            &self.binding.dispatcher,
+        let mut pending = self.binding.dispatcher.prepare_command(
             self.history.clone(),
             request,
             limits,
-            options,
-        )
+            None,
+            None,
+            false,
+        )?;
+        pending.retain_submission(reservation);
+        self.host
+            .controller
+            .dispatch_prepared_command(pending, options)
     }
 
     /// Queue a read with its explicit consistency and original invocation deadline.

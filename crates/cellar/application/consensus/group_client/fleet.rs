@@ -180,16 +180,35 @@ impl RaftCells {
             .filter(|n| *n > 0)
             .map(Duration::from_millis)
             .ok_or(CommandFailure::VersionUnavailable)?;
-        let authorization = reader
-            .authorize_group_at_least(&scope, minimum_revision, remaining)
-            .await
-            .map_err(|error| match error {
-                crate::raft::fleet_catalog::FleetCatalogError::Overloaded
-                | crate::raft::fleet_catalog::FleetCatalogError::Limit => {
-                    CommandFailure::Overloaded
-                }
-                _ => CommandFailure::Unavailable,
-            })?;
+        let authorization = if history.requests_partition() {
+            reader
+                .authorize_group_at_least(&scope, minimum_revision, remaining)
+                .await
+        } else {
+            let (_, _routing_memory) = self.metadata_admission(
+                remaining,
+                crate::raft::fleet_catalog::FleetTrustReader::RESERVATION_BYTES,
+            )?;
+            let directory = self
+                .handle
+                .core
+                .host
+                .namespace_directory(scope.cluster, scope.namespace)
+                .map_err(|_| CommandFailure::Unavailable)?;
+            reader
+                .authorize_router_observation_at_least(
+                    &directory,
+                    &scope,
+                    minimum_revision,
+                    remaining,
+                )
+                .await
+        }
+        .map_err(|error| match error {
+            crate::raft::fleet_catalog::FleetCatalogError::Overloaded
+            | crate::raft::fleet_catalog::FleetCatalogError::Limit => CommandFailure::Overloaded,
+            _ => CommandFailure::Unavailable,
+        })?;
         if !history.matches(&authorization) {
             return Err(CommandFailure::CommandConflict);
         }

@@ -14,7 +14,7 @@ use std::{collections::BTreeMap, sync::Weak};
 const PREFIX: &[u8] = b"cellar-cell-read-1\0";
 const CELL_FORWARD_PREFIX: &[u8] = b"cellar-cell-forward-read-1\0";
 const MEMBERSHIP_PREFIX: &[u8] = b"cellar-group-membership-read-1\0";
-const FORWARDED_RETRY_MS: u64 = 100;
+pub(super) const FORWARDED_RETRY_MS: u64 = 100;
 
 pub(in crate::raft::cell_groups) fn reserved_context(context: &[u8]) -> bool {
     context.starts_with(PREFIX)
@@ -84,6 +84,10 @@ impl ReadKind {
         matches!(self, Self::Seed(_)) || self.forwards_read_index()
     }
 
+    pub(super) fn cell_linearizable(&self) -> bool {
+        matches!(self, Self::Cell(_, CellReadConsistency::Linearizable))
+    }
+
     fn forwards_read_index(&self) -> bool {
         matches!(
             self,
@@ -106,10 +110,13 @@ struct Pending {
     term: Option<Term>,
     barrier: Option<LogIndex>,
     retry_at: Option<u64>,
+    cohort: Option<Vec<u8>>,
 }
 
 pub(super) struct Reads {
     pending: BTreeMap<Vec<u8>, Pending>,
+    cohorts: super::read_cohort::Cohorts,
+    performance: Arc<crate::raft::performance::Registry>,
     groups: BTreeMap<GroupHistory, Weak<Budget>>,
     nonce: [u8; 16],
     sequence: u64,
@@ -118,12 +125,17 @@ pub(super) struct Reads {
 }
 
 impl Reads {
-    pub fn new(options: &RaftRuntimeOptions) -> Self {
+    pub fn new(
+        options: &RaftRuntimeOptions,
+        performance: Arc<crate::raft::performance::Registry>,
+    ) -> Self {
         use rand::RngCore as _;
         let mut nonce = [0; 16];
         crate::asyncrt::rng("cell-group-read-context").fill_bytes(&mut nonce);
         Self {
             pending: BTreeMap::new(),
+            cohorts: super::read_cohort::Cohorts::new(options.max_pending_reads),
+            performance,
             groups: BTreeMap::new(),
             nonce,
             sequence: 0,
@@ -183,10 +195,7 @@ impl Reads {
                 .checked_add(1)
                 .ok_or(RuntimeError::Overloaded)?;
             let membership = matches!(request.kind, ReadKind::Membership { .. });
-            let cell_read = matches!(
-                request.kind,
-                ReadKind::Cell(_, CellReadConsistency::Linearizable)
-            );
+            let cell_read = request.kind.cell_linearizable();
             let mut context = if membership || cell_read {
                 let mut context = if membership {
                     MEMBERSHIP_PREFIX
@@ -201,6 +210,7 @@ impl Reads {
             };
             context.extend_from_slice(&self.nonce);
             context.extend_from_slice(&self.sequence.to_be_bytes());
+            let mut cohort = None;
             let term = if request.kind.linearizable() {
                 let status = owner.status()?;
                 if matches!(request.kind, ReadKind::Membership { minimum, .. } if status.applied.index < minimum)
@@ -216,11 +226,14 @@ impl Reads {
                             Err(error) => return Err(error),
                         }
                     } else if cell_read {
-                        match owner.read_forwarded_cell_index(context.clone()) {
-                            Ok(()) => Some(status.term),
-                            Err(RuntimeError::NotReady) => None,
-                            Err(error) => return Err(error),
-                        }
+                        // The worker gathers already queued cell reads before
+                        // initiating one fresh barrier for this exact generation.
+                        cohort = Some(super::read_cohort::Identity {
+                            history,
+                            term: status.term,
+                            configuration: owner.manifest().marker().membership_revision(),
+                        });
+                        None
                     } else {
                         if !status.ready {
                             return Err(RuntimeError::NotReady);
@@ -232,10 +245,29 @@ impl Reads {
             } else {
                 None
             };
-            Ok((context, group, term))
+            Ok((context, group, term, cohort))
         })();
         match begin {
-            Ok((context, group, term)) => {
+            Ok((context, group, term, identity)) => {
+                let cohort = if let Some(identity) = identity {
+                    match self.cohorts.join(identity, context.clone(), now) {
+                        Ok((context, joined)) => {
+                            if joined {
+                                self.performance.increment(
+                                    crate::raft::performance::Counter::CellReadCohortJoins,
+                                    1,
+                                );
+                            }
+                            Some(context)
+                        }
+                        Err(error) => {
+                            let _ = reply.send(Err(error));
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
                 let retry_at = request
                     .kind
                     .forwards_read_index()
@@ -250,6 +282,7 @@ impl Reads {
                         term,
                         barrier: None,
                         retry_at,
+                        cohort,
                     },
                 );
             }
@@ -260,6 +293,9 @@ impl Reads {
     }
 
     pub fn observe(&mut self, history: GroupHistory, term: Term, index: LogIndex, context: &[u8]) {
+        if self.cohorts.observe(history, term, index, context) {
+            return;
+        }
         if let Some(pending) = self.pending.get_mut(context) {
             if pending.history == history && pending.term == Some(term) {
                 pending.barrier = Some(pending.barrier.map_or(index, |seen| seen.max(index)));
@@ -277,9 +313,15 @@ impl Reads {
     pub fn deadline(&self) -> Option<u64> {
         self.pending
             .values()
-            .map(|pending| match (pending.barrier, pending.retry_at) {
-                (None, Some(retry)) => pending.request.deadline.min(retry),
-                _ => pending.request.deadline,
+            .map(|pending| {
+                if let Some(context) = &pending.cohort {
+                    self.cohorts.deadline(context, pending.request.deadline)
+                } else {
+                    match (pending.barrier, pending.retry_at) {
+                        (None, Some(retry)) => pending.request.deadline.min(retry),
+                        _ => pending.request.deadline,
+                    }
+                }
             })
             .min()
     }
@@ -295,12 +337,16 @@ impl Reads {
             &mut Option<LogIndex>,
             &[u8],
             bool,
+            Option<super::read_cohort::Identity>,
         ) -> Result<Selection, RuntimeError>,
     ) -> bool {
         let mut made = false;
         self.pending.retain(|_, pending| {
             // Taking a sender requires removing the entry; collect below instead.
             if pending.reply.is_closed() {
+                if let Some(context) = &pending.cohort {
+                    self.cohorts.leave(context);
+                }
                 made = true;
                 false
             } else {
@@ -312,6 +358,22 @@ impl Reads {
             let before = (pending.term, pending.barrier);
             let result = if now >= pending.request.deadline {
                 Err(RuntimeError::DeadlineExceeded)
+            } else if let Some(context) = &pending.cohort {
+                let (result, progressed) =
+                    self.cohorts
+                        .progress(context, now, |identity, term, barrier, retry| {
+                            select(
+                                pending.history,
+                                &pending.request,
+                                term,
+                                barrier,
+                                context,
+                                retry,
+                                Some(identity),
+                            )
+                        });
+                made |= progressed;
+                result
             } else {
                 let retry =
                     pending.barrier.is_none() && pending.retry_at.is_some_and(|retry| now >= retry);
@@ -327,6 +389,7 @@ impl Reads {
                     &mut pending.barrier,
                     context,
                     retry,
+                    None,
                 )
             };
             // A newly issued barrier must drive the owner's Ready work even
@@ -341,6 +404,9 @@ impl Reads {
                 .pending
                 .remove(&context)
                 .expect("selected pending read");
+            if let Some(context) = &pending.cohort {
+                self.cohorts.leave(context);
+            }
             let result = result.and_then(|selection| match selection {
                 Selection::Cell(selection) => CellReadAuthority::new(
                     selection,

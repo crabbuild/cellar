@@ -5,6 +5,7 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -68,6 +69,7 @@ PRIMITIVE_CONTRACT_OUTPUTS = {
     "tools/multi-raft/primitive_coverage.py",
     "tools/multi-raft/test_primitive_coverage.py",
 }
+PRIMITIVE_CONTRACT_FILES = sorted(path for path in PRIMITIVE_CONTRACT_OUTPUTS if path.endswith(".json"))
 INVARIANTS = {f"I{number:02}" for number in range(1, 15)}
 PROFILE_IDS = {"idle_density", "mixed_quorum", "mixed_s3", "hot_cold", "split_merge",
                "hibernate_wake", "rustfs_disaster", "independent_domain_loss", "soak_24h"}
@@ -176,6 +178,11 @@ def task_commands(task, toolchain):
         commands.append(cargo(toolchain, "test", "-p", "cellar-logic", "--lib", "--locked"))
     if task["id"] == "CG-14":
         commands.append(["python3", "-m", "unittest", "discover", "-s", "tools/perf", "-p", "test_cell_groups.py"])
+    if task["id"] == "CG-17":
+        commands.extend([
+            ["python3", "tools/multi-raft/primitive_coverage.py", "check-catalog"],
+            ["python3", "-m", "unittest", "discover", "-s", "tools/multi-raft", "-p", "test_primitive_coverage.py"],
+        ])
     return commands
 
 
@@ -384,6 +391,26 @@ def check_profile(report, profile, profile_digest, revision, root, executable):
     require(verified.get("measurements_sha256") == artifacts["measurements"]["sha256"], "History verification used another measurement set")
 
 
+def check_primitive_evidence(record, manifest, root):
+    report = record.get("primitive_coverage")
+    require(isinstance(report, dict), "Missing primitive coverage report")
+    test_sha = (record.get("executable_sha256") if record["task_id"] == "CG-17"
+                else record.get("primitive_test_executable_sha256"))
+    require(isinstance(test_sha, str) and SHA256.fullmatch(test_sha), "Missing primitive test executable digest")
+    revision = record["source_revision"]
+    contracts = {Path(path).name: git_bytes(root, revision, path) for path in PRIMITIVE_CONTRACT_FILES}
+    spec = importlib.util.spec_from_file_location("primitive_coverage", ROOT / "tools/multi-raft/primitive_coverage.py")
+    verifier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verifier)
+    primitive = next(task for task in manifest["tasks"] if task["id"] == "CG-17")
+    cases = {case["name"] for case in primitive["test_cases"]}
+    try:
+        return verifier.verify_report(root, report, contracts, cases, revision,
+                                      record["source_inputs"], test_sha)
+    except (ValueError, TypeError, KeyError, OSError) as error:
+        raise PlanError(f"Primitive coverage refused: {error}") from error
+
+
 def check_evidence(task, record, manifest, baseline, profiles, profile_digest, root):
     tid = task["id"]
     require(record.get("format") == 1 and record.get("task_id") == tid, "Wrong evidence task identity")
@@ -444,6 +471,8 @@ def check_evidence(task, record, manifest, baseline, profiles, profile_digest, r
         check_profile(report, by_id[pid], profile_digest, revision, root, qualified)
         seen.add(pid)
     require(required_profiles <= seen, f"Missing required profile evidence: {sorted(required_profiles - seen)}")
+    if tid in {"CG-17", "CG-15", "CG-16"}:
+        check_primitive_evidence(record, manifest, root)
     return revision
 
 
@@ -481,7 +510,7 @@ def index_text(manifest):
              "The full release requires a combined run on one source revision.",
              "CG-07 gates the default shared-group backend for new SQL namespaces.",
              "CG-17 requires full public primitive compatibility before CG-15 qualification and CG-16 cutover.", "",
-             "Start with the [quorum SQL delivery priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)",
+             "Start with the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)",
              "for the next release gate and [progress](progress.md) for exact qualification results.", "",
              "Use `python3 docs/design/multi-raft/cell-groups/plan.py show CG-01` for a complete",
              "executor brief. Replace the ID to select another task. Commands are displayed,",
@@ -587,6 +616,12 @@ def require_release_inputs(root, revision):
     changed = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all", "--", *RUNTIME_PATHS],
                                       cwd=root, text=True)
     require(not changed, "Release executable inputs are dirty")
+    compared = subprocess.run(["git", "diff", "--quiet", revision, "HEAD", "--", *PRIMITIVE_CONTRACT_FILES],
+                              cwd=root, capture_output=True, check=False)
+    require(compared.returncode == 0, "Current primitive contracts differ from qualified source")
+    changed = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all", "--",
+                                       *PRIMITIVE_CONTRACT_FILES], cwd=root, text=True)
+    require(not changed, "Release primitive contracts are dirty")
 
 
 def validate(package=PACKAGE, root=ROOT):

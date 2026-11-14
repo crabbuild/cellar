@@ -131,6 +131,7 @@ struct Origin {
 /// The controller retains this non-cloneable invocation across waiter cancellation.
 /// Dropping it never releases the SQL worker's unresolved physical producer.
 pub struct CellCommandInvocation {
+    _submission: Option<crate::rpc_reservation::Reservation>,
     dispatcher: CellGroupDispatcher,
     system: bool,
     cell: CellHistory,
@@ -140,6 +141,7 @@ pub struct CellCommandInvocation {
     attempt: Option<CellRouteAttempt>,
     dispatched: bool,
     ambiguous: bool,
+    writer_wait: bool,
     origin: Option<Origin>,
     output: Option<PendingOutput>,
     remote_route: Option<super::RemoteMutationRoute>,
@@ -149,6 +151,7 @@ pub struct CellCommandInvocation {
 /// Synchronous request capture for the node queue. No SQL or routing I/O has
 /// begun; dropping this preparation releases only its invocation reservation.
 pub(crate) struct PendingCellCommand {
+    submission: Option<crate::rpc_reservation::Reservation>,
     dispatcher: CellGroupDispatcher,
     cell: CellHistory,
     request: CellCommandRequest,
@@ -216,12 +219,21 @@ impl CellGroupDispatcher {
             cause: Box::new(cause),
         };
         let started = self.domain.mono_ms().map_err(|_| error(closed()))?;
-        let deadline = limits.deadline_at(started).ok_or_else(|| {
-            error(CellDispatchError::Routing(CellRoutingError {
-                reason: CellRoutingFailure::InvalidRequest,
-                ambiguous_command: None,
-            }))
-        })?;
+        let maximum_ms = if system
+            && request.contract.operation == crate::application::consensus::native_work::OPERATION
+        {
+            300_000
+        } else {
+            60_000
+        };
+        let deadline = limits
+            .deadline_at_bounded(started, maximum_ms)
+            .ok_or_else(|| {
+                error(CellDispatchError::Routing(CellRoutingError {
+                    reason: CellRoutingFailure::InvalidRequest,
+                    ambiguous_command: None,
+                }))
+            })?;
         request.durability = request
             .durability
             .max(self.directory.namespace_config().minimum_durability);
@@ -271,6 +283,7 @@ impl CellGroupDispatcher {
         request.input = request.input.into_boxed_slice().into_vec();
         request.contract.operation = request.contract.operation.into_boxed_str().into_string();
         Ok(PendingCellCommand {
+            submission: None,
             dispatcher: self.clone(),
             cell,
             request,
@@ -286,6 +299,13 @@ impl CellGroupDispatcher {
 }
 
 impl PendingCellCommand {
+    pub(crate) fn retain_submission(
+        &mut self,
+        reservation: Option<crate::rpc_reservation::Reservation>,
+    ) {
+        self.submission = reservation;
+    }
+
     pub(crate) fn controller_admission(
         &self,
         domain: &DomainToken,
@@ -317,6 +337,7 @@ impl PendingCellCommand {
 
     pub(crate) async fn finish(self) -> Result<CellCommandInvocation, CellCommandError> {
         let Self {
+            submission,
             dispatcher,
             cell,
             request,
@@ -352,7 +373,7 @@ impl PendingCellCommand {
         };
         let session = dispatcher
             .directory
-            .routing_session_in(
+            .routing_session_bounded_in(
                 dispatcher.domain.clone(),
                 CellRouteRequest {
                     cell: cell.clone(),
@@ -362,10 +383,19 @@ impl PendingCellCommand {
                 limits,
                 cached,
                 started,
+                if system
+                    && request.contract.operation
+                        == crate::application::consensus::native_work::OPERATION
+                {
+                    300_000
+                } else {
+                    60_000
+                },
             )
             .map_err(|e| error(CellDispatchError::Routing(e)))?
             .using_cache(dispatcher.routes.clone());
         Ok(CellCommandInvocation {
+            _submission: submission,
             dispatcher,
             system,
             cell,
@@ -375,6 +405,7 @@ impl PendingCellCommand {
             attempt: None,
             dispatched: false,
             ambiguous: false,
+            writer_wait: false,
             origin: None,
             output: None,
             remote_route: None,
@@ -560,6 +591,7 @@ impl CellCommandInvocation {
             .map_err(|_| closed())?;
         let proposal = proposal.map_err(|_| CellDispatchError::Invalid("proposal ID"))?;
         let preview = preview.map_err(|_| CellDispatchError::Invalid("preview ID"))?;
+        self.writer_wait = false;
         self.session
             .mark_submitted(attempt)
             .map_err(CellDispatchError::Routing)?;
@@ -579,7 +611,12 @@ impl CellCommandInvocation {
                 .as_ref()
                 .ok_or(CellDispatchError::Invalid("missing origin"))?,
         );
-        let outcome = if self.system {
+        let outcome = if self.system
+            && !self
+                .dispatcher
+                .class
+                .is_cell_rpc(&self.request.contract.operation)
+        {
             sql.stage_system_owned(
                 options,
                 authority,
@@ -587,6 +624,28 @@ impl CellCommandInvocation {
                 self.dispatcher.class.clone(),
                 self.request.input.clone(),
                 CellSqlStageMode::InvokeBefore(attempt.deadline_ms()),
+            )
+            .await
+        } else if self
+            .dispatcher
+            .class
+            .is_cell_rpc(&self.request.contract.operation)
+        {
+            let commits = crate::raft::host_sql::cell_groups::RpcCommitContext {
+                runtime: runtime.clone(),
+                archive: self.dispatcher.s3.clone(),
+                route: attempt.route().clone(),
+                limits: options.limits(),
+                deadline: attempt.deadline_ms(),
+                bindings: self.dispatcher.bindings.get().cloned(),
+            };
+            sql.stage_rpc_owned(
+                options,
+                authority,
+                command,
+                self.dispatcher.class.clone(),
+                self.request.input.clone(),
+                commits,
             )
             .await
         } else {
@@ -603,6 +662,7 @@ impl CellCommandInvocation {
         match outcome {
             Ok(outcome) => self.preparation(outcome).await,
             Err(failure) => {
+                self.writer_wait = failure.writer_busy;
                 // Admission refusals and received Stage errors completed without
                 // installing this producer. Lost replies retain the exact origin.
                 if !failure.unresolved {

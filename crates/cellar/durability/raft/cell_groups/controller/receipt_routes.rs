@@ -5,6 +5,7 @@ use super::*;
 use crate::raft::cell_groups::{
     CellDispatchError, CellReceiptInvocation, CellReceiptResponse, CellSqlOptions,
 };
+use cellar_logic::consensus::CommandFailure;
 
 pub(super) async fn execute(
     shared: &Shared,
@@ -48,6 +49,18 @@ pub(super) async fn execute(
         };
         match result {
             Ok(response) => return Ok(response),
+            Err(error)
+                if routed
+                    && ordinal < invocation.maximum_attempts()
+                    && matches!(
+                        error.refusal(),
+                        Some(CommandFailure::NotLeader { .. } | CommandFailure::Overloaded)
+                    ) =>
+            {
+                invocation
+                    .retry_leader(shared.limits.retry_interval_ms)
+                    .await?;
+            }
             Err(error)
                 if routed
                     && ordinal < invocation.maximum_attempts()

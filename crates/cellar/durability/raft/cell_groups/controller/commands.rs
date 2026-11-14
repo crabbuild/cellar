@@ -7,7 +7,8 @@ use super::*;
 use crate::raft::budget::Budget;
 use crate::raft::cell_groups::{
     CellCommandError, CellCommandInvocation, CellCommandRequest, CellCommandResponse,
-    CellDispatchError, CellGroupDispatcher, CellRoutingLimits, CellSqlOptions, PendingCellCommand,
+    CellDispatchError, CellGroupDispatcher, CellRoutingLimits, CellSqlOptions, MutationRouting,
+    PendingCellCommand,
 };
 use cellar_logic::consensus::CommandId;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -110,10 +111,21 @@ impl CellGroupController {
         cell: cellar_logic::cell_group::CellHistory,
         request: CellCommandRequest,
         routing: CellRoutingLimits,
+        options: CellSqlOptions,
+    ) -> Result<CellCommandCall, CellCommandError> {
+        let pending = dispatcher.prepare_command(cell, request, routing, None, None, false)?;
+        self.dispatch_prepared_command(pending, options)
+    }
+
+    /// Transfer a fully charged preparation without restarting its deadline or
+    /// acquiring a second namespace reservation. Routing stays controller-owned.
+    pub(crate) fn dispatch_prepared_command(
+        &self,
+        pending: PendingCellCommand,
         mut options: CellSqlOptions,
     ) -> Result<CellCommandCall, CellCommandError> {
         let shared = &self.handle.0;
-        let command = request.id;
+        let (command, deadline, bytes) = pending.controller_admission(&shared.domain)?;
         let mut registration = shared
             .registration()
             .map_err(|reason| error(command, false, reason))?;
@@ -121,8 +133,6 @@ impl CellGroupController {
             return Err(error(command, false, RuntimeError::Closed));
         }
         let option_bytes = option_bytes(&mut options).map_err(|e| error(command, false, e))?;
-        let pending = dispatcher.prepare_command(cell, request, routing, None, None, false)?;
-        let (_, deadline, bytes) = pending.controller_admission(&shared.domain)?;
         let bytes = bytes
             .checked_add(option_bytes)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
@@ -140,6 +150,7 @@ impl CellGroupController {
                 permit: Arc::new(Retention {
                     _permit: permit,
                     _work: registration.work.take(),
+                    _callback: None,
                 }),
             })))
             .map_err(|e| {
@@ -177,16 +188,37 @@ pub(super) fn admit(
         if shared.closing.load(Ordering::Acquire) {
             return Err(error(command, false, RuntimeError::Closed));
         }
-        let bytes = bytes
+        let mut bytes = bytes
             .checked_add(option_bytes(&mut options).map_err(|e| error(command, false, e))?)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
-        let permit = shared
-            .commands
+        // Native callbacks have independent child-call progress capacity and
+        // one retained invocation per cell. Rediscovery must not fill both
+        // node slots with overlapping claims for the same installation.
+        if let Some(cell) = invocation.native_callback_cell() {
+            bytes = bytes
+                .checked_add(
+                    2 * (cell.cell.as_str().len()
+                        + std::mem::size_of::<cellar_logic::cell_group::CellHistory>())
+                        + 512,
+                )
+                .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
+        }
+        let budget = if invocation.is_native_callback() {
+            &shared.callbacks
+        } else {
+            &shared.commands
+        };
+        let permit = budget
             .acquire(bytes)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
-        Ok((command, deadline, permit, registration))
+        let callback = invocation
+            .native_callback_cell()
+            .map(|cell| shared.callback_cells.acquire(cell))
+            .transpose()
+            .map_err(|reason| error(command, false, reason))?;
+        Ok((command, deadline, permit, callback, registration))
     })();
-    let (command, deadline, permit, mut registration) = match admitted {
+    let (command, deadline, permit, callback, mut registration) = match admitted {
         Ok(admitted) => admitted,
         Err(error) => {
             return Err(CellCommandAdmissionError {
@@ -205,6 +237,7 @@ pub(super) fn admit(
             permit: Arc::new(Retention {
                 _permit: permit,
                 _work: registration.work.take(),
+                _callback: callback,
             }),
         })))
         .map_err(|e| {
@@ -273,7 +306,10 @@ pub(super) async fn drive(
             options,
             &shared.groups,
             &mut progress,
-            transport.as_ref(),
+            transport.as_ref().map(|transport| MutationRouting {
+                transport,
+                retry_interval_ms: shared.limits.retry_interval_ms,
+            }),
         )
         .await
         .map_err(Arc::new);

@@ -156,6 +156,17 @@ impl RaftCells {
                 }
                 (*received.view, received.inventory)
             } else {
+                if let Some(previous) = owner
+                    .handle
+                    .core
+                    .transport
+                    .lagging_inspection_trust(minimum_revision)?
+                {
+                    owner
+                        .refresh_inspection_trust(previous, minimum_revision, deadline)
+                        .await
+                        .map_err(inspection_error)?;
+                }
                 let (view, inventory) = owner.capture_physical_node().map_err(inspection_error)?;
                 (view, physical.then(|| Box::new(inventory)))
             };
@@ -191,6 +202,16 @@ impl RaftCells {
         if crate::application::consensus::class::callback_active() {
             return Err(CommandFailure::UnsupportedCapability);
         }
+        self.capture_metadata_admission(timeout, bytes)
+    }
+
+    /// Source-scoped callers validate their original RPC before reserving this
+    /// metadata. No network, route lookup or SQL runs before the source proof.
+    pub(super) fn capture_metadata_admission(
+        &self,
+        timeout: Duration,
+        bytes: usize,
+    ) -> Result<(u64, crate::raft::budget::Permit), CommandFailure> {
         let _gate = self
             .handle
             .admission
@@ -368,6 +389,7 @@ pub(super) fn startup_bounds(
     let r = runtime.limits();
     let l = log.limits();
     let bytes = [
+        c.max_command_bytes,
         c.max_command_bytes,
         c.max_command_bytes,
         options.max_control_bytes,
