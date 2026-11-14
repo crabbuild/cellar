@@ -338,7 +338,12 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
             &[crate::asyncrt::wall_ms().saturating_add(1000).into(),id.into(),operation.clone().into()])?;
         schedule(tx)
     })?;
-    db.sync().await?;
+    // The Raft binding bridge proves these changes together with its exact
+    // child intent before dispatch. An eager checkpoint would capture the
+    // same source twice. Fleet RPC still needs its explicit pre-call sync.
+    if !db.is_raft() {
+        db.sync().await?;
+    }
     let (method, args) = if retiring {
         let request: super::Retirement =
             serde_json::from_str(&store::text(&row, "pending_retirement")?)?;
