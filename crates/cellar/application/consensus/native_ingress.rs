@@ -51,7 +51,11 @@ pub(crate) fn event_rpc(
         admitted.reservation = admitted
             .reservation
             .with_reply_limit(call_scope.reply_limit());
-        Ok(owner.event_ingress(admitted, call_scope, deadline, authority))
+        Ok(if super::native_event_query::is_metadata(&method) {
+            owner.event_read(admitted, call_scope, deadline, authority)
+        } else {
+            owner.event_ingress(admitted, call_scope, deadline, authority)
+        })
     })();
     Box::pin(async move { prepared?.await })
 }

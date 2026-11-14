@@ -38,6 +38,7 @@ mod error;
 mod inventory;
 mod lifecycle;
 mod lifecycle_store;
+pub(crate) mod metadata;
 pub(crate) mod name_resolution;
 mod producer;
 pub(crate) mod readiness;

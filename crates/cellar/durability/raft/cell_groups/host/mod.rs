@@ -489,13 +489,29 @@ impl CellGroupCellHandle {
         limits: CellRoutingLimits,
         routing: CellQueryRouting,
     ) -> Result<CellQueryCall, CellDispatchError> {
+        self.query_routed_admitted(
+            request,
+            limits,
+            routing,
+            crate::application::consensus::QueryAdmission::Public,
+        )
+    }
+
+    pub(crate) fn query_routed_admitted(
+        &self,
+        request: CellQueryRequest,
+        limits: CellRoutingLimits,
+        routing: CellQueryRouting,
+        admission: crate::application::consensus::QueryAdmission,
+    ) -> Result<CellQueryCall, CellDispatchError> {
         self.host.check_open()?;
-        let invocation = self.binding.dispatcher.query_routed(
+        let invocation = self.binding.dispatcher.query_routed_admitted(
             self.history.clone(),
             request,
             limits,
             None,
             routing,
+            admission,
         )?;
         self.host
             .controller

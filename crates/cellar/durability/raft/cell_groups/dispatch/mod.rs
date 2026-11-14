@@ -27,7 +27,7 @@ pub use command::{
 
 use super::*;
 use crate::application::consensus::{
-    OperationContract, OperationKind, RaftClass, RegistrationError,
+    OperationContract, OperationKind, QueryAdmission, RaftClass, RegistrationError,
 };
 use crate::asyncrt::{DomainToken, ExecutionDomain};
 use crate::raft::budget::{Budget, Permit};
@@ -337,10 +337,29 @@ impl CellGroupDispatcher {
     pub fn query_routed(
         &self,
         cell: CellHistory,
+        request: CellQueryRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        routing: CellQueryRouting,
+    ) -> Result<CellQueryInvocation, CellDispatchError> {
+        self.query_routed_admitted(
+            cell,
+            request,
+            limits,
+            cached,
+            routing,
+            QueryAdmission::Public,
+        )
+    }
+
+    pub(crate) fn query_routed_admitted(
+        &self,
+        cell: CellHistory,
         mut request: CellQueryRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
         mut routing: CellQueryRouting,
+        admission: QueryAdmission,
     ) -> Result<CellQueryInvocation, CellDispatchError> {
         let started_at = self.domain.mono_ms().map_err(|_| closed())?;
         routing.validate(limits)?;
@@ -359,7 +378,19 @@ impl CellGroupDispatcher {
                 RegistrationError::KindMismatch,
             ));
         }
-        let local_registration_error = match self.class.validate_operation(&request.contract) {
+        if let QueryAdmission::Event(minimum) = admission {
+            if !matches!(request.consistency, CellQueryConsistency::Linearizable)
+                || minimum < self.host_binding()?.0.minimum_durability
+            {
+                return Err(CellDispatchError::Invalid(
+                    "event metadata consistency/durability",
+                ));
+            }
+        }
+        let local_registration_error = match self
+            .class
+            .validate_query_admission(&request.contract, admission)
+        {
             Ok(()) => None,
             Err(error @ RegistrationError::UnknownOperation(_))
                 if !matches!(routing, CellQueryRouting::Local) =>
@@ -389,7 +420,7 @@ impl CellGroupDispatcher {
                 CellRouteRequest {
                     cell: cell.clone(),
                     operation: CellRouteOperation::Query(request.invocation),
-                    fingerprint: fingerprint(&cell, &request, limits, &routing),
+                    fingerprint: fingerprint(&cell, &request, limits, &routing, admission),
                 },
                 limits,
                 cached,
@@ -400,6 +431,7 @@ impl CellGroupDispatcher {
         Ok(CellQueryInvocation {
             dispatcher: self.clone(),
             request,
+            admission,
             routing,
             local_registration_error,
             leader_hint: None,
@@ -417,6 +449,7 @@ impl CellGroupDispatcher {
 pub struct CellQueryInvocation {
     dispatcher: CellGroupDispatcher,
     request: CellQueryRequest,
+    admission: QueryAdmission,
     routing: CellQueryRouting,
     local_registration_error: Option<RegistrationError>,
     leader_hint: Option<cellar_logic::consensus::MemberId>,
@@ -609,6 +642,7 @@ impl CellQueryInvocation {
             .ok_or(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded))?;
         let call = crate::raft::query_wire::cell::CellQueryCall {
             request: self.request.clone(),
+            admission: self.admission,
             timeout_ms,
             route_epoch: attempt.route().epoch.get(),
             birth_digest: attempt.route().birth_digest,
@@ -721,7 +755,7 @@ impl CellQueryInvocation {
         if authority.route() != attempt.route() || authority.cell().version.history != *cell {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
-        let selected = sql
+        let mut selected = sql
             .query_registered_retained(
                 options,
                 authority,
@@ -731,6 +765,7 @@ impl CellQueryInvocation {
                 Some(crate::raft::host_sql::cell_groups::ReadRetention::new(
                     Arc::new((retention, self._admission.clone())),
                 )),
+                self.admission,
             )
             .await
             .map_err(|error| {
@@ -745,6 +780,27 @@ impl CellQueryInvocation {
                     CellDispatchError::Execution(error)
                 }
             })?;
+        if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3) {
+            let client = self
+                .dispatcher
+                .s3
+                .as_ref()
+                .ok_or(CellDispatchError::Runtime(RuntimeError::NotReady))?;
+            let settled = client
+                .query(
+                    runtime,
+                    attempt.route().clone(),
+                    Box::new(selected),
+                    attempt.deadline_ms(),
+                )
+                .await?;
+            settled
+                .proof
+                .require_current(&self.dispatcher.domain, attempt.deadline_ms())
+                .await?;
+            selected = *settled.selected;
+            selected.retain_archive(settled.proof);
+        }
         let token = self
             .dispatcher
             .keys
@@ -821,9 +877,15 @@ fn fingerprint(
     request: &CellQueryRequest,
     limits: CellRoutingLimits,
     routing: &CellQueryRouting,
+    admission: QueryAdmission,
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash.update(b"cellar-cell-query-invocation-1\0");
+    hash.update([match admission {
+        QueryAdmission::Public => 0,
+        QueryAdmission::Event(cellar_logic::consensus::Durability::Quorum) => 1,
+        QueryAdmission::Event(cellar_logic::consensus::Durability::S3) => 2,
+    }]);
     hash.update(cell_image_history_digest(cell));
     hash.update(limits.timeout.as_nanos().to_be_bytes());
     hash.update([limits.max_attempts]);

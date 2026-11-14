@@ -105,10 +105,27 @@ Provisioning/reconciliation must reach destination Quorum/S3 proof before catalo
 configuration becomes active. Named bindings need actual catalog resolution and
 generation-local readiness; handles cannot silently retarget recreated resources.
 
-The public activation candidate reuses the same configuration/status and catalog/
-stream resolution protocol for Fleet and shared-group targets. The shared path
-retains a nonce-bearing private command, one original deadline and the existing
-bounded ingress/receipt owner. It pins both generation and shared-cell factory
+The public activation path reuses the same configuration/status and catalog/
+stream resolution protocol for Fleet and shared-group targets. Configuration
+mutations retain a nonce-bearing private command and the bounded ingress/receipt
+owner. Shared-group `__catalogStatus`, `__catalogResolveName`, `__catalogResolve`
+and `__streamResolve` use private linearizable queries over pinned immutable
+images. They do not construct a mutable factory, enroll a cell, allocate a command
+sequence or append an empty mutation. Their separate authenticated transport
+purpose retains the existing namespace write grant and boot/membership fences;
+public queries and generic maintenance cannot select this admission. Reads check
+the current stored resource grants and exact host-captured authority. Clock,
+lease and configuration mutations stay on the command path.
+
+An S3-minimum metadata read additionally waits for independently recovered
+complete coverage of its selected logical history/version. An older cut cannot
+prove it; a different incarnation or equal-version witness mismatch refuses.
+The coverage hold and admission survive response buffering and physical reply
+ownership. Discovery, the strong read, archive proof and output all retain the
+original activation deadline. This query candidate requires its own runtime
+qualification; the earlier command-path passes do not qualify it.
+
+Activation pins both generation and shared-cell factory
 bindings after proof. Superseded activation completions cannot reopen or cancel a
 newer source latch; an already pinned generation cannot adopt a recreated ID.
 

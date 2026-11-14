@@ -60,6 +60,7 @@ enum Purpose {
     CommandProbe,
     BindingRetirement,
     EventCommand,
+    EventQuery,
     Enrollment,
     Receipt,
     Name,
@@ -180,6 +181,16 @@ impl QueryRoute {
         self.purpose == Purpose::EventCommand
     }
 
+    pub fn for_event_query(mut self) -> Result<Self, TransportError> {
+        self.decode_shared()?;
+        self.purpose = Purpose::EventQuery;
+        Ok(self)
+    }
+
+    pub fn is_event_query(&self) -> bool {
+        self.purpose == Purpose::EventQuery
+    }
+
     pub fn for_command_probe(mut self) -> Result<Self, TransportError> {
         self.decode_shared()?;
         self.purpose = Purpose::CommandProbe;
@@ -233,6 +244,7 @@ impl QueryRoute {
     pub fn requires_command_grant(&self) -> bool {
         self.is_command()
             || self.is_event_command()
+            || self.is_event_query()
             || self.is_command_probe()
             || self.is_binding_retirement()
             || self.is_enrollment()

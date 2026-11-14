@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use crate::application::consensus::{CommandAdmission, RaftClass};
+use crate::application::consensus::{CommandAdmission, QueryAdmission, RaftClass};
 
 fn definition() -> event_stream::Definition {
     event_stream::Definition {
@@ -162,8 +162,60 @@ fn event_contracts_are_not_public_or_maintenance_capabilities() -> Result<()> {
         assert!(class
             .validate_command_admission(&changed, CommandAdmission::Event)
             .is_err());
+        let query = class.event_query_contract().unwrap();
+        assert!(class.contract(&query.operation).is_none());
+        assert!(class.system_contract(&query.operation).is_none());
+        assert!(class.validate_operation(&query).is_err());
+        assert!(class
+            .validate_query_admission(&query, QueryAdmission::Public)
+            .is_err());
+        for minimum in [
+            super::super::Durability::Quorum,
+            super::super::Durability::S3,
+        ] {
+            class.validate_query_admission(&query, QueryAdmission::Event(minimum))?;
+            assert!(class
+                .validate_query_admission(&changed, QueryAdmission::Event(minimum))
+                .is_err());
+        }
+        assert!(class
+            .validate_command_admission(&query, CommandAdmission::Event)
+            .is_err());
+        let mut foreign = query;
+        foreign.digest[0] ^= 1;
+        assert!(class
+            .validate_query_admission(
+                &foreign,
+                QueryAdmission::Event(super::super::Durability::Quorum)
+            )
+            .is_err());
     }
     Ok(())
+}
+
+#[test]
+fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
+    use super::super::native_event_query::is_metadata;
+    for method in [
+        "__catalogStatus",
+        "__catalogResolveName",
+        "__catalogResolve",
+        "__streamResolve",
+    ] {
+        assert!(is_metadata(method));
+    }
+    for method in [
+        "__catalogConfigure",
+        "__catalogRetire",
+        "__streamConfigure",
+        "__streamRead",
+        "__streamNext",
+        "__streamAck",
+        "__streamAppend",
+        "__streamStatus",
+    ] {
+        assert!(!is_metadata(method), "{method}");
+    }
 }
 
 #[test]

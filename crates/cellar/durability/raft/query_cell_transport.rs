@@ -359,6 +359,12 @@ impl State {
                         &request.cell,
                         request.route.schema_digest,
                     )?;
+                    let route = match request.call.admission {
+                        crate::application::consensus::QueryAdmission::Public => route,
+                        crate::application::consensus::QueryAdmission::Event(_) => {
+                            route.for_event_query()?
+                        }
+                    };
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
                         .await?;
@@ -464,6 +470,9 @@ impl IncomingCall {
                 crate::raft::query_wire::command::CellCommandCall::decode(bytes, limit)?,
             ));
         }
+        if route.is_event_query() {
+            return Ok(Self::Shared(CellQueryCall::decode_event(bytes, limit)?));
+        }
         Ok(Self::Shared(CellQueryCall::decode(bytes, limit)?))
     }
 
@@ -550,12 +559,11 @@ impl IncomingCall {
                     Err(error) => Err(error),
                 }
                 .map_err(|e| query_failure(&e));
-                wire::cell::encode_cell_result(
-                    &result,
+                super::query_replies::Reply::query(
+                    result,
                     leader_hint.as_ref(),
                     state.options.max_query_response_bytes,
                 )
-                .map(super::query_replies::Reply::plain)
             }
         }
     }
@@ -571,7 +579,7 @@ impl Gateway {
     ) -> Result<crate::raft::cell_groups::CellQueryCall, Arc<CellDispatchError>> {
         let options = self.storage.for_cell(&cell);
         let queued = (|| {
-            let mut query = self.dispatcher.query(
+            let mut query = self.dispatcher.query_routed_admitted(
                 cell,
                 call.request,
                 CellRoutingLimits {
@@ -579,6 +587,8 @@ impl Gateway {
                     max_attempts: 1,
                 },
                 None,
+                crate::raft::cell_groups::CellQueryRouting::Local,
+                call.admission,
             )?;
             query.bind_remote_route(crate::raft::cell_groups::RemoteMutationRoute {
                 group,

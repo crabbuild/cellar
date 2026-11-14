@@ -72,6 +72,15 @@ pub(crate) fn authority(context: &Context, action: Action) -> Result<Authority> 
         .event_authority
         .clone()
         .ok_or_else(|| error(ErrorCode::Forbidden, "event RPC has no host authority"))?;
+    let scope = &context
+        .identity()
+        .ok_or_else(|| error(ErrorCode::Forbidden, "event RPC requires a system cell"))?
+        .scope;
+    validate_authority(scope, &authority, action)?;
+    Ok(authority)
+}
+
+pub(crate) fn validate_authority(scope: &str, authority: &Authority, action: Action) -> Result<()> {
     authority.validate()?;
     if authority.action != action {
         return Err(error(
@@ -79,12 +88,7 @@ pub(crate) fn authority(context: &Context, action: Action) -> Result<Authority> 
             "event RPC action does not match its authority",
         ));
     }
-    let scope = &context
-        .identity()
-        .ok_or_else(|| error(ErrorCode::Forbidden, "event RPC requires a system cell"))?
-        .scope;
-    super::validate_target(scope, &authority)?;
-    Ok(authority)
+    super::validate_target(scope, authority)
 }
 
 pub(crate) fn authorize<'a>(
@@ -159,6 +163,10 @@ pub(crate) fn clock(db: &Storage) -> Result<i64> {
 
 pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
     let caller = authority(context, Action::Resolve)?;
+    resolve_read(&context.storage()?, &caller, body)
+}
+
+pub(crate) fn resolve_read(db: &Storage, caller: &Authority, body: &Value) -> Result<Value> {
     let encoded = body["binding"]
         .as_str()
         .context("binding resolution request missing")?;
@@ -177,9 +185,8 @@ pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
     }
     let binding: super::Binding = serde_json::from_slice(&bytes)?;
     binding.validate()?;
-    let db = context.storage()?;
-    let (definition, _) = load(&db)?;
-    let grant = authorize(&definition, &caller, Action::Resolve, None)?;
+    let (definition, _) = load(db)?;
+    let grant = authorize(&definition, caller, Action::Resolve, None)?;
     if binding.principal != caller.principal
         || binding.grant != caller.grant
         || binding.resource != definition.resource
@@ -198,7 +205,7 @@ pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
     }
     for name in &binding.subscriptions {
         if db
-            .system_sql(
+            .system_sql_read(
                 "SELECT id FROM __sys_stream_subscriptions WHERE name=? AND state!='deleted'",
                 &[name.clone().into()],
             )?
@@ -216,7 +223,7 @@ pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
 }
 
 pub(crate) fn load_state(db: &Storage) -> Result<(Definition, SqlRow)> {
-    let present = db.system_sql(
+    let present = db.system_sql_read(
         "SELECT name FROM sqlite_schema WHERE type='table' AND name='__sys_stream'",
         &[],
     )?;
@@ -227,7 +234,7 @@ pub(crate) fn load_state(db: &Storage) -> Result<(Definition, SqlRow)> {
         ));
     }
     let row = db
-        .system_sql("SELECT * FROM __sys_stream WHERE singleton=1", &[])?
+        .system_sql_read("SELECT * FROM __sys_stream WHERE singleton=1", &[])?
         .into_iter()
         .next()
         .ok_or_else(|| error(ErrorCode::NotInitialized, "stream is not provisioned"))?;

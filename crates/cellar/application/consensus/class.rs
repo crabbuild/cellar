@@ -377,6 +377,14 @@ impl CommandAdmission {
     }
 }
 
+/// Admission is minted by the host or authenticated private query transport;
+/// event bytes alone never grant access to the private resource reader.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum QueryAdmission {
+    Public,
+    Event(super::Durability),
+}
+
 pub(crate) struct CommandTarget<'a> {
     pub(crate) cell: &'a CellHistory,
     pub(crate) route_epoch: Option<RouteEpoch>,
@@ -1476,6 +1484,25 @@ impl RaftClass {
             .map(|_| contract)
     }
 
+    pub(crate) fn event_query_contract(&self) -> Option<OperationContract> {
+        self.event_contract()
+            .map(|_| super::native_event_query::contract(&self.name))
+    }
+
+    pub(crate) fn validate_query_admission(
+        &self,
+        contract: &OperationContract,
+        admission: QueryAdmission,
+    ) -> Result<(), RegistrationError> {
+        match admission {
+            QueryAdmission::Public => self.validate_operation(contract),
+            QueryAdmission::Event(_) if self.event_query_contract().as_ref() == Some(contract) => {
+                Ok(())
+            }
+            QueryAdmission::Event(_) => Err(RegistrationError::ContractMismatch),
+        }
+    }
+
     pub(crate) fn validate_command_admission(
         &self,
         contract: &OperationContract,
@@ -1718,6 +1745,7 @@ impl RaftClass {
             QueryVersion::GroupCut(version),
             database,
             input,
+            QueryAdmission::Public,
         )
     }
 
@@ -1727,6 +1755,7 @@ impl RaftClass {
         observation: &CellVersionObservation,
         database: ImmutableQuery,
         input: &[u8],
+        admission: QueryAdmission,
     ) -> anyhow::Result<Vec<u8>> {
         self.invoke_query(
             contract,
@@ -1734,6 +1763,7 @@ impl RaftClass {
             QueryVersion::Cell(observation),
             database,
             input,
+            admission,
         )
     }
 
@@ -1744,34 +1774,35 @@ impl RaftClass {
         version: QueryVersion<'_>,
         database: ImmutableQuery,
         input: &[u8],
+        admission: QueryAdmission,
     ) -> anyhow::Result<Vec<u8>> {
-        self.validate_operation(contract)?;
+        self.validate_query_admission(contract, admission)?;
         anyhow::ensure!(
             contract.kind == OperationKind::Query,
             RegistrationError::KindMismatch
         );
-        let callback = &self
-            .queries
-            .get(&contract.operation)
-            .ok_or(RegistrationError::KindMismatch)?
-            .callback;
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = CallbackGuard::enter()?;
             QueryFrame::run(database, |frame| {
                 if self.filesystem.is_some() {
                     self.configure_filesystem(&frame.storage(), identity, true);
                 }
-                callback(
-                    &QueryContext {
-                        identity,
-                        version,
-                        frame,
-                        blobs: self.blobs,
-                        outbox: self.outbox.as_deref(),
-                        schema: self.schema_digest,
-                    },
-                    input,
-                )
+                let context = QueryContext {
+                    identity,
+                    version,
+                    frame,
+                    blobs: self.blobs,
+                    outbox: self.outbox.as_deref(),
+                    schema: self.schema_digest,
+                };
+                match admission {
+                    QueryAdmission::Public => (self
+                        .queries
+                        .get(&contract.operation)
+                        .ok_or(RegistrationError::KindMismatch)?
+                        .callback)(&context, input),
+                    QueryAdmission::Event(_) => super::native_event_query::invoke(&context, input),
+                }
             })
         }))
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))

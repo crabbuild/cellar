@@ -11,7 +11,7 @@ pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
 pub(crate) use class::{
     callback_active, framework_dispatch, require_framework_dispatch, CommandAdmission,
-    CommandTarget,
+    CommandTarget, QueryAdmission,
 };
 pub(crate) mod group_client;
 mod group_contracts;
@@ -21,6 +21,7 @@ mod native_applications;
 pub use native_applications::RaftApplications;
 mod native_cell;
 mod native_configuration;
+pub(crate) mod native_event_query;
 pub(crate) mod native_event_rpc;
 pub(crate) mod native_ingress;
 mod native_services;

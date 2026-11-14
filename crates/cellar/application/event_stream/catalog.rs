@@ -55,7 +55,7 @@ fn open(db: &Storage) -> Result<()> {
 
 fn authorize_resource(db: &Storage, caller: &Authority, action: Action) -> Result<SqlRow> {
     let row = db
-        .system_sql(
+        .system_sql_read(
             "SELECT * FROM __sys_event_catalog WHERE id=?",
             &[caller.resource.id.clone().into()],
         )?
@@ -273,13 +273,20 @@ fn retirement_status(context: &Context, body: &Value) -> Result<Value> {
 
 fn configuration_status(context: &Context) -> Result<Value> {
     let caller = store::authority(context, Action::Configure)?;
-    let db = context.storage()?;
-    status(&authorize_resource(&db, &caller, Action::Configure)?)
+    configuration_status_read(&context.storage()?, &caller)
+}
+
+pub(super) fn configuration_status_read(db: &Storage, caller: &Authority) -> Result<Value> {
+    status(&authorize_resource(db, caller, Action::Configure)?)
 }
 
 fn resolve(context: &Context) -> Result<Value> {
     let caller = store::authority(context, Action::Resolve)?;
-    let row = authorize_resource(&context.storage()?, &caller, Action::Resolve)?;
+    resolve_read(&context.storage()?, &caller)
+}
+
+pub(super) fn resolve_read(db: &Storage, caller: &Authority) -> Result<Value> {
+    let row = authorize_resource(db, caller, Action::Resolve)?;
     if store::text(&row, "lifecycle")? != "active" {
         return Err(error(
             ErrorCode::Unavailable,

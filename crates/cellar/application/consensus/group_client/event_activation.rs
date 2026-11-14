@@ -173,7 +173,11 @@ impl RaftCells {
                 .admit_outbound_rpc(&scope, Some(&name), method, &args)
                 .ok_or(super::super::CommandFailure::Overloaded)?;
             let call_scope = crate::host_rpc::CallScope::default().with_deadline(deadline);
-            Ok(self.event_ingress(admitted, call_scope, deadline, authority))
+            Ok(if super::super::native_event_query::is_metadata(method) {
+                self.event_read(admitted, call_scope, deadline, authority)
+            } else {
+                self.event_ingress(admitted, call_scope, deadline, authority)
+            })
         })();
         Box::pin(async move {
             let result = prepared?.await?;

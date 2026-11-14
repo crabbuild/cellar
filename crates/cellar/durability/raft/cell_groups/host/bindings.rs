@@ -66,6 +66,25 @@ impl CellGroupHost {
         self.select_event_route(None, scope, method, authority, log)
     }
 
+    pub(crate) fn event_query_route(
+        &self,
+        scope: &str,
+        method: &str,
+        authority: &crate::application::consensus::native_event_rpc::Authority,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        if !crate::application::consensus::native_event_query::is_metadata(method) {
+            return Err(CellDispatchError::Invalid("event metadata method"));
+        }
+        let mut selected = self.event_ingress_route(scope, method, authority, log)?;
+        let class = scope
+            .split_once(':')
+            .ok_or(CellDispatchError::Invalid("event metadata scope"))?
+            .0;
+        selected.contract = crate::application::consensus::native_event_query::contract(class);
+        Ok(selected)
+    }
+
     fn select_event_route(
         &self,
         cluster: Option<cellar_logic::consensus::ClusterId>,
