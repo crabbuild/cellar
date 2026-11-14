@@ -140,6 +140,12 @@ async fn configuration_hint_changes_cost_without_replacing_current_proof() -> Re
         };
         let result = configure(&host, &[("app".into(), definition.clone())], &[]).await;
         assert_eq!(result.is_ok(), accepted, "{result:?}");
+        if !accepted {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("event resource does not match the current deployment definition"));
+        }
         assert!(host.replies.lock().unwrap().is_empty());
     }
     Ok(())
@@ -176,6 +182,12 @@ async fn pending_configuration_polls_current_state_without_reissuing_mutation() 
         domain.shutdown().await;
         let result = result?;
         assert_eq!(result.is_ok(), accepted, "{result:?}");
+        if !accepted {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("event resource does not match the current deployment definition"));
+        }
         assert!(host.replies.lock().unwrap().is_empty());
     }
     Ok(())

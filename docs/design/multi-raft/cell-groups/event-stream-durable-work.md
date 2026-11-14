@@ -50,8 +50,9 @@ overwrite them. Authorized callers may observe a pending initial configuration
 without acquiring creation authority.
 
 Shared-group catalog ingress and autonomous maintenance share a bounded live
-reconciliation reservation for each catalog resource. An overlapping caller
-keeps the durable pending operation and re-arms its retry without allocating a
+reconciliation reservation for each catalog resource. The reservation covers the
+exact logical cell history, including cluster, namespace and incarnation; names
+in another history stay independent. An overlapping caller keeps the durable pending operation and re-arms its retry without allocating a
 second broker command. Rearming cannot pull a retry earlier, alter a newer
 operation or revive a completed one. Activation polls the same pending operation
 through current metadata reads under its original deadline; it does not resubmit

@@ -359,15 +359,17 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
     }
     let operation = store::text(&row, "operation")?;
     let _dispatch = if db.is_raft() {
-        let identity = context.identity().ok_or_else(|| {
-            error(
-                ErrorCode::Forbidden,
-                "catalog reconciliation requires a cell identity",
-            )
-        })?;
+        let history = crate::storage::capture_raft_dispatch()?
+            .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?
+            .source_history()?;
+        // Resource names can repeat across clusters, namespaces and recovered
+        // incarnations on one host. Coalesce only this exact logical history.
+        let scope = hex::encode(crate::raft::cell_groups::cell_image_history_digest(
+            &history,
+        ));
         let limits = crate::application::limits::current().events;
         let Some(dispatch) = context.io.host_services().events().dispatch(
-            &identity.scope,
+            &scope,
             &format!("catalog:{id}"),
             limits.max_dispatch_concurrency,
         ) else {
