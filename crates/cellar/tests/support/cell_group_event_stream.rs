@@ -406,9 +406,35 @@ async fn call_options(
         }
         let contract = cell.contract(method)?;
         let encoded = serde_json::to_vec(&input)?;
-        let response = cell
+        let deadline =
+            cellar::asyncrt::mono_ms().saturating_add(u64::try_from(options.timeout.as_millis())?);
+        let mut response = cell
             .command(&contract, encoded.clone(), options.clone())
             .await;
+        loop {
+            let refused = response.as_ref().err().is_some_and(|error| {
+                !error.ambiguous
+                    && matches!(
+                        error.cause.as_ref(),
+                        CellDispatchError::Runtime(RuntimeError::Overloaded)
+                    )
+            });
+            if !refused {
+                break;
+            }
+            // No command entered. Keep its complete identity and consume only
+            // its original execution/admission deadline.
+            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            let Some(remaining) = deadline
+                .checked_sub(cellar::asyncrt::mono_ms())
+                .filter(|remaining| *remaining != 0)
+            else {
+                break;
+            };
+            let mut attempt = options.clone();
+            attempt.timeout = Duration::from_millis(remaining);
+            response = cell.command(&contract, encoded.clone(), attempt).await;
+        }
         let response = match response {
             Err(error) if error.ambiguous => {
                 // A waiter deadline is not a non-commit proof. Resolve only the
