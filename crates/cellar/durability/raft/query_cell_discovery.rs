@@ -11,6 +11,33 @@ impl RaftTransport {
         self.handle.0.options.max_groups
     }
 
+    /// Select advisory read destinations from the same trusted view used by
+    /// query transmission. An active voter has a physical route rather than a
+    /// router-only route; neither view supplies permission or a read proof.
+    pub(crate) fn cell_query_members(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        limit: usize,
+    ) -> Result<Vec<MemberId>, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let view = registry
+            .physical_groups
+            .get(&route.history)
+            .or_else(|| registry.cell_query_groups.get(&route.history))
+            .ok_or(TransportError::UnknownGroup)?;
+        if view.schema_digest != route.schema_digest {
+            return Err(TransportError::Identity);
+        }
+        Ok(view
+            .peers
+            .iter()
+            .take(limit)
+            .map(|peer| peer.replica.member)
+            .collect())
+    }
+
     pub(crate) fn cell_query_router_has_member(
         &self,
         route: &cellar_logic::cell_group::GroupRoute,

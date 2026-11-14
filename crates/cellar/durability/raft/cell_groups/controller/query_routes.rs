@@ -141,7 +141,7 @@ impl Destination<'_> {
             let attempt = invocation
                 .attempt()
                 .ok_or(Error::Invalid("missing route"))?;
-            let route = attempt.route();
+            let route = attempt.route().clone();
             let history = route.history;
             let ordinal = usize::from(attempt.ordinal());
             let mut exhausted_router = false;
@@ -151,49 +151,76 @@ impl Destination<'_> {
             }
             // A retained obsolete log is physical debt, not a serving replica.
             // Only the controller's active roster selects local execution.
-            let result = match self.runtime.log().cell_group(&history) {
-                Ok(_)
+            let local = match self.runtime.log().cell_group(&history) {
+                Ok(group)
                     if self
                         .shared
                         .groups
                         .contains(&history)
                         .map_err(Error::Runtime)? =>
                 {
-                    self.local(invocation, options.clone(), permit.clone())
-                        .await
+                    Some(group.identity().member)
                 }
-                Ok(_) | Err(LogError::NotFound) => {
-                    match self
-                        .router_members(
-                            route,
-                            invocation.maximum_attempts(),
-                            invocation.deadline_ms(),
-                        )
-                        .await
-                    {
-                        Ok(members) if !members.is_empty() => {
-                            let member = members[next_member % members.len()];
-                            next_member += 1;
-                            exhausted_router = next_member >= members.len();
-                            let now = self
-                                .shared
-                                .domain
-                                .mono_ms()
-                                .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
-                            let remaining = invocation.deadline_ms().saturating_sub(now);
-                            let tickets = invocation.maximum_attempts().saturating_sub(ordinal) + 1;
-                            invocation.limit_attempt(Duration::from_millis(
-                                (remaining / tickets as u64).max(1),
-                            ))?;
-                            self.attempt(invocation, member, options.clone(), permit.clone())
-                                .await
-                        }
-                        Ok(_) => Err(Error::Runtime(RuntimeError::NotFound)),
-                        Err(error) => Err(error),
-                    }
-                }
-                Err(error) => Err(Error::Runtime(RuntimeError::Storage(error))),
+                Ok(_) | Err(LogError::NotFound) => None,
+                Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
             };
+            let result = async {
+                let members = if let Some(local) = local {
+                    let mut members = vec![local];
+                    match self
+                        .transport
+                        .cell_query_members(&route, invocation.maximum_attempts())
+                    {
+                        Ok(peers) => {
+                            for peer in peers {
+                                if !members.contains(&peer) {
+                                    members.push(peer);
+                                }
+                            }
+                        }
+                        // A local replica remains usable without a discovery
+                        // view. It receives the whole budget when no trusted
+                        // fallback is available.
+                        Err(TransportError::UnknownGroup) => (),
+                        Err(error) => return Err(Error::Transport(error)),
+                    }
+                    members
+                } else {
+                    self.router_members(
+                        &route,
+                        invocation.maximum_attempts(),
+                        invocation.deadline_ms(),
+                    )
+                    .await?
+                };
+                if !members.is_empty() {
+                    let index = next_member % members.len();
+                    let member = members[index];
+                    next_member += 1;
+                    exhausted_router = next_member >= members.len();
+                    let now = self
+                        .shared
+                        .domain
+                        .mono_ms()
+                        .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+                    let remaining = invocation.deadline_ms().saturating_sub(now);
+                    let tickets = (invocation.maximum_attempts().saturating_sub(ordinal) + 1)
+                        .min(members.len() - index)
+                        .max(1);
+                    // Even a present voter can lag in apply or retain a
+                    // blocked SQL reader. Leave the original invocation
+                    // time for other trusted destinations; expiry never
+                    // cancels or refunds its entered physical SQL work.
+                    invocation.limit_attempt(Duration::from_millis(
+                        (remaining / tickets as u64).max(1),
+                    ))?;
+                    self.attempt(invocation, member, options.clone(), permit.clone())
+                        .await
+                } else {
+                    Err(Error::Runtime(RuntimeError::NotFound))
+                }
+            }
+            .await;
             match result {
                 Ok(response) => return Ok(response),
                 Err(error) if retryable(&error) && ordinal < invocation.maximum_attempts() => {
@@ -209,11 +236,16 @@ impl Destination<'_> {
                             Ok(()) | Err(RuntimeError::NotFound) => (),
                             Err(error) => return Err(Error::Runtime(error)),
                         }
+                        // A selected successor can have completely different
+                        // members. Replan against a verified root without
+                        // replenishing the invocation's deadline or attempt bank.
+                        invocation.refresh().await?;
+                    } else {
+                        // A slow replica supplies no relocation evidence. Try
+                        // the remaining trusted peers before requiring rooted
+                        // discovery, including while the archive is unavailable.
+                        invocation.retry().await?;
                     }
-                    // A selected successor can have completely different members.
-                    // Replan against a verified root, never an old member list or
-                    // a new session with a replenished deadline/attempt budget.
-                    invocation.refresh().await?;
                     invocation.validate_minimum().await?;
                 }
                 Err(error) => return Err(error),
