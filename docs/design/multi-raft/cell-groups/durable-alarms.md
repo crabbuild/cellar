@@ -78,6 +78,11 @@ attempts and counted application failures are separate. A failed claim proof,
 kernel deadline, cancellation or lost authority does not fabricate a returned
 handler failure; its retained claim remains recoverable after the lease.
 
+The test profile unwinds, so caught callback panics use this failure path.
+Shipped release builds use `panic = "abort"`; an abort is process loss and
+recovers through the retained claim/lease. It cannot fabricate a known failure
+count. Release process-loss qualification remains a separate gate.
+
 Failure and completion compare the installation generation, attempt, exact lease
 and claim phase. Backoff clears that phase before the next attempt can claim it.
 The phase is necessary even when the backoff and old lease deadlines coincide.

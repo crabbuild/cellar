@@ -304,6 +304,9 @@ async fn case(
                 );
             }
             if !exhaust {
+                // New boots require newly inspected application permissions.
+                // This follows the no-client-traffic recovery observation.
+                named_service::grant(&cluster).await?;
                 for label in ["failure/replace", "failure/cancel", "failure/panic"] {
                     control.arm(1);
                     request(&cluster, "Arm", json!({"label":label,"after":100})).await?;
