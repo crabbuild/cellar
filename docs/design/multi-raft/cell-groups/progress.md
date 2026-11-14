@@ -27,6 +27,31 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 Queue batch proof coalescing candidate
+
+The Queue callback candidate defers the generic work-claim checkpoint to the
+trusted broker. Its existing checkpoint proves the claim together with batch
+leases before consumer entry; a preceding DLQ call still proves its source intent
+before dispatch. Ordinary alarms, Workflow and filesystem maintenance retain
+their eager claim checkpoint. A shared Queue without the proof-bearing consumer
+adapter now refuses instead of entering Fleet dispatch. Request budgets, lease
+periods, work identities and physical admission remain unchanged.
+
+Test source `d53b1c27` pauses and enqueues one message, then holds its consumer.
+It requires exactly two group commits from the paused cut: resume and one
+claim/lease checkpoint. It also inspects the committed message's active lease,
+and requires prior archive publication for an S3-minimum Queue. Both image forms
+and Quorum/S3 namespace minima are selected; an explicit RustFS variant is added.
+The old and candidate executables still need to be built and run. These source
+changes do not establish a passing proof or explain earlier Queue deadlines.
+
+The preceding Workflow integration cohort 106 at `7e4347e9` has passed ordinary
+and scheduled Workflow in all eight real-RustFS native/Axum configurations.
+Native Queue passes both images, while native load fails during its final drain
+after producer batches return. The RustFS load and cron selections are still
+running in the original frozen checkout. Preserve all source-specific failures;
+no complete primitive family or task is accepted.
+
 ## CG-17 filesystem and inbox integration with Workflow
 
 Filesystem/inbox source `64e9864d` is integrated with Workflow source `7e4347e9`

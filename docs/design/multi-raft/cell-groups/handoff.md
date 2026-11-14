@@ -4,6 +4,22 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Current Queue proof candidate
+
+The isolated integration checkout has filesystem/inbox merge `649ba11a`, a new
+Queue batch-proof regression at `d53b1c27`, and coalescing candidate `f103b541`.
+The broker additionally refuses shared Queue consumer dispatch without the
+proof-bearing callback adapter. These changes need canonical formatting, build
+and qualification; do not claim that the new proof regression has run.
+
+After cohort 106 finishes in the original checkout, first run the test-only
+`d53b1c27` changes against the frozen pre-optimization runtime to establish the
+extra checkpoint. Then qualify the combined candidate with the new lease/proof
+oracle, existing Queue fault/long/load, Workflow, alarm and filesystem guards.
+Keep original deadlines and preserve every failed control. Use each checkout's
+own workspace-volume target, and never edit the original source while its
+cohort 106 driver is live. The current source is intentionally not pushed.
+
 ## Filesystem and inbox integration checkout
 
 The isolated `codex/cg17-primitives-integration` checkout combines filesystem/inbox
