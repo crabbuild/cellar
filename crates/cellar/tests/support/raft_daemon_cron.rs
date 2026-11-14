@@ -180,6 +180,7 @@ async fn initialize(root: &Path) -> Result<()> {
         ensure!(output["class"] == cellar_logic::cron::RESERVED_CLASS
             && output["schema_digest"] == hex::encode(operator.namespace.schema_digest)
             && output["minimum_durability"] == plan["minimum_durability"]);
+        cellar::note!("{}", serde_json::json!({"event":"cron_namespace_provisioned","result":output}));
         let replay = provision_call_for(root, &plan, "provision-cron").await?;
         ensure!(replay.status.success() && replay.stdout == admitted.stdout);
         let declaration = operator.declaration()?;
@@ -227,10 +228,10 @@ pub(crate) fn child(root: PathBuf, mode: &str) -> Result<()> {
             let mut cells = prepared
                 .prepare(native, index, retained, false, store)
                 .await?;
-                cells.config.host.effects = Some(RaftEffectOptions {
-                    callback_timeout_ms: 30_000,
-                    ..Default::default()
-                });
+            cells.config.host.effects = Some(RaftEffectOptions {
+                callback_timeout_ms: 30_000,
+                ..Default::default()
+            });
             cells.config.shared.sql.workers = 1;
             Ok(cells)
         },
@@ -398,12 +399,16 @@ pub(crate) async fn qualify() -> Result<()> {
         Ok::<_,anyhow::Error>(())
     }.await;
     drop(processes);
+    let kept = root.keep();
     if let Err(error) = result {
-        let kept = root.keep();
         return Err(error.context(format!(
             "cron process disks/logs retained at {}",
             kept.display()
         )));
     }
+    cellar::note!(
+        "{}",
+        serde_json::json!({"event":"cron_daemon_artifacts","root":kept})
+    );
     Ok(())
 }
