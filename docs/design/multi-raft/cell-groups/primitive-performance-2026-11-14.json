@@ -4912,5 +4912,32 @@
       "max_anon_mib": 380.2890625,
       "oom_kill_delta": 0
     }
-  ]
+  ],
+  "diagnostic_follow_up": {
+    "qualification": "diagnostic only; original measured failures remain unqualified",
+    "first_typed_quarantine": "Apply(Storage(group manifest: Limit))",
+    "node_wide": false,
+    "ambiguous_command_sequence": 1024,
+    "serving_physical_manifest_records_per_voter": 1024,
+    "fixture_manifest_page_limit": 1024,
+    "affected_retained_workloads": [
+      "sql-extents",
+      "kv-extents",
+      "queue-extents"
+    ],
+    "voters_per_workload": 3,
+    "inventory_validation": [
+      "read-only volume mount",
+      "pack framing and footer counts",
+      "record bounds",
+      "pack identity hash"
+    ],
+    "native_probe_operation_deadline_ms": 3000,
+    "native_probe_frontend_lease_ms": 1000,
+    "native_probe_offered_seconds": 120,
+    "native_probe_test_exit_code": 101,
+    "native_probe_driver_exit_code": 1,
+    "temporary_probe_removed": true,
+    "active_manifest_reclamation_fixed": false
+  }
 }

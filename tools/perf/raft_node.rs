@@ -4,6 +4,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]
 pub mod counter;
+mod primitive_app;
+mod primitive_raft;
 #[cfg(test)]
 #[path = "../../crates/cellar/tests/support/cell_group_disaster_public_node.rs"]
 pub mod public_node;
@@ -150,6 +152,9 @@ async fn main() -> Result<()> {
         .with_max_level(tracing::Level::WARN)
         .with_ansi(false)
         .init();
+    if std::env::var_os("CELLAR_PERF_PRIMITIVE").is_some() {
+        return primitive_raft::run().await;
+    }
     let i: u8 = std::env::var("RAFT_NODE")?.parse()?;
     let total: usize = std::env::var("RAFT_CELLS")?.parse()?;
     let tick_ms: u64 = std::env::var("RAFT_TICK_MS")

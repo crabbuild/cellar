@@ -3,6 +3,35 @@
 use super::*;
 
 #[test]
+fn public_binding_scopes_partition_without_substituting_counter_names() -> Result<()> {
+    let cells = (0..24)
+        .map(|ordinal| {
+            CellId::new(cellar::engine_api::sql_cell_scope(&format!(
+                "primitive/sql/{ordinal}"
+            )))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let layout = Layout::from_cells(cells.clone(), 8, cellar::deploy::SQL_CLASS, 0)?;
+    assert_eq!(layout.groups.len(), 3);
+    for (ordinal, cell) in cells.iter().enumerate() {
+        assert_eq!(&layout.history(ordinal)?.cell, cell);
+        let key = CellKey::from_digest(
+            Sha256::digest(cell.routing_preimage(NamespaceId::new([2; 16])?)).into(),
+            cell.clone(),
+        );
+        assert!(layout.group(ordinal)?.range.contains(&key));
+    }
+    assert!(Layout::from_cells(
+        vec![cells[0].clone(), cells[0].clone()],
+        8,
+        cellar::deploy::SQL_CLASS,
+        0
+    )
+    .is_err());
+    Ok(())
+}
+
+#[test]
 fn canonical_population_partitions_complete_ranges() -> Result<()> {
     for occupancy in [1, 2, 32, 64, 128] {
         for total in [1, occupancy, occupancy + 1, 257] {

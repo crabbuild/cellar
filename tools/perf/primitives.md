@@ -65,3 +65,8 @@ qualification suites.
 The [2026-11-14 local run](../../docs/design/multi-raft/cell-groups/primitive-performance-2026-11-14.md) records partial
 verified windows and all six failed primitive/image cases. It establishes no
 stable capacity or cross-mode speedup.
+
+For three independent 1-vCPU/2-GiB node containers and matching SQL/KV/Queue
+requests across Raft quorum, Raft S3, Fleet and bucket policies, use the
+[constrained-node comparison](primitive_compare.md). Its results are separate
+from this single-process fixture.

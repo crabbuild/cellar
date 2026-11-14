@@ -111,6 +111,25 @@ a passing result. KV's final-value mismatches likewise occurred after ambiguous
 writes; they are not sufficient evidence of lost acknowledged data or corruption.
 The experiment does not yet reconcile every uncertain outcome independently.
 
+## Follow-up: manifest exhaustion
+
+A separate native diagnostic retained the original fixture quotas and deadlines,
+and extended the offered KV window to reach the observed boundary. The first
+typed quarantine was `Apply(Storage(group manifest: Limit))` (group-local,
+`node_wide=false`), followed by an ambiguous sequence-1,024 command result. This
+is diagnostic evidence, not a replacement performance measurement.
+
+A read-only inspection of the retained SQL, KV and Queue extent-mode voter
+volumes validated pack framing, record counts, bounds and identity hashes. Each
+of the three affected serving stores in each workload held exactly 1,024
+physical manifest records, matching the fixture's quota. Retained image-root
+counts remained below their independent limits. The active-group manifest
+reclamation path remains a priority; increasing a quota does not close it.
+The temporary error probe was removed after the diagnostic exited with code 101
+(the owning driver exited one). Evidence is retained locally under
+`qualification/cg167-quarantine-evidence` and
+`qualification/cg167-quarantine-probe-native` in this checkout's target directory.
+
 ## Resource observations
 
 The following sampled CPU averages cover each whole case, including startup,
@@ -141,8 +160,8 @@ the published artifact. The raw artifact roots are:
 
 ## Next priorities
 
-1. Reproduce the first lease fence and the first quarantine with focused owner,
-   apply, callback and lease-progress observations under the same resource limits.
+1. Add safe bounded active-group manifest reclamation for the reproduced page
+   exhaustion, and independently diagnose the remaining lease and deadline failures.
    Identify the primary refusal before interpreting later connection/quarantine
    errors. Do not lengthen deadlines or leases to hide the failure.
 2. Reconcile timed-out SQL/KV/Queue commands and Queue deliveries by original

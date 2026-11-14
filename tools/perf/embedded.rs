@@ -138,6 +138,11 @@ pub(super) fn run_observed(
         "bucket" => false,
         _ => anyhow::bail!("CELLAR_PERF_DURABILITY must be fleet or bucket"),
     };
+    // The explicit three-node primitive comparison uses the same actor policy
+    // as its Raft frontend. Historical workload profiles keep their defaults.
+    let primitive = std::env::var_os("CELLAR_PERF_PRIMITIVE").is_some();
+    let operation_ms = if primitive { 5_000 } else { 30_000 };
+    let lease_ms = if primitive { 5_000 } else { 10_000 };
     let peer_key: [u8; 32] = base64::engine::general_purpose::STANDARD
         .decode(std::env::var("CELLAR_PERF_PEER_KEY")?)
         .context("invalid CELLAR_PERF_PEER_KEY encoding")?
@@ -224,14 +229,14 @@ pub(super) fn run_observed(
                 ownership_on_evict: OwnershipOnEvict::Release,
                 require_node_lease: true,
                 peer_protocol: cellar::peer_auth::PROTOCOL_VERSION,
-                operation_deadline_ms: Some(30_000),
+                operation_deadline_ms: Some(operation_ms),
                 owner_log_recovery_backoff_ms: 1_000,
                 owner_log_recovery_attempts: 240,
                 alarm_resident_ms: 3_600_000,
                 idle_evict_ms: None,
                 pressure: Default::default(),
             },
-            lease_ttl_ms: 10_000,
+            lease_ttl_ms: lease_ms,
             placement_weight: 1,
             generation: signer.public_key_hex(),
             resume_generation: None,
@@ -275,7 +280,8 @@ pub(super) fn run_observed(
             "event": "embedded_node_started", "executors": "caller_owned",
             "max_resident": resident, "max_cached_routes": cached_routes,
             "max_requests": requests,
-            "lease_ttl_ms": 10_000,
+            "lease_ttl_ms": lease_ms,
+            "operation_deadline_ms": operation_ms,
             "lease_generation": node.info().lease_generation,
             "log_level": log_level.to_string(),
         }))?;
@@ -291,7 +297,7 @@ pub(super) fn run_observed(
                 _ = tokio::signal::ctrl_c() => {},
                 _ = shutdown => {},
             }
-            ShutdownMode::Handoff
+            if primitive { ShutdownMode::Preserve } else { ShutdownMode::Handoff }
         }).await?;
         observe(outcome.clone());
         let executors_alive = tokio::time::timeout(Duration::from_secs(2), async {
