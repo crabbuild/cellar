@@ -44,7 +44,10 @@ pub(crate) async fn membership_read_retries_without_unrelated_work() -> Result<(
                 .await?;
             tokio::time::sleep(Duration::from_millis(1)).await;
         };
-        assert!(dropped, "the original forwarded request must actually be lost");
+        assert!(
+            dropped,
+            "the original forwarded request must actually be lost"
+        );
         assert_eq!(observed.replica().member.get(), 2);
         assert_eq!(observed.root().route(), &route);
         assert!(observed.root().position().index >= observed.barrier().index);
