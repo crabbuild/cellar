@@ -41,6 +41,14 @@ A passing SQL/KV foundation is not the final supported scope. Keep CG-17 feature
 delivery ahead of optional routing/performance work and retain recovery and
 release gates.
 
+The [filesystem and inbox foundation](progress.md#cg-17-filesystem-and-consumer-inbox-foundation)
+adds transactional files, invocation-bound descriptors, shared maintenance and
+consumer receipts. Native and real-RustFS filesystem cases pass both image forms.
+EventStream still needs publication, subscription routing and autonomous outbox
+authority/recovery through its public adapter; accepting an inbox record alone
+does not establish that end-to-end contract. Filesystem movement/wake, archive
+outage/load and disk-loss recovery remain separate qualification work.
+
 Source `25d81992` provides SQL writer-release wakeups, yielding of contended
 private binding maintenance and bounded background archive tails. Waiting S3
 outputs use a complete checkpoint. Original identities, deadlines, exact proofs,

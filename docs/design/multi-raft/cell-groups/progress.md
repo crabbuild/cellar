@@ -27,6 +27,81 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 filesystem and consumer inbox foundation
+
+Sources `60feafa3` and `a2eda6b3` add declared filesystem policy to ordinary
+Raft classes and allow consumer inbox receipts inside the private command
+transaction. File and business updates share savepoints and the command's
+Quorum/S3 proof. Directory cursors bind to logical cell history rather than a
+physical group. Constructor-cached filesystem views retain activation
+authority; file descriptors require the exact executing invocation and preserve
+transaction affinity. Immutable query views remain read-only. Bounded filesystem garbage
+collection runs through the existing shared durable callback scheduler.
+
+Inbox operations retain the private command's SQL authorizer while using
+framework savepoints. Their focused guard checks receipt/effect rollback,
+deduplication, conflicting bytes, retained reopen, pruning, expired authority
+and refusal of nondeterministic SQL, protected tables and mutating pragmas.
+This is the consumer receipt foundation. Ordinary EventStream publication,
+subscription routing and autonomous outbox authority/recovery remain open.
+
+The first real-RustFS filesystem cohort passes both image forms at `60feafa3`.
+The follow-up at `a2eda6b3` reproduces and fixes a constructor-cached view that
+incorrectly retained its first command's authority. Its regression caches the
+view across application invocations while still refusing escaped descriptors.
+At `a2eda6b3`, the source-pinned real-RustFS case passes both image forms in
+93.098 seconds. Its frozen executable also passes the native case in 89.96
+seconds; the same executable digest covers both results. Existing native
+filesystem tests pass 3/3 and the EventStream lifecycle test passes 1/1.
+Affected library, filesystem, EventStream, primitive and daemon Clippy targets
+pass with `-D warnings --force-warn dead_code`; existing forced dead-code and
+dependency warnings remain. Format/layout and native dependency checks pass.
+Evidence is retained in `CG-17-fs-events-a2eda6b3-02` and
+`/Volumes/Workspace/crabbuild-target/cellar-fs-events-rustfs-02`.
+
+The first Linux cohort refuses before creating voters because the daemon
+fixture expects an obsolete schema-error message. Independent preflights prove
+the typed `ContractMismatch` refusal and absence of any replica log.
+Source `1da6dac3` corrects that assertion and adds the failing mode to diagnostics;
+filesystem/inbox production inputs are unchanged. The complete corrected daemon
+fixture passes with three host-native processes. Its independent Linux execution
+uses three 1-vCPU/2-GiB voters, separate cgroups/disks and local shared RustFS on
+one dedicated 5-vCPU/10-GiB Colima VM. RustFS has its own 1-vCPU/2-GiB limit.
+The Linux result remains separate from the host-native filesystem workload.
+New Colima commands later block in host `FSEventsGetCurrentEventId` initialization.
+The retained process sample and a hashed, profile-bound OpenSSH transport adapter
+document the fallback. It uses the existing profile SSH configuration and proves
+the same captured Docker engine; source/image, fixture and cgroup guards remain
+unchanged. No host service or unrelated VM is restarted.
+
+Both Linux modes pass at `1da6dac3`: materialized in 70.995 seconds and extents
+in 81.403 seconds. Every live resource sample proves a 100,000/100,000 CPU quota,
+2,147,483,648-byte memory limit and zero swap. The counter/SQL fixture exercises
+two logical cells in one physical group through native ingress, Axum and the
+frozen operator CLI, including archive-write refusal, hard leader loss, retained
+restart, park/wake, maintenance and quorum-loss refusal. These are three
+containers sharing one VM failure domain. Independent-host and filesystem
+movement/load qualification remain open. The failed Linux preflight cohort
+remains retained.
+The passing record is
+`/Volumes/Workspace/crabbuild-target/cellar-fs-events-linux-02/record.json`.
+The owned RustFS backend and VM are stopped with object data, the immutable
+Linux image archive and qualification evidence retained.
+
+Failed native controls retain four sets of three voter disks and hash-verified
+backups. The first two expose an incorrect test assumption: a retry's covering
+image can advance under autonomous maintenance while the command identity,
+result and handler execution count remain unchanged. The third exposes a test
+that assumed node zero remained leader after restart; it now uses the existing
+ready-leader gate. The fourth is the cached-view production regression. No
+deadline, quota or durability assertion was weakened. A resumed RustFS provider
+initially returned 503 for signed bucket creation; a subsequent independent
+protocol probe passed. These warm-provider runs do not qualify cold startup.
+
+Full-plan acceptance remains **13/17 tasks and 147/195 cases**. Filesystem
+movement/wake, archive-outage/load and all-voter disk-loss qualification remain
+open alongside the complete EventStream adapter and combined release gates.
+
 ## CG-17 binding deadlines and archive tails
 
 Source `25d81992` keeps foreground requests on their original identity, inputs,
