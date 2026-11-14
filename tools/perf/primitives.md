@@ -6,7 +6,7 @@
 Raft groups and real RustFS. It uses the optimized `lab` profile, Rust 1.98.1,
 three SDK voters in one process, and a single Linux container with three CPU
 quota units, 9 GiB memory and no additional swap. RustFS retains its existing
-one-CPU, 2-GiB owned backend contract. These voters share a process and physical
+one-CPU, 2-GiB owned backend contract. The load generator shares the voter process and CPU quota. These voters share a physical
 host; results describe this local topology rather than independent node capacity.
 
 Start the [owned RustFS backend](../multi-raft/README.md) first. Build committed
@@ -27,7 +27,7 @@ python3 tools/perf/primitives.py \
   --seconds 30 --repetitions 2
 ```
 
-Each image mode, materialized and extents, gets fresh local disks and a separate
+Each image mode, materialized and extents, gets fresh local data volumes and a separate
 remote prefix. Each repetition measures concurrency one and four; the second
 reverses their order. A two-second warmup precedes each cohort. SQL upserts and
 reads use prepared statements. KV uses public text put/get. Each worker owns a
@@ -61,3 +61,7 @@ remove them only after inspecting and retaining the desired evidence.
 The three ignored manual test entries are benchmark infrastructure. They do not
 replace the existing primitive recovery, S3-proof, process-isolation or release
 qualification suites.
+
+The [2026-11-14 local run](../../docs/design/multi-raft/cell-groups/primitive-performance-2026-11-14.md) records partial
+verified windows and all six failed primitive/image cases. It establishes no
+stable capacity or cross-mode speedup.

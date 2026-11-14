@@ -32,7 +32,7 @@ pub async fn qualify_perf() -> Result<()> {
         for (repeat,concurrency) in settings.matrix() {
             for (phase,seconds) in [("warmup",2),("enqueue",settings.seconds)] {
                 let prefix = format!("perf-{repeat}-{concurrency}-{phase}-");
-                let started = std::time::Instant::now();
+                let started = cellar::asyncrt::mono_ms();
                 let mut result = window(seconds,concurrency,|worker,sequence| {
                     let client = &client; let base = &base; let prefix = &prefix; let payload = &payload;
                     async move {
@@ -58,7 +58,7 @@ pub async fn qualify_perf() -> Result<()> {
                     ensure!(result.errors == 0,"enqueue request errors");
                     Ok(())
                 }.await;
-                let drained = started.elapsed().as_secs_f64();
+                let drained = (cellar::asyncrt::mono_ms() - started) as f64 / 1000.0;
                 result.report["batchMessages"] = json!(8);
                 result.report["acknowledgedMessages"] = json!(expected.len());
                 result.report["enqueueMessagesPerSecond"] = json!(expected.len() as f64 / result.report["elapsedSeconds"].as_f64().context("measured elapsed seconds")?);

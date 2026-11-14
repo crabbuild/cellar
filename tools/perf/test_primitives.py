@@ -15,7 +15,7 @@ def rows(primitive="sql"):
                            "errors": 0, "successfulRequests": 2, "attempts": 2, "latencyMicros": [1000, 4000],
                            "requestsPerSecond": 2 / duration, "p50Ms": 1, "p95Ms": 4, "p99Ms": 4}
             if primitive == "queue":
-                measurement.update(batchMessages=8, acknowledgedMessages=16, enqueueAndDrainSeconds=duration + 1,
+                measurement.update(batchMessages=8, acknowledgedMessages=16, enqueueMessagesPerSecond=16 / duration, enqueueAndDrainSeconds=duration + 1,
                                    verifiedMessagesPerSecondIncludingDrain=16 / (duration + 1))
             result.append({"repeat": 0, "primitive": primitive, "imageMode": "materialized", "phase": phase,
                            "durability": "quorum", "voters": 3, "voterProcesses": 1, "verified": True,
@@ -46,7 +46,8 @@ class PrimitiveEvidenceTests(unittest.TestCase):
         value = rows("queue")
         check_rows(value, "queue", "materialized", 3, 1)
         for field, replacement in (("acknowledgedMessages", 15), ("enqueueAndDrainSeconds", 0),
-                                   ("verifiedMessagesPerSecondIncludingDrain", 0)):
+                                   ("verifiedMessagesPerSecondIncludingDrain", 0), ("enqueueMessagesPerSecond", 999),
+                                   ("verifiedMessagesPerSecondIncludingDrain", 999)):
             changed = copy.deepcopy(value)
             changed[1]["measurement"][field] = replacement
             with self.subTest(field=field), self.assertRaises(Exception):

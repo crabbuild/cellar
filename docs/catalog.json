@@ -742,6 +742,17 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/multi-raft/cell-groups/primitive-performance-2026-11-14.md",
+      "title": "Local SQL, KV and Queue performance",
+      "summary": "Partial verified windows, resource observations and all six failed RustFS/Colima primitive-image cases.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/multi-raft/cell-groups/progress.md",
       "title": "Cell-group implementation progress",
       "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",

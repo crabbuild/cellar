@@ -26,6 +26,8 @@ from store_probe import probe
 from raft_run import source_manifest, input_digest, parse_manifest, require
 
 LABEL = "io.cellar.primitives-perf.run"
+SAMPLE_COMMAND = "for f in cpu.stat memory.current memory.peak memory.events memory.stat io.stat; do echo $f; cat /sys/fs/cgroup/$f; done"
+STORE_STATE = '{"running":{{json .State.Running}},"started":{{json .State.StartedAt}},"restarts":{{.RestartCount}},"image":{{json .Image}},"cpus":{{.HostConfig.NanoCpus}},"memory":{{.HostConfig.Memory}},"swap":{{.HostConfig.MemorySwap}}}'
 PREFIX = "PRIMITIVES_PERF "
 
 
@@ -65,6 +67,9 @@ def check_rows(rows, primitive, image, seconds, repetitions):
             require(value["batchMessages"] == 8 and value["acknowledgedMessages"] == value["successfulRequests"] * 8
                     and value["enqueueAndDrainSeconds"] >= value["elapsedSeconds"]
                     and value["verifiedMessagesPerSecondIncludingDrain"] > 0, "unverified Queue drain")
+            require(abs(value["enqueueMessagesPerSecond"] - value["acknowledgedMessages"] / value["elapsedSeconds"]) < 1e-8
+                    and abs(value["verifiedMessagesPerSecondIncludingDrain"] - value["acknowledgedMessages"] / value["enqueueAndDrainSeconds"]) < 1e-8,
+                    "Queue message rates differ from measured accounting")
 
 
 def activity():
@@ -139,7 +144,8 @@ def run(arguments):
                     options.extend(["--env", key + "=" + value])
                 container = docker(*options, arguments.image, f"rustfs_perf_{primitive}", "--exact", "--ignored", "--nocapture", "--test-threads=1", env=runtime_env)
                 case = {"primitive": primitive, "image_mode": image, "container": container, "volume": volume,
-                        "host_activity_start": activity(), "status": "RUNNING", "samples": []}
+                        "host_activity_start": activity(), "status": "RUNNING", "samples": [],
+                        "rustfs_state_start": json.loads(docker("inspect", "--format", STORE_STATE, record["container"]))}
                 result["cases"].append(case)
                 atomic_json(report, result)
                 started = time.monotonic()
@@ -155,8 +161,9 @@ def run(arguments):
                                 child.wait(timeout=40)
                                 break
                             try:
-                                sample = docker("exec", container, "sh", "-c", "for f in cpu.stat memory.current memory.peak memory.events io.stat; do echo $f; cat /sys/fs/cgroup/$f; done", stderr=subprocess.DEVNULL)
-                                case["samples"].append({"elapsed_seconds": time.monotonic() - started, "cgroup": sample})
+                                sample = docker("exec", container, "sh", "-c", SAMPLE_COMMAND, stderr=subprocess.DEVNULL)
+                                rustfs_sample = docker("exec", record["container"], "sh", "-c", SAMPLE_COMMAND, stderr=subprocess.DEVNULL)
+                                case["samples"].append({"elapsed_seconds": time.monotonic() - started, "cgroup": sample, "rustfs_cgroup": rustfs_sample})
                                 atomic_json(report, result)
                             except subprocess.CalledProcessError:
                                 pass  # Startup/exit races are followed by authoritative state inspection.
@@ -171,12 +178,15 @@ def run(arguments):
                 state = json.loads(docker("inspect", "--format", '{"running":{{json .State.Running}},"exit_code":{{.State.ExitCode}},"oom":{{json .State.OOMKilled}},"image":{{json .Image}},"owner":{{json (index .Config.Labels "io.cellar.primitives-perf.run")}},"cpus":{{.HostConfig.NanoCpus}},"memory":{{.HostConfig.Memory}},"swap":{{.HostConfig.MemorySwap}}}', container))
                 require(not state["running"] and state["image"] == arguments.image and state["owner"] == run_id
                         and (state["cpus"], state["memory"], state["swap"]) == (3 * 10**9, 9 * 1024**3, 9 * 1024**3), "runtime identity or resource limit changed")
+                case["rustfs_state_end"] = json.loads(docker("inspect", "--format", STORE_STATE, record["container"]))
                 case.update(state=state, attach_returncode=child.returncode, elapsed_seconds=time.monotonic() - started,
                             log_sha256=hashlib.sha256(log_path.read_bytes()).hexdigest(), observations=observations(log_path))
                 try:
                     require(state["exit_code"] == child.returncode == 0 and not state["oom"], "primitive process failed")
                     check_rows(case["observations"], primitive, image, arguments.seconds, arguments.repetitions)
                     require(case["samples"], "no kernel resource samples")
+                    require(case["rustfs_state_start"] == case["rustfs_state_end"] and case["rustfs_state_end"]["running"],
+                            "RustFS restarted, stopped or changed its resource profile during the case")
                     case["status"] = "PASSED"
                 except Exception as error:
                     case.update(status="FAILED", error=str(error))

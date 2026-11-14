@@ -127,7 +127,7 @@ pub fn emit(
         "PRIMITIVES_PERF {}",
         json!({"primitive":kind,"imageMode":if settings.rooted {"extents"}else{"materialized"},
         "repeat":repeat,"phase":phase,"durability":"quorum","voters":3,"voterProcesses":1,
-        "payloadBytes":256,"verified":verification.is_ok(),"verificationError":verification.as_ref().err().map(|e|format!("{e:#}")),
+        "basePayloadBytes":256,"verified":verification.is_ok(),"verificationError":verification.as_ref().err().map(|e|format!("{e:#}")),
         "measurement":result.report,"resources":resources})
     );
 }

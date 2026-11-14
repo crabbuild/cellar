@@ -3896,3 +3896,31 @@ documentation checks and formatting pass. Combined Rust compilation, runtime,
 Clippy, Linux and RustFS/Colima qualification remain pending; the previous
 performance and Linux failures retain their original scopes. No complete
 OPT, CG-13 or CG-17 gate is accepted by this merge.
+
+## Ordinary primitive measurements, 2026-11-14 UTC
+
+The [local SQL/KV/Queue report](primitive-performance-2026-11-14.md)
+and its machine-readable observations record the real RustFS/Colima experiment
+at `b101730f`, compiler input `8edbdba5`, after pulling main `3d6450d4`.
+The optimized `lab` artifact runs three native RF3 voters and its HTTP client
+inside one three-CPU/9-GiB container; RustFS retains one CPU/2 GiB in the
+six-CPU/14-GiB VM. This is an exploratory primitive benchmark, not separately
+constrained daemon or independent-domain qualification.
+
+All six primitive/image cases fail their complete matrix. Nine of 40 planned
+30-second windows finish without errors and verify exact values/messages;
+seven timed windows fail and 24 are unmeasured after earlier failures. SQL
+materialized mode observes node-lease fencing. Both modes encounter ambiguous
+operation refusals/deadlines and later quarantined-group refusals. Queue can
+deliver a timed-out enqueue, so acknowledged-only comparisons do not establish
+corruption or loss. Failed logs, disks, original identities, raw latency samples
+and kernel resource observations remain retained. Source inputs stay unchanged;
+no workload container is OOM-killed and RustFS does not restart.
+
+The report grants no stable throughput, speedup or completed OPT/CG gate. The
+next work is focused lease/callback/apply-progress diagnosis, independent
+reconciliation of uncertain outcomes and an unchanged full rerun before broader
+population or separate-process capacity claims. Admission, lease and deadline
+limits were not enlarged to obtain these observations. Subsequent benchmark
+clock/reporting corrections leave production Rust unchanged and do not
+retroactively qualify the measured source.
