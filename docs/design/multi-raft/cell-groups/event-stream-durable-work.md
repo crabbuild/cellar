@@ -89,8 +89,11 @@ independently retained target command identities and the same authority checks.
 
 Qualification keeps the original command deadlines. An ambiguous response may
 be resolved only through the original ID, contract, input and durability minimum
-using receipt-only lookup. An unfinished mutation still fails. Observational
-handlers may issue a fresh read within their bounded recovery gate. The campaign
+using receipt-only lookup. Unfinished publication and administrative mutations
+still fail. A pull consumer may replay its fixed fetch ID with the same
+transactional inbox; effects must remain unchanged. Expired leases require a
+new fetch and receipt before acknowledgement. Observational handlers may issue
+a fresh read within their bounded recovery gate. The campaign
 logs these recoveries explicitly; passing does not establish a first-response
 latency bound.
 

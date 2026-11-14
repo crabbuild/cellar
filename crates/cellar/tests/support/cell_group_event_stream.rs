@@ -206,13 +206,22 @@ impl Cell for Caller {
                 }
                 "Ack" => {
                     let receipt = events::Receipt::decode(args.as_str().context("receipt")?)?;
-                    json!(format!(
-                        "{:?}",
-                        self.0
-                            .subscription("fulfillment")?
-                            .ack(&context, &receipt)
-                            .await?
-                    ))
+                    match self
+                        .0
+                        .subscription("fulfillment")?
+                        .ack(&context, &receipt)
+                        .await
+                    {
+                        Ok(outcome) => json!(format!("{outcome:?}")),
+                        Err(error)
+                            if error.downcast_ref::<events::DeliveryError>().is_some_and(
+                                |error| error.code == events::ErrorCode::LeaseExpired,
+                            ) =>
+                        {
+                            json!("LeaseExpired")
+                        }
+                        Err(error) => return Err(error),
+                    }
                 }
                 "Extend" => {
                     let receipt =
@@ -390,6 +399,9 @@ async fn call_options(
         method,
         "Configuration" | "Read" | "Inspect" | "Effects" | "Status"
     );
+    let consumer = method == "Consume"
+        && input["ack"].as_bool() == Some(false)
+        && input["fetch"].as_str().is_some();
     let recovery_deadline = cellar::asyncrt::mono_ms().saturating_add(20_000);
     loop {
         let node = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
@@ -474,17 +486,18 @@ async fn call_options(
                         ));
                     }
                 }
-                if readonly
+                if (readonly || consumer)
                     && matches!(
                         error.cause.as_ref(),
                         CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
                     )
                     && cellar::asyncrt::mono_ms() < recovery_deadline
                 {
-                    // These handlers only observe business state. An unresolved
-                    // read may be replaced; mutation handlers never take this path.
+                    // Replace observations or replay this consumer's fixed fetch
+                    // through its transactional inbox. Publication and admin
+                    // mutations never take this path.
                     eprintln!(
-                        "EventStream observation retry: {method} {} sequence={}",
+                        "EventStream observation/fixed-fetch recovery: {method} {} sequence={}",
                         history.cell.as_str(),
                         id.sequence()
                     );
@@ -794,21 +807,30 @@ pub async fn qualify(real_rustfs: bool, external: bool) -> Result<()> {
                         && redelivered["receipt"] != first["receipt"],
                     "retry did not issue a new lease over deduplicated effects"
                 );
-                let first = redelivered;
+                let mut first = redelivered;
                 named_service::restart(&mut cluster).await?;
                 let effects = call(&cluster, &sink, &mut sequence, "Effects", json!(null)).await?;
                 ensure!(
                     serde_json::from_slice::<u64>(&effects.result)? == 2,
                     "proved inbox effects did not survive retained restart"
                 );
-                let ack = call(
-                    &cluster,
-                    &sink,
-                    &mut sequence,
-                    "Ack",
-                    first["receipt"].clone(),
-                )
-                .await?;
+                let mut ack = call(
+                    &cluster, &sink, &mut sequence, "Ack", first["receipt"].clone(),
+                ).await?;
+                if serde_json::from_slice::<String>(&ack.result)? == "LeaseExpired" {
+                    let status = call(&cluster, &sink, &mut sequence, "Status", json!(null)).await?;
+                    ensure!(serde_json::from_slice::<serde_json::Value>(&status.result)?["checkpoint"] == "0",
+                        "expired acknowledgement advanced the checkpoint");
+                    let recovered = call(&cluster, &sink, &mut sequence, "Consume",
+                        json!({"fetch":"07070707070707070707070707070707","ack":false})).await?;
+                    let recovered: serde_json::Value = serde_json::from_slice(&recovered.result)?;
+                    ensure!(recovered["effects"] == 2 && recovered["records"] == first["records"]
+                        && recovered["receipt"] != first["receipt"],
+                        "expired lease recovery repeated effects or changed records");
+                    eprintln!("EventStream expired lease redelivered after retained restart");
+                    first = recovered;
+                    ack = call(&cluster, &sink, &mut sequence, "Ack", first["receipt"].clone()).await?;
+                }
                 ensure!(serde_json::from_slice::<String>(&ack.result)? == "Acknowledged");
                 let replay = call(
                     &cluster,
