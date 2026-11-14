@@ -30,7 +30,12 @@ impl RaftCells {
         deadline: u64,
         authority: super::super::native_event_rpc::Authority,
     ) -> HandlerFuture<RpcData> {
-        self.submit_sql(admitted, call_scope, deadline, Origin::Event(Box::new(authority)))
+        self.submit_sql(
+            admitted,
+            call_scope,
+            deadline,
+            Origin::Event(Box::new(authority)),
+        )
     }
 
     pub(crate) fn native_ingress(

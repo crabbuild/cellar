@@ -87,6 +87,11 @@ async fn ordinary_event_streams_activate_deliver_and_recover_through_shared_quor
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn axum_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()> {
+    Box::pin(events::qualify_axum(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn event_startup_refusal_joins_owners_and_retains_disks() -> Result<()> {
     Box::pin(events::refuse_startup()).await
 }
@@ -100,6 +105,13 @@ async fn event_startup_refuses_missing_or_ambiguous_resource_owners() -> Result<
 #[ignore = "requires the owned RustFS qualification backend"]
 async fn rustfs_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()> {
     Box::pin(events::qualify(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the owned RustFS qualification backend"]
+async fn rustfs_axum_event_streams_activate_deliver_and_recover_through_shared_quorum() -> Result<()>
+{
+    Box::pin(events::qualify_axum(true)).await
 }
 
 #[test]
