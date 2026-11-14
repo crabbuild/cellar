@@ -27,6 +27,52 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 EventStream public request checkpoint
+
+Runtime source `96e2d335` connects the ordinary stream, publisher authority,
+catalog continuation, subscription polling and outbox dispatcher to the existing
+Raft invocation guard. Fleet retains its original turn checks. Catalog retry
+state and its exact child intent share one source checkpoint on Raft; Fleet keeps
+its explicit pre-call sync. Neither change weakens source/target proofs, original
+deadlines, receipt identity or ownership fences.
+
+The **real RustFS native public case passes both materialized and extent images**.
+It exercises named resource activation, public SDK emission and reads, autonomous
+outbox delivery, exact event/receipt replay, transactional inbox deduplication,
+acknowledgement, retained restart of all three groups and minority refusal.
+Three native voters share one process and use separate workspace-volume disks,
+with one SQL worker per voter. RustFS has one CPU and two GiB; this is not a
+constrained Linux-voter or independent-host campaign.
+
+Current-source ordinary native EventStream conformance and the SDK source-proof
+case also pass. The locked optimized build, canonical format/layout, dependency/
+documentation checks and strict library plus both affected integration-target
+Clippy pass. Cohorts `CG-17-event-turn-96e2d335-138` and
+`CG-17-event-turn-rustfs-96e2d335-139` remain **FAILED overall**:
+
+- Native and Axum in-memory cases expire during the first catalog configuration.
+  Retained images show an active destination stream and an unsettled source
+  intent. Reconciliation work also overlaps; its causal role is not established.
+- RustFS Axum activates two nodes, then exhausts the third node's shared deadline
+  while resolving the stream. Its pure status/name/resolution checks currently
+  append replicated commands, each taking roughly 0.5–0.7 seconds in that run.
+
+Next implement private, authorized linearizable metadata queries while retaining
+the original activation deadline and any required S3 coverage. Separately resolve
+the first-command continuation delay; destination acceptance alone is not source
+completion. Long-poll concurrency, interrupted delivery/acknowledgement, movement,
+wake, archive outages and fenced disk-loss recovery remain unqualified.
+
+Controls 133–137 retain the corrected ownership/profile oracles, permanent group-ID
+collision, deadline traces and the earlier typed capability refusal. Postflight
+`CG-17-event-turn-checkpoint-96e2d335-141` verifies 124 prior evidence files and
+45 retained disks, plus eight postflight files. This includes the retained
+failed collector 140; its missing environment does not change runtime results.
+Owned backend/VM shutdown succeeds and objects remain retained. PR
+[#170](https://github.com/crabbuild/cellar/pull/170) remains draft. No complete
+primitive family or hard cutover is accepted; counts stay **13/17 tasks and
+147/195 cases**.
+
 ## CG-17 EventStream public activation candidate
 
 Candidate `bbdbf828` connects private EventStream ingress to deployment

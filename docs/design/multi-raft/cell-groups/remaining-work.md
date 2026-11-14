@@ -56,28 +56,31 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-The public activation candidate now connects shared ingress, resource bootstrap
-and generation/factory readiness. Nineteen owning units pass at `bbdbf828`.
-The first public RF3 run at `3732fd4a` fails before bootstrap on an incoherent
-fixture input/retained-byte profile. The corrected profile and failed-startup
-join/disk-retention regression pass at `1ef71db9`. Public startup then exposes a
-global service-selection gap: producer configuration is incorrectly required on
-resource-owned stream/catalog namespaces. PR [#170](https://github.com/crabbuild/cellar/pull/170)
-contains the common unique-owner selector on merged main. At `49509b38`, its
-locked integration build and startup-cleanup regression pass. The combined
-missing/ambiguous-owner case fails on `Runtime(Overloaded)`: the four-namespace
-fixture's configured reservations exceed its 16-MiB host bank before ownership
-validation. Correct that explicit profile and qualify the exact refusal before
-running the native/Axum delivery matrix; those public selections are unrun.
-See the [candidate and failed control](progress.md#cg-17-eventstream-public-activation-candidate).
+At `96e2d335`, ordinary EventStream turn guards and catalog source-proof
+coalescing are integrated in PR [#170](https://github.com/crabbuild/cellar/pull/170).
+The real RustFS native public case passes both image forms, including publication,
+inbox/ack, exact replay, retained restart and quorum refusal. Native conformance,
+SDK source-proof, locked build, repository checks and focused strict Clippy pass.
+Native/Axum in-memory cases still expire in initial catalog configuration.
+RustFS Axum reaches the third node's activation, then exceeds the shared budget
+across status/name/resolution commands. Both campaigns remain FAILED overall.
+See the [current checkpoint](progress.md#cg-17-eventstream-public-request-checkpoint)
+for scope, controls and retained artifacts.
 
-1. **Deliver EventStream end to end.** Qualify integrated publication,
+1. **Close EventStream public activation and recovery.** Implement private,
+   authorized linearizable queries for `__catalogStatus`, `__catalogResolveName`,
+   `__catalogResolve` and `__streamResolve`; preserve any independent S3 minimum
+   through archive coverage. These metadata reads should not create mutation
+   receipts or empty Raft entries. Keep clock/lease-changing operations on the
+   command path. Separately resolve source continuation after destination
+   acceptance under the original three-second activation budget. Then qualify
+   integrated publication,
    subscription routing, committed outbox discovery, destination authority and
    receipt/acknowledgement settlement through normal public paths. Complete
    autonomous interrupted delivery recovery. The integrated inbox bridge alone
    is insufficient. Keep original event/lane identities through movement and
-   new-incarnation recovery; never
-   treat a source commit as destination acceptance.
+   new-incarnation recovery; never treat source and destination acceptance as
+   interchangeable.
    The source journal, per-lane identity and shared work bridge are described in
    the [EventStream contract](event-stream-durability.md). Public activation,
    authenticated target dispatch and resource bootstrap still need RF3/RustFS

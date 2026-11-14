@@ -6,19 +6,43 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current EventStream source checkpoint
 
-Source `6282bb46` adds the source journal, namespace-qualified producer identity,
-per-lane fresh-history preservation and shared framework work. Forty owning units
-and six existing Fleet conformance tests pass. Its overall cohort remains FAILED
-by strict unit-test Clippy: Workflow stream tests precede production items. The
-follow-up `11c223a7` relocates that unchanged test module and passes strict
-library/all-test Clippy and repository checks; retain the original failed record. See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
+Runtime `96e2d335` on `codex/cg17-eventstream-quorum-mvp`, PR
+[#170](https://github.com/crabbuild/cellar/pull/170), includes the private
+authenticated destination, source bindings, resource bootstrap and public paths.
+It ports ten Fleet-only turn checks to the existing backend-aware invocation
+guard and coalesces catalog retry state with its Raft child-intent proof.
 
-The authenticated target adapter is being implemented separately in the attached
-`codex/cg17-event-target` checkout, based on `6282bb46`. It is not qualified or
-part of the published PR yet. It introduces private Event admission, request
-provenance and an authenticated transport purpose; finish its source binding,
-resource bootstrap and public API path before removing declaration refusals.
-Do not relabel source/Fleet tests as shared-group EventStream acceptance.
+The real RustFS native public case passes both image modes: named activation,
+SDK publication/reads, autonomous delivery, inbox/ack, exact replay, retained
+three-group restart and quorum refusal. Native EventStream conformance and SDK
+source-proof pass. Locked optimized build, repository checks and strict library/
+both affected integration-target Clippy pass. Native voters share one process,
+with separate workspace disks and one SQL worker each; RustFS has one CPU/two GiB.
+No full family, Linux-voter or hard-cutover acceptance follows.
+
+Both current campaigns remain FAILED overall. Native/Axum in-memory cases miss
+the first catalog command deadline despite destination acceptance. Preserve the
+unsettled source intent; overlapping reconciliation is an observation, not a
+proven cause. RustFS Axum reaches activation node 2, then expires across five
+replicated metadata calls sharing one deadline. Implement private authorized
+linearizable queries for the four pure metadata methods listed in
+[remaining work](remaining-work.md#primitive-delivery-priority), retaining any S3
+coverage requirement. Do not convert clock/lease mutations into ordinary queries
+or increase the activation deadline. Diagnose the first-command continuation
+delay separately, then qualify long polling and interrupted delivery/acknowledgement.
+
+Cohorts 138/139 and postflight 141 retain source/binary hashes, failed controls,
+124 verified prior evidence files, 45 retained disks and eight postflight files.
+Collector 140's missing environment is retained separately. The owned RustFS
+container and VM are stopped, with objects retained. No own build or runtime is
+left running. Read-routing/membership follow-up PR
+[#171](https://github.com/crabbuild/cellar/pull/171) is separate: integrate and
+requalify it before claiming combined-source coverage.
+
+Source foundation `6282bb46` and lint follow-up `11c223a7` retain their original
+40-unit/six-Fleet and strict Clippy scopes. See the
+[current public checkpoint](progress.md#cg-17-eventstream-public-request-checkpoint)
+and [historical source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 ## Previous combined primitive checkpoint
 
@@ -36,7 +60,10 @@ filesystem, fault and Workflow selections pass. Preserve both failures and the
 older `7e4347e9` final-drain failures. Six failed load disks, frozen executables
 and 77 hash-verified evidence files remain; both backend/VM shutdowns succeed.
 Startup disks from the trust-refresh failure were not retained because it occurs
-before the activation-only failure cleanup. Fix that ownership/evidence gap.
+before the old activation-only failure cleanup. The general startup wrapper now
+joins owners and retains disks, with profile/ownership refusals passing at
+`29a24999`; the old lost disks remain unavailable and trust-refresh qualification
+is still open.
 
 The locked build, CLI, strict affected-target Clippy, 46 owning units, Fleet
 conformance and static/tooling checks pass, apart from the recorded stale daemon
@@ -44,9 +71,9 @@ anchor in the runtime-source plan verifier. The following documentation
 checkpoint refreshes that reviewed anchor; keep the failed record. See the
 [qualification checkpoint](progress.md#cg-17-combined-filesystem-and-queue-proof-qualification).
 
-Prioritize the missing EventStream public publication/subscription/outbox adapter
-and the Queue deadline/startup blockers. Then finish payload/provider adapters
-and the complete primitive lifecycle/recovery matrix. No quotas, deadlines,
+That checkpoint prioritized the EventStream public adapter and Queue blockers;
+follow the current EventStream steps above. Payload/provider adapters and the
+complete primitive lifecycle/recovery matrix remain required. No quotas, deadlines,
 identities or proof boundaries may be weakened. Acceptance stays 13/17 tasks,
 147/195 cases; no complete primitive family or hard cutover is accepted.
 The temporary integration worktree is archived after its commits are merged.
