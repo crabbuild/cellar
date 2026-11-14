@@ -95,6 +95,7 @@ pub(crate) async fn prepare(
     );
     let mut definitions = Vec::new();
     let mut seen = BTreeSet::new();
+    let mut cron_scopes = BTreeSet::new();
     for registration in &config.namespaces {
         anyhow::ensure!(
             seen.insert((
@@ -116,6 +117,12 @@ pub(crate) async fn prepare(
         );
         let class =
             application.resolve_raft_namespace(&registration.namespace, &registration.class)?;
+        if let Some(scope) = class.cron_scope() {
+            anyhow::ensure!(
+                cron_scopes.insert(scope),
+                "cron schedule namespace is ambiguous"
+            );
+        }
         if class.name() == crate::deploy::KV_CLASS {
             let limits = config
                 .shared

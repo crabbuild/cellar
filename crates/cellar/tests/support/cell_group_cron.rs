@@ -34,6 +34,49 @@ impl Cell for Unused {
     }
 }
 
+pub fn validate_contracts() -> Result<()> {
+    ensure!(RaftClass::new(cellar_logic::cron::RESERVED_CLASS, 1, [237; 32]).is_err());
+    let make = || -> Result<Registry> {
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_cell(
+            RaftClass::new("Counter", 1, [237; 32])?
+                .initializer([238; 32], |_, _| Ok(()))?
+                .json_cell_rpc("Unused", [239; 32])?,
+            |_, _| Ok(Arc::new(Unused)),
+        )
+    };
+    let mut deployment = managed_fixture::graph::graph(SCRIPT, "", Vec::new()).primary;
+    deployment.crons = vec![RETRY.into()];
+    let application = make()?;
+    application.validate_deployment(&deployment)?;
+    let digest = application
+        .resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)?
+        .schema_digest();
+    application.validate_deployment(&deployment)?;
+    deployment.crons = vec![NO_RETRY.into()];
+    ensure!(
+        application.validate_deployment(&deployment).is_err(),
+        "changed cron contract was admitted"
+    );
+    ensure!(
+        application
+            .resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)?
+            .schema_digest()
+            == digest
+    );
+    deployment.crons.clear();
+    ensure!(
+        application.validate_deployment(&deployment).is_err(),
+        "cron removal silently discarded obligations"
+    );
+    deployment.crons = vec!["invalid".into()];
+    let invalid = make()?;
+    ensure!(invalid.validate_deployment(&deployment).is_err());
+    ensure!(invalid
+        .resolve_raft_class(cellar_logic::cron::RESERVED_CLASS)
+        .is_err());
+    Ok(())
+}
+
 async fn entries(
     observed: &Observed,
     count: usize,
@@ -66,6 +109,38 @@ async fn page(cell: &RaftCellHandle, serial: u8) -> Result<serde_json::Value> {
         )
         .await?;
     Ok(serde_json::from_slice(&result.result)?)
+}
+
+async fn operator_page(cluster: &ManagedCluster, index: usize) -> Result<serde_json::Value> {
+    let node = &cluster.nodes[index];
+    let path = format!(
+        "/runtime/{}?inspection=cron_history_v1",
+        cellar_logic::cron::reserved_cell(SCRIPT)
+    );
+    let body = b"{}".to_vec();
+    let auth = cellar::peer_auth::PeerAuth::new([11; 32], "cron-operator")?;
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(TIMEOUT)
+        .build()?;
+    let response = auth
+        .sign(
+            http.post(format!("http://{}{path}", node.info().internal_address)),
+            "POST",
+            &path,
+            &body,
+            &node.info().node,
+        )?
+        .body(body)
+        .send()
+        .await?;
+    let status = response.status();
+    let value: serde_json::Value = response.json().await?;
+    ensure!(
+        status == reqwest::StatusCode::OK,
+        "cron history operator: {status} {value}"
+    );
+    Ok(value["result"].clone())
 }
 
 pub async fn qualify(real: bool) -> Result<()> {
@@ -200,6 +275,12 @@ async fn case(real: bool, rooted: bool, minimum: Durability) -> Result<()> {
                     .any(|row| { row["scheduled_at"] == first[0].1 && row["status"] == "started" }),
                 "handler entry preceded committed occurrence/history"
             );
+            let inspected = operator_page(&cluster, (leader + 1) % 3).await?;
+            ensure!(inspected["items"]
+                .as_array()
+                .context("operator cron history")?
+                .iter()
+                .any(|row| { row["scheduled_at"] == first[0].1 && row["status"] == "started" }));
             let hosts = std::mem::take(&mut cluster.hosts);
             managed_fixture::close_group_nodes(std::mem::take(&mut cluster.nodes), &hosts).await?;
             cellar::asyncrt::timeout(TIMEOUT, observed.dropped.notified()).await?;

@@ -71,6 +71,11 @@ async fn ordinary_cron_recovers_occurrences_without_requests() -> Result<()> {
     Box::pin(cron::qualify(false)).await
 }
 
+#[test]
+fn cron_declarations_refuse_changed_or_invalid_contracts() -> Result<()> {
+    cron::validate_contracts()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires the owned RustFS qualification backend"]
 async fn rustfs_cron_recovers_occurrences_without_requests() -> Result<()> {

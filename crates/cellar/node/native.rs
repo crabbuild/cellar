@@ -5,6 +5,7 @@ use crate::application::{
     consensus::{ClusterId, GroupHistory, NamespaceId, RaftCells},
     Application,
 };
+use crate::fleet::LoadedDeployment;
 use crate::generation::GenerationId;
 use std::collections::{BTreeSet, HashMap};
 
