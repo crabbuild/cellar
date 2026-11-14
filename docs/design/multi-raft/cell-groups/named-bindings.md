@@ -331,9 +331,24 @@ errors retain their typed causes in the reconciliation log.
 
 Orphaned resolved intents are removed without releasing a
 lane that a newer call has reused. Every failed turn rediscovers committed state;
-it never resumes an arbitrary Rust callback. The connected runtime qualification fails its combined gate; see the
-[current checkpoint](progress.md#cg-17-connected-binding-recovery-qualification).
-These contracts do not constitute a primitive-family pass.
+it never resumes an arbitrary Rust callback. The retained-restart binding gate
+passes all eight native/RustFS configurations at `25d81992`; see the
+[current checkpoint](progress.md#cg-17-binding-deadlines-and-archive-tails).
+Full primitive-family and combined recovery qualification remain open.
+
+## SQL writer and maintenance progress
+
+A logical SQL writer release can happen without a Raft apply. The node-wide
+SQL owner publishes that release after dropping its admission mutex. A waiting
+foreground command or enrollment subscribes before checking authority and may
+wait only after explicit refusal before enqueue. It retains its original
+identity, captured inputs, deadline and physical reservations and reacquires
+current authority; an entered initializer or unknown producer is not retried.
+
+Private binding claim, settlement and sequence-seal commands yield on a proven
+pre-enqueue writer refusal. The durable maintenance owner rereads committed
+state on a later turn; it cannot replay an expired business callback or declare
+an unknown result failed. No per-idle-cell watcher or task is introduced.
 
 ## Archive publication scheduling
 
@@ -383,6 +398,9 @@ Full primitive-family and combined lifecycle qualification remain open; see the
 [checkpoint](progress.md#cg-17-s3-proof-scheduling-and-joined-retirement).
 
 ## Remaining qualification and delivery
+
+See the [current binding/SQL/KV and archive checkpoint](progress.md#cg-17-binding-deadlines-and-archive-tails) for exact executed results and retained failures. Full target-S3, interruption, lifecycle and combined recovery gates remain required.
+
 
 At `4d6f7d2f`, the real TLS competing-creator test passes matching creation,
 conflicting incarnation and original-deadline scenarios in both image modes.

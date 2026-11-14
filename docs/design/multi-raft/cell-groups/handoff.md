@@ -4,7 +4,46 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current competing enrollment checkpoint
+## Current primitive foundation checkpoint
+
+Source `25d81992` adds writer-release wakeups and yields private binding
+maintenance only after proven SQL refusal before enqueue. Original deadlines,
+physical reservations, exact authority and unknown outcomes remain mandatory.
+Background archives use bounded committed-log tails; waiting S3 outputs select a
+full checkpoint. See [current results](progress.md#cg-17-binding-deadlines-and-archive-tails).
+
+| Gate at `25d81992` | Result |
+| --- | --- |
+| Live named bindings, original five-second source budget | Native **4/4**; real RustFS **4/4** configurations pass |
+| Autonomous interrupted binding recovery and safe sequence sealing | Native **4/4**; real RustFS **4/4** configurations pass |
+| Native public primitive/archive campaign | **PASSED**: 33/33 executed exact tests pass |
+| Real RustFS campaign | **PASSED**: 22/22 executed exact tests pass |
+| Public SQL/KV and ordinary alarms | RustFS SQL **4/4** plus **8/8** recovery; KV **4/4**; alarms **12/12** native/RustFS |
+| Failed current selections | Native: none; real RustFS: none |
+| Strict affected-target Clippy, format/layout, dependency/docs checks | **Pass** |
+| Plan and qualification-runner unit tests | **44 and 16 pass** |
+
+Current native selections include SQL/KV native/Axum and actual CLI, interrupted
+SQL recovery, alarms, Queue, SDK source proof and archive safety. Real RustFS
+passes binding/recovery and bounded Queue load, then the broader matrix. Keep all failed controls and disks,
+including Queue load controls 50/55 and native binding control 58. The local
+writer-release unit passes separately at `024b8080`; no full-family acceptance
+comes from a component pass.
+
+The backend and VM are stopped with objects retained, and source-pinned evidence
+backups are verified. RustFS has one CPU/2 GiB; native RF3 voters have separate
+disks/one SQL worker, not independent Linux failure domains. Flat archive
+verification capacity, the older intermittent archive-deadline failure and the
+combined release matrix remain open. Full-plan totals stay **13/17 tasks and
+147/195 cases**; the generated implementation plan gains no accepted task here.
+
+Next deliver ordinary alarm failure rollback/backoff/exhaustion and cron, then
+Queue lifecycle, EventStream/Workflow and remaining adapters. Complete target-S3
+and before-target-checkpoint binding/SQL/KV qualification and combined recovery
+before full support.
+Never mask a failed gate by raising its deadlines or admission limits.
+
+## Previous competing enrollment checkpoint
 
 Source `4d6f7d2f` waits for enrollment capacity only on proven local non-admission
 or explicit SQL refusal before enqueue. Admitted waits retain initializer inputs,

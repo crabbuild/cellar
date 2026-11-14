@@ -27,6 +27,90 @@ CG-16 remains pending CG-17 compatibility and the combined release gate.
 Follow the [primitive delivery priorities](remaining-work.md#primitive-delivery-priority)
 for the next delivery.
 
+## CG-17 binding deadlines and archive tails
+
+Source `25d81992` keeps foreground requests on their original identity, inputs,
+routing attempt and deadline. A node-wide SQL writer-release notification wakes
+only waits with proof of refusal before enqueue; a local release no longer needs
+another Raft apply to wake them. Physical byte reservations remain held. Private
+binding claim, settlement and sequence-seal commands yield on that same proven
+writer refusal so the durable scheduler can rediscover work. Entered callbacks
+and unknown outcomes never gain permission to execute again.
+
+The archive controller captures exact contiguous committed suffixes under its
+journaled parent hold. Background tails roll to a full checkpoint at configured
+limits and when replay would exceed one entry per current cell. A waiting S3
+output uses a complete checkpoint to avoid replay on its original request budget.
+Complete closure, exact receipt, birth, publication and reclamation proofs remain
+required. No deadline, quota, marker or per-idle-cell task changes.
+
+| Gate at `25d81992` | Result |
+| --- | --- |
+| Live named bindings, original five-second source budget | Native **4/4**; real RustFS **4/4** configurations pass |
+| Autonomous interrupted binding recovery and safe sequence sealing | Native **4/4**; real RustFS **4/4** configurations pass |
+| Native public primitive/archive campaign | **PASSED**: 33/33 executed exact tests pass |
+| Real RustFS campaign | **PASSED**: 22/22 executed exact tests pass |
+| Public SQL/KV and ordinary alarms | RustFS SQL **4/4** plus **8/8** recovery; KV **4/4**; alarms **12/12** native/RustFS |
+| Failed current selections | Native: none; real RustFS: none |
+| Strict affected-target Clippy, format/layout, dependency/docs checks | **Pass** |
+| Plan and qualification-runner unit tests | **44 and 16 pass** |
+
+The native campaign includes ordinary public SQL/KV SDK, native/Axum ingress and
+actual CLI selections, interrupted SQL recovery, alarms, Queue and 23 archive
+cases plus SDK source proof. Real RustFS checks live bindings and autonomous
+recovery first, then the previously failing bounded Queue load. A failed load
+keeps subsequent selections explicitly unrun; it cannot accept those cases.
+Read the retained record for the executed set rather than treating the campaign
+as a complete primitive-family pass.
+
+The bounded real-RustFS load passes in both image modes: four producers, two
+in-flight requests (one per queue), 64 batches of eight steady messages plus a
+16-message archive-outage prelude per image. All 528 unique messages complete.
+
+| Image | 512 steady messages plus drain | Enqueue batch p50 | Enqueue batch p99 |
+| --- | --- | --- | --- |
+| Materialized | 39.465 s | 1138 ms | 1450 ms |
+| Extents | 47.963 s | 1181 ms | 1524 ms |
+
+This is one trial per image. Batch latency excludes waiting for a producer
+credit; p99 selects the maximum of 64 samples. Elapsed time excludes the outage
+prelude and includes steady delivery drain. This is the fixture envelope, not a
+production latency or throughput guarantee.
+
+Earlier source `dc19ce98` passes 27 native selections, 16 RustFS selections and
+the ordinary native Queue case. Named bindings and interrupted recovery each
+pass 8/8 native/RustFS configurations; canonical RustFS SQL passes 4/4 plus 8/8
+interrupted recovery, KV passes 4/4 including 25-MiB values, and alarms pass
+12/12. Its separate Queue cohort 50 passes five of six exact tests (ten image
+configurations), then fails materialized bounded load on producer sequence 36;
+extents are unrun. Keep that cohort FAILED and its three voter disks retained.
+
+Source `024b8080` passes the local writer-release unit with no Raft apply while
+retaining physical reservations. Its RustFS materialized load completes all 528
+messages, but extent load fails on producer sequence 35. Native live bindings
+then fail three configurations in cohort 58. Those failures and disks remain;
+current passes do not erase them or prove a capacity-deadlock cause. Queue
+failure reports now include fixed-size phase timing observations alongside
+resources. The earlier cohort-24 intermittent archive-deadline failure remains
+unexplained.
+
+Frozen source/executables, complete logs, checks and failed disks have verified
+workspace-volume evidence backups. Current cohorts are
+`CG-17-maintenance-yield-25d81992-61` and
+`CG-17-maintenance-yield-rustfs-25d81992-62`; controls 37–43, 47–50 and 54/55/58
+remain retained. The owned RustFS backend and VM are stopped with objects retained.
+RustFS has one CPU/2 GiB; RF3 voters share a native process, separate disks and
+one SQL worker per node. Independent Linux voter and combined recovery/load/
+disk-loss release qualification remain open. Flat archive verifier generation
+and byte capacity at large group sizes also needs its own boundary proof;
+the replay-work bound alone does not establish that capacity.
+
+Full-plan acceptance remains **13/17 tasks and 147/195 cases**. Target-S3
+bindings, interruptions before the target checkpoint and movement/wake remain
+open. Next implement ordinary alarm failure rollback, persisted backoff and
+exhaustion, then cron, broader Queue, EventStream and Workflow execution;
+remaining adapters and combined recovery still gate full support.
+
 ## CG-17 bounded competing enrollment
 
 Source `4d6f7d2f` adds bounded waiting for competing first creators. A binding

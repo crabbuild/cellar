@@ -37,86 +37,55 @@ full disaster profile remain open.
 ## Primitive delivery priority
 
 Full public primitive compatibility is the required Quorum product contract.
-SQL-only MVP checkpoints do not define a smaller final supported scope. Keep
-CG-17 feature delivery ahead of optional routing/performance work; retain the
-existing recovery and release dependencies rather than removing those gates.
+A passing SQL/KV foundation is not the final supported scope. Keep CG-17 feature
+delivery ahead of optional routing/performance work and retain recovery and
+release gates.
 
-The basic public binding/SQL/KV foundation now passes at runtime `9f6a5d08`:
-named bindings and interrupted binding recovery each **8/8 native/RustFS**,
-canonical RustFS SQL SDK/operator/CLI **4/4**, interrupted SQL recovery **8/8**,
-and canonical RustFS KV SDK/operator/CLI **4/4** configurations. All 25 selected
-archive/primitive tests pass. Qualification-only `1bda606a` fixes KV output
-capture with the same runtime/CLI hashes and unchanged strict verifier. Preserve
-the failed capture cohort and earlier deadline controls. This one-CPU/2-GiB
-RustFS, host-native RF3 cohort does not establish complete family, load or
-independent Linux voter support. See the
-[binding/SQL/KV checkpoint](progress.md#cg-17-archive-proofs-and-public-sql-and-kv).
+Source `25d81992` provides SQL writer-release wakeups, yielding of contended
+private binding maintenance and bounded background archive tails. Waiting S3
+outputs use a complete checkpoint. Original identities, deadlines, exact proofs,
+physical ownership and quotas remain mandatory. See the
+[current executed results](progress.md#cg-17-binding-deadlines-and-archive-tails)
+for native and real-RustFS binding/recovery, SQL/KV, alarm, Queue and archive
+coverage. Current failed selections: none in these component campaigns.
 
-At `d22ef830`, ordinary native ingress and alarm visibility are implemented.
-Alarms pass **12/12 native/RustFS configurations**, including public follower
-onboarding, replacement/cancellation and autonomous interrupted retained restart.
-Current canonical RustFS SQL passes **4/4** plus **8/8** interrupted recovery;
-KV passes **4/4**. The combined cohort still **fails** its Queue enrollment and
-archive-deadline guards. Frozen `9f6a5d08` reproduces the identical Queue refusal
-but passes the archive guard. Keep both current failures and their evidence
-limits open. See the [latest checkpoint](progress.md#cg-17-ordinary-native-ingress-and-durable-alarms)
-and [alarm contract](durable-alarms.md).
+Earlier `dc19ce98` passes live bindings and interrupted recovery each 8/8,
+RustFS SQL 4/4 plus 8/8 interrupted recovery, KV 4/4 including 25-MiB values,
+and alarms 12/12. Its Queue load fails materialized producer sequence 36 after
+ten normal/fault/long-callback image configurations pass. `024b8080` passes
+materialized 528-message load but fails extent producer sequence 35 and three
+native live-binding configurations. Keep all failed controls and disks; a newer
+pass cannot erase them or establish a capacity-deadlock cause. The older
+intermittent archive-deadline failure also remains unexplained.
 
-At `4d6f7d2f`, competing enrollment has bounded waits before initializer enqueue;
-all six real TLS race scenarios, eight enrollment safety tests and six native
-primitive/archive guards pass. Live bindings pass **7/8 native/RustFS
-configurations**: materialized S3 still misses its original five-second parent
-deadline after both child calls return. Interrupted recovery and safe sequence
-sealing pass **8/8**. Real RustFS enrollment proof/deadline guards pass all six
-scenarios. Queue still fails its native parent deadline during local admission
-contention, so the canonical RustFS Queue campaign is unrun. Preserve both
-failed cohorts and their six voter disks. The current archive guard passes, but
-the older intermittent failure remains unexplained. See the
-[latest results](progress.md#cg-17-bounded-competing-enrollment).
-
-1. Close the live materialized S3 binding deadline and Queue overlap/ownership
-   path under the existing budgets and quotas. Identify the retained command
-   and SQL checkpoint owners before changing admission policy; the current
-   resource snapshot alone does not establish a deadlock. Retain the earlier
-   archive-deadline failure until its cause and regression are established.
-   Then finish durable alarms/cron, EventStream and Workflow on the
-   [qualified callback and Queue implementation](queue-durable-work.md).
-   Ordinary alarms now pass their normal SDK, replacement/cancellation and
-   autonomous retained-restart cases. Implement durable failure/backoff
-   exhaustion using the ordinary alarm policy; the current claim lease is not
-   that policy. Qualify archive outages and movement/wake before full support.
-   Cron, EventStream/outbox/inbox and
-   Workflow need their public adapters and generation-fenced committed work.
-   Reuse the bounded shared owner rather than adding per-idle-cell tasks.
-   Pending work must resume after retained restart, movement and wake without
-   client traffic. Keep broadening Queue's lifecycle gates:
-   at `a5f65e79` and combined KV/RPC source `9498029b`, real RustFS passes
-   **12/12** configurations across separate
-   deployments, native/Axum SDK/CLI, lost DLQ replies, stale handlers, purge,
-   retention replay, 65-second callbacks and bounded load. The load envelope is
-   four producers/two in-flight requests; cold S3 first use and higher concurrency
-   remain open alongside full-size payload, clock, deployment-change,
-   movement/wake, disk-loss and independent Linux gates. Queue's qualified
-   source is separate; the current native Queue guard remains failed after
-   bounded enrollment waiting. Its older frozen predecessor also fails.
-2. Complete the remaining binding and SQL/KV recovery boundaries. The current
-   cases use a Quorum destination minimum; add target-S3, before-child-completion,
-   concurrent creation/cross-class and interrupted large-call cases. Finish
-   movement/wake, cold-start contention and combined disaster qualification
-   under the original budgets. Before recovery admission, verify actual external
-   values and wire bytes referenced by rows, source intents and receipts;
-   prepared/pending uploads cannot stand in for confirmed dependencies. Preserve
-   the earlier failed controls and chained twenty-second KV load failure.
-3. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
-   container/provider adapters. Include stateless/ephemeral and optional-adapter
-   regressions. Root-aware payload collection must protect every retained image,
-   reader, pending upload, interrupted turn and recovery cut; retaining objects
-   is not complete recovery qualification. See the [payload contract](payload-storage.md).
-4. Admit full support only after every CG-17 API × scenario × configuration gate
-   passes, followed by CG-15/16 combined qualification and independent Linux
-   voter/load/crash/disk-loss coverage. Quorum selection must refuse unavailable
-   durability without falling back to Fleet/bucket storage. Full public cutover
-   and legacy removal remain gated on that evidence.
+1. Implement ordinary alarm handler-failure rollback followed by committed,
+   generation-fenced backoff/exhaustion using the existing pure retry policy.
+   The claim lease is not that policy. Then connect cron deployment/startup,
+   persisted occurrence/history and the shared alarm projection. Pending work
+   must resume without client traffic after restart, movement and wake.
+2. Complete Queue lifecycle/load, EventStream and Workflow execution through
+   their public adapters. Queue normal/fault/long-callback/load results retain
+   their exact source pins; full-size payload, clock, deployment, movement/wake
+   and disk-loss boundaries remain. EventStream needs committed outbox/inbox
+   authority and Workflow its durable execution/replay adapter. Reuse bounded
+   shared owners rather than per-idle-cell tasks.
+3. Complete the remaining binding and SQL/KV recovery with independent target-S3 minima,
+   interruption before the target checkpoint, unused child sequence sealing,
+   concurrent/cross-class creation and interrupted large calls. Add movement,
+   wake and cold-start contention. Verify actual external values and wire bytes
+   before recovery admission; prepared uploads are not confirmed dependencies.
+4. Complete filesystem, Blob/external payloads, HTTP/streaming, WebSockets and
+   container/provider execution, including stateless/ephemeral and optional
+   adapter regressions. Root-aware collection must protect retained images,
+   readers, pending uploads, interrupted turns and recovery cuts. See the
+   [payload contract](payload-storage.md).
+5. Require every CG-17 API/scenario/configuration gate and the CG-15/16 combined
+   recovery/release matrix before claiming full support or default cutover.
+   Qualify independent Linux voters, partitions, constrained load, reclamation,
+   crashes and disk loss. Bound archive verification by actual generation/byte
+   capacity as well as replay work at large group sizes. Quorum refusal must
+   never fall back to Fleet/bucket storage. Full-plan acceptance remains
+   **13/17 tasks and 147/195 cases**; this checkpoint accepts no complete family.
 
 Full CLI plan preflight currently stops at the missing historical
 `CG-01-06-gates-e32115aa-02/CG-01-record.json` evidence file. Reviewed source
