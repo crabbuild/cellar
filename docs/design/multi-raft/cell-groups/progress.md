@@ -282,7 +282,23 @@ at `4c54cae6`, with committed alarm/FIFO/writer-readiness foundation `15b9bf46`
 integrated at `8b3527a6`. The new candidate retains a source writer only while
 proven pure queries wait without contention, avoiding per-chunk SQLite reopen;
 contending writers still force a clean-root yield before application polling.
-Fresh merged-source runtime and RustFS qualification remain pending.
+At `50002981`, the strengthened original-deadline stream test and complete
+native RF3 Workflow fixture pass in both images. The real RustFS campaign passes
+both exact native/Axum cases, four image configurations, with source-input and
+frozen-executable verification. The Fleet Workflow conformance test passes in
+0.54 seconds. Preserve `CG-17-workflow-merged-50002981-01` and
+`CG-17-workflow-rustfs-50002981-01`.
+
+Selected shared-core regressions pass Queue, interleaving, Storage, alarm failure
+rollback and durable retry exhaustion (both minima and images). The SDK source
+proof gate fails its nested same-cell observer: a source writer can resume before
+the prepared child's asynchronous arrival at that writer queue. Preserve the
+failed command and three disks in `CG-17-workflow-regressions-50002981-01`; its
+remaining checks execute the frozen `50002981` binary independently of later
+checkout changes. The follow-up moves four prepared, owned target-I/O futures to
+the existing parked-I/O path after the same source proof. Application callbacks
+still wait for SQLite resume; mutation waits remain outside the pure-query hint.
+The SDK fix and fresh ownership/kernel units remain pending qualification.
 Earlier prototype failures and the opt0 minimized
 pass remain under `CG-17-workflow-fifo-diagnostics-01`; they establish no
 exact-source qualification.

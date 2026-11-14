@@ -90,6 +90,11 @@ writer instead of reopening SQLite for every chunk. The SQL owner checks writer
 contention even without a query wake and parks only a clean, proven root before
 polling the application continuation. Proof-pending or mixed work retains the
 ordinary park/resume policy; deadlines and physical admission remain unchanged.
+Prepared low-level target command, query, enrollment and receipt calls poll
+their owned target I/O while the source is parked. A same-cell child may reach
+the writer queue asynchronously; its source resumes only after the response is
+ready. These target futures cannot access source SQLite or poll application
+continuations. Their initial source proof and ambiguity rules remain required.
 Status projects logical expiration; the committed retention alarm owns physical
 cleanup. Raft history pages are bounded below the ordinary reply ceiling. The opening
 operation consumes a subrequest; chunk continuations retain bounded
