@@ -72,11 +72,20 @@ intermittent archive-deadline failure also remains unexplained.
    failure/restart and full RustFS exhaustion pass their scoped gates. Then
    connect cron startup, occurrence identity/history and shared alarm projection,
    with movement/wake, deployment/clock changes and release-profile process loss.
-2. Complete Queue lifecycle/load, EventStream and Workflow execution through
-   their public adapters. Queue normal/fault/long-callback/load results retain
+2. Complete the Workflow ownership/kernel units and qualify the follow-up, then
+   complete Queue lifecycle/load and EventStream execution through their public
+   adapters. Workflow source `50002981` passes native RF3 in both images and
+   real RustFS native/Axum in four configurations, including replay, controls,
+   streams, deletion, retained restart, archive refusal and quorum refusal.
+   Its shared-core SDK regression exposes a same-cell observer deadlock;
+   `7915a45a` preserves source proof while polling owned target I/O without the
+   source writer. Its SDK, stream/interleaving and four real-RustFS configurations pass; fresh ownership/kernel units remain pending.
+   See the [Workflow contract](workflow-durability.md) for full-size, cron,
+   long continuous callbacks and combined lifecycle/disaster gates.
+   Queue normal/fault/long-callback/load results retain
    their exact source pins; full-size payload, clock, deployment, movement/wake
    and disk-loss boundaries remain. EventStream needs committed outbox/inbox
-   authority and Workflow its durable execution/replay adapter. Reuse bounded
+   authority. Reuse bounded
    shared owners rather than per-idle-cell tasks.
 3. Complete the remaining binding and SQL/KV recovery with independent target-S3 minima,
    interruption before the target checkpoint, unused child sequence sealing,

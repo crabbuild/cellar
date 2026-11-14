@@ -298,7 +298,12 @@ remaining checks execute the frozen `50002981` binary independently of later
 checkout changes. The follow-up moves four prepared, owned target-I/O futures to
 the existing parked-I/O path after the same source proof. Application callbacks
 still wait for SQLite resume; mutation waits remain outside the pure-query hint.
-The SDK fix and fresh ownership/kernel units remain pending qualification.
+At `7915a45a`, the SDK source-proof gate passes both source minima and image
+modes (38.06 seconds); the original stream deadline gate and interleaving also
+pass. The refreshed real RustFS campaign passes both exact native/Axum cases
+and four image configurations with source/executable verification. Preserve
+`CG-17-workflow-sdk-7915a45a-01` and `CG-17-workflow-rustfs-7915a45a-01`.
+Fresh ownership/kernel units and final integration checks remain pending.
 Earlier prototype failures and the opt0 minimized
 pass remain under `CG-17-workflow-fifo-diagnostics-01`; they establish no
 exact-source qualification.
