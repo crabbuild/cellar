@@ -70,7 +70,10 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             },
         )?,
     );
+    let declared = configuration::options("rpc-progress-service");
+    application.validate_deployment(&configuration::deployment(declared.clone()))?;
     let mut fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
+    fixture.configuration = Some(declared);
     // Group apply and the source callback must use different workers: this
     // test holds synchronous physical I/O, not the whole SQL executor.
     fixture.sql_workers = 2;
