@@ -29,6 +29,67 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Fetched main `189edd9a` remains included. **Runtime source `55ddecc1` retains
+proven S3 enrollment output while waiting for current serving authority.** After
+SQL creation and S3 settlement, an unrelated committed-but-unapplied entry must
+not turn the completed enrollment into an immediate ambiguous `NotReady`.
+The adapter waits for progress within the original absolute deadline, retaining
+the exact creation record and proof. Full group readiness, current ownership,
+route and archive-proof checks remain required. It neither reruns the initializer
+nor resubmits creation. Temporary activation probes are removed.
+
+The deterministic baseline `94f87b2d` fails with premature ambiguous `NotReady`
+in `CG-17-enrollment-output-red-230-94f87b2d`. The native and real-RustFS regression
+passes both image forms and both progress/deadline branches at the final source.
+All six selected archive controls pass, including original creation/minimum
+checks, cancellation and deadline ownership. Replay returns the same creation
+without another initializer. The fixture holds an actual unrelated manifest sync
+after commitment and requires the enrollment to remain pending until serving
+authority returns or its original deadline expires.
+
+**The original sixteen public selections now pass 11/16; the cohort remains
+FAILED.** Both native and Axum named Quorum paths pass native and real RustFS
+in both image forms. Native explicit publication/inbox/ack/retained recovery,
+both SDK source-proof controls, both history-discovery controls, registration
+and ordinary Fleet conformance also pass. Five selections fail:
+
+- RustFS explicit recovery reaches a later `Counter:event-sink` Consume, then
+  expires in a binding metadata read with an ambiguous sequence-10 result.
+- Both RustFS independent-target-S3 paths fail initial materialized activation.
+- Native Queue finishes producer requests, then exceeds the original final
+  drain budget. The delivery oracle and load metrics are not reached.
+- RustFS Queue fails producer sequence 8 with an ambiguous deadline result.
+
+No complete 528-message delivery/drain or load performance is established. A
+different passing fraction does not establish a measured speedup or stability.
+Records are `CG-17-enrollment-output-fast-235-55ddecc1`,
+`CG-17-enrollment-output-native-public-236-55ddecc1`,
+`CG-17-enrollment-output-public-237-55ddecc1`,
+`CG-17-enrollment-output-fleet-239-55ddecc1`, and the exact public-set aggregate
+`CG-17-enrollment-output-public-summary-240-55ddecc1` under
+`.cellar/cell-groups-evidence/`. The aggregate verifies identical tracked source
+hashes across its constituent runs. Failed baseline disks and fifteen failed
+public voter disks, logs and frozen binary/evidence backups remain retained.
+
+The locked optimized build, strict library/all-test Clippy, formatting, layout,
+native dependency and documentation checks pass. Enrollment and public fixtures
+use one SQL worker per voter; the enrollment gate also uses one queue slot and
+one pending cell. Append-only scope corrections preserve the original records
+whose generic driver text inherited an older two-worker description. Three
+voters share one process and separate workspace disks. RustFS has one CPU/two
+GiB; this is not independent Linux-voter release qualification. All jobs are
+terminal, the owned container/VM are verified stopped, and their object volume
+remains retained.
+
+**Next:** isolate independent-S3 cold activation and the later RustFS Consume
+metadata-read deadline; then Queue producer/drain progress, autonomous interrupted
+binding recovery and complete primitive lifecycle qualification. Acceptance stays
+**13/17 tasks and 147/195 cases**. Full compatibility, combined recovery/release
+and hard cutover remain open. Full plan validation still needs missing historical
+CG-01–06 evidence or explicit current-source requalification.
+
+## Previous callback continuation checkpoint
+
 Fetched main `189edd9a` remains included. **Runtime source `0af5a562` fixes
 parked RPC continuation starvation behind unrelated committed group apply.**
 The invocation first reacquires its cell writer, then refreshes its exact

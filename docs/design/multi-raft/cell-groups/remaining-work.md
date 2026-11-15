@@ -57,40 +57,38 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `189edd9a`. Runtime `0af5a562` fixes parked callback starvation behind
-unrelated committed group apply. A resumed invocation reacquires its writer and
-uses its exact applied cell image with the original ready barrier and live
-owner/route/history/leader fence. New application entry still requires complete
-group readiness. The regression fails at `c74e394d` and passes native/real RustFS
-in both image modes. All four focused native controls, both SDK source-proof
-matrices, the optimized build, strict library/all-test Clippy and repository
-checks pass. Original deadlines and durability proofs are unchanged.
+main `189edd9a`. Runtime `55ddecc1` retains proven S3 enrollment output while
+waiting for current serving authority within the original deadline. The exact
+creation and archive proof are preserved, with no initializer rerun or weakened
+fence. The physical apply-gate regression fails at `94f87b2d` and passes native
+and real RustFS in both image forms, including expiry and exact replay. All six
+selected archive controls pass. The optimized build, strict library/all-test
+Clippy and repository checks pass. Earlier callback and archive fixes retain
+their own source-pinned evidence.
 
-**Selected follow-up remains FAILED: 3/7.** Its passes are the new RustFS
-regression and both SDK controls. Native named Consume still times out
-ambiguously; native explicit and both RustFS EventStream selections fail initial
-activation. This is not the older sixteen-case cohort and does not qualify full
-public progress. Queue, Axum, independent-target-S3 and combined recovery/release
-are not rerun or accepted by this follow-up. Earlier archive wake/retry fixes and
-their twelve passing controls retain source pin `d0c27fca`.
+**The original sixteen public selections remain FAILED: 11/16 pass.** Named
+Quorum native/Axum paths pass native and real RustFS in both image forms, together
+with native explicit recovery, SDK source proofs, history discovery, registration
+and Fleet conformance. Failures remain in RustFS explicit later Consume metadata
+read, both RustFS target-S3 activations, native Queue final drain and RustFS Queue
+producer sequence 8. This does not establish stability or a measured speedup.
 
-1. **Close cold activation and the remaining multi-step Quorum deadline.**
-   Parked continuation progress now has a failing baseline and passing physical
-   apply regression. Initial activation/metadata reads and complete Consume
-   requests still miss their original budgets. Isolate source checkpoint
-   completion, target dispatch and final settlement with exact parent/child
-   identities. `wait_checkpoint` still waits for whole-group readiness; reproduce
-   its role before extending the continuation fix. Do not infer noncommit from
-   one voter's retained images, weaken proof, extend deadlines or repeat broad
+1. **Close independent-S3 activation and metadata-read progress.** Default named
+   Quorum Consume now passes. Isolate the remaining initial target-S3 activation
+   and later RustFS explicit Consume read using exact parent/child identities
+   under original budgets. Reproduce any checkpoint/readiness or archive proof
+   scheduling boundary before changing it. Do not infer noncommit from one
+   voter's retained images, weaken proof, extend deadlines or repeat broad
    campaigns in place of a focused failing boundary. Then finish autonomous
    interrupted binding/delivery/ack recovery, safe unused-sequence sealing, long
    polling, deletion/recreation and retention through movement and fresh-history
    recovery. The [EventStream contract](event-stream-durability.md) keeps separate
    source, destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
-   and fault oracles, then resolve the last `d0c27fca` producer sequence 11
-   (native) and 10 (RustFS) deadlines, plus the older final-drain failures, under
-   unchanged load and budgets. Full delivery of the 528-message campaigns is not established.
+   and fault oracles. At `55ddecc1`, native producer requests finish but the
+   original final drain expires; RustFS producer sequence 8 exceeds its deadline.
+   Resolve both under unchanged load and budgets. Full delivery of either
+   528-message campaign and load metrics are not established.
    Qualify both image forms.
    Resolve the managed trust-refresh failure and qualify concurrent boot
    reconciliation. General failed-startup joining and disk retention are now

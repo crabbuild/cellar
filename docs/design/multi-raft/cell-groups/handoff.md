@@ -4,7 +4,49 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current merged-source callback checkpoint
+## Current merged-source enrollment checkpoint
+
+Main `189edd9a` is included; runtime source `55ddecc1` on
+`codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170).
+The [current evidence](progress.md#current-integration-checkpoint) records the
+completed S3 enrollment fix and its failing baseline. Proven creation output is
+retained while waiting for full serving authority within the original deadline;
+the initializer is not rerun and no durability or ownership fence is relaxed.
+Temporary probes are removed. Native and real-RustFS progress/expiry tests pass
+both image forms, together with original creation and cancellation controls.
+The optimized build, strict library/all-test Clippy and repository checks pass.
+
+The exact original public cohort remains **FAILED: 11/16 pass**. Default named
+Quorum native/Axum paths pass native and real RustFS in both image forms. Native
+explicit recovery and SDK/history/Fleet controls pass. The five remaining
+failures are RustFS explicit later Consume metadata read, both RustFS target-S3
+initial activations, native Queue final drain and RustFS Queue producer sequence
+8. Native Queue producer requests finish, but neither Queue campaign reaches
+its complete delivery oracle. Keep original budgets, identities and ambiguity.
+
+Next priorities:
+
+1. Reproduce the remaining S3 activation/metadata-read boundary before changing
+   scheduling or routing. Default named Quorum Consume now passes. Do not treat
+   an archive-status observation as output proof or assume whole-group checkpoint
+   readiness caused the remaining failures.
+2. Close native Queue final drain and RustFS steady producer admission under the
+   unchanged 528-message workload. Then qualify both image forms.
+3. Finish autonomous interrupted binding/delivery/ack recovery, safe unused
+   sequence sealing, long polling and all primitive lifecycle/recovery adapters.
+   Full CG-13/17/15/16 gates and hard cutover remain required.
+
+Evidence labels 230/235/236/237/239/240, fixture limits and retained disk locations
+are recorded in the current progress checkpoint and ignored
+`.cellar/cg17-payload-01/event-read-state.json`. All jobs are terminal. The owned
+RustFS container and VM are stopped; its object volume, failed disks, logs and
+verified frozen binary/evidence backups remain. Enrollment/public fixtures use
+one SQL worker per voter; append-only scope corrections retain older generic
+driver metadata. Voters share one process, so independent Linux release
+qualification remains open. Counts stay **13/17 tasks and 147/195 cases**.
+Historical evidence restoration/current-source requalification is still required.
+
+## Previous merged-source callback checkpoint
 
 Main `189edd9a` remains included in the primary checkout
 `/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar`, branch

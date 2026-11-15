@@ -89,8 +89,19 @@ barrier and live owner/route/history/leader fence; unrelated committed apply wor
 does not require another whole-group barrier. Reconciliation alone grants no
 execution permission. New application entry keeps full group readiness, and
 checkpoint/final settlement keeps its original durability proofs and deadlines.
-The continuation regression passes native and real RustFS in both image modes;
-public activation and multi-step request deadlines remain unqualified.
+The continuation regression passes native and real RustFS in both image modes.
+Current named Quorum native/Axum paths pass both image modes against native and
+real RustFS backends; the complete public matrix remains unqualified.
+
+After S3 enrollment settles, the adapter retains its exact creation record and
+proof while waiting for full current serving authority. Unrelated committed
+apply work does not immediately discard that output with an ambiguous readiness
+failure. Progress waits share the original absolute request deadline. Current
+route/creation identity, ownership, full group readiness and archive-proof checks
+remain required; cancellation or expiry does not rerun the initializer. Native
+and real-RustFS physical apply-gate regressions cover progress, original expiry
+and exact replay in both image forms. Independent-target-S3 activation and a
+later explicit RustFS Consume metadata-read deadline remain open.
 
 Foreground S3 batches own one publication wake across an older job's completion;
 publication launch consumes it, and proof-lane requeues cannot renew it. Busy
