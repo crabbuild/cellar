@@ -245,8 +245,17 @@ impl CellGroupArchiveUpload {
                 }
                 let reference = uploaded.reference();
                 let verified = self.verify_tail(domain, tails, reference, receiver).await?;
+                // raft-rs emits these sets in hash iteration order. Compare
+                // the same validated canonical encoding used by archive replay;
+                // order alone must not refuse an independently applied cut.
+                let verified_conf = crate::raft::manifest::encode_conf(verified.configuration())
+                    .map_err(|_| {
+                        CellGroupArchiveError::Invalid("verified configuration encoding")
+                    })?;
+                let source_conf = crate::raft::manifest::encode_conf(&source.configuration)
+                    .map_err(|_| CellGroupArchiveError::Invalid("source configuration encoding"))?;
                 if verified.manifest().marker() != source.root.marker()
-                    || verified.configuration() != &source.configuration
+                    || verified_conf != source_conf
                     || verified.membership() != &source.membership
                 {
                     return Err(CellGroupArchiveError::Invalid(
