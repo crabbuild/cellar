@@ -97,7 +97,10 @@ fails all three candidate APIs, including SQL, with 16 request errors versus
 ten for its baseline. No API has a complete passing pair; leaders and terms
 remain unchanged. The subsequent logged SQL pass leaves these deadline failures
 open. Fresh checkpoint preparation for empty tails passes scoped native and
-RustFS qualification below; its constrained performance comparison is next.
+RustFS qualification below, but its subsequent constrained comparison fails all
+six S3 cases. Candidate KV loses node 3 to `NodeLeaseExpired` during load;
+baseline Queue loses node 1 to a startup `Runtime(DeadlineExceeded)` before
+load. No complete passing pair or end-to-end gain follows.
 
 The Queue validator correction accepts the API's valid floating-point counts
 while preserving finite whole-number checks, complete observer rounds, exact
@@ -124,7 +127,7 @@ and evidence, under the design's original limits and acceptance oracles:
 | Priority | Gap | Evidence required to close it |
 | --- | --- | --- |
 | P0 | Public SQL/KV/Queue reliability | Close the SQL/KV/Queue S3 ambiguous deadlines, bucket Queue durability/drain failure and control Queue drain cut. Complete the source-matched native/SDK/native HTTP/Axum and three-node C1/4/16 matrix. Account for every acknowledged and unconfirmed identity; preserve exact bodies, settlement and original deadlines/admission limits. |
-| P0 | Original-deadline progress | Show bounded routing/readiness, writer admission, SQL preparation, ReadIndex and output-proof progress. Slow callbacks and archive work must leave control/election progress available; expired waiters must retain their actual physical owners until completion. |
+| P0 | Original-deadline progress | Show bounded routing/readiness, writer admission, SQL preparation, ReadIndex and output-proof progress. Diagnose the observed node-lease expiry and startup deadline alongside request deadlines. Slow callbacks and archive work must leave lease/control/election progress available; expired waiters must retain their actual physical owners until completion. |
 | P1 | Persistence and archive amplification | Measure image/manifest file and directory syncs, engine batch bytes/groups, independent archive replay and queue waits. Compare matched before/after throughput, p50/p95/p99, errors and resources; accept a tuning change only with its correctness controls. Sparse traffic must not wait to fill a batch. |
 | P1 | Safe public read integration | Connect explicit read-only SQL operations to fresh ReadIndex/source-image proof without treating writable `__sqlQuery` as a read. Preserve KV TTL/metrics mutations, exact tokens, read preferences and partition refusal. Recheck gains with a broader host audit and crossover measurements. |
 | P1 | Sustainable physical capacity and movement | Complete shared-file/segment release and once-only accounting, followed by repeated split/move/merge under the original bounds. Retained readers, snapshots, archive/transfer work and uncertain completions must protect bytes; credit follows synced deletion and joined owners. Preserve placement reserve and failure-domain checks. |
@@ -310,9 +313,31 @@ retains exact profiles, source/executable/log hashes, footers and read counters.
 The earlier Clippy duplicate-helper rejection also remains recorded; the shared
 harness export replaces the duplicate inclusion without a lint suppression.
 The failed incomplete-control run and canonical-empty control setup are retained
-separately. A matching Linux build and source-matched SQL/KV/Queue S3 comparison
-are next. No deadline fix, throughput/latency gain or complete OPT/CG acceptance
-follows from these in-process node fixtures.
+separately. The matching Linux image `9b98065f` preserves the locked compiler,
+lab artifact profile and byte-identical load client. Its
+[six-case S3 comparison](three-node-primitive-main-173-2026-11-15.md#empty-tail-constrained-comparison)
+against checkpoint-window image `0ccf1de9` fails every case. SQL and KV retain
+request deadlines, candidate KV node 3 fences with `NodeLeaseExpired` during
+load, and baseline Queue node 1 exits with a startup deadline before load.
+Candidate Queue observes all 568 acknowledged messages plus eight matching its
+one uncertain attempted batch; this supplies no missing receipt. All created
+participants stop without observed OOM/restart, owners join and the original
+RustFS identity/limits/readiness are restored. Host qualification activity is
+observed. The read-call reduction remains scoped evidence; no deadline fix,
+throughput/latency gain or complete OPT/CG acceptance follows.
+
+The subsequent [lease/archive diagnostics](three-node-primitive-main-173-2026-11-15.md#lease-and-archive-diagnostics-after-empty-tail-comparison)
+also fail under the same frozen image and original bounds. The lease-only run
+fails C1 read; adding archive stages reaches eleven passing windows before eight
+second-C16 read errors. All 165/576 lease attempts apply with ample prior
+authority and no wait overrun, while all nodes remain alive. This separates these
+request failures from the earlier untraced node expiry. The longer run also
+records retried output-check failures. Completed archive jobs, zero remaining
+waiters at observed settlements and unclassified attempts do not identify the
+failed requests' queue/retirement/retry path. Closing that causal observation gap
+precedes further scheduler or admission tuning. Both failed diagnostics and
+their exact source/event/resource evidence remain retained; no deadline, proof
+or capacity bank changes.
 
 ### Archive publication and recovery follow-up
 

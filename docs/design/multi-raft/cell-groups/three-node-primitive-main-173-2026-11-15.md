@@ -330,8 +330,108 @@ and the canonical-empty control setup failure. Required work is added to the
 independent control; exact equality, cut, corruption and ownership assertions
 remain. Failed fixtures retain their disks.
 
-The matching Linux build and original constrained SQL/KV/Queue S3 comparison are
-next. These in-process node fixtures establish scoped correctness and fewer
+The matching Linux build succeeds; the original constrained comparison below
+fails. These in-process node fixtures establish scoped correctness and fewer
 provider read calls. They establish no deadline fix, end-to-end speedup or
-complete primitive/OPT/CG acceptance. The preceding workload failures remain
-open. One Colima VM is still one physical failure domain.
+complete primitive/OPT/CG acceptance. One Colima VM is still one physical failure
+domain.
+
+## Empty-tail constrained comparison
+
+**All six S3 cases fail; no API has a complete passing pair.** Source `1d72a31d`
+and compiler-input manifest `a37458ee` produce immutable image `9b98065f`.
+The checkpoint-window control remains image `0ccf1de9` at source `8f674406`.
+Both use the same locked Linux Rust 1.98.1 compiler and lab artifact profile
+(`opt-level=s`, line-table debug information, debug assertions and overflow
+checks disabled), and byte-identical load client. Source manifests and Git/OCI
+revision checks pass; the changed owning libraries and binaries are rebuilt.
+
+Fresh namespaces retain three 1-vCPU/2-GiB RF3 voters, three groups and 24
+workload entities; Queue also retains 24 DLQs. RustFS and the client are each
+separately capped at 1 vCPU/2 GiB. The original five-second operation/callback/
+lease bounds, five-second warmup, thirty-second windows, C1/4/16 and two reversed
+concurrency repetitions remain. The fixed image order alternates across APIs;
+this is not an image-order crossover. Another checkout's qualification activity
+is observed and no isolated causal gain is accepted.
+
+Counts include warmup; unmeasured windows are retained explicitly:
+
+| API | Image | Verified | Failed | Unmeasured | Request errors |
+| --- | --- | --- | --- | --- | --- |
+| SQL | Control | 5 | 1 | 12 | 4 |
+| SQL | Candidate | 2 | 1 | 15 | 1 |
+| KV | Control | 1 | 1 | 16 | 1 |
+| KV | Candidate | 4 | 1 | 13 | 4 |
+| Queue | Control | 0 | 0 | 12 | 0; load never starts |
+| Queue | Candidate | 4 | 1 | 7 | 1 |
+
+SQL/control fails C4 read and SQL/candidate fails C1 read. KV/control fails C1
+write; KV/candidate fails C4 write and its later readback times out. The
+candidate's node 3 exits with `NodeLeaseExpired` before the load finishes and is
+unreachable in the before-shutdown snapshot. Incomplete phase observations are
+unavailable, never zero. The Queue control's node 1 exits with a startup
+`Runtime(DeadlineExceeded)` marker before load; the other nodes and RustFS exit
+cleanly. These distinct failures remain uncharacterized.
+
+Queue/candidate fails C16 warmup with one uncertain enqueue. All 568 acknowledged
+messages are observed with exact bodies, plus eight extra IDs/bodies matching
+that uncertain attempted batch. There are no duplicate deliveries or unmatched
+extras. Observation establishes neither the missing S3 receipt nor a safe
+fresh-ID retry; the window remains failed.
+
+All 29 created node/store/client participants stop, with no observed OOM or
+restart. The two failed node exits remain explicit rather than being classified
+as healthy shutdowns. All owners join, source/engine identity remains unchanged,
+and the original RustFS identity, mounts, limits and HTTP 200 readiness are
+restored. Every case starts above the unchanged six-GiB free-disk preflight
+reserve; no workload resource or admission limit changes.
+
+The [assessment](three-node-primitive-main-173-2026-11-15.empty-tail.json) and
+[raw capsule](three-node-primitive-main-173-2026-11-15.empty-tail.raw.json.gz)
+retain failed/partial windows, phase histograms, resource samples, exact Queue
+identity reconciliation and role-bound terminal evidence. Runtime configuration,
+environments, private keys and raw node/store log text are excluded; a scan of
+23 actual private representations finds zero matches. No failed case receives
+an aggregate comparative throughput/p99 result. Original-bound lease, startup
+and S3 coverage progress remain P0 work.
+
+## Lease and archive diagnostics after empty-tail comparison
+
+Two fresh KV/S3 diagnostics retain the exact `1d72a31d` / `a37458ee` / `9b98065f`
+source/image, client, topology, resources and original bounds. The first enables
+the existing lease/store trace; the second adds existing archive-stage logging.
+Both fail. Logging changes timing, and neither run is a performance comparison.
+
+| Diagnostic | Verified windows | Failed | Unmeasured | Request errors |
+| --- | --- | --- | --- | --- |
+| Lease trace | 2 | 1 | 15 | 1, C1 read |
+| Lease plus archive trace | 11 | 1 | 6 | 8, second C16 read |
+
+All 165 / 576 observed lease attempts apply, with no timeout-wait overrun or
+lease-expiry marker. Renewals start with more than three seconds of prior
+authority; maximum observed attempt durations are 166 / 387 ms. All six node
+processes exit cleanly. These failed request windows therefore do not require a
+node-lease expiry. They do not explain the earlier untraced expiry.
+
+The C1 run records one inclusive local/S3-coverage failure and no output-check,
+freshness or output-wait failure. The longer C16 run records eight local and six
+coverage failures, plus 792 failed output-check attempts and 146 completed
+output waits. Check attempts include retries: 792 is not a request-error count,
+and inclusive timers cannot establish a per-request causal path.
+
+The archive trace contains 2,402 publications, 4,123 other coverage jobs, 1,781
+maintenance completions and 2,765 unclassified attempts without a terminal
+stage. The longest completed launch-to-settlement interval is 2.93 seconds;
+all 6,525 observed settlements report zero remaining waiters. Expired/canceled
+waiters and unclassified attempts prevent that observation from proving every
+request succeeded. Fair-queue delay, proof retirement, retry reasons and exact
+request-to-coverage linkage remain unresolved; no deadline or proof is relaxed.
+
+The [diagnostic assessment](three-node-primitive-main-173-2026-11-15.lease-diagnostics.json)
+and [raw derived events](three-node-primitive-main-173-2026-11-15.lease-diagnostics.raw.json.gz)
+retain both failures, all emitted windows, phase/resource evidence and numeric
+lease/archive events. Four init/node log filters per run are verified. Raw
+node/store log text and runtime secrets are excluded; eleven actual private
+representations yield zero matches. Owners join and restore the exact original
+RustFS identity/limits with HTTP 200 readiness after each run. This narrows the
+diagnosis without establishing a production fix or end-to-end gain.
