@@ -42,7 +42,7 @@ fn name(body: &Value) -> Result<&str> {
 }
 
 fn subscription(db: &Storage, name: &str) -> Result<SqlRow> {
-    let rows = db.system_sql(
+    let rows = db.system_sql_read(
         "SELECT * FROM __sys_stream_subscriptions WHERE name=? AND state!='deleted'",
         &[name.into()],
     )?;
@@ -235,6 +235,42 @@ pub(crate) fn ack(context: &Context, body: &Value) -> Result<Value> {
         };
         Ok(json!({"status":status}))
     })
+}
+
+/// Observe only completed acknowledgment progress. A live, expired or unknown
+/// lease still needs the ordinary command to validate it and record its clock.
+/// The caller owns current linearizable read authority and target coverage.
+pub(super) fn ack_receipt_read(
+    db: &Storage,
+    caller: &super::Authority,
+    body: &Value,
+) -> Result<Value> {
+    let name = name(body)?;
+    let (definition, _) = store::load(db)?;
+    store::authorize(&definition, caller, Action::Consume, Some(name))?;
+    let requested = request_receipt(body)?;
+    let sub = subscription(db, name)?;
+    check_scope(&definition, &sub, &requested)?;
+    let checkpoint = store::number(&sub, "checkpoint")?;
+    anyhow::ensure!(checkpoint >= 0, "invalid subscription checkpoint");
+    let prior = db.system_sql_read(
+        "SELECT receipt FROM __sys_stream_ack_receipts WHERE subscription=?",
+        &[requested.subscription.clone().into()],
+    )?;
+    let last_ack = prior
+        .first()
+        .map(|row| Receipt::decode(&store::text(row, "receipt")?))
+        .transpose()?;
+    // These are the terminal branches of the ordinary acknowledgment policy.
+    // No lease observation here can authorize advancing the checkpoint.
+    let status = if last_ack.as_ref() == Some(&requested) {
+        "already_acknowledged"
+    } else if requested.last <= checkpoint {
+        "obsolete"
+    } else {
+        "pending"
+    };
+    Ok(json!({"status":status}))
 }
 
 pub(crate) fn retry(context: &Context, body: &Value) -> Result<Value> {

@@ -43,6 +43,10 @@ pub(crate) fn read(
             store::validate_authority(scope, caller, caller.action)?;
             lifecycle_store::status_read(db, caller, body)
         }
+        ("__streamAckReceipt", Authority::Event(caller)) => {
+            store::validate_authority(scope, caller, Action::Consume)?;
+            super::subscription_store::ack_receipt_read(db, caller, body)
+        }
         (name_resolution::METHOD, Authority::Name(caller)) => {
             name_resolution::resolve_read(db, scope, caller, body)
         }

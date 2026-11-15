@@ -358,6 +358,7 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
         "__streamResolve",
         "__streamRead",
         "__streamSubscriptionStatus",
+        "__streamAckReceipt",
     ] {
         assert!(is_metadata(method));
     }

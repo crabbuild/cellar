@@ -19,6 +19,7 @@ pub(crate) fn is_metadata(method: &str) -> bool {
             | "__streamResolve"
             | "__streamRead"
             | "__streamSubscriptionStatus"
+            | "__streamAckReceipt"
     )
 }
 

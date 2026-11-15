@@ -705,6 +705,7 @@ impl Cluster {
                 gate,
                 paused: false,
                 held: None,
+                filesystem_work: false,
             },
         );
         Ok(())

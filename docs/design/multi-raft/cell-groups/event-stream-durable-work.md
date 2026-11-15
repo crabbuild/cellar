@@ -53,7 +53,18 @@ allocates no per-cell command identity, mutation or receipt. A normal leader
 election may still persist its Raft term barrier before the read. Source writes are still
 proved before a bound read, and an S3 target still requires independently verified
 archive coverage of the selected version. Cursor expiry and byte/count limits
-match ordinary Fleet reads; lease acquisition and acknowledgment remain commands.
+match ordinary Fleet reads; lease acquisition and checkpoint advancement remain commands.
+
+A repeated acknowledgment on the same shared-group subscription handle may
+join its completed outcome through a private immutable read. One bounded local
+receipt hint selects the probe; only fresh Consume authorization, the current
+subscription incarnation, a linearizable selected image and the target's
+independent durability proof establish `AlreadyAcknowledged` or `Obsolete`.
+Pending outcomes use the ordinary acknowledgment command. Read or proof failures
+propagate, and the observation cannot report a new acknowledgment, advance a
+clock/checkpoint or synthesize a child command receipt. First acknowledgments and
+ordinary Fleet calls retain their command path. Combined-source public deadline
+and interruption qualification remains required.
 
 Retained groups do not require an idle election timeout before starting their
 first strong read. A current voter whose last durable vote was for itself may

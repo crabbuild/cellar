@@ -118,6 +118,20 @@ fn status_caller(definition: &Definition) -> Result<Authority> {
     }))?)
 }
 
+fn acknowledgment_receipt(definition: &Definition) -> super::super::Receipt {
+    super::super::Receipt {
+        resource: definition.resource.id.clone(),
+        partition: 0,
+        name: "projection".into(),
+        subscription: "00000000000000000000000000000002".into(),
+        incarnation: "00000000000000000000000000000003".into(),
+        generation: 1,
+        token: "a".repeat(64),
+        first: 1,
+        last: 2,
+    }
+}
+
 fn catalog_configuration_fixture(
     db: &Storage,
     definition: &Definition,
@@ -209,6 +223,10 @@ async fn retained_read_uses_verified_immutable_frame_without_command_capability(
         connection.execute_batch(include_str!("schema.sql"))?;
         connection.execute("INSERT INTO __sys_stream(singleton,definition,revision,lifecycle,next_offset,earliest_offset,bytes,rows,logical_ms,config_operation,config_digest,config_principal,config_grant,byte_position) VALUES(1,?1,1,'active',2,1,3,1,0,'operation','digest','shop','owner',3)", [serde_json::to_string(&definition)?])?;
         connection.execute("INSERT INTO __sys_stream_events(offset,lane,sequence,envelope,size,append_ms,byte_position) VALUES(1,'lane',1,?1,3,100,3)", [b"abc".as_slice()])?;
+        let mut acknowledgment = acknowledgment_receipt(&definition);
+        acknowledgment.last = 1;
+        connection.execute("INSERT INTO __sys_stream_subscriptions(id,name,generation,start,checkpoint,required) VALUES('00000000000000000000000000000002','projection','00000000000000000000000000000003','\"earliest\"',1,1)", [])?;
+        connection.execute("INSERT INTO __sys_stream_ack_receipts(subscription,receipt) VALUES(?1,?2)", [&acknowledgment.subscription, &acknowledgment.encode()?])?;
         let page_size: u32 = connection.query_row("PRAGMA page_size", [], |row| row.get(0))?;
         drop(connection);
         let filesystem = Arc::new(DirectFileSystem);
@@ -233,12 +251,134 @@ async fn retained_read_uses_verified_immutable_frame_without_command_capability(
                 &super::super::super::consensus::native_event_rpc::Authority::Event(caller), &json!({}), frame.database().result_limit())?;
             assert_eq!(page["records"],json!([{"offset":"1","envelope":"YWJj"}]));
             assert_eq!(page["next"],"2");
+            let completed = super::super::metadata::read(&db, &super::super::cell_scope(&definition.resource)?, "__streamAckReceipt",
+                &super::super::super::consensus::native_event_rpc::Authority::Event(status_caller(&definition)?),
+                &json!({"subscription":"projection","receipt":acknowledgment.encode()?}), frame.database().result_limit())?;
+            assert_eq!(completed["status"],"already_acknowledged");
             assert_eq!(db.system_sql_read("SELECT logical_ms FROM __sys_stream", &[])?[0].get("logical_ms"), Some(&SqlValue::Integer(0)));
             Ok(())
         })
     }).await?;
     domain.shutdown().await;
     result
+}
+
+#[tokio::test]
+async fn ack_receipt_read_observes_completed_progress_without_expiring_or_mutating() -> Result<()> {
+    run_case(|db, definition| {
+        let requested = acknowledgment_receipt(&definition);
+        let caller = status_caller(&definition)?;
+        let body = json!({"subscription":"projection","receipt":requested.encode()?});
+        let read = |body: &Value| {
+            super::super::metadata::read(
+                &db,
+                &super::super::cell_scope(&definition.resource)?,
+                "__streamAckReceipt",
+                &super::super::super::consensus::native_event_rpc::Authority::Event(caller.clone()),
+                body,
+                usize::MAX,
+            )
+        };
+        db.system_sql(
+            "INSERT INTO __sys_stream_leases VALUES(?,1,?,'fetch',1,2,100,5000)",
+            &[
+                requested.subscription.clone().into(),
+                requested.token.clone().into(),
+            ],
+        )?;
+        let snapshot = || {
+            Ok::<_, anyhow::Error>((
+                db.system_sql_read("SELECT * FROM __sys_stream", &[])?,
+                db.system_sql_read("SELECT * FROM __sys_stream_subscriptions", &[])?,
+                db.system_sql_read("SELECT * FROM __sys_stream_leases", &[])?,
+                db.system_sql_read("SELECT * FROM __sys_stream_ack_receipts", &[])?,
+                deadline(&db)?,
+            ))
+        };
+        let before = snapshot()?;
+        // Wall time is past expiry; an observation cannot expire this lease.
+        assert_eq!(read(&body)?["status"], "pending");
+        let mut forged = requested.clone();
+        forged.token = "b".repeat(64);
+        assert_eq!(
+            read(&json!({"subscription":"projection","receipt":forged.encode()?}))?["status"],
+            "pending"
+        );
+        assert_eq!(snapshot()?, before);
+        db.system_sql("UPDATE __sys_stream_subscriptions SET checkpoint=2", &[])?;
+        db.system_sql("DELETE FROM __sys_stream_leases", &[])?;
+        db.system_sql(
+            "INSERT INTO __sys_stream_ack_receipts VALUES(?,?)",
+            &[
+                requested.subscription.clone().into(),
+                requested.encode()?.into(),
+            ],
+        )?;
+        let before = snapshot()?;
+        assert_eq!(read(&body)?["status"], "already_acknowledged");
+        assert_eq!(snapshot()?, before);
+        let mut later = requested.clone();
+        later.generation = 2;
+        later.first = 3;
+        later.last = 4;
+        db.system_sql("UPDATE __sys_stream_subscriptions SET checkpoint=4", &[])?;
+        db.system_sql(
+            "UPDATE __sys_stream_ack_receipts SET receipt=?",
+            &[later.encode()?.into()],
+        )?;
+        let before = snapshot()?;
+        assert_eq!(read(&body)?["status"], "obsolete");
+        later.first = 5;
+        later.last = 6;
+        assert_eq!(
+            read(&json!({"subscription":"projection","receipt":later.encode()?}))?["status"],
+            "pending"
+        );
+        assert_eq!(snapshot()?, before);
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn ack_receipt_read_requires_current_grant_scope_and_subscription_incarnation() -> Result<()>
+{
+    run_case(|db, definition| {
+        let requested = acknowledgment_receipt(&definition);
+        let caller = status_caller(&definition)?;
+        let body = json!({"subscription":"projection","receipt":requested.encode()?});
+        db.system_sql("UPDATE __sys_stream_subscriptions SET checkpoint=2", &[])?;
+        db.system_sql("INSERT INTO __sys_stream_ack_receipts VALUES(?,?)", &[requested.subscription.clone().into(), requested.encode()?.into()])?;
+        let scope = super::super::cell_scope(&definition.resource)?;
+        let read = |caller: &Authority, body: &Value| super::super::metadata::read(
+            &db, &scope, "__streamAckReceipt",
+            &super::super::super::consensus::native_event_rpc::Authority::Event(caller.clone()), body, usize::MAX,
+        );
+        let refusal = |failure: anyhow::Error, code| assert_eq!(
+            failure.downcast_ref::<super::super::DeliveryError>().unwrap().code, code,
+        );
+        assert_eq!(read(&caller, &body)?["status"], "already_acknowledged");
+        let mut wrong = caller.clone();
+        wrong.action = Action::Read;
+        refusal(read(&wrong, &body).unwrap_err(), ErrorCode::Forbidden);
+        wrong = caller.clone();
+        wrong.resource.id = "f".repeat(32);
+        assert!(format!("{:#}", read(&wrong, &body).unwrap_err())
+            .contains("event RPC authority does not match its target"));
+        refusal(read(&caller, &json!({"subscription":"projection","receipt":"bad"})).unwrap_err(), ErrorCode::StaleReceipt);
+        let mut changed = definition.clone();
+        changed.grants[0].subscriptions.clear();
+        db.system_sql("UPDATE __sys_stream SET definition=?", &[serde_json::to_string(&changed)?.into()])?;
+        refusal(read(&caller, &body).unwrap_err(), ErrorCode::Forbidden);
+        db.system_sql("UPDATE __sys_stream SET definition=?", &[serde_json::to_string(&definition)?.into()])?;
+        db.system_sql("UPDATE __sys_stream_subscriptions SET state='deleted'", &[])?;
+        refusal(read(&caller, &body).unwrap_err(), ErrorCode::SubscriptionReset);
+        db.system_sql("UPDATE __sys_stream_subscriptions SET state='active',id='00000000000000000000000000000004',generation='00000000000000000000000000000005'", &[])?;
+        refusal(read(&caller, &body).unwrap_err(), ErrorCode::SubscriptionReset);
+        db.system_sql("UPDATE __sys_stream SET lifecycle='deleted'", &[])?;
+        refusal(read(&caller, &body).unwrap_err(), ErrorCode::DestinationDeleted);
+        Ok(())
+    }).await
 }
 
 #[tokio::test]

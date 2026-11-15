@@ -115,6 +115,8 @@ pub struct Subscription<E> {
     pub(crate) stream: Stream<E>,
     pub(crate) name: String,
     resolved: Arc<Mutex<Option<super::SubscriptionIdentity>>>,
+    /// One bounded probe hint, never acknowledgment or serving authority.
+    completed: Arc<Mutex<Option<Receipt>>>,
 }
 
 impl<E> Clone for Subscription<E> {
@@ -123,6 +125,7 @@ impl<E> Clone for Subscription<E> {
             stream: self.stream.clone(),
             name: self.name.clone(),
             resolved: self.resolved.clone(),
+            completed: self.completed.clone(),
         }
     }
 }
@@ -160,6 +163,7 @@ impl<E> Stream<E> {
             stream: self.clone(),
             name: name.into(),
             resolved: Arc::new(Mutex::new(None)),
+            completed: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -290,10 +294,29 @@ impl<E> Subscription<E> {
 
     pub async fn ack(&self, context: &Context, receipt: &Receipt) -> Result<Acknowledgment> {
         self.check_receipt(receipt)?;
+        let raft = context.raft_storage.is_some()
+            || (context.identity().is_none() && context.state.raft_cell_classes.is_some());
+        let probe = raft && self.completed.lock().unwrap().as_ref() == Some(receipt);
+        if probe {
+            let value = self
+                .call(
+                    context,
+                    "__streamAckReceipt",
+                    json!({"receipt":receipt.encode()?}),
+                )
+                .await?;
+            if let Some(completed) = accept_completed_acknowledgment(&value)? {
+                return Ok(completed);
+            }
+        }
         let value = self
             .call(context, "__streamAck", json!({"receipt":receipt.encode()?}))
             .await?;
-        accept_acknowledgment(&value)
+        let acknowledgment = accept_acknowledgment(&value)?;
+        if raft {
+            *self.completed.lock().unwrap() = Some(receipt.clone());
+        }
+        Ok(acknowledgment)
     }
 
     pub async fn retry(&self, context: &Context, receipt: &Receipt, delay_ms: i64) -> Result<()> {
@@ -338,6 +361,18 @@ impl<E> Subscription<E> {
             )
             .await?;
         super::error::submitted_result(accept_extension(expires_ms, &value))
+    }
+}
+
+fn accept_completed_acknowledgment(value: &Value) -> Result<Option<Acknowledgment>> {
+    match value["status"].as_str() {
+        Some("pending") => Ok(None),
+        Some("already_acknowledged") => Ok(Some(Acknowledgment::AlreadyAcknowledged)),
+        Some("obsolete") => Ok(Some(Acknowledgment::Obsolete)),
+        _ => Err(error(
+            ErrorCode::StaleReceipt,
+            "invalid acknowledgment observation",
+        )),
     }
 }
 
