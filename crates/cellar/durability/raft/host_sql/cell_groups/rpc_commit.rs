@@ -133,7 +133,10 @@ pub(super) async fn wait_checkpoint(
             .submit_retained(prepared.clone(), Some(retained.clone()))
             .await
         {
-            Ok(CellSubmissionOutcome::Accepted(_)) => break,
+            Ok(CellSubmissionOutcome::Accepted(_)) => {
+                tracing::debug!(target: "cellar::raft::sql_ingress", cell=?expected.history.cell, proposal=?prepared.proposal(), "DEBUG-cg17-binding-283 checkpoint submitted");
+                break;
+            }
             Ok(CellSubmissionOutcome::Rejected(_)) => return Ok(CheckpointProof::Rejected),
             Err(RuntimeError::Overloaded | RuntimeError::NotReady) => pause(&domain).await?,
             Err(RuntimeError::NotLeader | RuntimeError::StaleCompletion) => {
@@ -160,6 +163,7 @@ pub(super) async fn wait_checkpoint(
                     .await
                 {
                     Ok(proof) if proof.term() == term && proof.cell().version == expected => {
+                        tracing::debug!(target: "cellar::raft::sql_ingress", cell=?expected.history.cell, proposal=?prepared.proposal(), "DEBUG-cg17-binding-283 checkpoint applied");
                         return Ok(CheckpointProof::Current(
                             Box::new(execution),
                             Box::new(proof),
