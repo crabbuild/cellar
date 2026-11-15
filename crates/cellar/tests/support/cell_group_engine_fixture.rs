@@ -31,6 +31,7 @@ struct Voter {
     gate: Arc<fault::Gate>,
     paused: bool,
     held: Option<CellGroupApply>,
+    filesystem_work: bool,
 }
 
 struct Cluster {
@@ -304,6 +305,7 @@ impl Cluster {
                 gate,
                 paused: false,
                 held: None,
+                filesystem_work: false,
             });
         }
         Ok(Self {
@@ -663,7 +665,11 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
                     position: apply.ticket.position(),
                     proposal: decoded.binding.proposal,
                 },
-                effects: old.effects,
+                effects: if voter.filesystem_work {
+                    filesystem_effects(&prepared.pin)?
+                } else {
+                    old.effects
+                },
             };
             Ok(voter.tree.prepare_update(
                 voter.pages.as_mut().context("fixture page owner")?,
@@ -675,6 +681,55 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
         }
         _ => anyhow::bail!("unexpected administration"),
     }
+}
+
+// The minimal log fixture normally carries explicit hints forward. The
+// filesystem-only registered workload creates native GC work in SQLite, so
+// derive that hint from its actual image just as the production applier does.
+// This workload declares no other alarms, deliveries or child calls.
+fn filesystem_effects(pin: &CellImagePin) -> Result<EffectSummary> {
+    let bytes = match pin {
+        CellImagePin::Empty => return Ok(Default::default()),
+        CellImagePin::Materialized(pin) => {
+            anyhow::ensure!(pin.state().length <= 64 * 1024 * 1024);
+            images::read(pin)?
+        }
+        CellImagePin::Extents(pin) => {
+            let manifest = pin.manifest();
+            anyhow::ensure!(manifest.geometry().length() <= 64 * 1024 * 1024);
+            let mut bytes = Vec::new();
+            for ordinal in 0..manifest.geometry().extent_count() {
+                bytes.extend(
+                    pin.view()
+                        .read_extent(manifest.extent(ordinal).context("filesystem extent")?)?,
+                );
+            }
+            anyhow::ensure!(bytes.len() as u64 == manifest.geometry().length());
+            bytes
+        }
+    };
+    let file = tempfile::NamedTempFile::new()?;
+    std::fs::write(file.path(), bytes)?;
+    let connection = rusqlite::Connection::open_with_flags(
+        file.path(),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+    let present: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_raft_native_work')", [], |row| row.get(0))?;
+    let next_alarm_unix_millis = if present {
+        let (count, due): (u64, Option<u64>) = connection.query_row(
+            "SELECT count(*),min(due) FROM (SELECT due FROM __sys_raft_native_work LIMIT 2)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        anyhow::ensure!(count <= 1, "filesystem fixture native work bound");
+        due
+    } else {
+        None
+    };
+    Ok(EffectSummary {
+        next_alarm_unix_millis,
+        ..Default::default()
+    })
 }
 
 fn history(route: &GroupRoute, name: &str) -> Result<CellHistory> {

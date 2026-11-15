@@ -2,7 +2,7 @@
 
 //! Reconnectable backend upload identities, independent of process registries.
 
-use super::{store, Bucket, Context, Object, UploadedPart};
+use super::{raft, store, Bucket, Context, Object, UploadedPart};
 use anyhow::{ensure, Result};
 use object_store::multipart::PartId;
 use std::sync::Arc;
@@ -32,7 +32,7 @@ impl ResumableMultipart {
         number: u32,
         length: u64,
     ) -> Result<super::ResumablePart> {
-        context.check_turn()?;
+        raft::check(context, &self.bucket.binding, &self.bucket.name)?;
         if !(1..=10_000).contains(&number) {
             return Err(super::PartRefused("invalid part number").into());
         }
@@ -47,16 +47,17 @@ impl ResumableMultipart {
             return Err(super::PartRefused("streamed parts unsupported by this backend").into());
         }
         let capacity = crate::asyncrt::services().reserve_blob_spool(length_bytes)?;
-        crate::native_worker::blob_gate(context).await?;
-        let part = backend
-            .begin_resumable_part(
-                &store::blob_key(&self.bucket.name, &self.key),
-                &self.id,
-                number as usize - 1,
-                length,
-                capacity,
-            )
-            .await?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let key = store::blob_key(&self.bucket.name, &self.key);
+        let id = self.id.to_string();
+        let part = raft::io(context, async move {
+            backend
+                .begin_resumable_part(&key, &id, number as usize - 1, length, capacity)
+                .await
+        })
+        .await?;
         super::ResumablePart::new(context, number, part)
     }
 
@@ -94,7 +95,7 @@ impl ResumableMultipart {
         number: u32,
         bytes: bytes::Bytes,
     ) -> Result<UploadedPart> {
-        context.check_turn()?;
+        raft::check(context, &self.bucket.binding, &self.bucket.name)?;
         ensure!(
             (1..=10_000).contains(&number),
             "multipart part number must be in 1..=10000"
@@ -107,15 +108,17 @@ impl ResumableMultipart {
             "multipart part exceeds the native Blob buffer limit"
         );
         let backend = store::store().map_err(anyhow::Error::msg)?;
-        crate::native_worker::blob_gate(context).await?;
-        let receipt = backend
-            .upload_resumable_part(
-                &store::blob_key(&self.bucket.name, &self.key),
-                &self.id,
-                number as usize - 1,
-                bytes.into(),
-            )
-            .await?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let key = store::blob_key(&self.bucket.name, &self.key);
+        let id = self.id.to_string();
+        let receipt = raft::io(context, async move {
+            backend
+                .upload_resumable_part(&key, &id, number as usize - 1, bytes.into())
+                .await
+        })
+        .await?;
         ensure!(
             !receipt.content_id.is_empty() && receipt.content_id.len() <= 16_384,
             "invalid uploaded part receipt"
@@ -127,7 +130,7 @@ impl ResumableMultipart {
     }
 
     pub async fn complete(&self, context: &Context, parts: &[UploadedPart]) -> Result<Object> {
-        context.check_turn()?;
+        raft::check(context, &self.bucket.binding, &self.bucket.name)?;
         ensure!(
             !parts.is_empty() && parts.len() <= 10_000,
             "multipart completion requires 1 to 10000 parts"
@@ -142,45 +145,54 @@ impl ResumableMultipart {
         }
         let backend = store::store().map_err(anyhow::Error::msg)?;
         let key = store::blob_key(&self.bucket.name, &self.key);
-        crate::native_worker::blob_gate(context).await?;
-        let published = backend
-            .complete_resumable_multipart(
-                &key,
-                &self.id,
-                parts
-                    .iter()
-                    .map(|part| PartId {
-                        content_id: part.etag.clone(),
-                    })
-                    .collect(),
-            )
-            .await?;
-        // Completion can already have committed. A raced/missing observation
-        // cannot turn this into a rollback proof or authorize mutation replay.
-        let meta = backend
-            .head_blob(&key)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("completed object could not be observed"))?;
-        let same = match published.version {
-            Some(version) => meta.version.as_deref() == Some(&version),
-            None => published
-                .e_tag
-                .as_ref()
-                .is_some_and(|etag| meta.etag.as_ref() == Some(etag)),
-        };
-        ensure!(
-            same,
-            "completed object was replaced before metadata observation"
-        );
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let id = self.id.to_string();
+        let parts = parts
+            .iter()
+            .map(|part| PartId {
+                content_id: part.etag.clone(),
+            })
+            .collect();
+        let meta = raft::io(context, async move {
+            let published = backend
+                .complete_resumable_multipart(&key, &id, parts)
+                .await?;
+            // Completion can already have committed. A raced/missing observation
+            // cannot turn this into a rollback proof or authorize mutation replay.
+            let meta = backend
+                .head_blob(&key)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("completed object could not be observed"))?;
+            let same = match published.version {
+                Some(version) => meta.version.as_deref() == Some(&version),
+                None => published
+                    .e_tag
+                    .as_ref()
+                    .is_some_and(|etag| meta.etag.as_ref() == Some(etag)),
+            };
+            ensure!(
+                same,
+                "completed object was replaced before metadata observation"
+            );
+            Ok(meta)
+        })
+        .await?;
         Object::from_record(store::object_json(&self.key, &meta, None))
     }
 
     pub async fn abort(&self, context: &Context) -> Result<()> {
-        context.check_turn()?;
+        raft::check(context, &self.bucket.binding, &self.bucket.name)?;
         let backend = store::store().map_err(anyhow::Error::msg)?;
-        crate::native_worker::blob_gate(context).await?;
-        backend
-            .abort_resumable_multipart(&store::blob_key(&self.bucket.name, &self.key), &self.id)
-            .await
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let key = store::blob_key(&self.bucket.name, &self.key);
+        let id = self.id.to_string();
+        raft::io(context, async move {
+            backend.abort_resumable_multipart(&key, &id).await
+        })
+        .await
     }
 }

@@ -100,6 +100,7 @@ async fn restore_source(
             gate: fault::Gate::new(None),
             paused: false,
             held: None,
+            filesystem_work: false,
         });
     }
     let cluster = Cluster {

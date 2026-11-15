@@ -413,6 +413,7 @@ async fn reopen_voters(
             gate: fault::Gate::new(None),
             paused: false,
             held: None,
+            filesystem_work: false,
         });
     }
     let cluster = Cluster {

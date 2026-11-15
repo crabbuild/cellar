@@ -68,9 +68,38 @@ pub(crate) fn rpc(
             "put" => Request::Put(reference, value.context("KV payload bytes")?.into()),
             _ => anyhow::bail!(CommandFailure::UnsupportedCapability),
         };
+        let dependency = match &request {
+            Request::Get(reference) | Request::Put(reference, _) => reference.clone(),
+        };
+        let history = source.history.clone();
+        let parent = source.parent;
+        let guard = crate::storage::raft_payloads::record(
+            parent,
+            &history,
+            history.clone(),
+            dependency.clone(),
+            false,
+        )?;
+        let source_history = history.clone();
         let call = dispatch.schedule_io(move |timeout| async move {
+            let deadline = crate::asyncrt::mono_ms()
+                .checked_add(timeout.as_millis().try_into()?)
+                .ok_or(CommandFailure::Overloaded)?;
+            let (reference, upload) = match &request {
+                Request::Get(reference) => (reference, false),
+                Request::Put(reference, _) => (reference, true),
+            };
+            store
+                .protect_command(&source.history, reference, guard, upload, timeout)
+                .await?;
+            let timeout = std::time::Duration::from_millis(
+                deadline
+                    .checked_sub(crate::asyncrt::mono_ms())
+                    .filter(|n| *n != 0)
+                    .ok_or(crate::application::consensus::RuntimeError::DeadlineExceeded)?,
+            );
             match request {
-                Request::Get(reference) => Ok(BlobReply::GroupBytes(
+                Request::Get(reference) => Ok::<_, anyhow::Error>(BlobReply::GroupBytes(
                     store
                         .get_with_retained_copies(
                             &source.history,
@@ -88,7 +117,17 @@ pub(crate) fn rpc(
                 }
             }
         });
-        Ok(Box::pin(async move { call.future.await? }))
+        Ok(Box::pin(async move {
+            let reply = call.future.await??;
+            crate::storage::raft_payloads::record(
+                parent,
+                &source_history,
+                history,
+                dependency,
+                true,
+            )?;
+            Ok(reply)
+        }))
     })();
     Box::pin(async move { prepared?.await })
 }

@@ -47,7 +47,7 @@ class SqlCampaignTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("--test") + 1], target)
                 selection = argv[argv.index("--") + 1]
                 env = kwargs["env"]
-                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "immutable-payloads", "queue-primitives"):
+                if suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
                     self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "1")
                     self.assertEqual(env["CARGO_PROFILE_TEST_DEBUG_ASSERTIONS"], "true")
                     self.assertEqual(env["CARGO_PROFILE_TEST_OVERFLOW_CHECKS"], "true")
@@ -261,6 +261,20 @@ class WorkflowCampaignTests(unittest.TestCase):
 
     def test_workflows_preserve_each_failed_case(self):
         self.campaign("zero", "ordinary-workflows", keep_going=True)
+
+
+class PayloadLifecycleCampaignTests(unittest.TestCase):
+    campaign = SqlCampaignTests.campaign
+
+    def test_payload_and_filesystem_campaigns_capture_exact_cases(self):
+        for suite in ("ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster"):
+            with self.subTest(suite=suite):
+                self.campaign(suite=suite)
+
+    def test_payload_and_filesystem_campaigns_refuse_empty_success(self):
+        for suite in ("ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster"):
+            with self.subTest(suite=suite):
+                self.campaign("zero", suite=suite)
 
 
 if __name__ == "__main__":

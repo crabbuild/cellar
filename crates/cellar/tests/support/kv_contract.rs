@@ -322,6 +322,7 @@ pub async fn phase(context: &Context, namespace: &Namespace, part: &str) -> Resu
 }
 
 pub async fn large(context: &Context, namespace: &Namespace) -> Result<()> {
+    let started = cellar::asyncrt::mono_ms();
     let value = (0..cellar_logic::kv::MAX_VALUE_BYTES)
         .map(|index| (index % 251) as u8)
         .collect::<Vec<_>>();
@@ -336,9 +337,17 @@ pub async fn large(context: &Context, namespace: &Namespace) -> Result<()> {
             },
         )
         .await?;
+    eprintln!(
+        "large KV put completed after {} ms",
+        cellar::asyncrt::mono_ms() - started
+    );
     assert_eq!(
         bytes(namespace.get(context, "large", ReadType::Bytes).await?),
         value
+    );
+    eprintln!(
+        "large KV get completed after {} ms",
+        cellar::asyncrt::mono_ms() - started
     );
     Ok(())
 }

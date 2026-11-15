@@ -80,9 +80,7 @@ pub(super) async fn check_images(
             .blocking(move || -> Result<Vec<u8>> {
                 Ok(match pin {
                     CellImagePin::Empty => Vec::new(),
-                    CellImagePin::Materialized(pin) => pin
-                        .open_reader()?
-                        .read_exact_at(0, pin.state().length as usize)?,
+                    CellImagePin::Materialized(pin) => images::read(&pin)?,
                     CellImagePin::Extents(pin) => {
                         let mut bytes = Vec::new();
                         for n in 0..pin.manifest().geometry().extent_count() {

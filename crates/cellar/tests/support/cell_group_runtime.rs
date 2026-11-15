@@ -678,6 +678,7 @@ impl RuntimeCluster {
                 gate: self.cluster.voters[n].gate.clone(),
                 paused: false,
                 held: None,
+                filesystem_work: false,
             });
         }
         self.applied.insert(scope, applied);

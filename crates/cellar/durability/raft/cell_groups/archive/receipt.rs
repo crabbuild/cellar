@@ -125,7 +125,7 @@ pub(in crate::raft::cell_groups) fn lookup(
     Ok(true)
 }
 
-fn open(
+pub(super) fn open(
     store: &CellGroupArchiveStore,
     pin: CellImagePin,
     deadline: u64,

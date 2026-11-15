@@ -12,6 +12,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 pub(crate) mod part;
+mod raft;
 mod resumable;
 mod types;
 pub use part::{PartRefused, ResumablePart};
@@ -31,21 +32,44 @@ pub struct ObjectBody {
     pub object: Object,
     body: Option<HttpChunkStream>,
     used: bool,
+    authority: Option<crate::application::storage::RaftStorageAuthority>,
 }
 
 impl ObjectBody {
+    fn check(&self, context: &Context) -> Result<()> {
+        context.check_binding_turn()?;
+        if let Some(authority) = &self.authority {
+            crate::application::Storage::raft_command(authority.clone()).check_raft_turn()?;
+        }
+        Ok(())
+    }
+
     pub fn body_used(&self) -> bool {
         self.used
     }
 
     pub async fn next(&mut self, context: &Context) -> Result<Option<Vec<u8>>> {
-        context.check_turn()?;
+        self.check(context)?;
         self.used = true;
+        if self.authority.is_some() {
+            let Some(mut body) = self.body.take() else {
+                return Ok(None);
+            };
+            let (body, result) = raft::read(context, async move {
+                let result = body.next().await.transpose().map_err(anyhow::Error::msg);
+                Ok((body, result))
+            })
+            .await?;
+            if result.as_ref().is_ok_and(Option::is_some) {
+                self.body = Some(body);
+            }
+            return result;
+        }
         let Some(body) = &mut self.body else {
             return Ok(None);
         };
         let result = body.next().await.transpose().map_err(anyhow::Error::msg);
-        context.check_turn()?;
+        self.check(context)?;
         if result.as_ref().is_ok_and(Option::is_none) || result.is_err() {
             self.body = None;
         }
@@ -53,7 +77,7 @@ impl ObjectBody {
     }
 
     pub async fn bytes(&mut self, context: &Context) -> Result<Vec<u8>> {
-        context.check_turn()?;
+        self.check(context)?;
         ensure!(!self.used, "Blob body was already consumed");
         let mut bytes = Vec::new();
         while let Some(chunk) = self.next(context).await? {
@@ -79,7 +103,7 @@ impl ObjectBody {
     }
 
     pub fn cancel(&mut self, context: &Context) -> Result<()> {
-        context.check_turn()?;
+        self.check(context)?;
         self.used = true;
         self.body = None;
         Ok(())
@@ -140,7 +164,7 @@ impl Bucket {
         key: &str,
         options: WriteOptions,
     ) -> Result<ResumableMultipart> {
-        context.check_turn()?;
+        raft::check(context, &self.binding, &self.name)?;
         self.key("createResumableMultipart", key)?;
         ensure!(
             options.conditional().is_none() && options.checksums.is_empty(),
@@ -159,10 +183,16 @@ impl Bucket {
             storage_class: request.storage_class,
         }
         .write();
-        crate::native_worker::blob_gate(context).await?;
-        let id = backend
-            .create_resumable_multipart(&store::blob_key(&self.name, key), &attributes)
-            .await?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let object_key = store::blob_key(&self.name, key);
+        let id = raft::io(context, async move {
+            backend
+                .create_resumable_multipart(&object_key, &attributes)
+                .await
+        })
+        .await?;
         self.resume_resumable_multipart(key, &id)
     }
 
@@ -188,13 +218,18 @@ impl Bucket {
     }
 
     pub async fn head(&self, context: &Context, key: &str) -> Result<Option<Object>> {
-        context.check_turn()?;
+        raft::check(context, &self.binding, &self.name)?;
         self.key("head", key)?;
-        store::head(&self.name, key)
-            .await
-            .map_err(anyhow::Error::msg)?
-            .map(|meta| Object::from_record(store::object_json(key, &meta, None)))
-            .transpose()
+        let name = self.name.to_string();
+        let owned_key = key.to_string();
+        raft::read(context, async move {
+            store::head(&name, &owned_key)
+                .await
+                .map_err(anyhow::Error::msg)
+        })
+        .await?
+        .map(|meta| Object::from_record(store::object_json(key, &meta, None)))
+        .transpose()
     }
 
     pub async fn get(
@@ -203,33 +238,33 @@ impl Bucket {
         key: &str,
         options: GetOptions,
     ) -> Result<GetResult> {
-        context.check_turn()?;
+        raft::check(context, &self.binding, &self.name)?;
         self.key("get", key)?;
         let range = options
             .range
             .map(BlobRange::from)
             .unwrap_or(BlobRange::Whole);
         let conditions = BlobConditions::from(options.only_if.unwrap_or_default());
-        Ok(
-            match store::read(&self.name, key, range, &conditions)
+        let name = self.name.to_string();
+        let owned_key = key.to_string();
+        let read = raft::read(context, async move {
+            store::read(&name, &owned_key, range, &conditions)
                 .await
-                .map_err(anyhow::Error::msg)?
-            {
-                BlobRead::Missing => GetResult::Missing,
-                BlobRead::Unmet(meta) => {
-                    GetResult::Unmet(Object::from_record(store::object_json(key, &meta, None))?)
-                }
-                BlobRead::Hit(blob) => GetResult::Body(ObjectBody {
-                    object: Object::from_record(store::object_json(
-                        key,
-                        &blob.meta,
-                        Some(blob.range),
-                    ))?,
-                    body: Some(blob.body),
-                    used: false,
-                }),
-            },
-        )
+                .map_err(anyhow::Error::msg)
+        })
+        .await?;
+        Ok(match read {
+            BlobRead::Missing => GetResult::Missing,
+            BlobRead::Unmet(meta) => {
+                GetResult::Unmet(Object::from_record(store::object_json(key, &meta, None))?)
+            }
+            BlobRead::Hit(blob) => GetResult::Body(ObjectBody {
+                object: Object::from_record(store::object_json(key, &blob.meta, Some(blob.range)))?,
+                body: Some(blob.body),
+                used: false,
+                authority: context.raft_storage.clone(),
+            }),
+        })
     }
 
     pub async fn put(
@@ -239,14 +274,22 @@ impl Bucket {
         bytes: impl Into<Vec<u8>>,
         options: WriteOptions,
     ) -> Result<Option<Object>> {
-        context.check_turn()?;
+        raft::check(context, &self.binding, &self.name)?;
         self.key("put", key)?;
         let request: store::PutRequest = serde_json::from_value(options.wire())?;
-        crate::native_worker::blob_gate(context).await?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let name = self.name.to_string();
+        let key = key.to_string();
+        let bytes = bytes.into();
         stored(
-            store::put_once(self.name.to_string(), key.into(), bytes.into(), request)
-                .await
-                .map_err(anyhow::Error::msg)?,
+            raft::io(context, async move {
+                store::put_once(name, key, bytes, request)
+                    .await
+                    .map_err(anyhow::Error::msg)
+            })
+            .await?,
         )
     }
 
@@ -260,44 +303,65 @@ impl Bucket {
     where
         S: Stream<Item = Result<Vec<u8>, String>> + Send,
     {
-        context.check_turn()?;
+        raft::check(context, &self.binding, &self.name)?;
         self.key("put", key)?;
-        let id = streaming::begin(self.name.to_string(), key.into(), options.json()?)
-            .await
-            .map_err(anyhow::Error::msg)?
-            .parse::<u64>()?;
-        let mut cleanup = StreamCleanup(Some(id));
+        let name = self.name.to_string();
+        let key = key.to_string();
+        let options = options.json()?;
+        let id = raft::io(context, async move {
+            streaming::begin(name, key, options)
+                .await
+                .map_err(anyhow::Error::msg)
+        })
+        .await?
+        .parse::<u64>()?;
+        let mut cleanup = StreamCleanup(Some(id), crate::asyncrt::services().domain_token());
         let mut stream = std::pin::pin!(stream);
         while let Some(chunk) = stream.next().await {
-            context.check_turn()?;
+            raft::check(context, &self.binding, &self.name)?;
             let chunk = chunk.map_err(anyhow::Error::msg)?;
-            crate::native_worker::blob_gate(context).await?;
-            streaming::chunk(id, chunk)
-                .await
-                .map_err(anyhow::Error::msg)?;
+            if context.raft_storage.is_none() {
+                crate::native_worker::blob_gate(context).await?;
+            }
+            raft::io(context, async move {
+                streaming::chunk(id, chunk)
+                    .await
+                    .map_err(anyhow::Error::msg)
+            })
+            .await?;
         }
-        crate::native_worker::blob_gate(context).await?;
-        let result = streaming::end(id, false)
-            .await
-            .map_err(anyhow::Error::msg)?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let result = raft::io(context, async move {
+            streaming::end(id, false).await.map_err(anyhow::Error::msg)
+        })
+        .await?;
         cleanup.0 = None;
         stored(result)
     }
 
     pub async fn delete(&self, context: &Context, keys: &[String]) -> Result<()> {
-        context.check_turn()?;
+        raft::check(context, &self.binding, &self.name)?;
         ensure!(keys.len() <= 1000, "Blob delete accepts at most 1000 keys");
         for key in keys {
             self.key("delete", key)?;
         }
-        crate::native_worker::blob_gate(context).await?;
-        store::delete(&self.name, keys)
-            .await
-            .map_err(anyhow::Error::msg)
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let name = self.name.to_string();
+        let keys = keys.to_vec();
+        raft::io(context, async move {
+            store::delete(&name, &keys)
+                .await
+                .map_err(anyhow::Error::msg)
+        })
+        .await
     }
 
     pub async fn list(&self, context: &Context, options: ListOptions) -> Result<Page> {
-        context.check_turn()?;
+        raft::check(context, &self.binding, &self.name)?;
         let request = serde_json::to_string(
             &serde_json::json!({"prefix":options.prefix,"cursor":options.cursor,"startAfter":options.start_after,
             "limit":options.limit,"delimiter":options.delimiter,"include":options.include_http_metadata||options.include_custom_metadata}),
@@ -310,10 +374,14 @@ impl Bucket {
             cursor: Option<String>,
             prefixes: Vec<String>,
         }
+        let name = self.name.to_string();
         let listing: Listing = serde_json::from_value(
-            store::list(&self.name, &request)
-                .await
-                .map_err(anyhow::Error::msg)?,
+            raft::read(context, async move {
+                store::list(&name, &request)
+                    .await
+                    .map_err(anyhow::Error::msg)
+            })
+            .await?,
         )?;
         let objects = listing
             .objects
@@ -345,7 +413,7 @@ impl Bucket {
         key: &str,
         options: WriteOptions,
     ) -> Result<Multipart> {
-        context.check_turn()?;
+        raft::check(context, &self.binding, &self.name)?;
         self.key("createMultipartUpload", key)?;
         ensure!(
             options.conditional().is_none(),
@@ -356,10 +424,17 @@ impl Bucket {
             "Blob takes a checksum on put, not createMultipartUpload"
         );
         let request: store::PutRequest = serde_json::from_value(options.wire())?;
-        crate::native_worker::blob_gate(context).await?;
-        let id = multipart::begin(self.name.to_string(), key.into(), request)
-            .await
-            .map_err(anyhow::Error::msg)?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let name = self.name.to_string();
+        let owned_key = key.to_string();
+        let id = raft::io(context, async move {
+            multipart::begin(name, owned_key, request)
+                .await
+                .map_err(anyhow::Error::msg)
+        })
+        .await?;
         let handle = self.resume_multipart(key, &id)?;
         let _ = handle.host.set(Ok(id.parse::<u64>()?));
         Ok(handle)
@@ -385,14 +460,16 @@ fn stored(result: String) -> Result<Option<Object>> {
     }
 }
 
-struct StreamCleanup(Option<u64>);
+struct StreamCleanup(Option<u64>, Option<crate::asyncrt::DomainToken>);
 
 impl Drop for StreamCleanup {
     fn drop(&mut self) {
         if let Some(id) = self.0.take() {
-            crate::asyncrt::spawn(async move {
-                let _ = streaming::end(id, true).await;
-            });
+            if let Some(domain) = &self.1 {
+                let _ = domain.spawn_cleanup(async move {
+                    let _ = streaming::end(id, true).await;
+                });
+            }
         }
     }
 }
@@ -415,15 +492,19 @@ impl Multipart {
     }
 
     async fn id(&self, context: &Context) -> Result<u64> {
-        context.check_turn()?;
+        raft::check(context, &self.bucket.binding, &self.bucket.name)?;
         self.host
             .get_or_init(|| async {
-                multipart::resume(
-                    self.bucket.name.to_string(),
-                    self.key.to_string(),
-                    self.id.to_string(),
-                )
-                .await?
+                let name = self.bucket.name.to_string();
+                let key = self.key.to_string();
+                let id = self.id.to_string();
+                raft::io(context, async move {
+                    multipart::resume(name, key, id)
+                        .await
+                        .map_err(anyhow::Error::msg)
+                })
+                .await
+                .map_err(|error| error.to_string())?
                 .parse::<u64>()
                 .map_err(|error| error.to_string())
             })
@@ -439,10 +520,16 @@ impl Multipart {
         bytes: impl Into<Vec<u8>>,
     ) -> Result<UploadedPart> {
         let id = self.id(context).await?;
-        crate::native_worker::blob_gate(context).await?;
-        multipart::part(id, number, bytes.into())
-            .await
-            .map_err(anyhow::Error::msg)?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let bytes = bytes.into();
+        raft::io(context, async move {
+            multipart::part(id, number, bytes)
+                .await
+                .map_err(anyhow::Error::msg)
+        })
+        .await?;
         Ok(UploadedPart {
             part_number: number,
             etag: String::new(),
@@ -451,19 +538,28 @@ impl Multipart {
 
     pub async fn complete(&self, context: &Context, parts: &[UploadedPart]) -> Result<Object> {
         let id = self.id(context).await?;
-        crate::native_worker::blob_gate(context).await?;
-        let result = multipart::finish(id, parts.iter().map(|part| part.part_number).collect())
-            .await
-            .map_err(anyhow::Error::msg)?;
+        if context.raft_storage.is_none() {
+            crate::native_worker::blob_gate(context).await?;
+        }
+        let parts = parts.iter().map(|part| part.part_number).collect();
+        let result = raft::io(context, async move {
+            multipart::finish(id, parts)
+                .await
+                .map_err(anyhow::Error::msg)
+        })
+        .await?;
         Object::from_record(serde_json::from_str(&result)?)
     }
 
     pub async fn abort(&self, context: &Context) -> Result<()> {
         let id = self.id(context).await?;
-        if multipart::is_open(id) {
+        if multipart::is_open(id) && context.raft_storage.is_none() {
             crate::native_worker::blob_gate(context).await?;
         }
-        multipart::abort(id).await.map_err(anyhow::Error::msg)?;
+        raft::io(context, async move {
+            multipart::abort(id).await.map_err(anyhow::Error::msg)
+        })
+        .await?;
         Ok(())
     }
 }

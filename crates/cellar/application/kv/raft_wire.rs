@@ -18,7 +18,7 @@ pub(crate) const PREPARE: &str = "__kvPrepareWire";
 pub(crate) const EXTERNAL: &str = "__kvExternalInput";
 pub(crate) const MAX_BYTES: usize = crate::raft::cell_groups::MAX_CELL_GROUP_PAYLOAD_BYTES;
 pub(crate) const DECODE_COPIES: usize = 6;
-pub(crate) const MIN_RETAINED_BYTES: usize = MAX_BYTES * (DECODE_COPIES + 3) + 128 * 1024;
+pub(crate) const MIN_RETAINED_BYTES: usize = MAX_BYTES * (DECODE_COPIES + 3) + 512 * 1024;
 const INPUT: &str = "__cellarKvInput";
 const REPLY: &str = "__cellarKvReply";
 
@@ -382,14 +382,42 @@ pub(super) async fn verify_value(context: &Context, encoded: &str) -> Result<(St
 
 /// Only a committed row supplies this locator. The SDK still reads and verifies
 /// the immutable body before exposing a value, under the same original deadline.
-pub(super) fn published_value(encoded: &str) -> Result<(String, usize)> {
+pub(super) async fn published_value(encoded: &str) -> Result<(String, usize)> {
     ensure!(encoded.len() <= 1024, CommandFailure::CorruptState);
     let object: CellGroupPayloadReference = serde_json::from_str(encoded)?;
     let length = usize::try_from(object.length())?;
     check_value(length)?;
-    let history = crate::storage::capture_raft_dispatch()?
-        .ok_or(CommandFailure::UnsupportedCapability)?
-        .source_history()?;
+    let dispatch =
+        crate::storage::capture_raft_dispatch()?.ok_or(CommandFailure::UnsupportedCapability)?;
+    let source = dispatch.binding_source()?;
+    let history = source.history.clone();
+    let guard = crate::storage::raft_payloads::record(
+        source.parent,
+        &source.history,
+        history.clone(),
+        object.clone(),
+        false,
+    )?;
+    let store = source
+        .host
+        .kv_payload_store(&history, source.configuration)?;
+    let pin_history = history.clone();
+    let pin_object = object.clone();
+    dispatch
+        .schedule_io(move |timeout| async move {
+            store
+                .protect_command(&pin_history, &pin_object, guard, false, timeout)
+                .await
+        })
+        .future
+        .await??;
+    crate::storage::raft_payloads::record(
+        source.parent,
+        &source.history,
+        history.clone(),
+        object.clone(),
+        true,
+    )?;
     Ok((
         serde_json::to_string(&Reference {
             format: 1,
@@ -440,10 +468,31 @@ async fn transfer(
             source.configuration,
             &history,
         )?;
-        dispatch
-            .schedule_io(move |timeout| execute(store, reference, bytes, timeout))
+        let dependency = reference.object.clone();
+        let parent = source.parent;
+        let source_history = source.history;
+        let guard = crate::storage::raft_payloads::record(
+            parent,
+            &source_history,
+            history.clone(),
+            dependency.clone(),
+            false,
+        )?;
+        let result = dispatch
+            .schedule_io(move |timeout| async move {
+                let deadline = crate::asyncrt::mono_ms()
+                    .checked_add(timeout.as_millis().try_into()?)
+                    .ok_or(CommandFailure::Overloaded)?;
+                let target = reference.history()?;
+                store
+                    .protect_command(&target, &reference.object, guard, bytes.is_some(), timeout)
+                    .await?;
+                execute(store, reference, bytes, remaining(deadline)?).await
+            })
             .future
-            .await?
+            .await??;
+        crate::storage::raft_payloads::record(parent, &source_history, history, dependency, true)?;
+        Ok(result)
     } else {
         ensure!(
             context.identity().is_none(),

@@ -474,7 +474,13 @@ pub(crate) async fn start(
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        let archive = archive::Pools::new(limits.archive, checkpoint)?;
+        let payloads = limits.payloads.map(CellGroupPayloadPool::new).transpose()?;
+        if let Some(pool) = &payloads {
+            for namespace in &prepared.namespaces {
+                namespace.directory.namespace().cell_payloads(pool)?;
+            }
+        }
+        let archive = archive::Pools::new(limits.archive, checkpoint, payloads.clone())?;
         let (archive_images, archive_provisioning) = if let Some(archive) = archive {
             let (observer, inventory, provisioning) = archive
                 .register(&prepared, &controller, &log, &directory, limits, &options)
@@ -601,7 +607,7 @@ pub(crate) async fn start(
             controller.clone(),
             registrations,
             limits.namespaces,
-            limits.payloads.map(CellGroupPayloadPool::new).transpose()?,
+            payloads,
         )?;
         let collection = collection::Collection::new(collectible)?;
         let resources = crate::application::consensus::group_client::resources::Resources::new(

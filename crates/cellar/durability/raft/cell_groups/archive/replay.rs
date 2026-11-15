@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// checkpoint and contiguous tail. Keeps physical pins and replay admission;
 /// this supplies no published head, GC lease, serving right or S3 settlement.
 pub struct VerifiedCellGroupArchiveRecovery {
+    pub(super) payloads: Vec<super::payloads::VerifiedDependency>,
+    pub(super) payload_archive: Option<CellGroupArchive>,
     reference: CellGroupArchiveTailReference,
     checkpoint: VerifiedCellGroupArchiveCheckpoint,
     root: PreparedGroupManifest,
@@ -36,6 +38,7 @@ impl VerifiedCellGroupArchiveRecovery {
             .and_then(|n| n.checked_add(base.images.reserved_bytes()))
             .and_then(|n| n.checked_add(self.root.images.reserved_bytes()))
             .and_then(|n| n.checked_add(1024 * 1024))
+            .and_then(|n| n.checked_add(self.payloads.len().checked_mul(4096)?))
             .ok_or(CellGroupArchiveError::Limit)?;
         let Some(reservation) = self._reservation.take() else {
             return Ok(());
@@ -251,6 +254,8 @@ pub(super) fn replay(
     store.require_live()?;
     drop(owner);
     Ok(VerifiedCellGroupArchiveRecovery {
+        payloads: Vec::new(),
+        payload_archive: None,
         reference,
         checkpoint,
         root: verified,

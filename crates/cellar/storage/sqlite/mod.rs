@@ -43,6 +43,7 @@ mod kv_cursor;
 pub(crate) mod raft_binding_recovery;
 pub(crate) mod raft_bindings;
 mod raft_cursors;
+pub(crate) mod raft_payloads;
 pub(crate) use immutable::{require_storage as require_raft_query_storage, QueryFrame};
 pub(crate) use kv_cursor::KvCursorRange;
 pub(crate) use raft_cursors::raft_sql_cursor_lifetime;

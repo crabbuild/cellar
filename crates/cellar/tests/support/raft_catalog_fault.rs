@@ -435,7 +435,9 @@ impl ObjectStore for Store {
                 resumed.await;
             }
         }
-        if path.as_ref().contains("/cell-payloads-1/") {
+        if path.as_ref().contains("/cell-payloads-1/")
+            && !path.as_ref().contains("/cell-payloads-1/ownership/")
+        {
             self.cell_payload_put_calls.fetch_add(1, Ordering::AcqRel);
             self.cell_payload_put_bytes.fetch_add(
                 payload.iter().map(|bytes| bytes.len()).sum::<usize>(),
@@ -779,7 +781,9 @@ impl ObjectStore for Store {
         if path.as_ref().contains("/cell-groups/ranges/") {
             self.range_page_reads.fetch_add(1, Ordering::AcqRel);
         }
-        if path.as_ref().contains("/cell-payloads-1/") {
+        if path.as_ref().contains("/cell-payloads-1/")
+            && !path.as_ref().contains("/cell-payloads-1/ownership/")
+        {
             self.cell_payload_get_calls.fetch_add(1, Ordering::AcqRel);
             if self.deny_cell_payload_reads.load(Ordering::Acquire) {
                 self.denied_cell_payload_reads
@@ -1164,7 +1168,10 @@ impl ObjectStore for Store {
         }
 
         let chunk_bytes = self.cell_payload_chunk_bytes.load(Ordering::Acquire);
-        if path.as_ref().contains("/cell-payloads-1/") && chunk_bytes != 0 {
+        if path.as_ref().contains("/cell-payloads-1/")
+            && !path.as_ref().contains("/cell-payloads-1/ownership/")
+            && chunk_bytes != 0
+        {
             let GetResultPayload::Stream(stream) = result.payload;
             result.payload = GetResultPayload::Stream(
                 stream

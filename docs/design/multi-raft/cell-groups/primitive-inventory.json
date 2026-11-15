@@ -132,7 +132,7 @@
         "crates/cellar/application/kv/raft_wire.rs",
         "crates/cellar/application/kv/inspection.rs",
         "crates/cellar/application/consensus/native_services.rs",
-        "crates/cellar/durability/raft/cell_groups/payload.rs",
+        "crates/cellar/durability/raft/cell_groups/payload/mod.rs",
         "crates/cellar/node/kv_operator.rs",
         "crates/cellar/cli/kv_cli.rs",
         "crates/cellar/application/kv/raft_value.rs"

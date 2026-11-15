@@ -27,6 +27,7 @@ pub use fleet::VerifiedFleetGroupArchiveCoverage;
 mod collection;
 mod graph;
 mod objects;
+mod payloads;
 mod publication;
 pub use collection::{CellGroupArchiveCollectionLimits, CellGroupArchiveCollectionReport};
 pub use publication::{CellGroupArchiveCoverage, PreparedCellGroupArchivePublication};
@@ -70,6 +71,7 @@ pub enum CellGroupArchiveError {
     Enrollment(super::EnrollmentError),
     Storage(object_store::Error),
     Worker(crate::asyncrt::TaskPanic),
+    Payload(super::CellGroupPayloadError),
 }
 
 impl fmt::Display for CellGroupArchiveError {
@@ -86,6 +88,7 @@ impl std::error::Error for CellGroupArchiveError {
             Self::Enrollment(e) => Some(e),
             Self::Storage(e) => Some(e),
             Self::Worker(e) => Some(e),
+            Self::Payload(e) => Some(e),
             _ => None,
         }
     }
@@ -220,6 +223,7 @@ pub struct CellGroupArchive {
     limits: CellGroupArchiveLimits,
     budget: Arc<Budget>,
     workspace: usize,
+    payloads: Option<Arc<super::CellGroupPayloadPool>>,
 }
 
 /// Node-wide archive admission, shared by every group binding and both transfer
@@ -229,6 +233,7 @@ pub struct CellGroupArchivePool {
     limits: CellGroupArchiveLimits,
     budget: Arc<Budget>,
     workspace: usize,
+    payloads: Option<Arc<super::CellGroupPayloadPool>>,
 }
 
 impl CellGroupArchivePool {
@@ -241,7 +246,27 @@ impl CellGroupArchivePool {
             limits,
             budget: Budget::new(limits.max_retained_bytes, limits.max_operations),
             workspace,
+            payloads: None,
         })
+    }
+
+    /// Share the node's external-byte admission with foreground reads and
+    /// publication. Archives containing external references require this pool.
+    pub fn with_payloads(mut self, payloads: super::CellGroupPayloadPool) -> Self {
+        self.payloads = Some(Arc::new(payloads));
+        self
+    }
+
+    pub(crate) fn bind_payload_namespace(
+        &self,
+        namespace: &crate::raft::catalog::NamespaceCatalog,
+    ) -> Result<()> {
+        if let Some(pool) = &self.payloads {
+            namespace
+                .cell_payloads(pool)
+                .map_err(|_| CellGroupArchiveError::Invalid("payload namespace capability"))?;
+        }
+        Ok(())
     }
 
     pub fn for_group(
@@ -267,6 +292,7 @@ impl CellGroupArchivePool {
             limits: self.limits,
             budget: self.budget.clone(),
             workspace: self.workspace,
+            payloads: self.payloads.clone(),
         })
     }
 

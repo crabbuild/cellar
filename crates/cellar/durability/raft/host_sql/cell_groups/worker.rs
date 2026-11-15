@@ -228,6 +228,7 @@ impl Cells {
                     crate::raft::execution::binding_seal::OPERATION
                         | crate::storage::raft_binding_recovery::CLAIM
                         | crate::storage::raft_binding_recovery::SETTLE
+                        | crate::storage::raft_payloads::RETIRE
                 ) && self.suspended.iter().any(|rpc| rpc.belongs_to(&cell))
                 {
                     return Err(ExecutionError::Busy);
