@@ -103,6 +103,19 @@ async fn archive_cancelled_waiter_keeps_physical_checkpoint() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_slow_upload_reaches_owned_physical_checkpoint() -> Result<()> {
+    for rooted in [false, true] {
+        owner_fixture::cancelled_checkpoint_read_with_start_delay(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+            Duration::from_millis(100),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_archive_cancelled_waiter_keeps_physical_checkpoint() -> Result<()> {
     for rooted in [false, true] {

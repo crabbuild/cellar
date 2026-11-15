@@ -245,6 +245,58 @@ physical reclamation and once-only capacity settlement; then repeated movement,
 fairness, wake/recovery and combined feature/backend/crash qualification.
 No complete OPT/CG gate is promoted.
 
+
+### Main-173 integration and archive cancellation progress
+
+Merge `96b4bcb2` includes main `189edd9a` (#173 Blob providers and retained
+external-payload ownership). Conflict resolution keeps the captured canonical
+configuration and every new payload adoption/pinning check. The archive target
+retains both physical-owner and new payload/disaster tests; checkpoint enrollment
+supports the real fault filesystem and optional payload dependencies together.
+Named-binding/EventStream and Blob/payload/disaster harness selections are all
+retained with the recorded matching compiler settings.
+
+At `1d0c5e0f` (3,425 compiler inputs), 14 native commands pass: original automatic
+handoff and child discovery, the two-image group-inspection regression, existing
+node-inspection controls, six archive controls, physical archive ownership,
+external-payload recovery and fenced filesystem recovery. The five-case RustFS
+command remains **FAILED**: child selection, external-payload recovery and
+filesystem disaster pass; extent handoff and archive physical ownership fail.
+The handoff stops in `Repairing` at scan revision 51 with two blocked histories
+and a rejected result; its cause remains open. The original backend is unchanged
+and ready, and command owners join. The initial strict all-target Clippy stops
+at an execution-fixture constructor missing #173's new filesystem mode; restart
+now carries the previous voter's actual mode forward. Broader checks remain due.
+
+The archive-owner failure is a distinct fixture progress error. After its first
+50-ms poll, the upload can still await earlier async I/O. Waiting only for the
+physical-read notification then parks the upload itself. A diagnostic preserves
+the failed five-second result, then polls the same upload for at most 500 ms:
+the held file read is immediately reached. A deterministic 100-ms startup case
+reproduces the failure with the in-memory backend, before correction. Its real
+disk is retained after joined shutdown.
+
+The fixture now continues polling that same original upload alongside the
+notification until the actual held read is reached. Both the 50-ms window and
+original five-second deadline remain, and every physical pin, exact charge,
+cancellation, collection and independent live-cut recovery assertion remains.
+The original native case and delayed-start regression pass in both image forms
+(1.56 and 1.73 seconds); the original RustFS case passes both forms in 2.16
+seconds. This changes no production code and does not repair the separate
+handoff rejection. All temporary archive probes are removed. Future archive-owner
+failures retain the real disk until shutdown joins instead of deleting it on an
+early return. The two earlier failing archive-owner commands retain their logs;
+the first did not retain its default temporary disk.
+
+Records are `main173-native-controls-01`, `main173-rustfs-controls-01`,
+`main173-qa-01`, `main173-archive-owner-rustfs-probe-01`,
+`main173-archive-owner-before-01`, `main173-archive-owner-fix-01` and
+`main173-archive-owner-rustfs-fix-01` in the checkout-owned qualification directory.
+Python tooling runs 188 tests with one existing skip; native dependencies cover
+496 packages without a JavaScript engine, and documentation checks pass. These
+are component/fixture results. The combined RustFS command and optimization,
+primitive, performance and release acceptance remain open.
+
 ## Direct-routing candidate
 
 The current candidate adds a leader index beside the transport's existing route

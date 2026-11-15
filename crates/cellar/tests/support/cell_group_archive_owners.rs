@@ -22,18 +22,51 @@ pub(super) async fn cancelled_checkpoint_read(
     rooted: bool,
     store: Arc<dyn ObjectStore>,
 ) -> Result<()> {
+    cancelled_checkpoint_read_with_start_delay(rooted, store, Duration::ZERO).await
+}
+
+pub(super) async fn cancelled_checkpoint_read_with_start_delay(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+    delay: Duration,
+) -> Result<()> {
     let gate = fault::Gate::new(None);
     let filesystem = Arc::new(fault::FaultFileSystem { gate: gate.clone() });
+    // Keep the real disk owner outside the consumed cluster until shutdown
+    // joins; failures retain it rather than losing the physical cut.
+    let placeholder = tempfile::tempdir()?;
     let mut cluster = Cluster::with_storage(
         RaftRuntimeOptions::default(),
         tempfile::tempdir()?,
         filesystem.clone(),
     )
     .await?;
+    let result = exercise(&mut cluster, rooted, store, &gate, filesystem, delay).await;
+    let root = std::mem::replace(&mut cluster._root, placeholder);
+    let joined = cluster.close().await;
+    if result.is_err() || joined.is_err() {
+        eprintln!(
+            "retained failed archive-owner disk: {}",
+            root.keep().display()
+        );
+    }
+    result
+        .with_context(|| format!("archive physical owner, extents={rooted}; joined={joined:?}"))?;
+    joined
+}
+
+async fn exercise(
+    cluster: &mut Cluster,
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+    gate: &Arc<fault::Gate>,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    delay: Duration,
+) -> Result<()> {
     cluster.elect().await?;
     // Unique values prevent another cell from retaining the selected old extent.
     let expected = checkpoint_fixture::enroll_images_with_filesystem(
-        &mut cluster,
+        cluster,
         rooted,
         false,
         1,
@@ -72,10 +105,10 @@ pub(super) async fn cancelled_checkpoint_read(
     let old_page_bytes = manifest_pages::read(&pages, old_page)?;
     let old_image_bytes = std::fs::read(&image)?;
     let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
-    let captured = source(&sources, &cluster)?;
+    let captured = source(&sources, cluster)?;
     let source_usage = sources.usage();
     let archive = new_archive(
-        &cluster,
+        cluster,
         store.clone(),
         Path::from("physical-read-owner"),
         CellGroupArchiveLimits {
@@ -91,13 +124,32 @@ pub(super) async fn cancelled_checkpoint_read(
     } else {
         fault::HOLD_IMAGE_READ
     });
-    let mut pending = Box::pin(archive.upload_checkpoint(&cluster.domain, captured));
+    let mut pending = Box::pin(async {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        archive.upload_checkpoint(&cluster.domain, captured).await
+    });
     assert!(
         tokio::time::timeout(Duration::from_millis(50), &mut pending)
             .await
             .is_err()
     );
-    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+    // The upload can still await earlier metadata I/O after the first poll
+    // window. Keep driving this same operation until its actual file read is
+    // held; waiting only for the notification would park the producer itself.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            biased;
+            _ = gate.entered.notified() => Ok::<_, anyhow::Error>(()),
+            result = &mut pending => anyhow::bail!(
+                "checkpoint upload ended before the selected physical read; success={}",
+                result.is_ok()
+            ),
+        }
+    })
+    .await
+    .context("archive physical read did not start under the original deadline")??;
     let archive_usage = archive.usage();
     assert_eq!(archive_usage.operations, 1);
     assert!(archive_usage.retained_bytes > 0 && source_usage.retained_bytes > 0);
@@ -112,7 +164,7 @@ pub(super) async fn cancelled_checkpoint_read(
         archive_usage,
         "physical reader retains archive admission"
     );
-    let refused = source(&sources, &cluster)
+    let refused = source(&sources, cluster)
         .err()
         .context("physical reader must retain the only source slot")?;
     assert!(matches!(
@@ -124,7 +176,7 @@ pub(super) async fn cancelled_checkpoint_read(
     // source is now retained only by the cancelled upload's physical producer.
     for (name, bytes) in &expected {
         if !bytes.is_empty() {
-            checkpoint_fixture::advance_partition(&mut cluster, name, bytes, rooted, None).await?;
+            checkpoint_fixture::advance_partition(cluster, name, bytes, rooted, None).await?;
         }
     }
     let current = cluster.voters[0]
@@ -136,7 +188,7 @@ pub(super) async fn cancelled_checkpoint_read(
         .clone();
     assert!(current.position().index > marker.position().index);
     assert_ne!(current.root(), marker.root());
-    collect(&mut cluster)?;
+    collect(cluster)?;
     let held_page_bytes = manifest_pages::read(&pages, old_page)?;
     let held_image_bytes = std::fs::read(&image)?;
     assert_eq!(held_page_bytes, old_page_bytes);
@@ -151,13 +203,14 @@ pub(super) async fn cancelled_checkpoint_read(
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     })
-    .await?;
+    .await
+    .context("archive physical read did not release its actual ownership")?;
     let released_source_bytes = sources.usage().retained_bytes;
     let released_archive_bytes = archive.usage().retained_bytes;
     assert_eq!(released_source_bytes, 0);
     assert_eq!(released_archive_bytes, 0);
-    collect(&mut cluster)?;
-    collect(&mut cluster)?;
+    collect(cluster)?;
+    collect(cluster)?;
     assert!(manifest_pages::find(&pages, old_page)?.is_none());
     assert!(!image.exists(), "physical exit permits old image deletion");
     let cancelled_objects = store
@@ -173,15 +226,15 @@ pub(super) async fn cancelled_checkpoint_read(
 
     // A fresh upload and independent receiver must still recover the live cut.
     let reference = archive
-        .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
+        .upload_checkpoint(&cluster.domain, source(&sources, cluster)?)
         .await?;
-    let destination = destination(&cluster).await?;
+    let destination = destination(cluster).await?;
     let receivers = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let recovered = archive
         .verify_checkpoint(
             &cluster.domain,
             &reference,
-            receiver(&receivers, &destination, &cluster)?,
+            receiver(&receivers, &destination, cluster)?,
         )
         .await?;
     assert_eq!(recovered.checkpoint().marker(), &current);
@@ -207,6 +260,5 @@ pub(super) async fn cancelled_checkpoint_read(
     drop(recovered);
     assert_eq!(receivers.usage().sources, 0);
     assert_eq!(archive.usage().operations, 0);
-    cluster.close().await?;
     Ok(())
 }
