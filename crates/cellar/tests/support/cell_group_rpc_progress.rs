@@ -4,6 +4,7 @@
 
 use super::*;
 use sha2::{Digest, Sha256};
+use std::sync::Condvar;
 
 #[path = "raft_ltx_fault.rs"]
 #[allow(dead_code)]
@@ -46,16 +47,70 @@ impl Drop for Release {
     }
 }
 
+#[derive(Default)]
+struct ReadGate {
+    entered: Notify,
+    released: Mutex<bool>,
+    wake: Condvar,
+}
+
+impl ReadGate {
+    fn hold(&self) {
+        self.entered.notify_one();
+        let mut released = self.released.lock().unwrap();
+        while !*released {
+            released = self.wake.wait(released).unwrap();
+        }
+    }
+
+    fn release(&self) {
+        *self.released.lock().unwrap() = true;
+        self.wake.notify_all();
+    }
+}
+
+struct ReleaseRead(Arc<ReadGate>);
+
+impl Drop for ReleaseRead {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
+fn hold_apply(faults: &physical::Faults) -> (Release, tokio::sync::oneshot::Receiver<()>) {
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, held) = std::sync::mpsc::sync_channel(1);
+    *faults.before_directory_sync.lock().unwrap() = Some(Box::new(move || {
+        let _ = entered.send(());
+        let _ = held.recv_timeout(Duration::from_secs(15));
+    }));
+    (Release(Some(release)), started)
+}
+
 pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    run_mode(rooted, store, false).await
+}
+
+pub async fn checkpoint(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
+    run_mode(rooted, store, true).await
+}
+
+async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bool) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let gates: Arc<[RpcGate; 2]> = Arc::new(std::array::from_fn(|_| RpcGate::default()));
+    let reader = Arc::new(ReadGate::default());
+    let query_reader = reader.clone();
     let class = RaftClass::new("Counter", 1, [181; 32])?
         .initializer([182; 32], |_, tx| {
             tx.execute_batch("CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(0)")?;
             tx.storage()?.put_json("value", &json!(0))
         })?
         .json_cell_rpc("Run", [183; 32])?
-        .json_cell_rpc("Add", [184; 32])?;
+        .json_cell_rpc("Add", [184; 32])?
+        .query("Hold", [185; 32], move |_, _| {
+            query_reader.hold();
+            Ok(vec![])
+        })?;
     let called = calls.clone();
     let waiting = gates.clone();
     let application = Arc::new(
@@ -145,10 +200,19 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                 "physical gate must not occupy source worker"
             );
             let source = cluster.hosts[0].cell(source_history.clone())?;
-            let other = cluster.hosts[0].cell(CellHistory {
-                cell: CellId::new("Counter:unrelated")?,
-                ..source_history
-            })?;
+            // Its command must also avoid the physically blocked source worker.
+            let other_history = (0..64)
+                .map(|n| CellHistory {
+                    cell: CellId::new(format!("Counter:unrelated-{n}")).unwrap(),
+                    ..source_history.clone()
+                })
+                .find(|history| {
+                    let hash = cellar::sdk::consensus::verification::cell_groups::cell_image_history_digest(history);
+                    u64::from_le_bytes(hash[..8].try_into().unwrap()) % 2
+                        == u64::from_le_bytes(group_hash[..8].try_into().unwrap()) % 2
+                })
+                .context("unrelated worker")?;
+            let other = cluster.hosts[0].cell(other_history)?;
             for (cell, id) in [(&source, 186), (&other, 187)] {
                 cell.enroll(
                     CellEnrollmentRequest {
@@ -162,9 +226,74 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             let options = interleaving::command(188, 1, Durability::Quorum)?;
             let run = source.contract("Run")?;
             let add = other.contract("Add")?;
+            let initial_apply = checkpoint.then(|| hold_apply(&faults));
             let (result, observed) = tokio::join!(
                 source.command(&run, b"{}".to_vec(), options.clone()),
                 async {
+                    if let Some((release, started)) = initial_apply {
+                        // Hold the source worker on an immutable stale query while
+                        // its own checkpoint becomes applied. No callback poll can
+                        // race ahead and obtain whole-group execution authority.
+                        cellar::asyncrt::timeout(TIMEOUT, started).await??;
+                        let (query, observed) = tokio::join!(
+                            source.query(
+                                ProposalId::new([190; 16])?,
+                                &source.contract("Hold")?,
+                                vec![],
+                                QueryOptions {
+                                    routing: QueryRouting::Local,
+                                    ..Default::default()
+                                },
+                            ),
+                            async {
+                                let _release_read = ReleaseRead(reader.clone());
+                                cellar::asyncrt::timeout(TIMEOUT, reader.entered.notified()).await?;
+                                drop(release);
+                                cellar::asyncrt::timeout(TIMEOUT, async {
+                                    loop {
+                                        let status = cluster.hosts[0].group(group)?.status().await?;
+                                        if status.ready && status.applied.index == status.committed {
+                                            break Ok::<_, anyhow::Error>(());
+                                        }
+                                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                                    }
+                                }).await??;
+                                let (release, started) = hold_apply(&faults);
+                                let (other_result, resumed) = tokio::join!(
+                                    other.command(
+                                        &add,
+                                        b"{}".to_vec(),
+                                        interleaving::command(189, 1, Durability::Quorum)?,
+                                    ),
+                                    async {
+                                        let observed = async {
+                                            cellar::asyncrt::timeout(TIMEOUT, started).await??;
+                                            let status = cluster.hosts[0].group(group)?.status().await?;
+                                            ensure!(status.applied.index < status.committed, "held unrelated committed apply");
+                                            reader.release();
+                                            cellar::asyncrt::timeout(
+                                                Duration::from_secs(1),
+                                                gates[0].entered.notified(),
+                                            ).await.context("applied source checkpoint blocked by unrelated apply")?;
+                                            let status = cluster.hosts[0].group(group)?.status().await?;
+                                            ensure!(status.applied.index < status.committed, "checkpoint waited for group catch-up");
+                                            Ok::<_, anyhow::Error>(())
+                                        }.await;
+                                        drop(release);
+                                        reader.release();
+                                        gates[0].release.notify_one();
+                                        gates[1].release.notify_one();
+                                        observed
+                                    },
+                                );
+                                other_result?;
+                                resumed
+                            },
+                        );
+                        reader.release();
+                        query?;
+                        return observed;
+                    }
                     cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
                     let (entered, started) = tokio::sync::oneshot::channel();
                     let (release, held) = std::sync::mpsc::sync_channel(1);

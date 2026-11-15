@@ -1862,6 +1862,34 @@ async fn proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn applied_rpc_checkpoint_does_not_wait_for_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(rpc_progress::checkpoint(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("RPC checkpoint progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_applied_rpc_checkpoint_does_not_wait_for_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "rpc-checkpoint-progress",
+            rooted,
+        )?));
+        Box::pin(rpc_progress::checkpoint(rooted, store))
+            .await
+            .with_context(|| format!("RustFS RPC checkpoint progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires isolated local RustFS"]
 async fn rustfs_proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Result<()> {
     for rooted in [false, true] {
