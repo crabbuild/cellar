@@ -318,6 +318,22 @@ impl Harness {
         Ok(self.controllers[0].command(invocation, options)?)
     }
 
+    fn command_phase(
+        &self,
+        name: &str,
+    ) -> Result<cellar::application::consensus::RaftOperationPerformance> {
+        let snapshot = self.fixture.cluster.voters[0].log.performance_snapshot();
+        anyhow::ensure!(
+            snapshot.available && !snapshot.saturated,
+            "phase observations unavailable"
+        );
+        snapshot
+            .operations
+            .into_iter()
+            .find(|phase| phase.name == name)
+            .with_context(|| format!("missing command phase {name}"))
+    }
+
     async fn waiting(&self) -> Result<()> {
         controller::wait_for(async || {
             Ok(self.controllers[0].usage().retained_s3 == 1

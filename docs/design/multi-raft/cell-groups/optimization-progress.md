@@ -136,6 +136,45 @@ the new main is observed. No throughput or latency gain is measured or claimed
 at this checkpoint. The final comparison must isolate this change against the
 same integrated main, rather than attributing upstream progress fixes to it.
 
+### S3 deadline reproduction and command-phase observations
+
+A fresh namespace rerun uses the exact main-173 candidate image and load client,
+with the original three 1-vCPU/2-GiB RF3 nodes, 24 cells, C1/4/16, two reversed
+repetitions and five-second operation/callback/lease bounds. It fails at the
+first C16 read: 547 attempts, 538 successes and nine request errors. All three
+groups retain their initial leader and term. An election is therefore not
+necessary for this failure. Final SQL and controller retained-owner counts are
+zero, without a quarantined group; these observations do not prove a permanent
+owner leak or identify the deadline's critical path. Other-checkout qualification
+activity is observed during the run, so the timings remain diagnostic.
+
+Compiler manifest `cc89c945` adds five bounded aggregate command-phase
+histograms: local execution, S3 command coverage, proof freshness, individual
+output checks and the resumed output-wait loop. Coverage includes native RPC
+checkpoint commits at the shared archive-client boundary. The existing timer
+records the original future's result or abandonment; it changes no admission,
+deadline, retry, authority, acknowledgement or Ready/sync ordering. These timers
+overlap and must not be summed. A retryable output-check refusal describes that
+attempt, not the command's durability or final result.
+
+The real RF3 held-publication/later-apply test fails before implementation on a
+missing phase and passes after instrumentation, across both image modes and
+new/duplicate commands. Its original no-early-output, fresh-authority,
+callback-once and exact replay assertions remain. Strict all-target Cellar
+Clippy, five metric-lifetime tests and three owning S3 controls pass. Compilation
+and tests retain the same compiler inputs and joined owners. Format/layout
+checks cover 2,321 Rust files; native dependency and documentation checks pass.
+The earlier private-field compile failure remains recorded separately. This
+checkpoint supplies observations, not a deadline fix or measured speedup; the
+matching Linux reproduction is still pending.
+
+At published head `ac64ca16`, the JavaScript adapters job separately fails
+`removed_class_recovers_an_uncertain_create_and_retires_without_business_code`:
+retained provider retirement times out and shutdown reports `NodeLeaseExpired`.
+The other two JavaScript jobs and Python examples pass; SDK and Typed RPC runs
+are still in progress at this observation. No rerun or suppression closes that
+failure or the broader feature-mode gates.
+
 ### Archive publication and recovery follow-up
 
 The original automatic balance/repair restart scenario reproduces against both

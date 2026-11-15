@@ -255,13 +255,18 @@ impl Client {
         limits: ExecutionLimits,
         deadline: u64,
     ) -> std::result::Result<CommandSettled, CellDispatchError> {
-        let settled = self
-            .settle(
-                runtime,
-                route,
-                Output::Command(receipt),
-                Some(limits),
-                deadline,
+        let settled = runtime
+            .log()
+            .performance()
+            .measure(
+                crate::raft::performance::Operation::CellCommandS3Coverage,
+                self.settle(
+                    runtime,
+                    route,
+                    Output::Command(receipt),
+                    Some(limits),
+                    deadline,
+                ),
             )
             .await?;
         let Output::Command(receipt) = settled.output else {

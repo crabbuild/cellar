@@ -167,8 +167,8 @@ impl Suspended {
                                     },
                                 });
                                 let domain = domain.clone();
-                                checkpoint.phase =
-                                    CheckpointPhase::Archiving(Box::pin(async move {
+                                checkpoint.phase = CheckpointPhase::Archiving(Box::pin(
+                                    async move {
                                         let settled = archive
                                             .command(
                                                 &commits.runtime,
@@ -179,13 +179,22 @@ impl Suspended {
                                             )
                                             .await
                                             .map_err(crate::raft::execution::storage)?;
-                                        settled
-                                            .proof
-                                            .require_current(&domain, commits.deadline)
+                                        commits
+                                            .runtime
+                                            .log()
+                                            .performance()
+                                            .measure(
+                                                crate::raft::performance::Operation::CellCommandS3Freshness,
+                                                settled.proof.require_current(
+                                                    &domain,
+                                                    commits.deadline,
+                                                ),
+                                            )
                                             .await
                                             .map_err(crate::raft::execution::storage)?;
                                         Ok(())
-                                    }));
+                                    },
+                                ));
                                 self.checkpoint = Some(checkpoint);
                                 self.ready.0.store(true, Ordering::Release);
                                 return Poll::Pending;

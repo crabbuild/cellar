@@ -1138,6 +1138,20 @@ failure domains.
 
 ## Committed archives and S3 output
 
+Command phase observations distinguish local execution after routing
+(`cell_command_local`), exact S3 command coverage settlement including internal
+native RPC commits (`cell_command_s3_coverage`), command proof freshness checks
+including suspended RPC checkpoints (`cell_command_s3_freshness`), individual
+fresh output-fence/token checks
+(`cell_command_output_check`), and progress waits/rechecks after a retryable
+output check (`cell_command_output_wait`). Local execution includes its nested
+coverage and output phases; output waiting includes its repeated checks. These
+overlapping histograms must not be added together. A retryable check failure is
+an observed attempt, not a failed request or missing durability proof. Response
+waiter expiry does not complete a node-owned phase; timers follow their actual
+future lifetime and distinguish returned errors from abandonment. These static
+metric names grant no authority and change no deadline, admission or proof order.
+
 `host_archive.rs` owns a bounded window of archive producers and one exclusive
 verification workspace per node. `RaftArchiveOptions::max_producers` permits
 one to four concurrent publications across distinct cells (default two). A

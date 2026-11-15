@@ -85,9 +85,14 @@ pub(crate) enum Operation {
     FirstGroupArchive,
     FirstGroupAttach,
     FirstGroupQuorum,
+    CellCommandLocal,
+    CellCommandS3Coverage,
+    CellCommandOutputCheck,
+    CellCommandOutputWait,
+    CellCommandS3Freshness,
 }
 
-const OPERATIONS: [Operation; 48] = [
+const OPERATIONS: [Operation; 53] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -136,6 +141,11 @@ const OPERATIONS: [Operation; 48] = [
     Operation::FirstGroupArchive,
     Operation::FirstGroupAttach,
     Operation::FirstGroupQuorum,
+    Operation::CellCommandLocal,
+    Operation::CellCommandS3Coverage,
+    Operation::CellCommandOutputCheck,
+    Operation::CellCommandOutputWait,
+    Operation::CellCommandS3Freshness,
 ];
 
 impl Operation {
@@ -189,6 +199,11 @@ impl Operation {
             Self::FirstGroupArchive => "first_group_archive",
             Self::FirstGroupAttach => "first_group_attach",
             Self::FirstGroupQuorum => "first_group_quorum",
+            Self::CellCommandLocal => "cell_command_local",
+            Self::CellCommandS3Coverage => "cell_command_s3_coverage",
+            Self::CellCommandOutputCheck => "cell_command_output_check",
+            Self::CellCommandOutputWait => "cell_command_output_wait",
+            Self::CellCommandS3Freshness => "cell_command_s3_freshness",
         }
     }
 }

@@ -209,7 +209,14 @@ impl CellCommandInvocation {
                 break;
             }
         }
-        let result = self.run_at(runtime, sql, options, roster, progress).await;
+        let result = runtime
+            .log()
+            .performance()
+            .measure(
+                crate::raft::performance::Operation::CellCommandLocal,
+                self.run_at(runtime, sql, options, roster, progress),
+            )
+            .await;
         result.map_err(|error| self.error(error))
     }
 
@@ -494,6 +501,19 @@ impl CellCommandInvocation {
     }
 
     async fn finish_owned_output(
+        &mut self,
+        progress: &mut watch::Receiver<()>,
+    ) -> Result<CellCommandResponse, CellDispatchError> {
+        let performance = self.output_performance()?;
+        performance
+            .measure(
+                crate::raft::performance::Operation::CellCommandOutputWait,
+                self.wait_owned_output(progress),
+            )
+            .await
+    }
+
+    async fn wait_owned_output(
         &mut self,
         progress: &mut watch::Receiver<()>,
     ) -> Result<CellCommandResponse, CellDispatchError> {
