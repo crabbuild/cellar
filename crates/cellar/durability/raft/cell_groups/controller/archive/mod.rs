@@ -264,6 +264,9 @@ struct Entry {
     fatal: bool,
     stopping: bool,
     retry_at: u64,
+    // Armed only by a new foreground batch, consumed by publication launch.
+    // Returned proof work must not renew an immediate retry.
+    foreground_wake: bool,
     waiters: Vec<settlement::Request>,
     proof_queued: bool,
 }
@@ -345,6 +348,7 @@ impl Manager {
                 fatal: false,
                 stopping: false,
                 retry_at: 0,
+                foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
             },
@@ -393,6 +397,7 @@ impl Manager {
                 fatal: false,
                 stopping: false,
                 retry_at: 0,
+                foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
             },
@@ -434,6 +439,7 @@ impl Manager {
         // Further waiters share that attempt and its bounded retry schedule.
         if entry.waiters.is_empty() {
             entry.retry_at = 0;
+            entry.foreground_wake = true;
         }
         entry.waiters.push(request);
         if !entry.proof_queued {
@@ -609,6 +615,7 @@ impl Manager {
                 self.queue.push_back(group);
                 continue;
             }
+            entry.foreground_wake = false;
             entry.dirty = false;
             let observed_head = shared
                 .archives
@@ -830,11 +837,10 @@ impl Manager {
                 status.error = Some(Arc::new(error));
             }
         }
-        if unexamined_waiters && !entry.fatal && !entry.waiters.is_empty() {
-            // These live requests arrived after this job selected its batch.
-            // `settle` gave them one immediate attempt; the older completion's
-            // maintenance/backoff must not overwrite that wakeup. Requests
-            // already examined by this job retain the bounded retry cadence.
+        if entry.foreground_wake && !entry.fatal {
+            // A new batch arrived after this publication consumed its wake.
+            // The older completion must not overwrite that immediate attempt.
+            // Proof-lane requeues never arm this one-shot wakeup.
             entry.retry_at = 0;
         }
         if entry.context.is_some() || entry.fatal {
