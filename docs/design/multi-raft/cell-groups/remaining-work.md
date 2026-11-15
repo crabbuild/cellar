@@ -78,12 +78,20 @@ complete primitive support.
 The status/resumed-read follow-up at `28752a8a` passes all 21 owning units and
 build/static checks, but public control 183 is FAILED at 2/8. All six shared
 selections fail cold materialized activation, leaving the new public paths and
-extent branches unrun. Resolve that cold configuration boundary first.
+extent branches unrun. The `13a8e205` correction moves catalog intent/work into
+enrollment and joins its exact receipt without another command. All 24 owning
+cases and build/static gates pass. Public control 187 improves to 6/8: all four
+named native/Axum Quorum selections pass both images natively and with RustFS,
+including subscription status and retained restart. Explicit-resource activation
+still wastes a configuration command on an already enrolled catalog; independent
+target-S3 readiness still exceeds its deadline. Their extent branches are unrun.
 
-1. **Close EventStream startup, consumption and recovery progress.** Reduce
-   configuration/enrollment work and finish retained service readiness under the
-   unchanged native/Axum/RustFS budgets. Qualify the new read-only subscription
-   status candidate on its authorized pinned query path,
+1. **Close the two remaining EventStream activation paths.** Join exact
+   provisioning operations for already enrolled catalogs without replaying a
+   configuration command; retain the normal update path for genuinely absent
+   operations. Then close independent target-S3 readiness under the original
+   budget. Subscription status and retained readiness pass within the four named
+   Quorum controls; extend that evidence through the remaining lifecycle matrix,
    preserving current grants, lifecycle, source proof and independent target-S3
    coverage. Leases, clock decisions and acknowledgements remain commands.
    Earlier retained images established duplicate configuration receipts. The

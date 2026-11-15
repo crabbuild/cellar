@@ -31,8 +31,11 @@ for the next delivery.
 
 Main `0e925f6b` is integrated: the #172 delivery/recovery adapter and this
 branch's private provenance, named activation and metadata readers now share one
-command/query implementation. The earlier integration-pending instructions below
-are historical; neither side's earlier qualification is relabeled as the merge.
+command/query implementation. **Current `13a8e205`: 24 owning cases pass; the
+public control passes 6/8, including all four named native/Axum Quorum selections
+in both image modes natively and against RustFS. Explicit-resource and independent
+target-S3 activation deadlines remain open.** Earlier integration checkpoints
+below are historical; their results are not relabeled as the current source.
 
 At `1408d26a`, cohort `CG-17-event-merge-1408d26a-157` passes **21/24 selections**.
 Named native/Axum Quorum requests pass both image forms, including retained restart
@@ -168,7 +171,29 @@ receive only their class-declared callback capability. A new owning regression
 uses the real command transaction to check rollback, intent/work creation without
 a factory and idempotent retry. The catalog initializer digest changes; this is
 a hard development cutover requiring compatible fresh catalog namespaces, with
-no legacy reader or migration. Qualification of this correction remains pending.
+no legacy reader or migration.
+
+At `13a8e205`, the optimized build, strict library/all-test Clippy, repository
+checks and all **24 owning cases pass**, including actual initializer transaction
+rollback, idempotent work installation and receipt reads without a factory.
+Cohort `CG-17-event-status-13a8e205-187` is **FAILED: 6/8**, with concrete public
+progress: registration, Fleet conformance and named Quorum native/Axum paths
+both natively and against real RustFS pass. Each named selection completes both
+image modes, emission/replay, inbox/ack, read-only subscription status, retained
+restart/reactivation and minority refusal. This qualifies the status/resumed-read
+path within those controls, not a complete EventStream family or latency envelope.
+
+Broader explicit-resource activation still fails in its materialized branch. It
+resolves an already enrolled catalog, then spends 2,504 ms in a configuration
+command before a metadata read exceeds the original deadline. Independent
+target-S3 activation also fails in a post-configuration metadata read; its new
+catalog enrollment takes 583 ms and uses the receipt join, but readiness still
+misses the original deadline. Both extent branches are unrun. Next extend exact
+provisioning-operation joins to already enrolled catalogs, preserving genuine
+configuration updates and typed failures, then close the remaining S3 readiness
+chain. Original budgets and assertions remain unchanged. Six failed voter disks,
+source/binary identities, all logs and a verified 24-file evidence backup are
+retained. Host load observations accompany the result; no causal speedup is claimed.
 
 No deadline, quota, identity or durability proof is weakened. Native RF3 voters
 share one process, with separate workspace disks and one SQL worker each; RustFS

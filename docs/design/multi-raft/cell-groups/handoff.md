@@ -6,82 +6,62 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current merged-source activation checkpoint
 
-Main `0e925f6b` is integrated in the primary checkout
+Main `0e925f6b` is included in the primary checkout
 `/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar`, branch
 `codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170).
-Read the [current evidence](progress.md#cg-17-merged-source-activation-and-reconciliation)
-before attributing a pass to the combined implementation.
+Current qualified Rust source is `13a8e205`; read the
+[current evidence](progress.md#cg-17-merged-source-activation-and-reconciliation).
+Older instructions below are historical.
 
-Merged baseline `1408d26a` passes named native/Axum Quorum in both images natively
-and on RustFS, while broader recovery/target-S3 activation fail. The `aa6b3700`
-follow-up implements stateful private metadata reads and fresh retained activation;
-its build, strict Clippy, repository checks and all 13 private units pass, but
-native cohort 165 is FAILED at 21/25 and RustFS cohort 166 is FAILED at 0/6.
-The hint-only correction `2216aa23` also remains FAILED at 1/5 public controls.
-Do not substitute their build/unit passes for public feature acceptance.
+Delivered: immutable subscription status, fresh retained configuration reads,
+exact catalog operation joins after creation, and catalog schema/intent/receipt/
+work installation inside the enrollment transaction. The class enables only its
+registered callback capability there. A pending intent does not establish
+readiness; activation requires fresh active catalog/broker proofs. The catalog
+initializer digest changes and requires compatible fresh development namespaces.
+All `DEBUG-cg17-cold` probes are removed.
 
-Source `aa591bc2` integrates the catalog coalescing change prepared in the
-isolated `cg17-catalog-work` worktree. It shares one bounded live reservation per
-catalog resource, preserves the pending operation and original child identities,
-and polls fresh activation metadata without resubmitting the mutation or extending
-the original deadline. All 18 selected owning units pass at `d25d9727` in the
-unoptimized dev test profile. The full-history reservation scope and stricter
-refusal assertions follow at `c7ed340c`; do not relabel the earlier units as that
-source. Its optimized build, strict Clippy and repository checks pass, but public
-control 174 is **FAILED: 2/6**. Registration and Fleet conformance pass; all four
-shared-group selections fail initial materialized activation, leaving extents
-unrun. RustFS named configuration commits after 2,839 ms and then receives typed
-metadata-reader `Overloaded`; the other controls exceed their original budgets.
-The 22-file backup and retained failed disks are verified. Coalescing does not
-establish a public startup pass.
+At `13a8e205`, optimized CI build, strict library/all-test Clippy, repository
+checks and 24 selected owning cases pass. Cohort 187 passes **6/8**: registration,
+Fleet conformance and all four named native/Axum Quorum selections natively and
+against real RustFS. Each named selection completes both images, publication/
+replay, inbox/ack, read-only subscription status, retained restart/reactivation
+and minority refusal. This does not qualify the full primitive family or the
+independent-voter/load/disaster matrix.
 
-Source `8588e800` adds bounded immutable reader-admission retries, sharing
-Workflow's typed `NotReady`/`Overloaded` rule. Its optimized build, strict Clippy,
-repository checks and all 19 selected owning units pass. Control 175 is
-PREFLIGHT_FAILED with zero application tests because the old backend VM is
-stopped; its container and volume are subsequently observed absent. Original
-records and voter disks remain retained, but older S3 objects cannot be
-rechecked. A fresh owned backend in `.cellar/cg17-payload-01/canonical-backend-179`
-uses the same pinned image and limits. Do not reuse the absent canonical backend
-or relabel either backend's evidence.
+Two controls remain failed, with extent branches unrun:
 
-Fresh-backend control 179 is **FAILED: 3/6**. Registration, Fleet conformance and
-native named Quorum pass; the last completes both images and retained restart/
-minority refusal. Broader native recovery fails inbox-restart activation, RustFS
-named fails consumption, and target-S3 fails cold activation. Native Axum control
-180 also fails cold materialized activation. Failed extent branches are unrun.
-No full-family pass is established. Immutable inspection 177 verifies 33 earlier
-failed images, with one attempt/lane per observed catalog and at most one event
-receipt per broker; coalescing has a concrete scoped result, but has not closed
-latency.
+1. Broader explicit-resource activation resolves an already enrolled catalog,
+   executes another configuration command (2,504 ms), then times out in metadata.
+   Extend exact provisioning-operation joins beyond fresh enrollment. Preserve
+   normal updates when an operation is genuinely absent, full canonical digest,
+   current grants/lifecycle, typed failures and the original deadline. Do not
+   retry mutations or manufacture a business command receipt.
+2. Independent target-S3 activation takes 583 ms to enroll its catalog and uses
+   the new receipt join, then times out in a subsequent metadata read. Trace the
+   remaining source/target proof dependencies; retain both independent minima.
+   Do not infer that the passed Quorum/RustFS paths qualify target-S3 readiness.
 
-The current candidate moves the audited read-only subscription status operation
-to authorized pinned queries, with owning cases for expired-lease observation,
-grant revocation and subscription recreation. It observes identity/lease/lag under current
-grants/lifecycle, independent S3 and source proof; lease/clock/ack mutations remain
-commands. At `63fcede9`, strict library/all-test Clippy passes. The follow-up
-selects a fresh configuration-status read on resumed owners even before the
-range cache is populated; the read must still prove the exact active definition.
-At `28752a8a`, optimized build, affected strict Clippy, repository checks and all
-21 owning units pass. Public control 183 is **FAILED: 2/8**, with all six shared
-selections failing initial materialized activation. Extents and the new public
-status/retained paths are unrun. Backend 179 resumes with its original volume,
-verified owner/image/limits and a fresh signed probe.
+Earlier diagnostic 185 separates source apply/reconcile (about 0.29 seconds)
+from S3 publication/verification (about 1.28 seconds); it does not show a producer
+self-deadlock or establish a latency cause. Cohort 186 exposed the former no-op
+initializer and is retained as a failed control. The real initializer regression
+now proves rollback, creation without a factory and idempotent work installation.
+Effect scans already use immutable queries; binding selection already skips a
+checkpoint for its original candidate. Do not reimplement those optimizations.
 
-Next, finish the single-case cold binding phase diagnostic: distinguish source
-proof, target enrollment/command and source settlement. Remove temporary
-`DEBUG-cg17-cold` instrumentation after diagnosis, then implement and qualify the
-actual cold bottleneck before claiming consumption/recovery progress. Binding
-selection already skips a checkpoint when the selected history is its original
-candidate. Effect scans already use immutable queries, and a blanket early busy
-skip would suppress binding recovery/delivery as well as native work. Preserve
-original budgets and all public assertions. The isolated
-worktree is archived after its needed changes were integrated and retained.
+Owned RustFS is `.cellar/cg17-payload-01/canonical-backend-179`, owner
+`cellar-multi-raft-0809a242624d22c7`, pinned image, one CPU/two GiB. Retain its
+volume, credentials and all failed voter disks. The earlier absent canonical
+backend is separate evidence. Voters share one native process with separate
+workspace disks and one SQL worker each. Evidence and frozen binaries are also
+backed up under this checkout's target directory. The isolated catalog worktree
+was archived after integration.
 
-After public EventStream progress, finish interruption/retention and Queue load,
-remaining SQL/KV/time/Workflow lifecycle, payload/provider adapters and the complete
-CG-13/17/15/16 fault/release matrix. Counts remain 13/17 tasks and 147/195 cases;
-no complete primitive family or hard cutover is accepted.
+Next close the two activation paths, then interrupted delivery/ack, long polling,
+retention, Queue load, binding/time/Workflow lifecycle, payload/provider adapters
+and the complete CG-13/17/15/16 release matrix. Counts remain 13/17 tasks and
+147/195 cases; no complete primitive family or hard cutover is accepted.
 
 ## Historical immutable EventStream query checkpoint
 
@@ -4029,23 +4009,3 @@ only after its full gate passes. CG-16 reruns the complete capability matrix at
 one release revision; `plan.py release` must continue to refuse until then.
 Keep the requested MR-13/MR-14 progress JSON files excluded from the PR. Reuse the
 active PR, report qualification limits and leave merging to a separate action.
-
-Current cold-start follow-up: diagnostic `357e59bd` / cohort 185 places the first
-source delay after apply/reconciliation, in S3 publication/verification. Its
-0.29-second apply/reconcile and 1.28-second S3 observations are diagnostic only;
-the host was loaded. The candidate replaces a newly enrolled deployment catalog’s
-redundant configuration command with an exact authorized receipt read. Full
-canonical digest, original deadline, current lifecycle/grant and independent
-target minimum still gate the response; activation still requires current active
-proofs. Temporary DEBUG-cg17-cold probes are removed. Run the added owning
-receipt-read refusals and the unchanged public/Fleet/RustFS controls before
-claiming progress on family acceptance.
-
-Correction after cohort 186: `b148fce6` passes 23 owning units but all six shared
-controls fail with a missing catalog table. Enrollment was a no-op; the factory
-initialized only the first command. The next candidate now provisions catalog
-schema/intent/receipt/work during the real enrollment transaction and enables
-only registered callback capability there. Its initializer digest changes for a
-hard development cutover, with no migration. The added real-transaction regression
-checks rollback, work deadline and repeat initialization. Run all-test Clippy,
-24 owning cases and the unchanged public controls before accepting this candidate.
