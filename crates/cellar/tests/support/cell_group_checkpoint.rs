@@ -68,31 +68,6 @@ pub(super) async fn enroll_images(
     additional: usize,
     padding: usize,
 ) -> Result<BTreeMap<String, Vec<u8>>> {
-    enroll_images_with_payload(cluster, rooted, partition, additional, padding, None).await
-}
-
-pub(super) async fn enroll_images_with_filesystem(
-    cluster: &mut Cluster,
-    rooted: bool,
-    partition: bool,
-    additional: usize,
-    padding: usize,
-    filesystem: Arc<dyn cellar_ltx::FileSystem>,
-) -> Result<BTreeMap<String, Vec<u8>>> {
-    enroll_images_with_filesystem_and_payload(
-        cluster, rooted, partition, additional, padding, filesystem, None,
-    )
-    .await
-}
-
-pub(super) async fn enroll_images_with_payload(
-    cluster: &mut Cluster,
-    rooted: bool,
-    partition: bool,
-    additional: usize,
-    padding: usize,
-    payload: Option<&CellGroupPayloadReference>,
-) -> Result<BTreeMap<String, Vec<u8>>> {
     enroll_images_with_filesystem_and_payload(
         cluster,
         rooted,
@@ -100,12 +75,12 @@ pub(super) async fn enroll_images_with_payload(
         additional,
         padding,
         Arc::new(DirectFileSystem),
-        payload,
+        None,
     )
     .await
 }
 
-async fn enroll_images_with_filesystem_and_payload(
+pub(super) async fn enroll_images_with_filesystem_and_payload(
     cluster: &mut Cluster,
     rooted: bool,
     partition: bool,

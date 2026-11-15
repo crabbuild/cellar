@@ -65,13 +65,14 @@ async fn exercise(
 ) -> Result<()> {
     cluster.elect().await?;
     // Unique values prevent another cell from retaining the selected old extent.
-    let expected = checkpoint_fixture::enroll_images_with_filesystem(
+    let expected = checkpoint_fixture::enroll_images_with_filesystem_and_payload(
         cluster,
         rooted,
         false,
         1,
         128 * 1024,
         filesystem,
+        None,
     )
     .await?;
     let root = cluster.voters[0]
@@ -139,8 +140,8 @@ async fn exercise(
     // window. Keep driving this same operation until its actual file read is
     // held; waiting only for the notification would park the producer itself.
     tokio::time::timeout(Duration::from_secs(5), async {
-        tokio::select! {
-            biased;
+        cellar::asyncrt::select_biased! {
+            "observe the held physical read before treating upload completion as an early exit";
             _ = gate.entered.notified() => Ok::<_, anyhow::Error>(()),
             result = &mut pending => anyhow::bail!(
                 "checkpoint upload ended before the selected physical read; success={}",
