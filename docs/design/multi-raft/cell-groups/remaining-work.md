@@ -68,11 +68,20 @@ public controls. Catalog coalescing at `c7ed340c` also passes build/static gates
 but fails four of six controls: registration and Fleet conformance pass, while
 all four shared-group selections fail initial activation. One RustFS configuration
 commits after 2,839 ms, then immutable reader admission returns `Overloaded`.
-A compiled adapter is not complete primitive support.
+At `8588e800`, bounded immutable reader-admission retries pass all 19 selected
+owning units in the optimized CI profile. The fresh-backend control passes 3/6:
+native named Quorum completes both images, broader native recovery fails inbox
+restart activation, RustFS named consumption exceeds its request budget, and
+independent-target-S3 fails cold activation. A separate native Axum case also
+fails cold activation. A compiled adapter or one passing public path is not
+complete primitive support.
 
-1. **Close EventStream startup, consumption and recovery progress.** Qualify
-   bounded immutable reader-admission retries against the unchanged native/RustFS
-   cases, then resolve configuration latency at its owning source/target boundary.
+1. **Close EventStream startup, consumption and recovery progress.** Reduce
+   configuration/enrollment work and finish retained service readiness under the
+   unchanged native/Axum/RustFS budgets. Move the audited read-only subscription
+   status operation from the command bridge to an authorized pinned query,
+   preserving current grants, lifecycle, source proof and independent target-S3
+   coverage. Leases, clock decisions and acknowledgements remain commands.
    Retained images establish two child receipts for the same configuration input;
    The implemented reservation coalesces live reconciliation before allocating duplicate child identities and
    re-arm the same durable obligation safely. Poll only current status for the

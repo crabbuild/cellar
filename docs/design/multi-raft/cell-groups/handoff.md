@@ -35,12 +35,33 @@ metadata-reader `Overloaded`; the other controls exceed their original budgets.
 The 22-file backup and retained failed disks are verified. Coalescing does not
 establish a public startup pass.
 
-The current follow-up adds only bounded immutable reader-admission retries,
-sharing Workflow's typed `NotReady`/`Overloaded` rule. Qualify that source before
-claiming progress through the public gate. Preserve stale/completed-operation
-retry fences, original deadlines, independent S3 proof and all public assertions.
-Configuration latency remains a separate investigation. The isolated worktree
-is archived after its needed changes were integrated and retained.
+Source `8588e800` adds bounded immutable reader-admission retries, sharing
+Workflow's typed `NotReady`/`Overloaded` rule. Its optimized build, strict Clippy,
+repository checks and all 19 selected owning units pass. Control 175 is
+PREFLIGHT_FAILED with zero application tests because the old backend VM is
+stopped; its container and volume are subsequently observed absent. Original
+records and voter disks remain retained, but older S3 objects cannot be
+rechecked. A fresh owned backend in `.cellar/cg17-payload-01/canonical-backend-179`
+uses the same pinned image and limits. Do not reuse the absent canonical backend
+or relabel either backend's evidence.
+
+Fresh-backend control 179 is **FAILED: 3/6**. Registration, Fleet conformance and
+native named Quorum pass; the last completes both images and retained restart/
+minority refusal. Broader native recovery fails inbox-restart activation, RustFS
+named fails consumption, and target-S3 fails cold activation. Native Axum control
+180 also fails cold materialized activation. Failed extent branches are unrun.
+No full-family pass is established. Immutable inspection 177 verifies 33 earlier
+failed images, with one attempt/lane per observed catalog and at most one event
+receipt per broker; coalescing has a concrete scoped result, but has not closed
+latency.
+
+Next feature delivery: reduce configuration/enrollment work and retained service
+readiness delays, then move the audited read-only subscription status operation
+to authorized pinned queries. It currently enters the mutation bridge solely to
+observe identity/lease/lag. Keep current grants/lifecycle, independent S3 and
+source proof; lease/clock/ack mutations remain commands. This query change is
+not implemented. Preserve original budgets and all public assertions. The isolated
+worktree is archived after its needed changes were integrated and retained.
 
 After public EventStream progress, finish interruption/retention and Queue load,
 remaining SQL/KV/time/Workflow lifecycle, payload/provider adapters and the complete

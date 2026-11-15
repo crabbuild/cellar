@@ -93,13 +93,43 @@ their original activation deadlines. Coalescing alone has not closed startup.
 The 22-file evidence backup, frozen binaries and all failed voter disks are
 retained and verified.
 
-The next follow-up retries only typed temporary reader admission (`NotReady` or
+Source `8588e800` retries only typed temporary reader admission (`NotReady` or
 `Overloaded`) for private immutable EventStream metadata, using the same rule as
 Workflow. It retains the original absolute deadline, source proof, current target
 authorization and independent S3 coverage; quota, fencing, security and mutation
-failures do not acquire a new retry rule. Compilation and runtime qualification
-of that follow-up remain separate gates. Configuration latency and consumption
-progress remain open even if reader admission succeeds.
+failures do not acquire a new retry rule. Its locked optimized build, strict
+Clippy and repository checks pass. All **19 selected owning units pass** at that
+same source in the optimized CI profile, including the strengthened refusal
+assertions and reader-admission classifier.
+
+Cohort `CG-17-event-read-retry-8588e800-175` stops in **PREFLIGHT_FAILED**, with
+zero application tests run: the recorded Colima VM is stopped. After restoring
+the dedicated profile, its old RustFS container and object volume are also
+absent. Their disappearance is not attributed to an application failure. A fresh
+owned backend is provisioned with the pinned image, one CPU/two GiB, in the
+four-CPU/eight-GiB VM. Original evidence, frozen binaries and local failed voter
+disks remain retained; older S3 objects cannot be rechecked on that backend.
+
+The fresh-backend cohort `CG-17-event-read-retry-8588e800-179` uses the same
+qualified build and records **FAILED: 3/6**. Registration, Fleet conformance and
+the native named case pass. The latter completes both image forms, including
+publication, inbox/ack, retained restart and typed minority refusal. Broader
+native recovery reaches inbox-restart activation before its deadline failure;
+RustFS named activation reaches consumption before its unchanged request budget
+expires. Independent-target-S3 still fails initial activation. Those failed
+selections do not reach their extent branches. The separate native Axum control
+`CG-17-event-axum-8588e800-180` is **FAILED: 0/1**, during initial materialized
+activation. Its extent branch is unrun. The runtime passes do not establish
+reliable startup across public paths or complete EventStream support.
+
+Read-only inspection `CG-17-event-cold-inspection-c7ed340c-177` hashes and verifies
+33 retained images before/after inspection. Each observed catalog has one
+attempt and one binding lane; each observed broker has at most one event-command
+receipt. This supports the intended coalescing behavior without attributing the
+remaining latency. Next delivery must reduce configuration/enrollment work and
+finish retained service readiness and consumption. Subscription status is an
+audited read-only operation still using the command bridge; moving it to an
+authorized pinned query is a concrete follow-up, not delivered behavior.
 
 No deadline, quota, identity or durability proof is weakened. Native RF3 voters
 share one process, with separate workspace disks and one SQL worker each; RustFS
