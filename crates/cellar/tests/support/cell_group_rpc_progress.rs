@@ -241,6 +241,7 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
                                 &source.contract("Hold")?,
                                 vec![],
                                 QueryOptions {
+                                    consistency: QueryConsistency::Stale,
                                     routing: QueryRouting::Local,
                                     ..Default::default()
                                 },
@@ -291,8 +292,9 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
                             },
                         );
                         reader.release();
-                        query?;
-                        return observed;
+                        observed?;
+                        query.context("joined physical source query")?;
+                        return Ok(());
                     }
                     cellar::asyncrt::timeout(TIMEOUT, gates[0].entered.notified()).await?;
                     let (entered, started) = tokio::sync::oneshot::channel();
