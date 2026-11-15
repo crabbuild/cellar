@@ -424,17 +424,21 @@ pub(crate) async fn run_path(
             let two = upload.upload_part(&context, 2, b"old".to_vec()).await?;
             assert_eq!(two.etag, "");
             let two = upload.upload_part(&context, 2, b"beta".to_vec()).await?;
-            let one = upload.upload_part(&context, 1, b"alpha".to_vec()).await?;
+            // S3 requires a non-final part to contain at least 5 MiB. Use
+            // the same valid upload on the local and provider profiles.
+            let mut expected = b"alpha".repeat(1024 * 1024);
+            let one = upload.upload_part(&context, 1, expected.clone()).await?;
             assert!(upload
                 .upload_part(&context, 1, b"bad".to_vec())
                 .await
                 .is_err());
             let object = upload.complete(&context, &[one, two]).await?;
-            assert_eq!(object.size, 9);
+            expected.extend_from_slice(b"beta");
+            assert_eq!(object.size, expected.len() as u64);
             assert!(object.checksums.is_empty());
             assert_eq!(
-                body(&context, "multipart").await?.text(&context).await?,
-                "alphabeta"
+                body(&context, "multipart").await?.bytes(&context).await?,
+                expected
             );
             upload.abort(&context).await?;
             let invalid = bucket
