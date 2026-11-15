@@ -132,6 +132,11 @@ async fn run_mode(rooted: bool, store: Arc<catalog_fault::Store>, checkpoint: bo
     // Group apply and the source callback must use different workers: this
     // test holds synchronous physical I/O, not the whole SQL executor.
     fixture.sql_workers = 2;
+    if checkpoint {
+        // The physical worker gate is a third, fully admitted request beside
+        // the two commands. Keep the original byte bank and all public profiles.
+        fixture.ordinary_admission = Some((3, 64 * 1024));
+    }
     let roots = (0..3)
         .map(|_| tempfile::tempdir())
         .collect::<std::io::Result<Vec<_>>>()?;
