@@ -644,6 +644,7 @@ use raft::prelude::Entry;
 impl Cluster {
     async fn restart(&mut self, n: usize) -> Result<()> {
         let mut old = self.voters.remove(n);
+        let filesystem_work = old.filesystem_work;
         drop(old.held.take());
         drop(old.owner.take());
         old.log.close().await?;
@@ -730,6 +731,7 @@ impl Cluster {
                 gate,
                 paused: false,
                 held: None,
+                filesystem_work,
             },
         );
         Ok(())
