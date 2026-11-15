@@ -752,6 +752,7 @@ impl CellQueryInvocation {
             )
             .await
             .map_err(CellDispatchError::Runtime)?;
+        tracing::debug!(target: "cellar::raft::sql_ingress", "DEBUG-cg17-metadata-276 authority ready");
         if authority.route() != attempt.route() || authority.cell().version.history != *cell {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
@@ -771,6 +772,7 @@ impl CellQueryInvocation {
             )
             .await
             .map_err(|error| {
+                tracing::debug!(target: "cellar::raft::sql_ingress", ?error, "DEBUG-cg17-metadata-276 SQL error");
                 // The SQL waiter uses the shared execution error envelope. Its
                 // exact deadline must have the same routing meaning as this
                 // invocation's outer timer; ordinary storage failures stay fatal.
@@ -782,6 +784,7 @@ impl CellQueryInvocation {
                     CellDispatchError::Execution(error)
                 }
             })?;
+        tracing::debug!(target: "cellar::raft::sql_ingress", "DEBUG-cg17-metadata-276 SQL ready");
         if self.admission == QueryAdmission::Event(cellar_logic::consensus::Durability::S3) {
             let client = self
                 .dispatcher
@@ -795,7 +798,12 @@ impl CellQueryInvocation {
                     Box::new(selected),
                     attempt.deadline_ms(),
                 )
-                .await?;
+                .await
+                .map_err(|error| {
+                    tracing::debug!(target: "cellar::raft::sql_ingress", ?error, "DEBUG-cg17-metadata-276 archive error");
+                    error
+                })?;
+            tracing::debug!(target: "cellar::raft::sql_ingress", "DEBUG-cg17-metadata-276 archive ready");
             settled
                 .proof
                 .require_current(&self.dispatcher.domain, attempt.deadline_ms())
