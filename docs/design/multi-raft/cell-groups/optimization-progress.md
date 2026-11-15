@@ -89,7 +89,11 @@ fail. The matched quorum control passes SQL and fails KV/Queue. There is no
 complete passing control/candidate quorum pair, so no isolated optimization
 gain follows. Native qualification records 1,508 passes, 15 failures and 107
 explicit ignores across eight libtest targets; the separate production daemon
-oracle passes. Subsequent repairs retain their own source and validation scope.
+oracle passes. At repair source `9f483e79`, the full native primitive target
+passes 37 tests with zero failures and 41 explicit ignores; the library passes
+1,184 tests with zero failures and two ignores. The earlier eight primitive
+failures are unreproduced in that follow-up. Constrained comparison, broader
+fault/feature-mode gates and the removed-member protocol cut remain open.
 
 Direct routing, targeted cache repair, consistency-aware read selection and
 bounded shared workers already exist. Completion requires the following delivery
