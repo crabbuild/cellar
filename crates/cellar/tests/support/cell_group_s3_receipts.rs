@@ -408,7 +408,7 @@ pub(crate) async fn s3_idle_observation_reuses_verification(
     rooted: bool,
     store: Arc<dyn ObjectStore>,
 ) -> Result<()> {
-    let h = Harness::new(rooted, store, 1).await?;
+    let mut h = Harness::new(rooted, store, 1).await?;
     let expected = h.fixture.runtimes[0]
         .execution_authority(h.route.history, h.cell.clone())
         .await?
