@@ -297,6 +297,104 @@ Python tooling runs 188 tests with one existing skip; native dependencies cover
 are component/fixture results. The combined RustFS command and optimization,
 primitive, performance and release acceptance remain open.
 
+### Retained source boot during Seeding
+
+The remaining automatic handoff rejection reproduces natively at diagnostic
+source `9f3e9969`, while the same RustFS command passes. Its two blocked histories
+form a dependency: the admitted balance lacks terminal settlement, while another
+repair cannot admit during topology cancellation. Read-only postmortem of the
+earlier failed RustFS Root 51 identifies the elected Seeding leader as an original
+source voter on its qualified retained engine under a newer boot. Execution
+previously accepted such a source only in Joint or Complete. Other voters cannot
+substitute as a fresh seed source while that retained voter is leader.
+
+A regression restarts every original source during committed Seeding, rejects
+each source before capacity requalification and preserves the original target,
+permit and reservation. Before correction, source `bff90ea4` exhausts the same
+eight reconciliation turns with `Unconfirmed` in the first peer-seed profile.
+All four failed disks are retained after joined shutdown. The correction permits
+the qualified retained source to resume the exact consumed Seeding permit and
+promote the original learner. Preserved source-boot lineage, current rooted
+capacity, fresh quorum membership, exact permit/sequence, authenticated seed grant,
+current source process and original target boot remain required. It changes no
+resource limit, deadline, mutation identity, cancellation guard or settlement
+credit.
+
+At production source `00958495`, the original two-image native handoff and
+selection pass in 60.74 and 25.99 seconds. The other 12 original inspection,
+archive, payload and disaster controls also pass. The new source-restart and
+existing Joint-source tests instead fail later in their data audit: it scans an
+already removed voter before the current voters. A bounded failure-only probe
+confirms zero pending rows, completed membership sequence 1, fresh stable RF3 on
+the replacement and survivors, and `NotFound` only for the removed runtime.
+Stage context identifies the final voter lookup in both failures. These commands
+retain their failed status.
+
+The restart tests now select audit hosts from the independently verified current
+membership. A missing current voter still fails. Original receipt replay, S3
+durability, SQL reads/writes, negative boot checks and eight-turn limits remain;
+failed restart disks are kept after owners join. Final source `18319f85` differs
+from `00958495` only in this test module and the component README. All production
+Rust and the original transition/archive tests are byte-identical. The native
+Seeding, Joint-source and Joint-target restart tests pass in 43.70, 16.77 and
+12.37 seconds. Eight RustFS commands pass: those three restart controls,
+automatic handoff, child selection, physical archive ownership, external-payload
+recovery and fenced filesystem recovery. The original two-image handoff and
+selection finish in 84.00 and 39.98 seconds. Compiler inputs remain unchanged,
+all owners join, and the original 1-vCPU/2-GiB RustFS identity, limits and HTTP 200
+readiness remain intact. The voters are host-native fixtures, separate from
+the three-container performance comparison. Format/layout, dependency,
+documentation and 21 selected benchmark-ledger tests pass. Broader verification
+is recorded separately below.
+
+The first follow-up Clippy command stops before runtime tests because the
+earlier archive fixture uses forbidden `tokio::select!`. It now uses the required
+execution-domain `select_biased!` with an explicit physical-read priority reason;
+the branches and original timeout remain. At `4772bc9b`, both native archive-owner
+tests pass in both image forms, and the original RustFS case passes in 2.08
+seconds. Only this test selector differs from `18319f85`; production is identical.
+A second strict command stops on an unused filesystem wrapper in the execution
+target. The two redundant checkpoint wrappers are removed: default enrollment
+passes `DirectFileSystem`/no payload, archive ownership passes its actual fault
+filesystem/no payload, and payload recovery passes `DirectFileSystem`/the exact
+reference. The shared enrollment body is byte-identical. At `f4505de5`, all 14
+owning native checkpoint/archive commands pass. The three affected RustFS
+archive-owner, external-payload and filesystem-disaster commands also pass, with
+joined owners and unchanged backend identity, limits and readiness. The two
+earlier failed strict commands ran no library or primitive tests and remain failed.
+
+On that same frozen source, strict all-target Clippy passes in 376.06 seconds.
+All six selected current-main primitive commands pass: ordinary SQL (61.85 s),
+ordinary KV (109.89 s), warm KV source proof (33.74 s), Queue callbacks (140.79 s),
+four-in-flight Queue (74.66 s) and Blob providers (40.64 s). They retain their
+original profiles, deadlines, assertions and request identities. This is selected
+native compatibility, not the whole primitive target or a throughput measurement.
+
+The first complete library run remains **FAILED**: 1,191 passed, one park/wake
+test returns `Closed`, and two existing ignores. The exact failed case passes
+three isolated reruns and 100 further unchanged attempts. After all checkout-owned
+test and compiler owners join, a process snapshot finds no relevant compiler or
+test commands; the same executable's full 1,194-case inventory then passes with
+**1,192 passed, zero failed and two existing ignores**, in 94.77 seconds. No source,
+assertion, timeout or ignore changes separate those runs. The original park/wake
+failure is unreproduced, not causally explained or claimed fixed. The failed
+broader command is not relabeled. These observations establish no sustained host
+isolation or application speedup.
+
+Records include `main173-repair-probe-01`, `main173-repair-rustfs-probe-01`,
+`main173-rustfs-catalog-01`, `main173-source-boots-01`,
+`main173-seeding-before-01`, `main173-seeding-fix-01` and
+`main173-seeding-audit-probe-01`, followed by `main173-seeding-final-01`,
+`main173-seeding-rustfs-final-01` and `main173-seeding-checks-01` in the
+checkout-owned qualification directory. The later records are
+`main173-seeding-qa-01`, `main173-archive-select-final-01`,
+`main173-archive-select-rustfs-final-01`, `main173-seeding-qa-02`,
+`main173-seeding-qa-03`, `main173-checkpoint-final-01`,
+`main173-checkpoint-rustfs-final-01`, `main173-park-repro-01`,
+`main173-park-repro-02` and `main173-library-final-01`.
+This addresses recovery progress, not a measured SQL/KV/Queue throughput or
+latency gain. No full OPT/CG acceptance is promoted.
+
 ## Direct-routing candidate
 
 The current candidate adds a leader index beside the transport's existing route

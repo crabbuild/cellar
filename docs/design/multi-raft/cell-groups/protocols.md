@@ -327,6 +327,17 @@ that isolation proof only for the exact obsolete boot, after fresh stable RF3
 excludes it. Surviving original voters still need live physical-inventory and
 worker-exit proofs; settlement leaves the obsolete disk and disruption retained.
 
+An original source voter may resume an already-consumed Seeding permit after
+restarting on the same disk and engine. Its current rooted boot must be a
+retained successor of the admission's preserved source boot and independently
+qualify capacity. Fresh quorum membership must name the exact permit and consumed
+sequence before execution selects that source. The learner still requires its
+original target boot, and installation still needs a fresh authenticated seed
+grant bound to the current source process. A retained source may promote that
+learner; a restarted learner cannot use this path to initialize or promote itself.
+Starting an unconsumed permit and terminal resource settlement retain their
+separate proof requirements and original resource charges.
+
 Managed live voting observations share one original deadline. Each read-only
 member attempt receives a share of the remaining time, reserving time for other
 members and final validation. A lost reply retains the unverified history and

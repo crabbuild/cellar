@@ -61,7 +61,11 @@ impl FleetHostAuthorization {
                         return Err(FleetCatalogError::Conflict);
                     }
                     let (boot, _) = catalog
-                        .movement_boot(&snapshot, &row, source.node, false)
+                        // Requalifying the exact retained source engine does
+                        // not rebind the destination. The authenticated source
+                        // must still supply a fresh ReadIndex seed grant, and
+                        // its current process is checked below and at install.
+                        .movement_boot(&snapshot, &row, source.node, true)
                         .await?;
                     if boot.disk != source.disk.bytes() || boot.process != source.process.bytes() {
                         return Err(FleetCatalogError::Conflict);
@@ -117,7 +121,9 @@ impl FleetHostAuthorization {
                             &snapshot,
                             &row,
                             self.node(),
-                            command.action.finishes_joint(),
+                            command
+                                .action
+                                .permits_retained_receiver(self.node() == row.node),
                         )
                         .await?
                         .0
@@ -146,7 +152,7 @@ impl FleetHostAuthorization {
                             &snapshot,
                             &row,
                             NodeId::new(owner.node).map_err(|_| invalid())?,
-                            false,
+                            true,
                         )
                         .await?;
                 }
