@@ -78,12 +78,14 @@ impl RaftCellHandle {
                         let entered = domain.mono_ms().ok();
                         let result = prepared.await;
                         let finished = domain.mono_ms().ok();
-                        eprintln!(
-                            "DEBUG-cg17-sdk-360 command={id:?} before_target_poll_ms={:?} target_future_ms={:?} error={:?}",
-                            started.zip(entered).map(|(a, b)| b.saturating_sub(a)),
-                            entered.zip(finished).map(|(a, b)| b.saturating_sub(a)),
-                            result.as_ref().err().map(ToString::to_string),
-                        );
+                        if result.is_err() {
+                            eprintln!(
+                                "DEBUG-cg17-sdk-360 command={id:?} before_target_poll_ms={:?} target_future_ms={:?} error={:?}",
+                                started.zip(entered).map(|(a, b)| b.saturating_sub(a)),
+                                entered.zip(finished).map(|(a, b)| b.saturating_sub(a)),
+                                result.as_ref().err().map(ToString::to_string),
+                            );
+                        }
                         result
                     });
                     Box::pin(async move {

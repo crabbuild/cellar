@@ -69,6 +69,8 @@ mod named_service;
 mod names;
 #[path = "support/cell_group_queue.rs"]
 mod queues;
+#[path = "support/cell_group_resume_progress.rs"]
+mod resume_progress;
 #[path = "support/cell_group_rpc_progress.rs"]
 mod rpc_progress;
 #[path = "support/cell_group_rustfs.rs"]
@@ -1844,6 +1846,34 @@ async fn ordinary_cell_rpcs_interleave_between_proven_roots() -> Result<()> {
             .await
             .with_context(|| format!("interleaving extents={rooted} durability={durability:?}"))?;
         }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ready_cell_work_passes_a_blocked_same_cell_resume() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(resume_progress::run(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("resume progress extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_ready_cell_work_passes_a_blocked_same_cell_resume() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(catalog_fault::Store::around(rustfs::store(
+            "resume-progress",
+            rooted,
+        )?));
+        Box::pin(resume_progress::run(rooted, store))
+            .await
+            .with_context(|| format!("RustFS resume progress extents={rooted}"))?;
     }
     Ok(())
 }
