@@ -235,7 +235,6 @@ impl RaftCells {
                     .await;
                     match result {
                         Err(error) if super::read_admission::retryable(&error) => {
-                            tracing::debug!(target: "cellar::raft::sql_ingress", ?error, "DEBUG-cg17-metadata-276 metadata retry");
                             // A cold selected image can temporarily refuse a
                             // reader. Retry only immutable admission, retaining
                             // the original deadline, authority and source proof.
@@ -248,10 +247,7 @@ impl RaftCells {
                                 .await;
                             backoff_ms = (backoff_ms * 2).min(100);
                         }
-                        result => {
-                            tracing::debug!(target: "cellar::raft::sql_ingress", error=?result.as_ref().err(), "DEBUG-cg17-metadata-276 metadata result");
-                            return result;
-                        }
+                        result => return result,
                     }
                 }
             };

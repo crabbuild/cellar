@@ -29,6 +29,67 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Fetched main `189edd9a` remains included. **Runtime source `cfd83b13` reuses
+one completed physical S3 verification across idle gaps.** The proof retains
+its original checkpoint and tail admission. New capture or replay work evicts
+the idle owner before requesting those same bounded banks; active output proofs
+keep their own custody. Quiet predecessor cleanup can preserve the exact
+journaled head. Current birth, route, journal, receipt and serving checks remain
+required. Neither cached status nor a locator creates output proof.
+
+The new native and real-RustFS regression passes both image forms: after a
+completed publication it denies checkpoint-chunk downloads, requires an idle S3
+receipt lookup with **zero denied downloads**, then requires a fresh S3 mutation
+at a higher version. The pre-cache source `e8502d83` fails this regression.
+Initial cache source `55090434` caused five admission regressions; pressure
+eviction fixes all five without raising quotas. An older remote test expected
+ambiguity for an authenticated pre-admission rejection and also failed against
+the pre-cache binary. Its replacement verifies known non-admission, unchanged
+command identity, successful gateway rebinding and exact replay with one callback.
+Production mutation ambiguity behavior is unchanged.
+
+**All 32 owning archive selections pass**: 27 native and five real RustFS,
+including compaction, peer reuse, dependency coverage, original deadlines,
+cancellation, retirement and joined shutdown. The exact original public cohort
+is nevertheless **FAILED: 6/16 pass**. Both SDK source-proof and both history
+controls, registration and Fleet conformance pass. All eight EventStream
+selections fail initial materialized activation; native Queue fails producer
+sequence 7, and RustFS Queue reaches producer completion but fails final drain.
+Neither Queue campaign establishes the full 528-message delivery oracle.
+
+A frozen pre-cache `55ddecc1` binary also fails the same initial activation in
+both selected native/default and RustFS/target-S3 comparisons on this host.
+This does not establish the cause or equivalent reliability. Focused diagnostic
+source `f6ea1719` passes native named activation/delivery/recovery in both image
+forms; RustFS target-S3 passes materialized storage, then fails extent-image
+activation. Its trace shows repeated successful authority, SQL and S3 metadata
+reads while waiting for broker configuration. The delayed broker/binding
+transition remains unisolated. These diagnostic results do not replace the
+failed uninstrumented cohort or qualify a speedup. Temporary probes are removed;
+production and test sources return exactly to `cfd83b13`.
+
+Evidence is in `CG-17-idle-proof-aggregate-279-cfd83b13`, with component cohorts
+270/272/273/274, frozen comparison 275 and diagnostic 278 under
+`.cellar/cell-groups-evidence/`. The aggregate verifies identical tracked source
+inventories across its four `cfd83b13` cohorts; frozen comparison and diagnostic
+sources are recorded separately. Executable hashes, binary/evidence backups and
+failed disks are retained. All jobs are terminal; the owned RustFS container and
+VM are verified stopped and the object volume remains. The locked optimized
+build, strict library/all-test Clippy,
+formatting, layout, dependency and documentation checks pass at the runtime
+source. RF3 voters share one process and separate workspace disks; public paths
+use one SQL worker per voter. RustFS has one CPU/two GiB. Independent Linux-voter
+release qualification remains open.
+
+**Next:** isolate broker/binding progress during cold S3 activation under the
+original deadline, then finish autonomous interrupted binding recovery and safe
+sequence sealing. Close Queue producer/drain progress and the remaining primitive
+lifecycle/recovery matrix. Full CG-13/17/15/16 gates and hard cutover remain open;
+acceptance stays **13/17 tasks and 147/195 cases**. Historical evidence still
+needs restoration or explicit current-source requalification.
+
+## Previous merged-source enrollment checkpoint
+
 Fetched main `189edd9a` remains included. **Runtime source `55ddecc1` retains
 proven S3 enrollment output while waiting for current serving authority.** After
 SQL creation and S3 settlement, an unrelated committed-but-unapplied entry must

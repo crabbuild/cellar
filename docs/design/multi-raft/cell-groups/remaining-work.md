@@ -57,27 +57,29 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `189edd9a`. Runtime `55ddecc1` retains proven S3 enrollment output while
-waiting for current serving authority within the original deadline. The exact
-creation and archive proof are preserved, with no initializer rerun or weakened
-fence. The physical apply-gate regression fails at `94f87b2d` and passes native
-and real RustFS in both image forms, including expiry and exact replay. All six
-selected archive controls pass. The optimized build, strict library/all-test
-Clippy and repository checks pass. Earlier callback and archive fixes retain
-their own source-pinned evidence.
+main `189edd9a`. Runtime `cfd83b13` reuses one completed physical S3 verification
+across idle gaps, with pressure eviction before new checkpoint/tail admission.
+The new native and real-RustFS regression passes both images, including a fresh
+S3 write after reuse; all **32 owning archive selections pass**. Original quotas,
+proofs, deadlines and mutation ambiguity are preserved. Earlier enrollment and
+callback fixes retain their own source-pinned evidence.
 
-**The original sixteen public selections remain FAILED: 11/16 pass.** Named
-Quorum native/Axum paths pass native and real RustFS in both image forms, together
-with native explicit recovery, SDK source proofs, history discovery, registration
-and Fleet conformance. Failures remain in RustFS explicit later Consume metadata
-read, both RustFS target-S3 activations, native Queue final drain and RustFS Queue
-producer sequence 8. This does not establish stability or a measured speedup.
+**The original sixteen public selections remain FAILED: 6/16 pass.** Both SDK
+source-proof and both history controls, registration and Fleet pass. All eight
+EventStream selections fail initial materialized activation. Native Queue fails
+producer sequence 7; RustFS Queue reaches producer completion but fails final
+drain. Two frozen pre-cache comparisons also fail initial activation on this
+host, so the cache is not an isolated cause. Focused diagnostic 278 passes native
+named lifecycle in both images; RustFS target-S3 passes materialized storage,
+then fails extent-image activation while metadata reads complete and broker
+configuration stays pending. The failed uninstrumented gate remains authoritative.
+No stability or latency improvement is established.
 
-1. **Close independent-S3 activation and metadata-read progress.** Default named
-   Quorum Consume now passes. Isolate the remaining initial target-S3 activation
-   and later RustFS explicit Consume read using exact parent/child identities
-   under original budgets. Reproduce any checkpoint/readiness or archive proof
-   scheduling boundary before changing it. Do not infer noncommit from one
+1. **Close cold S3 activation and binding progress.** Isolate the delayed broker
+   transition using exact parent/child identities under original budgets;
+   successful metadata polling does not prove child progress. Reproduce any
+   checkpoint/readiness or archive-proof scheduling boundary before changing it.
+   Do not infer noncommit from one
    voter's retained images, weaken proof, extend deadlines or repeat broad
    campaigns in place of a focused failing boundary. Then finish autonomous
    interrupted binding/delivery/ack recovery, safe unused-sequence sealing, long
@@ -85,8 +87,8 @@ producer sequence 8. This does not establish stability or a measured speedup.
    recovery. The [EventStream contract](event-stream-durability.md) keeps separate
    source, destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
-   and fault oracles. At `55ddecc1`, native producer requests finish but the
-   original final drain expires; RustFS producer sequence 8 exceeds its deadline.
+   and fault oracles. At `cfd83b13`, native producer sequence 7 exceeds its
+   deadline; RustFS producer requests finish but the original final drain expires.
    Resolve both under unchanged load and budgets. Full delivery of either
    528-message campaign and load metrics are not established.
    Qualify both image forms.

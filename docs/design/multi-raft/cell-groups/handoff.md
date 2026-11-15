@@ -4,7 +4,55 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current merged-source enrollment checkpoint
+## Current idle archive proof checkpoint
+
+Main `189edd9a` remains included. Runtime source `cfd83b13` on
+`codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170),
+keeps one physically verified archive cut across idle gaps and evicts it before
+new checkpoint/tail admission. Active output custody, original budgets, current
+authority and exact receipt checks are preserved. Quiet cleanup can retain the
+exact journaled head. The new regression proves an idle lookup without another
+chunk download and a subsequent fresh S3 write, in both image forms against
+native storage and real RustFS. All 32 owning archive selections pass, including
+five admission regressions introduced by the first cache candidate and fixed by
+pressure eviction. See the [current evidence](progress.md#current-integration-checkpoint).
+
+**The original public cohort remains FAILED: 6/16 pass.** SDK source-proof and
+history controls, registration and Fleet pass. All eight EventStream selections
+fail initial materialized activation; Queue fails native producer sequence 7
+and RustFS final drain. Full delivery of either 528-message campaign is unproven.
+Two frozen pre-cache comparisons fail the same activation boundary on this host;
+do not infer its cause or dismiss the current failures. Focused diagnostic 278
+passes native named activation/delivery/recovery in both images. Its RustFS
+target-S3 case passes materialized storage, then fails extent-image activation
+while metadata reads repeatedly complete and broker configuration remains
+pending. The broker/binding delay is still unisolated. Probes are removed;
+production/test files match `cfd83b13` exactly.
+
+Next priorities:
+
+1. Isolate and fix the delayed broker/binding transition during cold S3
+   activation, retaining exact parent/child identities, current proofs and the
+   original deadline. Successful metadata polling does not prove child progress.
+   Do not extend budgets or infer noncommit from one voter's images.
+2. Finish autonomous interrupted binding/delivery/ack recovery and safe unused
+   sequence sealing; then close Queue producer/drain progress under the complete
+   unchanged workload in both image forms.
+3. Complete all primitive lifecycle/recovery adapters and the CG-13/17/15/16
+   combined gates before hard cutover.
+
+Aggregate 279 references source-pinned cohorts 270/272/273/274, frozen comparison
+275 and diagnostic 278. Frozen binaries, verified evidence backups and failed
+disks remain retained. The runtime source passes its optimized build, strict
+library/all-test Clippy and repository checks. Three voters share one process
+and separate workspace disks; public paths retain one SQL worker per voter.
+RustFS is limited to one CPU/two GiB. Use ignored
+`.cellar/cg17-payload-01/event-read-state.json` for live handles and infrastructure
+state. All jobs are terminal, and the owned container/VM are verified stopped
+with their object volume retained. Counts remain **13/17 tasks and 147/195 cases**; independent Linux release
+qualification and historical evidence restoration/requalification remain open.
+
+## Previous merged-source enrollment checkpoint
 
 Main `189edd9a` is included; runtime source `55ddecc1` on
 `codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170).

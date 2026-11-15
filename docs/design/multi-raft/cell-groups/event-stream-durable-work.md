@@ -90,8 +90,10 @@ does not require another whole-group barrier. Reconciliation alone grants no
 execution permission. New application entry keeps full group readiness, and
 checkpoint/final settlement keeps its original durability proofs and deadlines.
 The continuation regression passes native and real RustFS in both image modes.
-Current named Quorum native/Axum paths pass both image modes against native and
-real RustFS backends; the complete public matrix remains unqualified.
+Earlier named Quorum native/Axum paths pass scoped image/backend checks. The
+latest uninstrumented public cohort fails activation; the complete public matrix
+remains unqualified. Consult the current integration checkpoint before treating
+historical passes as current-source guarantees.
 
 After S3 enrollment settles, the adapter retains its exact creation record and
 proof while waiting for full current serving authority. Unrelated committed
@@ -110,6 +112,17 @@ its attempted cut, so newer independently verified coverage is eligible without
 inheriting that delay. This scheduling state supplies no authority or output proof
 and creates no task or timer per cell. Current request-pipeline qualification is
 reported in the [integration checkpoint](progress.md#current-integration-checkpoint).
+
+The archive controller may retain one completed physical verification across
+idle gaps and quiet cleanup. It keeps the exact journaled head and original
+checkpoint/tail reservations. Admission for new capture or replay evicts that
+idle owner first; independently retained active output proofs keep their own
+custody and may still refuse admission. Cache reuse still requires current
+birth, route, journal, serving authority and exact output checks. An advisory
+archive status cannot substitute for this proof. Native and real-RustFS controls
+cover lookup reuse without another chunk download and subsequent fresh S3 work.
+This bounded optimization does not establish public activation or complete
+primitive/recovery qualification.
 
 This reconciliation requires its own combined-source qualification. Earlier
 branch results below do not establish the merged candidate's runtime behavior.
