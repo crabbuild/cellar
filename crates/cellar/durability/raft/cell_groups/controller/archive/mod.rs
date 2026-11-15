@@ -302,9 +302,10 @@ pub(super) struct Manager {
     proof_job: Option<BoxFuture<'static, ProofCompleted>>,
     proof_group: Option<GroupHistory>,
     proof_queue: VecDeque<GroupHistory>,
-    // Keep one completed verification through pending predecessor cleanup so
-    // covered late requests can share it. Drop it before new verification;
-    // no physical pin is cached for idle groups.
+    // One node-wide completed verification lets covered observations share the
+    // actual admitted proof across idle gaps and predecessor cleanup. It stays
+    // charged to its original physical bank. A publication launch takes it and
+    // drops it before new verification; retirement and shutdown also clear it.
     handoff: Option<(GroupHistory, CellGroupArchiveCoverage)>,
 }
 
@@ -811,7 +812,6 @@ impl Manager {
             .publisher
             .retry_interval_ms(shared.limits.retry_interval_ms);
         settlement::prune(&mut entry.waiters, now);
-        let unexamined_waiters = !entry.waiters.is_empty();
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
         let mut statuses = shared
@@ -875,7 +875,7 @@ impl Manager {
         } else if !entry.waiters.is_empty() {
             entry.dirty = true;
         }
-        if !closing && !entry.fatal && (unexamined_waiters || completed.maintenance_pending) {
+        if !closing && !entry.fatal && !entry.stopping {
             self.handoff = completed
                 .coverage
                 .map(|coverage| (completed.group, coverage));

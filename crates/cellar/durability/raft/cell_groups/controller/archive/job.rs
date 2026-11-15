@@ -264,6 +264,29 @@ pub(super) async fn drive(
         .map_err(CellGroupArchiveBindingError::from)?;
     let mut record = load(context, execution).await?;
     let allocation_ready = retire(context, execution, &mut record).await?;
+    // Quiet maintenance can finish predecessor cleanup without discarding the
+    // node's one physical proof. This is the exact journaled head, independently
+    // recovered earlier and still admitted; the advisory marker cannot create it.
+    if allocation_ready && !demand.outputs && matches!(record.pending, Pending::None) {
+        if let Some(coverage) = retained_head
+            .as_ref()
+            .filter(|coverage| record.head.as_ref() == Some(coverage.hold()))
+        {
+            let current = runtime
+                .log()
+                .cell_group(&registration.birth.route().history)
+                .and_then(|group| group.group_manifest())
+                .map_err(|error| Error::Runtime(error.into()))?
+                .ok_or(Error::Runtime(RuntimeError::NotReady))?;
+            if coverage.marker().position().index >= current.position().index {
+                return Ok(Outcome::Verified(Driven {
+                    published: coverage.marker().clone(),
+                    coverage: coverage.clone(),
+                    maintenance_pending: false,
+                }));
+            }
+        }
+    }
     // Late covered requests can retain this exact admitted verification while
     // predecessor cleanup waits on remote I/O. Release our temporary owner
     // before any successor needs the original physical replay admission.
