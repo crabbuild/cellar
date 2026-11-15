@@ -108,6 +108,84 @@ fn deadline(db: &Storage) -> Result<Option<i64>> {
         .map(|work| work.at_ms))
 }
 
+fn status_caller(definition: &Definition) -> Result<Authority> {
+    Ok(serde_json::from_value(json!({
+        "resource": definition.resource,
+        "principal": "shop",
+        "grant": "owner",
+        "source": "Counter:consumer",
+        "action": Action::Consume,
+    }))?)
+}
+
+#[tokio::test]
+async fn subscription_status_observes_expired_lease_without_mutating_deadline_authority(
+) -> Result<()> {
+    run_case(|db, definition| {
+        let caller = status_caller(&definition)?;
+        let body = json!({"subscription":"projection"});
+        db.system_sql("INSERT INTO __sys_stream_leases VALUES('00000000000000000000000000000002',1,'token','fetch',1,2,100,5000)", &[])?;
+        let before = db.system_sql_read("SELECT logical_ms,earliest_offset,next_offset FROM __sys_stream", &[])?;
+        let work = deadline(&db)?;
+        let status: super::super::SubscriptionStatus = serde_json::from_value(
+            super::super::lifecycle_store::status_read(&db, &caller, &body)?
+        )?;
+        assert_eq!(status.identity.id, "00000000000000000000000000000002");
+        assert_eq!(status.identity.generation, "00000000000000000000000000000003");
+        assert_eq!(status.checkpoint, 0);
+        assert_eq!(status.observation.retained_lag_records, 2);
+        assert!(!status.observation.lease_active);
+        assert_eq!(status.lease.unwrap().expires_ms, 5000);
+        assert_eq!(db.system_sql_read("SELECT logical_ms,earliest_offset,next_offset FROM __sys_stream", &[])?, before);
+        assert_eq!(db.system_sql_read("SELECT expires_ms FROM __sys_stream_leases", &[])?.len(), 1);
+        assert_eq!(db.system_sql_read("SELECT offset FROM __sys_stream_events", &[])?.len(), 2);
+        assert_eq!(deadline(&db)?, work);
+        let mut administrator = caller.clone();
+        administrator.action = Action::Administer;
+        let observed: super::super::SubscriptionStatus = serde_json::from_value(
+            super::super::lifecycle_store::status_read(&db, &administrator, &body)?
+        )?;
+        assert_eq!(observed.identity, status.identity);
+        Ok(())
+    }).await
+}
+
+#[tokio::test]
+async fn subscription_status_requires_current_grant_and_observes_recreation() -> Result<()> {
+    run_case(|db, definition| {
+        let caller = status_caller(&definition)?;
+        let body = json!({"subscription":"projection"});
+        let read = |caller: &Authority| super::super::lifecycle_store::status_read(&db, caller, &body);
+        let refusal = |error: anyhow::Error, code| {
+            assert_eq!(error.downcast_ref::<super::super::DeliveryError>().unwrap().code, code);
+        };
+        let original: super::super::SubscriptionStatus = serde_json::from_value(read(&caller)?)?;
+        let mut wrong_action = caller.clone();
+        wrong_action.action = Action::Append;
+        refusal(read(&wrong_action).unwrap_err(), ErrorCode::Forbidden);
+        let mut changed = definition.clone();
+        changed.grants[0].subscriptions.clear();
+        db.system_sql("UPDATE __sys_stream SET definition=?", &[serde_json::to_string(&changed)?.into()])?;
+        refusal(read(&caller).unwrap_err(), ErrorCode::Forbidden);
+        let mut administrator = caller.clone();
+        administrator.action = Action::Administer;
+        read(&administrator)?;
+        changed.grants.clear();
+        db.system_sql("UPDATE __sys_stream SET definition=?", &[serde_json::to_string(&changed)?.into()])?;
+        refusal(read(&administrator).unwrap_err(), ErrorCode::Forbidden);
+        db.system_sql("UPDATE __sys_stream SET definition=?", &[serde_json::to_string(&definition)?.into()])?;
+        db.system_sql("UPDATE __sys_stream_subscriptions SET state='deleted'", &[])?;
+        refusal(read(&caller).unwrap_err(), ErrorCode::SubscriptionReset);
+        db.system_sql("UPDATE __sys_stream_subscriptions SET state='active',id='00000000000000000000000000000004',generation='00000000000000000000000000000005'", &[])?;
+        let recreated: super::super::SubscriptionStatus = serde_json::from_value(read(&caller)?)?;
+        assert_ne!(recreated.identity, original.identity);
+        assert_eq!(recreated.identity.id, "00000000000000000000000000000004");
+        db.system_sql("UPDATE __sys_stream SET lifecycle='deleted'", &[])?;
+        refusal(read(&caller).unwrap_err(), ErrorCode::DestinationDeleted);
+        Ok(())
+    }).await
+}
+
 #[tokio::test]
 async fn required_protection_quiesces_age_work_then_progress_rearms_bounded_sweeps() -> Result<()> {
     run_case(|db, definition| {

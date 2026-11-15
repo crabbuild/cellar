@@ -55,12 +55,13 @@ failed images, with one attempt/lane per observed catalog and at most one event
 receipt per broker; coalescing has a concrete scoped result, but has not closed
 latency.
 
-Next feature delivery: reduce configuration/enrollment work and retained service
-readiness delays, then move the audited read-only subscription status operation
-to authorized pinned queries. It currently enters the mutation bridge solely to
-observe identity/lease/lag. Keep current grants/lifecycle, independent S3 and
-source proof; lease/clock/ack mutations remain commands. This query change is
-not implemented. Preserve original budgets and all public assertions. The isolated
+The current candidate moves the audited read-only subscription status operation
+to authorized pinned queries, with owning cases for expired-lease observation,
+grant revocation and subscription recreation. Compile and qualify it before
+claiming a consumption pass. It observes identity/lease/lag under current
+grants/lifecycle, independent S3 and source proof; lease/clock/ack mutations remain
+commands. Then reduce configuration/enrollment work and retained service
+readiness delays. Preserve original budgets and all public assertions. The isolated
 worktree is archived after its needed changes were integrated and retained.
 
 After public EventStream progress, finish interruption/retention and Queue load,

@@ -129,7 +129,15 @@ receipt. This supports the intended coalescing behavior without attributing the
 remaining latency. Next delivery must reduce configuration/enrollment work and
 finish retained service readiness and consumption. Subscription status is an
 audited read-only operation still using the command bridge; moving it to an
-authorized pinned query is a concrete follow-up, not delivered behavior.
+authorized pinned query is a concrete follow-up. The current candidate now routes
+`__streamSubscriptionStatus` through that private query contract and reuses the
+same status reader for Fleet commands. Every lookup uses the committed read
+facade; current consume/admin grants, subscription generation, lifecycle and
+independent target-S3 coverage remain required. It does not advance the clock,
+expire leases or allocate a child mutation identity. New owning cases cover
+expired-lease observation without mutation, current grant revocation and
+deleted/recreated subscription identities. Compilation and current-source public
+qualification remain pending; no startup or consumption pass is claimed yet.
 
 No deadline, quota, identity or durability proof is weakened. Native RF3 voters
 share one process, with separate workspace disks and one SQL worker each; RustFS

@@ -24,8 +24,8 @@ after provisioning the required groups; the daemon uses its startup hook.
 
 The merged candidate uses one private authenticated event command/query path.
 Ordinary RPC bytes and public command discovery cannot supply event provenance.
-Pure metadata reads use pinned linearizable images for activation and stateful
-callers, with separate archive coverage at an S3 minimum. Stateful callers prove
+Pure metadata reads use pinned linearizable images for activation, subscription
+status and stateful callers, with separate archive coverage at an S3 minimum. Stateful callers prove
 preceding source writes before dispatch; metadata reads do not allocate child
 mutation identities or initialize target cells. Typed temporary reader admission
 (`NotReady`/`Overloaded`) retries within the same absolute deadline, with fresh
@@ -37,7 +37,9 @@ unknown catalogs go directly through creation without an extra strong absence
 lookup. The hint grants no serving or configuration authority. Missing configuration follows the normal creation path;
 unavailability, revocation and unknown outcomes refuse activation. Catalog and
 partition resolution still check their current resource identities and grants.
-Clocks, leases and mutations retain their command
+Subscription status reports the selected image's identity, lease and lag under
+its current consume/admin grant. Observing an expired lease does not expire it,
+advance the stored clock or create a child intent/receipt. Clocks, leases and mutations retain their command
 receipts. Configuration checks the actual compiled envelope against the host
 profile; append batching intersects that profile with policy limits and image
 capture still gates source output. No capacity limit is raised automatically.

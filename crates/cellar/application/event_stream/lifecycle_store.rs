@@ -50,6 +50,19 @@ fn authorize(
         .as_ref()
         .map(|caller| caller.action)
         .ok_or_else(|| error(ErrorCode::Forbidden, "missing host authority"))?;
+    let caller = store::authority(context, action)?;
+    let db = context.storage()?;
+    let (definition, name) = authorize_read(&db, &caller, body, admin)?;
+    Ok((db, definition, caller, name))
+}
+
+fn authorize_read(
+    db: &Storage,
+    caller: &Authority,
+    body: &Value,
+    admin: bool,
+) -> Result<(Definition, String)> {
+    let action = caller.action;
     if (admin && action != Action::Administer)
         || !matches!(action, Action::Consume | Action::Administer)
     {
@@ -58,7 +71,6 @@ fn authorize(
             "invalid subscription authority",
         ));
     }
-    let caller = store::authority(context, action)?;
     let name = body["subscription"]
         .as_str()
         .ok_or_else(|| error(ErrorCode::InvalidRequest, "subscription name missing"))?
@@ -69,14 +81,13 @@ fn authorize(
             "invalid subscription name",
         ));
     }
-    let db = context.storage()?;
-    let (definition, _) = store::load(&db)?;
-    store::authorize(&definition, &caller, action, Some(&name))?;
-    Ok((db, definition, caller, name))
+    let (definition, _) = store::load(db)?;
+    store::authorize(&definition, caller, action, Some(&name))?;
+    Ok((definition, name))
 }
 
 fn active(db: &Storage, name: &str) -> Result<SqlRow> {
-    db.system_sql(
+    db.system_sql_read(
         "SELECT * FROM __sys_stream_subscriptions WHERE name=? AND state!='deleted'",
         &[name.into()],
     )?
@@ -91,17 +102,29 @@ fn active(db: &Storage, name: &str) -> Result<SqlRow> {
 }
 
 pub(crate) fn status(context: &Context, body: &Value) -> Result<Value> {
-    let (db, definition, _, name) = authorize(context, body, false)?;
-    let sub = active(&db, &name)?;
-    let (_, row) = store::load(&db)?;
-    let lease=db.system_sql("SELECT generation,first_offset,last_offset,expires_ms FROM __sys_stream_leases WHERE subscription=?",
+    let action = context
+        .event_authority
+        .as_ref()
+        .map(|caller| caller.action)
+        .ok_or_else(|| error(ErrorCode::Forbidden, "missing host authority"))?;
+    let caller = store::authority(context, action)?;
+    status_read(&context.storage()?, &caller, body)
+}
+
+/// Observe identity, lease and lag from one image without advancing the durable
+/// clock, expiring a lease or creating a mutation receipt.
+pub(super) fn status_read(db: &Storage, caller: &Authority, body: &Value) -> Result<Value> {
+    let (definition, name) = authorize_read(db, caller, body, false)?;
+    let sub = active(db, &name)?;
+    let (_, row) = store::load(db)?;
+    let lease=db.system_sql_read("SELECT generation,first_offset,last_offset,expires_ms FROM __sys_stream_leases WHERE subscription=?",
         &[store::text(&sub,"id")?.into()])?.into_iter().next().map(|row|Ok::<_,anyhow::Error>(LeaseSummary{
             generation:store::number(&row,"generation")?,first:store::number(&row,"first_offset")?,
             last:store::number(&row,"last_offset")?,expires_ms:store::number(&row,"expires_ms")?,
         })).transpose()?;
     let now = observation_time(&row)?;
     Ok(serde_json::to_value(snapshot(
-        &db,
+        db,
         &definition,
         &row,
         &sub,
@@ -131,7 +154,7 @@ pub(crate) fn snapshot(
     let end = store::number(stream, "next_offset")?;
     let lag = cellar_logic::event_stream::subscription_lag(earliest, end, checkpoint)?;
     let oldest_retained_age_ms = if lag.retained_records > 0 {
-        let rows = db.system_sql(
+        let rows = db.system_sql_read(
             "SELECT append_ms FROM __sys_stream_events WHERE offset=?",
             &[lag.first_retained.into()],
         )?;

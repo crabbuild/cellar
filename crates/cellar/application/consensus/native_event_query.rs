@@ -12,7 +12,11 @@ const OPERATION: &str = "__sys_raft_event_query";
 pub(crate) fn is_metadata(method: &str) -> bool {
     matches!(
         method,
-        "__catalogStatus" | "__catalogResolveName" | "__catalogResolve" | "__streamResolve"
+        "__catalogStatus"
+            | "__catalogResolveName"
+            | "__catalogResolve"
+            | "__streamResolve"
+            | "__streamSubscriptionStatus"
     )
 }
 

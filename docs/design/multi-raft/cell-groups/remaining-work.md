@@ -78,8 +78,8 @@ complete primitive support.
 
 1. **Close EventStream startup, consumption and recovery progress.** Reduce
    configuration/enrollment work and finish retained service readiness under the
-   unchanged native/Axum/RustFS budgets. Move the audited read-only subscription
-   status operation from the command bridge to an authorized pinned query,
+   unchanged native/Axum/RustFS budgets. Qualify the new read-only subscription
+   status candidate on its authorized pinned query path,
    preserving current grants, lifecycle, source proof and independent target-S3
    coverage. Leases, clock decisions and acknowledgements remain commands.
    Retained images establish two child receipts for the same configuration input;

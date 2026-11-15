@@ -211,6 +211,7 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
         "__catalogResolveName",
         "__catalogResolve",
         "__streamResolve",
+        "__streamSubscriptionStatus",
     ] {
         assert!(is_metadata(method));
     }
@@ -221,6 +222,9 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
         "__streamRead",
         "__streamNext",
         "__streamAck",
+        "__streamRetry",
+        "__streamExtend",
+        "__streamSubscriptionChange",
         "__streamAppend",
         "__streamStatus",
     ] {
