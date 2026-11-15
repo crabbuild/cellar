@@ -89,7 +89,7 @@ The first refreshed smoke passes SQL/KV but rejects Queue's valid `0.0` counts. 
 
 Rust qualification remains scoped to unchanged production inputs at manifest `f4505de5`: six selected current-main primitive commands, owning checkpoint/archive controls, and native/RustFS retained-source and removed-member controls pass. A whole-library follow-up passes 1,192 tests with two existing ignores, after a preceding run fails one park/wake `Closed` case. That case passes 103 isolated attempts; the original failure remains unexplained. Full current-main primitive/backend/feature/crash qualification remains open.
 
-Current-head Python examples and JavaScript/Node hosted workflows pass. Typed RPC's standard-Python full matrix fails during proof-wait warmup after `NodeLeaseMismatch` fences the host; the free-threaded full matrix passes. No isolated cause or suppression is claimed. Cellar SDK CI is pending at report preparation.
+At controller head `69654995`, Python examples and JavaScript/Node hosted workflows pass. Typed RPC's standard-Python full matrix fails during proof-wait warmup after `NodeLeaseMismatch` fences the host; the free-threaded full matrix passes. No isolated cause or suppression is claimed. Cellar SDK CI is pending at that report preparation.
 
 A broader host snapshot at **2026-11-15 12:38:57 UTC** observes another checkout's primitive qualification plus two active VMs. The narrow compiler monitor misses the executable named `primitives`; its absence is not a quiet-host proof. This campaign cannot establish an isolated causal gain or regression. All observations/failures remain retained; no unrelated work is stopped.
 
@@ -98,3 +98,74 @@ All 75 full-run participant containers stop without observed OOM or restart. Fai
 [Machine assessment](three-node-primitive-main-173-2026-11-15.json) and [raw capsule](three-node-primitive-main-173-2026-11-15.raw.json.gz) retain complete emitted samples/ledgers, resource curves, topology/performance observations, terminal states, build equivalence, both smokes and failure diagnostics. Capsule: 22,483,380 bytes, SHA-256 `8b81524d454b97552651646fb609c8f4506a59f121b8c49511723639460a2b68`. Runtime configuration, environment dumps, private keys and node/store log text are excluded. Thirteen actual runtime credential/private-key representations are checked privately against the emitted data.
 
 Next priorities are the original-bound S3 and bucket Queue progress failures, controlled profiling of image preparation/sync and public read integration, then remaining authority, physical reclamation/once-only credit, placement/fairness and lifecycle/crash gates. No complete OPT-01–08, CG-17 or release acceptance is claimed. See the [prioritized gaps](optimization-progress.md#priorities-for-completing-the-optimization).
+
+## Command-phase follow-up
+
+Observer source `337abc29`, compiler manifest `cc89c945` and image `b49af6da`
+add bounded aggregate timers without changing deadlines, admission, authority,
+acknowledgement or Ready/sync ordering. Five metric-lifetime tests and three
+owning S3 controls pass, including held publication during a later apply. Strict
+all-target Cellar Clippy, formatting/layout, docs and native-dependency checks
+pass. The Linux build verifies all 3,425 compiler inputs and rebuilds Cellar,
+LTX and both node binaries with the same locked Rust 1.98.1 lab profile. The load
+client is byte-identical to the completed comparison above.
+
+The original C1/4/16, two-repetition S3 profile is repeated in fresh namespaces
+under the same container and five-second limits:
+
+| API | Verified windows | Failed | Unmeasured | Request errors |
+| --- | --- | --- | --- | --- |
+| KV | 18 | 0 | 0 | 0 |
+| Queue | 5 | 1 | 6 | 1 |
+
+A preceding uninstrumented KV rerun fails at the first C16 read with 538 of 547
+requests successful and nine errors, despite unchanged leaders/terms. The
+observer-only pass does not establish a deadline fix. Queue's C16 enqueue makes
+340 attempts with 339 successes and one ambiguous deadline. All 2,712
+acknowledged IDs/bodies are observed; eight extra IDs/bodies exactly match the
+one uncertain attempted batch. That observation supplies no missing S3 receipt.
+Reported backlog/dead-letter samples are zero, but delivery-set and settlement
+qualification remain failed. No fresh-ID mutation retry is issued.
+
+The new phase observations combine all three nodes over each case:
+
+| API | Phase | Completed observations | Mean ms | Failed observations |
+| --- | --- | --- | --- | --- |
+| KV | Local command | 5,943 | 313.22 | 0 |
+| KV | S3 coverage | 5,943 | 220.14 | 0 |
+| KV | Proof freshness | 5,943 | 1.68 | 0 |
+| KV | Resumed output wait | 230 | 26.47 | 0 |
+| Queue | Local command | 1,728 | 695.95 | 1 |
+| Queue | S3 coverage | 2,448 | 366.70 | 1 |
+| Queue | Proof freshness | 2,447 | 5.26 | 0 |
+| Queue | Resumed output wait | 60 | 46.06 | 0 |
+
+These are inclusive, overlapping timers, including verification/background work;
+they must not be added. Coverage also measures native RPC checkpoint commits,
+so its count need not equal outer commands. An individual output check may
+refuse while apply catches up and later succeed; such attempt failures are not
+request failures. The Queue case records one coverage failure and no
+proof-freshness/output-wait failure. This narrows the next investigation toward
+archive coverage admission/publication/replay. Aggregate snapshots do not link
+that counter to a particular request or identify the earlier deadline's cause.
+
+All groups retain their initial leader/term in both observer runs. All six nodes
+and two stores stop normally, without observed OOM/restarts; the failed Queue
+load exits one as required. Owners join and the original RustFS identity,
+limits and mounts are restored with HTTP 200 readiness. Host qualification
+activity occurs during both cases; no isolated speedup is accepted. Queue uses
+24 workload entities plus 24 DLQs, with 16 cells per group; the driver description
+mentions 24 cells, while the retained runtime snapshots record the actual 48.
+
+Read-only reconciliation also closes the earlier bucket Queue's extra-delivery
+identity gap: all 32 extra IDs/bodies match four of its ten uncertain batches.
+Eight acknowledged IDs remain unobserved at the original drain bound, and 48
+uncertain message IDs are unobserved. Its durability/drain failure remains open.
+
+The [phase assessment](three-node-primitive-main-173-2026-11-15.command-phases.json)
+and [raw phase capsule](three-node-primitive-main-173-2026-11-15.command-phases.raw.json.gz)
+retain full windows, ledgers, phase/resource observations, terminal states,
+source/build manifests and the preceding failed KV reproduction. Runtime
+configuration, environments, private keys and node/store log text are excluded;
+actual owned runtime credentials/private-key representations are scanned before
+publication. This follow-up accepts no complete primitive matrix or OPT/CG gate.

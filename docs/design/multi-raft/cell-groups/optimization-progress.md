@@ -165,8 +165,30 @@ Clippy, five metric-lifetime tests and three owning S3 controls pass. Compilatio
 and tests retain the same compiler inputs and joined owners. Format/layout
 checks cover 2,321 Rust files; native dependency and documentation checks pass.
 The earlier private-field compile failure remains recorded separately. This
-checkpoint supplies observations, not a deadline fix or measured speedup; the
-matching Linux reproduction is still pending.
+checkpoint supplies observations, not a deadline fix or measured speedup.
+
+The matching Linux image `b49af6da`, from source `337abc29`, rebuilds both owning
+libraries and binaries with verified complete inputs and unchanged load bytes.
+The [command-phase follow-up](three-node-primitive-main-173-2026-11-15.md#command-phase-follow-up)
+retains both original-bound S3 runs. KV passes all 18 windows without request
+errors; its earlier nine-error reproduction remains unexplained. Queue verifies
+five windows, fails the first C16 enqueue and leaves six unmeasured. One of 340
+requests has an ambiguous deadline. All 2,712 acknowledged IDs/bodies are
+observed, plus eight matching the one uncertain batch; no S3 receipt follows
+from delivery observation.
+
+KV coverage averages 220 ms versus 313 ms local command lifetime. Queue records
+one S3 coverage failure and no proof-freshness or resumed-output-wait failure;
+coverage averages 367 ms, against 696 ms local lifetime. Timers overlap, include
+verification/background work and lack per-request causal linkage. Archive
+coverage admission/publication/replay is the next profiling target, while the
+original correctness and deadline gates remain. Leaders/terms stay unchanged;
+all nodes/stores exit normally without observed OOM/restarts. Host qualification
+activity occurs during both runs, preventing an isolated speedup claim. Owners
+join and the original RustFS identity/limits/mounts return with HTTP 200 readiness.
+The earlier bucket Queue's 32 extra IDs/bodies also reconcile to four uncertain
+batches; its eight then-unobserved acknowledged IDs and durability/drain failure
+remain open.
 
 At published head `ac64ca16`, the JavaScript adapters job separately fails
 `removed_class_recovers_an_uncertain_create_and_retires_without_business_code`:
