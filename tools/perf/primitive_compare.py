@@ -30,6 +30,51 @@ INSPECT = '''{"id":{{json .Id}},"image":{{json .Image}},"owner":{{json (index .C
 CGROUP = 'for f in cpu.max memory.max memory.swap.max cpu.stat memory.current memory.peak memory.events memory.stat; do echo "$f"; cat "/sys/fs/cgroup/$f"; done'
 
 
+def validate_queue_ledger(row):
+    require(all(row.get(flag) is True for flag in ('delivery_probe_complete', 'delivery_set_verified',
+                'queue_metrics_probe_complete', 'queue_settlement_verified')), 'incomplete Queue proof probes')
+    batches = row.get('attempted_batches')
+    require(isinstance(batches, dict) and len(batches) == row['successful_requests'], 'Queue batch ledger mismatch')
+    expected = {}
+    for batch, messages in batches.items():
+        require(isinstance(batch, str) and isinstance(messages, list) and len(messages) == 8,
+                'invalid Queue attempted batch')
+        value = hashlib.sha256(batch.encode()).hexdigest() * 4
+        for index, message in enumerate(messages):
+            identity = f'{batch}.{index}'
+            require(message == {'id': identity, 'value': value} and identity not in expected,
+                    'Queue attempted identity/body mismatch')
+            expected[identity] = hashlib.sha256(value.encode()).hexdigest()
+    require(row.get('acknowledged_message_hashes') == expected
+            and len(expected) == row['acknowledged_messages'], 'Queue acknowledgement ledger mismatch')
+    observations = row.get('delivery_observations')
+    require(isinstance(observations, dict) and set(observations) == {'0', '1', '2'}, 'missing Queue delivery observer')
+    observed, deliveries = {}, 0
+    for observation in observations.values():
+        require(isinstance(observation, dict) and type(row.get('delivery_probe_round')) is int
+                and row['delivery_probe_round'] > 0 and type(observation.get('round')) is int
+                and observation['round'] == row['delivery_probe_round']
+                and isinstance(observation.get('messages'), dict), 'stale/incomplete Queue delivery round')
+        for identity, delivery in observation['messages'].items():
+            require(isinstance(delivery, list) and len(delivery) == 2 and type(delivery[1]) is int
+                    and delivery[1] > 0 and delivery[0] == expected.get(identity), 'Queue observed identity/body mismatch')
+            observed[identity] = delivery[0]
+            deliveries += delivery[1]
+    require(observed == expected and len(observed) == row['delivered_messages']
+            and deliveries - len(observed) == row.get('duplicate_deliveries'), 'Queue delivery ledger mismatch')
+    metrics, observations = row.get('queue_metrics'), row.get('queue_metric_observations')
+    require(isinstance(metrics, list) and len(metrics) == 24 and isinstance(observations, dict)
+            and set(observations) == {str(entity) for entity in range(24)}, 'missing Queue metrics observer')
+    for entity, metric in enumerate(metrics):
+        observation = observations[str(entity)]
+        require(isinstance(observation, dict) and type(row.get('queue_metrics_probe_round')) is int
+                and row['queue_metrics_probe_round'] > 0 and type(observation.get('round')) is int
+                and observation['round'] == row['queue_metrics_probe_round'] and observation.get('metrics') == metric,
+                'stale/incomplete Queue metrics round')
+        require(isinstance(metric, dict) and type(metric.get('backlog')) is int and type(metric.get('dead')) is int,
+                'invalid Queue settlement counts')
+
+
 def save(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, indent=2) + '\n')
@@ -70,6 +115,7 @@ def validate_rows(rows, family, args):
                 and row['success_latency'] == latency_summary(row['success_latency_us']), 'latencies differ from raw samples')
         require(math.isclose(row['requests_per_second'], row['successful_requests'] / row['elapsed_seconds'], rel_tol=1e-10), 'rate accounting mismatch')
         if family == 'queue':
+            validate_queue_ledger(row)
             require(row['acknowledged_messages'] == row['successful_requests'] * 8 == row['delivered_messages']
                     and not row['missing_messages'] and not row['extra_messages']
                     and all(m['backlog'] == m['dead'] == 0 for m in row['queue_metrics']), 'Queue delivery/settlement accounting mismatch')

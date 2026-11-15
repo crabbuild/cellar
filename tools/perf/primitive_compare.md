@@ -101,6 +101,17 @@ not a per-message delivery latency measurement. Failed or ambiguous mutations
 stop the worker and retain their original identities; they are never replaced
 with fresh-ID retries. Empty, failed, short or incomplete windows cannot qualify.
 
+Queue rows retain acknowledged message hashes and every attempted batch before
+verification starts. Delivery and per-queue metrics observations carry probe
+rounds and completion flags, preserving partial replies if a later probe fails.
+An unavailable verifier still produces a failed window with its producer ledger.
+Complete delivery or settlement observations cannot qualify an enqueue with an
+unknown outcome.
+The controller independently rehashes the attempted message bodies and reconciles
+their identities with all three delivery observers and all 24 queue metrics at
+their completed probe rounds. Missing ledgers, stale rounds and inconsistent
+body, delivery or duplicate counts refuse qualification.
+
 A shorter smoke matrix can be selected with `--seconds`, `--warmup`,
 `--repetitions`, `--concurrency`, `--families` and `--modes`. Such a run is labelled
 separately and cannot establish the full default comparison. All cases record

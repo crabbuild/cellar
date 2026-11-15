@@ -119,38 +119,63 @@ def window(hosts, token, family, prefix, phase, concurrency, seconds):
            'attempt_latency_us': attempts, 'success_latency_us': successful,
            'attempt_latency': latency_summary(attempts), 'success_latency': latency_summary(successful),
            'verified': False}
-    client = Client(hosts, token)
+    if family == 'queue':
+        # Record the producer ledger before any verification I/O can fail.
+        row.update(acknowledged_messages=len(expected), acknowledged_message_hashes=expected,
+                   attempted_batches=batches, delivery_observations={}, delivery_probe_round=0,
+                   delivery_probe_complete=False, delivery_set_verified=False,
+                   queue_metric_observations={}, queue_metrics_probe_round=0,
+                   queue_metrics_probe_complete=False, queue_settlement_verified=False)
+    client = None
     try:
+        client = Client(hosts, token)
         if family == 'queue':
             drain_deadline = time.monotonic() + 60
             observed = {}
             while True:
+                row['delivery_probe_round'] += 1
+                row['delivery_probe_complete'] = False
                 observed = {}
                 duplicates = 0
                 for node in range(3):
                     deliveries = client.request(node, 'deliveries', {'prefix': prefix + '.'})
+                    row['delivery_observations'][str(node)] = {
+                        'round': row['delivery_probe_round'], 'messages': deliveries}
                     for identity, (body, count) in deliveries.items():
                         require(identity not in observed or observed[identity] == body, 'cross-node Queue body mismatch')
                         duplicates += count - int(identity not in observed)
                         observed[identity] = body
+                row['delivery_probe_complete'] = True
                 if set(expected) <= set(observed) or time.monotonic() >= drain_deadline:
                     break
                 time.sleep(.2)
-            metrics = [client.request(entity % 3, 'metrics', {'entity': entity}) for entity in range(ENTITIES)]
+            def read_metrics():
+                row['queue_metrics_probe_round'] += 1
+                row['queue_metrics_probe_complete'] = False
+                metrics = []
+                for entity in range(ENTITIES):
+                    metric = client.request(entity % 3, 'metrics', {'entity': entity})
+                    row['queue_metric_observations'][str(entity)] = {
+                        'round': row['queue_metrics_probe_round'], 'metrics': metric}
+                    metrics.append(metric)
+                row['queue_metrics_probe_complete'] = True
+                return metrics
+            metrics = read_metrics()
             # Delivery is observed before its ack commits. Wait for actual durable
             # settlement as well as callback observation, under a bounded drain.
             while any(metric['backlog'] != 0 for metric in metrics) and time.monotonic() < drain_deadline:
                 time.sleep(.2)
-                metrics = [client.request(entity % 3, 'metrics', {'entity': entity}) for entity in range(ENTITIES)]
+                metrics = read_metrics()
             drained = time.monotonic() - start
-            row.update(acknowledged_messages=len(expected), delivered_messages=len(observed),
+            row.update(delivered_messages=len(observed),
                        duplicate_deliveries=duplicates, missing_messages=sorted(set(expected) - set(observed)),
                        extra_messages=sorted(set(observed) - set(expected)), queue_metrics=metrics,
                        enqueue_messages_per_second=len(expected) / elapsed, enqueue_and_drain_seconds=drained,
-                       verified_messages_per_second_including_drain=len(expected) / drained,
-                       attempted_batches=batches)
+                       verified_messages_per_second_including_drain=len(expected) / drained)
             require(observed == expected, 'Queue delivery set/body differs from acknowledged messages')
+            row['delivery_set_verified'] = True
             require(all(metric['backlog'] == 0 and metric['dead'] == 0 for metric in metrics), 'Queue backlog or dead-letter messages remain')
+            row['queue_settlement_verified'] = True
         elif phase != 'read':
             for index, ((entity, key), value) in enumerate(expected.items()):
                 require(client.request(index + 1, 'read', {'entity': entity, 'key': key}) == value, 'write readback mismatch')
@@ -161,7 +186,8 @@ def window(hosts, token, family, prefix, phase, concurrency, seconds):
     except Exception as error:
         row['verification_error'] = str(error)
     finally:
-        client.close()
+        if client is not None:
+            client.close()
     return row
 
 

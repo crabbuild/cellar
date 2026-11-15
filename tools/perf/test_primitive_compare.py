@@ -1,6 +1,7 @@
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import copy
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -23,9 +24,25 @@ def rows(family='sql'):
                'attempt_latency_us':samples,'success_latency_us':samples,'attempt_latency':latency_summary(samples),
                'success_latency':latency_summary(samples),'requests_per_second':2/3}
         if family == 'queue':
+            batches={f'fixture.{phase}.0.{sequence}':
+                     [{'id':f'fixture.{phase}.0.{sequence}.{item}',
+                       'value':value_for(f'fixture.{phase}.0.{sequence}')} for item in range(8)]
+                     for sequence in [1,2]}
+            hashes={message['id']:hashlib.sha256(message['value'].encode()).hexdigest()
+                    for messages in batches.values() for message in messages}
+            metrics=[{'backlog':0,'dead':0} for _ in range(24)]
             row.update(acknowledged_messages=16,delivered_messages=16,missing_messages=[],extra_messages=[],
-                       queue_metrics=[{'backlog':0,'dead':0}],enqueue_and_drain_seconds=4,
-                       enqueue_messages_per_second=16/3,verified_messages_per_second_including_drain=4)
+                       queue_metrics=metrics,enqueue_and_drain_seconds=4,duplicate_deliveries=0,
+                       enqueue_messages_per_second=16/3,verified_messages_per_second_including_drain=4,
+                       attempted_batches=batches,acknowledged_message_hashes=hashes,
+                       delivery_probe_round=1,delivery_probe_complete=True,delivery_set_verified=True,
+                       delivery_observations={str(node):{'round':1,'messages':
+                           {key:[value,1] for key,value in hashes.items()} if node==0 else {}}
+                                              for node in range(3)},
+                       queue_metrics_probe_round=1,queue_metrics_probe_complete=True,
+                       queue_settlement_verified=True,
+                       queue_metric_observations={str(entity):{'round':1,'metrics':metric}
+                                                  for entity,metric in enumerate(metrics)})
         result.append(row)
     return result
 
@@ -75,6 +92,11 @@ class ComparisonEvidenceTests(unittest.TestCase):
 
     def test_queue_ack_delivery_and_drain_all_required(self):
         validate_rows(rows('queue'), 'queue', self.args)
+        duplicated=rows('queue')
+        duplicated[1]['delivery_observations']['1']['messages']=copy.deepcopy(
+            duplicated[1]['delivery_observations']['0']['messages'])
+        duplicated[1]['duplicate_deliveries']=16
+        validate_rows(duplicated,'queue',self.args)
         for field, replacement in [('delivered_messages',15),('acknowledged_messages',15),
                                    ('extra_messages',['unknown']),('queue_metrics',[{'backlog':1,'dead':0}]),
                                    ('enqueue_messages_per_second',99),('verified_messages_per_second_including_drain',99),
@@ -82,6 +104,29 @@ class ComparisonEvidenceTests(unittest.TestCase):
             value=copy.deepcopy(rows('queue'))
             value[1][field]=replacement
             with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_rows(value,'queue',self.args)
+
+    def test_queue_ledger_mismatch_or_partial_probe_cannot_qualify(self):
+        for mutation in ['missing-ledger','hash','body','duplicate-id','delivery-round',
+                         'missing-node','delivery-count','duplicate-count','metrics-round',
+                         'missing-metric','delivery-incomplete','settlement-unverified']:
+            value=copy.deepcopy(rows('queue'))
+            row=value[1]
+            first=next(iter(row['acknowledged_message_hashes']))
+            batch=next(iter(row['attempted_batches']))
+            if mutation=='missing-ledger':row.pop('acknowledged_message_hashes')
+            elif mutation=='hash':row['acknowledged_message_hashes'][first]='00'*32
+            elif mutation=='body':row['attempted_batches'][batch][0]['value']='changed'
+            elif mutation=='duplicate-id':row['attempted_batches'][batch][1]['id']=first
+            elif mutation=='delivery-round':row['delivery_observations']['0']['round']=0
+            elif mutation=='missing-node':row['delivery_observations'].pop('2')
+            elif mutation=='delivery-count':row['delivery_observations']['0']['messages'][first][1]=True
+            elif mutation=='duplicate-count':row['delivery_observations']['0']['messages'][first][1]=2
+            elif mutation=='metrics-round':row['queue_metric_observations']['0']['round']=0
+            elif mutation=='missing-metric':row['queue_metric_observations'].pop('23')
+            elif mutation=='delivery-incomplete':row['delivery_probe_complete']=False
+            else:row['queue_settlement_verified']=False
+            with self.subTest(mutation=mutation),self.assertRaises(ValueError):
                 validate_rows(value,'queue',self.args)
 
     def test_kernel_limits_are_checked_against_requested_profile(self):
@@ -209,6 +254,101 @@ class ComparisonEvidenceTests(unittest.TestCase):
         self.assertEqual(result['errors'][0]['mutation_outcome'],'unconfirmed')
         self.assertEqual(result['errors'][0]['sequence'],1)
         self.assertEqual(len(value_for('any identity')),256)
+
+    def test_queue_failures_keep_producer_and_partial_verifier_ledgers(self):
+        for failure in ['constructor', 'delivery', 'metrics', 'partial-metrics', 'unknown-enqueue']:
+            with self.subTest(failure=failure):
+                attempted=[]
+                instances=[]
+                class FailingVerifier:
+                    def __init__(self,*_):
+                        instances.append(self)
+                        if failure=='constructor' and len(instances)==2:
+                            raise ValueError('verifier unavailable')
+                    def close(self):pass
+                    def request(self,node,operation,body):
+                        if operation=='write':
+                            attempted.append(body['messages'])
+                            if len(attempted)==2:
+                                raise TimeoutError('enqueue response lost')
+                            return True
+                        if operation=='deliveries':
+                            if failure=='delivery' and node==1:
+                                raise ValueError('delivery probe unavailable')
+                            messages=attempted[0][:4] if failure=='delivery' else attempted[0]
+                            return {m['id']:[hashlib.sha256(m['value'].encode()).hexdigest(),1]
+                                    for m in messages} if node==0 else {}
+                        if operation=='metrics':
+                            if failure=='metrics' or (failure=='partial-metrics' and body['entity']==3):
+                                raise ValueError('metrics probe unavailable')
+                            return {'backlog':0,'dead':0}
+                        raise AssertionError(operation)
+                with patch('primitive_load.Client',FailingVerifier):
+                    result=window(['a','b','c'],'secret','queue','queue-proof','enqueue',1,1)
+                self.assertFalse(result['verified'])
+                self.assertEqual(len(attempted),2)
+                self.assertEqual(result['attempts'],2)
+                self.assertEqual(result['successful_requests'],1)
+                self.assertEqual(result['errors'][0]['mutation_outcome'],'unconfirmed')
+                self.assertEqual(result['errors'][0]['sequence'],2)
+                self.assertEqual(result['acknowledged_messages'],8)
+                self.assertEqual(result['acknowledged_message_hashes'],
+                                 {m['id']:hashlib.sha256(m['value'].encode()).hexdigest()
+                                  for m in attempted[0]})
+                self.assertEqual(result['attempted_batches'],
+                                 {'queue-proof.0.1':attempted[0],'queue-proof.0.2':attempted[1]})
+                self.assertEqual(result['queue_settlement_verified'],failure=='unknown-enqueue')
+                self.assertEqual(result['queue_metrics_probe_complete'],failure=='unknown-enqueue')
+                if failure=='constructor':
+                    self.assertFalse(result['delivery_probe_complete'])
+                    self.assertEqual(result['delivery_observations'],{})
+                elif failure=='delivery':
+                    self.assertFalse(result['delivery_probe_complete'])
+                    observation=result['delivery_observations']['0']
+                    self.assertEqual(observation['round'],1)
+                    self.assertEqual(len(observation['messages']),4)
+                elif failure=='unknown-enqueue':
+                    self.assertTrue(result['delivery_set_verified'])
+                    self.assertEqual(len(result['queue_metric_observations']),24)
+                    self.assertIn('request failures retained',result['verification_error'])
+                else:
+                    self.assertTrue(result['delivery_probe_complete'])
+                    self.assertEqual(len(result['queue_metric_observations']),
+                                     3 if failure=='partial-metrics' else 0)
+                    self.assertEqual(result['queue_metrics_probe_round'],1)
+
+    def test_queue_complete_delivery_and_settlement_still_qualifies(self):
+        clock=[100.0]
+        messages={}
+        class SettledClient:
+            def __init__(self,*_):pass
+            def close(self):pass
+            def request(self,node,operation,body):
+                if operation=='write':
+                    for message in body['messages']:
+                        messages[message['id']]=[hashlib.sha256(message['value'].encode()).hexdigest(),1]
+                    clock[0]+=2
+                    return True
+                if operation=='deliveries':
+                    return {key:value for key,value in messages.items()
+                            if key.startswith(body['prefix'])} if node==0 else {}
+                if operation=='metrics':return {'backlog':0,'dead':0}
+                raise AssertionError(operation)
+        observed=[]
+        with patch('primitive_load.Client',SettledClient),patch('primitive_load.time.monotonic',side_effect=lambda:clock[0]):
+            for phase in ['warmup','enqueue']:
+                row=window(['a','b','c'],'secret','queue','settled.'+phase,phase,1,1)
+                row.update(family='queue',repeat=0)
+                observed.append(row)
+        validate_rows(observed,'queue',SimpleNamespace(repetitions=1,concurrency=[1],warmup=1,seconds=1))
+        for row in observed:
+            self.assertTrue(row['verified'])
+            self.assertTrue(row['delivery_probe_complete'])
+            self.assertTrue(row['delivery_set_verified'])
+            self.assertTrue(row['queue_metrics_probe_complete'])
+            self.assertTrue(row['queue_settlement_verified'])
+            self.assertEqual(row['acknowledged_messages'],8)
+            self.assertEqual(len(row['queue_metric_observations']),24)
 
 
 if __name__=='__main__':
