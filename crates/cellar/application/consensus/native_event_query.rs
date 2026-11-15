@@ -13,6 +13,7 @@ pub(crate) fn is_metadata(method: &str) -> bool {
     matches!(
         method,
         "__catalogStatus"
+            | "__catalogConfigureReceipt"
             | "__catalogResolveName"
             | "__catalogResolve"
             | "__streamResolve"

@@ -68,6 +68,15 @@ reservation is an optimization. SQLite obligations, original operation identitie
 current execution fences and independent destination proof remain authoritative
 after cancellation, ownership loss or restart.
 
+After a new catalog enrollment, deployment ingress joins the initializer’s exact
+configuration operation through a private immutable read. The read checks the
+full canonical definition digest, operation owner, current administration grant
+and lifecycle. It retains the original deadline and the target’s independent
+minimum durability proof. It allocates no command identity or second reconciler.
+A pending result is only an accepted intent: activation still waits for fresh
+active catalog and broker proofs. Existing catalogs and configuration changes
+keep their ordinary command path.
+
 ## Publication and independent proof
 
 Applications use `Context::stream`, `Storage::tx` and `tx.emit` unchanged. Business

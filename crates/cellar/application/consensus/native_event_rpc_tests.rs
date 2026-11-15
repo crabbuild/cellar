@@ -208,6 +208,7 @@ fn event_metadata_reader_excludes_clock_lease_and_configuration_mutations() {
     use super::super::native_event_query::is_metadata;
     for method in [
         "__catalogStatus",
+        "__catalogConfigureReceipt",
         "__catalogResolveName",
         "__catalogResolve",
         "__streamResolve",

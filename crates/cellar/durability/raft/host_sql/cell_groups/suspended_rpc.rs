@@ -95,10 +95,8 @@ impl Suspended {
             CommandFailure::UnsupportedCapability,
         ))?;
         let executor = self.executor.as_mut().ok_or_else(unavailable)?;
-        tracing::debug!(target: "cellar::raft::sql_ingress", "[DEBUG-cg17-cold] checkpoint staging");
         let prepared = executor.stage_rpc_checkpoint(&mut self.turn)?;
         let expected = executor.rpc_checkpoint_version()?;
-        tracing::debug!(target: "cellar::raft::sql_ingress", sequence = expected.sequence.get(), "[DEBUG-cg17-cold] checkpoint staged");
         executor.mark_submitted(prepared.proposal())?;
         let phase = CheckpointPhase::Applying(Box::pin(wait_checkpoint(
             commits.runtime.clone(),
@@ -146,7 +144,6 @@ impl Suspended {
                     }
                 }
                 Poll::Ready(Ok(CheckpointProof::Current(execution, proof))) => {
-                    tracing::debug!(target: "cellar::raft::sql_ingress", "[DEBUG-cg17-cold] checkpoint applied");
                     match self
                         .executor
                         .as_mut()
@@ -154,7 +151,6 @@ impl Suspended {
                         .finish_rpc_checkpoint(*execution, *proof)
                     {
                         Ok(receipt) => {
-                            tracing::debug!(target: "cellar::raft::sql_ingress", "[DEBUG-cg17-cold] checkpoint reconciled");
                             self.check(domain.mono_ms().map_err(|_| unavailable())?)?;
                             if receipt.receipt.minimum_durability()
                                 == cellar_logic::consensus::Durability::S3
@@ -171,9 +167,8 @@ impl Suspended {
                                     },
                                 });
                                 let domain = domain.clone();
-                                checkpoint.phase = CheckpointPhase::Archiving(Box::pin(
-                                    async move {
-                                        tracing::debug!(target: "cellar::raft::sql_ingress", "[DEBUG-cg17-cold] checkpoint archiving");
+                                checkpoint.phase =
+                                    CheckpointPhase::Archiving(Box::pin(async move {
                                         let settled = archive
                                             .command(
                                                 &commits.runtime,
@@ -184,15 +179,13 @@ impl Suspended {
                                             )
                                             .await
                                             .map_err(crate::raft::execution::storage)?;
-                                        tracing::debug!(target: "cellar::raft::sql_ingress", "[DEBUG-cg17-cold] checkpoint archived");
                                         settled
                                             .proof
                                             .require_current(&domain, commits.deadline)
                                             .await
                                             .map_err(crate::raft::execution::storage)?;
                                         Ok(())
-                                    },
-                                ));
+                                    }));
                                 self.checkpoint = Some(checkpoint);
                                 self.ready.0.store(true, Ordering::Release);
                                 return Poll::Pending;

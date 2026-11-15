@@ -12,6 +12,59 @@ use cellar_logic::consensus::ProposalId;
 use rand::RngCore as _;
 
 impl RaftCells {
+    /// Catalog enrollment already installed this deployment's durable intent.
+    /// Join its exact receipt without allocating a second command sequence;
+    /// autonomous reconciliation still owns broker delivery and acceptance.
+    pub(super) fn joined_event_configuration(
+        &self,
+        history: CellHistory,
+        input: Vec<u8>,
+        minimum: Durability,
+        deadline: u64,
+    ) -> HandlerFuture<RpcData> {
+        let prepared = (|| -> anyhow::Result<_> {
+            let scope = history.cell.as_str();
+            let request = native_event_rpc::decode(scope, &input)?;
+            anyhow::ensure!(
+                request.method == "__catalogConfigure",
+                CommandFailure::UnsupportedCapability
+            );
+            let native_event_rpc::Authority::Event(caller) = &request.authority else {
+                anyhow::bail!(CommandFailure::UnsupportedCapability);
+            };
+            caller.require_provisioning()?;
+            let mut route = self.handle.core.host.event_query_route(
+                scope,
+                "__catalogConfigureReceipt",
+                &request.authority,
+                &self.handle.core.log,
+            )?;
+            route.durability = route.durability.max(minimum);
+            // Birth supplies only a locator. The query must obtain current
+            // linearizable authority and the independent target minimum proof.
+            route.history_hint = Some(history.clone());
+            // Keep the admitted two-copy envelope bound while replacing the
+            // command wire with a private immutable query over the same body.
+            drop(input);
+            let input = native_event_rpc::encode(
+                scope,
+                request.rpc.name.as_deref(),
+                "__catalogConfigureReceipt",
+                request.authority,
+                &request.rpc.args,
+                route.max_input_bytes,
+            )?;
+            Ok((route, input))
+        })();
+        let owner = self.internal_observer();
+        Box::pin(async move {
+            let (route, input) = prepared?;
+            owner
+                .query_event_resource(route, input, deadline, false)
+                .await
+        })
+    }
+
     pub(crate) fn event_read(
         &self,
         admitted: crate::outbound_rpc::Admitted,

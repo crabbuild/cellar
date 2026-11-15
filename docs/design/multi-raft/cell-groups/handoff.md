@@ -4029,3 +4029,14 @@ only after its full gate passes. CG-16 reruns the complete capability matrix at
 one release revision; `plan.py release` must continue to refuse until then.
 Keep the requested MR-13/MR-14 progress JSON files excluded from the PR. Reuse the
 active PR, report qualification limits and leave merging to a separate action.
+
+Current cold-start follow-up: diagnostic `357e59bd` / cohort 185 places the first
+source delay after apply/reconciliation, in S3 publication/verification. Its
+0.29-second apply/reconcile and 1.28-second S3 observations are diagnostic only;
+the host was loaded. The candidate replaces a newly enrolled deployment catalog’s
+redundant configuration command with an exact authorized receipt read. Full
+canonical digest, original deadline, current lifecycle/grant and independent
+target minimum still gate the response; activation still requires current active
+proofs. Temporary DEBUG-cg17-cold probes are removed. Run the added owning
+receipt-read refusals and the unchanged public/Fleet/RustFS controls before
+claiming progress on family acceptance.

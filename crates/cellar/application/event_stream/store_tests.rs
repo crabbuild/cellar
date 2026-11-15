@@ -118,6 +118,79 @@ fn status_caller(definition: &Definition) -> Result<Authority> {
     }))?)
 }
 
+fn catalog_configuration_fixture(
+    db: &Storage,
+    definition: &Definition,
+) -> Result<(Authority, Value)> {
+    use base64::Engine;
+    let caller = Authority::deployment("shop", definition)?;
+    let operation = super::super::raft::operation("shop", definition)?;
+    let encoded = serde_json::to_string(definition)?;
+    let digest = hex::encode(Sha256::digest(encoded.as_bytes()));
+    let authority = serde_json::to_string(&caller)?;
+    super::super::catalog_schema::open(db)?;
+    db.system_sql("INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,desired_revision,pending_definition,pending_authority,operation,digest,operation_authority,retry_at_ms) VALUES(?,?,'creating',?,?,?,?,?,?,?,?,?,1000)",
+        &[definition.resource.id.clone().into(),definition.resource.name.clone().into(),definition.resource.tenant.clone().into(),definition.resource.application.clone().into(),definition.resource.family.clone().into(),definition.revision.into(),encoded.clone().into(),authority.clone().into(),operation.clone().into(),digest.clone().into(),authority.into()])?;
+    db.system_sql("INSERT INTO __sys_event_catalog_receipts(operation,resource,kind,digest,principal,grant_id) VALUES(?,?,'configure',?,'shop','owner')",&[operation.clone().into(),definition.resource.id.clone().into(),digest.into()])?;
+    Ok((
+        caller,
+        json!({"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(encoded)}),
+    ))
+}
+
+#[tokio::test]
+async fn catalog_configuration_join_reads_exact_intent_without_rearming_or_delivering() -> Result<()>
+{
+    run_case(|db, definition| {
+        let (caller, body) = catalog_configuration_fixture(&db, &definition)?;
+        let scope = super::super::catalog_scope(&definition.resource)?;
+        let authority = crate::application::consensus::native_event_rpc::Authority::Event(caller);
+        let before = db.system_sql("SELECT * FROM __sys_event_catalog", &[])?;
+        let receipts = db.system_sql("SELECT * FROM __sys_event_catalog_receipts", &[])?;
+        let read = || super::super::metadata::read(&db, &scope, "__catalogConfigureReceipt", &authority, &body);
+        for _ in 0..2 {
+            let pending = read()?;
+            assert_eq!(pending["state"], "creating");
+            assert_eq!(pending["operation"], body["operation"]);
+            assert!(pending["accepted_digest"].is_null());
+        }
+        assert_eq!(db.system_sql("SELECT * FROM __sys_event_catalog", &[])?, before);
+        assert_eq!(db.system_sql("SELECT * FROM __sys_event_catalog_receipts", &[])?, receipts);
+        db.system_sql("UPDATE __sys_event_catalog SET lifecycle='active',definition=pending_definition,pending_definition=NULL,pending_authority=NULL,accepted_revision=1,desired_revision=NULL", &[])?;
+        assert_eq!(read()?["state"], "active");
+        db.system_sql("UPDATE __sys_event_catalog SET lifecycle='deleted'", &[])?;
+        assert_eq!(read().unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::DestinationDeleted);
+        Ok(())
+    }).await
+}
+
+#[tokio::test]
+async fn catalog_configuration_join_refuses_changed_body_caller_grant_and_operation() -> Result<()>
+{
+    use base64::Engine;
+    run_case(|db, mut definition| {
+        let (caller, body) = catalog_configuration_fixture(&db, &definition)?;
+        let read = |caller: &Authority, body: &Value| super::super::catalog::configuration_receipt_read(&db, caller, body);
+        let mut changed = body.clone();
+        definition.max_records += 1;
+        changed["definition"] = json!(base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&definition)?));
+        assert_eq!(read(&caller, &changed).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::ConfigConflict);
+        changed = body.clone();
+        changed["operation"] = json!("a".repeat(32));
+        assert_eq!(read(&caller, &changed).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::OperationUnknown);
+        let mut foreign = caller.clone();
+        foreign.principal = "another".into();
+        assert_eq!(read(&foreign, &body).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::Forbidden);
+        let ordinary: Authority = serde_json::from_value(json!({"resource":caller.resource,"principal":"shop","grant":"owner","action":Action::Configure}))?;
+        assert!(read(&ordinary, &body).is_err());
+        db.system_sql("UPDATE __sys_event_catalog SET operation=?", &["b".repeat(32).into()])?;
+        assert_eq!(read(&caller, &body).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::ConfigConflict);
+        db.system_sql("UPDATE __sys_event_catalog SET definition=?", &[serde_json::to_string(&Definition {grants:vec![], ..definition})?.into()])?;
+        assert_eq!(read(&caller, &body).unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::Forbidden);
+        Ok(())
+    }).await
+}
+
 #[tokio::test]
 async fn subscription_status_observes_expired_lease_without_mutating_deadline_authority(
 ) -> Result<()> {

@@ -20,6 +20,10 @@ pub(crate) fn read(
             store::validate_authority(scope, caller, Action::Configure)?;
             catalog::configuration_status_read(db, caller)
         }
+        ("__catalogConfigureReceipt", Authority::Event(caller)) => {
+            store::validate_authority(scope, caller, Action::Configure)?;
+            catalog::configuration_receipt_read(db, caller, body)
+        }
         ("__catalogResolve", Authority::Event(caller)) => {
             store::validate_authority(scope, caller, Action::Resolve)?;
             catalog::resolve_read(db, caller)

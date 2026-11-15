@@ -149,9 +149,16 @@ named and independent-target-S3 all fail initial materialized activation. Their
 extent branches and the new public status/retained paths are unrun. No current
 native-path pass is inferred from the earlier `8588e800` control. The recorded
 RustFS owner/image/limits and signed probe pass after resuming its original volume.
-The next diagnostic traces source-intent proof, target enrollment/command and
-source continuation in one unchanged cold case. It cannot count as full-family
-or release acceptance, and its temporary trace must be removed after diagnosis.
+Diagnostic `CG-17-event-cold-trace-357e59bd-185` remains FAILED at cold
+materialized activation. Its first source checkpoint applies and reconciles in
+about 0.29 seconds, then spends about 1.28 seconds publishing/verifying S3 coverage;
+only about 0.55 seconds remain for the child. This trace does not show an apply
+self-deadlock. Host load is recorded, so these observations are not a latency
+qualification. The follow-up joins the catalog initializer’s exact durable
+configuration receipt by an authorized immutable read, avoiding a redundant
+foreground configuration command. Pending intent is not readiness; current
+active catalog/broker proofs remain required. Temporary tracing is removed.
+Owning and public qualification of this follow-up remain pending.
 
 No deadline, quota, identity or durability proof is weakened. Native RF3 voters
 share one process, with separate workspace disks and one SQL worker each; RustFS

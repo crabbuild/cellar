@@ -78,7 +78,7 @@ fn authorize_resource(db: &Storage, caller: &Authority, action: Action) -> Resul
 
 fn receipt(db: &Storage, operation: &str) -> Result<Option<SqlRow>> {
     Ok(db
-        .system_sql(
+        .system_sql_read(
             "SELECT * FROM __sys_event_catalog_receipts WHERE operation=?",
             &[operation.into()],
         )?
@@ -304,6 +304,51 @@ pub(super) fn configuration_status_read(db: &Storage, caller: &Authority) -> Res
         Action::Configure,
         None,
     )?;
+    status(&row)
+}
+
+/// Join only the exact deployment intent already committed by the catalog
+/// initializer. This observes current authorization and lifecycle, rather than
+/// replaying a historical receipt as proof that the resource is ready.
+pub(super) fn configuration_receipt_read(
+    db: &Storage,
+    caller: &Authority,
+    body: &Value,
+) -> Result<Value> {
+    caller.require_provisioning()?;
+    let encoded = body["definition"]
+        .as_str()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "catalog definition is missing"))?;
+    let (desired, digest) = store::decode_definition(encoded)?;
+    let operation = body["operation"]
+        .as_str()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "catalog operation is missing"))?;
+    store::validate_id(operation)?;
+    if !desired.resource.same_identity(&caller.resource) {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "catalog resource scope mismatch",
+        ));
+    }
+    let row = authorize_resource(db, caller, Action::Configure)?;
+    let prior = receipt(db, operation)?
+        .ok_or_else(|| error(ErrorCode::OperationUnknown, "catalog operation missing"))?;
+    validate_receipt(&prior, caller, "configure", Some(&digest))?;
+    if store::text(&row, "operation")? != operation || store::text(&row, "digest")? != digest {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "catalog configuration was superseded",
+        ));
+    }
+    if !matches!(
+        store::text(&row, "lifecycle")?.as_str(),
+        "creating" | "updating" | "active"
+    ) {
+        return Err(error(
+            ErrorCode::DestinationDeleted,
+            "catalog resource is retiring or deleted",
+        ));
+    }
     status(&row)
 }
 

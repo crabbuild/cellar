@@ -189,7 +189,10 @@ impl Authority {
         if self.provision {
             anyhow::ensure!(
                 (scope == super::catalog_scope(&self.resource)?
-                    && matches!(method, "__catalogConfigure" | "__catalogStatus"))
+                    && matches!(
+                        method,
+                        "__catalogConfigure" | "__catalogStatus" | "__catalogConfigureReceipt"
+                    ))
                     || (scope == super::cell_scope(&self.resource)?
                         && method == "__streamConfigure"),
                 "provisioning authority does not grant this RPC method"
