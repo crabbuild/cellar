@@ -27,6 +27,8 @@ mod bootstrap;
 mod inspection_catchup;
 #[path = "support/cell_group_managed_inspection_endpoint.rs"]
 mod inspection_endpoint;
+#[path = "support/cell_group_managed_fleet_inspection.rs"]
+mod inspection_group;
 #[path = "support/cell_group_managed_registry.rs"]
 mod registry;
 #[path = "support/cell_group_rustfs.rs"]

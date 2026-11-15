@@ -164,6 +164,22 @@ impl RaftCells {
         let scope = history
             .scope()
             .map_err(|_| CommandFailure::CommandConflict)?;
+        // Match remote receiver authorization: an installed trust cut behind
+        // the requested floor needs demand refresh, never a weaker floor or a
+        // background polling delay. The refresh owns its existing reservation.
+        if let Some(previous) = self
+            .handle
+            .core
+            .transport
+            .lagging_inspection_trust(minimum_revision)
+            .map_err(|error| match error {
+                InspectionError::Overloaded => CommandFailure::Overloaded,
+                _ => CommandFailure::Unavailable,
+            })?
+        {
+            self.refresh_inspection_trust(previous, minimum_revision, deadline)
+                .await?;
+        }
         let reader = self
             .handle
             .core

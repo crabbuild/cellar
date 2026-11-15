@@ -92,8 +92,9 @@ explicit ignores across eight libtest targets; the separate production daemon
 oracle passes. At repair source `9f483e79`, the full native primitive target
 passes 37 tests with zero failures and 41 explicit ignores; the library passes
 1,184 tests with zero failures and two ignores. The earlier eight primitive
-failures are unreproduced in that follow-up. Constrained comparison, broader
-fault/feature-mode gates and the removed-member protocol cut remain open.
+failures are unreproduced in that follow-up. The subsequent repair/inspection follow-up below passes the original automatic
+handoff and child-selection controls with both backends. Constrained comparison,
+broader fault/feature-mode gates and the removed-member protocol cut remain open.
 
 Direct routing, targeted cache repair, consistency-aware read selection and
 bounded shared workers already exist. Completion requires the following delivery
@@ -161,6 +162,88 @@ directory. Both runtime executions preserve their failed status, source hashes
 and joined shutdown; RustFS identity, 1-vCPU/2-GiB limits and readiness remain
 unchanged. These are in-process native RF3 controls, not the constrained
 three-container comparison. No new throughput or latency gain is established.
+
+
+### Repair memory and group inspection follow-up
+
+The extent handoff's remaining refusal is a reproducible memory-admission
+cycle, independent of the archive configuration correction. The original
+16-MiB control bank retains 11 MiB plus a 4-KiB extent-collection owner before
+a source-membership read needs another 5 MiB. The same refusal repeats 307
+times in the native probe and 186 times with RustFS. The actual extent-collection
+owner retains its charge under the original 16-MiB bank.
+
+Repair now reserves memory for the data actually alive in each phase. It first
+checks/adopts the original full-model bound, retains one charged source proof,
+regrows that same permit before constructing the full model, then shrinks it
+after the model drops and before independent admission. The original intrinsic
+misfit refusal, item ownership, root checks, exact request identity, capacity and
+failure-domain checks remain. Source age starts at receipt, before the evidence
+callback; both planning freshness checks and admission's new source proof remain
+required. Three memory regressions cover both nested quorum phases, failed growth
+without losing the retained charge, and unchanged oversized-model refusal.
+At source `f5496d47`, the full library passes 1,187 tests with zero failures and
+two existing ignores. The original two-image native handoff passes.
+
+A separate read-only test watcher now resamples only `Conflict` when the active
+controller changes Root between admission/debit status reads. It retains the
+original 60-second timeout, actual learner predicate and every mutation identity;
+it retries no mutation. At source `b170f4cf`, the complete handoff passes both
+natively and with RustFS, while the separate child-selection command still fails.
+These failed broader commands and the earlier archive/admission failures remain
+retained rather than being relabeled as passes.
+
+The child probe identifies a second progress defect: sampling asks for Fleet
+revision 35 while all nodes have installed revision 33. Local group inspection
+returns unavailable and remote inspection returns stale-peer before reaching
+quorum work. One existing authenticated node inspection installs revision 35,
+after which both local child-membership reads succeed. Fleet group inspection
+now uses that existing demand-refresh path for local inspection and an eagerly
+owned remote request. A complete current node cut is installed before endpoint
+selection. The original deadline, cancellation, finite reservations and boot
+validation remain; the receiver independently authorizes the exact history and
+obtains fresh quorum proof. Neither a cached leader nor refreshed node trust
+grants group/application authority.
+
+At production source `f305af1d`, both original automatic handoff and child-selection
+commands pass in both image formats, with the in-memory shared store (63.02/25.94 seconds), then
+against RustFS (92.41/37.85 seconds). All owners join, inputs remain unchanged,
+and the original RustFS identity, limits and readiness remain intact. These are
+in-process RF3 controls, not the three-container throughput comparison.
+Source `bc1782e5` adds only a managed integration-test module and its registration;
+production and original transition-target inputs are identical. The new
+regression passes both image formats: hold the actual periodic reader, advance
+the real Root, catch up one local request and an unpolled remote request, then
+cancel an independently held 30-second request within the existing five-second
+oracle. The actual read and exact memory/item charges are released, and no
+application callback runs. Its first attempt failed before the tested operation
+because the fault adapter was attached to payload storage rather than the Fleet
+reader; that setup failure is retained with joined owners and disks.
+
+At `bc1782e5` (3,416 compiler inputs), strict all-target Cellar Clippy and the
+full library pass: 1,187 passed, zero failed, two existing ignores. The original
+managed single-request trust-catchup and current-endpoint inspection controls
+also pass. Final manifest `ef7274e7` differs only in formatter-controlled
+module-registration ordering; the exact module path/name declarations, all test
+bodies and every production input remain identical. Final formatting/layout,
+native dependencies and documentation checks pass. These results use integrated
+main `0e925f6b`. Main advanced to `189edd9a` (#173 Blob/payload ownership) after
+this checkpoint; that combined source requires its own verification.
+Retained records include `main172-fleet-trust-fix-02`,
+`main172-fleet-trust-rustfs-01`, `main172-fleet-inspection-regression-02` and
+`main172-fleet-trust-qa-01` in the checkout-owned qualification directory.
+Temporary sampling/admission probes are removed. The retained candidate SQL
+quorum nodes' data volumes are Docker local named volumes on VM-local ext4;
+host directory sharing does not explain that case. This read-only mount audit
+measures no latency and makes no claim about every campaign volume.
+
+No application throughput or latency gain is established by these functional
+passes. The next priorities remain the source-matched constrained SQL/KV/Queue
+comparison with complete identity/body/settlement evidence; the removed-member
+protocol cut and remaining authority/read-consistency faults; sustainable shared
+physical reclamation and once-only capacity settlement; then repeated movement,
+fairness, wake/recovery and combined feature/backend/crash qualification.
+No complete OPT/CG gate is promoted.
 
 ## Direct-routing candidate
 

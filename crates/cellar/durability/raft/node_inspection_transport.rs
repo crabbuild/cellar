@@ -48,14 +48,14 @@ pub(crate) struct Received {
     _peer: Permit,
 }
 
-struct InspectionTarget {
-    peer: RaftPeerNode,
-    route: NodeRoute,
-    epoch: watch::Receiver<bool>,
-    memory: Permit,
+pub(super) struct InspectionTarget {
+    pub(super) peer: RaftPeerNode,
+    pub(super) route: NodeRoute,
+    pub(super) epoch: watch::Receiver<bool>,
+    pub(super) memory: Permit,
 }
 
-enum InspectionStart {
+pub(super) enum InspectionStart {
     Bound(Box<InspectionTarget>),
     Refresh(Box<crate::raft::fleet_catalog::FleetTrustSnapshot>),
 }
@@ -229,7 +229,7 @@ impl RaftTransport {
 }
 
 impl State {
-    fn bind_node_inspection(
+    pub(super) fn bind_node_inspection(
         &self,
         node: NodeId,
         minimum_revision: u64,
@@ -247,7 +247,7 @@ impl State {
         })
     }
 
-    fn lagging_node_inspection_trust(
+    pub(super) fn lagging_node_inspection_trust(
         &self,
         minimum_revision: u64,
     ) -> Result<Option<crate::raft::fleet_catalog::FleetTrustSnapshot>, TransportError> {
@@ -260,7 +260,7 @@ impl State {
         Ok((trust.revision() < minimum_revision).then(|| trust.as_ref().clone()))
     }
 
-    async fn refresh_node_inspection_trust(
+    pub(super) async fn refresh_node_inspection_trust(
         &self,
         previous: crate::raft::fleet_catalog::FleetTrustSnapshot,
         minimum_revision: u64,
