@@ -88,8 +88,9 @@ impl RaftCellHandle {
         future
     }
 
-    /// A dependent query waits for the source proof too. Its requested target
-    /// consistency remains independent of source durability.
+    /// A dependent query proves preceding source writes. An unchanged Quorum
+    /// image can reuse its existing proof; S3 sources still require archival.
+    /// Target consistency remains independent of source durability.
     pub fn query(
         &self,
         invocation: super::super::ProposalId,
@@ -103,7 +104,7 @@ impl RaftCellHandle {
             Ok(Some(scope)) => match self.prepare_sdk_query(invocation, contract, input, options) {
                 Err(error) => Box::pin(async move { Err(error) }),
                 Ok(prepared) => {
-                    let call = scope.schedule_io(move |_| prepared);
+                    let call = scope.schedule_read(move |_| prepared);
                     Box::pin(async move {
                         call.future
                             .await

@@ -154,6 +154,10 @@ impl CellPrivateExecutor {
                     .map(|activation| activation.resources()),
             )
             .map_err(private_failure)?;
+        // Entry already proves this committed image under Quorum. Capture the
+        // baseline before maintenance and constructors: any private writes or
+        // schema changes still require a checkpoint before dependent reads.
+        transaction.mark_quorum_read_base(attempt.request.durability == Durability::Quorum);
         if let Some(CellRpcDispatch {
             domain,
             deadline,
