@@ -28,6 +28,8 @@ pub mod catalog_fault;
 mod activations;
 #[path = "support/cell_group_alarms.rs"]
 mod alarms;
+#[path = "support/cell_group_binding_reads.rs"]
+mod binding_reads;
 #[path = "support/cell_group_binding_recovery.rs"]
 mod binding_recovery;
 #[path = "support/cell_group_bindings.rs"]
@@ -1982,6 +1984,17 @@ async fn ordinary_cell_sdk_dispatch_requires_source_proof() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn binding_receipt_bookkeeping_reuses_proven_quorum_reads() -> Result<()> {
+    Box::pin(binding_reads::qualify(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_binding_receipt_bookkeeping_reuses_proven_quorum_reads() -> Result<()> {
+    Box::pin(binding_reads::qualify(true)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
