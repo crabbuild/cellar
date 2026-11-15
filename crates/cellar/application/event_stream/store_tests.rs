@@ -196,6 +196,52 @@ async fn catalog_configuration_join_refuses_changed_body_caller_grant_and_operat
 }
 
 #[tokio::test]
+async fn retained_read_uses_verified_immutable_frame_without_command_capability() -> Result<()> {
+    use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId, ReadServices};
+    use cellar_ltx::host::{DirectFileSystem, FileSystem};
+
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("stream.sqlite");
+        let definition = definition();
+        let connection = rusqlite::Connection::open(&path)?;
+        connection.execute_batch(include_str!("schema.sql"))?;
+        connection.execute("INSERT INTO __sys_stream(singleton,definition,revision,lifecycle,next_offset,earliest_offset,bytes,rows,logical_ms,config_operation,config_digest,config_principal,config_grant,byte_position) VALUES(1,?1,1,'active',2,1,3,1,0,'operation','digest','shop','owner',3)", [serde_json::to_string(&definition)?])?;
+        connection.execute("INSERT INTO __sys_stream_events(offset,lane,sequence,envelope,size,append_ms,byte_position) VALUES(1,'lane',1,?1,3,100,3)", [b"abc".as_slice()])?;
+        let page_size: u32 = connection.query_row("PRAGMA page_size", [], |row| row.get(0))?;
+        drop(connection);
+        let filesystem = Arc::new(DirectFileSystem);
+        let mut file = filesystem.open(&path)?;
+        let length = file.file_len()?;
+        let bytes = file.read_exact_at(0, usize::try_from(length)?)?;
+        drop(file);
+        let store = GenerationStore::open(directory.path().join("images"), filesystem, GenerationLimits::default())?;
+        let pin = store.prepare_image_file(ImageId::new([1;16])?, &path, cellar_ltx::apply::ImageState {
+            epoch:1,txid:cellar_ltx::TXID(1),checksum:0,page_size,length,digest:Sha256::digest(&bytes).into(),
+        })?;
+        let reader = crate::storage::open_immutable_generation(pin, crate::storage::ImmutableQueryOptions {
+            sqlite_vec:false,services:ReadServices {now_unix_millis:Arc::new(|| 0),fill_random:Arc::new(|bytes| bytes.fill(1))},
+        })?.with_result_limit(4100);
+        crate::storage::QueryFrame::run(reader, |frame| {
+            let db = frame.storage();
+            assert!(crate::storage::capture_raft_dispatch().is_err());
+            assert!(db.system_sql("SELECT 1", &[]).is_err());
+            let mut caller = status_caller(&definition)?;
+            caller.action = Action::Read;
+            let page = super::super::metadata::read(&db, &super::super::cell_scope(&definition.resource)?, "__streamRead",
+                &super::super::super::consensus::native_event_rpc::Authority::Event(caller), &json!({}), frame.database().result_limit())?;
+            assert_eq!(page["records"],json!([{"offset":"1","envelope":"YWJj"}]));
+            assert_eq!(page["next"],"2");
+            assert_eq!(db.system_sql_read("SELECT logical_ms FROM __sys_stream", &[])?[0].get("logical_ms"), Some(&SqlValue::Integer(0)));
+            Ok(())
+        })
+    }).await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
 async fn retained_read_observes_one_frontier_without_mutating_stream_or_work() -> Result<()> {
     run_case(|db, definition| {
         let mut caller = status_caller(&definition)?;
