@@ -253,6 +253,12 @@ pub enum FirstGroupSetup {
     Operator,
 }
 
+#[derive(Default)]
+struct StartOptions {
+    partitions: Option<cellar::sdk::fleet_operations::RaftFleetAutomaticPartitionOptions>,
+    roots: Option<Vec<tempfile::TempDir>>,
+}
+
 pub struct ManagedCluster {
     pub fixtures: Vec<Fixture>,
     pub roots: Vec<tempfile::TempDir>,
@@ -380,7 +386,25 @@ impl ManagedCluster {
             independent,
             applications,
             first_group,
+            StartOptions::default(),
+        ))
+        .await
+    }
+
+    /// Retain caller-created disks so physical I/O faults can target their
+    /// exact paths before any node owner starts.
+    pub async fn start_with_roots(first: Fixture, roots: Vec<tempfile::TempDir>) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            first,
+            &[],
+            ArchiveSetup::Initialized,
+            false,
             None,
+            FirstGroupSetup::Normal,
+            StartOptions {
+                roots: Some(roots),
+                ..Default::default()
+            },
         ))
         .await
     }
@@ -399,7 +423,10 @@ impl ManagedCluster {
             true,
             None,
             FirstGroupSetup::Normal,
-            Some(partitions),
+            StartOptions {
+                partitions: Some(partitions),
+                ..Default::default()
+            },
         ))
         .await
     }
@@ -411,7 +438,7 @@ impl ManagedCluster {
         independent: bool,
         applications: Option<Vec<Arc<dyn Application>>>,
         first_group: FirstGroupSetup,
-        partitions: Option<cellar::sdk::fleet_operations::RaftFleetAutomaticPartitionOptions>,
+        options: StartOptions,
     ) -> Result<Self> {
         let second = peer_fixture(&first, 5).await?;
         let third = peer_fixture(&first, 6).await?;
@@ -503,9 +530,13 @@ impl ManagedCluster {
                 learners: vec![],
             })
         };
-        let roots = (0..fixtures.len())
-            .map(|_| tempfile::tempdir())
-            .collect::<std::io::Result<Vec<_>>>()?;
+        let roots = match options.roots {
+            Some(roots) => roots,
+            None => (0..fixtures.len())
+                .map(|_| tempfile::tempdir())
+                .collect::<std::io::Result<Vec<_>>>()?,
+        };
+        ensure!(roots.len() == fixtures.len(), "one disk per voter");
         let mut nodes = Vec::new();
         let mut hosts = Vec::new();
         let mut peers = Vec::new();
@@ -524,7 +555,7 @@ impl ManagedCluster {
                 if archives != ArchiveSetup::Disabled {
                     archives::configure(&mut config);
                 }
-                config.host.automatic_partitions = partitions.clone().map(|mut options| {
+                config.host.automatic_partitions = options.partitions.clone().map(|mut options| {
                 options.service.transition.coordinate = i == 3;
                 options.service.execution = if i == 3 {
                     cellar::sdk::fleet_operations::RaftFleetPartitionExecutionPolicy::Complete

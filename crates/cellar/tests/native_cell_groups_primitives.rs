@@ -67,6 +67,8 @@ mod named_service;
 mod names;
 #[path = "support/cell_group_queue.rs"]
 mod queues;
+#[path = "support/cell_group_rpc_progress.rs"]
+mod rpc_progress;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
 #[path = "support/cell_group_sql_bindings.rs"]
@@ -1829,6 +1831,19 @@ async fn ordinary_cell_rpcs_interleave_between_proven_roots() -> Result<()> {
             .await
             .with_context(|| format!("interleaving extents={rooted} durability={durability:?}"))?;
         }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn proven_rpc_continuation_does_not_wait_for_unrelated_group_apply() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(rpc_progress::run(
+            rooted,
+            Arc::new(catalog_fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("RPC progress extents={rooted}"))?;
     }
     Ok(())
 }
