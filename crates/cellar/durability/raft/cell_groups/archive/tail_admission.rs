@@ -35,6 +35,7 @@ pub struct CellGroupArchiveTailPool {
     pub(super) limits: CellGroupArchiveTailLimits,
     budget: Arc<Budget>,
     workspace: usize,
+    idle: CacheEviction,
 }
 
 impl CellGroupArchiveTailPool {
@@ -69,6 +70,7 @@ impl CellGroupArchiveTailPool {
             limits,
             budget: Budget::new(limits.max_retained_bytes, limits.max_operations),
             workspace,
+            idle: CacheEviction::default(),
         })
     }
 
@@ -81,9 +83,14 @@ impl CellGroupArchiveTailPool {
     }
 
     pub(super) fn admit(&self) -> Result<Arc<Permit>> {
+        self.idle.evict();
         self.budget
             .acquire(self.workspace)
             .map(Arc::new)
             .ok_or(CellGroupArchiveError::Busy)
+    }
+
+    pub(in crate::raft::cell_groups) fn remember_idle(&self, cache: &Arc<CachedCoverage>) {
+        self.idle.remember(cache);
     }
 }

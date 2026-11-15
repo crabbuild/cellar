@@ -306,7 +306,10 @@ pub(super) struct Manager {
     // actual admitted proof across idle gaps and predecessor cleanup. It stays
     // charged to its original physical bank. A publication launch takes it and
     // drops it before new verification; retirement and shutdown also clear it.
-    handoff: Option<(GroupHistory, CellGroupArchiveCoverage)>,
+    handoff: Option<(
+        GroupHistory,
+        Arc<crate::raft::cell_groups::archive::CachedCoverage>,
+    )>,
 }
 
 impl Manager {
@@ -659,7 +662,7 @@ impl Manager {
                 .handoff
                 .take()
                 .filter(|(selected, _)| *selected == group)
-                .map(|(_, coverage)| coverage);
+                .and_then(|(_, coverage)| coverage.take());
             tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                 group = ?group.group, stage = "launch", waiters = count);
             settlement::prune(&mut waiters, now);
@@ -876,9 +879,12 @@ impl Manager {
             entry.dirty = true;
         }
         if !closing && !entry.fatal && !entry.stopping {
-            self.handoff = completed
-                .coverage
-                .map(|coverage| (completed.group, coverage));
+            self.handoff = completed.coverage.map(|coverage| {
+                let cache = crate::raft::cell_groups::archive::CachedCoverage::new(coverage);
+                entry.registration.tails.remember_idle(&cache);
+                entry.registration.checkpoints.remember_archive_idle(&cache);
+                (completed.group, cache)
+            });
         }
         if !entry.waiters.is_empty() && !entry.proof_queued {
             entry.proof_queued = true;

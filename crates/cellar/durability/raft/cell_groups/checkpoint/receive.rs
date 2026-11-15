@@ -215,6 +215,7 @@ impl<T: Target> State<T> {
             .and_then(|n| n.checked_add(RECEIVE_WORKSPACE))
             .and_then(|n| n.checked_add(extra_bytes))
             .ok_or(CellGroupCheckpointError::Limit)?;
+        pool.archive_idle.evict();
         pool.budget
             .acquire(bytes)
             .ok_or(CellGroupCheckpointError::Busy)

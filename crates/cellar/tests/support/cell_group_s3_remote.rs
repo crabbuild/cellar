@@ -273,7 +273,10 @@ pub(crate) async fn s3_remote_outputs(rooted: bool, store: Arc<dyn ObjectStore>)
         .await
         .err()
         .context("unbound command")?;
-    assert!(error.ambiguous);
+    // The authenticated gateway rejects the missing S3 capability before
+    // admission. Only this transmission is resolved; prior uncertainty would
+    // remain sticky in the invocation's remote-submission state.
+    assert!(!error.ambiguous, "unbound remote S3 command: {error}");
     assert!(matches!(
         *error.cause,
         CellDispatchError::Execution(ExecutionError::Refused(
@@ -285,6 +288,24 @@ pub(crate) async fn s3_remote_outputs(rooted: bool, store: Arc<dyn ObjectStore>)
     assert!(enrollment(&h, &remote, Durability::S3).await.is_err());
     assert_eq!(h.calls.load(Ordering::SeqCst), 0);
     assert_eq!(h.initializations.load(Ordering::SeqCst), 0);
+    refunded(&h).await?;
+    remote.close().await?;
+    // The known rejection consumed no target sequence. Bind the real archive
+    // owner, retry the exact command and prove that replay runs no second callback.
+    let remote = Remote::start(&h, h.dispatcher.clone()).await?;
+    let accepted = command(&h, &remote, 1, b"remote", Durability::S3).await?;
+    assert_eq!(accepted.durability(), Durability::S3);
+    assert_eq!(accepted.result(), b"remote");
+    let expected = accepted.observation().clone();
+    drop(accepted);
+    refunded(&h).await?;
+    let replay = command(&h, &remote, 1, b"remote", Durability::S3).await?;
+    assert_eq!(replay.durability(), Durability::S3);
+    assert_eq!(*replay.observation(), expected);
+    assert_eq!(replay.result(), b"remote");
+    assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(h.initializations.load(Ordering::SeqCst), 0);
+    drop(replay);
     refunded(&h).await?;
     remote.close().await?;
     h.close().await

@@ -19,7 +19,9 @@ mod execution;
 pub use execution::CellGroupArchiveExecution;
 pub(crate) use execution::ControllerExecution;
 
+mod cache;
 mod checkpoint;
+pub(in crate::raft::cell_groups) use cache::{CacheEviction, CachedCoverage};
 mod data_store;
 mod fleet;
 pub use data_store::CellGroupArchiveStore;
