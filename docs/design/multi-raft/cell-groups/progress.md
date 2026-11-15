@@ -138,6 +138,11 @@ expire leases or allocate a child mutation identity. New owning cases cover
 expired-lease observation without mutation, current grant revocation and
 deleted/recreated subscription identities. Compilation and current-source public
 qualification remain pending; no startup or consumption pass is claimed yet.
+The status candidate passes strict library/all-test Clippy at `63fcede9`.
+The follow-up also tries fresh configuration status on resumed owners before
+allocating a configuration command: an empty route cache previously hid retained
+catalogs from the local history hint. Resume is only an optimization hint; exact
+current definition, lifecycle, grants and target proof still determine readiness.
 
 No deadline, quota, identity or durability proof is weakened. Native RF3 voters
 share one process, with separate workspace disks and one SQL worker each; RustFS

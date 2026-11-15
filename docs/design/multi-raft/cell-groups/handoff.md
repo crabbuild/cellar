@@ -60,7 +60,10 @@ to authorized pinned queries, with owning cases for expired-lease observation,
 grant revocation and subscription recreation. Compile and qualify it before
 claiming a consumption pass. It observes identity/lease/lag under current
 grants/lifecycle, independent S3 and source proof; lease/clock/ack mutations remain
-commands. Then reduce configuration/enrollment work and retained service
+commands. At `63fcede9`, strict library/all-test Clippy passes. The follow-up
+selects a fresh configuration-status read on resumed owners even before the
+range cache is populated; the read must still prove the exact active definition.
+Qualify that retained path before claiming recovery progress. Then reduce configuration/enrollment work and retained service
 readiness delays. Preserve original budgets and all public assertions. The isolated
 worktree is archived after its needed changes were integrated and retained.
 

@@ -91,7 +91,14 @@ impl RaftCells {
             &Authority::Event(authority.clone()),
             &self.handle.core.log,
         )?;
-        Ok(route.history_hint.is_some())
+        // A resumed owner starts with an empty range cache, even when its
+        // retained groups contain this catalog. Try current immutable status
+        // before allocating another configuration command. Resume selects only
+        // the optimization; it never supplies identity, authority or proof.
+        Ok(matches!(
+            self.handle.core.log.limits().mode,
+            crate::raft::options::LogOpenMode::Resume
+        ) || route.history_hint.is_some())
     }
 
     pub(crate) fn begin_event_sources(&self) -> Result<EventSources> {

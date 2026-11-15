@@ -10,9 +10,10 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 pub(crate) trait Host {
-    /// A local history hint chooses whether to try the immutable fast path.
+    /// A startup/history hint chooses whether to try the immutable fast path.
     /// It grants no authority and never replaces the subsequent strong read.
-    /// Unknown catalogs go directly through ordinary durable creation.
+    /// Fresh owners with unknown catalogs use ordinary durable creation;
+    /// resumed owners can try a strong read while their route cache is cold.
     fn configuration_known(&self, _principal: &str, _authority: &Authority) -> Result<bool> {
         Ok(false)
     }

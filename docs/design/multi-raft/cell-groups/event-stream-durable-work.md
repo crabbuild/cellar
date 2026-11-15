@@ -32,9 +32,11 @@ mutation identities or initialize target cells. Typed temporary reader admission
 target authorization and coverage checks. Fencing, malformed input, quota and
 mutation failures remain refusals. Retained shared-group activation
 skips configuration only after a fresh authorized catalog read proves the exact
-active definition. A local history hint chooses whether to attempt that read;
-unknown catalogs go directly through creation without an extra strong absence
-lookup. The hint grants no serving or configuration authority. Missing configuration follows the normal creation path;
+active definition. Fresh owners with no local history hint use ordinary creation
+without an extra strong absence lookup. Resumed owners try the strong read even
+while their range cache is empty, avoiding a configuration replay solely because
+the locator is cold. Neither startup mode nor the history hint grants serving
+or configuration authority. Missing configuration follows the normal creation path;
 unavailability, revocation and unknown outcomes refuse activation. Catalog and
 partition resolution still check their current resource identities and grants.
 Subscription status reports the selected image's identity, lease and lag under
