@@ -55,7 +55,7 @@ impl ObjectBody {
             let Some(mut body) = self.body.take() else {
                 return Ok(None);
             };
-            let (body, result) = raft::io(context, async move {
+            let (body, result) = raft::read(context, async move {
                 let result = body.next().await.transpose().map_err(anyhow::Error::msg);
                 Ok((body, result))
             })
@@ -222,7 +222,7 @@ impl Bucket {
         self.key("head", key)?;
         let name = self.name.to_string();
         let owned_key = key.to_string();
-        raft::io(context, async move {
+        raft::read(context, async move {
             store::head(&name, &owned_key)
                 .await
                 .map_err(anyhow::Error::msg)
@@ -247,7 +247,7 @@ impl Bucket {
         let conditions = BlobConditions::from(options.only_if.unwrap_or_default());
         let name = self.name.to_string();
         let owned_key = key.to_string();
-        let read = raft::io(context, async move {
+        let read = raft::read(context, async move {
             store::read(&name, &owned_key, range, &conditions)
                 .await
                 .map_err(anyhow::Error::msg)
@@ -376,7 +376,7 @@ impl Bucket {
         }
         let name = self.name.to_string();
         let listing: Listing = serde_json::from_value(
-            raft::io(context, async move {
+            raft::read(context, async move {
                 store::list(&name, &request)
                     .await
                     .map_err(anyhow::Error::msg)

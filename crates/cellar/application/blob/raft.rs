@@ -25,18 +25,38 @@ pub(super) async fn io<T: Send + 'static>(
     context: &Context,
     future: impl Future<Output = Result<T>> + Send + 'static,
 ) -> Result<T> {
+    run(context, future, false).await
+}
+
+/// Provider HEAD/GET/LIST and consuming a GET body do not mutate the source
+/// image. Reuse only an unchanged source proof; mutations take an ordered step.
+pub(super) async fn read<T: Send + 'static>(
+    context: &Context,
+    future: impl Future<Output = Result<T>> + Send + 'static,
+) -> Result<T> {
+    run(context, future, true).await
+}
+
+async fn run<T: Send + 'static>(
+    context: &Context,
+    future: impl Future<Output = Result<T>> + Send + 'static,
+    read_only: bool,
+) -> Result<T> {
     context.check_binding_turn()?;
     let result = if context.raft_storage.is_some() {
         let dispatch = crate::storage::capture_raft_dispatch()?
             .ok_or(CommandFailure::UnsupportedCapability)?;
-        dispatch
-            .schedule_io(move |timeout| async move {
-                crate::asyncrt::timeout(timeout, future)
-                    .await
-                    .map_err(|_| crate::application::consensus::RuntimeError::DeadlineExceeded)?
-            })
-            .future
-            .await??
+        let action = move |timeout| async move {
+            crate::asyncrt::timeout(timeout, future)
+                .await
+                .map_err(|_| crate::application::consensus::RuntimeError::DeadlineExceeded)?
+        };
+        let call = if read_only {
+            dispatch.schedule_read(action)
+        } else {
+            dispatch.schedule_io(action)
+        };
+        call.future.await??
     } else {
         future.await?
     };

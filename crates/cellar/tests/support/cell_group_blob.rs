@@ -172,6 +172,10 @@ async fn call(
 }
 
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()))
+        .with_test_writer()
+        .try_init();
     for rooted in [false, true] {
         let provider_root = tempfile::tempdir()?;
         let mut provider_faults = None;
@@ -250,7 +254,10 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                     },
                     TIMEOUT,
                 )
-                .await?;
+                .await
+                .with_context(|| {
+                    format!("Blob enrollment RustFS={real_rustfs} extents={rooted}")
+                })?;
                 let retry = u64::try_from(cellar::asyncrt::wall_ms())? + 180_000;
                 call(&cell, "Probe", "", 208, Durability::Quorum, retry)
                     .await

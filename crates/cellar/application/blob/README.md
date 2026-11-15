@@ -11,7 +11,9 @@ state have separate commits; persist references and reconcile uncertain results.
 A native Raft configuration explicitly declares `blob_bindings`. Provider I/O
 parks the private SQLite writer only after its ordered source checkpoint has
 the required Quorum or S3 proof. The same invocation and original deadline are
-checked when the writer resumes. Buffered operations, streaming chunks, mutable
+checked when the writer resumes. HEAD, GET, LIST and consuming an entered GET
+body may reuse an unchanged source proof; mutations require an ordered step.
+Buffered operations, streaming chunks, mutable
 multipart and supported resumable operations follow this path. Retained bodies
 and staged parts refuse a later invocation; domain shutdown joins entered abort
 cleanup. No unknown provider mutation automatically reruns application code.
