@@ -122,6 +122,9 @@ The controller independently rehashes the attempted message bodies and reconcile
 their identities with all three delivery observers and all 24 queue metrics at
 their completed probe rounds. Missing ledgers, stale rounds and inconsistent
 body, delivery or duplicate counts refuse qualification.
+Queue metrics expose floating-point counts. The controller accepts integer or
+finite, nonnegative whole-number floating-point counts, excludes booleans and
+still requires zero backlog and dead letters for every completed observer.
 
 A shorter smoke matrix can be selected with `--seconds`, `--warmup`,
 `--repetitions`, `--concurrency`, `--families` and `--modes`. Such a run is labelled

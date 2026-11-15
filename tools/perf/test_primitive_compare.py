@@ -120,6 +120,24 @@ class ComparisonEvidenceTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 validate_rows(value,'queue',self.args)
 
+    def test_queue_api_float_counts_require_complete_zero_settlement(self):
+        # QueueMetrics exposes f64 counts, so real JSON replies contain 0.0.
+        value = rows('queue')
+        for row in value:
+            for metric in row['queue_metrics']:
+                metric.update(backlog=0.0, dead=0.0)
+        validate_rows(value, 'queue', self.args)
+        for field in ['backlog', 'dead']:
+            for count in [True, False, '0', None, -1, -1.0, 0.5,
+                          float('nan'), float('inf'), float('-inf'), 1, 1.0]:
+                invalid = copy.deepcopy(value)
+                invalid[1]['queue_metrics'][0][field] = count
+                # Keep the observer in agreement: invalid or unsettled counts
+                # must fail independently of the existing observer proof.
+                invalid[1]['queue_metric_observations']['0']['metrics'][field] = count
+                with self.subTest(field=field, count=count), self.assertRaises(ValueError):
+                    validate_rows(invalid, 'queue', self.args)
+
     def test_queue_ledger_mismatch_or_partial_probe_cannot_qualify(self):
         for mutation in ['missing-ledger','hash','body','duplicate-id','delivery-round',
                          'missing-node','delivery-count','duplicate-count','metrics-round',

@@ -81,6 +81,20 @@ and its named RO/RL cases remain the acceptance contract:
 
 ### Priorities for completing the optimization
 
+The refreshed main-173 constrained smoke passes SQL and KV. Queue acknowledges
+and delivers all 24 warmup and 48 measured messages with complete probes and
+zero backlog/dead letters, but the controller rejects the API's valid `0.0`
+counts because it requires Python integers. The original smoke remains failed
+and the full comparison has not started. A regression reproduces this rejection
+before repair. The controller now accepts finite, nonnegative whole-number
+counts while excluding booleans, fractions and nonfinite values; complete
+observer rounds, exact identity/body reconciliation and zero settlement remain
+mandatory. All 341 performance tests run successfully with one existing skip,
+and unchanged saved Queue windows pass independent replay validation. This
+repairs measurement admission, establishes no speedup and requires a fresh
+constrained smoke before full measurements. Rust and load-client bytes are
+unchanged. The original RustFS is restored ready after the failed smoke.
+
 The latest twelve-case candidate comparison is the
 [main-172 campaign](three-node-primitive-main-172-2026-11-14.md), on integrated
 main `0e925f6b`: Workflow quorum-read progress (#171) and shared-group EventStream

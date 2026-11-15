@@ -71,7 +71,11 @@ def validate_queue_ledger(row):
                 and row['queue_metrics_probe_round'] > 0 and type(observation.get('round')) is int
                 and observation['round'] == row['queue_metrics_probe_round'] and observation.get('metrics') == metric,
                 'stale/incomplete Queue metrics round')
-        require(isinstance(metric, dict) and type(metric.get('backlog')) is int and type(metric.get('dead')) is int,
+        require(isinstance(metric, dict) and all(
+                    type(metric.get(key)) is int and metric[key] >= 0
+                    or type(metric.get(key)) is float and math.isfinite(metric[key])
+                    and metric[key] >= 0 and metric[key].is_integer()
+                    for key in ('backlog', 'dead')),
                 'invalid Queue settlement counts')
 
 
