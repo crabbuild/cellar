@@ -57,68 +57,58 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `16c45b266`. Runtime `cd50b272` prevents a blocked same-cell writer resume
-from hiding another ready callback. Its physical ordering regression fails before
-the fix and passes both backend/image forms, with serialized final data/receipts.
-It keeps the bounded scan, existing worker count and original public limits.
-Previous exact checkpoint receipt reuse and S3 proof requirements remain.
+main `16c45b266`. Runtime `c5f59695e` implements the fresh catalog enrollment join.
+Its exact compiled intent is matched to the owned history/creation/schema/minimum
+proof and returns creating only; current catalog and broker readiness remain
+required. Existing-history receipts and genuine updates keep their paths.
+Descriptors use the namespace bank, and enrollment output is released before
+ordinary producers. **16 owning units and eight focused bootstrap configurations
+pass**, covering native storage/real RustFS, both images and Quorum/S3 minima.
+All three hosts activate without a foreground catalog ingress command. Original
+public cases retain their original paths, quotas and deadlines.
 
-New regressions pass **2/2** and compatibility guards **14/14**, including both
-SDK and interleaving controls. The earlier S3 SDK timeout remains intermittent:
-an isolated pre-fix control also passes, and instrumentation is diagnostic only.
-Probes are removed. Current-source public stability and a speedup remain unproven.
+**The original public cohort remains FAILED: 7/16 at `c5f59695e`.** Native named
+EventStream completes both images; SDK/history, registration and ordinary Fleet
+reference pass. Both Axum Quorum paths reach Consume and time out; native
+publication/outbox reaches retained inbox activation and times out. Four RustFS
+EventStream paths fail initial activation. Queue fails native producer sequence
+11 and RustFS sequence 9 with ambiguous deadlines. Neither complete 528-message
+oracle is established. This is one source/binary cohort, not combined historical
+passes. The previous 6/16 result does not establish an exclusive cause, stability
+or speedup. See the checkpoint for retained failures and qualification limits.
 
-Earlier runtime `086f1663` reuses an unchanged Quorum entry image for a
-first immutable dependent read. Its baseline precedes maintenance/constructors;
-dirty and S3 sources retain checkpoints. Ordinary SDK queries select read-only
-dispatch. The regression passes native and real RustFS in both images for clean
-Quorum, dirty Quorum and clean S3 sources, and both final SDK controls pass.
-Previous idle archive reuse retains **32/32 owning selections at `cfd83b13`**,
-with original quotas and exact proofs. These are scoped checkpoints.
+Earlier bounded suspended scanning, exact checkpoint receipt reuse, clean Quorum
+entry-image reuse and idle archive-proof reuse retain their scoped checkpoints.
+They preserve existing source/target and S3 proofs. Full primitive acceptance and
+release cutover remain open.
 
-**The complete original public cohort is FAILED: 6/16 at `cd50b272`.** Both SDK
-and history controls, registration and ordinary Fleet reference pass. All eight
-EventStream selections fail initial activation on node 0 in their first
-materialized mode. Queue fails native producer sequence 7 and RustFS producer
-sequence 13, both with ambiguous deadlines. Complete production, drain and either
-528-message delivery oracle remain unproven. Cohorts 372/373 use identical source
-and binary inputs; this result does not combine historical passes. Full primitive
-acceptance and the release cutover remain open.
-
-1. **Deliver the fresh catalog activation join.** Enrollment already persists
-   the trusted definition, operation receipt and autonomous work. Join that exact
-   accepted intent from an owned enrollment/minimum proof without another
-   foreground command or speculative immutable receipt read. Bind the history,
-   compiled initializer/definition, operation and caller authorization; return
-   accepted/pending only. Require fresh catalog and broker readiness before
-   activation. A `newly_enrolled` boolean or historical receipt alone is
-   insufficient. Existing histories, concurrent creators, genuine updates and
-   retirement keep their current proofs and refusal rules. This is the next
-   implementation target, not a demonstrated exclusive cause of all deadlines.
-   Keep the original budgets and qualify the intermittent S3 SDK failure under
-   combined load. Successful metadata polling does not prove child progress.
-   Do not infer noncommit from one voter's retained images, weaken proof,
-   extend deadlines or repeat broad
-   campaigns in place of a focused failing boundary. Then finish autonomous
-   interrupted binding/delivery/ack recovery, safe unused-sequence sealing, long
-   polling, deletion/recreation and retention through movement and fresh-history
-   recovery. The [EventStream contract](event-stream-durability.md) keeps separate
-   source, destination and output boundaries.
-2. **Close Queue producer and shared startup failures.** Keep the passing
-   coalesced proof and fault oracles. At `cd50b272`, native producer sequence 7
-   and RustFS producer sequence 13 exceed their original budgets. Investigate
-   bounded next-sequence hints from exact successful ingress receipts to avoid
-   repeated immutable high-water reads. Hints cannot authorize mutation: retain
-   fresh conflict/fingerprint proof for concurrent global ingress-lane use,
-   invalidate on ambiguity or history/fence changes, and never move an unknown
-   mutation to a new ID. Reuse bounded owners and verify actual work reduction
-   before claiming a fix. Resolve both loads under unchanged budgets. Full
-   delivery of either 528-message campaign and load metrics are not established.
-   Qualify both image forms.
-   Resolve the managed trust-refresh failure and qualify concurrent boot
-   reconciliation. General failed-startup joining and disk retention are now
-   implemented, with the typed profile-refusal regression passing at `49509b38`.
-   Do not attribute intermittent failures to an unproven cause.
+1. **Close EventStream target progress and cold/retained readiness.** Fresh
+   enrollment joining is delivered. The next failing boundary is ordinary target
+   execution/checkpoint/child settlement: native Axum Consume selects its sequence
+   in 1 ms, then its command consumes the remaining 2999 ms; native Queue has
+   2910 ms left at dispatch. Do not assume sequence lookup dominates these calls.
+   Isolate runnable callback, exact checkpoint, child and resume progress under
+   the original deadlines, then deliver the owning progress fix. Separately close
+   intermittent cold RustFS catalog/broker readiness and retained inbox activation.
+   Successful metadata polling does not prove child progress. Preserve fresh
+   authority, exact source/target durability and unknown mutation identities.
+   Finish autonomous interrupted binding/delivery/ack recovery, safe unused
+   sequence sealing, long polling, deletion/recreation and retention through
+   movement and fresh-history recovery. The [EventStream contract](event-stream-durability.md)
+   keeps separate source, destination and output boundaries. No broad rerun should
+   replace a focused failing boundary or a feature implementation.
+2. **Close Queue producer and shared startup failures.** Keep passing coalesced
+   proof, fault and denied-publication oracles. Current loads fail native producer
+   sequence 11 and RustFS sequence 9. Complete both 528-message delivery campaigns
+   under unchanged budgets. Bounded successful-receipt sequence hints may remove
+   measured work, but are not a demonstrated remedy for target deadlines. Hints
+   cannot authorize mutation: require fresh conflict/fingerprint proof for global
+   ingress-lane collisions, invalidate on ambiguity or history/fence changes, and
+   never move an unknown mutation to a new ID. Reuse bounded owners. Resolve the
+   managed trust-refresh failure and qualify concurrent boot reconciliation.
+   General failed-startup joining and disk retention have scoped coverage; the
+   typed profile-refusal regression passes at `49509b38`. Do not attribute
+   intermittent failures to an unproven cause.
 3. **Complete bindings, durable time and Workflow lifecycle.** Qualify independent
    target-S3 minima, interruption before target proof, unused child sequence
    sealing, concurrent/cross-class creation and large calls. Complete SQL

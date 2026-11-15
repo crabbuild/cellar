@@ -29,6 +29,54 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `16c45b266` is fetched and included. **Runtime `c5f59695e` joins fresh
+catalog configuration to its owned enrollment response.** Enrollment commits the
+initializer's definition, operation receipt and autonomous work. The adapter
+matches the nonce-independent request's scope, resource, caller, operation and
+definition, then checks history, creation, schema and minimum durability against
+the retained response. It returns **creating only**; fresh catalog status and
+catalog/broker resolution still gate activation. Existing histories retain their
+authorized receipt join; genuine updates retain command dispatch. Enrollment
+output is released before ordinary producer admission. Static per-resource
+descriptors are charged to the namespace bank and support multiple resources in
+one catalog. Public quotas and deadlines are unchanged.
+
+**All 16 owning unit tests pass**, including changed/malformed request refusal,
+nonce normalization, multiple resources and agreement with the actual atomic
+initializer receipt/work. Both bootstrap selections pass **eight configurations**:
+native storage/real RustFS, both image forms and Quorum/S3 minima. Each requires
+all three hosts to activate, then a fresh quorum query proves catalog foreground
+ingress remains unused. Original public cases do not run that extra observer.
+
+**The original public cohort remains FAILED: 7/16 at this source and binary.**
+Both SDK source-proof controls, both history controls, registration, ordinary Fleet
+reference and native named EventStream pass. The latter completes both images.
+Native publication/outbox reaches inbox-recovery activation, then times out on
+node 0. Both Axum Quorum paths reach Consume, then exceed three seconds. RustFS
+native Quorum publication/named paths and both independent-target-S3 paths fail
+initial activation. Queue fails native producer sequence 11/RustFS sequence 9
+with ambiguous deadlines; neither complete 528-message oracle is established.
+The previous cohort was 6/16 at `cd50b272`; these single campaigns establish
+neither public stability nor speedup.
+
+Native Axum Consume spends 1 ms selecting its sequence and starts failed target
+dispatch with 2999 ms remaining; native Queue has 2910 ms left. Prioritize target
+execution/checkpoint/child settlement, intermittent cold readiness and retained
+inbox activation. Removing sequence reads alone is not a demonstrated solution.
+Then finish interrupted binding recovery/sealing and remaining primitive gates.
+
+Aggregate `CG-17-catalog-enrollment-aggregate-391-c5f59695` verifies frozen
+inputs, binaries, logs and backups; **27 failed voter disks** remain. The initial
+signed RustFS startup probe returns 503; a later probe passes on the same retained
+container without resetting data. Voters share one process and separate workspace
+disks; RustFS uses one CPU/two GiB. Full primitive and independent-voter release
+qualification remain open. Build, strict library/all-test Clippy, formatting,
+layout, dependency and docs checks pass. Jobs are terminal; owned backend/VM are
+stopped and objects remain. Counts stay **13/17 tasks, 147/195 cases**; the generated
+implementation index remains accurate. CG-13/17/15/16 and hard cutover remain open.
+
+## Previous shared SQL progress checkpoint
+
 Main `16c45b266` remains included. **Runtime `cd50b272` keeps a blocked writer
 reacquisition from hiding another cell's ready callback.** The SQL owner finishes
 one bounded suspended-work scan before declaring that no callback can run.

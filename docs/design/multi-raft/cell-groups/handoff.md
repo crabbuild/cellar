@@ -4,7 +4,40 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current shared SQL progress delivery
+## Current catalog enrollment delivery
+
+Main `16c45b266` is fetched and included; reuse open PR
+[#174](https://github.com/crabbuild/cellar/pull/174). Runtime `c5f59695e` joins
+the exact compiled catalog intent to its owned matching enrollment/minimum proof.
+It returns creating only; current catalog/broker activation proofs remain required.
+Existing histories and updates retain their paths. Enrollment output is released
+before an ordinary producer; static resource descriptors use the namespace bank.
+
+All **16 owning units** and **eight bootstrap configurations** pass across both
+backend/image/minimum forms. All three hosts must activate without a foreground
+catalog command. Original public cases have no added observer or larger limits.
+Their current cohort remains **FAILED, 7/16**: native named EventStream now completes
+both images; SDK/history, registration and ordinary Fleet reference pass. Both
+Axum Quorum paths fail Consume, native publication/outbox fails retained inbox
+activation, four RustFS paths fail cold activation, and Queue fails native
+producer 11/RustFS producer 9 with ambiguous deadlines.
+
+Next: target execution/checkpoint/child settlement and cold/retained readiness.
+Axum's sequence lookup takes 1 ms, leaving 2999 ms for its failed command; native
+Queue has 2910 ms left. Sequence hints are optional candidates, not proven fixes.
+Then finish autonomous interrupted binding recovery, safe unused-sequence sealing,
+primitive lifecycles and CG-13/17/15/16. Preserve unknown-outcome identities.
+
+Aggregate 391 verifies frozen evidence and 27 retained failed voter disks. Initial
+RustFS probe 503 remains recorded; later readiness uses the same container/data.
+Build, strict library/all-test Clippy and repository checks pass. Jobs are terminal;
+owned backend/VM are stopped. In-process RF3 and RustFS with one CPU/two GiB do
+not establish independent-voter release qualification. Counts stay **13/17, 147/195**;
+the generated implementation index remains accurate. See the
+[current checkpoint](progress.md#current-integration-checkpoint) and ignored
+`.cellar/cg17-payload-01/event-read-state.json` for exact pins and records.
+
+## Previous shared SQL progress delivery
 
 Main `16c45b266` is included; branch `codex/cg17-checkpoint-receipt-reuse`, PR
 [#174](https://github.com/crabbuild/cellar/pull/174). Runtime `cd50b272` finishes

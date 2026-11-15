@@ -46,6 +46,21 @@ receipts. Configuration checks the actual compiled envelope against the host
 profile; append batching intersects that profile with policy limits and image
 capture still gates source output. No capacity limit is raised automatically.
 
+Fresh catalog creation can acknowledge its compiled provisioning intent from
+the request's owned enrollment response. The exact nonce-independent wire binds
+scope, resource, caller, operation and definition. History, creation, schema and
+the requested durability minimum must match the retained proof. The result is
+creating, with no accepted revision or digest; it cannot establish current
+readiness. Activation still reads current catalog status and resolves both
+catalog and broker bindings. Existing histories retain the authorized immutable
+receipt join, and genuine updates follow normal commands. The adapter releases
+enrollment output before admitting any ordinary producer. Shared per-resource
+descriptors are charged to the namespace bank and support several resources in
+one catalog. At `c5f59695e`, all 16 owning units and eight focused bootstrap
+configurations pass, including real RustFS and Quorum/S3 minima. The original
+public cohort is still 7/16; cold/retained readiness, Consume and Queue deadlines
+remain open. This acceptance of an intent does not qualify the primitive family.
+
 Retained-record reads also use the private immutable query contract. They check
 the current read grant and lifecycle, then paginate the selected image's stored
 retention frontier without advancing its clock or running maintenance. A read
