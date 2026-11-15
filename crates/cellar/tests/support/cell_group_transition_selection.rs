@@ -229,7 +229,10 @@ pub(super) async fn admit(
     let missing = catalog_fault::missing_read(body, Box::pin(cold.resume_pending(TIMEOUT))).await;
     ensure!(matches!(missing, Err(error) if error.code == RaftFleetFailureCode::Unavailable));
     ensure!(cold.pending_request().is_none());
-    let poll = cold.poll(pressure(), TIMEOUT).await?;
+    let poll = cold
+        .poll(pressure(), TIMEOUT)
+        .await
+        .context("discover staged selection")?;
     ensure!(poll.sampled.is_none() && poll.recommendation.is_none());
     ensure!(cold.pending_request() == Some(&request) && cold.tracked_groups() == 0);
     drop(cold);
@@ -317,7 +320,9 @@ pub(super) async fn verify_discovery(
     coordinator: &RaftFleetControl,
     children: &[cellar::application::consensus::verification::cell_groups::GroupRoute],
 ) -> Result<()> {
-    Box::pin(settle_cursor(cluster)).await?;
+    Box::pin(settle_cursor(cluster))
+        .await
+        .context("settle selection cursor")?;
     let revision = cluster.fixtures[0].catalog.read(TIMEOUT).await?.revision();
     let target = coordinator
         .clone()
@@ -328,8 +333,14 @@ pub(super) async fn verify_discovery(
     ensure!(limited.tracked_groups() == 0 && limited.pending_request().is_none());
     drop(limited);
     let mut sampler = RaftFleetPartitionScheduler::new(target, policy(), 2)?;
-    let first = sampler.poll(pressure(), TIMEOUT).await?;
-    let second = sampler.poll(pressure(), TIMEOUT).await?;
+    let first = sampler
+        .poll(pressure(), TIMEOUT)
+        .await
+        .context("sample first child")?;
+    let second = sampler
+        .poll(pressure(), TIMEOUT)
+        .await
+        .context("sample second child")?;
     ensure!(first.recommendation.is_none() && second.recommendation.is_none());
     let selected = [
         first.sampled.context("first child discovery")?,
@@ -339,7 +350,10 @@ pub(super) async fn verify_discovery(
     .collect::<BTreeSet<_>>();
     ensure!(selected == children.iter().map(|route| route.history).collect());
     ensure!(sampler.tracked_groups() == 2);
-    let wrapped = sampler.poll(pressure(), TIMEOUT).await?;
+    let wrapped = sampler
+        .poll(pressure(), TIMEOUT)
+        .await
+        .context("wrap child discovery")?;
     ensure!(wrapped.sampled == first.sampled);
     drop(sampler);
     let mut retired = RaftFleetPartitionScheduler::new(
@@ -413,9 +427,18 @@ async fn settle_cursor(cluster: &ManagedCluster) -> Result<()> {
         .get(&completed, FleetTable::Operations, key, TIMEOUT)
         .await?
         .is_none());
-    cleaner.stage("automatic-test", &request, TIMEOUT).await?;
+    cleaner
+        .stage("automatic-test", &request, TIMEOUT)
+        .await
+        .context("reconcile selection after lost settlement response")?;
     ensure!(catalog.read(TIMEOUT).await?.revision() == completed.revision());
-    ensure!(cleaner.settle(TIMEOUT).await? && cleaner.pending_request().is_none());
+    ensure!(
+        cleaner
+            .settle(TIMEOUT)
+            .await
+            .context("finish selection settlement replay")?
+            && cleaner.pending_request().is_none()
+    );
     ensure!(catalog.read(TIMEOUT).await?.revision() == completed.revision());
     drop(cleaner);
     let mut empty = cold_scheduler(cluster, &cluster.hosts[4])?;

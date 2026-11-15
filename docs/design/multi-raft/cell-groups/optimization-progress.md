@@ -120,6 +120,48 @@ the new main is observed. No throughput or latency gain is measured or claimed
 at this checkpoint. The final comparison must isolate this change against the
 same integrated main, rather than attributing upstream progress fixes to it.
 
+### Archive publication and recovery follow-up
+
+The original automatic balance/repair restart scenario reproduces against both
+the in-memory object store and real RustFS. Its first live history reaches fresh
+survivor verification, then archive acquisition returns `Conflict`. Retained
+publisher diagnostics identify a permanent `archive publication exact cut`
+refusal on both live groups. Replay verifies the complete canonical configuration
+encoding but returns raft-rs's unordered configuration vectors; publication was
+comparing those vectors directly with the captured source configuration.
+
+The correction retains the source's validated canonical configuration bytes and
+uses the same validating encoder for the replayed configuration. It preserves
+exact manifests, membership ledgers, independent physical replay, joint roles,
+duplicate/unknown-field rejection, existing reservations and original deadlines.
+It changes neither acknowledgement requirements nor the archive format.
+
+At compiler-input manifest `78eb379a` (3,413 inputs), format/layout, strict Clippy
+for the transition and archive targets, and compilation pass. Six archive controls
+pass in both image formats: source progress during upload, enrollment/control
+replay, uncertain publication reconciliation, committed-source refusal, compacted
+prefix extension, and reset/expired-intent refusal. The original mixed SQL/receipt
+handoff completes its materialized-image profile in both backend executions.
+Both two-image commands still **fail overall**: the extent profile stops earlier
+in `Repairing`, with one settled movement; RustFS retains `Overloaded` for one
+blocked history. The cause of that remaining admission/progress failure is open.
+Child-selection discovery also still fails while sampling a child: the first
+child in-memory and the second child in the RustFS follow-up.
+These results do not close either original test or an OPT/CG gate.
+
+Failure harnesses now retain all node and replay disks after the original owners
+join, and report bounded archive status and selection-stage context without
+replacing the original failure. Final compiler-input manifest `9a38928c` differs
+from `78eb379a` only in making the test's archive diagnostic non-fallible;
+production inputs are identical. Records are retained under
+`main172-archive-configuration-fix-01`,
+`main172-archive-configuration-rustfs-01` and
+`main172-transition-diagnostic-final-01` in the checkout-owned qualification
+directory. Both runtime executions preserve their failed status, source hashes
+and joined shutdown; RustFS identity, 1-vCPU/2-GiB limits and readiness remain
+unchanged. These are in-process native RF3 controls, not the constrained
+three-container comparison. No new throughput or latency gain is established.
+
 ## Direct-routing candidate
 
 The current candidate adds a leader index beside the transport's existing route

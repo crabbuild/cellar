@@ -14,7 +14,7 @@ use raft::prelude::ConfState;
 pub(super) struct SourceCut {
     group: GroupLog<GroupHistory>,
     root: PreparedGroupManifest,
-    configuration: ConfState,
+    configuration: Vec<u8>,
     membership: GroupMembership,
     _reservation: Arc<Permit>,
 }
@@ -33,11 +33,15 @@ impl SourceCut {
         }
         Ok(())
     })?;
+        // Replay rebuilds ConfState through raft-rs, whose set vectors may use
+        // a different order. Retain the complete validated canonical encoding;
+        // vector order must not permanently stop a valid archive publisher.
+        let configuration = crate::raft::manifest::encode_conf(&configuration)
+            .map_err(|_| CellGroupArchiveError::Invalid("tail configuration encoding"))?;
         let mut source_bytes = root
             .reserved_bytes()
             .checked_add(
-                crate::raft::manifest::encode_conf(&configuration)
-                    .map_err(|_| CellGroupArchiveError::Invalid("tail configuration encoding"))?
+                configuration
                     .len()
                     .checked_mul(4)
                     .ok_or(CellGroupArchiveError::Limit)?,
@@ -255,8 +259,12 @@ impl CellGroupArchiveUpload {
                 }
                 let reference = uploaded.reference();
                 let verified = self.verify_tail(domain, tails, reference, receiver).await?;
+                let configuration = crate::raft::manifest::encode_conf(verified.configuration())
+                    .map_err(|_| {
+                        CellGroupArchiveError::Invalid("replayed configuration encoding")
+                    })?;
                 if verified.manifest().marker() != source.root.marker()
-                    || verified.configuration() != &source.configuration
+                    || configuration != source.configuration
                     || verified.membership() != &source.membership
                 {
                     return Err(CellGroupArchiveError::Invalid(

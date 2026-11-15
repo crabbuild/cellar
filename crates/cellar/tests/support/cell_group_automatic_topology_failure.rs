@@ -178,6 +178,18 @@ async fn qualify(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
         }
     }
     domain.shutdown().await;
+    if !matches!(&result, Ok(Ok(_))) || !failures.is_empty() {
+        for root in std::mem::take(&mut cluster.roots).into_iter().chain(roots) {
+            eprintln!(
+                "retained failed admitted handoff disk: {}",
+                root.keep().display()
+            );
+        }
+        eprintln!(
+            "retained failed handoff replay disk: {}",
+            replay.keep().display()
+        );
+    }
     result
         .context("automatic admitted handoff execution domain")?
         .with_context(|| {
@@ -410,6 +422,21 @@ async fn exercise(
                         continue;
                     }
                 };
+                let archive = group.archive_status().map(|archive| {
+                    archive.map(|status| {
+                        (
+                            status.attempts,
+                            status.stopped,
+                            status.error.as_ref().map(ToString::to_string),
+                            status
+                                .published
+                                .as_ref()
+                                .map(|marker| (marker.position(), marker.membership_revision())),
+                        )
+                    })
+                });
+                // Diagnostics must preserve the original failed-work result.
+                eprintln!("handoff archive diagnosis: node={index}, status={archive:?}");
                 let status = group.status().await;
                 eprintln!("handoff diagnosis: node={index}, ingress={}, group={history:?}, status={status:?}", index == ingress);
                 if status.is_ok() {
