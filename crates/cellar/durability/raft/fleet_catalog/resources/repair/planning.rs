@@ -4,6 +4,7 @@
 use super::*;
 use crate::application::consensus::RaftCells;
 use crate::raft::fleet_catalog::deadline::Deadline;
+use crate::raft::host::RaftPeerFleetMembershipObservation;
 use crate::raft::member_state::{JoiningMember, RepairPlan};
 use cellar_logic::consensus::ProposalId;
 use cellar_logic::raft_fleet::{
@@ -21,6 +22,8 @@ pub(in super::super) struct Planning<'a, 'd> {
     pub observer: &'a RaftCells,
     pub identity: FleetRequestIdentity,
     pub deadline: &'a Deadline<'d>,
+    pub source: RaftPeerFleetMembershipObservation,
+    pub source_started: u64,
 }
 
 impl Planning<'_, '_> {
@@ -33,7 +36,10 @@ impl Planning<'_, '_> {
             observer,
             identity,
             deadline,
+            source: sample,
+            source_started,
         } = self;
+        catalog.require_resource_age(source_started)?;
         if inputs.nodes.is_empty() || inputs.nodes.len() > 64 || inputs.namespaces.len() > 64 {
             return Err(FleetCatalogError::Limit);
         }
@@ -78,9 +84,6 @@ impl Planning<'_, '_> {
             .await?;
         let failed = NodeId::new(context.failed_boot.node)
             .map_err(|_| FleetCatalogError::Invalid("isolated repair node"))?;
-        let sample = catalog
-            .isolated_repair_source(cut, group, failed, observer, deadline)
-            .await?;
         // Managed startup binds the complete declared namespace/class/schema
         // set to this digest. Equality to a proven serving source is a
         // conservative capability witness; unknown supersets are ineligible.
@@ -90,10 +93,6 @@ impl Planning<'_, '_> {
             .as_ref()
             .ok_or(FleetCatalogError::Unconfirmed)?
             .capability_digest;
-        let source_started = catalog
-            .resource_now()?
-            .checked_sub(sample.sample_age_ms())
-            .ok_or(FleetCatalogError::Unconfirmed)?;
         let (failed_host, voters) = catalog
             .run(deadline.remaining()?, async {
                 if catalog.inner.current().await?.token != cut.token {
