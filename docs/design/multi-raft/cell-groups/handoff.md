@@ -6,67 +6,58 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current merged-source activation checkpoint
 
-Main `0e925f6b` is included in the primary checkout
+Main `189edd9a` is merged in the primary checkout
 `/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar`, branch
 `codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170).
-Current Rust source is `734363f2`; see the
-[current evidence](progress.md#cg-17-merged-source-activation-and-reconciliation).
+Runtime source is `a4b15792`; see the
+[current evidence](progress.md#current-integration-checkpoint).
 Older instructions below are historical.
 
-Delivered: catalog birth installs its schema, exact configuration intent/receipt
-and autonomous work atomically; existing exact operations join through immutable
-reads while typed absence retains the normal update path and original nonce.
-Trusted catalog claim/intent proof is coalesced before child I/O. Subscription
-status and retained-record reads use the private linearizable query path with
-current grants/lifecycle and independent target minima. Record reads allocate no
-command identity/receipt or log entry and retain cursor/response bounds. Clocks,
-leases and acknowledgments remain commands. The catalog initializer digest
-requires compatible fresh development namespaces, without migrations.
+Delivered: atomic catalog enrollment and exact-operation joins; immutable
+subscription status/record reads; one ordinary retained-startup election selected
+by a durable self-vote; and a private completed-acknowledgment read selected by one
+bounded receipt hint. Pending acknowledgments retain the ordinary durable command.
+Current grants/incarnation, source proof, target coverage, original deadlines and
+mutation ambiguity remain required. The catalog initializer digest requires
+compatible fresh development namespaces, without migrations. Normal Raft election
+barriers can persist; immutable reads allocate no per-cell mutation/child receipt.
 
-Current build, strict library/all-test Clippy, repository checks and **41 owning
-checks pass**. The real immutable-frame regression verifies both successful
-pagination and continued refusal of command dispatch/write-scope SQL. Cohort 190
-is preserved as the red control that exposed the command-only budget capture.
-No debug probes or weakened capability guards remain.
+Build, strict library/all-test Clippy and repository checks pass. **51 owning
+checks and seven consensus controls pass.** Public cohort 195 is **FAILED:
+15/17 pass**. Native/Axum named Quorum, RustFS Axum Quorum, both target-S3 paths,
+registration, Fleet conformance and both SDK source-proof controls pass. All six
+merged native/RustFS Blob, retained payload recovery/GC and payload ownership
+controls pass. Two failures remain:
 
-Cohort 191 is **FAILED: 7/11**. Passing: registration, Fleet conformance, native
-Axum, RustFS native/Axum named Quorum, and native/RustFS SDK source-proof controls.
-The three named passes complete both images, publication/replay, reads,
-inbox/ack, retained restart and minority refusal. Failures:
+1. Native explicit-resource: materialized outbox-recovery activation at node 0.
+2. RustFS named Quorum: extent retained activation at node 0, after materialized
+   mode completes. Both exceed original deadlines; explicit extents are unrun.
 
-1. Native named: materialized retained activation node 0 after reads/consumption.
-2. Explicit-resource: materialized outbox-recovery activation node 0.
-3. RustFS target-S3 native: materialized retained activation after consumption.
-4. RustFS target-S3 Axum: materialized branch completes; extent retained activation
-   fails. Independent S3 minima and original budgets remain unchanged.
+**Next delivery: make managed recovery activation stable.** Use the preserved
+failed controls to identify the stage consuming the budget: current name/catalog
+resolution, fresh quorum, selected-reader admission or archive coverage. The
+startup hint's seven passing controls do not close these public failures. Preserve
+pending producers until exact reconciliation, current fences and original budgets.
+Then finish interrupted binding/delivery/ack, long polling/retention, Queue
+load/startup and the combined primitive lifecycle/recovery gates.
 
-**Next delivery: close managed retained activation.** All four errors reach
-`group_client/event_read.rs::query_event_resource` through activation configuration.
-Trace current catalog discovery, fresh quorum wake, immutable reader admission
-and required archive coverage with the original deadline. Retained status already
-tries a strong read even with an empty route cache; pending/stored configuration
-receipts cannot authorize readiness. Do not add a replaying configuration fallback,
-raise budgets, weaken proofs or treat a waiter timeout as physical termination.
+Records under `.cellar/cell-groups-evidence/`:
+`CG-17-event-join-units-a4b15792-195`,
+`CG-17-startup-owners-a4b15792-195`, and `CG-17-event-join-a4b15792-195`.
+The public run has a verified 35-file backup and six retained failed voter disks;
+frozen binaries/backups also live under this checkout's target directory.
+Ignored drivers/profile are in `.cellar/cg17-payload-01/`; all jobs are terminal.
+Use `event-read-state.json` for exact handles and last-stage status, not older
+instructions. No tracked edits during formatter/compiler or source-pinned runtime;
+no own compilers during public qualification. Preserve failures and original oracles.
 
-Then close interrupted binding/delivery/ack recovery, long polling and retention.
-Cohort 189's read-only disk inspection records completed fetch/first ack and a
-pending repeated ack; this is a specific next recovery/timing investigation, not
-proof of the latency cause. A possible immutable completed-ack observation must
-check current grants/incarnation and independent coverage and must never synthesize
-a command receipt or skip the command that observes a pending lease's expiry.
-Queue load/startup, clock/deployment faults, Workflow/payload/provider adapters,
-movement/wake and CG-13/17/15/16 release matrices remain open.
-
-Owned RustFS uses `.cellar/cg17-payload-01/canonical-backend-179`, owner
-`cellar-multi-raft-0809a242624d22c7`, pinned image, one CPU/two GiB. Retain its
-volume/credentials and all failed disks. Its container and VM were stopped after
-cohort 191; the object volume was verified retained. Voters share one process, separate
-workspace disks and one SQL worker each. Source-pinned records are
-`CG-17-event-join-units-734363f2-191` and `CG-17-event-join-734363f2-191` under
-`.cellar/cell-groups-evidence/`; frozen executables and verified backups also live
-under this checkout's target directory. Twelve failed voter disks are retained.
-The isolated catalog worktree is archived. Counts remain **13/17 tasks and
-147/195 cases**; no full primitive-family or hard cutover acceptance is claimed.
+Owned RustFS is `.cellar/cg17-payload-01/canonical-backend-179`, owner
+`cellar-multi-raft-0809a242624d22c7`, one CPU/two GiB in its dedicated Colima
+profile. The container and VM are stopped; the object volume/credentials remain.
+Voters share one process, separate workspace disks and one SQL worker each.
+Counts remain **13/17 tasks and 147/195 cases**. The generated implementation
+index matches the manifest; full plan validation is blocked by missing historical
+CG-01–06 evidence. CG-13/17/15/16 full-family and release gates remain open.
 
 ## Historical immutable EventStream query checkpoint
 

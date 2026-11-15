@@ -29,15 +29,52 @@ for the next delivery.
 
 ## Current integration checkpoint
 
-Main `189edd9a` adds the Blob/provider and retained payload implementation from
-PR #173. Its integration with the EventStream and retained-read changes is
-pending combined-source qualification. Pre-merge source `fc1a360b` passes the
-optimized build, strict library/all-test Clippy, repository checks, 43 owning
-checks, seven consensus safety checks and 9/11 public selections on main
-`0e925f6b`. All four RustFS named/independent-S3 native/Axum selections complete
-both image modes and retained restart. Native consumption and a stateful sink
-read still exceed their original deadlines. Those results do not qualify the
-new combined source; earlier pins and failed controls below remain unchanged.
+Latest fetched main `189edd9a` (Blob providers and retained external-payload
+recovery, PR #173) is merged at `b4caebc5`. **Runtime source `a4b15792` passes
+51 owning checks and seven consensus controls.** Its locked optimized build,
+strict library/all-test Clippy, formatting, layout, dependency and documentation
+checks pass. The primitive inventory check passes with a partial inventory;
+full plan validation still lacks the historical CG-01–06 evidence directory.
+The generated implementation index is unchanged and matches `tasks.json`.
+
+Retained strong reads can start one ordinary election using the last durable
+self-vote as a liveness hint. Quorum, PreVote, apply and activation fences remain
+required; an isolated voter neither serves nor repeats campaign work. The merged
+execution fixture also initializes main's new filesystem-work flag.
+Repeated acknowledgments on the same subscription handle can now join a completed
+outcome through an immutable authorized read. A bounded receipt hint selects the
+probe; current Consume grants, subscription incarnation, linearizability and the
+target's independent minimum proof remain authoritative. Pending acknowledgments
+retain their command, clock and lease validation. The read cannot synthesize a
+child command receipt. Owning tests cover expired/uncovered receipts, revocation,
+reset/deletion, invalid replies and a real immutable SQLite frame.
+
+Cohort `CG-17-event-join-a4b15792-195` is **FAILED: 15/17 selections pass**.
+Nine of the 11 EventStream/SDK selections pass: registration, Fleet conformance,
+native/Axum named Quorum, RustFS Axum Quorum, native/Axum independent-target-S3,
+and native/RustFS SDK source-proof controls. Named passing selections complete
+both image modes, repeated acknowledgment, retained restart and minority refusal.
+All six merged Blob/provider, external-payload recovery/GC and immutable payload
+ownership selections pass in native and real RustFS modes. Failures remain:
+
+1. Native explicit-resource recovery: materialized outbox-recovery activation at
+   node 0 exceeds its original deadline; extents are unrun.
+2. RustFS named Quorum: materialized mode completes, then extent retained
+   activation at node 0 exceeds its original deadline.
+
+These failures keep managed recovery activation critical. Earlier source
+`fc1a360b` passed 9/11 selections, including all four RustFS named/target-S3
+selections, but that does not establish stable combined-source recovery.
+No request budget, proof, quota or assertion is relaxed, and no measured speedup
+or full primitive-family acceptance is claimed.
+
+Evidence records `CG-17-event-join-units-a4b15792-195`,
+`CG-17-startup-owners-a4b15792-195` and the public cohort above live under
+`.cellar/cell-groups-evidence/`. Frozen binaries, a verified 35-file public backup
+and all six failed voter disks are retained. Three voters share one process,
+separate workspace disks and one SQL worker each; RustFS has one CPU/two GiB.
+The owned container and VM are stopped with the object volume retained.
+Acceptance remains **13/17 tasks and 147/195 cases**.
 
 ## CG-17 merged-source activation and reconciliation
 

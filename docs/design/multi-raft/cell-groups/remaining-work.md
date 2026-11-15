@@ -56,36 +56,32 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-The [current checkpoint](progress.md#cg-17-merged-source-activation-and-reconciliation)
-includes main `0e925f6b`. At Rust source `734363f2`, exact catalog joins also cover
-already enrolled catalogs; genuine updates retain typed absence fallback and
-original command identity. Retained-record reads now use authorized immutable
-linearizable images, with cursor limits and independent target S3 coverage, and
-allocate no command/log receipt. A real immutable-frame regression keeps command
-dispatch/write capabilities refused. All 41 owning checks, optimized build,
-strict library/all-test Clippy and repository checks pass.
+The [current checkpoint](progress.md#current-integration-checkpoint) includes
+main `189edd9a`. Runtime `a4b15792` adds a bounded retained-startup election hint
+and an immutable completed-acknowledgment read. The latter preserves current
+grants/incarnation, source proof, independent target coverage and the ordinary
+command for pending leases. All 51 owning checks, seven consensus controls,
+optimized build, strict library/all-test Clippy and repository checks pass.
 
-Public cohort 191 passes **7/11**. Native Axum and real RustFS native/Axum named
-Quorum selections complete both images, reads, publication/replay, inbox/ack,
-retained restart and minority refusal. Registration, Fleet conformance and both
-SDK source-proof controls also pass. Native named, explicit-resource recovery
-and RustFS target-S3 native fail materialized retained/recovery activation.
-RustFS target-S3 Axum completes materialized recovery, then fails extent retained
-activation. Both target-S3 paths reach consumption under their original minima
-and budgets. These are scoped passes, not complete primitive-family acceptance.
+Combined cohort 195 passes **15/17 selections**: nine EventStream/SDK selections
+and all six merged native/RustFS Blob and payload controls. Native/Axum named
+Quorum and native/Axum independent-target-S3 paths complete both image modes.
+RustFS named Quorum completes materialized mode before failing extent retained
+activation. Explicit-resource recovery fails materialized outbox-recovery
+activation; extents are unrun. Earlier passing retained-startup controls do not
+close these current recovery deadlines. These are scoped results, not complete
+primitive-family acceptance.
 
-1. **Close managed retained activation.** All four current failures reach the
-   metadata activation path. Finish fresh catalog discovery, quorum wake,
-   immutable reader admission and required archive coverage within the original
-   deadline. An empty route cache cannot justify replaying configuration; a
-   stored/pending operation receipt cannot replace current serving authority.
-   Existing exact-operation joins and birth initialization are implemented.
+1. **Close managed recovery activation.** Trace current catalog/name discovery,
+   fresh quorum readiness, reader admission and required archive coverage at the
+   two preserved failures under their original deadlines. The startup election
+   hint passes its owning controls but has not made all public recovery stable.
    Retain current grants/lifecycle, independent source/target minima, typed
-   failures and mutation ambiguity. Then qualify interrupted binding/delivery/ack,
-   long polling, deletion/recreation and retention through movement and fresh
-   incarnation recovery. Preserved cohort 189 images show completed fetch/first
-   ack and a pending repeated ack; use that specific recovery/timing seam without
-   claiming a latency cause or skipping pending-lease expiry commands. The
+   failures and mutation ambiguity. Existing exact-operation joins, birth
+   initialization and immutable completed-ack probes are implemented. Then qualify
+   interrupted binding/delivery/ack, long polling, deletion/recreation and
+   retention through movement and fresh incarnation recovery. Pending leases
+   still require commands that durably observe expiry. The
    [EventStream contract](event-stream-durability.md) keeps separate source,
    destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
