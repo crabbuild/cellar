@@ -29,6 +29,57 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+PR #170 is merged in main `16c45b266`. Follow-up code `aeb6e5d75` starts from
+that main and has **identical tracked files to qualified runtime `50d9e58fc`**.
+An exact current-term applied RPC checkpoint now reads its receipt from the
+frozen private writer that produced the proven image. It avoids reopening an
+immutable SQLite reader, while retaining owner/route/history/term checks, exact
+version and RPC-step binding, joined preview cleanup and log reservation release.
+Other images and terms retain committed-image reconciliation; S3 output still
+requires archival proof. Fresh catalog enrollment also skips a speculative
+configuration-receipt read; existing histories and concurrent command conflicts
+retain their original proofs.
+
+The physical reader regression fails at `38cdb6b3` with **one forbidden immutable
+reader open**. It passes native storage and real RustFS at `66ca85be` and final
+runtime `50d9e58fc`, in both image forms. The materialized branch rejects image
+opens on the original source SQL thread during checkpoint settlement. The extent
+branch retains the apply, data, version and exactly-once replay assertions without
+that I/O injection.
+
+Final cohort `CG-17-checkpoint-receipt-guards-350-50d9e58f` is **FAILED, 9/10
+passed**. Both checkpoint cases, four leader-change/expired/conflicting-receipt
+controls, native SDK source-proof and both interleaving cases pass. The RustFS
+SDK control fails in its materialized **S3-source** case: a nested sequence-1 call
+exceeds its original deadline with an ambiguous outcome. Conditional public
+cohort 351 did not run. There is no complete current-source public result; the
+last full sixteen-case cohort remains 6/16 at `086f1663`.
+
+Earlier uninstrumented cold catalog cohorts 329 and 335 fail both selected public
+cases. Instrumented cohorts 332 and 339 pass, but do not qualify the final source;
+339 emits no expiry dump. Logging-off diagnostic 337 fails activation. These
+observations leave timing sensitivity and its cause open. Temporary probes are
+removed. The fresh catalog change alone did not close activation, and no measured
+latency improvement is claimed.
+
+Aggregate `CG-17-checkpoint-receipt-aggregate-353-aeb6e5d7` verifies frozen
+logs/binaries/backups and retains all **21 failed voter disks** from this campaign.
+Its append-only scope supplement distinguishes the new two-worker/three-request
+physical fixture from public one-worker controls with unchanged quotas/deadlines.
+Voters share one process and separate workspace disks; RustFS has one CPU/two GiB.
+The locked optimized build, strict library/all-test Clippy, formatting, layout,
+dependency and docs checks pass. The incremental compiler ICE, initial backend
+503 and initial test-helper Clippy failure remain recorded alongside their later
+results. All jobs are terminal; the owned container/VM are stopped and object
+data remains. Full acceptance stays **13/17 tasks and 147/195 cases**.
+
+**Next:** reproduce the S3-source nested-call deadline at its exact source/target
+proof boundary, then finish autonomous interrupted binding recovery and safe
+sequence sealing, Queue load and the remaining primitive lifecycle/recovery gates.
+CG-13/17/15/16, independent-voter release qualification and hard cutover remain open.
+
+## Previous applied checkpoint readiness checkpoint
+
 Main `189edd9a` remains included. **Runtime source `701b6d6f1` lets an exact
 applied RPC checkpoint resume while a later committed entry for another cell
 awaits physical apply.** The invocation retains its writer and original ready

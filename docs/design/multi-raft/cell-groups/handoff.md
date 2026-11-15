@@ -4,7 +4,43 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current checkpoint continuation delivery
+## Current checkpoint receipt delivery
+
+PR #170 merged into main `16c45b266`. Follow-up branch
+`codex/cg17-checkpoint-receipt-reuse` starts from that main. Code `aeb6e5d75`
+has identical tracked files to tested runtime `50d9e58fc`; subsequent delivery
+changes only qualification documentation.
+
+An exact own current-term applied checkpoint uses its frozen writer receipt
+instead of reopening the immutable image. Current authority, version, RPC-step,
+cleanup and S3 archival proofs remain required. Other images/terms retain generic
+reconciliation. Fresh catalog enrollment avoids its speculative receipt probe;
+existing-history joins and concurrent command-conflict proofs remain.
+
+The physical regression fails before the change with one forbidden immutable
+reader open and passes native/RustFS, both images, at the final source. Cohort
+350 is **FAILED, 9/10 passed**: receipt, leader-change/conflict, native SDK and
+both interleaving checks pass. The RustFS SDK S3-source/materialized case fails
+its nested sequence-1 call with an ambiguous deadline. Conditional public cohort
+351 did not run. Last complete public16 remains 6/16 at `086f1663`; no current
+family, latency or release acceptance is established.
+
+Next: isolate the failing S3-source nested-call proof/settlement boundary under
+its original budget; then interrupted binding recovery, safe sequence sealing
+and Queue load. Complete all primitive lifecycle/recovery and CG-13/17/15/16
+gates before hard cutover. Do not replace failures with instrumented passes or
+repeat broad campaigns without a focused failing boundary.
+
+Aggregate 353 verifies frozen evidence and 21 retained failed voter disks, with
+an append-only fixture scope correction. Original public quotas/deadlines remain.
+Voters are in one process on separate workspace disks; RustFS is one CPU/two GiB.
+Build, strict library/all-test Clippy and repository checks pass. All jobs are
+terminal; the owned backend/VM are stopped and object data remains. Counts stay
+**13/17 tasks, 147/195 cases**. See the
+[current checkpoint](progress.md#current-integration-checkpoint) for diagnostic
+limits and ignored `.cellar/cg17-payload-01/event-read-state.json` for exact pins.
+
+## Previous checkpoint continuation delivery
 
 Main `189edd9a` remains included. Runtime `701b6d6f1` on PR
 [#170](https://github.com/crabbuild/cellar/pull/170) resumes an exact applied RPC

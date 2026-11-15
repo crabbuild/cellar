@@ -98,6 +98,15 @@ both images on native storage and real RustFS; new-entry readiness, original
 deadline and SDK fencing controls pass. S3 archival remains required. Both
 selected public named EventStream cases still fail initial activation, so this
 checkpoint liveness fix does not qualify cold binding activation or the family.
+At runtime `50d9e58fc`, an exact own current-term applied checkpoint reads its
+receipt from the frozen private writer that produced the proven image. Current
+owner/route/history/term, exact version and RPC-step checks precede settlement;
+preview cleanup and log reservation release still join. Other images and terms
+retain immutable committed-image reconciliation. This avoids a redundant reader,
+and does not change S3 archival requirements. A physical regression rejects
+materialized image opens on the original source SQL thread during settlement;
+native and real-RustFS cases pass both image forms. The final guard cohort still
+fails an S3-source nested SDK deadline, so full public progress remains open.
 Earlier named Quorum native/Axum paths pass scoped image/backend checks. The
 latest uninstrumented public cohort fails activation; the complete public matrix
 remains unqualified. Consult the current integration checkpoint before treating
@@ -171,9 +180,13 @@ and work deadline. Its initializer digest distinguishes this contract from the
 previous empty enrollment; development namespaces must be recreated rather than
 migrated.
 
-After discovering a catalog identity, deployment ingress first joins the exact
-configuration operation through a private immutable read, including catalogs
-that are already enrolled. The read checks the full canonical definition digest,
+For an existing catalog history, deployment ingress first joins the exact
+configuration operation through a private immutable read. Fresh successful
+enrollment instead uses the initializer's empty command-stream cut and takes the
+ordinary configuration command path. A concurrent first command still requires
+fresh proof of a different fingerprint before conflict recovery can advance its
+sequence. Enrollment is never an exclusive sequence reservation.
+The existing-history read checks the full canonical definition digest,
 operation owner, current administration grant and lifecycle. It retains the
 original deadline and the target’s independent minimum durability proof. A
 verified `OperationUnknown` or `NotInitialized` response permits the ordinary

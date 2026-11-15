@@ -56,16 +56,22 @@ library/all-test Clippy without changing production code.
 This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
-The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `189edd9a`. Runtime `701b6d6f1` closes a physically reproduced checkpoint
-stall: an exact applied source checkpoint can resume under the original ready
-barrier and live invocation fence while another cell's later committed apply is
-blocked. New entry, original deadlines and S3 archival requirements remain.
-The focused cohort passes **8/10 selections**: both backend/image checkpoint and
-continuation cases, both entry readiness/deadline controls and both SDK controls.
-Both selected named EventStream cases still fail initial activation on node 0
-with materialized images. The other public selections were not rerun. This does
-not close cold binding activation or the full primitive MVP.
+The [current checkpoint](progress.md#current-integration-checkpoint) starts from
+main `16c45b266`, which merged PR #170. Follow-up code `aeb6e5d75` is identical
+to tested runtime `50d9e58fc`. An exact current-term applied checkpoint reads its
+receipt from the frozen writer instead of reopening the immutable image; generic
+reconciliation and S3 archival proofs remain. Its physical regression fails with
+one forbidden reader open before the fix and passes both backends/image forms.
+Fresh catalog enrollment also skips a speculative receipt probe while retaining
+concurrent conflict proofs and existing-history joins.
+
+Final guards are **FAILED, 9/10 passed**. Both receipt cases, four generic
+leader-change/receipt controls, native SDK and both interleaving checks pass.
+The RustFS SDK control fails a nested sequence-1 call in its materialized
+S3-source case with an ambiguous deadline. The conditional public cohort did
+not run. Instrumented cold activation passes are diagnostic only, and earlier
+uninstrumented candidates still fail. Neither public stability nor a latency
+improvement is established. Original public quotas and deadlines remain.
 
 Earlier runtime `086f1663` reuses an unchanged Quorum entry image for a
 first immutable dependent read. Its baseline precedes maintenance/constructors;
@@ -86,13 +92,14 @@ failure is retained; its final control retries only known pre-admission
 `NotReady` with unchanged fences and one original five-second budget. No public
 stability, full primitive acceptance or latency improvement is established.
 
-1. **Close multi-step request and cold S3 binding progress.** The clean-read
-   optimization and fenced per-cell checkpoint continuation do not close cold
-   activation or cumulative source preparation/checkpoint and settlement work
-   under original request deadlines. Isolate the delayed broker
-   transition using exact parent/child identities under original budgets;
-   successful metadata polling does not prove child progress. Reproduce any
-   checkpoint/readiness or archive-proof scheduling boundary before changing it.
+1. **Close the S3-source nested-call deadline and cold binding progress.** Final
+   guard 350 fails the RustFS SDK materialized S3-source case, while native SDK
+   and both interleaving controls pass. Reproduce its exact source/target proof
+   and settlement boundary before changing scheduling. The clean-read,
+   checkpoint continuation and receipt reuse changes do not establish complete
+   multi-step progress under original request deadlines. Preserve parent/child
+   identities and budgets; successful metadata polling does not prove child
+   progress. Reproduce cold broker activation separately when the guard closes.
    Do not infer noncommit from one
    voter's retained images, weaken proof, extend deadlines or repeat broad
    campaigns in place of a focused failing boundary. Then finish autonomous
