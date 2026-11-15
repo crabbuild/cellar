@@ -197,6 +197,42 @@ The other two JavaScript jobs and Python examples pass; SDK and Typed RPC runs
 are still in progress at this observation. No rerun or suppression closes that
 failure or the broader feature-mode gates.
 
+### Bounded checkpoint object I/O
+
+The coverage investigation identifies serial checkpoint chunk upload and
+independent download inside the existing archive lane. Compiler manifest
+`948c229d` polls two ordered object futures using the already reserved
+eight-chunk I/O workspace. Sparse input can progress without filling the window.
+Upload byte/chunk limits count admitted inputs before network work; completed
+references and downloaded chunks retain source order. Conditional PUT/readback,
+full physical recovery, source/receiver admission, typed failures and actual
+worker joins remain mandatory. No deadline, operation bank, format or output
+authority changes.
+
+Real RF3 regressions hold the first object and require the second to start,
+while forbidding a third and charging exactly one archive operation. Both fail
+on serial manifest `0bc80b7f`, with the same final test source and original
+five-second bounds, then pass with both image formats. Repeated upload retains
+the exact checkpoint reference; independent download verifies every recovered
+image. Failed fixtures retain their disks after joined cleanup.
+
+Strict all-target Cellar Clippy, formatting/layout (2,322 Rust files), native
+dependencies and documentation checks pass. The complete default native archive
+target passes 38 cases with 10 explicit ignores; three owning S3 output/result/
+deadline controls also pass. Six selected ignored controls pass against real
+RustFS, covering physical cancellation, competing publication CAS, exact S3
+results, deadlines, sibling dependencies and retained payload recovery/GC. This
+executes three of the archive target's declared backend ignores separately;
+other ignored cases retain their unrun scope. All owners join, inputs remain
+unchanged and the original RustFS identity/limits/readiness are preserved.
+
+The [qualification record](checkpoint-object-window-qualification-2026-11-15.json)
+retains source/command/log hashes and actual footers, including the prior serial
+failures and the initial candidate type-inference failure. A source-matched Linux
+build and SQL/KV/Queue comparison are next. This proves bounded object overlap
+and scoped correctness, not a throughput/latency gain, deadline fix or OPT/CG
+acceptance. Earlier constrained failures remain open.
+
 ### Archive publication and recovery follow-up
 
 The original automatic balance/repair restart scenario reproduces against both

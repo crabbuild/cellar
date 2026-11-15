@@ -1,7 +1,13 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::{objects::Object, *};
+use futures_util::{StreamExt, TryStreamExt};
 use std::io::Write;
+
+// Fits the existing eight-chunk I/O workspace, including transport copies,
+// the bounded channel and its physical source/receiver. Ordered completion
+// permits object I/O overlap without changing checkpoint stream order.
+const OBJECT_WINDOW: usize = 2;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -189,24 +195,42 @@ impl CellGroupArchiveUpload {
                 })
             })
             .map_err(|_| CellGroupArchiveError::Stopped)?;
-        let upload = async {
-            while let Some(chunk) = receiver.recv().await {
-                index.bytes = index
-                    .bytes
-                    .checked_add(chunk.bytes.len() as u64)
-                    .filter(|n| *n <= self.limits.max_checkpoint_bytes)
-                    .ok_or(CellGroupArchiveError::Limit)?;
-                if index.chunks.len() >= self.limits.max_chunks {
-                    return Err(CellGroupArchiveError::Limit);
+        let upload: Result<()> = async {
+            let mut bytes = 0u64;
+            let mut chunks = 0usize;
+            {
+                let uploaded = futures_util::stream::poll_fn(|cx| receiver.poll_recv(cx))
+                    .map(|chunk| {
+                        // Admit each input before its network work, including
+                        // inputs buffered behind an earlier object. Do not use
+                        // completed index length to bound in-flight chunks.
+                        let admitted = bytes
+                            .checked_add(chunk.bytes.len() as u64)
+                            .filter(|n| *n <= self.limits.max_checkpoint_bytes)
+                            .filter(|_| chunks < self.limits.max_chunks)
+                            .ok_or(CellGroupArchiveError::Limit)
+                            .map(|next| {
+                                bytes = next;
+                                chunks += 1;
+                            });
+                        async move {
+                            admitted?;
+                            let object = self.put("chunks", chunk.bytes, CHUNK_BYTES).await?;
+                            Ok::<_, CellGroupArchiveError>(Chunk {
+                                part: chunk.part,
+                                offset: chunk.offset,
+                                length: chunk.length,
+                                object,
+                            })
+                        }
+                    })
+                    .buffered(OBJECT_WINDOW);
+                futures_util::pin_mut!(uploaded);
+                while let Some(chunk) = uploaded.try_next().await? {
+                    index.chunks.push(chunk);
                 }
-                let object = self.put("chunks", chunk.bytes, CHUNK_BYTES).await?;
-                index.chunks.push(Chunk {
-                    part: chunk.part,
-                    offset: chunk.offset,
-                    length: chunk.length,
-                    object,
-                });
             }
+            index.bytes = bytes;
             Ok(())
         }
         .await;
@@ -339,18 +363,20 @@ impl CellGroupArchive {
             })
             .map_err(|_| CellGroupArchiveError::Stopped)?;
         let download: Result<()> = async {
-            for chunk in index.chunks {
-                let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
-                if sender
-                    .send(wire::Chunk {
+            let downloaded = futures_util::stream::iter(index.chunks)
+                .map(|chunk| async move {
+                    let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
+                    Ok::<_, CellGroupArchiveError>(wire::Chunk {
                         part: chunk.part,
                         offset: chunk.offset,
                         length: chunk.length,
                         bytes,
                     })
-                    .await
-                    .is_err()
-                {
+                })
+                .buffered(OBJECT_WINDOW);
+            futures_util::pin_mut!(downloaded);
+            while let Some(chunk) = downloaded.try_next().await? {
+                if sender.send(chunk).await.is_err() {
                     // The consumer owns the checkpoint failure. Join it below
                     // so a rejected chunk keeps its typed cause.
                     break;

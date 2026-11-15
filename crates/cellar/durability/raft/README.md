@@ -1152,6 +1152,18 @@ waiter expiry does not complete a node-owned phase; timers follow their actual
 future lifetime and distinguish returned errors from abandonment. These static
 metric names grant no authority and change no deadline, admission or proof order.
 
+Cell-group checkpoint uploads and independent checkpoint downloads poll at most
+two ordered object futures. A ready object can progress without filling the
+window. Uploads bound input bytes/chunks before starting their object work and
+append confirmed references in source order; downloads feed the physical
+receiver in that same order after each exact digest/length/range check. The
+existing eight-chunk I/O workspace covers the two futures, transport copies and
+bounded channel/source/receiver chunks. Archive operation, source and receiver
+admission are unchanged. Error and cancellation paths retain the entered physical
+worker's permits, close its channel and join it as before. Conditional PUTs still
+require exact GET confirmation, and publication still requires independent
+complete recovery and current authority.
+
 `host_archive.rs` owns a bounded window of archive producers and one exclusive
 verification workspace per node. `RaftArchiveOptions::max_producers` permits
 one to four concurrent publications across distinct cells (default two). A

@@ -34,6 +34,8 @@ mod publication_fixture;
 mod rustfs;
 #[path = "support/cell_group_archive_tail.rs"]
 mod tail_fixture;
+#[path = "support/cell_group_archive_window.rs"]
+mod window_fixture;
 
 #[path = "support/cell_group_runtime.rs"]
 #[allow(dead_code, unused_imports)]
@@ -42,6 +44,22 @@ mod runtime_fixture;
 use runtime_fixture::persist_archive_intent;
 
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_upload_overlaps_bounded_ordered_object_reads() -> Result<()> {
+    for rooted in [false, true] {
+        window_fixture::qualify(rooted, true).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_download_overlaps_bounded_ordered_object_reads() -> Result<()> {
+    for rooted in [false, true] {
+        window_fixture::qualify(rooted, false).await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn external_payload_recovery_and_gc_preserve_retained_cuts_and_readers() -> Result<()> {

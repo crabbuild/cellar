@@ -1,0 +1,310 @@
+{
+  "format": 1,
+  "base_revision": "f881df83756a1c4a43ff550c92dc87cfd2cefc91",
+  "source_digest": "948c229d3fcb962e59f1694807860c3094258131e882e567421ad67886b48e61",
+  "source_inputs": 3426,
+  "mechanism": "Two ordered checkpoint object futures within the existing eight-chunk I/O workspace and original operation/memory banks. No deadline, format, proof, receiver order or authority change.",
+  "before": {
+    "source_digest": "0bc80b7f7ccbc403bbd69e197f904c56f71acb82330195a61b2d09e21b462897",
+    "status": "REPRODUCED",
+    "same_final_regression_source": true,
+    "stages": [
+      {
+        "name": "format",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 119.05618016600056,
+        "log_sha256": "59140888c567780e9ae5e10639caa3f7508b3133cfd72214ec686ace792f5cec"
+      },
+      {
+        "name": "compile",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 177.931511458999,
+        "log_sha256": "4c286cc70a72a799e858d05c505953d10e1496153bfa4b149e1c082b4c698ae2"
+      },
+      {
+        "name": "upload",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 5.371974292000232,
+        "log_sha256": "d6449c8690ba41e0525dafcbcda831a72e7def02334f90cd72f7c48988a8f5c7",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "serialization_reproduced": true
+      },
+      {
+        "name": "download",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 5.329481417000352,
+        "log_sha256": "a72739821c5f8283345116c050cedf51666a510000ccfc9d30b8e9dda30c9ab0",
+        "footer": [
+          "FAILED",
+          "0",
+          "1",
+          "0"
+        ],
+        "serialization_reproduced": true
+      }
+    ],
+    "disks_retained": true
+  },
+  "native": {
+    "status": "PASSED",
+    "stages": [
+      {
+        "name": "format",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 104.36385587500263,
+        "log_sha256": "fba52ddda9f5229b8a7bc9404d1919d0607bd55bc4c1f25676912a13f93ca0eb"
+      },
+      {
+        "name": "clippy",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 548.4056575409995,
+        "log_sha256": "9581612f3d8f168fea9174f7eede5533a1c550552f0204cfdcf56b808855624a"
+      },
+      {
+        "name": "compile",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 475.934900541004,
+        "log_sha256": "6424c12c7f00eec2297fe45fd56dd72a467cedc2e5a1876bbc07bf06a4519596"
+      },
+      {
+        "name": "upload",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8673905420000665,
+        "log_sha256": "e0cdd7c08dc578dcea7da382f417a77dd30ffbae8c497896512033d84a2f5241",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "download",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 0.8813547090030625,
+        "log_sha256": "449ea96d3f2689230500578001193426365a0579ab1ef8471e20e10f72ef411b",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "held-output",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.5217285830003675,
+        "log_sha256": "69d3473d7c5a31efe310d5737ab8707620b01865ea7e487542fefc27c88fe7b1",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "exact-s3",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.4736582500045188,
+        "log_sha256": "3b49bf0c986ed576558202df30fd89c775a9213ad9de24d5fe22053749858b5d",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "s3-deadline",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 5.057239542002208,
+        "log_sha256": "2a3e01a46320f7e14f94b0e0a2c28f8b44ce3f7c91a4124d8c98557ae0884051",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "archive-full",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 63.543227499998466,
+        "log_sha256": "e8d8a9fba065e9afefd5ca0b19b452642d053e56043389ef18aa14ed433b0755",
+        "footer": [
+          "ok",
+          "38",
+          "0",
+          "10"
+        ]
+      }
+    ],
+    "executables": {
+      "native_cell_groups_archive": "5086564d4cef90a98c66f03a7296228f074ef03ba90396b3260a6e0125094e7e",
+      "native_cell_groups_effects": "d15514a831fa0340f894b88d519a1ca6981656e089115a6aae9d07ad6ea92e97",
+      "native_cell_groups_archive_controller": "cf40680ded1a9e0fca002f9857d0fa0999ffbdfd1f8cb4438dd6ed7383ebf2f1"
+    },
+    "compiler_profiles": {
+      "native_cell_groups_effects": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "native_cell_groups_archive_controller": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "native_cell_groups_archive": {
+        "opt_level": "1",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "rust_toolchain": "1.98.1",
+    "build_locked": true,
+    "cellar_internal_tests_enabled": false
+  },
+  "rustfs": {
+    "status": "PASSED",
+    "source_digest": "948c229d3fcb962e59f1694807860c3094258131e882e567421ad67886b48e61",
+    "stages": [
+      {
+        "name": "archive-owner",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.058638082999096,
+        "log_sha256": "6a55ce07129dbbde67541d8164b3c29cf266e75b35ee7e562fc4620dac18adad",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "publication-cas",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 1.1624812500012922,
+        "log_sha256": "81ec426bc5b20814209dcd05114d7c02d9c7d71a6abf26c4ca3ad7eee48f88bd",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "exact-s3",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.447735708003165,
+        "log_sha256": "1433f7a3f34ca94bb65458b994c2ce5a57d03d52ea5ab928c1f12c634fe4a2fa",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "s3-deadline",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 6.848604666003666,
+        "log_sha256": "a6e92cd39953c4250198525a0ed08374a61605431745628522b166415922d893",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "sibling-dependency",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.5478538749957806,
+        "log_sha256": "d664cb40c2acdf9bc0347566cd589765dcd16ba1a3eef3e55cf679e79f85f681",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "name": "external-payload",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 2.380487249996804,
+        "log_sha256": "dec4abb9be9fcded2cae55d65d260c98d4020813f31f7809d66dd5e07422a6d1",
+        "footer": [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "original_backend_unchanged": true,
+    "ready_http_status": 200
+  },
+  "earlier_candidate": {
+    "status": "FAILED",
+    "source_digest": "b5f3e5f64b00d9d4839d85f32364d8431802de18d7e62d46598a139977a3ecd6",
+    "error": "clippy failed",
+    "stages": [
+      {
+        "name": "format",
+        "status": "PASSED",
+        "exit_code": 0,
+        "elapsed_seconds": 113.1897760829961,
+        "log_sha256": "59140888c567780e9ae5e10639caa3f7508b3133cfd72214ec686ace792f5cec"
+      },
+      {
+        "name": "clippy",
+        "status": "FAILED",
+        "exit_code": 101,
+        "elapsed_seconds": 109.43663354199816,
+        "log_sha256": "e119e747b8f8567589754d8a9869a8a4cee2bd1f4c7510f891cc84002697f7de"
+      }
+    ],
+    "scope": "Type inference failed in the new upload block before runtime tests; explicit Result<()> annotation repairs compilation."
+  },
+  "owners_joined": true,
+  "source_inputs_unchanged": true,
+  "performance_gain_accepted": false,
+  "qualifies_combined_revision": false,
+  "limits": [
+    "The default archive footer retains ten explicit ignores. Three are exercised separately against RustFS; other ignored controls are unrun.",
+    "The two new overlap commands also execute within the full archive target; their passes are not counted twice.",
+    "Native and RustFS node fixtures run in process. These results are not the three-container throughput/latency profile.",
+    "Earlier public S3/Queue deadline/drain failures remain open; no complete OPT/CG or release gate follows."
+  ]
+}
