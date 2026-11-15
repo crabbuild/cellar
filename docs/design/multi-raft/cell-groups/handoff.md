@@ -4040,3 +4040,12 @@ target minimum still gate the response; activation still requires current active
 proofs. Temporary DEBUG-cg17-cold probes are removed. Run the added owning
 receipt-read refusals and the unchanged public/Fleet/RustFS controls before
 claiming progress on family acceptance.
+
+Correction after cohort 186: `b148fce6` passes 23 owning units but all six shared
+controls fail with a missing catalog table. Enrollment was a no-op; the factory
+initialized only the first command. The next candidate now provisions catalog
+schema/intent/receipt/work during the real enrollment transaction and enables
+only registered callback capability there. Its initializer digest changes for a
+hard development cutover, with no migration. The added real-transaction regression
+checks rollback, work deadline and repeat initialization. Run all-test Clippy,
+24 owning cases and the unchanged public controls before accepting this candidate.

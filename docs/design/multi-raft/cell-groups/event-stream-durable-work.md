@@ -68,6 +68,13 @@ reservation is an optimization. SQLite obligations, original operation identitie
 current execution fences and independent destination proof remain authoritative
 after cancellation, ownership loss or restart.
 
+Catalog enrollment installs its schema, trusted desired definition, operation
+receipt and reconciliation work in the same creation transaction. Failed creation
+rolls them back together; later factory activation preserves the existing intent
+and work deadline. Its initializer digest distinguishes this contract from the
+previous empty enrollment; development namespaces must be recreated rather than
+migrated.
+
 After a new catalog enrollment, deployment ingress joins the initializer’s exact
 configuration operation through a private immutable read. The read checks the
 full canonical definition digest, operation owner, current administration grant

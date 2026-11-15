@@ -129,13 +129,36 @@ pub(in crate::application) fn event_service(
 ) -> Result<RaftClass, RegistrationError> {
     use crate::application::event_stream as events;
     let mut identity = Sha256::new();
-    identity.update(b"cellar-raft-event-provision-1");
+    if catalog {
+        identity.update(b"cellar-raft-event-catalog-enrollment-1");
+    } else {
+        identity.update(b"cellar-raft-event-provision-1");
+    }
     identity.update(
         serde_json::to_vec(definitions)
             .map_err(|_| RegistrationError::Invalid("stream definitions"))?,
     );
+    let initial_definitions = definitions.to_vec();
+    let initial_principal = configuration.script.clone();
     let mut class = RaftClass::event_service(catalog)?
-        .initializer(identity.finalize().into(), |_, _| Ok(()))?
+        .initializer(identity.finalize().into(), move |cell, tx| {
+            if catalog {
+                let storage = tx.storage()?;
+                events::catalog::open(&storage)?;
+                for definition in &initial_definitions {
+                    if cell.cell.as_str() == events::catalog_scope(&definition.resource)? {
+                        events::catalog::provision_storage(
+                            &storage,
+                            &events::Authority::deployment(&initial_principal, definition)?,
+                            definition,
+                            &events::raft::operation(&initial_principal, definition)?,
+                            i64::try_from(tx.inputs().now_unix_millis)?,
+                        )?;
+                    }
+                }
+            }
+            Ok(())
+        })?
         .durable_callbacks()?;
     class = class.query(
         super::sql_ingress_identity::OPERATION,

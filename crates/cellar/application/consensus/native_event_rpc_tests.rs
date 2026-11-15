@@ -39,6 +39,65 @@ fn service(catalog: bool) -> Result<RaftClass> {
     )?)
 }
 
+#[tokio::test]
+async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result<()> {
+    use cellar_logic::{
+        cell_group::{CellHistory, CellId},
+        consensus::{ClusterId, IncarnationId, NamespaceId},
+    };
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        let definition = definition();
+        let cell = CellHistory {
+            cluster: ClusterId::new([1; 16])?,
+            namespace: NamespaceId::new([2; 16])?,
+            cell: CellId::new(event_stream::catalog_scope(&definition.resource)?)?,
+            incarnation: IncarnationId::new([3; 16])?,
+        };
+        let class = service(true)?;
+        let root = tempfile::tempdir()?;
+        let mut database = crate::storage::CommandDatabase::open(
+            &root.path().join("catalog.sqlite"), None, 4 << 20,
+        )?;
+        let inputs = crate::storage::CommandInputs {now_unix_millis:1234, random:[4;32]};
+        let rejected: Result<()> = database.transaction(inputs, |tx| {
+            class.invoke_initializer(&cell, tx)?;
+            anyhow::bail!("creation did not commit")
+        });
+        assert!(rejected.is_err());
+        assert_eq!(database.framework().query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name IN ('__sys_event_catalog','__sys_work','__sys_raft_native_work')", [], |r| r.get::<_, u64>(0),
+        )?, 0);
+        let caller = event_stream::Authority::deployment("shop", &definition)?;
+        use base64::Engine;
+        let body = serde_json::json!({
+            "operation":event_stream::raft::operation("shop",&definition)?,
+            "definition":base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&definition)?),
+        });
+        let work = database.transaction(inputs, |tx| {
+            class.invoke_initializer(&cell, tx)?;
+            let storage = tx.storage()?;
+            let observed = event_stream::metadata::read(
+                &storage, cell.cell.as_str(), "__catalogConfigureReceipt",
+                &Authority::Event(caller.clone()), &body,
+            )?;
+            assert_eq!(observed["state"], "creating");
+            assert_eq!(observed["operation"], body["operation"]);
+            let work = storage.work_installation(cellar_logic::work::Reason::ResourceReconciliation)?.unwrap();
+            assert_eq!(work.at_ms, 1234);
+            Ok(work)
+        })?;
+        database.transaction(crate::storage::CommandInputs {now_unix_millis:2234, ..inputs}, |tx| {
+            class.invoke_initializer(&cell, tx)?;
+            assert_eq!(tx.storage()?.work_installation(cellar_logic::work::Reason::ResourceReconciliation)?, Some(work));
+            Ok(())
+        })?;
+        Ok(())
+    }).await?;
+    domain.shutdown().await;
+    result
+}
+
 #[test]
 fn private_event_request_retains_authority_and_global_name() -> Result<()> {
     let definition = definition();

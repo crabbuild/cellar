@@ -652,6 +652,13 @@ impl RaftClass {
             .as_ref()
             .ok_or(RegistrationError::Invalid("missing initializer"))?;
         let _guard = CallbackGuard::enter()?;
+        if self.has_native_callbacks() {
+            transaction
+                .storage()?
+                .resources()
+                .durable_callbacks
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
         if self.filesystem.is_some() {
             let storage = transaction.storage()?;
             self.configure_filesystem(&storage, cell, false);

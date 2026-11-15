@@ -51,7 +51,7 @@ fn status(row: &SqlRow) -> Result<Value> {
     )
 }
 
-fn open(db: &Storage) -> Result<()> {
+pub(crate) fn open(db: &Storage) -> Result<()> {
     super::catalog_schema::open(db)
 }
 
@@ -547,7 +547,26 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
 /// an independently proven partition command in the ordinary reconciler.
 pub(crate) fn provision(context: &Context, definition: &Definition, operation: &str) -> Result<()> {
     let db = context.storage()?;
-    open(&db)?;
+    let caller = store::authority(context, Action::Configure)?;
+    provision_storage(
+        &db,
+        &caller,
+        definition,
+        operation,
+        crate::asyncrt::wall_ms(),
+    )
+}
+
+/// Creation records the trusted intent and its autonomous work in one private
+/// enrollment transaction. No RPC, task or broker mutation runs here.
+pub(crate) fn provision_storage(
+    db: &Storage,
+    caller: &Authority,
+    definition: &Definition,
+    operation: &str,
+    now_ms: i64,
+) -> Result<()> {
+    open(db)?;
     if !db
         .system_sql(
             "SELECT id FROM __sys_event_catalog WHERE id=?",
@@ -557,16 +576,15 @@ pub(crate) fn provision(context: &Context, definition: &Definition, operation: &
     {
         return Ok(());
     }
-    let caller = store::authority(context, Action::Configure)?;
     caller.require_provisioning()?;
-    store::authorize(definition, &caller, Action::Configure, None)?;
+    store::authorize(definition, caller, Action::Configure, None)?;
     let encoded = serde_json::to_string(definition)?;
     use sha2::{Digest, Sha256};
     let digest = hex::encode(Sha256::digest(encoded.as_bytes()));
-    let authority = serde_json::to_string(&caller)?;
+    let authority = serde_json::to_string(caller)?;
     db.tx(|tx| {
-        tx.system_sql("INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,desired_revision,pending_definition,pending_authority,operation,digest,operation_authority,retry_at_ms) VALUES(?,?,'creating',?,?,?,?,?,?,?,?,?,?)",&[definition.resource.id.clone().into(),definition.resource.name.clone().into(),definition.resource.tenant.clone().into(),definition.resource.application.clone().into(),definition.resource.family.clone().into(),definition.revision.into(),encoded.clone().into(),authority.clone().into(),operation.into(),digest.clone().into(),authority.clone().into(),crate::asyncrt::wall_ms().into()])?;
-        insert_receipt(tx,&caller,operation,"configure",&digest)?;
+        tx.system_sql("INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,desired_revision,pending_definition,pending_authority,operation,digest,operation_authority,retry_at_ms) VALUES(?,?,'creating',?,?,?,?,?,?,?,?,?,?)",&[definition.resource.id.clone().into(),definition.resource.name.clone().into(),definition.resource.tenant.clone().into(),definition.resource.application.clone().into(),definition.resource.family.clone().into(),definition.revision.into(),encoded.clone().into(),authority.clone().into(),operation.into(),digest.clone().into(),authority.clone().into(),now_ms.into()])?;
+        insert_receipt(tx,caller,operation,"configure",&digest)?;
         schedule(tx)
     })
 }

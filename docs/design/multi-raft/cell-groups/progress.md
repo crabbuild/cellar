@@ -158,7 +158,17 @@ qualification. The follow-up joins the catalog initializer’s exact durable
 configuration receipt by an authorized immutable read, avoiding a redundant
 foreground configuration command. Pending intent is not readiness; current
 active catalog/broker proofs remain required. Temporary tracing is removed.
-Owning and public qualification of this follow-up remain pending.
+At `b148fce6`, build/static gates and all 23 owning units pass, but public
+cohort 186 is FAILED at 2/8: each shared selection refuses initial materialized
+activation because `__sys_event_catalog` is absent. The no-op enrollment initializer
+left schema creation to the first command, contradicting the proposed birth
+read. The correction records the catalog schema, exact operation receipt, desired
+definition and autonomous reconciliation work inside enrollment. Initializers
+receive only their class-declared callback capability. A new owning regression
+uses the real command transaction to check rollback, intent/work creation without
+a factory and idempotent retry. The catalog initializer digest changes; this is
+a hard development cutover requiring compatible fresh catalog namespaces, with
+no legacy reader or migration. Qualification of this correction remains pending.
 
 No deadline, quota, identity or durability proof is weakened. Native RF3 voters
 share one process, with separate workspace disks and one SQL worker each; RustFS
