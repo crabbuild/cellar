@@ -206,6 +206,9 @@ impl CellGroupRecoveryPool {
     ) -> Result<StagedCellGroupPartition> {
         domain
             .run(Box::pin(async {
+                for source in &sources {
+                    source.recovery().verify_external_now().await?;
+                }
                 let admission = self.admit()?;
                 let stop = Stop(Arc::new(AtomicBool::new(false)));
                 let cancelled = stop.0.clone();

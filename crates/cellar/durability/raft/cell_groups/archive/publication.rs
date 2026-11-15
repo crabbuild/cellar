@@ -112,6 +112,7 @@ pub struct PreparedCellGroupArchivePublication {
     intent: CellGroupArchiveIntent,
     verified: VerifiedCellGroupArchiveRecovery,
     source: Arc<SourceCut>,
+    payload_root: Descriptor,
 }
 
 impl PreparedCellGroupArchivePublication {
@@ -136,6 +137,10 @@ impl PreparedCellGroupArchivePublication {
                     }
                 };
                 self.source.check()?;
+                self.upload
+                    .registry()
+                    .pin_payloads(&self.verified, &self.payload_root, true)
+                    .await?;
                 Ok(CellGroupArchiveCoverage(Arc::new(Coverage {
                     hold,
                     verified: self.verified,
@@ -279,6 +284,10 @@ impl CellGroupArchiveUpload {
                 )
                 .await?;
                 self.allows(&graph)?;
+                self.registry()
+                    .pin_payloads(&verified, &descriptor, false)
+                    .await?;
+                let payload_root = descriptor.clone();
                 let intent = self
                     .registry()
                     .prepare_publish(self.ticket(), descriptor)
@@ -288,6 +297,7 @@ impl CellGroupArchiveUpload {
                     intent,
                     verified,
                     source,
+                    payload_root,
                 })
             })
             .await
@@ -343,6 +353,10 @@ impl CellGroupArchiveRegistry {
                     return Err(CellGroupArchiveError::Invalid("held recovery cut"));
                 }
                 let _io = self.archive.admit()?;
+                // A historical hold can retire concurrently with verification.
+                // Only a newly selected publication may adopt command/upload
+                // ownership; reading an older cut must not retire a live turn.
+                self.pin_payloads(&verified, &descriptor, false).await?;
                 self.referenced(hold).await?;
                 Ok(CellGroupArchiveCoverage(Arc::new(Coverage {
                     hold: hold.clone(),

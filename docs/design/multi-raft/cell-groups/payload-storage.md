@@ -10,15 +10,16 @@ their namespaces. This is a data capability: it does not enroll a cell, grant
 execution authority, acknowledge a Raft write or prove a complete archive cut.
 
 The object key contains a domain-separated hash of cluster, namespace and exact
-logical cell ID, the writer's cell incarnation, the byte length and SHA-256.
+logical cell ID, the writer's cell incarnation, a fresh random allocation ID,
+the byte length and SHA-256.
 Physical groups, leader terms and routing epochs are absent. Movement does not
 change a row's locator. A new incarnation writes a separate subtree and can read
 an old locator belonging to the same logical cell after a separately authorized
 recovery restores that row. Another cell, cluster or namespace is refused.
 References retain format marker 1 and reject unknown fields and invalid bounds.
 
-Publication first checks an existing object, then conditionally creates a missing
-object and reads it back. Full length, response range, bounded chunk count,
+Publication durably reserves the exact upload allocation before checking an
+existing object, conditionally creating a missing object and reading it back. Full length, response range, bounded chunk count,
 actual EOF and digest must match. A lost PUT reply is not proof of failure or
 success: only the exact read-back confirms publication. A corrupt existing object
 is refused rather than overwritten. The entire operation has one monotonic
@@ -27,8 +28,10 @@ cannot renew the original caller deadline between these stages.
 
 One operation/byte bank accounts active I/O and returned bytes. Admission reserves
 bounded transport/hash/body workspace before reading; a retained body releases
-its operation slot while keeping its byte charge until dropped. Cancellation and
-errors release their reservations without detached tasks. The default maximum
+its operation slot while keeping its byte charge until dropped. Cancellation
+keeps its original admission until domain-owned reader-pin cleanup joins. A
+failed cleanup leaves its persistent pin protected for explicit reconciliation.
+The default maximum
 value is the ordinary KV ceiling of 25 MiB. This does not increase an RPC envelope,
 private-image budget or result quota; deployment admission must intersect them.
 Ordinary KV bindings use a separate immutable wire protocol for arguments or
@@ -97,15 +100,58 @@ a pre-disaster token. Retained restart and group movement preserve tokens.
 Raft TTL evaluation uses the receiving service's clock, including relative TTLs;
 ordinary alarm work reclaims expired rows without another caller request.
 
-The API has no list or delete operation. A list of current KV rows cannot protect
-old images, retained archive cuts, readers, pending uploads or interrupted turns.
-All payload objects are retained until a separate collector can enumerate and
-prove retirement of the complete root/pin closure. This preserves recovery bytes
-at the cost of growing remote storage; reclamation remains required work.
-An observed pending locator may be ephemeral: it is neither a durable upload
-lease nor a confirmed recovery dependency. Before collection is introduced,
-framework-owned upload leases and a trusted dependency ledger must protect
-in-flight publication and distinguish it from caller-supplied descriptors.
+The framework records pending dependencies before source-proven payload I/O
+and upgrades them to confirmed only after full publication/read verification and
+writer resumption. Caller-supplied publication flags never supply this proof.
+A durable command handoff pin is installed before a remote reader releases its
+transient pin or a publisher can expose its locator. Only a selected source
+archive that pins the same dependency may adopt this owner. This protects the
+interval between Quorum source work and asynchronous archive publication,
+including cross-cell reads after the target deletes a value. The bounded SQLite
+journal persists the handoff identity and covers input and reply descriptors; committed KV
+rows independently retain live value references after receipt pruning. Partial
+native turns keep their dependencies until the scheduler excludes all live or
+parked same-cell frames and unresolved child calls. Wall-clock expiry alone
+cannot retire their bytes.
+
+Archive replay scans the actual recovered SQLite images and verifies every
+confirmed external dependency with actual complete bytes before coverage,
+movement or fenced recovery admission. It rechecks these bytes before copying a
+prepared recovery cut. A missing, corrupt, ranged or incomplete object refuses
+admission. Pending descriptors remain protected without requiring an upload to
+have finished. `CellGroupArchivePool::with_payloads` supplies the same explicit
+node-wide pool used by foreground transfers; an archive with external references
+refuses when that admission is absent.
+
+Archive publication installs scoped pins before selecting its root. A selected,
+confirmed archive belonging to the logical payload owner may adopt its upload
+pin; foreign source references cannot retire a target's pending publication.
+The registry's append-only namespace index discovers these pins. Collection
+marks selected roots, retained recovery cuts and pending parents, then retires
+only that registry's older unselected pins. Concurrent newer or pending
+generations and other registries' pins survive. Dropping a coverage handle
+never releases its durable hold.
+
+`CellGroupArchiveRegistry::collect_payloads` explicitly runs this retirement and
+`CellGroupPayloadStore::collect` reclaims unprotected bytes. Persistent readers
+protect entered GETs until the complete body is local; returned bytes continue
+charging memory without requiring a remote pin. Collection validates the full
+bounded ownership inventory and hashes confirmed protected objects before any
+DELETE in that namespace. A namespace exceeding `max_scan_objects` refuses the
+pass before deletion; the caller must provide sufficient inventory admission.
+It never treats an unordered truncated first page as a complete mark. Each pass
+caps actual object deletion with `max_delete_objects`.
+
+An irreversible CAS tombstone precedes DELETE. Allocation IDs prevent delayed
+DELETEs from touching a later publication of identical content. Tombstones stay
+and later passes remove any delayed PUT body at the retired allocation. New
+reads, roots or publishers cannot resurrect an unrooted allocation. Generic
+owners use explicit `retain`/`release`; `abort_upload` requires the publisher and
+all possible reference commits to have joined or been permanently fenced.
+Unknown uploads/readers never expire by a clock or missing response. A lost
+process may therefore leave conservative pins requiring owner reconciliation;
+this API does not infer a permanent node fence or promise automatic reclamation
+of unknown owners. The fleet epoch collector never touches these keys.
 
 The owning protocol tests are in `raft_cell_group_payloads`. They exercise native
 storage and an explicitly configured real RustFS backend, including an actual
@@ -121,13 +167,12 @@ retained restart, archive outage and quorum refusal. Implementation and passing
 qualification are distinct: consult the source-pinned progress record for actual
 results. A compiled adapter does not establish a complete primitive family.
 
-Remaining work includes interrupted large calls, movement and wake, and the
-complete payload dependency closure before fenced disaster-recovery admission.
-Recovery must verify actual external-value and wire bytes, including descriptors
-retained by source intents and receipts. It must distinguish prepared/pending
-uploads from confirmed dependencies. Then implement and qualify root-aware
-reclamation across every retained image, reader and recovery cut. Fleet's
-epoch-based blob collector must never collect these immutable payload keys.
+The external-byte receiver/collection gate seeds an archived KV row directly and
+checks missing/corrupt bodies, retained cuts and an entered reader during actual
+object deletion. It does not establish the full ordinary KV lifecycle/disaster
+matrix, automatic collection scheduling, unknown-owner fencing or independent
+host durability. Interrupted large SDK calls, movement and wake remain separate
+qualification gates.
 
 Format markers remain 1. The value-reference service changes its compiled KV
 schema identity, and the integrated callback kernel changes its private work

@@ -456,7 +456,7 @@ impl RaftClass {
         Self::definition(
             crate::deploy::KV_CLASS.into(),
             1,
-            Sha256::digest(b"cellar-raft-kv-value-reference-callback-service-1").into(),
+            Sha256::digest(b"cellar-raft-kv-owned-payload-reference-service-1").into(),
         )
     }
 
@@ -1357,6 +1357,7 @@ impl RaftClass {
                 operation,
                 crate::storage::raft_binding_recovery::CLAIM
                     | crate::storage::raft_binding_recovery::SETTLE
+                    | crate::storage::raft_payloads::RETIRE
             ) {
                 return Some(OperationContract {
                     operation: operation.into(),
@@ -1465,6 +1466,14 @@ impl RaftClass {
             digest: request.contract_digest,
         };
         self.validate_system_operation(&contract)?;
+        if contract.operation == crate::storage::raft_payloads::RETIRE {
+            let _guard = CallbackGuard::enter()?;
+            anyhow::ensure!(input.len() <= 128, super::CommandFailure::Overloaded);
+            let key = serde_json::from_slice(input)?;
+            let connection = transaction.framework()?;
+            crate::storage::raft_payloads::retire(&connection, &key)?;
+            return Ok(vec![1]);
+        }
         if contract.operation == crate::raft::execution::binding_seal::OPERATION {
             let _guard = CallbackGuard::enter()?;
             return crate::raft::execution::binding_seal::execute(
@@ -1752,6 +1761,7 @@ impl RaftClass {
             hash.update(crate::raft::execution::binding_seal::contract().digest);
             hash.update(crate::storage::raft_binding_recovery::CLAIM.as_bytes());
             hash.update(crate::storage::raft_binding_recovery::SETTLE.as_bytes());
+            hash.update(crate::storage::raft_payloads::RETIRE.as_bytes());
         }
         if !self.system_commands.is_empty() {
             hash.update(b"system-commands-1");

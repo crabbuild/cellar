@@ -15,11 +15,15 @@ impl Pools {
     pub fn new(
         options: Option<CellGroupNodeArchiveOptions>,
         checkpoint: Option<CellGroupCheckpointPool>,
+        payloads: Option<CellGroupPayloadPool>,
     ) -> anyhow::Result<Option<Self>> {
         options
             .map(|o| {
                 Ok(Self {
-                    io: CellGroupArchivePool::new(o.io)?,
+                    io: match payloads {
+                        Some(payloads) => CellGroupArchivePool::new(o.io)?.with_payloads(payloads),
+                        None => CellGroupArchivePool::new(o.io)?,
+                    },
                     owners: CellGroupArchiveUploadPool::new(o.uploads)?,
                     tails: CellGroupArchiveTailPool::new(o.tails)?,
                     checkpoints: checkpoint.ok_or_else(|| {

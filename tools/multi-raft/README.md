@@ -1180,3 +1180,33 @@ A separate case refuses a split that would consume the recovery reserve while
 keeping the parent writable. Both materialized and extent images use real RustFS.
 Voters run as host-native TLS nodes with fixture capacity; this does not qualify
 independent process crashes, failure domains or sustained-load profiles.
+
+## Filesystem, Blob and external recovery cuts
+
+`--suite ordinary-filesystem` selects the transactional filesystem baseline and
+archive-outage/voter-replacement/park-wake lifecycle case. The latter keeps RF3
+and uses one registered standby during replacement. `--suite filesystem-disaster`
+erases all owned voter disks after contract fencing, seeds fresh RF3 histories,
+and compares restored filesystem bytes and exact command receipts. Both image
+forms run within each selected test.
+
+`--suite ordinary-blob` reuses the native Blob provider assertions through
+explicit Raft declarations and proven source turns. A five-second single-operation
+control accompanies twenty-second conformance phases that perform many separately
+proven provider calls. Source S3 refusal must occur before the provider changes.
+Provider-write refusal and a response lost after a real mutation must not rerun
+the handler under the same command identity. Mutable provider objects retain
+their own backup/versioning contract.
+
+`--suite external-payload-recovery` independently verifies missing/corrupt bytes,
+retained old cuts after a value is deleted, and an entered reader during actual
+remote reclamation. It seeds an external KV row directly; it does not replace
+ordinary SDK, full-size wire or combined KV disaster qualification. The separate
+`immutable-payloads` suite checks publication, persistent pins and collection
+without Raft voters. The collector refuses an incomplete inventory and never
+expires unknown owners by time.
+
+All these campaigns use the owned RustFS backend and preserve exact test/source
+hashes and failed cases. The RF3 fixtures run on the development host, within
+one process. The backend's one-CPU/two-GiB cgroup does not qualify independent
+voter cgroups, physical hosts, sustained load or production fencing.

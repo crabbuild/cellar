@@ -266,7 +266,7 @@ enum ServiceMode {
     Recovery(
         Arc<dyn FleetFailureRecoveryPlatform>,
         Arc<dyn FleetIsolatedRepairEvidence>,
-        FleetFailureRecoveryOptions,
+        Box<FleetFailureRecoveryOptions>,
     ),
 }
 
@@ -458,7 +458,7 @@ impl FleetCatalog {
         self.start_fleet_service(
             observer,
             Some(movement_evidence),
-            ServiceMode::Recovery(platform, repair_evidence, recovery),
+            ServiceMode::Recovery(platform, repair_evidence, Box::new(recovery)),
             options,
         )
         .await
@@ -510,7 +510,7 @@ impl FleetCatalog {
             }
             ServiceMode::Detection(options) => work.set_detection(Some(options)),
             ServiceMode::Recovery(platform, repair, options) => {
-                work.set_recovery(platform, repair, options)
+                work.set_recovery(platform, repair, *options)
             }
         }
         observer.start_movement_worker(work, timeout).await?;

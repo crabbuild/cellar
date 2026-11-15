@@ -46,6 +46,7 @@ fn idle_stamp() -> Instant {
 pub(crate) struct UploadGuard {
     upload: Option<Box<dyn MultipartUpload>>,
     interrupted: bool,
+    domain: Option<crate::asyncrt::DomainToken>,
 }
 
 impl UploadGuard {
@@ -53,6 +54,7 @@ impl UploadGuard {
         Self {
             upload: Some(upload),
             interrupted: false,
+            domain: crate::asyncrt::services().domain_token(),
         }
     }
 
@@ -127,11 +129,13 @@ impl UploadGuard {
 impl Drop for UploadGuard {
     fn drop(&mut self) {
         if let Some(mut upload) = self.upload.take() {
-            asyncrt::spawn(async move {
-                if let Err(error) = upload.abort().await {
-                    tracing::warn!(%error,"cancelled Blob upload could not be aborted");
-                }
-            });
+            if let Some(domain) = &self.domain {
+                let _ = domain.spawn_cleanup(async move {
+                    if let Err(error) = upload.abort().await {
+                        tracing::warn!(%error,"cancelled Blob upload could not be aborted");
+                    }
+                });
+            }
         }
     }
 }

@@ -3,8 +3,26 @@
 # Native Blob uploads
 
 Access a declared bucket with `Context::blob`. All mutations retain native turn
-checks and the cell's Blob durability gate. Blob objects and business SQLite
+checks and the cell's required durability gate. Blob objects and business SQLite
 state have separate commits; persist references and reconcile uncertain results.
+
+## Shared cell groups
+
+A native Raft configuration explicitly declares `blob_bindings`. Provider I/O
+parks the private SQLite writer only after its ordered source checkpoint has
+the required Quorum or S3 proof. The same invocation and original deadline are
+checked when the writer resumes. Buffered operations, streaming chunks, mutable
+multipart and supported resumable operations follow this path. Retained bodies
+and staged parts refuse a later invocation; domain shutdown joins entered abort
+cleanup. No unknown provider mutation automatically reruns application code.
+
+Mutable provider objects have independent commits and recovery contracts.
+An archive of cell SQLite does not back up a mutable Blob bucket. Use explicit
+provider versioning or immutable application keys when cell references must
+retain earlier versions. These objects are separate from the immutable
+namespace payload protocol and its root-aware collector. Backend capabilities
+still apply; the pinned S3 client cannot initiate the metadata-bearing resumable
+profile. Raw HTTP body piping remains a stateless ingress capability.
 
 ## Choose an upload contract
 

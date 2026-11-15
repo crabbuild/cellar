@@ -408,12 +408,16 @@ pub(super) fn prune(
     if retained {
         return Err(ExecutionError::RetentionNotExpired);
     }
+    if !crate::storage::raft_payloads::prunable(connection, id, through).map_err(storage)? {
+        return Err(ExecutionError::RetentionNotExpired);
+    }
     connection
         .execute(
             "DELETE FROM __sys_raft_receipts WHERE client_id=?1 AND sequence<=?2",
             params![id.bytes().as_slice(), through.to_be_bytes().as_slice()],
         )
         .map_err(storage)?;
+    crate::storage::raft_payloads::prune(connection, id, through).map_err(storage)?;
     connection
         .execute(
             "UPDATE __sys_raft_clients SET expired_through=?2 WHERE client_id=?1",

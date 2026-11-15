@@ -8,11 +8,18 @@ use cellar_logic::cell_group::CellHistory;
 use cellar_logic::consensus::{ClusterId, NamespaceId};
 use futures_util::TryStreamExt;
 use object_store::{path::Path, ObjectStore, PutMode};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 
 const FORMAT: u8 = 1;
+
+mod ownership;
+pub(in crate::raft::cell_groups) use ownership::PayloadRootOwner;
+pub use ownership::{
+    CellGroupPayloadCollectionLimits, CellGroupPayloadCollectionReport, CellGroupPayloadHold,
+};
 
 // Native structured values are bounded at 64 MiB. KV's input/reply envelope
 // adds framing while its individual public values retain their 25-MiB bound.
@@ -26,6 +33,8 @@ pub enum CellGroupPayloadError {
     DeadlineExceeded,
     Missing,
     Unconfirmed,
+    Conflict,
+    Retired,
     Storage(object_store::Error),
 }
 
@@ -55,7 +64,7 @@ type Result<T> = std::result::Result<T, CellGroupPayloadError>;
 /// A locator, not publication, recovery, execution or deletion authority.
 /// The logical owner remains stable across group movement and disaster recovery.
 /// A new incarnation writes a separate immutable subtree and may read old rows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CellGroupPayloadReference {
     format: u8,
@@ -63,6 +72,7 @@ pub struct CellGroupPayloadReference {
     writer: [u8; 16],
     digest: [u8; 32],
     length: u64,
+    allocation: [u8; 16],
 }
 
 fn owner(history: &CellHistory) -> [u8; 32] {
@@ -77,12 +87,15 @@ fn owner(history: &CellHistory) -> [u8; 32] {
 
 impl CellGroupPayloadReference {
     pub(crate) fn prepare(history: &CellHistory, digest: [u8; 32], length: u64) -> Self {
+        let mut allocation = [0; 16];
+        crate::asyncrt::rng("cell-group-payload-allocation").fill_bytes(&mut allocation);
         Self {
             format: FORMAT,
             owner: owner(history),
             writer: history.incarnation.bytes(),
             digest,
             length,
+            allocation,
         }
     }
 
@@ -98,6 +111,7 @@ impl CellGroupPayloadReference {
         if self.format != FORMAT
             || self.owner != owner(history)
             || self.writer == [0; 16]
+            || self.allocation == [0; 16]
             || self.length == 0
             || self.length > limit as u64
         {
@@ -197,7 +211,7 @@ impl CellGroupPayloadPool {
     fn workspace(length: usize) -> Result<usize> {
         length
             .checked_mul(3)
-            .and_then(|n| n.checked_add(64 * 1024))
+            .and_then(|n| n.checked_add(4 * 64 * 1024))
             .ok_or(CellGroupPayloadError::Overloaded)
     }
 
@@ -226,10 +240,8 @@ impl CellGroupPayloadPool {
     }
 }
 
-/// Immutable namespace payloads. There is deliberately no listing or deletion
-/// operation: live rows alone cannot enumerate retained checkpoints, readers,
-/// interrupted publications or disaster-recovery cuts. Keep all objects until
-/// a separate complete root/pin collector can prove retirement.
+/// Immutable namespace payloads with persistent upload and root ownership.
+/// Dropping a handle never releases a persistent owner.
 #[derive(Clone)]
 pub struct CellGroupPayloadStore {
     store: Arc<dyn ObjectStore>,
@@ -240,7 +252,9 @@ pub struct CellGroupPayloadStore {
 }
 
 impl CellGroupPayloadStore {
-    pub(crate) fn prepare_reference(
+    /// Prepare a fresh allocation without object I/O. Persist this exact
+    /// locator when a publication must be reconciled after a lost response.
+    pub fn prepare_reference(
         &self,
         history: &CellHistory,
         digest: [u8; 32],
@@ -281,6 +295,7 @@ impl CellGroupPayloadStore {
         self.prefix
             .child(hex::encode(reference.owner))
             .child(hex::encode(reference.writer))
+            .child(hex::encode(reference.allocation))
             .child(format!(
                 "{}-{}",
                 reference.length,
@@ -345,7 +360,7 @@ impl CellGroupPayloadStore {
 
     /// Runtime KV stores the prepared locator in its row only after this exact
     /// publication. A stale writer or different payload refuses before I/O.
-    pub(crate) async fn publish_prepared(
+    pub async fn publish_prepared(
         &self,
         history: &CellHistory,
         reference: CellGroupPayloadReference,
@@ -372,11 +387,12 @@ impl CellGroupPayloadStore {
         }
         // Reject saturation before spending CPU hashing another maximum-size
         // value. The same reservation survives the full publication protocol.
-        let _permit = self
-            .pool
-            .budget
-            .acquire(CellGroupPayloadPool::workspace(bytes.len())?)
-            .ok_or(CellGroupPayloadError::Overloaded)?;
+        let permit = Arc::new(
+            self.pool
+                .budget
+                .acquire(CellGroupPayloadPool::workspace(bytes.len())?)
+                .ok_or(CellGroupPayloadError::Overloaded)?,
+        );
         let reference = match reference {
             Some(reference) => {
                 self.check(history, &reference)?;
@@ -395,20 +411,28 @@ impl CellGroupPayloadStore {
         self.check(history, &reference)?;
         Self::check_deadline(deadline)?;
         crate::asyncrt::timeout_at(deadline, async {
-            if self.read(&reference, deadline).await?.is_some() {
-                return Ok(PublishedCellGroupPayload(reference));
+            self.reserve_upload(&reference).await?;
+            let writer = ownership::Reader::acquire(self, &reference, permit.clone()).await?;
+            let result = async {
+                if self.read(&reference, deadline).await?.is_some() {
+                    return Ok(());
+                }
+                let outcome = self
+                    .store
+                    .put_opts(&self.path(&reference), bytes.into(), PutMode::Create.into())
+                    .await;
+                match self.read(&reference, deadline).await? {
+                    Some(_) => Ok(()),
+                    None => match outcome {
+                        Err(error) => Err(error.into()),
+                        Ok(_) => Err(CellGroupPayloadError::Unconfirmed),
+                    },
+                }
             }
-            let outcome = self
-                .store
-                .put_opts(&self.path(&reference), bytes.into(), PutMode::Create.into())
-                .await;
-            match self.read(&reference, deadline).await? {
-                Some(_) => Ok(PublishedCellGroupPayload(reference)),
-                None => match outcome {
-                    Err(error) => Err(error.into()),
-                    Ok(_) => Err(CellGroupPayloadError::Unconfirmed),
-                },
-            }
+            .await;
+            writer.release().await?;
+            result?;
+            Ok(PublishedCellGroupPayload(reference))
         })
         .await
         .map_err(|_| CellGroupPayloadError::DeadlineExceeded)?
@@ -448,16 +472,25 @@ impl CellGroupPayloadStore {
             .checked_add(64 * 1024)
             .ok_or(CellGroupPayloadError::Overloaded)?
             .max(CellGroupPayloadPool::workspace(reference.length as usize)?);
-        let permit = self
-            .pool
-            .budget
-            .acquire(workspace)
-            .ok_or(CellGroupPayloadError::Overloaded)?;
-        let bytes = crate::asyncrt::timeout_at(deadline, self.read(reference, deadline))
-            .await
-            .map_err(|_| CellGroupPayloadError::DeadlineExceeded)??
-            .ok_or(CellGroupPayloadError::Missing)?;
-        let retained = permit
+        let permit = Arc::new(
+            self.pool
+                .budget
+                .acquire(workspace)
+                .ok_or(CellGroupPayloadError::Overloaded)?,
+        );
+        let bytes = crate::asyncrt::timeout_at(deadline, async {
+            let reader = ownership::Reader::acquire(self, reference, permit.clone()).await?;
+            let result = self.read(reference, deadline).await;
+            // Cancellation or an uncertain release retains the durable pin.
+            // Complete local bytes no longer depend on the remote object.
+            reader.release().await?;
+            result
+        })
+        .await
+        .map_err(|_| CellGroupPayloadError::DeadlineExceeded)??
+        .ok_or(CellGroupPayloadError::Missing)?;
+        let retained = Arc::try_unwrap(permit)
+            .map_err(|_| CellGroupPayloadError::Overloaded)?
             .retain_bytes(retained_bytes)
             .ok_or(CellGroupPayloadError::Overloaded)?;
         Ok(CellGroupPayloadBytes {

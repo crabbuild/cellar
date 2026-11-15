@@ -68,6 +68,17 @@ pub(super) async fn enroll_images(
     additional: usize,
     padding: usize,
 ) -> Result<BTreeMap<String, Vec<u8>>> {
+    enroll_images_with_payload(cluster, rooted, partition, additional, padding, None).await
+}
+
+pub(super) async fn enroll_images_with_payload(
+    cluster: &mut Cluster,
+    rooted: bool,
+    partition: bool,
+    additional: usize,
+    padding: usize,
+    payload: Option<&CellGroupPayloadReference>,
+) -> Result<BTreeMap<String, Vec<u8>>> {
     let route = cluster.birth.route().clone();
     if rooted {
         for n in 0..3 {
@@ -92,7 +103,14 @@ pub(super) async fn enroll_images(
             // use unique contents so other cells cannot accidentally retain an
             // old reader's extent after that cell advances.
             let value = if additional == 0 { 1 } else { ordinal + 1 };
-            images::image(None, &format!("CREATE TABLE value(n); INSERT INTO value VALUES({value}); CREATE TABLE padding(bytes); INSERT INTO padding VALUES(zeroblob({padding}));"))?
+            let mut sql = format!("CREATE TABLE value(n); INSERT INTO value VALUES({value}); CREATE TABLE padding(bytes); INSERT INTO padding VALUES(zeroblob({padding}));");
+            if name == "alpha" {
+                if let Some(payload) = payload {
+                    let encoded = hex::encode(serde_json::to_vec(payload)?);
+                    sql.push_str(&format!("CREATE TABLE __sys_kv(name TEXT PRIMARY KEY,value BLOB,blob_id TEXT,size INTEGER NOT NULL); INSERT INTO __sys_kv VALUES('external',NULL,CAST(X'{encoded}' AS TEXT),{});", payload.length()));
+                }
+            }
+            images::image(None, &sql)?
         };
         let encoded = if bytes.is_empty() {
             CellGroupEntry {
@@ -174,10 +192,21 @@ pub(super) async fn advance_partition(
     rooted: bool,
     excluded: Option<usize>,
 ) -> Result<()> {
+    let after = images::image(Some(before), "UPDATE value SET n=n+1")?;
+    advance_image(cluster, name, before, &after, rooted, excluded).await
+}
+
+pub(super) async fn advance_image(
+    cluster: &mut Cluster,
+    name: &str,
+    before: &[u8],
+    after: &[u8],
+    rooted: bool,
+    excluded: Option<usize>,
+) -> Result<()> {
     let route = cluster.birth.route().clone();
     let cell = history(&route, name)?;
-    let after = images::image(Some(before), "UPDATE value SET n=n+1")?;
-    let cut = images::Cut::new(before, &after, 1, true, false);
+    let cut = images::Cut::new(before, after, 1, true, false);
     let encoded = request(&route, cell.clone(), 2, &cut)?;
     let mut entry = CellGroupEntry::decode(&encoded, &route, GroupEntryLimits::default())?;
     if rooted {
@@ -185,7 +214,7 @@ pub(super) async fn advance_partition(
             unreachable!()
         };
         mutation.base.commitment = extent_commitment(&route, &cell, cut.base, before)?;
-        mutation.result.commitment = extent_commitment(&route, &cell, cut.result, &after)?;
+        mutation.result.commitment = extent_commitment(&route, &cell, cut.result, after)?;
     }
     cluster.voters[0]
         .owner

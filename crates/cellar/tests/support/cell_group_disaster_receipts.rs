@@ -2,6 +2,7 @@
 
 //! Registered receipts and non-reusable client floors across a cold group seed.
 use super::*;
+use anyhow::ensure;
 #[path = "cell_group_disaster_public.rs"]
 mod public;
 use cellar::storage::CommandInputs;
@@ -17,22 +18,46 @@ pub(in super::super) struct ReceiptWorkload {
 
 impl ReceiptWorkload {
     fn new() -> Result<Self> {
+        Self::with_filesystem(false)
+    }
+
+    fn with_filesystem(filesystem: bool) -> Result<Self> {
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
-        let class = Arc::new(RaftClass::new("RecoveryCounter", 1, [84; 32])?.command(
-            "Add",
-            [85; 32],
-            move |context, input| {
-                count.fetch_add(1, Ordering::AcqRel);
-                context.sql().execute("UPDATE value SET n=n+1", [])?;
-                // Include the incarnation in the result: re-execution under the
-                // fresh identity could not produce the archived result.
-                let mut result = context.identity().cell.as_str().as_bytes().to_vec();
-                result.extend_from_slice(&context.identity().incarnation.bytes());
-                result.extend_from_slice(input);
-                Ok(result)
-            },
-        )?);
+        let mut class = RaftClass::new(
+            "RecoveryCounter",
+            1,
+            [if filesystem { 184 } else { 84 }; 32],
+        )?;
+        if filesystem {
+            class = class.filesystem(cellar::sdk::filesystem::Policy::default())?;
+        }
+        let class = Arc::new(class.command("Add", [85; 32], move |context, input| {
+            count.fetch_add(1, Ordering::AcqRel);
+            context.sql().execute("UPDATE value SET n=n+1", [])?;
+            // Include the incarnation in the result: re-execution under the
+            // fresh identity could not produce the archived result.
+            let mut result = context.identity().cell.as_str().as_bytes().to_vec();
+            result.extend_from_slice(&context.identity().incarnation.bytes());
+            result.extend_from_slice(input);
+            if filesystem {
+                let storage = context.storage()?;
+                let fs = storage.fs()?;
+                if let Some(previous) = storage.get_json("filesystem-seed")? {
+                    let previous: Vec<u8> = serde_json::from_value(previous)?;
+                    ensure!(
+                        fs.read_file("/value")? == previous.repeat(4096),
+                        "recovered filesystem bytes differ from business state"
+                    );
+                }
+                let bytes = result.repeat(4096);
+                fs.write_file("/staged", &bytes)?;
+                fs.rename("/staged", "/value")?;
+                storage.put_json("filesystem-seed", &serde_json::json!(result))?;
+                ensure!(fs.read_file("/value")? == bytes);
+            }
+            Ok(result)
+        })?);
         Ok(Self {
             class,
             calls,
@@ -139,9 +164,11 @@ impl ReceiptWorkload {
             let (executor, prepared) = cluster
                 .domain
                 .blocking(move || -> Result<_> {
-                    let mut executor = open_private(options, authority)?;
-                    let CellStageOutcome::Prepared(prepared) =
-                        executor.stage_registered(attempt, &class, &input, true)?
+                    let mut executor =
+                        open_private(options, authority).context("open source command image")?;
+                    let CellStageOutcome::Prepared(prepared) = executor
+                        .stage_registered(attempt, &class, &input, true)
+                        .with_context(|| format!("stage source receipt sequence={sequence}"))?
                     else {
                         anyhow::bail!("source command must execute once")
                     };
@@ -298,9 +325,7 @@ async fn pin_bytes(cluster: &Cluster, pin: CellImagePin) -> Result<Vec<u8>> {
         .blocking(move || -> Result<_> {
             Ok(match pin {
                 CellImagePin::Empty => vec![],
-                CellImagePin::Materialized(pin) => pin
-                    .open_reader()?
-                    .read_exact_at(0, pin.state().length as usize)?,
+                CellImagePin::Materialized(pin) => images::read(&pin)?,
                 CellImagePin::Extents(pin) => {
                     let mut bytes = Vec::new();
                     for ordinal in 0..pin.manifest().geometry().extent_count() {
@@ -538,7 +563,19 @@ fn fresh_cell(_s: &Scenario, quorum: &FreshQuorum, name: &str) -> Result<CellHis
 }
 
 pub(crate) async fn registered_receipts(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
-    let mut workload = ReceiptWorkload::new()?;
+    registered_workload(rooted, store, false).await
+}
+
+pub(crate) async fn filesystem_disaster(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
+    registered_workload(rooted, store, true).await
+}
+
+async fn registered_workload(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+    filesystem: bool,
+) -> Result<()> {
+    let mut workload = ReceiptWorkload::with_filesystem(filesystem)?;
     let mut s =
         Box::new(Box::pin(Scenario::with_workload(rooted, store, Some(&mut workload))).await?);
     let seeds = seed_voters(&mut s, rooted).await?;

@@ -3,7 +3,7 @@
   "status": "partial",
   "sdk_roots": {
     "crates/cellar/sdk.rs": "0d1dec581abc724f46f0da0fe5e0a637c99a698e22ea6d2c9c5b79f63bff3e8a",
-    "crates/cellar/application/mod.rs": "497815307b7c611021cefea97caaca3a264da7e2449f9ea6b5437109065aa3fc"
+    "crates/cellar/application/mod.rs": "350784fc9befc043cd1d11f4e535c1c05332d8685992dd3ba6d81452ca5f32c3"
   },
   "entries": [
     {
@@ -132,7 +132,7 @@
         "crates/cellar/application/kv/raft_wire.rs",
         "crates/cellar/application/kv/inspection.rs",
         "crates/cellar/application/consensus/native_services.rs",
-        "crates/cellar/durability/raft/cell_groups/payload.rs",
+        "crates/cellar/durability/raft/cell_groups/payload/mod.rs",
         "crates/cellar/node/kv_operator.rs",
         "crates/cellar/cli/kv_cli.rs",
         "crates/cellar/application/kv/raft_value.rs"

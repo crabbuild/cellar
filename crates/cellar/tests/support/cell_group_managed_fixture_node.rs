@@ -46,6 +46,7 @@ pub struct Fixture {
     pub max_client_identities: usize,
     pub max_input_bytes: usize,
     pub payloads: Option<CellGroupPayloadLimits>,
+    pub blob_bucket: Option<Bucket>,
     pub image_bytes: u64,
     /// Logical admission only; physical attestations and engine/image limits stay unchanged.
     pub logical_byte_capacity: Option<u64>,
@@ -223,6 +224,7 @@ impl Fixture {
             max_client_identities: 1024,
             max_input_bytes: 1024,
             payloads: None,
+            blob_bucket: None,
             image_bytes: 256 * 1024 * 1024,
             logical_byte_capacity: None,
             placement_domains: None,
@@ -242,6 +244,7 @@ impl Fixture {
                 external_http: self.external_http.clone(),
                 cell_limits: self.cell_limits,
                 cohosted: self.cohosted.clone(),
+                blob_bucket: self.blob_bucket.clone(),
             },
         ))
         .await
@@ -515,6 +518,7 @@ struct Frontend {
         cellar::engine_api::WorkerConfigOptions,
         Arc<dyn Application>,
     )>,
+    blob_bucket: Option<Bucket>,
 }
 
 async fn start_configured_node(
@@ -530,10 +534,11 @@ async fn start_configured_node(
         external_http,
         cell_limits,
         cohosted,
+        blob_bucket,
     } = frontend;
     let classes = vec![];
     let shutdown = ShutdownPolicy::default();
-    let bucket: Option<Bucket> = None;
+    let bucket = blob_bucket;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let internal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let probe_signer = Arc::new(PeerProbeSigner::generate());

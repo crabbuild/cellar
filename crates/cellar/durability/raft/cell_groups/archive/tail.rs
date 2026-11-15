@@ -782,7 +782,7 @@ impl CellGroupArchive {
                 let cancelled = stop.0.clone();
                 let reference = reference.clone();
                 let retained_io = io.clone();
-                domain
+                let mut recovered = domain
                     .blocking(move || {
                         let _io = retained_io;
                         replay::replay(
@@ -791,7 +791,10 @@ impl CellGroupArchive {
                     })
                     .map_err(|_| CellGroupArchiveError::Stopped)?
                     .await
-                    .map_err(CellGroupArchiveError::Worker)?
+                    .map_err(CellGroupArchiveError::Worker)??;
+                self.verify_payloads(domain, &mut recovered, limits.max_apply_bytes / 2)
+                    .await?;
+                Ok(recovered)
             }))
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?
