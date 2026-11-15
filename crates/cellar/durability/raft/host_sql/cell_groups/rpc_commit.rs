@@ -79,7 +79,7 @@ impl RpcCommitContext {
                         .runtime
                         .reconciliation_authority(self.route.history, cell.clone())
                         .await
-                        .and_then(|proof| fence.resume_authority(proof)),
+                        .and_then(|proof| fence.resume_authority(&proof)),
                 };
                 match current {
                     Ok(authority) if fence.accepts_continuation(&authority) => {
@@ -116,6 +116,7 @@ pub(super) async fn wait_checkpoint(
     domain: crate::asyncrt::DomainToken,
     prepared: CellPreparedCommand,
     expected: CellVersion,
+    fence: crate::raft::cell_groups::CellActivationFence,
     retained: Arc<Bytes>,
     deadline: Option<u64>,
 ) -> Result<CheckpointProof, ExecutionError> {
@@ -151,40 +152,28 @@ pub(super) async fn wait_checkpoint(
     }
     loop {
         match runtime
-            .execution_authority(prepared.group(), expected.history.clone())
-            .await
-        {
-            Ok(execution) if execution.term() == term && execution.cell().version == expected => {
-                match runtime
-                    .reconciliation_authority(prepared.group(), expected.history.clone())
-                    .await
-                {
-                    Ok(proof) if proof.term() == term && proof.cell().version == expected => {
-                        return Ok(CheckpointProof::Current(
-                            Box::new(execution),
-                            Box::new(proof),
-                        ));
-                    }
-                    Ok(proof) if proof.term() > term => {
-                        return Ok(CheckpointProof::Reconcile(Box::new(proof)))
-                    }
-                    Ok(_)
-                    | Err(
-                        RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded,
-                    ) => (),
-                    Err(error) => return Err(crate::raft::execution::authority_failure(error)),
-                }
-            }
-            Ok(_)
-            | Err(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded) => {}
-            Err(error) => return Err(crate::raft::execution::authority_failure(error)),
-        }
-        match runtime
             .reconciliation_authority(prepared.group(), expected.history.clone())
             .await
         {
             Ok(proof) if proof.term() > term => {
                 return Ok(CheckpointProof::Reconcile(Box::new(proof)))
+            }
+            Ok(proof) if proof.term() == term && proof.cell().version == expected => {
+                // This invocation retains its writer and its original ready
+                // barrier. Only its exact applied checkpoint can advance that
+                // authority; later apply work for another cell cannot revoke
+                // it. Reconciliation alone still grants no execution, and a
+                // changed leader/route/image must fail the original fence.
+                match fence.resume_authority(&proof) {
+                    Ok(execution) => {
+                        return Ok(CheckpointProof::Current(
+                            Box::new(execution),
+                            Box::new(proof),
+                        ));
+                    }
+                    Err(RuntimeError::NotReady) => (),
+                    Err(error) => return Err(crate::raft::execution::authority_failure(error)),
+                }
             }
             Ok(_)
             | Err(RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Overloaded) => {}

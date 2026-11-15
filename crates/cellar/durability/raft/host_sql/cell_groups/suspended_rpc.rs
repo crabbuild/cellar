@@ -81,6 +81,10 @@ impl Suspended {
             domain.clone(),
             checkpoint.prepared.clone(),
             checkpoint.expected.clone(),
+            self.executor
+                .as_ref()
+                .ok_or_else(unavailable)?
+                .rpc_activation_fence(),
             self.retention.bytes.clone(),
             Some(commits.deadline),
         ))))
@@ -103,6 +107,7 @@ impl Suspended {
             domain.clone(),
             prepared.clone(),
             expected.clone(),
+            executor.rpc_activation_fence(),
             self.retention.bytes.clone(),
             Some(commits.deadline),
         )));

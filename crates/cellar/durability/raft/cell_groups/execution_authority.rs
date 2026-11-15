@@ -101,23 +101,23 @@ impl CellActivationFence {
             && authority.check().is_ok()
     }
 
-    /// Refresh an existing invocation after it reacquires its cell writer.
+    /// Refresh an existing invocation while it owns its cell writer.
     /// Reconciliation alone grants no execution: the original ready barrier,
     /// live leader fence and exact current cell image are all still required.
     /// The writer excludes another producer for this cell while unrelated
     /// committed group entries await physical apply.
     pub(crate) fn resume_authority(
         &self,
-        proof: CellReconciliationAuthority,
+        proof: &CellReconciliationAuthority,
     ) -> Result<CellExecutionAuthority, RuntimeError> {
         proof.check()?;
         let authority = CellExecutionAuthority {
-            group: proof.group,
-            route: proof.route,
+            group: proof.group.clone(),
+            route: proof.route.clone(),
             term: proof.term,
             leader_term: self.leader_term.upgrade().ok_or(RuntimeError::NotReady)?,
-            leaf: proof.leaf,
-            image: proof.image,
+            leaf: proof.leaf.clone(),
+            image: proof.image.clone(),
         };
         if !self.accepts_continuation(&authority) {
             return Err(RuntimeError::NotReady);
