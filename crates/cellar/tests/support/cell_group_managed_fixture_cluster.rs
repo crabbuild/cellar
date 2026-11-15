@@ -188,7 +188,12 @@ pub async fn leader(hosts: &[RaftCells], history: GroupHistory) -> Result<usize>
                     Err(RuntimeError::NotFound) => continue, // Unassigned standby or retired voter.
                     Err(error) => return Err(error.into()),
                 };
-                let status = group.status().await?;
+                let status = match group.status().await {
+                    Ok(status) => status,
+                    // Retirement can detach after the handle lookup above.
+                    Err(RuntimeError::NotFound) => continue,
+                    Err(error) => return Err(error.into()),
+                };
                 if status.ready && status.leader == Some(i as u64 + 1) {
                     return Ok::<_, anyhow::Error>(i);
                 }

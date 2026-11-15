@@ -170,6 +170,13 @@ fn application(writes: Arc<AtomicUsize>) -> Result<Arc<Registry>> {
 
 async fn park_and_wake(cluster: &ManagedCluster, history: &CellHistory, retry: u64) -> Result<()> {
     let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+    let membership = cluster.hosts[leader]
+        .group(cluster.history)?
+        .quorum_membership(TIMEOUT)
+        .await?;
+    let voters = membership.configuration().voters.clone();
+    ensure!(voters.len() == 3, "filesystem park lost RF3 membership");
+    drop(membership);
     let catalog = &cluster.fixtures[0].catalog;
     let revision = catalog.read(TIMEOUT).await?.revision();
     let control = RaftFleetControl::new(
@@ -198,7 +205,9 @@ async fn park_and_wake(cluster: &ManagedCluster, history: &CellHistory, retry: u
         )
         .await?;
     ensure!(parked.phase == RaftFleetParkPhase::Delivered);
-    for host in &cluster.hosts {
+    for member in voters {
+        let index = usize::try_from(member.checked_sub(1).context("zero voter")?)?;
+        let host = cluster.hosts.get(index).context("unknown park voter")?;
         ensure!(
             !host.group(cluster.history)?.status().await?.ready,
             "filesystem group did not park"
@@ -217,9 +226,11 @@ async fn park_and_wake(cluster: &ManagedCluster, history: &CellHistory, retry: u
         observed.result == vec![1; 17],
         "first filesystem read after wake lost bytes"
     );
-    let replayed = cell
+    let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+    let resumed = cluster.hosts[leader].cell(history.clone())?;
+    let replayed = resumed
         .command(
-            &cell.contract("Read")?,
+            &resumed.contract("Read")?,
             b"[]".to_vec(),
             CommandOptions::new(CommandId::new(ClientId::new([181; 16])?, 1)?, retry),
         )
