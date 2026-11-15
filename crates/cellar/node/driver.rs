@@ -9,6 +9,7 @@ use super::*;
 use crate::node_lifecycle::{FenceReport, NodeOutcome, ShutdownPolicy, ShutdownReport};
 
 pub(super) struct RunPolicy {
+    pub defer_raft_events: bool,
     pub shutdown: ShutdownPolicy,
     pub sandbox_erasure: SandboxErasurePolicy,
     pub local_cache_max_bytes: Option<u64>,
@@ -318,7 +319,14 @@ where
     let activation_app = app.clone();
     let mut activation = std::pin::pin!(async move {
         if let Some(generation) = generation {
-            event_resources::activate(activation_app, &generation).await?;
+            if policy.defer_raft_events && generation.has_raft_event_resources() {
+                // Embedded hosts install Raft and provision managed groups
+                // through their returned Node handle, then explicitly activate.
+                // The peer/control listeners run while public ingress stays shut.
+                generation.event_readiness.wait().await?;
+            } else {
+                event_resources::activate(activation_app, &generation).await?;
+            }
         }
         Ok::<(), anyhow::Error>(())
     });

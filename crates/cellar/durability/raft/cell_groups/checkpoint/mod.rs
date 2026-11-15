@@ -164,6 +164,8 @@ pub struct CellGroupCheckpointUsage {
 pub struct CellGroupCheckpointPool {
     budget: Arc<Budget>,
     limits: CellGroupCheckpointLimits,
+    archive_idle: super::archive::CacheEviction,
+    capacity: super::archive::capacity::Capture,
 }
 
 #[derive(Clone, Copy)]
@@ -186,6 +188,8 @@ impl CellGroupCheckpointPool {
         Ok(Self {
             budget: Budget::new(limits.max_retained_bytes, limits.max_sources),
             limits,
+            archive_idle: super::archive::CacheEviction::default(),
+            capacity: super::archive::capacity::Capture::default(),
         })
     }
 
@@ -195,6 +199,20 @@ impl CellGroupCheckpointPool {
             sources,
             retained_bytes,
         }
+    }
+
+    pub(in crate::raft::cell_groups) fn remember_archive_idle(
+        &self,
+        cache: &Arc<super::archive::CachedCoverage>,
+    ) {
+        self.archive_idle.remember(cache);
+    }
+
+    pub(in crate::raft::cell_groups) fn capture_capacity(
+        &mut self,
+        capture: super::archive::capacity::Capture,
+    ) {
+        self.capacity = capture;
     }
 
     /// Select only the exact engine-published complete root. Membership and
@@ -301,9 +319,10 @@ impl CellGroupCheckpointPool {
         if transfer > self.limits.max_transfer_bytes {
             return Err(CellGroupCheckpointError::Limit);
         }
+        self.archive_idle.evict();
         let reservation = self
-            .budget
-            .acquire(retained)
+            .capacity
+            .acquire(&self.budget, retained)
             .ok_or(CellGroupCheckpointError::Busy)?;
         let header = {
             let cache = group.read()?;

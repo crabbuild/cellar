@@ -28,7 +28,7 @@ impl CellGroupCellHandle {
             limits,
             None,
             None,
-            false,
+            crate::application::consensus::CommandAdmission::Public,
         )?;
         let handle = self.clone();
         Ok(async move {

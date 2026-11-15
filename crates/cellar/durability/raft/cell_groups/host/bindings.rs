@@ -12,9 +12,107 @@ enum Access {
     QueueOperator,
     KvOperator,
     WorkflowOperator,
+    Event,
 }
 
 impl CellGroupHost {
+    pub(crate) fn event_sources(
+        &self,
+    ) -> Result<Vec<Arc<crate::application::storage::EventSourceConfiguration>>, CellDispatchError>
+    {
+        self.inner.check_lifecycle()?;
+        let mut sources = Vec::new();
+        for binding in self.inner.namespaces.values() {
+            if let Some(source) = binding.class.event_source_configuration() {
+                if !sources.iter().any(|old| Arc::ptr_eq(old, &source)) {
+                    sources.push(source);
+                }
+            }
+        }
+        Ok(sources)
+    }
+
+    pub(crate) fn event_binding_route(
+        &self,
+        source: &CellHistory,
+        configuration: [u8; 32],
+        scope: &str,
+        method: &str,
+        authority: &crate::application::consensus::native_event_rpc::Authority,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        let owner = self
+            .inner
+            .namespaces
+            .get(&(source.cluster, source.namespace))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        if owner.class.cell_configuration_digest() != Some(configuration) {
+            return Err(CellDispatchError::Registration(
+                RegistrationError::ContractMismatch,
+            ));
+        }
+        let mut selected =
+            self.select_event_route(Some(source.cluster), scope, method, authority, log)?;
+        if crate::application::consensus::native_event_query::is_metadata(method) {
+            let class = scope
+                .split_once(':')
+                .ok_or(CellDispatchError::Invalid("event metadata scope"))?
+                .0;
+            selected.contract = crate::application::consensus::native_event_query::contract(class);
+        }
+        Ok(selected)
+    }
+
+    pub(crate) fn event_ingress_route(
+        &self,
+        scope: &str,
+        method: &str,
+        authority: &crate::application::consensus::native_event_rpc::Authority,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        self.inner.check_lifecycle()?;
+        self.select_event_route(None, scope, method, authority, log)
+    }
+
+    pub(crate) fn event_query_route(
+        &self,
+        scope: &str,
+        method: &str,
+        authority: &crate::application::consensus::native_event_rpc::Authority,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        if !crate::application::consensus::native_event_query::is_metadata(method) {
+            return Err(CellDispatchError::Invalid("event metadata method"));
+        }
+        let mut selected = self.event_ingress_route(scope, method, authority, log)?;
+        let class = scope
+            .split_once(':')
+            .ok_or(CellDispatchError::Invalid("event metadata scope"))?
+            .0;
+        selected.contract = crate::application::consensus::native_event_query::contract(class);
+        Ok(selected)
+    }
+
+    fn select_event_route(
+        &self,
+        cluster: Option<cellar_logic::consensus::ClusterId>,
+        scope: &str,
+        method: &str,
+        authority: &crate::application::consensus::native_event_rpc::Authority,
+        log: &crate::raft::storage::ReplicaLog,
+    ) -> Result<Route, CellDispatchError> {
+        authority
+            .target_name(scope, method)
+            .map_err(|_| CellDispatchError::Invalid("event binding authority"))?;
+        let (key, target) = select_event(&self.inner.namespaces, cluster, scope)?;
+        let mut selected = route(key, target, scope, method, Access::Event)?;
+        selected.history_hint = target
+            .dispatcher
+            .applied_history_hint(log, &selected.cell)?;
+        Ok(selected)
+    }
+
     pub(crate) fn prepare_binding_kv_payload(
         &self,
         source: &CellHistory,
@@ -494,6 +592,7 @@ fn route(
         Access::QueueOperator => target.class.queue_operator_contract(),
         Access::KvOperator => target.class.kv_operator_contract(),
         Access::WorkflowOperator => target.class.workflow_operator_contract(),
+        Access::Event => target.class.event_contract(),
     }
     .ok_or_else(|| {
         CellDispatchError::Registration(RegistrationError::UnknownOperation(method.into()))
@@ -505,15 +604,24 @@ fn route(
             .map_err(|_| CellDispatchError::Invalid("cell binding identity"))?,
         schema: config.schema_digest,
         contract,
+        admission: if matches!(access, Access::Event) {
+            crate::application::consensus::CommandAdmission::Event
+        } else {
+            crate::application::consensus::CommandAdmission::Public
+        },
         durability: config.minimum_durability,
         history_hint: None,
         max_input_bytes: target.dispatcher.input_limit(),
         max_result_bytes: limits.max_result_bytes,
         max_retry_window_ms: limits.max_retry_window_ms,
-        json_only: target
-            .class
-            .binding_json_only(method)
-            .ok_or(CellDispatchError::Invalid("cell binding codec"))?,
+        json_only: if matches!(access, Access::Event) {
+            false
+        } else {
+            target
+                .class
+                .binding_json_only(method)
+                .ok_or(CellDispatchError::Invalid("cell binding codec"))?
+        },
     })
 }
 
@@ -533,9 +641,15 @@ pub(super) fn validate(
                     .cell_event_scopes()
                     .into_iter()
                     .flatten()
-                    .filter(|scope| scope.split_once(':').is_some_and(|(c, _)| c == class))
+                    .filter(|scope| {
+                        scope.split_once(':').is_some_and(|(owner, _)| {
+                            owner == class
+                                || (class == crate::deploy::EVENT_STREAM_CLASS
+                                    && owner == crate::deploy::EVENT_CATALOG_CLASS)
+                        })
+                    })
                 {
-                    select_event(namespaces, Some(key.0), scope)?;
+                    select_event_owner(namespaces, Some(key.0), class, scope)?;
                 }
             } else if class == crate::deploy::QUEUE_CLASS {
                 for scope in source.class.cell_queue_scopes().into_iter().flatten() {
@@ -558,19 +672,31 @@ fn select_event<'a>(
         .split_once(':')
         .ok_or(CellDispatchError::Invalid("event scope"))?
         .0;
+    select_event_owner(namespaces, cluster, class, scope)
+}
+
+fn select_event_owner<'a>(
+    namespaces: &'a BTreeMap<(ClusterId, NamespaceId), Arc<Binding>>,
+    cluster: Option<ClusterId>,
+    class: &str,
+    scope: &str,
+) -> Result<((ClusterId, NamespaceId), &'a Binding), CellDispatchError> {
     let mut owners = namespaces.iter().filter(|(key, binding)| {
         cluster.is_none_or(|cluster| key.0 == cluster)
             && binding.class.name() == class
+            && binding.class.event_contract().is_some()
             && binding
                 .class
                 .cell_event_scopes()
                 .is_some_and(|scopes| scopes.contains(scope))
     });
-    let (key, binding) = owners
-        .next()
-        .ok_or(CellDispatchError::Invalid("event owner missing"))?;
+    let (key, binding) = owners.next().ok_or(CellDispatchError::Invalid(
+        "event service namespace is missing",
+    ))?;
     if owners.next().is_some() {
-        return Err(CellDispatchError::Invalid("event owner ambiguous"));
+        return Err(CellDispatchError::Invalid(
+            "event service namespace is ambiguous",
+        ));
     }
     Ok((*key, binding.as_ref()))
 }

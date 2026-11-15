@@ -15,14 +15,17 @@ pub(in crate::raft::cell_groups::controller) mod settlement;
 
 use super::calls::Delivery;
 use super::*;
+use crate::raft::cell_groups::archive::capacity::{
+    Capture as CapacityCapture, Wait as CapacityWait,
+};
 use crate::raft::cell_groups::archive_compaction::ArchiveActivation;
 use crate::raft::cell_groups::{
     archive::{ControllerExecution, CoverageIdentity},
     *,
 };
 use cellar_logic::{cell_group::GroupHistory, consensus::LogIndex};
-use futures_util::future::BoxFuture;
-use std::collections::VecDeque;
+use futures_util::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
+use std::collections::{BTreeSet, VecDeque};
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
@@ -271,6 +274,10 @@ struct Entry {
     fatal: bool,
     stopping: bool,
     retry_at: u64,
+    capacity_wait: Option<CapacityWait>,
+    // Armed only by a new foreground batch, consumed by publication launch.
+    // Returned proof work must not renew an immediate retry.
+    foreground_wake: bool,
     waiters: Vec<settlement::Request>,
     proof_queued: bool,
     proof_retry_at: u64,
@@ -286,6 +293,7 @@ pub(super) struct PublicationCompleted {
     observation: std::result::Result<LogIndex, RuntimeError>,
     waiters: Vec<settlement::Request>,
     coverage: Option<CellGroupArchiveCoverage>,
+    capacity_wait: Option<CapacityWait>,
 }
 
 pub(super) struct ProofCompleted {
@@ -311,10 +319,15 @@ pub(super) struct Manager {
     proof_job: Option<BoxFuture<'static, ProofCompleted>>,
     proof_group: Option<GroupHistory>,
     proof_queue: VecDeque<GroupHistory>,
-    // Keep one completed verification through pending predecessor cleanup so
-    // covered late requests can share it. Drop it before new verification;
-    // no physical pin is cached for idle groups.
-    handoff: Option<(GroupHistory, CellGroupArchiveCoverage)>,
+    capacity_waits: BTreeSet<GroupHistory>,
+    // One node-wide completed verification lets covered observations share the
+    // actual admitted proof across idle gaps and predecessor cleanup. It stays
+    // charged to its original physical bank. A publication launch takes it and
+    // drops it before new verification; retirement and shutdown also clear it.
+    handoff: Option<(
+        GroupHistory,
+        Arc<crate::raft::cell_groups::archive::CachedCoverage>,
+    )>,
 }
 
 impl Manager {
@@ -358,6 +371,8 @@ impl Manager {
                 fatal: false,
                 stopping: false,
                 retry_at: 0,
+                capacity_wait: None,
+                foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
                 proof_retry_at: 0,
@@ -408,6 +423,8 @@ impl Manager {
                 fatal: false,
                 stopping: false,
                 retry_at: 0,
+                capacity_wait: None,
+                foreground_wake: false,
                 waiters: Vec::new(),
                 proof_queued: false,
                 proof_retry_at: 0,
@@ -457,6 +474,7 @@ impl Manager {
         if entry.waiters.is_empty() {
             entry.retry_at = 0;
             entry.proof_retry_at = 0;
+            entry.foreground_wake = true;
         }
         entry.waiters.push(request);
         if !entry.proof_queued {
@@ -467,6 +485,51 @@ impl Manager {
         if !entry.queued {
             entry.queued = true;
             self.queue.push_back(group);
+        }
+    }
+
+    /// Only actual failed admissions wait here. Store locks, remote conflicts
+    /// and cleanup backoff retain their existing timer cadence.
+    pub fn capacity_released(&self) -> Option<BoxFuture<'static, GroupHistory>> {
+        if self.capacity_waits.is_empty() {
+            return None;
+        }
+        let waits: FuturesUnordered<BoxFuture<'static, GroupHistory>> = self
+            .capacity_waits
+            .iter()
+            .filter_map(|group| {
+                let entry = self.entries.get(group)?;
+                let wait = entry.capacity_wait.clone()?;
+                let group = *group;
+                Some(Box::pin(async move {
+                    wait.released().await;
+                    group
+                }) as BoxFuture<'static, GroupHistory>)
+            })
+            .collect();
+        Some(Box::pin(async move {
+            let mut waits = waits;
+            match waits.next().await {
+                Some(group) => group,
+                None => std::future::pending().await,
+            }
+        }))
+    }
+
+    pub fn wake_capacity(&mut self, group: GroupHistory) {
+        self.capacity_waits.remove(&group);
+        let Some(entry) = self.entries.get_mut(&group) else {
+            return;
+        };
+        if entry.capacity_wait.take().is_some() && !entry.fatal && !entry.stopping {
+            // Advisory progress only. Launch still acquires real credit and
+            // checks current authority, closure, receipt and original deadline.
+            entry.retry_at = 0;
+            entry.dirty = true;
+            if !entry.queued {
+                entry.queued = true;
+                self.queue.push_back(group);
+            }
         }
     }
 
@@ -676,6 +739,7 @@ impl Manager {
                 self.queue.push_back(group);
                 continue;
             }
+            entry.foreground_wake = false;
             entry.dirty = false;
             let observed_head = shared
                 .archives
@@ -687,7 +751,12 @@ impl Manager {
                     status.published.clone()
                 })
                 .filter(|_| entry.context.is_some());
-            let registration = entry.registration.clone();
+            entry.capacity_wait = None;
+            self.capacity_waits.remove(&group);
+            let capacity = CapacityCapture::new();
+            let mut registration = entry.registration.clone();
+            registration.tails.capture_capacity(capacity.clone());
+            registration.checkpoints.capture_capacity(capacity.clone());
             let activation = entry.activation.clone();
             let mut context = entry.context.clone();
             let execution = entry.execution.clone();
@@ -701,7 +770,7 @@ impl Manager {
                 .handoff
                 .take()
                 .filter(|(selected, _)| *selected == group)
-                .map(|(_, coverage)| coverage);
+                .and_then(|(_, coverage)| coverage.take());
             tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
                 group = ?group.group, stage = "launch", waiters = count);
             settlement::prune(&mut waiters, now);
@@ -825,6 +894,7 @@ impl Manager {
                     observation,
                     waiters,
                     coverage: completed_coverage,
+                    capacity_wait: capacity.take(),
                 }
             }));
             break;
@@ -850,17 +920,19 @@ impl Manager {
         self.job = None;
         self.active_group = None;
         self.handoff = None;
+        self.capacity_waits.remove(&completed.group);
         let admitted_through = self.admissions.current();
         let entry = self
             .entries
             .get_mut(&completed.group)
             .expect("completed archive owner");
         entry.context = completed.context;
+        entry.capacity_wait = None;
         let retry_interval = entry
             .registration
             .publisher
             .retry_interval_ms(shared.limits.retry_interval_ms);
-        let unexamined_waiters = !entry.waiters.is_empty();
+        settlement::prune(&mut entry.waiters, now);
         entry.waiters.extend(completed.waiters);
         settlement::prune(&mut entry.waiters, now);
         let result = completed.result.and_then(|marker| {
@@ -922,11 +994,23 @@ impl Manager {
             }
             Err(error) => {
                 entry.fatal = !retryable(&error);
+                if !entry.fatal {
+                    entry.capacity_wait = completed.capacity_wait;
+                    if entry.capacity_wait.is_some() {
+                        self.capacity_waits.insert(completed.group);
+                    }
+                }
                 status.stopped = entry.fatal;
                 entry.dirty = true;
                 entry.retry_at = now.saturating_add(retry_interval);
                 status.error = Some(Arc::new(error));
             }
+        }
+        if entry.foreground_wake && !entry.fatal {
+            // A new batch arrived after this publication consumed its wake.
+            // The older completion must not overwrite that immediate attempt.
+            // Proof-lane requeues never arm this one-shot wakeup.
+            entry.retry_at = 0;
         }
         if entry.context.is_some() || entry.fatal {
             entry.activation.take();
@@ -942,10 +1026,13 @@ impl Manager {
         } else if !entry.waiters.is_empty() {
             entry.dirty = true;
         }
-        if !closing && !entry.fatal && (unexamined_waiters || completed.maintenance_pending) {
-            self.handoff = completed
-                .coverage
-                .map(|coverage| (completed.group, coverage));
+        if !closing && !entry.fatal && !entry.stopping {
+            self.handoff = completed.coverage.map(|coverage| {
+                let cache = crate::raft::cell_groups::archive::CachedCoverage::new(coverage);
+                entry.registration.tails.remember_idle(&cache);
+                entry.registration.checkpoints.remember_archive_idle(&cache);
+                (completed.group, cache)
+            });
         }
         if !entry.waiters.is_empty() && !entry.proof_queued {
             entry.proof_queued = true;
@@ -989,8 +1076,10 @@ impl Manager {
         {
             self.handoff = None;
         }
+        self.capacity_waits.remove(&group);
         if let Some(entry) = self.entries.get_mut(&group) {
             entry.stopping = true;
+            entry.capacity_wait = None;
         }
         if self.active_group == Some(group)
             || self.proof_group == Some(group)
@@ -1024,6 +1113,7 @@ impl Manager {
     }
 
     pub async fn finish(&mut self, shared: &Shared) {
+        self.capacity_waits.clear();
         self.handoff = None;
         let publication = self.job.take();
         let proof = self.proof_job.take();

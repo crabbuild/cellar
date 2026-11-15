@@ -9,6 +9,7 @@ use output::PendingOutput;
 
 use super::*;
 use crate::application::consensus::command_request_digest;
+use crate::application::consensus::CommandAdmission;
 use crate::raft::host_sql::cell_groups::SqlCapacityWait;
 use crate::raft::{
     cell_groups::CellSqlStageMode,
@@ -134,7 +135,7 @@ struct Origin {
 pub struct CellCommandInvocation {
     _submission: Option<crate::rpc_reservation::Reservation>,
     dispatcher: CellGroupDispatcher,
-    system: bool,
+    admission_kind: CommandAdmission,
     cell: CellHistory,
     request: CellCommandRequest,
     inputs: CommandInputs,
@@ -160,7 +161,7 @@ pub(crate) struct PendingCellCommand {
     limits: CellRoutingLimits,
     cached: Option<ResolvedCellRoute>,
     captured: Option<CommandInputs>,
-    system: bool,
+    admission_kind: CommandAdmission,
     started: u64,
     deadline: u64,
     admission: Permit,
@@ -191,7 +192,14 @@ impl CellGroupDispatcher {
     ) -> impl std::future::Future<Output = Result<CellCommandInvocation, CellCommandError>>
            + Send
            + 'static {
-        let pending = self.prepare_command(cell, request, limits, cached, captured, false);
+        let pending = self.prepare_command(
+            cell,
+            request,
+            limits,
+            cached,
+            captured,
+            CommandAdmission::Public,
+        );
         async move { pending?.finish().await }
     }
 
@@ -201,7 +209,7 @@ impl CellGroupDispatcher {
         request: CellCommandRequest,
         limits: CellRoutingLimits,
     ) -> Result<CellCommandInvocation, CellCommandError> {
-        self.prepare_command(cell, request, limits, None, None, true)?
+        self.prepare_command(cell, request, limits, None, None, CommandAdmission::System)?
             .finish()
             .await
     }
@@ -213,7 +221,7 @@ impl CellGroupDispatcher {
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
         captured: Option<CommandInputs>,
-        system: bool,
+        admission_kind: CommandAdmission,
     ) -> Result<PendingCellCommand, CellCommandError> {
         let error = |cause| CellCommandError {
             command: request.id,
@@ -221,7 +229,7 @@ impl CellGroupDispatcher {
             cause: Box::new(cause),
         };
         let started = self.domain.mono_ms().map_err(|_| error(closed()))?;
-        let maximum_ms = if system
+        let maximum_ms = if admission_kind.is_system()
             && request.contract.operation == crate::application::consensus::native_work::OPERATION
         {
             300_000
@@ -254,13 +262,10 @@ impl CellGroupDispatcher {
                 RegistrationError::KindMismatch,
             )));
         }
-        if system {
-            self.class.validate_system_operation(&request.contract)
-        } else {
-            self.class.validate_operation(&request.contract)
-        }
-        .map_err(|e| error(CellDispatchError::Registration(e)))?;
-        if system
+        self.class
+            .validate_command_admission(&request.contract, admission_kind)
+            .map_err(|e| error(CellDispatchError::Registration(e)))?;
+        if admission_kind.is_system()
             && request.id.client
                 != crate::raft::effects::system_client(&cell).map_err(|failure| {
                     error(CellDispatchError::Execution(ExecutionError::Refused(
@@ -292,7 +297,7 @@ impl CellGroupDispatcher {
             limits,
             cached,
             captured,
-            system,
+            admission_kind,
             started,
             deadline,
             admission,
@@ -346,7 +351,7 @@ impl PendingCellCommand {
             limits,
             cached,
             captured,
-            system,
+            admission_kind,
             started,
             deadline: _,
             admission,
@@ -385,7 +390,7 @@ impl PendingCellCommand {
                 limits,
                 cached,
                 started,
-                if system
+                if admission_kind.is_system()
                     && request.contract.operation
                         == crate::application::consensus::native_work::OPERATION
                 {
@@ -399,7 +404,7 @@ impl PendingCellCommand {
         Ok(CellCommandInvocation {
             _submission: submission,
             dispatcher,
-            system,
+            admission_kind,
             cell,
             request,
             inputs,
@@ -615,7 +620,7 @@ impl CellCommandInvocation {
                 .as_ref()
                 .ok_or(CellDispatchError::Invalid("missing origin"))?,
         );
-        let outcome = if self.system
+        let outcome = if self.admission_kind.is_system()
             && !self
                 .dispatcher
                 .class
@@ -641,6 +646,7 @@ impl CellCommandInvocation {
                 route: attempt.route().clone(),
                 limits: options.limits(),
                 deadline: attempt.deadline_ms(),
+                admission: self.admission_kind,
                 bindings: self.dispatcher.bindings.get().cloned(),
             };
             sql.stage_rpc_owned(
@@ -747,7 +753,7 @@ impl CellCommandInvocation {
         if authority.route() != &origin.route {
             return Err(CellDispatchError::Invalid("origin route binding"));
         }
-        let outcome = if self.system {
+        let outcome = if self.admission_kind.is_system() {
             origin
                 .sql
                 .stage_system_owned(
@@ -757,6 +763,17 @@ impl CellCommandInvocation {
                     self.dispatcher.class.clone(),
                     self.request.input.clone(),
                     CellSqlStageMode::Lookup,
+                )
+                .await
+        } else if self.admission_kind == CommandAdmission::Event {
+            origin
+                .sql
+                .stage_event_lookup(
+                    origin.options.clone(),
+                    authority,
+                    self.command_attempt(origin),
+                    self.dispatcher.class.clone(),
+                    self.request.input.clone(),
                 )
                 .await
         } else {

@@ -192,26 +192,43 @@ impl Resolution {
                 None,
                 self.started,
             )
-            .map_err(CellDispatchError::Routing)?;
-        let mut attempt = session.begin().await.map_err(CellDispatchError::Routing)?;
+            .map_err(name_routing_failure)?;
+        let mut attempt = session.begin().await.map_err(name_routing_failure)?;
         let mut previous = None;
         let mut next = 0;
+        let mut preferred = None;
         loop {
             self.live()?;
             let route = attempt.route().clone();
-            if previous != Some(route.history) {
+            let new_route = previous != Some(route.history);
+            if new_route {
                 previous = Some(route.history);
                 next = 0;
+                preferred = None;
             }
             let local = match self.owner.handle.core.log.cell_group(&route.history) {
                 // A retained removed-member log is not a local serving owner.
                 Ok(group) if group.consensus_claimed.load(Ordering::Acquire) => {
+                    if new_route && matches!(self.options.routing, QueryRouting::Automatic) {
+                        match group.read() {
+                            Ok(cache) => {
+                                let vote = cache.hard_state.vote;
+                                if cache.conf_state.voters.contains(&vote)
+                                    || cache.conf_state.voters_outgoing.contains(&vote)
+                                {
+                                    preferred = MemberId::new(vote).ok();
+                                }
+                            }
+                            Err(LogError::Closed | LogError::NotFound) => (),
+                            Err(error) => return Err(CellDispatchError::Runtime(error.into())),
+                        }
+                    }
                     Some(group.identity().member)
                 }
                 Ok(_) | Err(LogError::NotFound) => None,
                 Err(error) => return Err(CellDispatchError::Runtime(error.into())),
             };
-            let mut members = self.members(&route, local).await?;
+            let mut members = self.members(&route, local, preferred).await?;
             if let QueryRouting::Replicas {
                 leader_fallback: true,
                 ..
@@ -262,7 +279,7 @@ impl Resolution {
             let deadline = now.saturating_add(slice).min(self.deadline);
             attempt
                 .limit_query_deadline(deadline)
-                .map_err(CellDispatchError::Routing)?;
+                .map_err(name_routing_failure)?;
             let selected = if local == Some(member) {
                 self.owner
                     .handle
@@ -281,14 +298,14 @@ impl Resolution {
                     .await;
                 response
                     .map(|response| response.record().cloned())
-                    .map_err(CellDispatchError::Transport)
+                    .map_err(|error| CellDispatchError::Transport(error.for_read()))
             };
             match selected {
                 Ok(record) => {
                     self.live()?;
                     session
                         .validate_attempt(&attempt)
-                        .map_err(CellDispatchError::Routing)?;
+                        .map_err(name_routing_failure)?;
                     return Ok(record.map(|record| record.cell().clone()));
                 }
                 Err(error)
@@ -302,7 +319,7 @@ impl Resolution {
                     } else {
                         session.refresh(&attempt).await
                     }
-                    .map_err(CellDispatchError::Routing)?;
+                    .map_err(name_routing_failure)?;
                 }
                 Err(error) => return Err(error),
             }
@@ -313,29 +330,44 @@ impl Resolution {
         &self,
         route: &cellar_logic::cell_group::GroupRoute,
         local: Option<MemberId>,
+        preferred: Option<MemberId>,
     ) -> Result<Vec<MemberId>, CellDispatchError> {
         match &self.options.routing {
             QueryRouting::Local => Ok(local.into_iter().collect()),
             QueryRouting::Replicas { members, .. } => Ok(members.clone()),
             QueryRouting::Automatic => {
                 let transport = &self.owner.handle.core.transport;
-                match transport.cell_query_candidates(route, 8, local, None, false) {
-                    Err(crate::raft::transport::TransportError::UnknownGroup)
-                        if local.is_none() =>
-                    {
-                        transport
-                            .refresh_managed_router(route.history, self.deadline)
-                            .await
-                            .map_err(CellDispatchError::Runtime)?;
-                        transport
-                            .cell_query_candidates(route, 8, local, None, false)
-                            .map_err(CellDispatchError::Transport)
-                    }
-                    Err(crate::raft::transport::TransportError::UnknownGroup) => {
-                        Ok(local.into_iter().collect())
-                    }
-                    result => result.map_err(CellDispatchError::Transport),
+                let mut members =
+                    match transport.cell_query_candidates(route, 8, local, None, false) {
+                        Err(crate::raft::transport::TransportError::UnknownGroup)
+                            if local.is_none() =>
+                        {
+                            transport
+                                .refresh_managed_router(route.history, self.deadline)
+                                .await
+                                .map_err(CellDispatchError::Runtime)?;
+                            transport
+                                .cell_query_candidates(route, 8, local, None, false)
+                                .map_err(CellDispatchError::Transport)
+                        }
+                        Err(crate::raft::transport::TransportError::UnknownGroup) => {
+                            Ok(local.into_iter().collect())
+                        }
+                        result => result.map_err(CellDispatchError::Transport),
+                    }?;
+                // The last durable vote is only a liveness hint. On retained
+                // startup its candidate can start the ordinary election before
+                // an idle follower consumes a read attempt. Never add a peer:
+                // current destination membership, grants and quorum still check
+                // the request, and all other trusted candidates retain order.
+                // Keep this hint fixed for the route so a later vote cannot
+                // move an untried peer behind the retry cursor.
+                if let Some(index) =
+                    preferred.and_then(|member| members.iter().position(|m| *m == member))
+                {
+                    members[..=index].rotate_right(1);
                 }
+                Ok(members)
             }
         }
     }
@@ -370,4 +402,55 @@ fn name_retryable(error: &CellDispatchError) -> bool {
                 )
         )
     )
+}
+
+fn name_routing_failure(error: CellRoutingError) -> CellDispatchError {
+    // A read's session timer and its outer timer denote the same original
+    // deadline. Preserve every other failure, including any mutation ambiguity.
+    if matches!(error.reason, CellRoutingFailure::Deadline) && error.ambiguous_command.is_none() {
+        CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
+    } else {
+        CellDispatchError::Routing(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_session_deadline_retains_the_public_deadline_type() {
+        let error = name_routing_failure(CellRoutingError {
+            reason: CellRoutingFailure::Deadline,
+            ambiguous_command: None,
+        });
+        assert!(matches!(
+            error,
+            CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
+        ));
+    }
+
+    #[test]
+    fn name_deadline_mapping_preserves_ambiguity_and_other_refusals() {
+        let command =
+            CommandId::new(cellar_logic::consensus::ClientId::new([1; 16]).unwrap(), 1).unwrap();
+        let error = name_routing_failure(CellRoutingError {
+            reason: CellRoutingFailure::Deadline,
+            ambiguous_command: Some(command),
+        });
+        assert!(
+            matches!(error, CellDispatchError::Routing(error) if error.ambiguous_command == Some(command))
+        );
+        let error = name_routing_failure(CellRoutingError {
+            reason: CellRoutingFailure::InvalidHint,
+            ambiguous_command: None,
+        });
+        assert!(matches!(
+            error,
+            CellDispatchError::Routing(CellRoutingError {
+                reason: CellRoutingFailure::InvalidHint,
+                ..
+            })
+        ));
+    }
 }

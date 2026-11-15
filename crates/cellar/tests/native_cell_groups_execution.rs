@@ -19,6 +19,19 @@ mod runtime_fixture;
 #[path = "support/cell_group_checkpoint.rs"]
 mod checkpoint_fixture;
 
+#[path = "support/cell_group_startup_read.rs"]
+mod startup_read;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn retained_read_starts_one_normal_election_without_idle_ticks() -> Result<()> {
+    startup_read::retained_read_election(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn retained_read_without_quorum_never_becomes_ready_or_repeats_campaign() -> Result<()> {
+    startup_read::retained_read_election(false).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn command_waits_for_committed_group_apply() -> Result<()> {
     Box::pin(runtime_fixture::command_waits_for_apply(false)).await

@@ -482,7 +482,9 @@ impl CellEnrollmentInvocation {
             .initialize_when_ready(runtime, sql, options, progress, &attempt)
             .await?
         {
-            CellSqlOutcome::Enrollment(enrolled) => return self.committed(*enrolled).await,
+            CellSqlOutcome::Enrollment(enrolled) => {
+                return self.committed(*enrolled, progress).await
+            }
             CellSqlOutcome::Prepared(prepared) => self.origin_mut()?.prepared = Some(prepared),
             _ => {
                 return Err(CellDispatchError::Invalid(
@@ -568,7 +570,7 @@ impl CellEnrollmentInvocation {
             .await;
             match resolved {
                 Ok(CellSqlEnrollmentResolution::Committed(enrolled)) => {
-                    return self.committed(*enrolled).await
+                    return self.committed(*enrolled, progress).await
                 }
                 Ok(result) => {
                     self.origin = None;
@@ -759,6 +761,7 @@ impl CellEnrollmentInvocation {
     async fn committed(
         &mut self,
         enrolled: CellSqlEnrollment,
+        progress: &mut watch::Receiver<()>,
     ) -> Result<CellSqlEnrollment, CellDispatchError> {
         let record = enrolled.record();
         if record.cell() != &self.cell
@@ -790,26 +793,53 @@ impl CellEnrollmentInvocation {
                 self.session.deadline_ms(),
             )
             .await?;
-        let authority = origin
-            .runtime
-            .enrollment_authority(origin.route.history, self.cell.clone())
-            .await
-            .map_err(CellDispatchError::Runtime)?;
-        if authority.state().route() != &origin.route
-            || authority.state().record() != Some(settled.enrollment.record())
-        {
-            return Err(CellDispatchError::Invalid(
-                "S3 enrollment current creation/route",
-            ));
+        let domain = self.dispatcher.domain.clone();
+        let deadline = self.session.deadline_ms();
+        loop {
+            progress.borrow_and_update();
+            let fence = async {
+                let authority = origin
+                    .runtime
+                    .enrollment_authority(origin.route.history, self.cell.clone())
+                    .await
+                    .map_err(CellDispatchError::Runtime)?;
+                if authority.state().route() != &origin.route
+                    || authority.state().record() != Some(settled.enrollment.record())
+                {
+                    return Err(CellDispatchError::Invalid(
+                        "S3 enrollment current creation/route",
+                    ));
+                }
+                settled.proof.require_current(&domain, deadline).await?;
+                authority.check().map_err(CellDispatchError::Runtime)?;
+                if domain.mono_ms().map_err(|_| closed())? >= deadline {
+                    return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+                }
+                Ok::<_, CellDispatchError>(())
+            };
+            let timer = domain.sleep_until(deadline).map_err(|_| closed())?;
+            let checked = crate::asyncrt::select_biased! { "original S3 enrollment fence deadline";
+                _ = timer => Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+                result = fence => result,
+            };
+            match checked {
+                Ok(()) => break,
+                Err(CellDispatchError::Runtime(
+                    RuntimeError::NotReady
+                    | RuntimeError::Overloaded
+                    | RuntimeError::StaleCompletion,
+                )) => (),
+                Err(error) => return Err(error),
+            }
+            // The initializer has retired. Keep its exact committed record and
+            // verified S3 output while later group apply delays serving authority.
+            // Progress retries only this fence, never SQL or creation submission.
+            let timer = domain.sleep_until(deadline).map_err(|_| closed())?;
+            crate::asyncrt::select_biased! { "original S3 enrollment progress deadline";
+                _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+                result = progress.changed() => result.map_err(|_| closed())?,
+            }
         }
-        settled
-            .proof
-            .require_current(&self.dispatcher.domain, self.session.deadline_ms())
-            .await?;
-        if self.dispatcher.domain.mono_ms().map_err(|_| closed())? >= self.session.deadline_ms() {
-            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
-        }
-        authority.check().map_err(CellDispatchError::Runtime)?;
         Ok((*settled.enrollment).with_archive_proof(settled.proof))
     }
 

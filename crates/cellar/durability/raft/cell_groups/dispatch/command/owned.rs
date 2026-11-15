@@ -6,7 +6,7 @@ use tokio::sync::watch;
 
 impl CellCommandInvocation {
     pub(crate) fn is_native_callback(&self) -> bool {
-        self.system
+        self.admission_kind.is_system()
             && self.request.contract.operation
                 == crate::application::consensus::native_work::OPERATION
     }
@@ -119,7 +119,9 @@ impl CellCommandInvocation {
         }
         // Only an originating invocation may forward. An authenticated incoming
         // command stays local, so stale hints cannot create forwarding cycles.
-        if let Some(routing) = routing.filter(|_| !self.system && self.remote_route.is_none()) {
+        if let Some(routing) =
+            routing.filter(|_| !self.admission_kind.is_system() && self.remote_route.is_none())
+        {
             let transport = routing.transport;
             loop {
                 let remote = loop {
@@ -385,7 +387,7 @@ impl CellCommandInvocation {
                     && self.origin.is_none()
                     && self.output.is_none() =>
                 {
-                    if self.system
+                    if self.admission_kind.is_system()
                         && matches!(
                             self.request.contract.operation.as_str(),
                             crate::storage::raft_binding_recovery::CLAIM

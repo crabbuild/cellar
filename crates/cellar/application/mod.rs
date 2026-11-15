@@ -161,6 +161,18 @@ pub trait Cell: Send + Sync + 'static {
 }
 
 pub trait Application: Send + Sync + 'static {
+    /// Select the shared primitive host, including producer-only applications
+    /// that do not own a stream/catalog namespace.
+    fn uses_raft_primitives(&self) -> bool {
+        self.resolve_raft_class(crate::deploy::EVENT_STREAM_CLASS)
+            .is_ok()
+    }
+
+    /// Trusted compiled resource ownership, validated before constructing cells.
+    fn raft_event_definitions(&self) -> &[event_stream::Definition] {
+        &[]
+    }
+
     /// Host-owned provider backends; registration must perform no I/O.
     fn container_supervision(&self) -> Option<Arc<containers::Supervision>> {
         None
@@ -545,6 +557,14 @@ impl Registry {
 }
 
 impl Application for Registry {
+    fn uses_raft_primitives(&self) -> bool {
+        Registry::uses_raft_primitives(self)
+    }
+
+    fn raft_event_definitions(&self) -> &[event_stream::Definition] {
+        &self.raft_streams
+    }
+
     fn rpc_catalog(&self) -> Option<&rpc::Catalog> {
         Some(&self.rpc)
     }
@@ -821,6 +841,7 @@ pub(crate) struct EventState {
     pub(crate) raft_sql: bool,
     pub(crate) raft_queue: bool,
     pub(crate) raft_kv: bool,
+    pub(crate) raft_event: bool,
     /// Declared native classes and their immutable deployment configurations.
     pub(crate) raft_cell_classes: Option<Arc<std::collections::BTreeMap<String, [u8; 32]>>>,
     pub background: Mutex<Vec<HandlerFuture<()>>>,

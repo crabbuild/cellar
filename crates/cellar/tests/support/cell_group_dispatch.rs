@@ -667,17 +667,33 @@ pub async fn run(
                     }).await.context("read cursor did not release writer admission before fencing")??;
                     let next = (leader + 1) % 3;
                     let handle = cluster.hosts[leader].group(group)?;
-                    let status = handle.replication_status(TIMEOUT).await?;
-                    handle
-                        .transfer_leadership(
+                    let deadline = cellar::asyncrt::mono_ms() + u64::try_from(TIMEOUT.as_millis())?;
+                    let remaining = || -> Result<Duration> {
+                        Ok(Duration::from_millis(deadline.checked_sub(cellar::asyncrt::mono_ms())
+                            .filter(|ms| *ms != 0).context("SDK fencing handoff admission deadline")?))
+                    };
+                    let status = handle.replication_status(remaining()?).await?;
+                    loop {
+                        match handle.transfer_leadership(
                             LeadershipTransfer {
                                 target: MemberId::new(next as u64 + 1)?,
                                 expected_term: status.term,
                                 expected_revision: status.membership_revision,
                             },
-                            TIMEOUT,
+                            remaining()?,
                         )
-                        .await?;
+                        .await {
+                            Ok(()) => break,
+                            // This owner refuses before transfer_leader runs.
+                            // Private frames being parked does not prove the
+                            // target has caught up. Keep the same fences and
+                            // original budget, without retrying unknown outcomes.
+                            Err(RuntimeError::NotReady) => {
+                                cellar::asyncrt::sleep(Duration::from_millis(10).min(remaining()?)).await;
+                            }
+                            Err(error) => return Err(error.into()),
+                        }
+                    }
                     cellar::asyncrt::timeout(TIMEOUT, async {
                         loop {
                             let status = cluster.hosts[next].group(group)?.status().await?;

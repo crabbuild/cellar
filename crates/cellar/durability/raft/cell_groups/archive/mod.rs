@@ -19,7 +19,10 @@ mod execution;
 pub use execution::CellGroupArchiveExecution;
 pub(crate) use execution::ControllerExecution;
 
+mod cache;
+pub(in crate::raft::cell_groups) mod capacity;
 mod checkpoint;
+pub(in crate::raft::cell_groups) use cache::{CacheEviction, CachedCoverage};
 mod data_store;
 mod fleet;
 pub use data_store::CellGroupArchiveStore;
@@ -43,6 +46,7 @@ pub use ownership::{
     CellGroupArchiveRegistry, CellGroupArchiveUploadTicket, PreparedCellGroupArchiveCreation,
 };
 pub(in crate::raft::cell_groups) mod enrollment;
+pub(in crate::raft::cell_groups) mod query;
 pub(in crate::raft::cell_groups) mod receipt;
 mod replay;
 mod tail;

@@ -27,6 +27,7 @@ pub(crate) struct NativeCellFactory {
 pub(super) enum CellRpcMethod<'a> {
     Json(&'a str),
     Work,
+    Event,
     Owned { method: &'a str, json_only: bool },
 }
 
@@ -41,7 +42,8 @@ type CellRpcHandler = dyn Fn(
     + Send
     + Sync;
 
-type ConfigureCellFactory = dyn Fn(&AdmittedCellConfiguration) -> Arc<CellRpcFactory> + Send + Sync;
+type ConfigureCellFactory =
+    dyn Fn(&AdmittedCellConfiguration, bool) -> Arc<CellRpcFactory> + Send + Sync;
 
 /// Compiled dispatch keeps ordinary native configuration out of consensus
 /// handle types. Its identity also fences cache reuse after factory replacement.
@@ -57,6 +59,7 @@ pub(super) struct CellRpcFactory {
     event_scopes: std::collections::BTreeSet<String>,
     queue_owners: std::collections::BTreeSet<String>,
     queue_dead_letters: std::collections::BTreeSet<String>,
+    event_source: Option<Arc<crate::application::storage::EventSourceConfiguration>>,
     configure: Arc<ConfigureCellFactory>,
 }
 
@@ -65,8 +68,18 @@ impl CellRpcFactory {
         &self.script
     }
 
-    pub(super) fn configured(&self, config: &AdmittedCellConfiguration) -> Arc<Self> {
-        (self.configure)(config)
+    pub(super) fn configured(
+        &self,
+        config: &AdmittedCellConfiguration,
+        callbacks: bool,
+    ) -> Arc<Self> {
+        (self.configure)(config, callbacks)
+    }
+
+    pub(super) fn event_source(
+        &self,
+    ) -> Option<Arc<crate::application::storage::EventSourceConfiguration>> {
+        self.event_source.clone()
     }
 
     pub(super) fn configuration_digest(&self) -> Option<[u8; 32]> {
@@ -252,18 +265,18 @@ impl NativeCellFactory {
             binding_classes.insert(crate::deploy::KV_CLASS.into());
         }
         let mut event_scopes = std::collections::BTreeSet::new();
-        for binding in &options.stream_bindings {
-            let binding = binding
-                .explicit()
-                .expect("admitted explicit stream binding");
-            event_scopes.insert(
-                crate::application::event_stream::cell_scope(&binding.resource)
-                    .expect("admitted stream"),
-            );
-            event_scopes.insert(
-                crate::application::event_stream::catalog_scope(&binding.resource)
-                    .expect("admitted catalog"),
-            );
+        for declaration in &options.stream_bindings {
+            let namespace = crate::application::event_stream::CatalogNamespace {
+                tenant: declaration.resource.tenant.clone(),
+                application: declaration.resource.application.clone(),
+            };
+            event_scopes.insert(namespace.scope().expect("admitted catalog namespace"));
+            if let Ok(binding) = declaration.explicit() {
+                event_scopes.insert(
+                    crate::application::event_stream::cell_scope(&binding.resource)
+                        .expect("admitted stream"),
+                );
+            }
         }
         if !event_scopes.is_empty() || class == crate::deploy::EVENT_CATALOG_CLASS {
             binding_classes.insert(crate::deploy::EVENT_STREAM_CLASS.into());
@@ -279,6 +292,10 @@ impl NativeCellFactory {
         }
         if !options.workflow_bindings.is_empty() {
             binding_classes.insert(crate::deploy::workflow_class(&options.script_name));
+        }
+        if !options.stream_bindings.is_empty() {
+            binding_classes.insert(crate::deploy::EVENT_STREAM_CLASS.into());
+            binding_classes.insert(crate::deploy::EVENT_CATALOG_CLASS.into());
         }
         let queue_scopes = options
             .queue_bindings
@@ -318,8 +335,18 @@ impl NativeCellFactory {
             .map(|(_, identity)| crate::engine_api::sql_cell_scope(identity))
             .collect();
         let script = options.script_name.clone();
-        let config = WorkerConfig::new(options).with_egress(EgressPolicy::Deny);
-        let event_source = (!config.stream_bindings.is_empty()).then(|| {
+        let mut config = WorkerConfig::new(options).with_egress(EgressPolicy::Deny);
+        if !config.stream_bindings.is_empty() {
+            config.event_readiness = Arc::new(
+                crate::application::event_stream::readiness::Readiness::new(false),
+            );
+        }
+        let event_source = (!config.stream_bindings.is_empty()
+            && !matches!(
+                class,
+                crate::deploy::EVENT_STREAM_CLASS | crate::deploy::EVENT_CATALOG_CLASS
+            ))
+        .then(|| {
             Arc::new(crate::application::storage::EventSourceConfiguration::new(
                 &config,
             ))
@@ -332,7 +359,7 @@ impl NativeCellFactory {
             class: class.to_owned(),
             vars,
             config: Arc::new(config),
-            event_source,
+            event_source: event_source.clone(),
             identity: identity.clone(),
             callbacks,
         });
@@ -347,7 +374,8 @@ impl NativeCellFactory {
             queue_scopes,
             queue_owners,
             queue_dead_letters,
-            configure: Arc::new(move |config| {
+            event_source,
+            configure: Arc::new(move |config, callbacks| {
                 Self::bind_configuration(
                     &compiled_class,
                     compiled_factory.clone(),
@@ -374,7 +402,7 @@ impl NativeCellFactory {
         transaction: &CommandTransaction<'_>,
         activation: &mut Option<CellRpcActivation>,
     ) -> Result<HandlerFuture<Vec<u8>>> {
-        let owned_wire = matches!(method, CellRpcMethod::Owned { .. });
+        let owned_wire = matches!(method, CellRpcMethod::Owned { .. } | CellRpcMethod::Event);
         let work = if matches!(method, CellRpcMethod::Work) {
             anyhow::ensure!(self.callbacks, CommandFailure::UnsupportedCapability);
             anyhow::ensure!(input.len() <= 1024, CommandFailure::Overloaded);
@@ -422,29 +450,27 @@ impl NativeCellFactory {
                     !json_only || matches!(&request.args, RpcData::Json(_)),
                     CommandFailure::UnsupportedCapability
                 );
-                if crate::application::event_stream::is_event_scope(cell.cell.as_str()) {
-                    let authority = request
-                        .event_authority
-                        .as_ref()
-                        .ok_or(CommandFailure::UnsupportedCapability)?;
-                    crate::application::event_stream::validate_target(
-                        cell.cell.as_str(),
-                        authority,
-                    )?;
-                    authority.validate_operator_target(cell.cell.as_str(), method)?;
-                } else {
-                    anyhow::ensure!(
-                        request.event_authority.is_none(),
-                        CommandFailure::UnsupportedCapability
-                    );
-                }
-                (method, request.args, request.name, request.event_authority)
+                (method.to_owned(), request.args, request.name, None)
             }
-            CellRpcMethod::Work => ("", RpcData::Json("null".into()), None, None),
+            CellRpcMethod::Event => {
+                let request = super::native_event_rpc::decode(cell.cell.as_str(), input)?;
+                (
+                    request.method,
+                    request.rpc.args,
+                    request.rpc.name,
+                    Some(request.authority),
+                )
+            }
+            CellRpcMethod::Work => (String::new(), RpcData::Json("null".into()), None, None),
             CellRpcMethod::Json(operation) => {
                 let json = std::str::from_utf8(input)?;
                 serde_json::from_str::<serde::de::IgnoredAny>(json)?;
-                (operation, RpcData::Json(json.to_owned()), None, None)
+                (
+                    operation.to_owned(),
+                    RpcData::Json(json.to_owned()),
+                    None,
+                    None,
+                )
             }
         };
         let name = crate::storage::raft_bindings::cell_name(
@@ -493,7 +519,9 @@ impl NativeCellFactory {
             })));
         }
         let mut context = self.context(identity, authority)?;
-        context.event_authority = event_authority;
+        if let Some(authority) = event_authority {
+            authority.install(&mut context);
+        }
         let invocation = match &work {
             Some((work, _)) => Invocation::Alarm {
                 scheduled_ms: i64::try_from(work.due)?,
@@ -513,10 +541,12 @@ impl NativeCellFactory {
         let retire = workflow.then(|| (instance.resources(), state.clone()));
         let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
             if let Some((work, leased_until)) = work {
-                // The trusted Queue broker proves this claim together with its
-                // lease before consumer entry, or with its DLQ intent before
-                // dispatch. Other callbacks prove the claim before entry here.
-                if work.reason != "queue" {
+                // Queue proves the claim with its lease before consumer entry
+                // or its DLQ intent before dispatch. Trusted catalog preparation
+                // likewise proves claim + binding intent before any child I/O;
+                // it never enters application code. Other callbacks still need
+                // their entry proof here. Final completion retains its minimum.
+                if !matches!(work.reason.as_str(), "queue" | "resource-reconciliation") {
                     storage.sync().await?;
                 }
                 if work.reason == "filesystem" {

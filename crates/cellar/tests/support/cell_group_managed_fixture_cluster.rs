@@ -56,6 +56,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         application: f.application.clone(),
         configuration: f.configuration.clone(),
         crons: f.crons.clone(),
+        event_streams: f.event_streams.clone(),
         cohosted: f.cohosted.clone(),
         external_http: f.external_http.clone(),
         // A newly registered peer owns independent physical I/O.
@@ -70,6 +71,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         stale_source_timeout_ms: f.stale_source_timeout_ms,
         small_segments: f.small_segments,
         settle_periodic_purges: false,
+        directory_cache_bytes: f.directory_cache_bytes,
         payloads: f.payloads,
         blob_bucket: f.blob_bucket.clone(),
         image_bytes: f.image_bytes,
@@ -255,6 +257,12 @@ pub enum FirstGroupSetup {
     Operator,
 }
 
+#[derive(Default)]
+struct StartOptions {
+    partitions: Option<cellar::sdk::fleet_operations::RaftFleetAutomaticPartitionOptions>,
+    roots: Option<Vec<tempfile::TempDir>>,
+}
+
 pub struct ManagedCluster {
     pub fixtures: Vec<Fixture>,
     pub roots: Vec<tempfile::TempDir>,
@@ -263,6 +271,53 @@ pub struct ManagedCluster {
     pub peers: Vec<RaftPeerNode>,
     pub directory: RangeDirectory,
     pub history: GroupHistory,
+}
+
+#[derive(Debug)]
+pub struct ManagedStartupFailure {
+    pub roots: Vec<std::path::PathBuf>,
+    pub cleanup: Vec<String>,
+}
+
+impl std::fmt::Display for ManagedStartupFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "managed startup cleanup: {}; retained {} disks",
+            self.cleanup.join("; "),
+            self.roots.len()
+        )
+    }
+}
+
+pub fn verify_failed_startup_joined(error: &anyhow::Error) -> Result<()> {
+    let evidence = error
+        .downcast_ref::<ManagedStartupFailure>()
+        .context("missing failed-startup evidence")?;
+    ensure!(
+        evidence.cleanup.is_empty(),
+        "startup owners failed to join: {evidence}"
+    );
+    ensure!(evidence.roots.len() == 3 && evidence.roots.iter().all(|root| root.is_dir()));
+    let mut locked_owners = 0;
+    for root in &evidence.roots {
+        let path = root.join("__sys_node.lock");
+        if path.exists() {
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)?;
+            file.try_lock()
+                .context("failed startup retained its node directory lock")?;
+            file.unlock()?;
+            locked_owners += 1;
+        }
+    }
+    ensure!(
+        locked_owners > 0,
+        "startup refusal never owned a node directory"
+    );
+    Ok(())
 }
 
 impl ManagedCluster {
@@ -335,7 +390,25 @@ impl ManagedCluster {
             independent,
             applications,
             first_group,
+            StartOptions::default(),
+        ))
+        .await
+    }
+
+    /// Retain caller-created disks so physical I/O faults can target their
+    /// exact paths before any node owner starts.
+    pub async fn start_with_roots(first: Fixture, roots: Vec<tempfile::TempDir>) -> Result<Self> {
+        Box::pin(Self::start_configured(
+            first,
+            &[],
+            ArchiveSetup::Initialized,
+            false,
             None,
+            FirstGroupSetup::Normal,
+            StartOptions {
+                roots: Some(roots),
+                ..Default::default()
+            },
         ))
         .await
     }
@@ -354,7 +427,10 @@ impl ManagedCluster {
             true,
             None,
             FirstGroupSetup::Normal,
-            Some(partitions),
+            StartOptions {
+                partitions: Some(partitions),
+                ..Default::default()
+            },
         ))
         .await
     }
@@ -366,7 +442,7 @@ impl ManagedCluster {
         independent: bool,
         applications: Option<Vec<Arc<dyn Application>>>,
         first_group: FirstGroupSetup,
-        partitions: Option<cellar::sdk::fleet_operations::RaftFleetAutomaticPartitionOptions>,
+        options: StartOptions,
     ) -> Result<Self> {
         let second = peer_fixture(&first, 5).await?;
         let third = peer_fixture(&first, 6).await?;
@@ -458,24 +534,32 @@ impl ManagedCluster {
                 learners: vec![],
             })
         };
-        let roots = (0..fixtures.len())
-            .map(|_| tempfile::tempdir())
-            .collect::<std::io::Result<Vec<_>>>()?;
+        let roots = match options.roots {
+            Some(roots) => roots,
+            None => (0..fixtures.len())
+                .map(|_| tempfile::tempdir())
+                .collect::<std::io::Result<Vec<_>>>()?,
+        };
+        ensure!(roots.len() == fixtures.len(), "one disk per voter");
         let mut nodes = Vec::new();
         let mut hosts = Vec::new();
         let mut peers = Vec::new();
-        for (i, fixture) in fixtures.iter().enumerate() {
-            let node = fixture.start_node(roots[i].path()).await?;
-            let (mut config, services) = fixture
-                .config(&node, LogOpenMode::Create, 24 + i as u8)
-                .await?;
-            if !spares.is_empty() || archives != ArchiveSetup::Disabled {
-                config.shared.checkpoints = Some(checkpoint_limits());
-            }
-            if archives != ArchiveSetup::Disabled {
-                archives::configure(&mut config);
-            }
-            config.host.automatic_partitions = partitions.clone().map(|mut options| {
+        let startup = async {
+            for (i, fixture) in fixtures.iter().enumerate() {
+                nodes.push(fixture.start_node(roots[i].path()).await?);
+                let node = nodes
+                    .last()
+                    .expect("started node retained before Raft setup");
+                let (mut config, services) = fixture
+                    .config(node, LogOpenMode::Create, 24 + i as u8)
+                    .await?;
+                if !spares.is_empty() || archives != ArchiveSetup::Disabled {
+                    config.shared.checkpoints = Some(checkpoint_limits());
+                }
+                if archives != ArchiveSetup::Disabled {
+                    archives::configure(&mut config);
+                }
+                config.host.automatic_partitions = options.partitions.clone().map(|mut options| {
                 options.service.transition.coordinate = i == 3;
                 options.service.execution = if i == 3 {
                     cellar::sdk::fleet_operations::RaftFleetPartitionExecutionPolicy::Complete
@@ -484,179 +568,169 @@ impl ManagedCluster {
                 };
                 options
             });
-            peers.push(config.peers[0].clone());
-            let host = node.start_raft_cells(config, services).await?;
-            ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
-            nodes.push(node);
-            hosts.push(host);
-        }
-        let reserve = |reservation| -> Result<RaftManagedFirstGroupRequest> {
-            Ok(RaftManagedFirstGroupRequest {
-                reservation,
-                standby,
-                publication: ProposalId::new([121; 16])?,
-                group: proposal()?,
-            })
-        };
-        let cut = f.catalog.read(TIMEOUT).await?;
-        ensure!(matches!(
-            f.catalog
-                .reserve_managed_first_group(
-                    &adapter,
-                    &f.declaration,
-                    reserve(request(59, cut.revision()))?,
-                    DirectoryLimits::default(),
-                    TIMEOUT,
-                )
-                .await,
-            Err(FleetCatalogError::Conflict)
-        ));
-        ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
-        for (i, fixture) in fixtures.iter().enumerate() {
-            admit_capacity(fixture, &hosts[i], &directory, 40 + 2 * i as u8).await?;
-        }
-        let cut = f.catalog.read(TIMEOUT).await?;
-        let reserve_identity = request(60, cut.revision());
-        let public_operator = matches!(first_group, FirstGroupSetup::Operator);
-        let authorization = if public_operator {
-            Box::pin(operator::provision(
-                f,
-                &directory,
-                &hosts[0],
-                reserve(reserve_identity)?,
-            ))
-            .await?
-        } else {
-            let reserved = f
-                .catalog
-                .reserve_managed_first_group(
-                    &adapter,
-                    &f.declaration,
-                    reserve(reserve_identity.clone())?,
-                    DirectoryLimits::default(),
-                    TIMEOUT,
-                )
-                .await?;
+                peers.push(config.peers[0].clone());
+                hosts.push(node.start_raft_cells(config, services).await?);
+                ensure!(
+                    hosts
+                        .last()
+                        .expect("started host retained before inspection")
+                        .observe_node(TIMEOUT)
+                        .await?
+                        .node
+                        .groups
+                        == 0
+                );
+            }
+            let reserve = |reservation| -> Result<RaftManagedFirstGroupRequest> {
+                Ok(RaftManagedFirstGroupRequest {
+                    reservation,
+                    standby,
+                    publication: ProposalId::new([121; 16])?,
+                    group: proposal()?,
+                })
+            };
             let cut = f.catalog.read(TIMEOUT).await?;
-            ensure!(
+            ensure!(matches!(
                 f.catalog
-                    .check_inventory(&cut, &inventory_directories, TIMEOUT)
-                    .await?
-                    .histories()
-                    == 1,
-                "unselected reservation must retain its physical references"
-            );
-            let confirmation = request(61, cut.revision());
-            let reserved = if matches!(first_group, FirstGroupSetup::ExerciseReplay) {
-                verify_first_group_replay(
+                    .reserve_managed_first_group(
+                        &adapter,
+                        &f.declaration,
+                        reserve(request(59, cut.revision()))?,
+                        DirectoryLimits::default(),
+                        TIMEOUT,
+                    )
+                    .await,
+                Err(FleetCatalogError::Conflict)
+            ));
+            ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
+            for (i, fixture) in fixtures.iter().enumerate() {
+                admit_capacity(fixture, &hosts[i], &directory, 40 + 2 * i as u8).await?;
+            }
+            let cut = f.catalog.read(TIMEOUT).await?;
+            let reserve_identity = request(60, cut.revision());
+            let public_operator = matches!(first_group, FirstGroupSetup::Operator);
+            let authorization = if public_operator {
+                Box::pin(operator::provision(
                     f,
-                    &adapter,
                     &directory,
-                    &reserved,
-                    &confirmation,
+                    &hosts[0],
                     reserve(reserve_identity)?,
-                    history,
-                )
+                ))
                 .await?
             } else {
-                reserved
+                let reserved = f
+                    .catalog
+                    .reserve_managed_first_group(
+                        &adapter,
+                        &f.declaration,
+                        reserve(reserve_identity.clone())?,
+                        DirectoryLimits::default(),
+                        TIMEOUT,
+                    )
+                    .await?;
+                let cut = f.catalog.read(TIMEOUT).await?;
+                ensure!(
+                    f.catalog
+                        .check_inventory(&cut, &inventory_directories, TIMEOUT)
+                        .await?
+                        .histories()
+                        == 1,
+                    "unselected reservation must retain its physical references"
+                );
+                let confirmation = request(61, cut.revision());
+                let reserved = if matches!(first_group, FirstGroupSetup::ExerciseReplay) {
+                    verify_first_group_replay(
+                        f,
+                        &adapter,
+                        &directory,
+                        &reserved,
+                        &confirmation,
+                        reserve(reserve_identity)?,
+                        history,
+                    )
+                    .await?
+                } else {
+                    reserved
+                };
+                f.catalog
+                    .publish_managed_first_group(&reserved, &confirmation, TIMEOUT)
+                    .await?
             };
-            f.catalog
-                .publish_managed_first_group(&reserved, &confirmation, TIMEOUT)
-                .await?
-        };
-        if archives == ArchiveSetup::Initialized && !public_operator {
-            archives::initialize(f, &adapter, history, roots[0].path()).await?;
-        }
-        let cut = f.catalog.read(TIMEOUT).await?;
-        for host in hosts.iter().take(3) {
-            for fixture in &fixtures {
-                inspect_current(host, fixture.spec.node, cut.revision()).await?;
+            if archives == ArchiveSetup::Initialized && !public_operator {
+                archives::initialize(f, &adapter, history, roots[0].path()).await?;
+            }
+            let cut = f.catalog.read(TIMEOUT).await?;
+            for host in hosts.iter().take(3) {
+                for fixture in &fixtures {
+                    inspect_current(host, fixture.spec.node, cut.revision()).await?;
+                }
+                if public_operator {
+                    continue;
+                }
+                let result = host
+                    .activate_managed_initial_group(authorization.clone(), TIMEOUT)
+                    .await;
+                if archives == ArchiveSetup::Missing {
+                    ensure!(
+                        matches!(
+                            result,
+                            Err(CellGroupStartupError::Unconfirmed(
+                                CellGroupControllerError::Archive(_)
+                            ))
+                        ),
+                        "missing archive must refuse before bootstrap: {result:?}"
+                    );
+                    ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
+                    ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
+                } else {
+                    result?;
+                }
             }
             if public_operator {
-                continue;
-            }
-            let result = host
-                .activate_managed_initial_group(authorization.clone(), TIMEOUT)
-                .await;
-            if archives == ArchiveSetup::Missing {
+                let selected =
+                    futures_util::future::try_join_all(hosts.iter().take(3).map(|voter| {
+                        voter.start_managed_namespace_first_group(
+                            history.cluster,
+                            history.namespace,
+                            TIMEOUT,
+                        )
+                    }))
+                    .await?;
                 ensure!(
-                    matches!(
-                        result,
-                        Err(CellGroupStartupError::Unconfirmed(
-                            CellGroupControllerError::Archive(_)
-                        ))
-                    ),
-                    "missing archive must refuse before bootstrap: {result:?}"
+                    selected.iter().all(|selected| *selected == history),
+                    "unexpected managed namespace group"
                 );
-                ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
-                ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
-            } else {
-                if let Err(error) = result {
-                    // A failed activation may already own durable state. Join
-                    // every started owner before preserving its disks; dropping
-                    // node handles alone only requests cancellation.
-                    let mut cleanup = Vec::new();
-                    for node in nodes {
-                        if let Err(error) = node.cancel().await {
-                            cleanup.push(format!("node join: {error:#}"));
-                        }
-                    }
-                    for host in &hosts {
-                        if let Err(error) = host.close().await {
-                            cleanup.push(format!("Raft close: {error:#}"));
-                        }
-                    }
-                    for root in roots {
-                        eprintln!("retained managed startup disk: {}", root.keep().display());
-                    }
-                    return Err(anyhow::Error::from(error)
-                        .context(format!("managed startup cleanup: {}", cleanup.join("; "))));
+            }
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        if let Err(error) = startup {
+            // Configuration, trust refresh and capacity failures can precede
+            // activation. Retain every begun owner until it has joined, then
+            // keep all owned disks for the failing source's evidence.
+            let mut cleanup = Vec::new();
+            for node in nodes {
+                if let Err(error) = node.cancel().await {
+                    cleanup.push(format!("node join: {error:#}"));
                 }
             }
-        }
-        if public_operator {
-            let rooted = f.declaration.namespace.image_storage == RaftImageStorage::Extents;
-            let selected = futures_util::future::try_join_all(
-                hosts.iter().take(3).enumerate().map(|(index, voter)| {
-                    let startup = voter.start_managed_namespace_first_group(
-                        history.cluster,
-                        history.namespace,
-                        TIMEOUT,
-                    );
-                    async move {
-                        startup.await.with_context(|| format!("initial group readiness voter={index}, extents={rooted}, history={history:?}"))
-                    }
-                }),
-            ).await;
-            let selected = match selected {
-                Ok(selected) => selected,
-                Err(error) => {
-                    super::diagnostics::record_parts(
-                        &hosts,
-                        &fixtures,
-                        history,
-                        "initial-group-readiness",
-                    )
-                    .await;
-                    let joined = movement::close(nodes, &hosts).await;
-                    for root in roots {
-                        eprintln!(
-                            "retained initial group readiness disk: {}",
-                            root.keep().display()
-                        );
-                    }
-                    f.domain.shutdown().await;
-                    if let Err(close_error) = joined {
-                        eprintln!("initial group readiness joined shutdown: {close_error:?}");
-                    }
-                    return Err(error);
+            for host in &hosts {
+                if let Err(error) = host.close().await {
+                    cleanup.push(format!("Raft close: {error:#}"));
                 }
-            };
-            ensure!(
-                selected.iter().all(|selected| *selected == history),
-                "unexpected managed namespace group"
-            );
+            }
+            let retained = roots
+                .into_iter()
+                .map(|root| {
+                    let path = root.keep();
+                    eprintln!("retained managed startup disk: {}", path.display());
+                    path
+                })
+                .collect();
+            return Err(error.context(ManagedStartupFailure {
+                roots: retained,
+                cleanup,
+            }));
         }
         Ok(Self {
             fixtures,

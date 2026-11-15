@@ -279,6 +279,10 @@ pub struct QueryContext<'a> {
 }
 
 impl QueryContext<'_> {
+    pub(super) fn result_limit(&self) -> usize {
+        self.frame.database().result_limit()
+    }
+
     pub(super) fn sql_ingress_sequence(&self, input: &[u8]) -> anyhow::Result<Vec<u8>> {
         let QueryVersion::Cell(observation) = self.version else {
             anyhow::bail!(super::CommandFailure::UnsupportedCapability);
@@ -360,6 +364,29 @@ enum CommandHandler {
     JsonCellRpc,
     NativeCellRpc { method: String, json_only: bool },
     NativeWork,
+    NativeEventRpc,
+}
+
+/// Framework provenance is supplied by admission, never by application input.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandAdmission {
+    Public,
+    System,
+    Event,
+}
+
+impl CommandAdmission {
+    pub(crate) fn is_system(self) -> bool {
+        self == Self::System
+    }
+}
+
+/// Admission is minted by the host or authenticated private query transport;
+/// event bytes alone never grant access to the private resource reader.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum QueryAdmission {
+    Public,
+    Event(super::Durability),
 }
 
 pub(crate) struct CommandTarget<'a> {
@@ -382,6 +409,7 @@ struct Query {
 /// `Registry::raft_class` or bind ordinary cell RPC handlers with
 /// `Registry::raft_cell`. Schema versions do not authorize automatic migration.
 pub struct RaftClass {
+    pub(super) event_configuration_bytes: usize,
     name: String,
     schema_version: u32,
     base_schema_digest: [u8; 32],
@@ -431,12 +459,28 @@ impl RaftClass {
         )
     }
 
-    pub(super) fn event_service(name: &str) -> Result<Self, RegistrationError> {
-        Self::definition(
+    pub(super) fn event_service(catalog: bool) -> Result<Self, RegistrationError> {
+        let name = if catalog {
+            crate::deploy::EVENT_CATALOG_CLASS
+        } else {
+            crate::deploy::EVENT_STREAM_CLASS
+        };
+        let mut class = Self::definition(
             name.into(),
             1,
-            Sha256::digest(format!("cellar-raft-{name}-events-1")).into(),
-        )
+            Sha256::digest(b"cellar-raft-event-service-1").into(),
+        )?;
+        class.event_configuration_bytes = 4096;
+        let contract = super::native_event_rpc::contract(name);
+        class.system_commands.insert(
+            contract.operation,
+            Command {
+                digest: contract.digest,
+                handler: CommandHandler::NativeEventRpc,
+            },
+        );
+        class.bind_command_manifest();
+        Ok(class)
     }
 
     pub(super) fn cron_service(digest: [u8; 32]) -> Result<Self, RegistrationError> {
@@ -499,6 +543,7 @@ impl RaftClass {
             schema_digest,
             commands: BTreeMap::new(),
             initializer: None,
+            event_configuration_bytes: 0,
             system_commands: BTreeMap::new(),
             queries: BTreeMap::new(),
             blobs: None,
@@ -611,6 +656,13 @@ impl RaftClass {
             .as_ref()
             .ok_or(RegistrationError::Invalid("missing initializer"))?;
         let _guard = CallbackGuard::enter()?;
+        if self.has_native_callbacks() {
+            transaction
+                .storage()?
+                .resources()
+                .durable_callbacks
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
         if self.filesystem.is_some() {
             let storage = transaction.storage()?;
             self.configure_filesystem(&storage, cell, false);
@@ -795,6 +847,38 @@ impl RaftClass {
         Ok(())
     }
 
+    pub(crate) fn validate_event_host(
+        &self,
+        host: &crate::raft::host::RaftHostOptions,
+        events: cellar_logic::event_stream::Limits,
+    ) -> anyhow::Result<()> {
+        let source = self.event_source_configuration().is_some();
+        if !source && self.event_contract().is_none() {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            host.effects.is_some(),
+            "EventStream requires the shared durable work scheduler"
+        );
+        if source {
+            anyhow::ensure!(
+                events.max_outbox_bytes > 0 && host.execution.max_image_bytes > (128 << 10),
+                "EventStream requires bounded outbox image capacity"
+            );
+        }
+        if self.event_contract().is_some() {
+            // Compiled configuration must fit. Append batching intersects policy
+            // maxima with this target's actual wire/result bounds, while private
+            // image capture enforces the source image limit before output.
+            anyhow::ensure!(
+                self.event_configuration_bytes.max(4096) <= host.max_input_bytes
+                    && host.execution.max_result_bytes >= 4096,
+                "EventStream exceeds the declared command or retained result capacity"
+            );
+        }
+        Ok(())
+    }
+
     pub fn command(
         mut self,
         operation: impl Into<String>,
@@ -852,6 +936,11 @@ impl RaftClass {
         {
             return Err(RegistrationError::Invalid("duplicate durable callbacks"));
         }
+        self.install_native_callbacks();
+        Ok(self)
+    }
+
+    fn install_native_callbacks(&mut self) {
         self.system_commands.insert(
             super::native_work::OPERATION.into(),
             Command {
@@ -860,7 +949,6 @@ impl RaftClass {
             },
         );
         self.bind_command_manifest();
-        Ok(self)
     }
 
     /// Route owned JSON or structured RPC values through the ordinary cell.
@@ -904,7 +992,9 @@ impl RaftClass {
             CommandHandler::JsonCellRpc => {
                 self.contract(&super::native_rpc::binding_operation(operation))
             }
-            CommandHandler::Registered(_) | CommandHandler::NativeWork => None,
+            CommandHandler::Registered(_)
+            | CommandHandler::NativeWork
+            | CommandHandler::NativeEventRpc => None,
         }
     }
 
@@ -936,7 +1026,9 @@ impl RaftClass {
         match &self.commands.get(operation)?.handler {
             CommandHandler::JsonCellRpc => Some(true),
             CommandHandler::NativeCellRpc { json_only, .. } => Some(*json_only),
-            CommandHandler::Registered(_) | CommandHandler::NativeWork => None,
+            CommandHandler::Registered(_)
+            | CommandHandler::NativeWork
+            | CommandHandler::NativeEventRpc => None,
         }
     }
 
@@ -1038,6 +1130,7 @@ impl RaftClass {
             schema_digest: self.schema_digest,
             commands: self.commands.clone(),
             initializer: self.initializer.clone(),
+            event_configuration_bytes: self.event_configuration_bytes,
             system_commands: self.system_commands.clone(),
             queries: self.queries.clone(),
             blobs: self.blobs,
@@ -1048,6 +1141,9 @@ impl RaftClass {
             cell_factory: self.cell_factory.clone(),
             filesystem: self.filesystem,
         };
+        if !configuration.stream_bindings.is_empty() && !class.has_native_callbacks() {
+            class.install_native_callbacks();
+        }
         if let Some(factory) = &self.cell_factory {
             if !configuration.stream_bindings.is_empty() && !class.has_native_callbacks() {
                 class = class
@@ -1070,8 +1166,8 @@ impl RaftClass {
                     }
                 }
             }
-            class.cell_factory = Some(factory.configured(configuration));
-
+            class.cell_factory =
+                Some(factory.configured(configuration, class.has_native_callbacks()));
             if configuration.has_cell_bindings() && !crate::deploy::is_reserved_class(&class.name) {
                 class.queries.insert(
                     super::sql_ingress_identity::OPERATION.into(),
@@ -1084,6 +1180,12 @@ impl RaftClass {
             class.bind_command_manifest();
         }
         class
+    }
+
+    pub(crate) fn event_source_configuration(
+        &self,
+    ) -> Option<Arc<crate::application::storage::EventSourceConfiguration>> {
+        self.cell_factory.as_ref()?.event_source()
     }
 
     pub(crate) fn validate_cell_factory(&self) -> Result<(), RegistrationError> {
@@ -1103,6 +1205,7 @@ impl RaftClass {
                     CommandHandler::JsonCellRpc
                         | CommandHandler::NativeCellRpc { .. }
                         | CommandHandler::NativeWork
+                        | CommandHandler::NativeEventRpc
                 )
             })
     }
@@ -1117,6 +1220,7 @@ impl RaftClass {
                     CommandHandler::JsonCellRpc
                         | CommandHandler::NativeCellRpc { .. }
                         | CommandHandler::NativeWork
+                        | CommandHandler::NativeEventRpc
                 )
             })
     }
@@ -1129,7 +1233,9 @@ impl RaftClass {
         transaction: &CommandTransaction<'_>,
         activation: &mut Option<CellRpcActivation>,
     ) -> anyhow::Result<HandlerFuture<Vec<u8>>> {
-        if contract.operation == super::native_work::OPERATION {
+        if contract.operation == super::native_event_rpc::OPERATION {
+            self.validate_command_admission(contract, CommandAdmission::Event)?;
+        } else if contract.operation == super::native_work::OPERATION {
             self.validate_system_operation(contract)?;
         } else {
             self.validate_operation(contract)?;
@@ -1159,6 +1265,7 @@ impl RaftClass {
                 json_only: *json_only,
             },
             CommandHandler::NativeWork => CellRpcMethod::Work,
+            CommandHandler::NativeEventRpc => CellRpcMethod::Event,
             CommandHandler::Registered(_) => return Err(RegistrationError::KindMismatch.into()),
         };
         if self.filesystem.is_some() {
@@ -1241,6 +1348,12 @@ impl RaftClass {
         input: &[u8],
     ) -> anyhow::Result<()> {
         let ingress = id.client == super::sql_ingress_identity::client();
+        let event = self.event_contract().as_ref() == Some(contract);
+        let nonce = if event {
+            super::native_event_rpc::has_ingress_nonce(input)
+        } else {
+            super::native_rpc::has_ingress_nonce(input)
+        };
         let ingress_class = matches!(
             self.name.as_str(),
             crate::deploy::SQL_CLASS
@@ -1249,18 +1362,20 @@ impl RaftClass {
                 | crate::deploy::EVENT_STREAM_CLASS
                 | crate::deploy::EVENT_CATALOG_CLASS
         ) || self.has_native_ingress();
-        if (ingress_class && ingress)
-            || (self.is_cell_rpc(&contract.operation)
-                && super::native_rpc::has_ingress_nonce(input))
+        if (ingress_class && ingress) || ((event || self.is_cell_rpc(&contract.operation)) && nonce)
         {
             anyhow::ensure!(
                 ingress
                     && ingress_class
-                    && self.is_cell_rpc(&contract.operation)
-                    && super::native_rpc::has_ingress_nonce(input),
+                    && (event || self.is_cell_rpc(&contract.operation))
+                    && nonce,
                 super::CommandFailure::UnsupportedCapability
             );
-            super::native_rpc::decode_request(input)?;
+            if event {
+                super::native_event_rpc::decode(scope.cell.as_str(), input)?;
+            } else {
+                super::native_rpc::decode_request(input)?;
+            }
         }
         if let Some(inbox) = self.inboxes.get(&contract.operation) {
             anyhow::ensure!(
@@ -1367,11 +1482,54 @@ impl RaftClass {
             }
         }
         let command = self.system_commands.get(operation)?;
+        if matches!(command.handler, CommandHandler::NativeEventRpc) {
+            return None;
+        }
         Some(OperationContract {
             operation: operation.into(),
             kind: OperationKind::Command,
             digest: command.digest,
         })
+    }
+
+    pub(crate) fn event_contract(&self) -> Option<OperationContract> {
+        let contract = super::native_event_rpc::contract(&self.name);
+        self.system_commands
+            .get(&contract.operation)
+            .filter(|command| matches!(command.handler, CommandHandler::NativeEventRpc))
+            .map(|_| contract)
+    }
+
+    pub(crate) fn event_query_contract(&self) -> Option<OperationContract> {
+        self.event_contract()
+            .map(|_| super::native_event_query::contract(&self.name))
+    }
+
+    pub(crate) fn validate_query_admission(
+        &self,
+        contract: &OperationContract,
+        admission: QueryAdmission,
+    ) -> Result<(), RegistrationError> {
+        match admission {
+            QueryAdmission::Public => self.validate_operation(contract),
+            QueryAdmission::Event(_) if self.event_query_contract().as_ref() == Some(contract) => {
+                Ok(())
+            }
+            QueryAdmission::Event(_) => Err(RegistrationError::ContractMismatch),
+        }
+    }
+
+    pub(crate) fn validate_command_admission(
+        &self,
+        contract: &OperationContract,
+        admission: CommandAdmission,
+    ) -> Result<(), RegistrationError> {
+        match admission {
+            CommandAdmission::Public => self.validate_operation(contract),
+            CommandAdmission::System => self.validate_system_operation(contract),
+            CommandAdmission::Event if self.event_contract().as_ref() == Some(contract) => Ok(()),
+            CommandAdmission::Event => Err(RegistrationError::ContractMismatch),
+        }
     }
 
     pub(crate) fn has_system_commands(&self) -> bool {
@@ -1611,6 +1769,7 @@ impl RaftClass {
             QueryVersion::GroupCut(version),
             database,
             input,
+            QueryAdmission::Public,
         )
     }
 
@@ -1620,6 +1779,7 @@ impl RaftClass {
         observation: &CellVersionObservation,
         database: ImmutableQuery,
         input: &[u8],
+        admission: QueryAdmission,
     ) -> anyhow::Result<Vec<u8>> {
         self.invoke_query(
             contract,
@@ -1627,6 +1787,7 @@ impl RaftClass {
             QueryVersion::Cell(observation),
             database,
             input,
+            admission,
         )
     }
 
@@ -1637,34 +1798,35 @@ impl RaftClass {
         version: QueryVersion<'_>,
         database: ImmutableQuery,
         input: &[u8],
+        admission: QueryAdmission,
     ) -> anyhow::Result<Vec<u8>> {
-        self.validate_operation(contract)?;
+        self.validate_query_admission(contract, admission)?;
         anyhow::ensure!(
             contract.kind == OperationKind::Query,
             RegistrationError::KindMismatch
         );
-        let callback = &self
-            .queries
-            .get(&contract.operation)
-            .ok_or(RegistrationError::KindMismatch)?
-            .callback;
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = CallbackGuard::enter()?;
             QueryFrame::run(database, |frame| {
                 if self.filesystem.is_some() {
                     self.configure_filesystem(&frame.storage(), identity, true);
                 }
-                callback(
-                    &QueryContext {
-                        identity,
-                        version,
-                        frame,
-                        blobs: self.blobs,
-                        outbox: self.outbox.as_deref(),
-                        schema: self.schema_digest,
-                    },
-                    input,
-                )
+                let context = QueryContext {
+                    identity,
+                    version,
+                    frame,
+                    blobs: self.blobs,
+                    outbox: self.outbox.as_deref(),
+                    schema: self.schema_digest,
+                };
+                match admission {
+                    QueryAdmission::Public => (self
+                        .queries
+                        .get(&contract.operation)
+                        .ok_or(RegistrationError::KindMismatch)?
+                        .callback)(&context, input),
+                    QueryAdmission::Event(_) => super::native_event_query::invoke(&context, input),
+                }
             })
         }))
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))

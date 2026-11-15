@@ -14,11 +14,136 @@ scope must select exactly one owner in the cluster. Missing or ambiguous owners
 refuse admission. A definition must grant its owning application administration;
 an application's proposed grant cannot create an undeclared resource.
 
-Declare explicit UUID stream bindings in the ordinary worker configuration.
+Declare UUID or name-based stream bindings in the ordinary worker configuration.
 Bindings, principal identity and compiled definitions participate in admission
-and namespace identity. Name-only selectors currently refuse. The legacy
-generation resource activator excludes Raft-owned declarations; it must not
-materialize a second LTX-backed catalog or broker for the same declaration.
+and namespace identity. One generation activation owner configures resources and
+checks current catalog/stream state before pinning explicit and named bindings.
+It selects the shared host for Raft resources and never materializes another
+LTX-backed catalog or broker for the same declaration. Embedded hosts activate
+after provisioning the required groups; the daemon uses its startup hook.
+
+The merged candidate uses one private authenticated event command/query path.
+Ordinary RPC bytes and public command discovery cannot supply event provenance.
+Pure metadata reads use pinned linearizable images for activation, subscription
+status and stateful callers, with separate archive coverage at an S3 minimum. Stateful callers prove
+preceding source writes before dispatch; metadata reads do not allocate child
+mutation identities or initialize target cells. Typed temporary reader admission
+(`NotReady`/`Overloaded`) retries within the same absolute deadline, with fresh
+target authorization and coverage checks. Fencing, malformed input, quota and
+mutation failures remain refusals. Retained shared-group activation
+skips configuration only after a fresh authorized catalog read proves the exact
+active definition. Fresh owners with no local history hint use ordinary creation
+without an extra strong absence lookup. Resumed owners try the strong read even
+while their range cache is empty, avoiding a configuration replay solely because
+the locator is cold. Neither startup mode nor the history hint grants serving
+or configuration authority. Missing configuration follows the normal creation path;
+unavailability, revocation and unknown outcomes refuse activation. Catalog and
+partition resolution still check their current resource identities and grants.
+Subscription status reports the selected image's identity, lease and lag under
+its current consume/admin grant. Observing an expired lease does not expire it,
+advance the stored clock or create a child intent/receipt. Clocks, leases and mutations retain their command
+receipts. Configuration checks the actual compiled envelope against the host
+profile; append batching intersects that profile with policy limits and image
+capture still gates source output. No capacity limit is raised automatically.
+
+Retained-record reads also use the private immutable query contract. They check
+the current read grant and lifecycle, then paginate the selected image's stored
+retention frontier without advancing its clock or running maintenance. A read
+allocates no per-cell command identity, mutation or receipt. A normal leader
+election may still persist its Raft term barrier before the read. Source writes are still
+proved before a bound read, and an S3 target still requires independently verified
+archive coverage of the selected version. Cursor expiry and byte/count limits
+match ordinary Fleet reads; lease acquisition and checkpoint advancement remain commands.
+
+A repeated acknowledgment on the same shared-group subscription handle may
+join its completed outcome through a private immutable read. One bounded local
+receipt hint selects the probe; only fresh Consume authorization, the current
+subscription incarnation, a linearizable selected image and the target's
+independent durability proof establish `AlreadyAcknowledged` or `Obsolete`.
+Pending outcomes use the ordinary acknowledgment command. Read or proof failures
+propagate, and the observation cannot report a new acknowledgment, advance a
+clock/checkpoint or synthesize a child command receipt. First acknowledgments and
+ordinary Fleet calls retain their command path. Combined-source public deadline
+and interruption qualification remains required.
+
+Retained groups do not require an idle election timeout before starting their
+first strong read. A current voter whose last durable vote was for itself may
+attempt one ordinary startup election when no leader is known. This vote is a
+liveness hint, not evidence of prior or current leadership. PreVote, quorum votes,
+durable log admission and the new term's applied read barrier remain required.
+Observing a leader or starting an election consumes the hint; repeated reads
+cannot create a campaign loop. Recovery, membership and park fences still refuse
+admission, and ordinary election timers remain the fallback. Stale reads do not
+trigger this optimization. Name-discovery session expiry keeps the same typed
+deadline failure as its original outer timer, without changing mutation ambiguity.
+Automatic name discovery may contact the candidate named by a local durable vote
+before an idle follower. This reorders only the existing trusted candidate set,
+keeps the hint fixed through the route's attempt bank and preserves local/explicit
+routing selectors. It grants no leadership, read, absence or enrollment proof;
+each selected destination still performs the ordinary fresh quorum read under
+the original deadline. Stale or missing vote hints retain normal fallbacks.
+
+After a proven root, a parked callback reacquires its cell writer before
+refreshing its applied cell image. This continuation retains the original ready
+barrier and live owner/route/history/leader fence; unrelated committed apply work
+does not require another whole-group barrier. Reconciliation alone grants no
+execution permission. New application entry keeps full group readiness, and
+checkpoint/final settlement keeps its original durability proofs and deadlines.
+The continuation regression passes native and real RustFS in both image modes.
+At `701b6d6f1`, an invocation that still owns its writer uses the same original
+fence to advance through its exact applied checkpoint. A later unrelated
+committed entry no longer forces a second whole-group readiness barrier at this
+boundary. A physical worker/apply regression fails before the fix and passes
+both images on native storage and real RustFS; new-entry readiness, original
+deadline and SDK fencing controls pass. S3 archival remains required. Both
+selected public named EventStream cases still fail initial activation, so this
+checkpoint liveness fix does not qualify cold binding activation or the family.
+Earlier named Quorum native/Axum paths pass scoped image/backend checks. The
+latest uninstrumented public cohort fails activation; the complete public matrix
+remains unqualified. Consult the current integration checkpoint before treating
+historical passes as current-source guarantees.
+
+After S3 enrollment settles, the adapter retains its exact creation record and
+proof while waiting for full current serving authority. Unrelated committed
+apply work does not immediately discard that output with an ambiguous readiness
+failure. Progress waits share the original absolute request deadline. Current
+route/creation identity, ownership, full group readiness and archive-proof checks
+remain required; cancellation or expiry does not rerun the initializer. Native
+and real-RustFS physical apply-gate regressions cover progress, original expiry
+and exact replay in both image forms. Independent-target-S3 activation and a
+later explicit RustFS Consume metadata-read deadline remain open.
+
+Foreground S3 batches own one publication wake across an older job's completion;
+publication launch consumes it, and proof-lane requeues cannot renew it. Busy
+proof backoff applies to the exact physical group/cut. An uncovered read remembers
+its attempted cut, so newer independently verified coverage is eligible without
+inheriting that delay. This scheduling state supplies no authority or output proof
+and creates no task or timer per cell. Current request-pipeline qualification is
+reported in the [integration checkpoint](progress.md#current-integration-checkpoint).
+
+An unchanged Quorum source may reuse its committed entry image for the first
+immutable dependent read. The SQL owner records its baseline before maintenance
+and constructors; private writes, schema changes, connection-local objects and
+pending storage work still require a checkpoint. S3 sources retain their
+checkpoint/archive path. Ordinary SDK queries use this same read-only dispatch.
+Target read consistency and independent S3 minima, current source/target fences
+and final parent receipt settlement are unchanged. Native and real-RustFS
+regressions cover clean Quorum, dirty Quorum and clean S3 sources in both images.
+This does not qualify the complete multi-step public pipeline.
+
+The archive controller may retain one completed physical verification across
+idle gaps and quiet cleanup. It keeps the exact journaled head and original
+checkpoint/tail reservations. Admission for new capture or replay evicts that
+idle owner first; independently retained active output proofs keep their own
+custody and may still refuse admission. Cache reuse still requires current
+birth, route, journal, serving authority and exact output checks. An advisory
+archive status cannot substitute for this proof. Native and real-RustFS controls
+cover lookup reuse without another chunk download and subsequent fresh S3 work.
+This bounded optimization does not establish public activation or complete
+primitive/recovery qualification.
+
+This reconciliation requires its own combined-source qualification. Earlier
+branch results below do not establish the merged candidate's runtime behavior.
 
 The catalog factory records a trusted creation intent and durable reconciliation
 deadline. Its active receipt waits for a separate broker configuration command
@@ -26,6 +151,48 @@ and that target namespace's required durability proof. Existing configuration,
 retirement and receipts survive reactivation; factory construction does not
 overwrite them. Authorized callers may observe a pending initial configuration
 without acquiring creation authority.
+
+Shared-group catalog ingress and autonomous maintenance share a bounded live
+reconciliation reservation for each catalog resource. The reservation covers the
+exact logical cell history, including cluster, namespace and incarnation; names
+in another history stay independent. An overlapping caller keeps the durable pending operation and re-arms its retry without allocating a
+second broker command. Rearming cannot pull a retry earlier, alter a newer
+operation or revive a completed one. Activation polls the same pending operation
+through current metadata reads under its original deadline; it does not resubmit
+configuration or accept a historical receipt as current readiness. The live
+reservation is an optimization. SQLite obligations, original operation identities,
+current execution fences and independent destination proof remain authoritative
+after cancellation, ownership loss or restart.
+
+Catalog enrollment installs its schema, trusted desired definition, operation
+receipt and reconciliation work in the same creation transaction. Failed creation
+rolls them back together; later factory activation preserves the existing intent
+and work deadline. Its initializer digest distinguishes this contract from the
+previous empty enrollment; development namespaces must be recreated rather than
+migrated.
+
+After discovering a catalog identity, deployment ingress first joins the exact
+configuration operation through a private immutable read, including catalogs
+that are already enrolled. The read checks the full canonical definition digest,
+operation owner, current administration grant and lifecycle. It retains the
+original deadline and the target’s independent minimum durability proof. A
+verified `OperationUnknown` or `NotInitialized` response permits the ordinary
+configuration command; transport, proof, authorization and malformed-response
+failures do not. Retirement/deletion is checked before reporting operation
+absence. The original command wire and nonce remain unchanged for that fallback.
+The probe copies only framing and payload bytes, keeping two owned request wires
+without decoding another full definition body in ingress.
+
+An existing operation allocates no command identity or second reconciler. A
+pending result is only an accepted intent: activation still waits for fresh
+active catalog and broker proofs. Genuine updates retain their normal command
+validation and receipt semantics.
+
+Trusted catalog reconciliation prepares its claim and binding intent before one
+shared checkpoint proves both at the source minimum. The binding bridge permits
+no child enrollment or dispatch before that proof. This framework path enters no
+application code; ordinary application callbacks still prove claims before entry.
+Final work completion retains its required proof and original execution deadline.
 
 ## Publication and independent proof
 

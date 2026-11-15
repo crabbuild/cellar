@@ -343,3 +343,35 @@ fn acknowledgment_acceptance_preserves_definitive_statuses_and_refuses_unknown_s
     }
     Ok(())
 }
+
+#[test]
+fn acknowledgment_observation_cannot_report_a_new_mutation() -> Result<()> {
+    assert_eq!(
+        accept_completed_acknowledgment(&json!({"status":"pending"}))?,
+        None
+    );
+    assert_eq!(
+        accept_completed_acknowledgment(&json!({"status":"already_acknowledged"}))?,
+        Some(Acknowledgment::AlreadyAcknowledged)
+    );
+    assert_eq!(
+        accept_completed_acknowledgment(&json!({"status":"obsolete"}))?,
+        Some(Acknowledgment::Obsolete)
+    );
+    for value in [
+        json!({"status":"acknowledged"}),
+        json!({}),
+        json!({"status":null}),
+        json!([]),
+    ] {
+        let error = accept_completed_acknowledgment(&value).unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            ErrorCode::StaleReceipt
+        );
+    }
+    Ok(())
+}

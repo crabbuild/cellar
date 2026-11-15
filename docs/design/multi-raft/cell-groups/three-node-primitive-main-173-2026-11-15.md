@@ -435,3 +435,47 @@ node/store log text and runtime secrets are excluded; eleven actual private
 representations yield zero matches. Owners join and restore the exact original
 RustFS identity/limits with HTTP 200 readiness after each run. This narrows the
 diagnosis without establishing a production fix or end-to-end gain.
+
+## Uninstrumented production-image repeat
+
+A separate repeat reverses image order within each API using the original
+production candidate 1d72a31d / a37458ee / 9b98065f and control 8f674406 /
+0ccf1de9. Client, five-second bounds, RF3 topology, three 1-vCPU/2-GiB nodes,
+warmup, C1/4/16 and two repetitions remain unchanged. These images include old
+main 189edd9a; this is not qualification of later main 16c45b26.
+
+| API | Image | Verified windows | Failed | Unmeasured | Request errors |
+| --- | --- | --- | --- | --- | --- |
+| SQL | Candidate | 18 | 0 | 0 | 0 |
+| SQL | Control | 6 | 1 | 11 | 2 |
+| KV | Control | 4 | 1 | 13 | 3 |
+| KV | Candidate | 6 | 1 | 11 | 7 |
+| Queue | Candidate | 3 | 1 | 8 | 3 |
+| Queue | Control | 4 | 1 | 7 | 1 |
+
+No API has a complete passing pair. Candidate SQL's pass establishes no isolated
+gain. KV control's readback matches a later unconfirmed input, without proving
+corruption or noncommit. Candidate Queue observes every acknowledged ID/body,
+plus 24 IDs/bodies matching its three uncertain enqueue batches, with no
+unmatched extras or acknowledged-body mismatch. Control Queue observes all
+acknowledged bodies and none of its eight uncertain message IDs. These
+observations establish no missing receipt or S3 proof and cause no fresh-ID retry.
+
+All 30 participants stop without observed OOM/restarts; all 18 nodes exit
+cleanly, with no lease-expiry/panic marker. Owners join, source/engine identities
+remain unchanged, and exact original RustFS identity/limits/mounts return with
+HTTP 200 readiness. Host qualification activity remains a timing confound.
+
+The [assessment](three-node-primitive-main-173-2026-11-15.untraced-repeat.json)
+and [raw capsule](three-node-primitive-main-173-2026-11-15.untraced-repeat.raw.json.gz)
+retain all emitted windows and reconciliation. Runtime configuration, environment
+responses, private keys and raw node/store log text are excluded; 23 actual
+private representations yield zero matches.
+
+Two temporary KV diagnostics pass 18 windows each with zero request errors.
+The full trace emits about 47.9 MB of node logs; the bounded 32-event in-memory
+trace emits about 0.62 MB. Both change diagnostic source/logging while preserving
+algorithms/limits/client and joining/restoring owners. Their passes do not fix
+or relabel this uninstrumented repeat. Production library source 2375a62b /
+a37458ee separately passes 1,192 tests with two existing ignores. These scoped
+passes qualify neither subsequently integrated main nor end-to-end performance.

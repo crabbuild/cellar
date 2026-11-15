@@ -304,7 +304,6 @@ pub struct Generation {
     pub(crate) native_applications: HashMap<String, Arc<dyn crate::application::Application>>,
     event_streams: Vec<(String, crate::application::event_stream::Definition)>,
     event_bindings: Vec<crate::application::event_stream::BindingConfig>,
-    raft_event_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub(crate) event_readiness: Arc<crate::application::event_stream::readiness::Readiness>,
     pub(crate) id: GenerationId,
     pub(crate) version: String,
@@ -333,12 +332,21 @@ pub struct Generation {
 }
 
 impl Generation {
-    pub(crate) fn event_bindings(&self) -> &[crate::application::event_stream::BindingConfig] {
-        &self.event_bindings
+    pub(crate) fn has_raft_event_resources(&self) -> bool {
+        let shared = |script: &str| {
+            self.native_applications
+                .get(script)
+                .is_some_and(|app| app.uses_raft_primitives())
+        };
+        self.event_streams.iter().any(|(script, _)| shared(script))
+            || self
+                .event_bindings
+                .iter()
+                .any(|binding| shared(&binding.principal))
     }
 
-    pub(crate) fn raft_event_bindings(&self) -> &[crate::application::event_stream::BindingConfig] {
-        &self.raft_event_bindings
+    pub(crate) fn event_bindings(&self) -> &[crate::application::event_stream::BindingConfig] {
+        &self.event_bindings
     }
 
     pub(crate) fn begin_event_activation(&self) {
@@ -608,41 +616,21 @@ impl Generation {
         crate::asyncrt::services().loader_policy();
         let native_applications = applications.clone();
         let cell_limits = crate::application::limits::current();
-        let raft_event_principals: BTreeSet<_> = std::iter::once(&graph.primary)
-            .chain(&graph.cohosted)
-            .filter(|deployment| {
-                native_applications
-                    .get(&deployment.script_name)
-                    .is_some_and(|application| {
-                        deployment
-                            .options
-                            .do_classes
-                            .iter()
-                            .chain(deployment.options.bindings.iter().map(|(_, class)| class))
-                            .any(|class| {
-                                application
-                                    .resolve_raft_class(class)
-                                    .is_ok_and(|class| class.has_cell_factory())
-                            })
-                    })
-            })
-            .map(|deployment| deployment.script_name.clone())
-            .collect();
-        let managed_events =
-            std::iter::once(&graph.primary)
+        let managed_events = native_applications
+            .values()
+            .any(|app| !app.raft_event_definitions().is_empty())
+            || std::iter::once(&graph.primary)
                 .chain(&graph.cohosted)
                 .any(|deployment| {
-                    !raft_event_principals.contains(&deployment.script_name)
-                        && (!deployment.event_streams.is_empty()
-                            || (deployment.native.is_some()
-                                && !deployment.options.stream_bindings.is_empty()))
+                    !deployment.event_streams.is_empty()
+                        || (deployment.native.is_some()
+                            && !deployment.options.stream_bindings.is_empty())
                 });
         let event_readiness = Arc::new(
             crate::application::event_stream::readiness::Readiness::new(!managed_events),
         );
         let mut event_streams = Vec::new();
         let mut event_bindings = Vec::new();
-        let mut raft_event_bindings = Vec::new();
         let mut stream_identities = BTreeSet::new();
         let mut stream_names = BTreeSet::new();
         for deployment in std::iter::once(&graph.primary).chain(&graph.cohosted) {
@@ -671,22 +659,22 @@ impl Generation {
             occupied.extend(deployment.loader_bindings.iter().cloned());
             occupied.extend(deployment.services.iter().map(|(name, _, _)| name.clone()));
             occupied.extend(deployment.asset_binding.iter().cloned());
+            let definitions = if deployment.event_streams.is_empty() {
+                native_applications
+                    .get(&deployment.script_name)
+                    .map_or(&[][..], |app| app.raft_event_definitions())
+            } else {
+                &deployment.event_streams
+            };
             crate::protocol::validate_event_resources(
                 &deployment.script_name,
-                &deployment.event_streams,
+                definitions,
                 &options.stream_bindings,
                 &occupied,
                 &cell_limits.events,
             )?;
-            if raft_event_principals.contains(&deployment.script_name) {
-                for binding in &options.stream_bindings {
-                    binding.explicit()?;
-                }
-                raft_event_bindings.extend(options.stream_bindings.iter().cloned());
-            } else {
-                event_bindings.extend(options.stream_bindings.iter().cloned());
-            }
-            for definition in &deployment.event_streams {
+            event_bindings.extend(options.stream_bindings.iter().cloned());
+            for definition in definitions {
                 anyhow::ensure!(
                     stream_identities.insert(definition.resource.id.clone())
                         && stream_names.insert((
@@ -696,9 +684,7 @@ impl Generation {
                         )),
                     "more than one application declares the same event stream resource or name"
                 );
-                if !raft_event_principals.contains(&deployment.script_name) {
-                    event_streams.push((deployment.script_name.clone(), definition.clone()));
-                }
+                event_streams.push((deployment.script_name.clone(), definition.clone()));
             }
         }
         let GenerationOptions { node, region } = options;
@@ -912,7 +898,6 @@ impl Generation {
             source_recovery_pool,
             event_streams,
             event_bindings,
-            raft_event_bindings,
             event_readiness,
             id,
             version,

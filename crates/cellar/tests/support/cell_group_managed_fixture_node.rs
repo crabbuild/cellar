@@ -33,6 +33,7 @@ pub struct Fixture {
     /// One deployed application declaration, independent of each voter label.
     pub configuration: Option<cellar::engine_api::WorkerConfigOptions>,
     pub crons: Vec<String>,
+    pub event_streams: Vec<cellar::sdk::event_stream::Definition>,
     pub cohosted: Vec<(
         cellar::engine_api::WorkerConfigOptions,
         Arc<dyn Application>,
@@ -51,6 +52,8 @@ pub struct Fixture {
     pub stale_source_timeout_ms: Option<u64>,
     pub small_segments: bool,
     pub settle_periodic_purges: bool,
+    /// Explicit cache profile within the unchanged node namespace bank.
+    pub directory_cache_bytes: Option<usize>,
     pub payloads: Option<CellGroupPayloadLimits>,
     pub blob_bucket: Option<Bucket>,
     pub image_bytes: u64,
@@ -220,6 +223,7 @@ impl Fixture {
             application,
             configuration: None,
             crons: Vec::new(),
+            event_streams: Vec::new(),
             cohosted: Vec::new(),
             external_http: None,
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
@@ -233,6 +237,7 @@ impl Fixture {
             stale_source_timeout_ms: None,
             small_segments: false,
             settle_periodic_purges: false,
+            directory_cache_bytes: None,
             payloads: None,
             blob_bucket: None,
             image_bytes: 256 * 1024 * 1024,
@@ -251,6 +256,7 @@ impl Fixture {
             Frontend {
                 options: self.configuration.clone(),
                 crons: self.crons.clone(),
+                event_streams: self.event_streams.clone(),
                 external_http: self.external_http.clone(),
                 cell_limits: self.cell_limits,
                 cohosted: self.cohosted.clone(),
@@ -393,6 +399,9 @@ impl Fixture {
             shared.controller.max_command_bytes = bytes;
         }
         shared.namespaces.max_namespaces = 1 + self.additional_namespaces.len();
+        if let Some(bytes) = self.directory_cache_bytes {
+            shared.directory.max_cache_bytes = bytes;
+        }
         shared.sql.workers = self.sql_workers;
         shared.dispatch.max_input_bytes = self.max_input_bytes;
         if self.small_segments {
@@ -548,6 +557,7 @@ pub async fn start_node_with_filesystem(
 struct Frontend {
     options: Option<cellar::engine_api::WorkerConfigOptions>,
     crons: Vec<String>,
+    event_streams: Vec<cellar::sdk::event_stream::Definition>,
     external_http: Option<Arc<http::Owner>>,
     cell_limits: cellar::application::limits::CellLimits,
     cohosted: Vec<(
@@ -567,6 +577,7 @@ async fn start_configured_node(
     let Frontend {
         options,
         crons,
+        event_streams,
         external_http,
         cell_limits,
         cohosted,
@@ -631,6 +642,7 @@ async fn start_configured_node(
         .map_or(label, |options| &options.script_name);
     let mut graph = graph::graph(script, "", classes);
     graph.primary.crons = crons;
+    graph.primary.event_streams = event_streams;
     if let Some(options) = options {
         graph.primary.options = options;
     }

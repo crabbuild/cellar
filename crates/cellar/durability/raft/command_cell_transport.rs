@@ -161,6 +161,7 @@ impl CellRemoteReceiptResponse {
 
 enum WriteCall {
     Command(CellCommandCall),
+    Event(CellCommandCall),
     Binding(wire::binding::Call),
     Probe(CellCommandProbe),
     Enrollment(CellEnrollmentCall),
@@ -172,6 +173,7 @@ impl WriteCall {
     fn encode(&self, limit: usize) -> Result<Vec<u8>, TransportError> {
         match self {
             Self::Command(c) => c.encode(limit),
+            Self::Event(c) => c.encode_event(limit),
             Self::Binding(c) => c.encode(limit),
             Self::Probe(c) => c.encode(limit),
             Self::Enrollment(c) => c.encode(limit),
@@ -182,7 +184,7 @@ impl WriteCall {
 
     fn shorten_timeout(&mut self, remaining: u64) {
         let timeout = match self {
-            Self::Command(c) => &mut c.timeout_ms,
+            Self::Command(c) | Self::Event(c) => &mut c.timeout_ms,
             Self::Binding(c) => &mut c.timeout_ms,
             Self::Probe(c) => &mut c.timeout_ms,
             Self::Enrollment(c) => &mut c.timeout_ms,
@@ -194,7 +196,7 @@ impl WriteCall {
 
     fn input_bytes(&self) -> usize {
         match self {
-            Self::Command(c) => c.request.input.len(),
+            Self::Command(c) | Self::Event(c) => c.request.input.len(),
             Self::Binding(_) => 4096,
             Self::Enrollment(_) | Self::Probe(_) | Self::Name(_) => 0,
             Self::Receipt(c) => c.request.input.len(),
@@ -305,17 +307,43 @@ impl RaftTransport {
         keys: VersionKeys,
         deadline: u64,
     ) -> Result<CellRemoteCommandResponse, TransportError> {
+        self.command_cell_kind(
+            route,
+            cell,
+            member,
+            WriteCall::Command(call),
+            keys,
+            deadline,
+        )
+        .await
+    }
+
+    pub(in crate::raft) async fn event_cell(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        call: CellCommandCall,
+        keys: VersionKeys,
+        deadline: u64,
+    ) -> Result<CellRemoteCommandResponse, TransportError> {
+        self.command_cell_kind(route, cell, member, WriteCall::Event(call), keys, deadline)
+            .await
+    }
+
+    async fn command_cell_kind(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        call: WriteCall,
+        keys: VersionKeys,
+        deadline: u64,
+    ) -> Result<CellRemoteCommandResponse, TransportError> {
         let response = self
             .handle
             .0
-            .write_cell(
-                route,
-                cell,
-                member,
-                WriteCall::Command(call),
-                Some(keys),
-                deadline,
-            )
+            .write_cell(route, cell, member, call, Some(keys), deadline)
             .await?;
         let WriteValue::Command(value) = response.value else {
             return Err(TransportError::Protocol);
@@ -631,6 +659,7 @@ impl State {
                     )?;
                     let route = match &request.call {
                         WriteCall::Command(_) => route.for_command()?,
+                        WriteCall::Event(_) => route.for_event_command()?,
                         WriteCall::Binding(_) => route.for_binding_retirement()?,
                         WriteCall::Probe(_) => route.for_command_probe()?,
                         WriteCall::Enrollment(_) => route.for_enrollment()?,
@@ -639,7 +668,7 @@ impl State {
                     };
                     use crate::raft::performance::Counter;
                     match request.call {
-                        WriteCall::Command(_) => {
+                        WriteCall::Command(_) | WriteCall::Event(_) => {
                             self.performance.increment(Counter::CellCommandAttempts, 1)
                         }
                         WriteCall::Probe(_) => {
@@ -686,7 +715,7 @@ impl State {
                             result?;
                             return Ok(WriteValue::Binding);
                         }
-                        WriteCall::Command(call) => {
+                        WriteCall::Command(call) | WriteCall::Event(call) => {
                             let now = u64::try_from(crate::asyncrt::wall_ms())
                                 .map_err(|_| TransportError::Authentication)?;
                             let reply = wire::command::decode_reply(
@@ -999,7 +1028,14 @@ impl State {
         route: &QueryRoute,
         call: CellCommandCall,
         deadline: u64,
+        admission: crate::application::consensus::CommandAdmission,
     ) -> Result<super::query_replies::Reply, TransportError> {
+        use crate::application::consensus::CommandAdmission;
+        match admission {
+            CommandAdmission::Public if route.is_command() => (),
+            CommandAdmission::Event if route.is_event_command() => (),
+            _ => return Err(TransportError::Authentication),
+        }
         let (_, target, cell) = route.decode_shared()?;
         let gateway = self
             .cell_command_gateways
@@ -1046,18 +1082,22 @@ impl State {
                 )
                 .filter(|remaining| *remaining > 0)
                 .ok_or(CommandFailure::Unavailable)?;
+            let limits = CellRoutingLimits {
+                timeout: Duration::from_millis(call.timeout_ms.min(remaining)),
+                max_attempts: 1,
+            };
             let mut invocation = gateway
                 .dispatcher
-                .command_with_inputs(
+                .prepare_command(
                     cell,
                     call.request,
-                    CellRoutingLimits {
-                        timeout: Duration::from_millis(call.timeout_ms.min(remaining)),
-                        max_attempts: 1,
-                    },
+                    limits,
                     None,
                     Some(call.inputs),
+                    admission,
                 )
+                .map_err(|error| command_failure(&error.cause))?
+                .finish()
                 .await
                 .map_err(|error| command_failure(&error.cause))?;
             invocation

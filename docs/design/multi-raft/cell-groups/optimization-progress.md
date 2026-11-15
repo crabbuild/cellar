@@ -81,7 +81,7 @@ and its named RO/RL cases remain the acceptance contract:
 
 ### Priorities for completing the optimization
 
-The latest twelve-case comparison is the
+The latest completed twelve-case comparison is the
 [main-173 campaign](three-node-primitive-main-173-2026-11-15.md), including main
 `189edd9a` and source cut `69654995`. Nine candidate cases pass; KV+S3,
 Queue+S3 and bucket Queue fail. All SQL modes and the complete SQL/KV quorum
@@ -4775,3 +4775,55 @@ Python files and performance guide differ from the native run's compiler
 manifest; all other inputs, including Rust, are byte-identical. Earlier frozen
 windows and their evidence gaps remain unchanged. Real constrained throughput,
 latency, membership/recovery cuts and combined OPT/CG acceptance remain open.
+
+### Main 16c integration and physical-credit wake candidate
+
+The working integration includes main 16c45b26, preserving this branch's
+original-deadline, removed-member, uncertain-command and archive-cohort controls
+beside EventStream paths, checkpoint continuation and evictable archive caching.
+The idle-cache control starts with an independently proved S3 output;
+background-only verification still cannot authorize a later Quorum-to-S3
+upgrade. The existing missing-sibling negative oracle remains unchanged.
+
+Two corrected native controller regressions at input df4e8b50 reproduce a
+progress gap with materialized images. A retained S3 result or explicit
+checkpoint occupies the ordinary one-slot source bank. Another original
+five-second request reaches an actual capacity refusal. Dropping the last
+physical owner does not wake it: both expire with ambiguous DeadlineExceeded,
+in 5.403 and 5.317 seconds. The existing 60-second slow-maintenance fault prevents
+timer masking. No operation/callback/lease deadline or bank is increased. The
+first draft's setup failures remain separate from this reproduction.
+
+Candidate input 362f78db records the exact failed bank and requested bytes in a
+job-scoped weak hint. The shared controller registers for its existing release
+notification and checks fitting byte/item capacity. Retry still reacquires
+physical credit and checks current authority, closure, receipt and original
+deadline. Store-lock/remote-conflict backoff remains unchanged. Healthy owners
+scan no archive roster and allocate no capacity future. Only blocked owners are
+indexed; no task, timer, image pin or permit is introduced.
+
+Strict all-target Cellar Clippy, formatter/layout, native-dependency and
+documentation checks pass. Both progress cases now pass both image forms,
+alongside four capacity-race/ownership units and three reuse/dependency controls.
+The complete default suites pass 1,229 library, 33 archive-controller and 40
+archive tests, with 2/30/10 existing ignores respectively. Nine selected real
+RustFS cases pass both images; unselected ignores stay open. The matching Linux
+image 70b02055 rebuilds both owning libraries and both binaries with the same
+locked lab profile/client. See the [qualification record](capacity-wake-qualification-2026-11-15.json).
+
+The new constrained matrix is running. KV+S3 passes all 18 windows with zero
+errors. Queue+S3 fails its first C16 enqueue with five unconfirmed errors; all
+2,256 acknowledged message bodies are observed, plus 32 exact uncertain inputs,
+without duplicates or unmatched bodies. Eight uncertain IDs remain unobserved.
+All Queue nodes exit cleanly without lease-expiry/OOM/restarts. Four failed
+target attempts start with only 1.2--3.0 seconds of the original five-second
+budget left. Inclusive phase counts cannot identify their complete causal
+path. This fix therefore does not close every constrained deadline or establish
+an isolated end-to-end throughput/latency gain.
+
+The [uninstrumented repeat](three-node-primitive-main-173-2026-11-15.md#uninstrumented-production-image-repeat)
+retains five failures across six old-main S3 cases; only candidate SQL passes.
+Diagnostic KV and the old-source 1,192-test library passes remain scoped to their
+earlier manifests. Current-main constrained SQL/KV/Queue, bucket Queue,
+lease/startup diagnosis, physical reclamation/movement, authority faults and
+complete OPT/CG qualification remain open.

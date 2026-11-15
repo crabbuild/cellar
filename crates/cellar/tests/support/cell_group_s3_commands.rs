@@ -20,11 +20,14 @@ mod receipts;
 #[path = "cell_group_s3_remote.rs"]
 mod remote;
 use super::*;
-pub(crate) use enrollment::{s3_enrollment, s3_enrollment_deadline};
+pub(crate) use enrollment::{
+    enrollment_output_during_apply, s3_enrollment, s3_enrollment_deadline,
+};
 use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
-    s3_late_receipt_uses_completed_verification, s3_receipt_deadline, s3_receipt_failures,
+    s3_idle_observation_reuses_verification, s3_late_receipt_uses_completed_verification,
+    s3_newer_receipt_bypasses_inflight_maintenance, s3_receipt_deadline, s3_receipt_failures,
     s3_receipt_minimums, s3_receipt_observations, s3_response_precedes_hold_retirement,
 };
 pub(crate) use remote::{s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery};
@@ -33,6 +36,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[path = "cell_group_connection_idle.rs"]
 mod connection_idle;
 pub(crate) use connection_idle::peer_connection_idle;
+
+#[path = "cell_group_s3_capacity.rs"]
+mod capacity;
+pub(crate) use capacity::s3_capacity_release;
 
 struct Harness {
     fixture: RuntimeCluster,

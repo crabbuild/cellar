@@ -679,8 +679,14 @@ impl Node {
             .as_ref()
             .expect("embedded node has a runtime")
             .generation();
-        let supervisor =
-            wait_for_event_activation(&generation.event_readiness, &domain, supervisor).await?;
+        // Shared groups are installed through this handle after Node startup.
+        // Return a control-capable, publicly unready node until the caller has
+        // installed/provisioned Raft and activated its captured event resources.
+        let supervisor = if generation.has_raft_event_resources() {
+            supervisor
+        } else {
+            wait_for_event_activation(&generation.event_readiness, &domain, supervisor).await?
+        };
         // Transfer domain ownership to the handle; do not close it when the
         // successful startup guard is retired.
         startup_guard.0 = None;
@@ -728,6 +734,27 @@ impl Node {
                 .start(config, services)
                 .await
             }))
+            .await?
+    }
+
+    /// Reconcile this generation's declared event resources after installing
+    /// Raft and provisioning its service groups. Public ingress remains closed
+    /// until catalog/stream proof and named binding activation succeed.
+    pub async fn activate_event_resources(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.is_closed() && !self.app.is_draining(),
+            "node is closing"
+        );
+        let app = self.app.clone();
+        self.domain
+            .run(async move {
+                let generation = app
+                    .runtime
+                    .as_ref()
+                    .context("node has no cell runtime")?
+                    .generation();
+                event_resources::activate(app, &generation).await
+            })
             .await?
     }
 
@@ -1204,6 +1231,7 @@ async fn prepare(
         data_dir: config.data_dir,
         durability_owner,
         policy: driver::RunPolicy {
+            defer_raft_events: true,
             shutdown: config.shutdown,
             local_cache_max_bytes: config.maintenance.local_cache_max_bytes,
             local_cache_prune_period: config.maintenance.local_cache_prune_period,

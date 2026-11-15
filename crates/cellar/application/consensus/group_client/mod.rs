@@ -117,6 +117,8 @@ mod cell_bindings;
 mod close;
 mod directory;
 mod drain;
+mod event_activation;
+mod event_read;
 mod fleet;
 mod hibernation;
 mod learner;
@@ -126,6 +128,7 @@ mod names;
 mod node;
 mod observation;
 mod origins;
+mod read_admission;
 mod recovery;
 mod repair;
 mod scoped_dispatch;
@@ -472,6 +475,33 @@ impl RaftCellHandle {
         options: CommandOptions,
         reservation: Option<crate::rpc_reservation::Reservation>,
     ) -> impl Future<Output = Result<CommandReceipt, Arc<CellCommandError>>> + Send + 'static {
+        self.command_retaining_admitted(
+            contract,
+            input,
+            options,
+            reservation,
+            super::CommandAdmission::Public,
+        )
+    }
+
+    fn command_direct_admitted(
+        &self,
+        contract: &OperationContract,
+        input: Vec<u8>,
+        options: CommandOptions,
+        admission: super::CommandAdmission,
+    ) -> impl Future<Output = Result<CommandReceipt, Arc<CellCommandError>>> + Send + 'static {
+        self.command_retaining_admitted(contract, input, options, None, admission)
+    }
+
+    fn command_retaining_admitted(
+        &self,
+        contract: &OperationContract,
+        input: Vec<u8>,
+        options: CommandOptions,
+        reservation: Option<crate::rpc_reservation::Reservation>,
+        admission: super::CommandAdmission,
+    ) -> impl Future<Output = Result<CommandReceipt, Arc<CellCommandError>>> + Send + 'static {
         let id = options.id;
         let accepted = self
             .owner
@@ -482,7 +512,7 @@ impl RaftCellHandle {
                 cause: Box::new(cause),
             })
             .and_then(|()| {
-                self.cell.command_retaining(
+                self.cell.command_admitted(
                     CellCommandRequest {
                         id,
                         contract: contract.clone(),
@@ -495,6 +525,7 @@ impl RaftCellHandle {
                         max_attempts: 4,
                     },
                     reservation,
+                    admission,
                 )
             });
         let owner = self.owner.clone();

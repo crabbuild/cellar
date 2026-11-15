@@ -17,9 +17,19 @@ pub struct ImmutableQueryOptions {
 
 pub struct ImmutableQuery {
     database: ImmutableDatabase,
+    result_limit: usize,
 }
 
 impl ImmutableQuery {
+    pub(crate) fn with_result_limit(mut self, bytes: usize) -> Self {
+        self.result_limit = bytes;
+        self
+    }
+
+    pub(crate) fn result_limit(&self) -> usize {
+        self.result_limit
+    }
+
     /// Application SQL retains the read-only authorizer and the reservation of
     /// framework tables. Framework receipt lookup uses its separate connection
     /// path; a query callback cannot depend on or expose those private rows.
@@ -193,7 +203,10 @@ fn configure(database: ImmutableDatabase, sqlite_vec: bool) -> anyhow::Result<Im
         );
     }
     connection.authorizer(Some(authorize_query))?;
-    Ok(ImmutableQuery { database })
+    Ok(ImmutableQuery {
+        database,
+        result_limit: usize::MAX,
+    })
 }
 
 fn authorize_query(context: AuthContext<'_>) -> Authorization {

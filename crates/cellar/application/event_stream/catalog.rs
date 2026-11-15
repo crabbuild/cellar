@@ -18,6 +18,8 @@ const ACCEPT_CONFIGURATION: &str = "UPDATE __sys_event_catalog SET definition=pe
 
 const RECORD_FAILURE: &str = "UPDATE __sys_event_catalog SET last_error=? WHERE id=? AND operation=? AND (pending_definition IS NOT NULL OR pending_retirement IS NOT NULL)";
 
+const REARM_RECONCILIATION: &str = "UPDATE __sys_event_catalog SET retry_at_ms=max(retry_at_ms,?1) WHERE id=?2 AND operation=?3 AND (pending_definition IS NOT NULL OR pending_retirement IS NOT NULL)";
+
 struct Catalog;
 
 pub(crate) fn create_cell(context: &Context) -> Result<Arc<dyn Cell>> {
@@ -49,13 +51,13 @@ fn status(row: &SqlRow) -> Result<Value> {
     )
 }
 
-fn open(db: &Storage) -> Result<()> {
+pub(crate) fn open(db: &Storage) -> Result<()> {
     super::catalog_schema::open(db)
 }
 
 fn authorize_resource(db: &Storage, caller: &Authority, action: Action) -> Result<SqlRow> {
     let row = db
-        .system_sql(
+        .system_sql_read(
             "SELECT * FROM __sys_event_catalog WHERE id=?",
             &[caller.resource.id.clone().into()],
         )?
@@ -76,7 +78,7 @@ fn authorize_resource(db: &Storage, caller: &Authority, action: Action) -> Resul
 
 fn receipt(db: &Storage, operation: &str) -> Result<Option<SqlRow>> {
     Ok(db
-        .system_sql(
+        .system_sql_read(
             "SELECT * FROM __sys_event_catalog_receipts WHERE operation=?",
             &[operation.into()],
         )?
@@ -273,9 +275,12 @@ fn retirement_status(context: &Context, body: &Value) -> Result<Value> {
 
 fn configuration_status(context: &Context) -> Result<Value> {
     let caller = store::authority(context, Action::Configure)?;
-    let db = context.storage()?;
+    configuration_status_read(&context.storage()?, &caller)
+}
+
+pub(super) fn configuration_status_read(db: &Storage, caller: &Authority) -> Result<Value> {
     let row = db
-        .system_sql(
+        .system_sql_read(
             "SELECT * FROM __sys_event_catalog WHERE id=?",
             &[caller.resource.id.clone().into()],
         )?
@@ -295,16 +300,65 @@ fn configuration_status(context: &Context) -> Result<Value> {
     };
     store::authorize(
         &serde_json::from_str(&definition)?,
-        &caller,
+        caller,
         Action::Configure,
         None,
     )?;
     status(&row)
 }
 
+/// Join only the exact deployment intent already committed by the catalog
+/// initializer. This observes current authorization and lifecycle, rather than
+/// replaying a historical receipt as proof that the resource is ready.
+pub(super) fn configuration_receipt_read(
+    db: &Storage,
+    caller: &Authority,
+    body: &Value,
+) -> Result<Value> {
+    caller.require_provisioning()?;
+    let encoded = body["definition"]
+        .as_str()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "catalog definition is missing"))?;
+    let (desired, digest) = store::decode_definition(encoded)?;
+    let operation = body["operation"]
+        .as_str()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "catalog operation is missing"))?;
+    store::validate_id(operation)?;
+    if !desired.resource.same_identity(&caller.resource) {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "catalog resource scope mismatch",
+        ));
+    }
+    let row = authorize_resource(db, caller, Action::Configure)?;
+    if !matches!(
+        store::text(&row, "lifecycle")?.as_str(),
+        "creating" | "updating" | "active"
+    ) {
+        return Err(error(
+            ErrorCode::DestinationDeleted,
+            "catalog resource is retiring or deleted",
+        ));
+    }
+    let prior = receipt(db, operation)?
+        .ok_or_else(|| error(ErrorCode::OperationUnknown, "catalog operation missing"))?;
+    validate_receipt(&prior, caller, "configure", Some(&digest))?;
+    if store::text(&row, "operation")? != operation || store::text(&row, "digest")? != digest {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "catalog configuration was superseded",
+        ));
+    }
+    status(&row)
+}
+
 fn resolve(context: &Context) -> Result<Value> {
     let caller = store::authority(context, Action::Resolve)?;
-    let row = authorize_resource(&context.storage()?, &caller, Action::Resolve)?;
+    resolve_read(&context.storage()?, &caller)
+}
+
+pub(super) fn resolve_read(db: &Storage, caller: &Authority) -> Result<Value> {
+    let row = authorize_resource(db, caller, Action::Resolve)?;
     if store::text(&row, "lifecycle")? != "active" {
         return Err(error(
             ErrorCode::Unavailable,
@@ -348,6 +402,43 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
     if !retiring && !matches!(row.get("pending_definition"), Some(SqlValue::Text(_))) {
         return status(&row);
     }
+    let operation = store::text(&row, "operation")?;
+    let _dispatch = if db.is_raft() {
+        let history = crate::storage::capture_raft_dispatch()?
+            .ok_or(crate::application::consensus::CommandFailure::UnsupportedCapability)?
+            .source_history()?;
+        // Resource names can repeat across clusters, namespaces and recovered
+        // incarnations on one host. Coalesce only this exact logical history.
+        let scope = hex::encode(crate::raft::cell_groups::cell_image_history_digest(
+            &history,
+        ));
+        let limits = crate::application::limits::current().events;
+        let Some(dispatch) = context.io.host_services().events().dispatch(
+            &scope,
+            &format!("catalog:{id}"),
+            limits.max_dispatch_concurrency,
+        ) else {
+            // Configuration ingress and autonomous maintenance can overlap while
+            // the same source writer is parked. Keep one live reconciler and
+            // re-arm its durable obligation instead of allocating another child
+            // identity and requiring a second independent broker checkpoint.
+            db.tx(|tx| {
+                tx.system_sql(
+                    REARM_RECONCILIATION,
+                    &[
+                        crate::asyncrt::wall_ms().saturating_add(1000).into(),
+                        id.into(),
+                        operation.clone().into(),
+                    ],
+                )?;
+                schedule(tx)
+            })?;
+            return operation_result(&db, id, &operation);
+        };
+        Some(dispatch)
+    } else {
+        None
+    };
     let definition: Definition = serde_json::from_str(&store::text(
         &row,
         if retiring {
@@ -357,15 +448,14 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
         },
     )?)?;
     let authority: Authority = serde_json::from_str(&store::text(&row, "pending_authority")?)?;
-    let operation = store::text(&row, "operation")?;
     db.tx(|tx| {
         tx.system_sql("UPDATE __sys_event_catalog SET retry_at_ms=?,attempts=CASE WHEN attempts<9223372036854775807 THEN attempts+1 ELSE attempts END WHERE id=? AND operation=?",
             &[crate::asyncrt::wall_ms().saturating_add(1000).into(),id.into(),operation.clone().into()])?;
         schedule(tx)
     })?;
-    // Shared child dispatch proves this retry deadline together with its exact
-    // journaled intent before any target I/O. Legacy dispatch needs an explicit
-    // source checkpoint here.
+    // The Raft binding bridge proves these changes together with its exact
+    // child intent before dispatch. An eager checkpoint would capture the
+    // same source twice. Fleet RPC still needs its explicit pre-call sync.
     if !db.is_raft() {
         db.sync().await?;
     }
@@ -457,7 +547,26 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
 /// an independently proven partition command in the ordinary reconciler.
 pub(crate) fn provision(context: &Context, definition: &Definition, operation: &str) -> Result<()> {
     let db = context.storage()?;
-    open(&db)?;
+    let caller = store::authority(context, Action::Configure)?;
+    provision_storage(
+        &db,
+        &caller,
+        definition,
+        operation,
+        crate::asyncrt::wall_ms(),
+    )
+}
+
+/// Creation records the trusted intent and its autonomous work in one private
+/// enrollment transaction. No RPC, task or broker mutation runs here.
+pub(crate) fn provision_storage(
+    db: &Storage,
+    caller: &Authority,
+    definition: &Definition,
+    operation: &str,
+    now_ms: i64,
+) -> Result<()> {
+    open(db)?;
     if !db
         .system_sql(
             "SELECT id FROM __sys_event_catalog WHERE id=?",
@@ -467,16 +576,15 @@ pub(crate) fn provision(context: &Context, definition: &Definition, operation: &
     {
         return Ok(());
     }
-    let caller = store::authority(context, Action::Configure)?;
     caller.require_provisioning()?;
-    store::authorize(definition, &caller, Action::Configure, None)?;
+    store::authorize(definition, caller, Action::Configure, None)?;
     let encoded = serde_json::to_string(definition)?;
     use sha2::{Digest, Sha256};
     let digest = hex::encode(Sha256::digest(encoded.as_bytes()));
-    let authority = serde_json::to_string(&caller)?;
+    let authority = serde_json::to_string(caller)?;
     db.tx(|tx| {
-        tx.system_sql("INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,desired_revision,pending_definition,pending_authority,operation,digest,operation_authority,retry_at_ms) VALUES(?,?,'creating',?,?,?,?,?,?,?,?,?,?)",&[definition.resource.id.clone().into(),definition.resource.name.clone().into(),definition.resource.tenant.clone().into(),definition.resource.application.clone().into(),definition.resource.family.clone().into(),definition.revision.into(),encoded.clone().into(),authority.clone().into(),operation.into(),digest.clone().into(),authority.clone().into(),crate::asyncrt::wall_ms().into()])?;
-        insert_receipt(tx,&caller,operation,"configure",&digest)?;
+        tx.system_sql("INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,desired_revision,pending_definition,pending_authority,operation,digest,operation_authority,retry_at_ms) VALUES(?,?,'creating',?,?,?,?,?,?,?,?,?,?)",&[definition.resource.id.clone().into(),definition.resource.name.clone().into(),definition.resource.tenant.clone().into(),definition.resource.application.clone().into(),definition.resource.family.clone().into(),definition.revision.into(),encoded.clone().into(),authority.clone().into(),operation.into(),digest.clone().into(),authority.clone().into(),now_ms.into()])?;
+        insert_receipt(tx,caller,operation,"configure",&digest)?;
         schedule(tx)
     })
 }
@@ -602,79 +710,5 @@ pub(crate) async fn maintain(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rusqlite::{params, Connection};
-
-    #[test]
-    fn duplicate_and_stale_catalog_completions_preserve_accepted_metadata() -> Result<()> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(include_str!("catalog.sql"))?;
-        let id = "1".repeat(32);
-        let first = "a".repeat(32);
-        let second = "b".repeat(32);
-        db.execute(
-            "INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,operation,digest,operation_authority,pending_definition,pending_authority,desired_revision,retry_at_ms) VALUES(?,'events','creating','team','app','changed',?,'digest','authority','definition-v1','authority',1,0)",
-            params![id, first],
-        )?;
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, first])?, 1);
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, first])?, 0);
-        assert_eq!(
-            db.execute(RECORD_FAILURE, params!["late failure", id, first])?,
-            0
-        );
-        let state = || {
-            db.query_row(
-                "SELECT definition,accepted_revision,pending_definition,desired_revision,last_error FROM __sys_event_catalog WHERE id=?",
-                [&id],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<String>>(0)?,
-                        row.get::<_, Option<i64>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<i64>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                    ))
-                },
-            )
-        };
-        assert_eq!(
-            state()?,
-            (Some("definition-v1".into()), Some(1), None, None, None)
-        );
-        db.execute(
-            "UPDATE __sys_event_catalog SET lifecycle='updating',operation=?,pending_definition='definition-v2',pending_authority='authority',desired_revision=2 WHERE id=?",
-            params![second, id],
-        )?;
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, first])?, 0);
-        assert_eq!(
-            db.execute(RECORD_FAILURE, params!["old operation", id, first])?,
-            0
-        );
-        assert_eq!(
-            state()?,
-            (
-                Some("definition-v1".into()),
-                Some(1),
-                Some("definition-v2".into()),
-                Some(2),
-                None
-            )
-        );
-        assert_eq!(
-            db.execute(RECORD_FAILURE, params!["pending retry", id, second])?,
-            1
-        );
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, second])?, 1);
-        assert_eq!(db.execute(ACCEPT_CONFIGURATION, params![id, second])?, 0);
-        assert_eq!(
-            db.execute(RECORD_FAILURE, params!["late retry", id, second])?,
-            0
-        );
-        assert_eq!(
-            state()?,
-            (Some("definition-v2".into()), Some(2), None, None, None)
-        );
-        Ok(())
-    }
-}
+#[path = "catalog_tests.rs"]
+mod tests;

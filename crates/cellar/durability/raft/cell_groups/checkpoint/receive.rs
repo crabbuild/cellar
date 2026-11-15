@@ -226,8 +226,9 @@ impl<T: Target> State<T> {
             .and_then(|n| n.checked_add(PAGE_BATCH_ADMISSION))
             .and_then(|n| n.checked_add(extra_bytes))
             .ok_or(CellGroupCheckpointError::Limit)?;
-        pool.budget
-            .acquire(bytes)
+        pool.archive_idle.evict();
+        pool.capacity
+            .acquire(&pool.budget, bytes)
             .ok_or(CellGroupCheckpointError::Busy)
     }
 
