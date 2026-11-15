@@ -98,7 +98,10 @@ pub(super) async fn wait_checkpoint(
             .submit_retained(prepared.clone(), Some(retained.clone()))
             .await
         {
-            Ok(CellSubmissionOutcome::Accepted(_)) => break,
+            Ok(CellSubmissionOutcome::Accepted(_)) => {
+                tracing::debug!(target: "cellar::raft::sql_ingress", "[DEBUG-cg17-cold] checkpoint submitted");
+                break;
+            }
             Ok(CellSubmissionOutcome::Rejected(_)) => return Ok(CheckpointProof::Rejected),
             Err(RuntimeError::Overloaded | RuntimeError::NotReady) => pause(&domain).await?,
             Err(RuntimeError::NotLeader | RuntimeError::StaleCompletion) => {
