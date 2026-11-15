@@ -29,6 +29,66 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Fetched main `189edd9a` remains included. **Runtime source `d0c27fca` fixes two
+archive-progress interleavings** without changing a deadline, durability proof,
+quota, format or assertion:
+
+- A foreground batch admitted during an older publication keeps one immediate
+  publication attempt. Publication launch consumes this wake; proof-lane requeues
+  cannot renew it or erase bounded backoff.
+- Busy proof retry is scoped to the exact physical group and cut. An uncovered
+  output remembers its attempted cut; a newer verified cut and unrelated groups
+  can proceed immediately. No archive-status observation becomes output proof.
+
+The real-controller regression holds an older publication, commits a newer
+receipt and establishes admission through the same controller channel. Baseline
+`9ed8472f` fails its original five-second request budget against a sixty-second
+maintenance interval. One-shot source `29a773b2` also fails; failure-only snapshot
+`bb2038a9` records required index 6 and published index 7 with no archive error at
+the deadline, exposing the proof retry delay. Final source passes both native
+image modes (`CG-17-s3-inflight-green-d0c27fca-209`) and both real-RustFS image
+modes in cohort 211. These are progress proofs, not production latency benchmarks.
+Failed baseline roots and their frozen binaries/logs remain retained.
+
+The locked optimized build, strict library/all-test Clippy, formatting, layout,
+dependency and documentation checks pass. **All 12 archive-control selections
+pass** in `CG-17-archive-inflight-d0c27fca-211`: fresh higher-cut progress,
+completed-coverage reuse, predecessor hold retirement, shared-timer wakeups,
+namespace/stored S3 minima, receipt floors and deadline/ambiguity guards.
+
+**Public cohort `CG-17-event-join-d0c27fca-210` is FAILED: 7/16 pass.**
+RustFS Axum independent-target-S3, registration, Fleet conformance, both ordinary
+SDK source-proof controls and both name-discovery controls pass. The same
+EventStream/SDK selection set passes 7/14 versus the earlier `3e900c3a` 12/14;
+the extra two selections are unchanged Queue load controls, both failing. This
+is weaker public qualification; the cause of the broader failures is not
+established and these archive fixes do not close the end-to-end gate.
+
+Remaining failures include native Axum/native explicit and RustFS native-S3
+initial activation, native/RustFS named Quorum `Consume`, RustFS explicit
+materialized `Read`, and Queue producers at sequence 11 (native) and 10 (RustFS).
+The Queue runs do not establish complete delivery/drain or load performance.
+No retry, timeout or proof is weakened to make these cases pass.
+
+Read-only inspection `CG-17-quorum-consume-inspection-d0c27fca-212` in the checkout
+target's `qualification/` directory finds retained native Quorum source images
+with a settled `Next`, pending `Ack`, and parent RPC step 3/4. The child requests
+Quorum; a matching Next receipt has stored Quorum minimum. No matching Ack receipt
+is found in that voter's retained images. This locates an unresolved Quorum
+request/continuation path, not solely an independent-S3 minimum failure. Retained
+images are not a current live manifest or proof of noncommit elsewhere; preserve
+the original parent/child identity and ambiguity.
+
+All runtime jobs are terminal. Verified public/archive backups contain 32/27
+files, and all 27 failed public voter disks are retained. Three voters share one
+process, separate workspace disks and one SQL worker each; RustFS has one CPU/two
+GiB. The owned container and VM are verified stopped with their object volume
+retained. Acceptance remains **13/17 tasks and 147/195 cases**. Full primitive
+compatibility, current-source combined recovery/release qualification and hard
+cutover remain open; full plan validation still lacks historical CG-01–06 evidence.
+
+## Previous vote-routing checkpoint
+
 Fetched main `189edd9a` remains included through merge `b4caebc5`.
 **Runtime source `3e900c3a` passes all 51 selected owning tests**, its locked
 optimized build, strict library/all-test Clippy, formatting, layout, dependency

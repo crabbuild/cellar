@@ -83,6 +83,14 @@ routing selectors. It grants no leadership, read, absence or enrollment proof;
 each selected destination still performs the ordinary fresh quorum read under
 the original deadline. Stale or missing vote hints retain normal fallbacks.
 
+Foreground S3 batches own one publication wake across an older job's completion;
+publication launch consumes it, and proof-lane requeues cannot renew it. Busy
+proof backoff applies to the exact physical group/cut. An uncovered read remembers
+its attempted cut, so newer independently verified coverage is eligible without
+inheriting that delay. This scheduling state supplies no authority or output proof
+and creates no task or timer per cell. Current request-pipeline qualification is
+reported in the [integration checkpoint](progress.md#current-integration-checkpoint).
+
 This reconciliation requires its own combined-source qualification. Earlier
 branch results below do not establish the merged candidate's runtime behavior.
 

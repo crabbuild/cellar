@@ -57,40 +57,40 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-fetched main `189edd9a`. Runtime `3e900c3a` adds safe preference for the local
-last-voted candidate in automatic name discovery. It reorders only trusted
-members; fresh quorum/current grants/history remain authoritative. All 51 owning
-checks, the optimized build, strict library/all-test Clippy and repository checks
-pass. Both strengthened public name-discovery controls pass every image/minimum
-profile, including minority refusal without application execution.
+main `189edd9a`. Runtime `d0c27fca` preserves one foreground publication wake and
+scopes busy proof retry to the exact group/cut, so newer coverage can proceed.
+The regression passes native and real RustFS in both image modes, and all 12
+archive controls pass. The optimized build, strict library/all-test Clippy and
+repository checks also pass. Original deadlines, quotas and proofs are unchanged.
 
-Cohort 199 is **FAILED: 12/13 selections pass**. Native explicit recovery and
-RustFS extent retained activation now complete alongside named native/Axum and
-RustFS Quorum, native independent S3, Fleet/registration and both SDK source-proof
-controls. RustFS Axum independent-S3 `Consume` fails with an ambiguous deadline.
-An additional exact real-RustFS explicit recovery selection (cohort 200) completes
-materialized mode, then fails an extent `Read` deadline. Neither later passes nor
-local vote hints establish the cause of earlier intermittent failures. No full
-primitive family is accepted.
+**Public qualification remains FAILED: 7/16.** The EventStream/SDK subset passes
+7/14 versus earlier `3e900c3a` 12/14; two added Queue load controls both fail.
+Passing are RustFS Axum independent-S3, registration/Fleet, both ordinary SDK
+source-proof and both name-discovery controls. Cold activation, named Quorum
+Consume, explicit RustFS Read and Queue producer deadlines remain. Their cause
+is not established; the component archive pass does not close public progress.
 
-1. **Close first-ack S3 settlement and S3-backed read progress.** Copied-voter
-   inspection of cohort 199 shows `Next` settled, an exact matching acknowledged
-   target receipt for `Ack`, and a retained source image with a pending binding
-   and parent RPC step 4. Verify the latest manifest before recovery.
-   Target application is not S3 proof. Complete the same receipt's independent
-   archive proof and source continuation under the original budget; autonomously
-   reconcile ambiguous children without inventing new identities or treating a
-   timeout as noncommit. Resolve cohort 200's extent `Read` sequence 8 deadline
-   as well. Preserve current grants/lifecycle, source/target minima, reader/proof
-   ownership and typed failures. Then qualify interrupted binding/delivery/ack,
+1. **Fix Quorum request/continuation and cold activation progress.** Copied native
+   Quorum source images show a settled Next, pending Ack and parent RPC step 3/4.
+   The child requests Quorum, with no Ack receipt found in that voter's retained
+   images. Verify the live committed manifest; absence in these artifacts is not
+   noncommit. Isolate source checkpoint/proof, target dispatch/fresh quorum, SQL
+   admission and parked-frame resumption using a deterministic multi-step,
+   multi-group, one-SQL-worker regression. Qualify bounded pending-proof handoff
+   across groups. Avoid further unproven routing changes or repeated broad runs
+   as a substitute for a focused failing seam. Preserve the original identities,
+   source/target minima, proof ownership, deadlines and mutation ambiguity.
+   Initial activation and explicit RustFS materialized Read still need their
+   original-budget gates. Then finish autonomous interrupted binding/delivery/ack,
    safe unused-sequence sealing, long polling, deletion/recreation and retention
-   through movement and fresh-incarnation recovery. Pending leases still require
-   commands that durably observe expiry. The
+   through movement and fresh-incarnation recovery. The
    [EventStream contract](event-stream-durability.md) keeps separate source,
    destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
-   and fault oracles, then resolve producer deadlines and the older final-drain
-   failures under the unchanged load and budgets. Qualify both image forms.
+   and fault oracles, then resolve current producer sequence 11 (native) and 10
+   (RustFS) deadlines, plus the older final-drain failures, under unchanged load
+   and budgets. Full delivery of the 528-message campaigns is not established.
+   Qualify both image forms.
    Resolve the managed trust-refresh failure and qualify concurrent boot
    reconciliation. General failed-startup joining and disk retention are now
    implemented, with the typed profile-refusal regression passing at `49509b38`.

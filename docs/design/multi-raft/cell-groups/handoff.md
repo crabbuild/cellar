@@ -6,66 +6,74 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current merged-source activation checkpoint
 
-Fetched main `189edd9a` is included in the primary checkout
+Main `189edd9a` remains included in the primary checkout
 `/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar`, branch
 `codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170).
-Runtime source is `3e900c3a`; see the
+Runtime source is `d0c27fca`; see the
 [current evidence](progress.md#current-integration-checkpoint).
 Older instructions below are historical.
 
-Delivered: atomic catalog enrollment/exact-operation joins, immutable metadata
-and completed-ack reads, a bounded retained-startup election hint, and automatic
-name discovery that first tries the existing trusted candidate named by the local
-durable vote. The name hint never authorizes a result or adds a member; current
-quorum, grants/history and original deadlines remain required. Local/explicit
-selectors remain unchanged; missing/closed optional hint state keeps fallback.
-No temporary diagnostic probes remain in production or test source.
+Delivered this checkpoint: preserve a newly admitted foreground archive wake
+across an older publication's completion; consume it once at publication launch;
+keep proof-lane requeues from rearming it; and scope busy proof backoff to its
+physical group/cut. Newer coverage is eligible immediately. Output settlement
+still verifies exact receipt/version, current birth, independent source/target
+minima and retained physical coverage under original deadlines.
 
-Build, strict library/all-test Clippy, repository checks and **51 owning tests
-pass**. Public cohort 199 is **FAILED: 12/13 pass**. Both name-discovery controls
-pass all image/minimum profiles, including automatic minority refusal. Named
-native/Axum Quorum and RustFS Quorum, native explicit recovery, native independent
-S3, Fleet/registration and both SDK source-proof controls pass. The prior native
-outbox-recovery and RustFS extent retained-activation failure points complete in
-this run; this does not explain earlier intermittent failures.
+The new regression fails on `9ed8472f`. One-shot source `29a773b2` still fails;
+`bb2038a9` captures required cut 6 versus published cut 7 at failure. Final source
+passes both native image modes and both real-RustFS image modes. All **12 archive
+controls**, locked optimized build, strict library/all-test Clippy and repository
+checks pass. No temporary production probes were added; failure-only test context
+records the required/published cut without changing the timed trigger.
 
-**Next delivery: first-ack S3 settlement and S3-backed read progress.**
+**Public qualification remains FAILED: 7/16.** Passing: real-RustFS Axum
+independent-S3, registration/Fleet, both SDK source-proof and both name-discovery
+controls. The same EventStream/SDK cases pass 7/14 versus prior source `3e900c3a`
+12/14; both added Queue load controls fail. Do not claim stable public behavior,
+a speedup, completed S3 recovery or full primitive support from the archive pass.
 
-1. Cohort 199 fails RustFS Axum independent-S3 `Consume` with an ambiguous
-   deadline. Inspection of copied failed-voter SQLite images shows a settled
-   `Next` and pending `Ack` in the retained source image, with exact matching
-   acknowledged target receipts in two retained images. The source image records
-   parent RPC step 4; verify the current manifest before recovery.
-   Target application does not prove S3 coverage. Trace the exact receipt's
-   archive settlement and source continuation; preserve/reconcile the same child
-   and parent identities. Do not resubmit a new acknowledgment to hide ambiguity.
-2. Additional real-RustFS explicit cohort 200 completes materialized mode, then
-   fails extent `Read` for `Counter:event-sink` sequence 8 with an ambiguous
-   storage deadline. Preserve original budgets, independent source/target minima
-   and owned reader/proof lifetimes. A cause is not established.
-3. Once these gates pass, finish interrupted binding/delivery/ack, autonomous safe
-   sequence sealing, long polling/retention and Queue load/startup. Complete the
-   combined primitive lifecycle/recovery and release matrices before cutover.
+**Next feature delivery: isolate and fix Quorum callback/activation progress.**
+
+1. Native named Quorum `Consume` fails. Copied retained source images show Next
+   settled, Ack pending and parent RPC step 3/4; the requested child minimum is
+   Quorum. There is no Ack receipt in that voter's retained images, which does
+   not establish noncommit on other voters. Verify the live committed manifest
+   and isolate source checkpoint/proof, target dispatch/fresh quorum, SQL
+   admission and parked-frame resumption. Preserve original command identities.
+   Build a deterministic multi-step, multi-group, one-SQL-worker regression before
+   further routing hints or broad qualification. Qualify bounded pending-proof
+   handoff between groups as part of this investigation.
+2. Cold activation fails for native Axum/native explicit and RustFS native-S3;
+   RustFS explicit materialized Read still exceeds its original budget. Keep the
+   current failures separate from the corrected archive interleavings.
+3. Queue load fails producer sequence 11 (native) and 10 (RustFS); full drain and
+   528-message delivery are unproven. After request progress is stable, finish
+   interrupted binding/delivery/ack and safe sequence sealing, long polling,
+   retention/recreation and the complete primitive lifecycle/recovery matrix.
 
 Records under `.cellar/cell-groups-evidence/`:
-`CG-17-event-join-units-3e900c3a-199`, `CG-17-event-join-3e900c3a-199` and
-`CG-17-event-join-3e900c3a-200`. Their public backups verify 29/17 files and retain
-six failed voter disks. Copied-voter inspection is
-`CG-17-consume-inspection-3e900c3a-201` in the checkout target's `qualification/`
-directory. Previous Blob/payload and seven consensus passes remain pinned to
-`a4b15792`; no current-source acceptance is borrowed from them.
+`CG-17-s3-inflight-red-9ed8472f-202`, `CG-17-s3-inflight-green-29a773b2-206`,
+`CG-17-s3-inflight-diagnostic-bb2038a9-208`,
+`CG-17-s3-inflight-green-d0c27fca-209`,
+`CG-17-event-join-d0c27fca-210`, `CG-17-archive-inflight-d0c27fca-211`.
+The public/archive backups verify 32/27 files and retain 27 failed public voter
+disks. Failed regression roots/binaries are retained separately. Copied-voter
+inspection is `CG-17-quorum-consume-inspection-d0c27fca-212` under this checkout's
+target `qualification/`. Older unit/Blob/payload/consensus results retain their
+own source pins and are not current-source runtime acceptance.
 
 Ignored drivers/profile are in `.cellar/cg17-payload-01/`; all jobs are terminal.
 Use `event-read-state.json` for exact handles and stage status. No tracked edits
 during formatter/compiler or source-pinned runtime; no own compilers during public
-qualification. Preserve failed controls and original oracles.
+qualification. Preserve failed controls, original budgets and all proof fences.
 
 Owned RustFS is `.cellar/cg17-payload-01/canonical-backend-179`, owner
-`cellar-multi-raft-0809a242624d22c7`, one CPU/two GiB in its dedicated Colima
-profile. Container and VM are verified stopped; the owned object volume remains.
-Voters share one process, separate workspace disks and one SQL worker each.
-Counts remain **13/17 tasks and 147/195 cases**. Full plan validation still lacks
-historical CG-01–06 evidence; complete CG-13/17/15/16 gates remain open.
+`cellar-multi-raft-0809a242624d22c7`, one CPU/two GiB. Container and its dedicated
+Colima VM are verified stopped; the owned object volume remains. Voters share one
+process, separate workspace disks and one SQL worker each. Counts remain
+**13/17 tasks and 147/195 cases**. Full CG-13/17/15/16 gates and historical evidence
+restoration/current-source requalification remain required before hard cutover.
 
 ## Historical immutable EventStream query checkpoint
 
