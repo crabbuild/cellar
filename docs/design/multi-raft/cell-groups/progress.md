@@ -29,7 +29,64 @@ for the next delivery.
 
 ## Current integration checkpoint
 
-Latest fetched main `189edd9a` (Blob providers and retained external-payload
+Fetched main `189edd9a` remains included through merge `b4caebc5`.
+**Runtime source `3e900c3a` passes all 51 selected owning tests**, its locked
+optimized build, strict library/all-test Clippy, formatting, layout, dependency
+and documentation checks. Temporary recovery probes are removed from this
+candidate. The generated implementation index and accepted counts are unchanged.
+
+Automatic name discovery can prefer the current voter named by a local durable
+vote. This only reorders existing trusted candidates; the hint stays fixed for
+one physical group history and never supplies leadership, membership or read
+proof. Local and explicit replica selectors retain their behavior. Missing or
+closed optional hint state retains ordinary fallback; other storage failures
+still propagate. Fresh destination quorum, current grants/history, original
+attempts and deadlines remain required. The strengthened public conformance
+checks exact identities without application execution and refuses automatic
+lookup after quorum loss in both image/minimum profiles.
+
+Cohort `CG-17-event-join-3e900c3a-199` is **FAILED: 12/13 selections pass**:
+registration, Fleet conformance, native/Axum and real-RustFS named Quorum,
+native explicit recovery, native independent-target-S3, both ordinary SDK
+source-proof controls, and both name-discovery controls. Passing named and
+explicit selections complete both image modes. In this run, native explicit
+outbox-recovery activation and RustFS extent retained activation both complete;
+the earlier deadline failures remain recorded below and are not explained by
+one later pass.
+
+The failure is **RustFS Axum independent-target-S3 `Consume`**, which returns an
+ambiguous deadline failure. Read-only inspection of copies of one failed voter
+(`CG-17-consume-inspection-3e900c3a-201` under the checkout target's qualification
+directory) finds a retained source image with the first `Next` binding settled
+and the second `Ack` binding pending. Two retained target images contain the
+exact child/client sequence and request-digest acknowledgment receipt. That source
+image records parent RPC step 4.
+These facts establish target application, **not** independent S3 proof or source
+settlement; recovery must reconcile that same identity rather than infer failure
+or issue a new mutation. The inspection establishes neither a latency cause nor
+the latest live manifest.
+
+Additional exact real-RustFS explicit-resource cohort
+`CG-17-event-join-3e900c3a-200` is **FAILED: 0/1**. Materialized mode completes;
+extent mode fails `Read` for `Counter:event-sink`, command sequence 8, with an
+ambiguous storage deadline. Thus S3-backed read/ack progress remains the immediate
+feature gap. No deadline, proof, quota or assertion was relaxed. Earlier Blob,
+payload and seven consensus controls retain their prior source pins below;
+they are not relabeled as current-source runtime qualification.
+
+Records live under `.cellar/cell-groups-evidence/`:
+`CG-17-event-join-units-3e900c3a-199` and the two public cohorts above. Frozen
+binaries, verified 29-file/17-file public backups and all six failed voter disks
+are retained. Three voters share one process, separate workspace disks and one
+SQL worker each; RustFS has one CPU/two GiB. The owned container and VM are stopped
+and the object volume remains owned and retained. Full primitive compatibility,
+the complete CG-13/15/16 fault matrix and hard cutover remain open. Acceptance
+remains **13/17 tasks and 147/195 cases**; full plan validation still lacks the
+historical CG-01–06 evidence directory.
+
+## Previous merged-source completed-ack checkpoint
+
+Then-fetched main `189edd9a` (Blob providers and retained external-payload
 recovery, PR #173) is merged at `b4caebc5`. **Runtime source `a4b15792` passes
 51 owning checks and seven consensus controls.** Its locked optimized build,
 strict library/all-test Clippy, formatting, layout, dependency and documentation

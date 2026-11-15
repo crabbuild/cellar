@@ -57,31 +57,35 @@ This does not qualify the authenticated destination or public EventStream path.
 See the [source checkpoint](progress.md#cg-17-eventstream-source-journal-and-shared-work).
 
 The [current checkpoint](progress.md#current-integration-checkpoint) includes
-main `189edd9a`. Runtime `a4b15792` adds a bounded retained-startup election hint
-and an immutable completed-acknowledgment read. The latter preserves current
-grants/incarnation, source proof, independent target coverage and the ordinary
-command for pending leases. All 51 owning checks, seven consensus controls,
-optimized build, strict library/all-test Clippy and repository checks pass.
+fetched main `189edd9a`. Runtime `3e900c3a` adds safe preference for the local
+last-voted candidate in automatic name discovery. It reorders only trusted
+members; fresh quorum/current grants/history remain authoritative. All 51 owning
+checks, the optimized build, strict library/all-test Clippy and repository checks
+pass. Both strengthened public name-discovery controls pass every image/minimum
+profile, including minority refusal without application execution.
 
-Combined cohort 195 passes **15/17 selections**: nine EventStream/SDK selections
-and all six merged native/RustFS Blob and payload controls. Native/Axum named
-Quorum and native/Axum independent-target-S3 paths complete both image modes.
-RustFS named Quorum completes materialized mode before failing extent retained
-activation. Explicit-resource recovery fails materialized outbox-recovery
-activation; extents are unrun. Earlier passing retained-startup controls do not
-close these current recovery deadlines. These are scoped results, not complete
-primitive-family acceptance.
+Cohort 199 is **FAILED: 12/13 selections pass**. Native explicit recovery and
+RustFS extent retained activation now complete alongside named native/Axum and
+RustFS Quorum, native independent S3, Fleet/registration and both SDK source-proof
+controls. RustFS Axum independent-S3 `Consume` fails with an ambiguous deadline.
+An additional exact real-RustFS explicit recovery selection (cohort 200) completes
+materialized mode, then fails an extent `Read` deadline. Neither later passes nor
+local vote hints establish the cause of earlier intermittent failures. No full
+primitive family is accepted.
 
-1. **Close managed recovery activation.** Trace current catalog/name discovery,
-   fresh quorum readiness, reader admission and required archive coverage at the
-   two preserved failures under their original deadlines. The startup election
-   hint passes its owning controls but has not made all public recovery stable.
-   Retain current grants/lifecycle, independent source/target minima, typed
-   failures and mutation ambiguity. Existing exact-operation joins, birth
-   initialization and immutable completed-ack probes are implemented. Then qualify
-   interrupted binding/delivery/ack, long polling, deletion/recreation and
-   retention through movement and fresh incarnation recovery. Pending leases
-   still require commands that durably observe expiry. The
+1. **Close first-ack S3 settlement and S3-backed read progress.** Copied-voter
+   inspection of cohort 199 shows `Next` settled, an exact matching acknowledged
+   target receipt for `Ack`, and a retained source image with a pending binding
+   and parent RPC step 4. Verify the latest manifest before recovery.
+   Target application is not S3 proof. Complete the same receipt's independent
+   archive proof and source continuation under the original budget; autonomously
+   reconcile ambiguous children without inventing new identities or treating a
+   timeout as noncommit. Resolve cohort 200's extent `Read` sequence 8 deadline
+   as well. Preserve current grants/lifecycle, source/target minima, reader/proof
+   ownership and typed failures. Then qualify interrupted binding/delivery/ack,
+   safe unused-sequence sealing, long polling, deletion/recreation and retention
+   through movement and fresh-incarnation recovery. Pending leases still require
+   commands that durably observe expiry. The
    [EventStream contract](event-stream-durability.md) keeps separate source,
    destination and output boundaries.
 2. **Close Queue and shared startup failures.** Keep the passing coalesced proof
