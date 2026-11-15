@@ -395,6 +395,29 @@ checkout-owned qualification directory. The later records are
 This addresses recovery progress, not a measured SQL/KV/Queue throughput or
 latency gain. No full OPT/CG acceptance is promoted.
 
+### Current-source removed-member recheck
+
+At unchanged compiler manifest `f4505de5` and source `e9509a2f`, the original
+removed-member authority oracle passes natively in 55.34 seconds and with real
+RustFS in 72.75 seconds. Each command emits all six SDK/native HTTP/Axum and
+materialized/extent evidence profiles. An actually removed member remains outside
+the fresh stable configuration. The intended authenticated faulty-peer command
+is reached, its complete pre-admission refusal preserves the callback count
+(1 to 1) and SQL-stage count (3 to 3), and retry/replay of the same original
+command produces the second callback exactly once with S3 durability. Membership,
+term and range-directory assertions remain unchanged.
+
+No production, fixture, assertion, deadline or request-identity changes are made
+for this rerun. The earlier pre-current-main failure is unreproduced; no isolated
+cause is established. The original failed records remain failed. Both commands
+join their owners and retain unchanged compiler inputs; the original RustFS
+identity, limits and readiness remain intact. Linux control compilation overlaps
+these functional runs, so their durations establish no isolated performance
+effect. Records are `main173-removed-member-01` and
+`main173-removed-member-rustfs-01` in the checkout-owned qualification directory.
+This passes the scoped oracle on the current source, without accepting the
+remaining public authority/read-consistency cuts or a complete OPT package.
+
 ## Direct-routing candidate
 
 The current candidate adds a leader index beside the transport's existing route
