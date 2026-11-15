@@ -16,8 +16,12 @@ struct PausedCell {
 }
 
 impl Cell for PausedCell {
-    fn invoke(self: Arc<Self>, _: Context, _: Invocation) -> HandlerFuture<Output> {
+    fn invoke(self: Arc<Self>, _: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
+            if matches!(invocation, Invocation::CellRpc { ref method, .. } if method == "Add") {
+                let value = update(&self.storage, 2)?;
+                return Ok(Output::Rpc(RpcData::Json(json!(value).to_string())));
+            }
             self.calls.fetch_add(1, Ordering::AcqRel);
             update(&self.storage, 1)?;
             self.storage.sync().await?;
@@ -51,10 +55,7 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
             tx.storage()?.put_json("value", &json!(0))
         })?
         .json_cell_rpc("Run", [183; 32])?
-        .command("Add", [184; 32], |context, _| {
-            update(&context.storage()?, 2)?;
-            Ok(b"2".to_vec())
-        })?;
+        .json_cell_rpc("Add", [184; 32])?;
     let called = calls.clone();
     let waiting = gates.clone();
     let application = Arc::new(
@@ -172,7 +173,7 @@ pub async fn run(rooted: bool, store: Arc<catalog_fault::Store>) -> Result<()> {
                     let (other_result, resumed) = tokio::join!(
                         other.command(
                             &add,
-                            vec![],
+                            b"{}".to_vec(),
                             interleaving::command(189, 1, Durability::Quorum)?
                         ),
                         async {
