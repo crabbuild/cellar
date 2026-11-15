@@ -422,25 +422,26 @@ impl RaftCells {
                 *selected.lock().unwrap() = Some(history.clone());
                 tracing::debug!(target: "cellar::raft::sql_ingress", %method,
                     phase="history", newly_enrolled, elapsed_ms=owner.handle.domain.mono_ms()?.saturating_sub(started));
-                if newly_enrolled
-                    && method == "__catalogConfigure"
+                if method == "__catalogConfigure"
                     && matches!(&origin, Origin::Event(authority)
                         if matches!(authority.as_ref(), super::super::native_event_rpc::Authority::Event(caller)
                             if caller.require_provisioning().is_ok()))
                 {
-                    let response = owner
-                        .joined_event_configuration(history, input, durability, deadline)
-                        .await?;
-                    if let Some(limit) = reservation.reply_limit() {
-                        anyhow::ensure!(
-                            matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
-                            crate::application::rpc::Failure::new(
-                                crate::application::rpc::Code::InvalidResponse
-                            )
-                        );
+                    if let Some(response) = owner
+                        .joined_event_configuration(&history, &input, durability, deadline)
+                        .await?
+                    {
+                        if let Some(limit) = reservation.reply_limit() {
+                            anyhow::ensure!(
+                                matches!(&response, RpcData::Structured(bytes) if bytes.len() <= limit),
+                                crate::application::rpc::Failure::new(
+                                    crate::application::rpc::Code::InvalidResponse
+                                )
+                            );
+                        }
+                        remaining()?;
+                        return Ok(response);
                     }
-                    remaining()?;
-                    return Ok(response);
                 }
                 if let Origin::KvPreparation { digest, length } = origin {
                     let store = owner.kv_wire_store(&history)?;

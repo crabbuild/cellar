@@ -39,6 +39,91 @@ fn service(catalog: bool) -> Result<RaftClass> {
     )?)
 }
 
+#[test]
+fn configuration_probe_keeps_body_and_original_command_nonce_with_two_owned_wires() -> Result<()> {
+    let definition = definition();
+    let scope = event_stream::catalog_scope(&definition.resource)?;
+    let name = event_stream::catalog_name(&definition.resource)?;
+    let authority = Authority::Event(event_stream::Authority::deployment("shop", &definition)?);
+    let args = serde_json::json!([{"operation":"a".repeat(32),"definition":"x".repeat(96 << 10)}])
+        .to_string();
+    let input = encode_ingress(
+        &scope,
+        Some(&name),
+        "__catalogConfigure",
+        authority,
+        &RpcData::Json(args.clone()),
+        256 << 10,
+        [9; 16],
+    )?;
+    let original = input.clone();
+    let (authority, query) = configuration_receipt_query(&scope, &input, input.len())?;
+    assert_eq!(input, original);
+    assert!(has_ingress_nonce(&input));
+    assert!(!has_ingress_nonce(&query));
+    assert!(query.len() <= input.len());
+    assert!(configuration_receipt_query(&scope, &input, query.len() - 1).is_err());
+    let decoded = decode(&scope, &query)?;
+    assert_eq!(decoded.method, "__catalogConfigureReceipt");
+    assert_eq!(decoded.rpc.name.as_deref(), Some(name.as_str()));
+    assert_eq!(
+        serde_json::to_value(decoded.authority)?,
+        serde_json::to_value(authority)?
+    );
+    let RpcData::Json(actual) = decoded.rpc.args else {
+        anyhow::bail!("changed argument kind");
+    };
+    assert_eq!(actual, args);
+    Ok(())
+}
+
+#[test]
+fn configuration_probe_refuses_other_methods_authority_and_truncated_headers() -> Result<()> {
+    let definition = definition();
+    let scope = event_stream::catalog_scope(&definition.resource)?;
+    let name = event_stream::catalog_name(&definition.resource)?;
+    let authority = Authority::Event(event_stream::Authority::deployment("shop", &definition)?);
+    let input = encode_ingress(
+        &scope,
+        Some(&name),
+        "__catalogConfigure",
+        authority.clone(),
+        &RpcData::Json("[{}]".into()),
+        4096,
+        [10; 16],
+    )?;
+    let header = u32::from_be_bytes(input[5..9].try_into()?) as usize;
+    for end in 0..9 + header + 22 {
+        assert!(
+            configuration_receipt_query(&scope, &input[..end], 4096).is_err(),
+            "accepted truncated header/nonce at {end}"
+        );
+    }
+    let status = encode(
+        &scope,
+        Some(&name),
+        "__catalogStatus",
+        authority,
+        &RpcData::Json("[{}]".into()),
+        4096,
+    )?;
+    assert!(configuration_receipt_query(&scope, &status, 4096).is_err());
+    let ordinary: event_stream::Authority = serde_json::from_value(serde_json::json!({
+        "resource":definition.resource,"principal":"shop","grant":"owner","action":"Configure",
+    }))?;
+    let input = encode_ingress(
+        &scope,
+        Some(&name),
+        "__catalogConfigure",
+        Authority::Event(ordinary),
+        &RpcData::Json("[{}]".into()),
+        4096,
+        [11; 16],
+    )?;
+    assert!(configuration_receipt_query(&scope, &input, 4096).is_err());
+    Ok(())
+}
+
 #[tokio::test]
 async fn event_catalog_enrollment_records_intent_and_work_atomically() -> Result<()> {
     use cellar_logic::{

@@ -183,7 +183,7 @@ pub(crate) fn has_ingress_nonce(input: &[u8]) -> bool {
             .is_some_and(native_rpc::has_ingress_nonce)
 }
 
-pub(crate) fn decode(scope: &str, input: &[u8]) -> Result<Request> {
+fn request_parts(input: &[u8]) -> Result<(Header, &[u8])> {
     ensure!(input.starts_with(MAGIC), "invalid private event RPC format");
     let length = u32::from_be_bytes(
         input
@@ -197,8 +197,52 @@ pub(crate) fn decode(scope: &str, input: &[u8]) -> Result<Request> {
         .context("truncated event RPC")?
         .split_at_checked(length)
         .context("truncated event RPC authority")?;
-    let Header { method, authority } = serde_json::from_slice(header)?;
-    validate_method(&method)?;
+    let header: Header = serde_json::from_slice(header)?;
+    validate_method(&header.method)?;
+    Ok((header, rpc))
+}
+
+/// Probe an exact provisioning receipt without decoding the large definition
+/// body. The original command remains owned by ingress for a known
+/// absence fallback, with its nonce and complete fingerprint unchanged.
+pub(super) fn configuration_receipt_query(
+    scope: &str,
+    input: &[u8],
+    max_bytes: usize,
+) -> Result<(Authority, Vec<u8>)> {
+    let (mut header, rpc) = request_parts(input)?;
+    ensure!(
+        header.method == "__catalogConfigure",
+        CommandFailure::UnsupportedCapability
+    );
+    let Authority::Event(caller) = &header.authority else {
+        anyhow::bail!(CommandFailure::UnsupportedCapability);
+    };
+    caller.require_provisioning()?;
+    header.method = "__catalogConfigureReceipt".into();
+    header.authority.target_name(scope, &header.method)?;
+    let encoded = serde_json::to_vec(&header)?;
+    ensure!(encoded.len() <= MAX_HEADER, CommandFailure::Overloaded);
+    let (prefix, body) = native_rpc::query_request_parts(rpc)?;
+    let length = MAGIC
+        .len()
+        .checked_add(4)
+        .and_then(|n| n.checked_add(encoded.len()))
+        .and_then(|n| n.checked_add(prefix.len()))
+        .and_then(|n| n.checked_add(body.len()))
+        .ok_or(CommandFailure::Overloaded)?;
+    ensure!(length <= max_bytes, CommandFailure::Overloaded);
+    let mut output = Vec::with_capacity(length);
+    output.extend_from_slice(MAGIC);
+    output.extend_from_slice(&u32::try_from(encoded.len())?.to_be_bytes());
+    output.extend_from_slice(&encoded);
+    output.extend_from_slice(prefix);
+    output.extend_from_slice(body);
+    Ok((header.authority, output))
+}
+
+pub(crate) fn decode(scope: &str, input: &[u8]) -> Result<Request> {
+    let (Header { method, authority }, rpc) = request_parts(input)?;
     let rpc = native_rpc::decode_request(rpc)?;
     authority.validate_target(scope, rpc.name.as_deref(), &method)?;
     Ok(Request {

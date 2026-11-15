@@ -541,10 +541,12 @@ impl NativeCellFactory {
         let retire = workflow.then(|| (instance.resources(), state.clone()));
         let future: HandlerFuture<Vec<u8>> = Box::pin(async move {
             if let Some((work, leased_until)) = work {
-                // The trusted Queue broker proves this claim together with its
-                // lease before consumer entry, or with its DLQ intent before
-                // dispatch. Other callbacks prove the claim before entry here.
-                if work.reason != "queue" {
+                // Queue proves the claim with its lease before consumer entry
+                // or its DLQ intent before dispatch. Trusted catalog preparation
+                // likewise proves claim + binding intent before any child I/O;
+                // it never enters application code. Other callbacks still need
+                // their entry proof here. Final completion retains its minimum.
+                if !matches!(work.reason.as_str(), "queue" | "resource-reconciliation") {
                     storage.sync().await?;
                 }
                 if work.reason == "filesystem" {

@@ -331,15 +331,6 @@ pub(super) fn configuration_receipt_read(
         ));
     }
     let row = authorize_resource(db, caller, Action::Configure)?;
-    let prior = receipt(db, operation)?
-        .ok_or_else(|| error(ErrorCode::OperationUnknown, "catalog operation missing"))?;
-    validate_receipt(&prior, caller, "configure", Some(&digest))?;
-    if store::text(&row, "operation")? != operation || store::text(&row, "digest")? != digest {
-        return Err(error(
-            ErrorCode::ConfigConflict,
-            "catalog configuration was superseded",
-        ));
-    }
     if !matches!(
         store::text(&row, "lifecycle")?.as_str(),
         "creating" | "updating" | "active"
@@ -347,6 +338,15 @@ pub(super) fn configuration_receipt_read(
         return Err(error(
             ErrorCode::DestinationDeleted,
             "catalog resource is retiring or deleted",
+        ));
+    }
+    let prior = receipt(db, operation)?
+        .ok_or_else(|| error(ErrorCode::OperationUnknown, "catalog operation missing"))?;
+    validate_receipt(&prior, caller, "configure", Some(&digest))?;
+    if store::text(&row, "operation")? != operation || store::text(&row, "digest")? != digest {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "catalog configuration was superseded",
         ));
     }
     status(&row)

@@ -12,57 +12,45 @@ use cellar_logic::consensus::ProposalId;
 use rand::RngCore as _;
 
 impl RaftCells {
-    /// Catalog enrollment already installed this deployment's durable intent.
-    /// Join its exact receipt without allocating a second command sequence;
-    /// autonomous reconciliation still owns broker delivery and acceptance.
-    pub(super) fn joined_event_configuration(
+    /// Join an existing exact provisioning intent before considering a new
+    /// command. Only a verified absence permits the ordinary update path;
+    /// discovery, authorization and proof failures cannot authorize mutation.
+    pub(super) async fn joined_event_configuration(
         &self,
-        history: CellHistory,
-        input: Vec<u8>,
+        history: &CellHistory,
+        input: &[u8],
         minimum: Durability,
         deadline: u64,
-    ) -> HandlerFuture<RpcData> {
-        let prepared = (|| -> anyhow::Result<_> {
+    ) -> anyhow::Result<Option<RpcData>> {
+        let (route, query) = {
             let scope = history.cell.as_str();
-            let request = native_event_rpc::decode(scope, &input)?;
-            anyhow::ensure!(
-                request.method == "__catalogConfigure",
-                CommandFailure::UnsupportedCapability
-            );
-            let native_event_rpc::Authority::Event(caller) = &request.authority else {
-                anyhow::bail!(CommandFailure::UnsupportedCapability);
-            };
-            caller.require_provisioning()?;
+            let (authority, query) =
+                native_event_rpc::configuration_receipt_query(scope, input, input.len())?;
             let mut route = self.handle.core.host.event_query_route(
                 scope,
                 "__catalogConfigureReceipt",
-                &request.authority,
+                &authority,
                 &self.handle.core.log,
             )?;
             route.durability = route.durability.max(minimum);
-            // Birth supplies only a locator. The query must obtain current
+            // Discovery supplies only a locator. The query must obtain current
             // linearizable authority and the independent target minimum proof.
             route.history_hint = Some(history.clone());
-            // Keep the admitted two-copy envelope bound while replacing the
-            // command wire with a private immutable query over the same body.
-            drop(input);
-            let input = native_event_rpc::encode(
-                scope,
-                request.rpc.name.as_deref(),
-                "__catalogConfigureReceipt",
-                request.authority,
-                &request.rpc.args,
-                route.max_input_bytes,
-            )?;
-            Ok((route, input))
-        })();
-        let owner = self.internal_observer();
-        Box::pin(async move {
-            let (route, input) = prepared?;
-            owner
-                .query_event_resource(route, input, deadline, false)
-                .await
-        })
+            anyhow::ensure!(
+                query.len() <= route.max_input_bytes,
+                CommandFailure::Overloaded
+            );
+            (route, query)
+        };
+        let response = self
+            .query_event_resource(route, query, deadline, false)
+            .await?;
+        if configuration_operation_absent(&response)? {
+            // Drop the selected image and archive proof before an update needs
+            // another cut. The caller still owns its untouched command wire.
+            return Ok(None);
+        }
+        Ok(Some(response))
     }
 
     pub(crate) fn event_read(
@@ -271,3 +259,25 @@ impl RaftCells {
         })
     }
 }
+
+fn configuration_operation_absent(response: &RpcData) -> anyhow::Result<bool> {
+    let value = crate::application::decode_rpc_result(response)?.to_json()?;
+    let Some(error) = value.get("error") else {
+        return Ok(false);
+    };
+    anyhow::ensure!(
+        value.as_object().is_some_and(|object| object.len() == 1),
+        "malformed catalog probe response"
+    );
+    let error: crate::application::event_stream::DeliveryError =
+        serde_json::from_value(error.clone())?;
+    Ok(matches!(
+        error.code,
+        crate::application::event_stream::ErrorCode::OperationUnknown
+            | crate::application::event_stream::ErrorCode::NotInitialized
+    ))
+}
+
+#[cfg(test)]
+#[path = "event_read_tests.rs"]
+mod tests;

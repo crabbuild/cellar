@@ -135,6 +135,22 @@ pub(crate) fn decode_request(input: &[u8]) -> Result<Request> {
     Ok(Request { name, args })
 }
 
+/// Borrow a query request's framing and unchanged name/argument bytes. An
+/// ingress nonce belongs to the original command fingerprint, not its read
+/// probe. The selected query decoder still validates the complete payload.
+pub(super) fn query_request_parts(input: &[u8]) -> Result<(&[u8], &[u8])> {
+    let purpose = *input.get(5).context("truncated native RPC purpose")?;
+    ensure!(
+        purpose == 1 || purpose == 3,
+        "invalid native RPC request purpose"
+    );
+    let mut reader = Reader::new(input, purpose)?;
+    if purpose == 3 {
+        reader.take(16)?;
+    }
+    Ok((&[b'C', b'R', b'P', b'C', FORMAT, 1], reader.0))
+}
+
 /// Independent ingress calls with identical SQL still have different retained
 /// request fingerprints when they race for the same bounded client sequence.
 pub(crate) fn encode_ingress_request(

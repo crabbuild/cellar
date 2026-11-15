@@ -75,14 +75,28 @@ and work deadline. Its initializer digest distinguishes this contract from the
 previous empty enrollment; development namespaces must be recreated rather than
 migrated.
 
-After a new catalog enrollment, deployment ingress joins the initializer’s exact
-configuration operation through a private immutable read. The read checks the
-full canonical definition digest, operation owner, current administration grant
-and lifecycle. It retains the original deadline and the target’s independent
-minimum durability proof. It allocates no command identity or second reconciler.
-A pending result is only an accepted intent: activation still waits for fresh
-active catalog and broker proofs. Existing catalogs and configuration changes
-keep their ordinary command path.
+After discovering a catalog identity, deployment ingress first joins the exact
+configuration operation through a private immutable read, including catalogs
+that are already enrolled. The read checks the full canonical definition digest,
+operation owner, current administration grant and lifecycle. It retains the
+original deadline and the target’s independent minimum durability proof. A
+verified `OperationUnknown` or `NotInitialized` response permits the ordinary
+configuration command; transport, proof, authorization and malformed-response
+failures do not. Retirement/deletion is checked before reporting operation
+absence. The original command wire and nonce remain unchanged for that fallback.
+The probe copies only framing and payload bytes, keeping two owned request wires
+without decoding another full definition body in ingress.
+
+An existing operation allocates no command identity or second reconciler. A
+pending result is only an accepted intent: activation still waits for fresh
+active catalog and broker proofs. Genuine updates retain their normal command
+validation and receipt semantics.
+
+Trusted catalog reconciliation prepares its claim and binding intent before one
+shared checkpoint proves both at the source minimum. The binding bridge permits
+no child enrollment or dispatch before that proof. This framework path enters no
+application code; ordinary application callbacks still prove claims before entry.
+Final work completion retains its required proof and original execution deadline.
 
 ## Publication and independent proof
 

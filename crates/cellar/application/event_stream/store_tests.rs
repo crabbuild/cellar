@@ -160,6 +160,10 @@ async fn catalog_configuration_join_reads_exact_intent_without_rearming_or_deliv
         assert_eq!(read()?["state"], "active");
         db.system_sql("UPDATE __sys_event_catalog SET lifecycle='deleted'", &[])?;
         assert_eq!(read().unwrap_err().downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::DestinationDeleted);
+        let mut absent = body.clone();
+        absent["operation"] = json!("f".repeat(32));
+        let refused = super::super::metadata::read(&db, &scope, "__catalogConfigureReceipt", &authority, &absent).unwrap_err();
+        assert_eq!(refused.downcast_ref::<super::super::DeliveryError>().unwrap().code, ErrorCode::DestinationDeleted);
         Ok(())
     }).await
 }
