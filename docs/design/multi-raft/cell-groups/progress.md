@@ -29,6 +29,45 @@ for the next delivery.
 
 ## Current integration checkpoint
 
+Main `189edd9a` remains included. **Runtime source `701b6d6f1` lets an exact
+applied RPC checkpoint resume while a later committed entry for another cell
+awaits physical apply.** The invocation retains its writer and original ready
+barrier. Its live owner/route/history/term fence plus the exact expected cell
+version mint continuation authority from the applied proof. Reconciliation alone
+grants no execution; newer terms still reconcile, new application entry still
+requires full group readiness, and S3 checkpoints still require archival proof.
+
+A physical regression at `376e403df` first applies the source checkpoint while
+a stale local query holds its SQL worker, then blocks another cell's manifest
+sync before releasing that worker. The source callback fails to resume within
+the fixed gate. At `701b6d6f1` it resumes while group apply is still behind, in
+both image forms against native storage and real RustFS. The final receipt and
+retry preserve the result/version and execute the handler exactly once.
+
+Cohort `CG-17-checkpoint-proof-green-320-701b6d6f` is **FAILED, 8/10 passed**:
+both new checkpoint cases, both existing continuation cases, both new-entry
+readiness/deadline controls and both SDK source-proof controls pass. The two
+original named EventStream cases still fail initial activation on node 0 with
+materialized images. Later EventStream phases and the other public selections
+were not requalified by this cohort; the last full sixteen-case result remains
+6/16 at `086f1663`. This closes a proven checkpoint liveness gap, not the cold
+binding deadline blocker or the full primitive MVP.
+
+The held-apply fixtures use two SQL workers. Only the new checkpoint fixture
+admits three requests (two commands plus its physical observer), within the
+unchanged 64-KiB command byte bank. Existing public fixtures retain one SQL
+worker per voter and their original quotas/deadlines. Voters share one process
+and separate workspace disks; RustFS has one CPU/two GiB. No latency improvement
+or independent-voter release acceptance is claimed. The optimized build, strict
+library/all-test Clippy, formatting, layout, dependency and docs checks pass.
+Six failed public voter disks and nine disks from the failing/setup controls
+remain with logs, exact binaries and verified evidence backups. The first
+RustFS resume probe's startup 503 and its later same-container pass are retained.
+The owned backend and VM are stopped after qualification. Full acceptance stays
+**13/17 tasks and 147/195 cases**.
+
+## Initial clean Quorum read checkpoint
+
 Main `189edd9a` remains included. **Runtime source `086f1663` reuses an unchanged
 Quorum entry image for its first immutable dependent read.** The SQL owner
 records the baseline before maintenance/constructors; private writes, schema

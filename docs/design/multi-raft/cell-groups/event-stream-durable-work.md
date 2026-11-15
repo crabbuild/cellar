@@ -90,6 +90,14 @@ does not require another whole-group barrier. Reconciliation alone grants no
 execution permission. New application entry keeps full group readiness, and
 checkpoint/final settlement keeps its original durability proofs and deadlines.
 The continuation regression passes native and real RustFS in both image modes.
+At `701b6d6f1`, an invocation that still owns its writer uses the same original
+fence to advance through its exact applied checkpoint. A later unrelated
+committed entry no longer forces a second whole-group readiness barrier at this
+boundary. A physical worker/apply regression fails before the fix and passes
+both images on native storage and real RustFS; new-entry readiness, original
+deadline and SDK fencing controls pass. S3 archival remains required. Both
+selected public named EventStream cases still fail initial activation, so this
+checkpoint liveness fix does not qualify cold binding activation or the family.
 Earlier named Quorum native/Axum paths pass scoped image/backend checks. The
 latest uninstrumented public cohort fails activation; the complete public matrix
 remains unqualified. Consult the current integration checkpoint before treating

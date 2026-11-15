@@ -4,7 +4,37 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Current initial Quorum read checkpoint
+## Current checkpoint continuation delivery
+
+Main `189edd9a` remains included. Runtime `701b6d6f1` on PR
+[#170](https://github.com/crabbuild/cellar/pull/170) resumes an exact applied RPC
+checkpoint without waiting for later unrelated committed apply. The original
+ready barrier, retained cell writer, live owner/route/history/term fence and exact
+expected version remain required. A newer term still reconciles; new entry and
+S3 archival requirements are preserved.
+
+Physical baseline `376e403df` fails at the intended boundary. Final cohort
+`CG-17-checkpoint-proof-green-320-701b6d6f` is **FAILED, 8/10 passed**. Native and
+real-RustFS checkpoint and existing continuation cases pass both images; both
+entry readiness/deadline and both SDK proof/fencing controls pass. Both selected
+public named EventStream cases still fail initial activation on node 0 with
+materialized images. The other public cases were not rerun; their last complete
+sixteen-case cohort is 6/16 at `086f1663`. Do not combine different sources into a
+current public acceptance result.
+
+Next: isolate and close cold catalog/broker/binding activation under the original
+deadline, then multi-step source preparation/settlement, interrupted binding
+recovery and unused-sequence sealing, and Queue load. The fixed held-apply stall
+is proven independently; its contribution to public activation remains unproven.
+The new fixture's third request is a fully admitted physical SQL observer within
+the original byte bank; existing public quotas remain unchanged. All runtime and
+compiler jobs are terminal; failed disks, objects and frozen evidence remain,
+and the owned RustFS container/VM are stopped. Build, strict library/all-test
+Clippy and repository checks pass. Full CG-13/17/15/16, independent-voter release
+qualification and hard cutover remain open. Counts remain **13/17, 147/195**.
+Use ignored `.cellar/cg17-payload-01/event-read-state.json` for exact pins/handles.
+
+## Previous initial Quorum read checkpoint
 
 Main `189edd9a` remains included. Runtime `086f1663`, branch
 `codex/cg17-eventstream-quorum-mvp`, PR [#170](https://github.com/crabbuild/cellar/pull/170),
