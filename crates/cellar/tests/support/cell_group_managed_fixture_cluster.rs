@@ -67,6 +67,7 @@ pub async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         max_client_identities: f.max_client_identities,
         max_input_bytes: f.max_input_bytes,
         payloads: f.payloads,
+        blob_bucket: f.blob_bucket.clone(),
         image_bytes: f.image_bytes,
         logical_byte_capacity: f.logical_byte_capacity,
         placement_domains: f.placement_domains.clone(),
@@ -182,7 +183,17 @@ pub async fn leader(hosts: &[RaftCells], history: GroupHistory) -> Result<usize>
     tokio::time::timeout(TIMEOUT, async {
         loop {
             for (i, host) in hosts.iter().enumerate() {
-                let status = host.group(history)?.status().await?;
+                let group = match host.group(history) {
+                    Ok(group) => group,
+                    Err(RuntimeError::NotFound) => continue, // Unassigned standby or retired voter.
+                    Err(error) => return Err(error.into()),
+                };
+                let status = match group.status().await {
+                    Ok(status) => status,
+                    // Retirement can detach after the handle lookup above.
+                    Err(RuntimeError::NotFound) => continue,
+                    Err(error) => return Err(error.into()),
+                };
                 if status.ready && status.leader == Some(i as u64 + 1) {
                     return Ok::<_, anyhow::Error>(i);
                 }

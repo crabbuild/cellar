@@ -390,7 +390,9 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
-        if path.as_ref().contains("/cell-payloads-1/") {
+        if path.as_ref().contains("/cell-payloads-1/")
+            && !path.as_ref().contains("/cell-payloads-1/ownership/")
+        {
             self.cell_payload_put_calls.fetch_add(1, Ordering::AcqRel);
             self.cell_payload_put_bytes.fetch_add(
                 payload.iter().map(|bytes| bytes.len()).sum::<usize>(),
@@ -712,7 +714,9 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
-        if path.as_ref().contains("/cell-payloads-1/") {
+        if path.as_ref().contains("/cell-payloads-1/")
+            && !path.as_ref().contains("/cell-payloads-1/ownership/")
+        {
             self.cell_payload_get_calls.fetch_add(1, Ordering::AcqRel);
             if self.deny_cell_payload_reads.load(Ordering::Acquire) {
                 self.denied_cell_payload_reads
@@ -1084,7 +1088,10 @@ impl ObjectStore for Store {
         }
         let mut result = self.backend().get_opts(path, options).await?;
         let chunk_bytes = self.cell_payload_chunk_bytes.load(Ordering::Acquire);
-        if path.as_ref().contains("/cell-payloads-1/") && chunk_bytes != 0 {
+        if path.as_ref().contains("/cell-payloads-1/")
+            && !path.as_ref().contains("/cell-payloads-1/ownership/")
+            && chunk_bytes != 0
+        {
             let GetResultPayload::Stream(stream) = result.payload;
             result.payload = GetResultPayload::Stream(
                 stream

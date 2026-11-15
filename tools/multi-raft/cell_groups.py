@@ -83,16 +83,40 @@ SUITES = {
         "RF3 voters share a host process. No operator CLI, full-size boundary, clock faults, movement/wake, "
         "independent voter limits or disk-loss recovery is qualified by this suite.",
     ),
+    "ordinary-blob": (
+        "native_cell_groups_primitives",
+        ("rustfs_blob_provider_contracts_follow_proven_shared_group_turns",),
+        "declared Blob provider operations following proven shared-group turns",
+        "Both image forms: buffered and streamed objects, conditional writes, listing, "
+        "multipart, invocation-owned bodies, single-operation source proof, provider refusal/lost write replies, archive outage and exact receipt replay after restart. "
+        "Provider commits are independent from metadata quorum. No mutable Blob backup, "
+        "provider-process restart, independent voter limits or all-voter disk loss is qualified.",
+    ),
+    "external-payload-recovery": (
+        "native_cell_groups_archive",
+        ("rustfs_external_payload_recovery_and_gc_preserve_retained_cuts_and_readers",),
+        "actual external-byte recovery verification and retained-cut/reader collection",
+        "Both image forms with low-level RF3 archive fixtures. Missing and corrupt bytes "
+        "refuse coverage; actual collection preserves old retained cuts and entered readers. "
+        "The fixture seeds a KV row directly; ordinary SDK and independent host durability remain separate gates.",
+    ),
+    "filesystem-disaster": (
+        "native_cell_groups_archive",
+        ("rustfs_filesystem_survives_fenced_all_voter_disk_loss",),
+        "filesystem bytes recovered from a fenced archive after all voter disks are erased",
+        "Both image forms, fresh RF3 histories, exact receipts and restored file bytes. "
+        "Contract fencing in one host process does not qualify independent host fencing or voter cgroups.",
+    ),
     "ordinary-filesystem": (
         "native_cell_groups_primitives",
-        ("rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum",),
+        ("rustfs_filesystem_transactions_and_descriptors_recover_through_shared_quorum",
+         "rustfs_filesystem_archive_outage_movement_and_park_wake"),
         "transactional filesystem, descriptor authority and retained RF3 recovery",
         "Materialized and extent images, Quorum/S3 commands and explicit file sync, "
         "business/file rollback, directory-relative opens, cross-cell cursor refusal, "
         "bounded autonomous garbage collection, original receipt replay, retained "
-        "restart and quorum refusal. Three host-native TLS voters share a process; "
-        "no HTTP/operator CLI, independent voter limits, movement/wake, archive "
-        "outage, sustained load or all-voter disk loss is qualified by this suite.",
+        "restart, archive PUT refusal, RF3 voter replacement through a standby, park/wake and quorum refusal. Host-native TLS voters share a process; "
+        "no HTTP/operator CLI, independent voter limits, sustained load or all-voter disk loss is qualified by this suite.",
     ),
     "ordinary-alarms": (
         "native_cell_groups_primitives",
@@ -115,8 +139,7 @@ SUITES = {
         "Real conditional creation, lost PUT replies, concurrent publishers, cold reopen, "
         "old/new cell incarnations, corruption, body deadlines, cancellation and "
         "shared operation/retained-byte admission are checked. "
-        "Objects are retained without deletion. Root-aware reclamation, fenced KV row "
-        "publication and combined lifecycle/disaster recovery remain separate gates.",
+        "Persistent upload/root/reader pins, explicit owner release, irreversible retirement, actual deletion and lost control/DELETE replies are checked. Ordinary KV and combined lifecycle/disaster recovery remain separate gates.",
     ),
     "ordinary-kv-bindings": (
         "native_cell_groups_primitives",
@@ -721,7 +744,7 @@ def main():
     parser.add_argument("--keep-going", action="store_true",
                         help="collect every standalone primitive case; any failure keeps the campaign failed")
     args = parser.parse_args()
-    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "ordinary-filesystem", "queue-primitives"):
+    if args.keep_going and args.suite not in ("ordinary-primitives", "ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "queue-primitives"):
         parser.error("--keep-going requires a process-isolated ordinary primitive, SQL, KV, alarm, Workflow, filesystem or Queue suite")
     target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
@@ -772,7 +795,7 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "ordinary-filesystem", "immutable-payloads", "queue-primitives"):
+        if args.suite in ("ordinary-sql-bindings", "ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster", "immutable-payloads", "queue-primitives"):
             env.update(CARGO_PROFILE_TEST_OPT_LEVEL="1",
                        CARGO_PROFILE_TEST_DEBUG_ASSERTIONS="true",
                        CARGO_PROFILE_TEST_OVERFLOW_CHECKS="true")
@@ -780,7 +803,7 @@ def main():
                 "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_PROFILE_TEST_DEBUG_ASSERTIONS",
                 "CARGO_PROFILE_TEST_OVERFLOW_CHECKS", "CARGO_PROFILE_TEST_DEBUG")}
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
-        if args.suite in ("ordinary-filesystem", "ordinary-event-stream"):
+        if args.suite in ("ordinary-filesystem", "ordinary-event-stream", "ordinary-blob", "external-payload-recovery", "filesystem-disaster"):
             # Large coroutine layouts make incremental cache serialization a
             # poor fit for the constrained local qualification machine.
             env.update(CARGO_INCREMENTAL="0", CARGO_BUILD_JOBS="1")
@@ -790,7 +813,7 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             if selection == "rustfs_queue_load_preserves_acknowledged_messages":
                 argv.append("--nocapture")
-            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "ordinary-filesystem") and number != 0:
+            elif args.suite in ("ordinary-kv-bindings", "ordinary-alarms", "ordinary-workflows", "ordinary-event-stream", "ordinary-filesystem", "ordinary-blob", "external-payload-recovery", "filesystem-disaster") and number != 0:
                 # Keep successful diagnostics without splitting libtest's exact
                 # result line. The strict success verifier remains unchanged.
                 argv.append("--show-output")

@@ -112,6 +112,7 @@ pub struct PreparedCellGroupArchivePublication {
     intent: CellGroupArchiveIntent,
     verified: VerifiedCellGroupArchiveRecovery,
     source: Arc<SourceCut>,
+    payload_root: Descriptor,
 }
 
 impl PreparedCellGroupArchivePublication {
@@ -136,6 +137,10 @@ impl PreparedCellGroupArchivePublication {
                     }
                 };
                 self.source.check()?;
+                self.upload
+                    .registry()
+                    .pin_payloads(&self.verified, &self.payload_root, true)
+                    .await?;
                 Ok(CellGroupArchiveCoverage(Arc::new(Coverage {
                     hold,
                     verified: self.verified,
@@ -240,8 +245,17 @@ impl CellGroupArchiveUpload {
                 }
                 let reference = uploaded.reference();
                 let verified = self.verify_tail(domain, tails, reference, receiver).await?;
+                // raft-rs emits these sets in hash iteration order. Compare
+                // the same validated canonical encoding used by archive replay;
+                // order alone must not refuse an independently applied cut.
+                let verified_conf = crate::raft::manifest::encode_conf(verified.configuration())
+                    .map_err(|_| {
+                        CellGroupArchiveError::Invalid("verified configuration encoding")
+                    })?;
+                let source_conf = crate::raft::manifest::encode_conf(&source.configuration)
+                    .map_err(|_| CellGroupArchiveError::Invalid("source configuration encoding"))?;
                 if verified.manifest().marker() != source.root.marker()
-                    || verified.configuration() != &source.configuration
+                    || verified_conf != source_conf
                     || verified.membership() != &source.membership
                 {
                     return Err(CellGroupArchiveError::Invalid(
@@ -279,6 +293,10 @@ impl CellGroupArchiveUpload {
                 )
                 .await?;
                 self.allows(&graph)?;
+                self.registry()
+                    .pin_payloads(&verified, &descriptor, false)
+                    .await?;
+                let payload_root = descriptor.clone();
                 let intent = self
                     .registry()
                     .prepare_publish(self.ticket(), descriptor)
@@ -288,6 +306,7 @@ impl CellGroupArchiveUpload {
                     intent,
                     verified,
                     source,
+                    payload_root,
                 })
             })
             .await
@@ -343,6 +362,10 @@ impl CellGroupArchiveRegistry {
                     return Err(CellGroupArchiveError::Invalid("held recovery cut"));
                 }
                 let _io = self.archive.admit()?;
+                // A historical hold can retire concurrently with verification.
+                // Only a newly selected publication may adopt command/upload
+                // ownership; reading an older cut must not retire a live turn.
+                self.pin_payloads(&verified, &descriptor, false).await?;
                 self.referenced(hold).await?;
                 Ok(CellGroupArchiveCoverage(Arc::new(Coverage {
                     hold: hold.clone(),

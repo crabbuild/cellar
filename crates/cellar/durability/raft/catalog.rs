@@ -411,12 +411,15 @@ impl NamespaceCatalog {
         if self.mode() != NamespaceMode::Raft {
             return Err(CatalogError::Invalid("cell-group payload namespace mode"));
         }
-        Ok(pool.bind(
+        pool.bind(
             self.inner.store.clone(),
             Path::from(self.data_prefix()),
             self.config.cluster,
             self.config.namespace,
-        ))
+        )
+        .map_err(|_| {
+            CatalogError::Invalid("payload namespace capability conflicts or exceeds capacity")
+        })
     }
 
     pub fn mode(&self) -> NamespaceMode {

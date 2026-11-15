@@ -42,6 +42,7 @@ pub(crate) struct NativeCellConfiguration {
     pub(crate) bindings: Vec<(String, String)>,
     pub(crate) sql_bindings: Vec<(String, String)>,
     pub(crate) kv_bindings: Vec<(String, String)>,
+    pub(crate) blob_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<NativeQueueBinding>,
     pub(crate) stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub(crate) queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
@@ -56,7 +57,7 @@ impl NativeCellConfiguration {
             src: String::new(),
             do_classes: self.do_classes.clone(),
             bindings: self.bindings.clone(),
-            blob_bindings: Vec::new(),
+            blob_bindings: self.blob_bindings.clone(),
             sql_bindings: self.sql_bindings.clone(),
             kv_bindings: self.kv_bindings.clone(),
             queue_bindings: self
@@ -98,6 +99,7 @@ pub(in crate::application) struct AdmittedCellConfiguration {
     pub(in crate::application) bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) sql_bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) kv_bindings: Arc<BTreeMap<String, String>>,
+    pub(in crate::application) blob_bindings: Arc<BTreeMap<String, String>>,
     pub(in crate::application) queue_bindings: Arc<BTreeMap<String, (String, u32)>>,
     pub(in crate::application) stream_bindings:
         Arc<BTreeMap<String, crate::application::event_stream::BindingConfig>>,
@@ -111,10 +113,7 @@ impl AdmittedCellConfiguration {
     ) -> Result<Self, RegistrationError> {
         // Do not turn a declared provider into an empty binding map. Each
         // adapter must first acquire shared execution and settlement authority.
-        if !options.src.is_empty()
-            || !options.modules.is_empty()
-            || !options.blob_bindings.is_empty()
-        {
+        if !options.src.is_empty() || !options.modules.is_empty() {
             return Err(RegistrationError::Invalid(
                 "unimplemented Raft cell bindings",
             ));
@@ -156,6 +155,7 @@ impl AdmittedCellConfiguration {
             || options.bindings.len() > 256
             || options.sql_bindings.len() > 256
             || options.kv_bindings.len() > 256
+            || options.blob_bindings.len() > 256
             || options.queue_bindings.len() > 256
             || options.queue_consumers.len() > 256
             || options.stream_bindings.len() > 256
@@ -217,6 +217,22 @@ impl AdmittedCellConfiguration {
         };
         let mut queue_bindings = BTreeMap::new();
         let mut kv_bindings = BTreeMap::new();
+        let mut blob_bindings = BTreeMap::new();
+        for (name, identity) in &options.blob_bindings {
+            if !valid_name(name)
+                || identity.is_empty()
+                || identity.len() > 1024
+                || identity.chars().any(char::is_control)
+                || blob_bindings
+                    .insert(name.clone(), identity.clone())
+                    .is_some()
+            {
+                return Err(RegistrationError::Invalid("Raft Blob binding"));
+            }
+            bytes = bytes
+                .checked_add(name.len() + identity.len())
+                .ok_or(RegistrationError::Limit)?;
+        }
         for (name, identity) in &options.kv_bindings {
             if !valid_name(name)
                 || identity.is_empty()
@@ -357,6 +373,7 @@ impl AdmittedCellConfiguration {
             bindings: Arc::new(bindings),
             sql_bindings: Arc::new(sql_bindings),
             kv_bindings: Arc::new(kv_bindings),
+            blob_bindings: Arc::new(blob_bindings),
             queue_bindings: Arc::new(queue_bindings),
             stream_bindings: Arc::new(stream_bindings),
             queue_consumers: Arc::new(queue_consumers),
@@ -399,8 +416,14 @@ impl AdmittedCellConfiguration {
             );
         }
         if !self.kv_bindings.is_empty() {
-            hash.update(b"kv-bindings-payloads-callbacks-1");
+            hash.update(b"kv-bindings-owned-payload-roots-callbacks-1");
             hash.update(serde_json::to_vec(self.kv_bindings.as_ref()).expect("KV configuration"));
+        }
+        if !self.blob_bindings.is_empty() {
+            hash.update(b"blob-bindings-provider-proof-1");
+            hash.update(
+                serde_json::to_vec(self.blob_bindings.as_ref()).expect("Blob configuration"),
+            );
         }
         if !self.workflow_bindings.is_empty() {
             hash.update(b"workflow-bindings-quorum-journal-1");
@@ -417,6 +440,7 @@ impl AdmittedCellConfiguration {
             || !self.bindings.is_empty()
             || !self.sql_bindings.is_empty()
             || !self.kv_bindings.is_empty()
+            || !self.blob_bindings.is_empty()
             || !self.queue_bindings.is_empty()
             || !self.queue_consumers.is_empty()
             || !self.stream_bindings.is_empty()
@@ -460,6 +484,11 @@ impl AdmittedCellConfiguration {
                 .collect(),
             kv_bindings: self
                 .kv_bindings
+                .iter()
+                .map(|(name, identity)| (name.clone(), identity.clone()))
+                .collect(),
+            blob_bindings: self
+                .blob_bindings
                 .iter()
                 .map(|(name, identity)| (name.clone(), identity.clone()))
                 .collect(),

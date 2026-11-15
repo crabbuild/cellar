@@ -4,6 +4,9 @@
 
 use super::*;
 use cellar::sdk::filesystem::{Errno, File, Filesystem, OpenOptions, Policy};
+use cellar::sdk::fleet_operations::{
+    RaftFleetControl, RaftFleetParkPhase, RaftFleetParkRequest, RaftFleetTransitionGroup,
+};
 
 struct Files {
     fs: Filesystem,
@@ -165,10 +168,206 @@ fn application(writes: Arc<AtomicUsize>) -> Result<Arc<Registry>> {
     ))
 }
 
+async fn park_and_wake(cluster: &ManagedCluster, history: &CellHistory, retry: u64) -> Result<()> {
+    let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+    let membership = cluster.hosts[leader]
+        .group(cluster.history)?
+        .quorum_membership(TIMEOUT)
+        .await?;
+    let voters = membership.configuration().voters.clone();
+    ensure!(voters.len() == 3, "filesystem park lost RF3 membership");
+    drop(membership);
+    let catalog = &cluster.fixtures[0].catalog;
+    let revision = catalog.read(TIMEOUT).await?.revision();
+    let control = RaftFleetControl::new(
+        &cluster.fixtures[0].domain,
+        catalog.clone(),
+        vec![cluster.directory.clone()],
+    )?
+    .with_node_observer(cluster.hosts[leader].clone());
+    let selection = RaftFleetParkRequest {
+        catalog_id: control.catalog_id().into(),
+        namespace_id: hex::encode(cluster.history.namespace.bytes()),
+        group: RaftFleetTransitionGroup {
+            group_id: hex::encode(cluster.history.group.bytes()),
+            incarnation_id: hex::encode(cluster.history.incarnation.bytes()),
+        },
+        operation_id: hex::encode([177; 16]),
+        request_id: hex::encode([178; 16]),
+        settlement_request_id: hex::encode([179; 16]),
+        expected_revision: revision,
+    };
+    let parked = control
+        .park_group(
+            &managed_fixture::request(178, revision).principal,
+            &selection,
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(parked.phase == RaftFleetParkPhase::Delivered);
+    for member in voters {
+        let index = usize::try_from(member.checked_sub(1).context("zero voter")?)?;
+        let host = cluster.hosts.get(index).context("unknown park voter")?;
+        ensure!(
+            !host.group(cluster.history)?.status().await?.ready,
+            "filesystem group did not park"
+        );
+    }
+    let cell = cluster.hosts[0].cell(history.clone())?;
+    let observed = cell
+        .query(
+            ProposalId::new([180; 16])?,
+            &cell.contract("Snapshot")?,
+            vec![],
+            QueryOptions::default(),
+        )
+        .await?;
+    ensure!(
+        observed.result == vec![1; 17],
+        "first filesystem read after wake lost bytes"
+    );
+    let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+    let resumed = cluster.hosts[leader].cell(history.clone())?;
+    let replayed = resumed
+        .command(
+            &resumed.contract("Read")?,
+            b"[]".to_vec(),
+            CommandOptions::new(CommandId::new(ClientId::new([181; 16])?, 1)?, retry),
+        )
+        .await?;
+    ensure!(
+        serde_json::from_slice::<Vec<u8>>(&replayed.result)? == vec![1; 17],
+        "new activation lost filesystem authority"
+    );
+    Ok(())
+}
+
+async fn move_voter(cluster: &ManagedCluster, history: &CellHistory, retry: u64) -> Result<()> {
+    use managed_fixture::movement;
+    let source = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+    let obsolete = (source + 1) % 3;
+    movement::discover(cluster).await?;
+    let (_, execution) = movement::admit_replacement(
+        cluster,
+        movement::ReplacementTarget {
+            source,
+            obsolete,
+            spare: 3,
+        },
+        [182, 183],
+        true,
+    )
+    .await?;
+    let catalog = &cluster.fixtures[0].catalog;
+    let mut completed = false;
+    for _ in 0..8 {
+        movement::discover(cluster).await?;
+        let cut = catalog.read(TIMEOUT).await?;
+        let progress = match catalog
+            .reconcile_movement(&cut, &execution, &cluster.hosts[source], TIMEOUT)
+            .await
+        {
+            Ok(progress) => progress,
+            Err(cellar::sdk::consensus::verification::FleetCatalogError::Unconfirmed) => {
+                let current = catalog.read(TIMEOUT).await?;
+                let pending = catalog.pending_reservations(&current, TIMEOUT).await?;
+                ensure!(
+                    pending.is_empty()
+                        || (pending.len() == 1 && pending[0].reservation == execution.reservation),
+                    "filesystem replacement lost its resource debit"
+                );
+                continue;
+            }
+            Err(error) => return Err(error).context("reconcile filesystem replacement"),
+        };
+        if progress.settled {
+            completed = true;
+            break;
+        }
+    }
+    ensure!(completed, "filesystem S3 voter movement did not settle");
+    let membership = cluster.hosts[source]
+        .group(cluster.history)?
+        .quorum_membership(TIMEOUT)
+        .await?;
+    ensure!(
+        membership.configuration().voters.contains(&4)
+            && !membership
+                .configuration()
+                .voters
+                .contains(&(obsolete as u64 + 1)),
+        "filesystem replacement did not change actual quorum membership"
+    );
+    drop(membership);
+    movement::discover(cluster).await?;
+    let moved = cluster.hosts[3].cell(history.clone())?;
+    let local = moved
+        .query(
+            ProposalId::new([185; 16])?,
+            &moved.contract("Snapshot")?,
+            vec![],
+            QueryOptions {
+                routing: QueryRouting::Local,
+                ..Default::default()
+            },
+        )
+        .await?;
+    ensure!(
+        local.result == vec![1; 17],
+        "new voter did not read its local filesystem image"
+    );
+    let options = CommandOptions {
+        durability: Durability::S3,
+        ..CommandOptions::new(CommandId::new(ClientId::new([184; 16])?, 1)?, retry)
+    };
+    let result = moved
+        .command(&moved.contract("Read")?, b"[]".to_vec(), options.clone())
+        .await;
+    let result = match result {
+        Ok(result) => result,
+        Err(error) if error.ambiguous => {
+            // Movement may close an in-flight remote response. Reconcile the
+            // exact stored request on the current leader; never mint a new ID
+            // or infer non-commit from the broken connection.
+            eprintln!("filesystem moved command response lost: {error}");
+            let leader = managed_fixture::leader(&cluster.hosts, cluster.history).await?;
+            let cell = cluster.hosts[leader].cell(history.clone())?;
+            cell.command(&cell.contract("Read")?, b"[]".to_vec(), options)
+                .await
+                .context("reconcile exact moved filesystem command")?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    ensure!(
+        serde_json::from_slice::<Vec<u8>>(&result.result)? == vec![1; 17],
+        "moved filesystem lost its data"
+    );
+    Ok(())
+}
+
 pub async fn qualify(real_rustfs: bool) -> Result<()> {
+    qualify_mode(real_rustfs, false).await
+}
+
+pub async fn qualify_lifecycle(real_rustfs: bool) -> Result<()> {
+    qualify_mode(real_rustfs, true).await
+}
+
+async fn qualify_mode(real_rustfs: bool, lifecycle: bool) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()))
+        .with_test_writer()
+        .try_init();
     for rooted in [false, true] {
         let store = Arc::new(if real_rustfs {
-            catalog_fault::Store::around(rustfs::store("filesystem", rooted)?)
+            catalog_fault::Store::around(rustfs::store(
+                if lifecycle {
+                    "filesystem-lifecycle"
+                } else {
+                    "filesystem"
+                },
+                rooted,
+            )?)
         } else {
             catalog_fault::Store::default()
         });
@@ -176,7 +375,8 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
         let application = application(writes.clone())?;
         let declared = configuration::options("quorum-filesystem");
         application.validate_configuration(&declared)?;
-        let mut fixture = Fixture::with_application(rooted, "Counter", application, store).await?;
+        let mut fixture =
+            Fixture::with_application(rooted, "Counter", application, store.clone()).await?;
         fixture.configuration = Some(declared);
         fixture.sql_workers = 1;
         fixture.effects = Some(RaftEffectOptions {
@@ -186,7 +386,7 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
         let domain = fixture.domain.clone();
         let mut cluster = Box::pin(ManagedCluster::start_with_applications(
             fixture,
-            &[],
+            if lifecycle { &[7] } else { &[] },
             ArchiveSetup::Initialized,
             false,
             None,
@@ -197,7 +397,8 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
             .run(async {
                 let group = cluster.history;
                 let leader = managed_fixture::leader(&cluster.hosts, group).await?;
-                let retry = u64::try_from(cellar::asyncrt::wall_ms())? + 60_000;
+                let retry = u64::try_from(cellar::asyncrt::wall_ms())?
+                    + if lifecycle { 180_000 } else { 60_000 };
                 let mut histories = Vec::new();
                 for index in 0..2u8 {
                     let history = CellHistory {
@@ -258,6 +459,68 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                     .await?;
                     histories.push((history, input, options, receipt));
                 }
+                // Block the actual group archive provider while preserving
+                // ordinary quorum service. Keep the exact S3 command identity
+                // when its first response cannot establish an archive proof.
+                if lifecycle {
+                    let outage_history = CellHistory {
+                        cluster: group.cluster,
+                        namespace: group.namespace,
+                        cell: CellId::new("Counter:files-outage")?,
+                        incarnation: IncarnationId::new([173; 16])?,
+                    };
+                    let outage = cluster.hosts[leader].cell(outage_history.clone())?;
+                    outage
+                        .enroll(
+                            CellEnrollmentRequest {
+                                creation: ProposalId::new([174; 16])?,
+                                durability: Durability::Quorum,
+                            },
+                            TIMEOUT,
+                        )
+                        .await?;
+                    store
+                        .deny_group_archive_writes
+                        .store(true, Ordering::Release);
+                    let outage_bytes = vec![43u8; 32];
+                    let input = serde_json::to_vec(&outage_bytes)?;
+                    let options =
+                        CommandOptions::new(CommandId::new(ClientId::new([175; 16])?, 1)?, retry);
+                    let receipt = outage
+                        .command(&outage.contract("Write")?, input.clone(), options.clone())
+                        .await?;
+                    ensure!(
+                        receipt.durability == Durability::Quorum
+                            && serde_json::from_slice::<Vec<u8>>(&receipt.result)? == outage_bytes
+                    );
+                    let protected = CommandOptions {
+                        durability: Durability::S3,
+                        ..CommandOptions::new(CommandId::new(ClientId::new([176; 16])?, 1)?, retry)
+                    };
+                    let result = outage
+                        .command(&outage.contract("Read")?, b"[]".to_vec(), protected.clone())
+                        .await;
+                    ensure!(
+                        result.is_err(),
+                        "filesystem S3 acknowledgement bypassed archive outage"
+                    );
+                    ensure!(
+                        store.denied_group_archive_writes.load(Ordering::Acquire) != 0,
+                        "outage did not reach actual group archive writes"
+                    );
+                    store
+                        .deny_group_archive_writes
+                        .store(false, Ordering::Release);
+                    let recovered = outage
+                        .command(&outage.contract("Read")?, b"[]".to_vec(), protected)
+                        .await?;
+                    ensure!(
+                        recovered.durability == Durability::S3
+                            && serde_json::from_slice::<Vec<u8>>(&recovered.result)?
+                                == outage_bytes
+                    );
+                    histories.push((outage_history, input, options, receipt));
+                }
                 cellar::asyncrt::timeout(Duration::from_secs(20), async {
                     loop {
                         let mut complete = true;
@@ -307,6 +570,14 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                         "directory cursor crossed cell history"
                     );
                 }
+                if lifecycle {
+                    move_voter(&cluster, &histories[0].0, retry)
+                        .await
+                        .context("filesystem voter replacement")?;
+                    park_and_wake(&cluster, &histories[0].0, retry)
+                        .await
+                        .context("filesystem park and first wake")?;
+                }
                 bindings::restart(&mut cluster).await?;
                 let resumed_leader = managed_fixture::leader(&cluster.hosts, group).await?;
                 let refusal_history = histories[0].0.clone();
@@ -318,7 +589,7 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
                         .context("filesystem receipt replay after retained restart")?;
                     retained_receipt(&receipt, &replay)?;
                     ensure!(
-                        writes.load(Ordering::Acquire) == 2,
+                        writes.load(Ordering::Acquire) == 2 + usize::from(lifecycle),
                         "retained restart re-executed the write handler"
                     );
                     let observed = cell
@@ -355,6 +626,9 @@ pub async fn qualify(real_rustfs: bool) -> Result<()> {
             .map_err(anyhow::Error::from)
             .and_then(std::convert::identity);
         let mut cleanup = Vec::new();
+        store
+            .deny_group_archive_writes
+            .store(false, Ordering::Release);
         for node in std::mem::take(&mut cluster.nodes) {
             if let Err(error) = node.shutdown(cellar::sdk::ShutdownMode::Preserve).await {
                 cleanup.push(error.to_string());

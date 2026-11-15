@@ -132,6 +132,7 @@ impl CellGroupRecoveryPool {
         } = target;
         domain
             .run(async {
+                source_cut.recovery().verify_external_now().await?;
                 let admission = self.admit()?;
                 let stop = Stop(Arc::new(AtomicBool::new(false)));
                 let cancelled = stop.0.clone();
