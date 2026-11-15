@@ -72,7 +72,20 @@ impl RaftCellHandle {
             Ok(Some(scope)) => match self.prepare_sdk_command(contract, input, options) {
                 Err(error) => Box::pin(async move { Err(error) }),
                 Ok(prepared) => {
-                    let call = scope.schedule_io(move |_| prepared);
+                    let domain = self.owner.handle.domain.clone();
+                    let started = domain.mono_ms().ok();
+                    let call = scope.schedule_io(move |_| async move {
+                        let entered = domain.mono_ms().ok();
+                        let result = prepared.await;
+                        let finished = domain.mono_ms().ok();
+                        eprintln!(
+                            "DEBUG-cg17-sdk-360 command={id:?} before_target_poll_ms={:?} target_future_ms={:?} error={:?}",
+                            started.zip(entered).map(|(a, b)| b.saturating_sub(a)),
+                            entered.zip(finished).map(|(a, b)| b.saturating_sub(a)),
+                            result.as_ref().err().map(ToString::to_string),
+                        );
+                        result
+                    });
                     Box::pin(async move {
                         call.future.await.map_err(|error| {
                             Arc::new(CellCommandError {
