@@ -92,6 +92,13 @@ finds another checkout's primitive qualification plus a second VM, missed by
 the narrow compiler monitor. SQL timings are mixed and KV rates are lower;
 neither direction establishes an isolated optimization effect.
 
+The later [checkpoint-window S3 comparison](three-node-primitive-main-173-2026-11-15.md#checkpoint-object-window-comparison)
+fails all three candidate APIs, including SQL, with 16 request errors versus
+ten for its baseline. No API has a complete passing pair; leaders and terms
+remain unchanged. The subsequent logged SQL pass leaves these deadline failures
+open. Fresh checkpoint preparation for empty tails passes scoped native and
+RustFS qualification below; its constrained performance comparison is next.
+
 The Queue validator correction accepts the API's valid floating-point counts
 while preserving finite whole-number checks, complete observer rounds, exact
 identity/body reconciliation and zero settlement. Its regression fails before
@@ -116,7 +123,7 @@ and evidence, under the design's original limits and acceptance oracles:
 
 | Priority | Gap | Evidence required to close it |
 | --- | --- | --- |
-| P0 | Public SQL/KV/Queue reliability | Close the main-173 KV+S3 and Queue+S3 ambiguous deadlines, bucket Queue durability/drain failure and control Queue drain cut. Complete the source-matched native/SDK/native HTTP/Axum and three-node C1/4/16 matrix. Account for every acknowledged and unconfirmed identity; preserve exact bodies, settlement and original deadlines/admission limits. |
+| P0 | Public SQL/KV/Queue reliability | Close the SQL/KV/Queue S3 ambiguous deadlines, bucket Queue durability/drain failure and control Queue drain cut. Complete the source-matched native/SDK/native HTTP/Axum and three-node C1/4/16 matrix. Account for every acknowledged and unconfirmed identity; preserve exact bodies, settlement and original deadlines/admission limits. |
 | P0 | Original-deadline progress | Show bounded routing/readiness, writer admission, SQL preparation, ReadIndex and output-proof progress. Slow callbacks and archive work must leave control/election progress available; expired waiters must retain their actual physical owners until completion. |
 | P1 | Persistence and archive amplification | Measure image/manifest file and directory syncs, engine batch bytes/groups, independent archive replay and queue waits. Compare matched before/after throughput, p50/p95/p99, errors and resources; accept a tuning change only with its correctness controls. Sparse traffic must not wait to fill a batch. |
 | P1 | Safe public read integration | Connect explicit read-only SQL operations to fresh ReadIndex/source-image proof without treating writable `__sqlQuery` as a read. Preserve KV TTL/metrics mutations, exact tokens, read preferences and partition refusal. Recheck gains with a broader host audit and crossover measurements. |
@@ -251,6 +258,61 @@ prevent isolated attribution. Existing archive-stage logging is the next
 diagnostic, with traced timings excluded from performance qualification. The
 window proves bounded object overlap and scoped correctness, not a deadline
 fix or complete OPT/CG acceptance. Earlier constrained failures remain open.
+
+### Fresh checkpoint preparation for empty tails
+
+The [archive-stage diagnostic](three-node-primitive-main-173-2026-11-15.md#archive-stage-diagnostic)
+repeats SQL/S3 on unchanged window image `0ccf1de9` with existing stage logging.
+All 18 windows pass without request errors; logging changes timing and the
+preceding failures remain unexplained. Across 3,308 publications, the mean
+uploaded-to-verified interval is 52.70 ms, versus 31.22 ms captured-to-uploaded.
+These include background work and lack request linkage. Source/engine checks
+pass, owners join and the original RustFS identity/limits/readiness are restored.
+
+Code inspection identifies a complete physical image/manifest pass after the
+checkpoint receiver even when the tail contains no entries. A real RF3
+differential regression uses a checkpoint-plus-payload-inventory control.
+Original empty-tail recovery makes 47 filesystem-provider read calls versus 32
+for that complete control in materialized mode, and 62 versus 44 with extents.
+Checkpoint reception alone accounts for 26/32 calls; the additional 6/12 inspect
+required payload metadata and must remain. Both baseline regressions fail on
+the intended excess-read assertion with the final test source. They also
+exercise a forged empty cut and damaged warm destination, retaining failed
+disks after cleanup. These are provider calls in a three-cell fixture, not
+device reads or end-to-end throughput/latency measurements.
+
+The candidate retains that invocation's exact freshly received preparation for
+an empty tail after the original owner, bound, cut/configuration/membership,
+cancellation and liveness checks. The ordinary receiver still fetches every
+remote dependency and verifies/syncs existing local bytes. Nonempty tails retain
+full replay and final verification; publication/response authority and all
+admission banks remain unchanged. The first runtime candidate passes strict
+all-target Clippy and formatting, records 32/44 total tail reads and fails both
+performance assertions: its checkpoint-only control omitted the mandatory
+payload-reference inspection. The other 38 archive cases and three owning S3
+controls pass; the command remains failed. A corrected control independently
+queries each received fixture image's payload-table inventory through the
+ordinary immutable adapter, validates canonical empty cells and retains the
+exact read-count equality and all cut/corruption/ownership checks. Its baseline
+reproduces the extra pass with source `1b3f9a13`; candidate manifest `a37458ee`
+passes both focused regressions, making exactly 32/44 reads. This removes 15/18
+duplicate reads while retaining all 6/12 required payload-inventory reads.
+On the final source, strict all-target Cellar Clippy and formatting/layout
+(2,323 Rust files) pass. The default archive target passes 40 cases with ten
+explicit ignores; three owning S3 controls and six selected real RustFS controls
+also pass. The latter separately execute three of the archive target's declared
+backend ignores; other ignored cases retain their unrun scope. Native dependency
+and documentation checks pass. All owners join, inputs remain unchanged and
+original RustFS identity/limits/readiness are preserved.
+
+The [qualification record](empty-tail-recovery-qualification-2026-11-15.json)
+retains exact profiles, source/executable/log hashes, footers and read counters.
+The earlier Clippy duplicate-helper rejection also remains recorded; the shared
+harness export replaces the duplicate inclusion without a lint suppression.
+The failed incomplete-control run and canonical-empty control setup are retained
+separately. A matching Linux build and source-matched SQL/KV/Queue S3 comparison
+are next. No deadline fix, throughput/latency gain or complete OPT/CG acceptance
+follows from these in-process node fixtures.
 
 ### Archive publication and recovery follow-up
 

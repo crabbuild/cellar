@@ -38,7 +38,7 @@ fn entry_path(path: &Path, entry: &serde_json::Value) -> Result<Path> {
     )))
 }
 
-async fn write_tail(
+pub(super) async fn write_tail(
     store: &dyn ObjectStore,
     original: &Path,
     tail: &serde_json::Value,

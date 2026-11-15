@@ -245,3 +245,93 @@ privately with zero matches. Runtime configuration, environment responses,
 private keys and node/store log text are excluded. Existing archive-stage
 logging is the next diagnostic; traced timings will not qualify performance.
 The original deadlines, S3 coverage and broader OPT/CG gates remain open.
+
+## Archive-stage diagnostic
+
+The unchanged window image `0ccf1de9` repeats SQL/S3 with existing
+`cellar::raft::group_archive` debug logging added by a separately hash-bound
+controller hook to initialization and the three node commands. All 18 original
+windows pass without request errors. Logging changes timing, so this diagnostic
+does not explain the preceding failures, establish a deadline fix or qualify a
+performance gain. The original source, client, topology, resource limits and
+five-second bounds remain unchanged. Owners join and the original RustFS
+identity/limits/mounts/readiness are restored and independently checked.
+
+One publication job per node makes stage pairing possible between successive
+launch events. The trace includes 3,308 published cuts, 5,794 other completed
+coverage jobs, 2,421 maintenance completions and 4,062 attempts without a
+terminal stage. The latter are unclassified attempts, including possible
+retryable refusals; they cannot be counted as failed requests. Every logged
+settlement leaves zero waiters in that selected batch.
+
+| Paired stages | Count | Mean ms | p99 ms |
+| --- | --- | --- | --- |
+| Captured to uploaded | 3,309 | 31.22 | 95.29 |
+| Uploaded to verified | 3,308 | 52.70 | 243.27 |
+| Verified to published | 3,308 | 11.13 | 30.24 |
+| Coverage to settled | 9,102 | 1.26 | 11.21 |
+
+These timestamps include background work and lack request linkage. Stage gaps
+overlap command metrics and are not additive request budgets. The largest
+completed launch-to-settled interval is 1.75 seconds. There is no failing request
+in this trace to attribute to a particular stage.
+
+The [stage assessment](three-node-primitive-main-173-2026-11-15.archive-stages.json)
+and [raw stage capsule](three-node-primitive-main-173-2026-11-15.archive-stages.raw.json.gz)
+retain parsed events, full windows, aggregate metrics/resources and joined
+source/build/cleanup evidence. The capsule is 692,604 bytes, SHA-256
+`aa4ae9965c4e0c441b8aa8710ff5ec32601381c70ef2c4039b51945f1ace21aa`.
+Eight actual runtime credential/key representations are scanned privately with
+zero matches. Node/store log text, configuration, environments and private keys
+are excluded. Code inspection and the differential controls below identify a
+second image/manifest pass for empty tails. This trace does not attribute a
+deadline failure to that extra work.
+
+## Empty-tail recovery qualification
+
+Compiler manifest `a37458ee` retains the exact fresh physical preparation from
+the ordinary checkpoint receiver when the tail has no entries. Owner, bounds,
+complete cut/configuration/membership, cancellation and liveness checks still
+run. Every remote dependency and existing local image is independently
+received/verified/synced. Nonempty tails retain full replay and final
+verification. Required payload inspection and publication/response authority
+remain; no deadline, admission bank or format changes.
+
+The real RF3 differential control receives the same cut and independently
+inspects payload-table inventory through the immutable SQL adapter. It validates
+canonical empty cells and exact recovered bytes, rejects a rehashed wrong cut
+and damaged warm image, and checks retained/returned quotas. Source `1b3f9a13`
+without the optimization fails both final regressions; `a37458ee` passes them.
+
+| Image mode | Original empty tail | Complete control | Candidate empty tail | Fewer calls |
+| --- | --- | --- | --- | --- |
+| Materialized | 47 | 32 | 32 | 31.9% |
+| Extents | 62 | 44 | 44 | 29.0% |
+
+These are filesystem-provider `read_exact_at` calls in a three-cell fixture.
+Checkpoint reception alone accounts for 26/32 calls; the additional 6/12
+payload-inventory reads remain required. They are not physical device reads or
+SQL/KV/Queue throughput/latency measurements.
+
+Strict all-target Cellar Clippy, formatting/layout (2,323 Rust files), native
+dependencies and documentation checks pass. The default archive target passes
+**40 / zero / ten explicit ignores**, plus three owning S3 output/result/deadline
+controls. Six selected real RustFS controls pass for physical cancellation,
+competing publication, exact results, deadlines, sibling dependencies and payload
+recovery/GC. Three of the archive target's declared backend ignores are executed
+separately; other ignored cases remain unrun. All owners join, input hashes stay
+unchanged and original RustFS identity/limits/readiness remain intact.
+
+The [qualification record](empty-tail-recovery-qualification-2026-11-15.json)
+retains actual profiles, source/executable/log hashes, footers and counters.
+It also retains the duplicate-helper Clippy rejection, the failed initial
+checkpoint-only control (38 other archive cases and three S3 controls passed),
+and the canonical-empty control setup failure. Required work is added to the
+independent control; exact equality, cut, corruption and ownership assertions
+remain. Failed fixtures retain their disks.
+
+The matching Linux build and original constrained SQL/KV/Queue S3 comparison are
+next. These in-process node fixtures establish scoped correctness and fewer
+provider read calls. They establish no deadline fix, end-to-end speedup or
+complete primitive/OPT/CG acceptance. The preceding workload failures remain
+open. One Colima VM is still one physical failure domain.

@@ -1164,6 +1164,14 @@ worker's permits, close its channel and join it as before. Conditional PUTs stil
 require exact GET confirmation, and publication still requires independent
 complete recovery and current authority.
 
+An archive tail with no entries retains the complete physical preparation from
+that invocation's independent checkpoint receiver after checking its exact cut,
+configuration and membership. The receiver still GETs every dependency and
+verifies existing local bytes. This avoids a second image/manifest pass over the
+same received cut. Nonempty tails replay every entry and verify all final images
+and pages. Both paths retain the original source/receiver/replay admission,
+cancellation, physical ownership and publication/response authority checks.
+
 `host_archive.rs` owns a bounded window of archive producers and one exclusive
 verification workspace per node. `RaftArchiveOptions::max_producers` permits
 one to four concurrent publications across distinct cells (default two). A

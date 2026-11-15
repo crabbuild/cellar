@@ -16,6 +16,8 @@ mod binding_fixture;
 mod checkpoint_fixture;
 #[path = "support/cell_group_disaster_fence.rs"]
 mod disaster_fixture;
+#[path = "support/cell_group_archive_empty_tail.rs"]
+mod empty_tail_fixture;
 #[path = "support/raft_storage_fault.rs"]
 #[allow(dead_code)]
 mod fault;
@@ -59,6 +61,16 @@ async fn checkpoint_download_overlaps_bounded_ordered_object_reads() -> Result<(
         window_fixture::qualify(rooted, false).await?;
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_empty_tail_reuses_fresh_materialized_checkpoint() -> Result<()> {
+    empty_tail_fixture::qualify(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_empty_tail_reuses_fresh_extent_checkpoint() -> Result<()> {
+    empty_tail_fixture::qualify(true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
