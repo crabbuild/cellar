@@ -169,3 +169,79 @@ source/build manifests and the preceding failed KV reproduction. Runtime
 configuration, environments, private keys and node/store log text are excluded;
 actual owned runtime credentials/private-key representations are scanned before
 publication. This follow-up accepts no complete primitive matrix or OPT/CG gate.
+
+## Checkpoint object-window comparison
+
+Source `8f674406`, compiler manifest `948c229d` and Linux image `0ccf1de9`
+replace serialized checkpoint object I/O with two ordered futures inside the
+existing reservation. The source-matched build verifies all 3,426 inputs,
+rebuilds both owning libraries and binaries, and retains the baseline's locked
+Rust 1.98.1 lab profile and byte-identical load client. The
+[native qualification record](checkpoint-object-window-qualification-2026-11-15.json)
+retains the failing-before overlap regressions, complete default archive target
+(38 passed, ten explicit ignores), three S3 controls and six selected real
+RustFS controls. Those passes establish bounded overlap and scoped correctness.
+
+The six S3 cases use fresh namespaces and the original three 1-vCPU/2-GiB RF3
+nodes, three groups, 24 workload entities (Queue plus 24 DLQs), separately capped
+RustFS/client, C1/4/16, five-second warmups, 30-second timed windows, two reversed
+concurrency repetitions and five-second operation/callback/lease bounds. The
+baseline is observer source `337abc29` / manifest `cc89c945` / image `b49af6da`.
+Image order alternates across APIs; this is not a per-API crossover.
+
+| API | Image | Verified windows | Failed | Unmeasured | Request errors |
+| --- | --- | --- | --- | --- | --- |
+| SQL | baseline | 18 | 0 | 0 | 0 |
+| SQL | window | 6 | 1 | 11 | 6 |
+| KV | window | 6 | 1 | 11 | 8 |
+| KV | baseline | 9 | 1 | 8 | 1 |
+| Queue | baseline | 4 | 1 | 7 | 9 |
+| Queue | window | 3 | 1 | 8 | 2 |
+
+**The comparison fails, with no complete passing pair for any API.** The window
+candidate records 16 request errors versus ten for the baseline. Candidate
+timed windows are nine verified, one failed and 20 unmeasured; baseline timed
+windows are 20 verified, none failed and ten unmeasured. Warmup failures stop
+later measurement. Partial windows and different completed concurrency mixes
+cannot establish a throughput/latency gain. Other-checkout qualification
+activity is observed, so no isolated causal improvement or regression is
+accepted.
+
+SQL/window and KV/window fail the first C16 warmup, with 21/27 and 21/29
+successful requests respectively. KV/baseline fails the second C16 warmup with
+52/53 successful requests. Readback completes in these three cases, but request
+failures remain unconfirmed and the windows remain failed. All six cases retain
+their initial leaders and terms; an election is not necessary for the failures.
+SQL/window records four S3 coverage failures, with no proof-freshness or resumed
+output-wait failure. These inclusive aggregate counters do not link a failed
+phase to an individual request. No individual engine-sync, SQL queue/preparation
+or object get/create/update observation exceeds one second in that case; many
+short operations and admission/retirement waits remain possible causes.
+
+Queue/baseline fails its first C16 warmup with 39/48 successful enqueues. All
+312 acknowledged messages are observed; 40 extra IDs/body hashes match five of
+nine uncertain batches, leaving 32 uncertain IDs unobserved. Queue/window fails
+at the first C4 enqueue with 70/72 successes. All 560 acknowledged messages are
+observed; 16 extras match both uncertain batches. Reported backlog/dead-letter
+samples are zero, but delivery-set and settlement qualification still fail.
+Observation supplies no missing S3 receipt or noncommit proof. No fresh-ID
+mutation retry is issued.
+
+All 30 participant containers stop without observed OOM/restarts. Nodes and
+stores exit zero; failed load clients exit one. The sampler's failed-load exit
+does not establish a node/store crash. All owners join, frozen source/engine
+checks pass, and original RustFS identity, limits, mounts and HTTP 200 readiness
+are restored and independently checked. One Colima VM remains one physical
+failure domain.
+
+The [window assessment](three-node-primitive-main-173-2026-11-15.checkpoint-window.json)
+and [raw window capsule](three-node-primitive-main-173-2026-11-15.checkpoint-window.raw.json.gz)
+retain all emitted windows, identity/body ledgers, full phase histograms,
+resource curves, source/build manifests and terminal/restoration evidence.
+The capsule is 807,657 bytes, SHA-256
+`b70dc862825faff9685aefbe7811bdd5d74b00a27953a5f08630550e9c185174`.
+Twenty-three actual runtime credential/private-key representations are scanned
+privately with zero matches. Runtime configuration, environment responses,
+private keys and node/store log text are excluded. Existing archive-stage
+logging is the next diagnostic; traced timings will not qualify performance.
+The original deadlines, S3 coverage and broader OPT/CG gates remain open.

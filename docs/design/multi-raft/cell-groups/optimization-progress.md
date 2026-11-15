@@ -228,10 +228,29 @@ unchanged and the original RustFS identity/limits/readiness are preserved.
 
 The [qualification record](checkpoint-object-window-qualification-2026-11-15.json)
 retains source/command/log hashes and actual footers, including the prior serial
-failures and the initial candidate type-inference failure. A source-matched Linux
-build and SQL/KV/Queue comparison are next. This proves bounded object overlap
-and scoped correctness, not a throughput/latency gain, deadline fix or OPT/CG
-acceptance. Earlier constrained failures remain open.
+failures and the initial candidate type-inference failure. Source `8f674406`
+builds Linux image `0ccf1de9` with all inputs verified and the same locked
+compiler/profile and byte-identical load client as baseline `337abc29` /
+`b49af6da`.
+
+The [six-case S3 comparison](three-node-primitive-main-173-2026-11-15.md#checkpoint-object-window-comparison)
+still fails under the original constrained topology and C1/4/16 profile.
+Baseline SQL passes; both KV cases and both Queue cases fail, as does candidate
+SQL. Candidate windows are 15 verified / three failed / 30 unmeasured, with
+16 request errors, versus baseline 31 / two / 15 and ten errors. There is no
+complete passing API pair, and no accepted throughput/latency gain. Leaders and
+terms stay unchanged in every case. SQL candidate's four coverage failures and
+zero freshness/output-wait failures narrow the next investigation without
+providing per-request causality. Exact Queue IDs/bodies reconcile all extra
+deliveries to uncertain attempts; they supply no missing S3 receipt.
+
+All 30 participants stop without observed OOM/restarts, frozen inputs/engine
+checks pass, owners join and original RustFS identity/limits/mounts/readiness
+are restored. Other-checkout qualification activity and fixed image order
+prevent isolated attribution. Existing archive-stage logging is the next
+diagnostic, with traced timings excluded from performance qualification. The
+window proves bounded object overlap and scoped correctness, not a deadline
+fix or complete OPT/CG acceptance. Earlier constrained failures remain open.
 
 ### Archive publication and recovery follow-up
 
